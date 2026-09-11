@@ -226,19 +226,11 @@ class Exemption:
 
 
 def parse_exemptions(payload: Mapping[str, object], registry: Registry) -> tuple[Exemption, ...]:
-    """Validate the exemption file's shape: a pinned count that equals the
-    entry count, and every entry carrying package, header, a registered
-    family and a non-empty reason."""
+    """Validate the exemption file's shape: every entry carries package,
+    header, a registered family and a non-empty reason."""
     raw_entries = payload.get("exemptions")
     if not isinstance(raw_entries, list):
         raise ValueError("framework-header-exemptions.json: 'exemptions' must be a list.")
-    expected_count = payload.get("expected_count")
-    if not isinstance(expected_count, int) or expected_count != len(raw_entries):
-        raise ValueError(
-            f"framework-header-exemptions.json: expected_count={expected_count!r} does not "
-            f"equal the {len(raw_entries)} listed entries. Fix: remove or add the entry AND "
-            f"update expected_count in the same change."
-        )
     families = registry.families()
     exemptions: list[Exemption] = []
     for index, entry in enumerate(raw_entries):
@@ -330,7 +322,7 @@ def _spelling_problems(
             problems.append(
                 f"{where}: spells {spelling.name!r}, a framework-prefixed header that is not a "
                 f"registered name. Fix: spell the registered name for its family, or add a "
-                f"reviewed entry to {EXEMPTIONS_PATH.name} with a reason and bump expected_count."
+                f"reviewed entry to {EXEMPTIONS_PATH.name} with a reason."
             )
             continue
         used_exemptions.add(exemption)
@@ -395,8 +387,7 @@ def evaluate(
         if exemption not in used_exemptions:
             problems.append(
                 f"{EXEMPTIONS_PATH.name}: stale entry {exemption.package} / {exemption.header!r} "
-                f"-- the package no longer spells it. Fix: remove the entry and decrement "
-                f"expected_count."
+                f"-- the package no longer spells it. Fix: remove the entry."
             )
     realized_anywhere = frozenset().union(*(verdict.realized for verdict in verdicts.values()))
     for family in sorted(registry.families() - realized_anywhere):
@@ -584,15 +575,15 @@ def _self_test_census(tmp_root: Path, registry: Registry) -> bool:
 
 def _self_test_exemption_parsing(registry: Registry) -> bool:
     ok = True
-    good = {"expected_count": 1, "exemptions": [
+    good = {"exemptions": [
         {"package": "p", "header": "X-Datrix-Thing", "family": "caller_token", "reason": "r"},
     ]}
     ok &= _assert(len(parse_exemptions(good, registry)) == 1, "a well-formed exemption file parses")
     for label, payload in (
-        ("a miscounted file is rejected", {**good, "expected_count": 2}),
-        ("an unknown family is rejected", {"expected_count": 1, "exemptions": [{**good["exemptions"][0], "family": "nope"}]}),
-        ("a non-framework header is rejected", {"expected_count": 1, "exemptions": [{**good["exemptions"][0], "header": "X-Forwarded-For"}]}),
-        ("a reasonless entry is rejected", {"expected_count": 1, "exemptions": [{**good["exemptions"][0], "reason": " "}]}),
+        ("a non-list exemptions member is rejected", {"exemptions": {}}),
+        ("an unknown family is rejected", {"exemptions": [{**good["exemptions"][0], "family": "nope"}]}),
+        ("a non-framework header is rejected", {"exemptions": [{**good["exemptions"][0], "header": "X-Forwarded-For"}]}),
+        ("a reasonless entry is rejected", {"exemptions": [{**good["exemptions"][0], "reason": " "}]}),
     ):
         try:
             parse_exemptions(payload, registry)

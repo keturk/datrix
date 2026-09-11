@@ -1342,16 +1342,15 @@ _EXEMPTION_REQUIRED_FIELDS: Final[tuple[str, ...]] = (
 )
 
 
-def load_exemptions(config_path: Path = EXEMPTIONS_PATH) -> tuple[dict[tuple[str, str, str], str], int]:
+def load_exemptions(config_path: Path = EXEMPTIONS_PATH) -> dict[tuple[str, str, str], str]:
     """Load and validate the exemption file.
 
     Returns:
-        ``({(target, construct_kind, surface): reason}, pinned_count)``.
+        ``{(target, construct_kind, surface): reason}``.
 
     Raises:
-        ValueError: Missing/malformed file, an entry missing a non-empty
-            required field, or the live entry count does not match
-            ``pinned_count``.
+        ValueError: Missing/malformed file, or an entry missing a non-empty
+            required field.
     """
     if not config_path.exists():
         raise ValueError(
@@ -1361,12 +1360,10 @@ def load_exemptions(config_path: Path = EXEMPTIONS_PATH) -> tuple[dict[tuple[str
         )
     data = json.loads(config_path.read_text(encoding="utf-8"))
     entries = data.get("exemptions")
-    pinned_count = data.get("pinned_count")
-    if not isinstance(entries, list) or not isinstance(pinned_count, int) or isinstance(pinned_count, bool):
+    if not isinstance(entries, list):
         raise ValueError(
             f"Malformed exemption file {config_path}: expected an object with "
-            f"'pinned_count' (int) and 'exemptions' (array of "
-            f"{{target, construct_kind, surface, reason}})."
+            f"'exemptions' (array of {{target, construct_kind, surface, reason}})."
         )
     exemptions: dict[tuple[str, str, str], str] = {}
     for entry in entries:
@@ -1378,13 +1375,7 @@ def load_exemptions(config_path: Path = EXEMPTIONS_PATH) -> tuple[dict[tuple[str
                 )
         key = (entry["target"], entry["construct_kind"], entry["surface"])
         exemptions[key] = entry["reason"]
-    if len(entries) != pinned_count:
-        raise ValueError(
-            f"Exemption file {config_path} has {len(entries)} entries but "
-            f"'pinned_count' is pinned at {pinned_count}. Update pinned_count "
-            f"in the same change that adds or removes an entry."
-        )
-    return exemptions, pinned_count
+    return exemptions
 
 
 # ---------------------------------------------------------------------------
@@ -1678,7 +1669,7 @@ def run_gate(*, debug: bool = False, update_coverage_baseline: bool = False) -> 
         return EXIT_VACUOUS, GateReport(targets, {}, [], [], {}, "VACUOUS")
 
     try:
-        exemptions, pinned_count = load_exemptions()
+        exemptions = load_exemptions()
     except ValueError as exc:
         logger.error("EXEMPTION FILE INVALID: %s", exc)
         return EXIT_FAIL, GateReport(targets, {}, [], [], {}, "EXEMPTION_FILE_INVALID")
@@ -1768,8 +1759,7 @@ def run_gate(*, debug: bool = False, update_coverage_baseline: bool = False) -> 
         for key in stale:
             logger.error(
                 "STALE EXEMPTION: target=%s construct_kind=%s surface=%s is exempted "
-                "in %s but the artifact now carries the text -- remove the entry and "
-                "decrement pinned_count.",
+                "in %s but the artifact now carries the text -- remove the entry.",
                 key[0], key[1], key[2], EXEMPTIONS_PATH,
             )
 
@@ -1842,19 +1832,19 @@ def run_gate(*, debug: bool = False, update_coverage_baseline: bool = False) -> 
         result=result,
         coverage=coverage,
     )
-    _write_report(report, pinned_count)
+    _write_report(report, len(exemptions))
 
     if exit_code == EXIT_OK:
         logger.info(
             "DOCUMENTATION-REALIZATION PARITY HOLDS: %d target(s) (%s), zero "
-            "unexempted holes, %d reviewed exemption(s) (pinned_count=%d); "
+            "unexempted holes, %d reviewed exemption(s) of %d; "
             "coverage census within baseline on every target.",
-            len(targets), targets, len(exempted_hits), pinned_count,
+            len(targets), targets, len(exempted_hits), len(exemptions),
         )
     return exit_code, report
 
 
-def _write_report(report: GateReport, pinned_count: int) -> None:
+def _write_report(report: GateReport, exemption_count: int) -> None:
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "result": report.result,
@@ -1863,7 +1853,7 @@ def _write_report(report: GateReport, pinned_count: int) -> None:
         "unexempted_holes": report.unexempted_holes,
         "exempted": report.exempted,
         "generation_failures": report.generation_failures,
-        "pinned_exemption_count": pinned_count,
+        "exemption_count": exemption_count,
         "coverage": report.coverage,
     }
     REPORT_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")

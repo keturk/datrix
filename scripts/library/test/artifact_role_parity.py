@@ -15,14 +15,19 @@ For every example with >= 2 blessed language baselines:
      naming differs by design across languages; the ROLE set is the
      contract, not the literal path shape).
   3. The set of roles with >= 1 matching path must be IDENTICAL across the
-     example's blessed languages, EXCLUDING two kinds of non-drift:
+     example's blessed languages, EXCLUDING three kinds of non-drift:
        a. any domain the "missing" language declares globally `unsupported`
           in its own DomainDeclaration -- a declared absence explained once,
           at the language level, never a per-example fact, so the
           domain-parity gates already report it and this gate skips it
           rather than demanding an exemption entry for every example it
-          would otherwise recur on; and
-       b. any domain the "missing" language declares `supported` whose
+          would otherwise recur on;
+       b. any domain the "missing" language declares emitted on demand on
+          its `LanguageCapabilityDeclaration.on_demand_domains` -- it emits
+          the domain only when the DSL invokes a triggering construct while
+          another language emits baseline scaffolding regardless; the same
+          language-level shape as (a), declared once with its reason; and
+       c. any domain the "missing" language declares `supported` whose
           structural_pattern nonetheless matches ZERO files across that
           language's ENTIRE blessed footprint (every example, not just the
           one being compared) -- an EMPIRICAL corpus-wide fact derived from
@@ -31,7 +36,7 @@ For every example with >= 2 blessed language baselines:
           the corpus for this language, so a single-example "missing"
           verdict against it carries no information either. That skip is
           silent no longer: every corpus-vacuous (language, domain) must
-          carry a typed, counted record in corpus-vacuity-records.json
+          carry a typed record in corpus-vacuity-records.json
           saying WHY nothing exercises it, and the gate fails both on an
           unrecorded pair and on a record whose pair is no longer vacuous
           (see check_corpus_vacuity_records). A generator no reference
@@ -42,10 +47,10 @@ For every example with >= 2 blessed language baselines:
      realizes somewhere else in its own blessed footprint (this specific
      example's blessed manifest just has no matching file, while another
      blessed language's does) must carry an entry in
-     artifact-role-exemptions.json (coordinates + reason, pinned count) --
+     artifact-role-exemptions.json (coordinates + reason) --
      `load_exemptions` itself refuses an entry naming a domain its language
-     declares `unsupported`, since the gate never consults the exemption
-     file for those in the first place.
+     declares `unsupported` or on-demand, since the gate never consults the
+     exemption file for those in the first place.
 
 Relationship to the byte gate: replaces nothing. reference-example-parity-gate.ps1
 still pins CONTENT per (example, language) pair; this gate pins PRESENCE
@@ -405,34 +410,30 @@ def compare_role_sets(
 # ---------------------------------------------------------------------------
 
 
-def load_exemptions() -> tuple[list[ExemptionEntry], int]:
+def load_exemptions() -> list[ExemptionEntry]:
     """Load and validate artifact-role-exemptions.json.
 
-    Returns:
-        `(entries, expected_count)`.
+    An absent file means no per-example exemptions -- the normal state, since
+    every language-level absence is declared on the plugin (an ``unsupported``
+    domain stance, or ``LanguageCapabilityDeclaration.on_demand_domains``) and
+    the file exists only for a genuinely example-specific hole.
 
     Raises:
-        ValueError: If the file is missing, malformed, has an empty field on
-            any entry, its entry count does not match the pinned
-            `expected_count`, or if any entry names a ``(domain, language)``
-            pair that language now declares ``unsupported`` -- that is a
-            declared absence the domain-parity gates already report; a
+        ValueError: If the file is malformed, has an empty field on any
+            entry, or if any entry names a ``(domain, language)`` pair that
+            language declares ``unsupported`` or on-demand -- that is a
+            declared absence explained once at the language level; a
             per-example exemption for the same fact is a stale duplicate
             that must be deleted, not kept.
     """
     if not EXEMPTIONS_PATH.exists():
-        raise ValueError(
-            f"Missing exemption file {EXEMPTIONS_PATH}. Restore it from git; "
-            f"the gate never creates it."
-        )
+        return []
     data = json.loads(EXEMPTIONS_PATH.read_text(encoding="utf-8"))
-    expected = data.get("expected_count")
     raw_entries = data.get("exemptions")
-    if not isinstance(raw_entries, list) or not isinstance(expected, int):
+    if not isinstance(raw_entries, list):
         raise ValueError(
             f"Malformed {EXEMPTIONS_PATH}: expected an object with "
-            f"'expected_count' (int) and 'exemptions' (array of "
-            f"{{example, domain, language, reason}})."
+            f"'exemptions' (array of {{example, domain, language, reason}})."
         )
     entries: list[ExemptionEntry] = []
     for i, raw in enumerate(raw_entries):
@@ -453,21 +454,16 @@ def load_exemptions() -> tuple[list[ExemptionEntry], int]:
                 f"'language', and 'reason' fields; got {raw!r}."
             )
         entries.append(ExemptionEntry(example, domain, language, reason))
-    _reject_exemptions_for_unsupported_domains(entries)
-    if len(entries) != expected:
-        raise ValueError(
-            f"{EXEMPTIONS_PATH} has {len(entries)} entries but 'expected_count' is "
-            f"pinned at {expected}. Update the count in the same change that adds "
-            f"or removes an entry."
-        )
-    return entries, expected
+    _reject_exemptions_for_declared_absences(entries)
+    return entries
 
 
 def _assert_no_stale_exemptions_for_self_test(
     entries: list[ExemptionEntry],
     declarations: dict[str, dict[str, DomainDeclaration]],
+    on_demand: Mapping[str, Mapping[str, str]],
 ) -> None:
-    """Same rule as `_reject_exemptions_for_unsupported_domains`, but taking
+    """Same rule as `_reject_exemptions_for_declared_absences`, but taking
     already-resolved declarations instead of deriving them -- lets the
     self-test exercise the rejection rule against synthetic data without a
     real language plugin.
@@ -475,12 +471,14 @@ def _assert_no_stale_exemptions_for_self_test(
     Args:
         entries: Exemption entries to check.
         declarations: `language -> (domain_id -> DomainDeclaration)`.
+        on_demand: `language -> (domain_id -> reason)` from each language's
+            capability declaration.
 
     Raises:
         ValueError: If any entry names a domain its language declares
-            `unsupported` -- naming the entry's coordinates and the
-            declared reason, so the fix (delete the exemption; the
-            domain-parity gate already covers it) is unambiguous.
+            `unsupported` or on-demand -- naming the entry's coordinates and
+            the declared reason, so the fix (delete the exemption; the
+            declaration already covers it) is unambiguous.
     """
     for entry in entries:
         declaration = declarations.get(entry.language, {}).get(entry.domain)
@@ -494,32 +492,64 @@ def _assert_no_stale_exemptions_for_self_test(
                 f"domain-parity gate already reports this as a declared "
                 f"absence, not a per-example gap."
             )
+        on_demand_reason = on_demand.get(entry.language, {}).get(entry.domain)
+        if on_demand_reason is not None:
+            raise ValueError(
+                f"artifact-role-exemptions.json entry (example="
+                f"{entry.example!r}, domain={entry.domain!r}, language="
+                f"{entry.language!r}) duplicates a declared absence: "
+                f"{entry.language!r} declares {entry.domain!r} emitted on "
+                f"demand ({on_demand_reason!r}). Delete this exemption -- the "
+                f"language's capability declaration already explains it."
+            )
 
 
-def _reject_exemptions_for_unsupported_domains(entries: list[ExemptionEntry]) -> None:
-    """Fail loud on an exemption entry duplicating a declared-unsupported domain.
+def language_on_demand_domains(language: str) -> Mapping[str, str]:
+    """``{domain_id: reason}`` *language* declares as emitted on demand only.
+
+    Read from the plugin's ``LanguageCapabilityDeclaration.on_demand_domains``
+    -- a language-level fact declared once, so the gate never needs one
+    per-example exemption per reference example for it. Every declared id is
+    checked against the shared domain universe, so a typo cannot silently
+    declare nothing.
+
+    Raises:
+        ValueError: If a declared domain id is not a shared universe domain.
+    """
+    from datrix_codegen_common.parity.domain_registry import SHARED_CONTEXT_TYPES
+    from datrix_common.plugin.capability_resolution import declaration_for_language
+
+    on_demand = declaration_for_language(language).on_demand_domains
+    unknown = sorted(set(on_demand) - set(SHARED_CONTEXT_TYPES))
+    if unknown:
+        raise ValueError(
+            f"{language!r} declares on_demand_domains {unknown}, which are not "
+            f"shared universe domain ids. Valid ids: {sorted(SHARED_CONTEXT_TYPES)}. "
+            f"Fix: correct the id on the language's LanguageCapabilityDeclaration."
+        )
+    return on_demand
+
+
+def _reject_exemptions_for_declared_absences(entries: list[ExemptionEntry]) -> None:
+    """Fail loud on an exemption entry duplicating a declared absence.
 
     Derives each entry's language's declarations fresh via
-    `language_domain_declarations` (grouped by language so the derivation
-    runs once per language, not once per entry) and delegates the actual
-    rejection rule to `_assert_no_stale_exemptions_for_self_test`, so the
-    rule itself has exactly one implementation.
+    `language_domain_declarations` and reads its on-demand domains (grouped
+    by language so each resolves once, not once per entry), then delegates
+    the actual rejection rule to `_assert_no_stale_exemptions_for_self_test`,
+    so the rule itself has exactly one implementation.
 
     Args:
         entries: Exemption entries to check.
 
     Raises:
         ValueError: If any entry names a domain its language declares
-            `unsupported`.
+            `unsupported` or on-demand.
     """
-    entries_by_language: dict[str, list[ExemptionEntry]] = {}
-    for entry in entries:
-        entries_by_language.setdefault(entry.language, []).append(entry)
-    declarations = {
-        language: language_domain_declarations(language)
-        for language in entries_by_language
-    }
-    _assert_no_stale_exemptions_for_self_test(entries, declarations)
+    languages = sorted({entry.language for entry in entries})
+    declarations = {language: language_domain_declarations(language) for language in languages}
+    on_demand = {language: language_on_demand_domains(language) for language in languages}
+    _assert_no_stale_exemptions_for_self_test(entries, declarations, on_demand)
 
 
 def _is_exempt(
@@ -686,17 +716,13 @@ def _parse_vacuity_record(index: int, raw: object) -> CorpusVacuityRecord:
     )
 
 
-def load_corpus_vacuity_records() -> tuple[list[CorpusVacuityRecord], int]:
+def load_corpus_vacuity_records() -> list[CorpusVacuityRecord]:
     """Load and validate corpus-vacuity-records.json.
-
-    Returns:
-        `(records, expected_count)`.
 
     Raises:
         ValueError: If the file is missing or malformed, an entry is invalid
-            (see `_parse_vacuity_record`), two entries name the same
-            `(language, domain)`, or the entry count does not match the pinned
-            `expected_count`.
+            (see `_parse_vacuity_record`), or two entries name the same
+            `(language, domain)`.
     """
     if not CORPUS_VACUITY_RECORDS_PATH.exists():
         raise ValueError(
@@ -704,13 +730,11 @@ def load_corpus_vacuity_records() -> tuple[list[CorpusVacuityRecord], int]:
             f"Restore it from git; the gate never creates it."
         )
     data = json.loads(CORPUS_VACUITY_RECORDS_PATH.read_text(encoding="utf-8"))
-    expected = data.get("expected_count")
     raw_records = data.get("records")
-    if not isinstance(raw_records, list) or not isinstance(expected, int):
+    if not isinstance(raw_records, list):
         raise ValueError(
             f"Malformed {CORPUS_VACUITY_RECORDS_PATH}: expected an object with "
-            f"'expected_count' (int) and 'records' (array of "
-            f"{{language, domain, status, reason}})."
+            f"'records' (array of {{language, domain, status, reason}})."
         )
     records = [_parse_vacuity_record(i, raw) for i, raw in enumerate(raw_records)]
     seen: set[tuple[str, str]] = set()
@@ -723,13 +747,7 @@ def load_corpus_vacuity_records() -> tuple[list[CorpusVacuityRecord], int]:
                 f"carries exactly one record."
             )
         seen.add(key)
-    if len(records) != expected:
-        raise ValueError(
-            f"{CORPUS_VACUITY_RECORDS_PATH} has {len(records)} records but "
-            f"'expected_count' is pinned at {expected}. Update the count in the "
-            f"same change that adds or removes a record."
-        )
-    return records, expected
+    return records
 
 
 def compare_vacuity_records(
@@ -766,8 +784,7 @@ def compare_vacuity_records(
     problems.extend(
         f"STALE CORPUS-VACUITY RECORD language={language} domain={domain}: the "
         f"blessed corpus now matches this domain's structural_pattern, so the "
-        f"record no longer describes anything. Delete it and decrement "
-        f"'expected_count' in the same change."
+        f"record no longer describes anything. Delete it."
         for language, domain in sorted(recorded - censused)
     )
     return problems
@@ -787,10 +804,10 @@ def check_corpus_vacuity_records() -> bool:
     Returns:
         True when the census and the records agree in both directions.
     """
-    records, expected = load_corpus_vacuity_records()
+    records = load_corpus_vacuity_records()
     pairs = corpus_vacuous_pairs()
     logger.info(
-        "corpus_vacuity_census pairs=%d records=%d", len(pairs), expected,
+        "corpus_vacuity_census pairs=%d records=%d", len(pairs), len(records),
     )
     problems = compare_vacuity_records(pairs, records)
     if problems:
@@ -801,7 +818,7 @@ def check_corpus_vacuity_records() -> bool:
         status: sum(1 for record in records if record.status == status)
         for status in sorted(_VACUITY_STATUSES)
     }
-    logger.info("corpus_vacuity_records_ok recorded=%d by_status=%s", expected, by_status)
+    logger.info("corpus_vacuity_records_ok recorded=%d by_status=%s", len(records), by_status)
     return True
 
 
@@ -951,10 +968,11 @@ def run_self_test() -> list[str]:
     except ValueError:
         pass
 
-    # _reject_exemptions_for_unsupported_domains non-vacuity proof.
-    # Uses the module's OWN ExemptionEntry/DomainDeclaration types with fully
-    # synthetic coordinates -- never a real language or example id.
-    synthetic_unsupported_entry = ExemptionEntry(
+    # _reject_exemptions_for_declared_absences non-vacuity proof, both
+    # declared-absence shapes. Uses the module's OWN ExemptionEntry/
+    # DomainDeclaration types with fully synthetic coordinates -- never a real
+    # language or example id.
+    synthetic_stale_entry = ExemptionEntry(
         example="self_test_example",
         domain=_SELF_TEST_DOMAIN_SHARED,
         language=_SELF_TEST_LANGUAGE_A,
@@ -962,7 +980,7 @@ def run_self_test() -> list[str]:
     )
     try:
         _assert_no_stale_exemptions_for_self_test(
-            [synthetic_unsupported_entry],
+            [synthetic_stale_entry],
             declarations={
                 _SELF_TEST_LANGUAGE_A: {
                     _SELF_TEST_DOMAIN_SHARED: DomainDeclaration(
@@ -972,13 +990,33 @@ def run_self_test() -> list[str]:
                     ),
                 },
             },
+            on_demand={},
         )
         problems.append(
-            "self-test: _reject_exemptions_for_unsupported_domains did not "
+            "self-test: _reject_exemptions_for_declared_absences did not "
             "reject an exemption duplicating a declared-unsupported domain"
         )
     except ValueError:
         pass  # expected -- the guard correctly rejected the stale exemption
+    try:
+        _assert_no_stale_exemptions_for_self_test(
+            [synthetic_stale_entry],
+            declarations={},
+            on_demand={
+                _SELF_TEST_LANGUAGE_A: {
+                    _SELF_TEST_DOMAIN_SHARED: "self-test: emitted on demand only",
+                },
+            },
+        )
+        problems.append(
+            "self-test: _reject_exemptions_for_declared_absences did not "
+            "reject an exemption duplicating a declared on-demand domain"
+        )
+    except ValueError:
+        pass  # expected -- the guard correctly rejected the stale exemption
+    _assert_no_stale_exemptions_for_self_test(
+        [synthetic_stale_entry], declarations={}, on_demand={}
+    )  # an entry nothing declares is accepted -- the guard is not a blanket reject
 
     # _is_corpus_vacuous_for_language: proves the three-way split -- a
     # declared-supported domain matching zero paths anywhere in the
@@ -1167,19 +1205,22 @@ def check_artifact_role_parity() -> int:
         )
         return EXIT_USAGE
 
-    exemptions, expected_count = load_exemptions()
+    exemptions = load_exemptions()
     logger.info(
         "artifact_role_parity_start examples=%d exemptions=%d",
-        len(multi_language_examples), expected_count,
+        len(multi_language_examples), len(exemptions),
     )
 
     ok = check_corpus_vacuity_records()
+    on_demand_by_language: dict[str, Mapping[str, str]] = {}
     for example_id, language_baselines in multi_language_examples.items():
         per_language_roles: dict[str, frozenset[str]] = {}
         per_language_declarations: dict[str, DomainDeclarations] = {}
         for language, baseline_path in sorted(language_baselines.items()):
             declarations = language_domain_declarations(language)
             per_language_declarations[language] = declarations
+            if language not in on_demand_by_language:
+                on_demand_by_language[language] = language_on_demand_domains(language)
             paths = manifest_paths(baseline_path)
             roles, unclassified = classify_paths(paths, declarations)
             per_language_roles[language] = roles
@@ -1200,7 +1241,14 @@ def check_artifact_role_parity() -> int:
                     # never appears in its role set, on EVERY example, not
                     # just this one -- the domain-parity gates own reporting
                     # this fact. No per-example exemption is needed or
-                    # accepted for it (see _reject_exemptions_for_unsupported_domains).
+                    # accepted for it (see _reject_exemptions_for_declared_absences).
+                    continue
+                if domain_id in on_demand_by_language[language]:
+                    # The same shape, declared on the language's capability
+                    # declaration: this language emits the domain only when
+                    # the DSL invokes a triggering construct, while another
+                    # language emits baseline scaffolding for it regardless.
+                    # One declared fact, never one exemption per example.
                     continue
                 if _is_corpus_vacuous_for_language(language, domain_id, declarations):
                     # An empirical corpus-wide fact, not a per-example one:
@@ -1235,7 +1283,7 @@ def check_artifact_role_parity() -> int:
         logger.info(
             "ARTIFACT-ROLE GATE PASSED: %d example(s) with >= 2 blessed languages, "
             "role sets identical modulo %d reviewed exemption(s).",
-            len(multi_language_examples), expected_count,
+            len(multi_language_examples), len(exemptions),
         )
         return EXIT_OK
     return EXIT_FAIL
@@ -1276,7 +1324,7 @@ def print_corpus_vacuity_census() -> int:
         Exit code: 0 always -- this is a measurement, not a gate. The gate's
         own verdict on the same data is `check_corpus_vacuity_records`.
     """
-    records, _ = load_corpus_vacuity_records() if CORPUS_VACUITY_RECORDS_PATH.exists() else ([], 0)
+    records = load_corpus_vacuity_records() if CORPUS_VACUITY_RECORDS_PATH.exists() else []
     by_pair = {(record.language, record.domain): record for record in records}
     pairs = corpus_vacuous_pairs()
     patterns_by_language: dict[str, DomainDeclarations] = {}

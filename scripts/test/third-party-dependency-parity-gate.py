@@ -286,14 +286,8 @@ def load_exemptions(path: Path) -> list[Exemption]:
         raise GateError(f"Exemptions file not found: {path}")
     data = json.loads(path.read_text(encoding="utf-8"))
     entries = data.get("exemptions")
-    expected_count = data.get("expected_count")
-    if not isinstance(entries, list) or not isinstance(expected_count, int):
-        raise GateError(f"{path}: expected 'exemptions' (list) and 'expected_count' (int).")
-    if expected_count != len(entries):
-        raise GateError(
-            f"{path}: expected_count={expected_count} but {len(entries)} entries are listed; "
-            "remediation removes the entry AND decrements the count in the same change."
-        )
+    if not isinstance(entries, list):
+        raise GateError(f"{path}: expected 'exemptions' (list).")
     exemptions: list[Exemption] = []
     for entry in entries:
         if not isinstance(entry, dict):

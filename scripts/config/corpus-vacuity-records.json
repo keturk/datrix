@@ -35,12 +35,8 @@
     "",
     "Every reason below was established by reading the gating code and by running the",
     "stated matcher against a known instance first, so an absence count is evidence",
-    "rather than a matcher that silently matches nothing.",
-    "",
-    "expected_count is a pinned, reviewed value: change it only in the same change",
-    "that adds or removes a record."
+    "rather than a matcher that silently matches nothing."
   ],
-  "expected_count": 20,
   "records": [
     {
       "language": "dotnet",
@@ -53,12 +49,6 @@
       "domain": "extern_client",
       "status": "unexercised",
       "reason": "Pattern */src/*/Clients/*Errors.cs -- the per-extern-service errors file the extern-client generator emits alongside its client/models/contracts. No reference example declares an extern service: zero matches across all 201 example .dtrx files, with the same matcher finding the real declarations in datrix-codegen-dotnet/tests/e2e/fixtures/extern-client-wiring/pricing-engine-extern.dtrx and datrix-codegen-typescript/tests/fixtures/system-full-domain-surface.dtrx. Nothing platform-gated stands in the way -- an extern service is wired on the local docker target (compose entry, health check, environment). NOTE for anyone reading the census: this is not a dotnet-only gap. Because no example declares an extern service in ANY language, no language's blessed footprint contains a real extern client. java's, python's and typescript's extern_client patterns used to be broad enough to match neighbouring inter-service client output in the same directory, so those three read as non-vacuous off another domain's files and never reached this file; each is now suffix-scoped to its own models family and carries its own record below."
-    },
-    {
-      "language": "dotnet",
-      "domain": "migration",
-      "status": "unreachable-by-design",
-      "reason": "Pattern */src/*/Migrations/*/*.cs. Every blessed baseline is produced by scripts/library/test/reference_example_parity.py's generate_example, which builds PipelineConfig(target_language=..., profile=\"test\") and so inherits PipelineConfig.migrations = False (datrix-cli/src/datrix_cli/pipeline/contract.py) -- the pipeline's migrations stage never runs on the blessing path, in any language. No DSL an example could declare changes that: the one example config that sets migrations.enabled = true (03-domains/ecommerce, whose test profile inherits that base block) still has no migration artifact in any of its blessed manifests, and the other 53 set it false. The remedy is a decision about whether baselines should be blessed with migrations on -- migration output is schema-delta dependent, which is why the blessing path does not -- never an added example."
     },
     {
       "language": "dotnet",
@@ -92,12 +82,6 @@
     },
     {
       "language": "java",
-      "domain": "migration",
-      "status": "unreachable-by-design",
-      "reason": "Pattern */src/main/resources/changelog/*/changelog-master.yaml. Every blessed baseline is produced by scripts/library/test/reference_example_parity.py's generate_example, which builds PipelineConfig(target_language=..., profile=\"test\") and so inherits PipelineConfig.migrations = False (datrix-cli/src/datrix_cli/pipeline/contract.py) -- the pipeline's migrations stage never runs on the blessing path, in any language. No DSL an example could declare changes that: the one example config that sets migrations.enabled = true (03-domains/ecommerce, whose test profile inherits that base block) still has no migration artifact in any of its blessed manifests, and the other 53 set it false. The remedy is a decision about whether baselines should be blessed with migrations on -- migration output is schema-delta dependent, which is why the blessing path does not -- never an added example."
-    },
-    {
-      "language": "java",
       "domain": "soft_delete",
       "status": "unexercised",
       "reason": "Pattern */src/main/java/*/model/*/*SoftDeleteCascadeListener.java names the soft-delete CASCADE file family, which is driven by the onSoftDelete relationship modifier (datrix-common/src/datrix_common/datrix_model/entity.py, Relationship.has_soft_delete_cascade -> has_modifier(\"onSoftDelete\"); consumed by build_soft_delete_cascades in datrix-codegen-common/src/datrix_codegen_common/algorithms/entity_relationships.py). The corpus DOES exercise the SoftDeletable trait -- 31 declarations across the example .dtrx files -- but declares the onSoftDelete modifier zero times, and the same matcher finds it in datrix-codegen-java/tests/fixtures/audit-soft-delete-entities.dtrx. The remedy is one `: onSoftDelete` modifier on an existing hasMany between two entities that already carry `with SoftDeletable`; no platform dependency."
@@ -113,12 +97,6 @@
       "domain": "extern_client",
       "status": "unexercised",
       "reason": "Pattern */src/*/clients/*_models.py -- the per-extern-service models module ExternClientGenerator.generate_models emits (datrix-codegen-python/src/datrix_codegen_python/generators/extern/extern_client_generator.py:480) alongside its client/errors/contracts. The gate for the whole family is extern_service_dependencies(service) (same file, line 297), which reads service.uses_directives and keeps only ExternService targets -- never service.depends_on(), which structurally excludes them. No reference example declares an extern service: zero matches across all 201 example .dtrx files, with the same matcher finding the real declarations in datrix-codegen-dotnet/tests/e2e/fixtures/extern-client-wiring/pricing-engine-extern.dtrx and datrix-codegen-typescript/tests/fixtures/system-full-domain-surface.dtrx. Nothing platform-gated stands in the way -- an extern service is wired on the local docker target. This coordinate was invisible until the pattern was suffix-scoped: the former directory-wide */src/*/clients/*.py matched 236 blessed paths, every one of them emitted by micro_generators/resilience.py ({dep}_client.py, resilient_client.py, resilience_metrics.py), generators/api/response_struct_generator.py ({dep}_responses.py), or the clients package __init__.py, so the domain read as corpus-realized off another domain's output. The remedy is one extern service declaration plus a uses directive in an existing example, not a pattern change."
-    },
-    {
-      "language": "python",
-      "domain": "migration",
-      "status": "unreachable-by-design",
-      "reason": "Pattern */alembic-*.ini. Every blessed baseline is produced by scripts/library/test/reference_example_parity.py's generate_example, which builds PipelineConfig(target_language=..., profile=\"test\") and so inherits PipelineConfig.migrations = False (datrix-cli/src/datrix_cli/pipeline/contract.py) -- the pipeline's migrations stage never runs on the blessing path, in any language. No DSL an example could declare changes that: the one example config that sets migrations.enabled = true (03-domains/ecommerce, whose test profile inherits that base block) still has no alembic ini and no migrations-{block}/ content in its blessed python manifest, and the other 53 set it false. The remedy is a decision about whether baselines should be blessed with migrations on -- migration output is schema-delta dependent, which is why the blessing path does not -- never an added example."
     },
     {
       "language": "python",
@@ -143,12 +121,6 @@
       "domain": "extern_client",
       "status": "unexercised",
       "reason": "Pattern */src/clients/*-models.ts -- the per-extern-service models module ExternClientGenerator.generate_models emits alongside its client/errors/contracts (datrix-codegen-typescript/src/datrix_codegen_typescript/generators/extern/extern_client_generator.py). The gate for the whole family is extern_service_dependencies(service), which reads service.uses_directives and keeps only ExternService targets. No reference example declares an extern service: zero matches across all 201 example .dtrx files, with the same matcher finding the real declarations in datrix-codegen-dotnet/tests/e2e/fixtures/extern-client-wiring/pricing-engine-extern.dtrx and datrix-codegen-typescript/tests/fixtures/system-full-domain-surface.dtrx. Nothing platform-gated stands in the way -- an extern service is wired on the local docker target. This coordinate was invisible until the pattern was suffix-scoped: extern_client's former glob was */src/clients/*.ts, BYTE-IDENTICAL to the client domain's own (TsClientMicroGen.STRUCTURAL_DECLARATION), so all 322 blessed src/clients/ paths -- ClientGenerator's {service}-client.ts, ResponseStructGenerator's {dep}-responses.ts, ResilienceGenerator's resilient-client.service.ts and {dep}-client.service.ts -- were credited to BOTH domains and extern_client read as corpus-realized while emitting nothing anywhere. The remedy is one extern service declaration plus a uses directive in an existing example, not a pattern change."
-    },
-    {
-      "language": "typescript",
-      "domain": "migration",
-      "status": "unreachable-by-design",
-      "reason": "Pattern */src/migrations/*/*.ts. Every blessed baseline is produced by scripts/library/test/reference_example_parity.py's generate_example, which builds PipelineConfig(target_language=..., profile=\"test\") and so inherits PipelineConfig.migrations = False (datrix-cli/src/datrix_cli/pipeline/contract.py) -- the pipeline's migrations stage never runs on the blessing path, in any language. No DSL an example could declare changes that: the one example config that sets migrations.enabled = true (03-domains/ecommerce, whose test profile inherits that base block) still has no migration artifact in its blessed typescript manifest, and the other 53 set it false. The remedy is a decision about whether baselines should be blessed with migrations on -- migration output is schema-delta dependent, which is why the blessing path does not -- never an added example."
     },
     {
       "language": "typescript",

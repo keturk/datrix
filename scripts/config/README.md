@@ -116,7 +116,6 @@ rule swallowing a `templates/build/` directory full of source.
 
 ```json
 {
- "pinned_count": 23,
  "exemptions": [
  {
  "repos": ["*"],
@@ -135,9 +134,7 @@ segment-aware: `**/` spans whole path segments, `**` spans the remainder, `*` an
 inside one segment. `reason` is required and must say what writes the output and why it is
 never published.
 
-`pinned_count` must equal `len(exemptions)`; the gate refuses to run (exit 2) when they
-disagree, so an entry cannot be added or removed without the reviewed number moving in the
-same change. A missing or malformed file is an error, never an empty exemption set. An entry
+A missing or malformed file is an error, never an empty exemption set. An entry
 that matches nothing on a given machine is reported, not failed — a coverage report or an
 `npm install` tree only exists once the tool has run.
 

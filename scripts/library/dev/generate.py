@@ -21,7 +21,6 @@ import atexit
 import io
 import os
 import re
-import shutil
 import signal
 import subprocess
 import sys
@@ -172,14 +171,6 @@ def generate_single_project(
     try:
         # Ensure path is absolute
         project_path = Path(project["path"]).resolve()
-
-        # Examples don't use persistent migration state — clear it before every generate
-        # so that stale or legacy-layout state never blocks generation.
-        examples_dir = datrix_root / "datrix" / "examples"
-        if examples_dir in project_path.parents:
-            migration_dir = project_path.parent / ".datrix" / "rdbms-migrations"
-            if migration_dir.exists():
-                shutil.rmtree(migration_dir)
 
         # Calculate output path. The path is {language}/{runtime}/{provider}/...:
         # the runtime segment comes from the CLI flag (default docker-compose),

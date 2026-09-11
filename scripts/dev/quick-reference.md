@@ -366,6 +366,18 @@ Per-domain census of a language's compiled genDSL definitions: file-clause count
 
 **Parameters:** `-Language <name>` (required unless `-SelfTest`), `-Output <path>`, `-Dbg`, `-SelfTest`. **Exit codes:** 0 = no double-emit offenders AND no bridgeless-declaring domains, 1 = double-emit offenders OR bridgeless-declaring domains found, 2 = usage / unknown target / the non-vacuity self-test failed.
 
+### `dev\parallel-implementation-drift-report.ps1`
+
+Lists every function/method name defined in two or more registered target packages (`datrix.languages` by default, `datrix.platforms` with `-Axis platforms`) and nowhere else in the monorepo, each IDENTICAL (every definition byte-for-byte equal) or DRIFTED. A report for reading when a hoist is being considered — no baseline, no count, never fails on what it finds. Full description under [test/quick-reference.md](../test/quick-reference.md#devparallel-implementation-drift-reportps1).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the report** | `.\dev\parallel-implementation-drift-report.ps1` | Drifted names across every registered language package |
+| **Platform axis** | `.\dev\parallel-implementation-drift-report.ps1 -Axis platforms` | Same over every registered platform package |
+| **Self-test only** | `.\dev\parallel-implementation-drift-report.ps1 -SelfTest` | Run only the non-vacuity self-test |
+
+**Parameters:** `-Axis <languages\|platforms>`, `-Dbg`, `-SelfTest`. **Exit codes:** 0 = the report ran, 2 = self-test failure / fewer than two registered targets / a parse error.
+
 ---
 
 ## Evaluation

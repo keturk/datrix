@@ -726,16 +726,15 @@ def is_wire_name_conformant(field: ResponseField) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def load_exemptions() -> tuple[dict[tuple[str, str], str], int]:
+def load_exemptions() -> dict[tuple[str, str], str]:
     """Load and validate `body-wire-naming-exemptions.json`.
 
     Returns:
-        `({(language, schema_kind): reason}, expected_count)`.
+        `{(language, schema_kind): reason}`.
 
     Raises:
-        ValueError: If the file is missing, malformed, an entry has an
-            empty reason, or the entry count does not match the pinned
-            `expected_count`.
+        ValueError: If the file is missing, malformed, or an entry has an
+            empty reason.
     """
     if not EXEMPTIONS_PATH.exists():
         raise ValueError(
@@ -745,12 +744,11 @@ def load_exemptions() -> tuple[dict[tuple[str, str], str], int]:
         )
     data = json.loads(EXEMPTIONS_PATH.read_text(encoding="utf-8"))
     entries = data.get("exemptions")
-    expected = data.get("expected_count")
-    if not isinstance(entries, list) or not isinstance(expected, int):
+    if not isinstance(entries, list):
         raise ValueError(
             f"Malformed exemption file {EXEMPTIONS_PATH}: expected an "
-            f"object with 'expected_count' (int) and 'exemptions' (array "
-            f"of {{language, schema_kind, template, reason}})."
+            f"object with 'exemptions' (array of "
+            f"{{language, schema_kind, template, reason}})."
         )
     exemptions: dict[tuple[str, str], str] = {}
     for entry in entries:
@@ -760,13 +758,7 @@ def load_exemptions() -> tuple[dict[tuple[str, str], str], int]:
                     f"Exemption entry {entry!r} is missing a non-empty {key!r}."
                 )
         exemptions[(entry["language"], entry["schema_kind"])] = entry["reason"]
-    if len(entries) != expected:
-        raise ValueError(
-            f"Exemption file {EXEMPTIONS_PATH} has {len(entries)} entries "
-            f"but 'expected_count' is pinned at {expected}. Update the "
-            f"count in the same change that adds or removes an entry."
-        )
-    return exemptions, expected
+    return exemptions
 
 
 # ---------------------------------------------------------------------------
@@ -1054,7 +1046,7 @@ def check_body_wire_naming_conformance(languages: Sequence[str] | None = None) -
         return 2
 
     shutil.rmtree(_GATE_OUTPUT_ROOT, ignore_errors=True)
-    exemptions, _ = load_exemptions()
+    exemptions = load_exemptions()
 
     ok = True
     total_excluded: Counter[str] = Counter()

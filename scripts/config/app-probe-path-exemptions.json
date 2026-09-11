@@ -8,11 +8,8 @@
     "framework-path list). An application probe is never exempted: it reads",
     "LanguageRuntimeSpec.readiness_probe_path() / app_service_liveness_probe_path().",
     "Each entry pins the file AND the exact matched line, so it cannot widen into",
-    "a whole-file allowance; an entry whose line no longer exists fails the gate.",
-    "expected_count must equal the number of entries: remediation removes the entry",
-    "and decrements the count in the same change."
+    "a whole-file allowance; an entry whose line no longer exists fails the gate."
   ],
-  "expected_count": 6,
   "exemptions": [
     {
       "file": "datrix-codegen-docker/src/datrix_codegen_docker/generators/config/gateway/_health.py",

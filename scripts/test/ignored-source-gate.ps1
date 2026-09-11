@@ -34,8 +34,6 @@
  EXEMPTIONS ARE SCOPED: each entry excuses one rule over one path scope and
  carries a written reason. An entry for the root build/ tree does not excuse
  the same unanchored rule swallowing a templates/build/ directory of source.
- The file's pinned_count is enforced against the live entry list, so an entry
- cannot be added or removed without the reviewed number moving with it.
 
  The non-vacuity self-test runs before every scan: a scanner that stopped
  scanning reports a clean tree, which is indistinguishable from a clean tree.

@@ -1,13 +1,20 @@
 ﻿config system library.System {
   base {
     migrations {
-      // `false` is for projects that are generated fresh and never deployed,
-      // where a tracked migration lifecycle is meaningless. This example is
-      // deployed: the wire-shape round-trip gate boots its emitted stack and
+      // `enabled = false` is for projects that are generated fresh and never
+      // booted, where a migration lifecycle is meaningless. This example is
+      // booted: the wire-shape round-trip gate starts its emitted stack and
       // calls the generated browser client against it. Without a migration
-      // lifecycle the deployment comes up against a database holding the
-      // enum types and not one table, and every read answers 500.
+      // baseline the stack comes up against a database holding the enum types
+      // and not one table, and every read answers 500.
       enabled = true;
+      // No ledger: this example is generated in every registered language and
+      // only ever meets a fresh database, so it has nothing to migrate FROM.
+      // A ledger would record one language's rendering of each revision and
+      // seal the store against every other language on the next generation.
+      // Every generation renders a fresh baseline instead, and nothing is
+      // written back under `.datrix/`.
+      ledger = false;
     }
     deployment {
       runtime = "docker-compose";

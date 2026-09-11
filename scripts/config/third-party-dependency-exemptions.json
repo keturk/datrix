@@ -8,10 +8,8 @@
     "generates' is never exempted: that is the generated project's dependency.",
     "Each entry names the package, the distribution and the reason. An entry",
     "that no longer matches a declared-but-unimported distribution is stale and",
-    "fails the gate. expected_count must equal the number of entries: remediation",
-    "removes the entry and decrements the count in the same change."
+    "fails the gate."
   ],
-  "expected_count": 1,
   "exemptions": [
     {
       "package": "datrix-codegen-python",

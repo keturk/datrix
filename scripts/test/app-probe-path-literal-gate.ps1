@@ -17,7 +17,7 @@
  registering datrix.platforms); the declared routes come from the INSTALLED
  datrix.languages plugins. Hits are compared against the reviewed exemptions in
  datrix/scripts/config/app-probe-path-exemptions.json (file + exact snippet +
- reason, expected_count pinned); a stale exemption fails the gate too.
+ reason); a stale exemption fails the gate too.
 
  The self-test runs first on every invocation: a planted platform package must
  yield exactly its code-line hits (docstrings and template comments excluded), a

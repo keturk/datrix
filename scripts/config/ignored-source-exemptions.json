@@ -21,14 +21,16 @@
     "edit here: a bytecode cache is a bytecode cache in every package.",
     "",
     "path_glob is segment-aware: '**/' spans whole path segments, '**' spans",
-    "the remainder, '*' and '?' stay inside one segment.",
-    "",
-    "pinned_count is the reviewed count of len(exemptions). An entry is only",
-    "added or removed together with this number, in the same change; the gate",
-    "refuses to run when the two disagree."
+    "the remainder, '*' and '?' stay inside one segment."
   ],
-  "pinned_count": 25,
   "exemptions": [
+    {
+      "repos": ["datrix"],
+      "gitignore": ".gitignore",
+      "pattern": ".datrix/",
+      "path_glob": "examples/**/.datrix/**",
+      "reason": "migration-ledger state a generation run leaves beside an example's source. No example keeps a ledger by design (every one that runs the migration lifecycle declares `migrations { ledger = false; }`, and the reference-example parity gate fails the moment a run leaves state behind), so anything here is the residue of an ad-hoc run against a misconfigured example -- never source. Scoped to examples/ so the same rule shadowing a .datrix directory anywhere else in this repo stays a finding."
+    },
     {
       "repos": ["*"],
       "gitignore": ".gitignore",

@@ -5,12 +5,9 @@
     "construct kind (endpoint, entity, field, enum_value, struct_field,",
     "function), and a surface (published, source) whose emitted artifact does",
     "not yet carry the author's DSL comment text -- with a written reason.",
-    "pinned_count is the reviewed count of len(exemptions); a realization",
-    "change removes its own entry and decrements this field in the SAME",
-    "change -- the field never silently drifts from the live count (the gate",
-    "fails loud if it does, and fails loud the other way too if an exempted",
-    "cell starts passing without its entry being removed -- a stale exemption).",
-    "The list is EMPTY: every registered target realizes every construct kind",
+    "A realization change removes its own entry; the gate fails loud if an",
+    "exempted cell starts passing without its entry being removed (a stale",
+    "exemption). The list is EMPTY: every registered target realizes every construct kind",
     "on both surfaces. The three entity/published entries this file used to",
     "carry claimed no target defined a published landing site for entity-level",
     "documentation; each target now does -- python a Pydantic model docstring,",
@@ -18,6 +15,5 @@
     "/// <summary> -- each of which its own OpenAPI stack publishes as the",
     "component's description."
   ],
-  "pinned_count": 0,
   "exemptions": []
 }

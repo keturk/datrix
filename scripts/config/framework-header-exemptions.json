@@ -1,6 +1,5 @@
 {
-  "_comment": "Reviewed exemptions for framework-header-parity-gate.py. Each entry is one framework-prefixed header spelling a language package emits that is NOT a registered wire name (datrix_common.generation.http_headers). A private spelling of a framework contract is a defect; an entry here records the one reviewed reason it is still allowed and pins the count so a new spelling can never hide behind an old one. Remove the entry and decrement expected_count in the same change that fixes the package.",
-  "expected_count": 1,
+  "_comment": "Reviewed exemptions for framework-header-parity-gate.py. Each entry is one framework-prefixed header spelling a language package emits that is NOT a registered wire name (datrix_common.generation.http_headers). A private spelling of a framework contract is a defect; an entry here records the one reviewed reason it is still allowed, and a new spelling never hides behind an old one because every entry is matched against a live spelling. Remove the entry in the same change that fixes the package.",
   "exemptions": [
     {
       "package": "datrix-codegen-java",

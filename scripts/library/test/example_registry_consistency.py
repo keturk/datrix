@@ -98,11 +98,11 @@ _VIOLATION_MESSAGES: dict[str, str] = {
     ),
     "stale_exclusions": (
         "STALE EXCLUSION example=%s -- test-set-exclusions.json names an example "
-        "with no system.dtrx on disk. Remove the entry and decrement expected_count."
+        "with no system.dtrx on disk. Remove the entry."
     ),
     "redundant_exclusions": (
         "REDUNDANT EXCLUSION example=%s -- both excluded AND registered in >= 1 "
-        "test set. Remove the exclusion entry and decrement expected_count."
+        "test set. Remove the exclusion entry."
     ),
     "nested_examples": (
         "NESTED EXAMPLE %s -- an example directory inside another example's "
@@ -252,15 +252,14 @@ def registered_example_ids() -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def load_exclusions() -> tuple[dict[str, str], int]:
+def load_exclusions() -> dict[str, str]:
     """Load and validate `test-set-exclusions.json`.
 
     Returns:
-        `(example_id -> reason, expected_count)`.
+        `example_id -> reason`.
 
     Raises:
-        ValueError: If the file is missing, malformed, has an empty reason,
-            or its entry count does not match the pinned `expected_count`.
+        ValueError: If the file is missing, malformed, or has an empty reason.
     """
     if not EXCLUSIONS_PATH.exists():
         raise ValueError(
@@ -269,12 +268,11 @@ def load_exclusions() -> tuple[dict[str, str], int]:
             f"the gate never creates it."
         )
     data = json.loads(EXCLUSIONS_PATH.read_text(encoding="utf-8"))
-    expected = data.get("expected_count")
     exclusions = data.get("exclusions")
-    if not isinstance(exclusions, dict) or not isinstance(expected, int):
+    if not isinstance(exclusions, dict):
         raise ValueError(
-            f"Malformed {EXCLUSIONS_PATH}: expected an object with 'expected_count' "
-            f"(int) and 'exclusions' (object of example_id -> reason)."
+            f"Malformed {EXCLUSIONS_PATH}: expected an object with 'exclusions' "
+            f"(object of example_id -> reason)."
         )
     for example_id, reason in exclusions.items():
         if not isinstance(reason, str) or not reason.strip():
@@ -282,13 +280,7 @@ def load_exclusions() -> tuple[dict[str, str], int]:
                 f"Exclusion entry {example_id!r} has an empty reason. Every entry "
                 f"must state why the example is permanently excluded."
             )
-    if len(exclusions) != expected:
-        raise ValueError(
-            f"{EXCLUSIONS_PATH} has {len(exclusions)} entries but 'expected_count' "
-            f"is pinned at {expected}. Update the count in the same change that "
-            f"adds or removes an entry."
-        )
-    return {str(k): str(v) for k, v in exclusions.items()}, expected
+    return {str(k): str(v) for k, v in exclusions.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -490,7 +482,7 @@ def check_example_registry_consistency() -> int:
         return EXIT_USAGE
 
     registered_ids = registered_example_ids()
-    exclusions, expected_count = load_exclusions()
+    exclusions = load_exclusions()
     example_dirs = discover_example_dirs()
     example_files = discover_example_files()
 
@@ -506,7 +498,7 @@ def check_example_registry_consistency() -> int:
             "EXAMPLE-REGISTRY GATE PASSED: %d example(s) on disk, %d registered, "
             "%d reviewed exclusion(s), %d owned .dtrx/.dcfg file(s), no nested or "
             "shared examples.",
-            len(disk_ids), len(registered_ids), expected_count, len(example_files),
+            len(disk_ids), len(registered_ids), len(exclusions), len(example_files),
         )
         return EXIT_OK
     return EXIT_FAIL

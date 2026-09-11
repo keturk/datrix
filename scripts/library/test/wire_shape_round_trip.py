@@ -841,28 +841,23 @@ def prepare_backend_source(backend: str) -> Path:
 
     Returns the ``system.dtrx`` inside that copy.
 
-    **Why a copy, and why the migration ledger is left out of it.** The RDBMS
-    migration ledger lives beside the SOURCE
-    (``<app>/.datrix/rdbms-migrations/<profile>/<rdbms_id>/``), not in the
-    output tree, and its path carries no language segment -- while
-    ``revisions/_manifest.json`` records exactly one ``language`` per revision.
-    So the ledger is a single-language lineage by construction: whichever
-    backend generates first seals ``0001_initial`` as its own rendering, and
-    every later backend re-rendering that same unchanged schema trips
-    ``refuse_sealed_revision_rewrite`` -- "the schema itself is unchanged, so
-    no forward revision was planned, only the rendering moved".
+    **Why a copy.** Four backends generate from the same fixture in one run;
+    a private copy per backend keeps every generation's side effects (the
+    ``.datrix`` manifest, any post-generation tool cache) in that backend's own
+    scratch directory, so no backend can disturb another's.
 
-    That guard is correct and is deliberately NOT worked around here: the
-    ledger records what a deployed database actually ran, and re-rendering a
-    sealed revision in another language would make the record disagree with
-    the database. What was wrong is this gate sharing ONE lineage across four
-    backends. Each backend now gets its own source copy with no ledger at all,
-    so each seals its own baseline in its own scratch directory and no backend
-    can invalidate another's.
-
-    Excluding the ledger costs the gate nothing: it boots a fresh database per
-    run, so a from-scratch baseline is exactly the schema it needs, and this
-    gate checks response SHAPES rather than migration history.
+    **Why the migration ledger is still excluded from the copy.** The fixture
+    declares ``migrations { ledger = false; }``: the pipeline renders a fresh
+    baseline in whichever language it is asked for and persists nothing beside
+    the source, which is exactly what this gate needs -- it boots a fresh
+    database per run, so a from-scratch baseline is the schema it wants, and it
+    checks response SHAPES, not migration history. A ledger would be a
+    single-language lineage by construction (``revisions/_manifest.json``
+    records one ``language`` per revision), and a second backend against it is
+    refused up front by ``guard_foreign_language_ledger``. The exclusion here is
+    the stray guard for a ledger an ad-hoc run left behind: without it that
+    ledger would be copied into every backend's source and the sweep would be
+    refused for three of the four.
 
     Args:
         backend: A ``datrix.languages`` entry-point name.

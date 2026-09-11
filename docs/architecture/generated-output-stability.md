@@ -158,17 +158,16 @@ generator regression, not a baseline update.
 ## Known non-generating examples
 
 `datrix/scripts/config/parity-known-nongenerating.json` lists examples the **real generator cannot
-build today**, each with a reason and a follow-up identifier, under a pinned `expected_count`
-(currently 17: 2 bare `example_id` entries plus 15 `example_id::language` entries surfaced once
-baseline-blessing swept every registered language across the examples exercising cross-language
-surfaces). This is a deliberately maintained scope boundary, not an auto-heal:
+build today**, each with a reason and a follow-up identifier (two today, both bare `example_id`
+entries; a `example_id::language` key parks one language of an example). This is a deliberately
+maintained scope boundary, not an auto-heal:
 
 - Listed examples are reported **loudly on every run** — never silently skipped.
 - The allowlist only converts a genuine *generation failure* into a skip. It never hides output
   drift: a listed `(example, language)` pair that does generate is still hash-compared, and one
   that has a baseline is still expected to match it.
-- Adding or removing an entry requires updating `expected_count` in the same change, so the set
-  cannot grow silently.
+- A parked pair that starts generating fails the gate by name, so the set cannot go stale
+  silently; the reviewed list itself is the review, with no count pinned beside it.
 
 Every current entry names an example outside the gate's corpus, so none of them is reachable by a
 default run today. The file is kept, and still validated on every run, because each entry is a

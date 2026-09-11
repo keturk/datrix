@@ -7,18 +7,15 @@ The census that produced this gate read both bodies of six
 (python's Alembic ``migration_generator.py`` and dotnet's FluentMigrator
 ``_fluentmigrator_ops.py``) and reached two conclusions worth pinning:
 
-* **Five of the six are genuinely divergent, not collapsible.** Each entry in
-  ``parallel-implementation-drift-classification.json`` was reclassified to
-  ``collapsibility.mechanism = "none"`` against the bodies rather than against
-  the label, and both private copies must therefore still exist -- a later
-  "cleanup" that deleted one would be deleting a target's real behaviour. The
-  ``_build_upgrade_op_for_field_added`` entry additionally records a behaviour
-  gap that has since been CLOSED: dotnet emitted no default at all, so a
-  non-nullable ``FIELD_ADDED`` the shared change policy classifies *safe*
-  rendered a migration that failed at apply time on any populated table.
-  ``FluentMigratorColumn`` now carries a default-bearing field, so the entry is
-  back to ``intentional`` describing only the ORM-API divergence -- and this
-  gate holds both halves of that: the status, and the field that earns it.
+* **Five of the six are genuinely divergent, not collapsible** -- judged
+  against the bodies rather than against the shared name -- and both private
+  copies must therefore still exist: a later "cleanup" that deleted one would
+  be deleting a target's real behaviour. ``_build_upgrade_op_for_field_added``
+  additionally carried a behaviour gap that has since been CLOSED: dotnet
+  emitted no default at all, so a non-nullable ``FIELD_ADDED`` the shared
+  change policy classifies *safe* rendered a migration that failed at apply
+  time on any populated table. ``FluentMigratorColumn`` now carries a
+  default-bearing field, and this gate holds it there.
 * **One genuinely shared fact was found and hoisted.** Both targets reassembled
   the ``INDEX_ADDED`` JSON detail payload into its ``SnapshotIndex`` with
   byte-identical semantics and byte-identical error text. That parse now lives
@@ -65,7 +62,6 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib
-import json
 import logging
 import shutil
 import sys
@@ -87,15 +83,9 @@ EXIT_OK: Final[int] = 0
 EXIT_FAIL: Final[int] = 1
 EXIT_USAGE: Final[int] = 2
 
-_HERE = Path(__file__).resolve()
-DATRIX_DIR: Final[Path] = _HERE.parents[3]
-CLASSIFICATION_PATH: Final[Path] = (
-    DATRIX_DIR / "scripts" / "config" / "parallel-implementation-drift-classification.json"
-)
-
-#: The six upgrade-op builders the census read in full and reclassified as
-#: genuinely divergent. Each must keep exactly one definition per target.
-RECLASSIFIED_SYMBOLS: Final[tuple[str, ...]] = (
+#: The six upgrade-op builders the census read in full and found genuinely
+#: divergent. Each must keep exactly one definition per target.
+DIVERGENT_SYMBOLS: Final[tuple[str, ...]] = (
     "_build_upgrade_op_for_entity_added",
     "_build_upgrade_op_for_field_added",
     "_build_upgrade_op_for_index_added",
@@ -128,16 +118,9 @@ _MIGRATION_OPS_RELATIVE_PATH: Final[tuple[str, ...]] = (
 )
 _MIGRATION_COLUMN_CLASS: Final[str] = "FluentMigratorColumn"
 
-#: The classification entry whose status records that the backfill-default
-#: behaviour gap is closed. `tracked` is what an entry says while a gap is
-#: open; leaving it behind once the gap is closed makes the field mean nothing.
-_CLOSED_GAP_SYMBOL: Final[str] = "_build_upgrade_op_for_field_added"
-_CLOSED_GAP_STATUS: Final[str] = "intentional"
-
 
 class GateConfigurationError(RuntimeError):
-    """The packages or the classification file this gate reads could not be
-    resolved."""
+    """The packages this gate reads could not be resolved."""
 
 
 def _language_module_roots() -> dict[str, str]:
@@ -289,98 +272,17 @@ def definitions_of(root: Path, symbol: str) -> list[tuple[Path, int]]:
     return found
 
 
-def _load_classification() -> dict[str, dict[str, object]]:
-    """The drift-classification entries, keyed by symbol.
-
-    Raises:
-        GateConfigurationError: If the file is absent or malformed.
-    """
-    if not CLASSIFICATION_PATH.exists():
-        raise GateConfigurationError(
-            f"Drift classification file not found at {CLASSIFICATION_PATH}. Expected the "
-            f"parallel-implementation drift classification this gate pins entries in. "
-            f"Fix: restore the file, or retire this gate if the classification moved."
-        )
-    try:
-        document = json.loads(CLASSIFICATION_PATH.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise GateConfigurationError(
-            f"{CLASSIFICATION_PATH} is not valid JSON: {exc}. Expected an object with a "
-            f"'classifications' member. Fix: repair the file."
-        ) from exc
-    classifications = document.get("classifications")
-    if not isinstance(classifications, dict):
-        raise GateConfigurationError(
-            f"{CLASSIFICATION_PATH} has no 'classifications' object (top-level keys: "
-            f"{sorted(document)}). Expected symbol -> entry. Fix: repair the file."
-        )
-    return classifications
-
-
-def check_reclassified_entries(classifications: dict[str, dict[str, object]]) -> list[str]:
-    """Every reclassified symbol keeps ``mechanism: none`` with its own reason.
-
-    The collapsibility reason must differ from the legitimacy reason: an entry
-    that repeats one string for both has answered only one of the two questions
-    the classification asks.
-    """
-    problems: list[str] = []
-    for symbol in RECLASSIFIED_SYMBOLS:
-        entry = classifications.get(symbol)
-        if entry is None:
-            problems.append(
-                f"classification entry for {symbol!r} is gone; the census reclassified it "
-                f"rather than hoisting it, so the entry must survive. Present entries: "
-                f"{len(classifications)}."
-            )
-            continue
-        collapsibility = entry.get("collapsibility")
-        if not isinstance(collapsibility, dict):
-            problems.append(f"{symbol}: entry has no 'collapsibility' object")
-            continue
-        mechanism = collapsibility.get("mechanism")
-        if mechanism != "none":
-            problems.append(
-                f"{symbol}: collapsibility.mechanism is {mechanism!r}, expected 'none' -- "
-                f"the census read both bodies and found no shared mechanism."
-            )
-        if collapsibility.get("reason") == entry.get("reason"):
-            problems.append(
-                f"{symbol}: collapsibility.reason repeats the legitimacy reason verbatim, "
-                f"so 'why is this legitimate' and 'what would remove it' are not both "
-                f"answered."
-            )
-    return problems
-
-
-def check_closed_gap_status(classifications: dict[str, dict[str, object]]) -> list[str]:
-    """The backfill-default gap is closed, so its entry says ``intentional``."""
-    entry = classifications.get(_CLOSED_GAP_SYMBOL)
-    if entry is None:
-        return [f"classification entry for {_CLOSED_GAP_SYMBOL!r} is gone"]
-    status = entry.get("status")
-    if status == _CLOSED_GAP_STATUS:
-        return []
-    return [
-        f"{_CLOSED_GAP_SYMBOL}: status is {status!r}, expected {_CLOSED_GAP_STATUS!r}. "
-        f"dotnet now emits a database-side backfill default for an incrementally added "
-        f"non-nullable column, so only the ORM-API divergence (Alembic kw_parts strings "
-        f"vs a typed {_MIGRATION_COLUMN_CLASS}) remains; 'tracked' is what an entry says "
-        f"while a behaviour gap is open."
-    ]
-
-
 def check_both_private_copies_survive(roots: dict[str, Path]) -> list[str]:
-    """Each reclassified symbol keeps exactly one definition per target."""
+    """Each divergent symbol keeps exactly one definition per target."""
     problems: list[str] = []
-    for symbol in RECLASSIFIED_SYMBOLS:
+    for symbol in DIVERGENT_SYMBOLS:
         per_language = {
             language: definitions_of(root, symbol) for language, root in sorted(roots.items())
         }
         total = sum(len(hits) for hits in per_language.values())
         if total != len(roots):
             problems.append(
-                f"{symbol} was reclassified, not hoisted, so each of {sorted(roots)} must "
+                f"{symbol} is genuinely divergent, not hoisted, so each of {sorted(roots)} must "
                 f"still define it exactly once -- found "
                 f"{ {language: [f'{path}:{line}' for path, line in hits] for language, hits in per_language.items()} }."
             )
@@ -532,9 +434,9 @@ def _check_definition_scan_finds_a_planted_definition(tmp_path: Path) -> list[st
     problems: list[str] = []
     _write(
         tmp_path / "defs.py",
-        f"def {RECLASSIFIED_SYMBOLS[0]}(self, change):\n    return change\n",
+        f"def {DIVERGENT_SYMBOLS[0]}(self, change):\n    return change\n",
     )
-    if len(definitions_of(tmp_path, RECLASSIFIED_SYMBOLS[0])) != 1:
+    if len(definitions_of(tmp_path, DIVERGENT_SYMBOLS[0])) != 1:
         problems.append("a planted definition was not found by the definition scan")
     if definitions_of(tmp_path, SHARED_SYMBOL):
         problems.append("the definition scan invented a definition that is not there")
@@ -594,11 +496,8 @@ def check_migration_upgrade_op_family() -> int:
         language: language_source_root(language) for language in sorted(SHARED_PARSER_CALL_SITES)
     }
     logger.info("scanned_targets targets=%s", sorted(roots))
-    classifications = _load_classification()
 
     problems: list[str] = []
-    problems.extend(check_reclassified_entries(classifications))
-    problems.extend(check_closed_gap_status(classifications))
     problems.extend(check_both_private_copies_survive(roots))
     problems.extend(check_migration_column_carries_a_default(roots[_DEFAULT_BEARING_LANGUAGE]))
     problems.extend(check_shared_parser_reachability(roots))
@@ -608,9 +507,9 @@ def check_migration_upgrade_op_family() -> int:
             logger.error("MIGRATION UPGRADE-OP FAMILY: %s", problem)
         return EXIT_FAIL
     logger.info(
-        "MIGRATION UPGRADE-OP FAMILY GATE PASSED: %d reclassified symbol(s) still defined "
+        "MIGRATION UPGRADE-OP FAMILY GATE PASSED: %d divergent symbol(s) still defined "
         "once per target across %s, %s has one home with %s call site(s).",
-        len(RECLASSIFIED_SYMBOLS),
+        len(DIVERGENT_SYMBOLS),
         sorted(roots),
         SHARED_SYMBOL,
         SHARED_PARSER_CALL_SITES,
@@ -643,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Process exit code: 0 = gate passed (or a successful ``--self-test``),
         1 = at least one violation, 2 = self-test failure or an unresolvable
-        target/classification file.
+        target package.
     """
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     logging.basicConfig(

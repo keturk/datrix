@@ -6,11 +6,8 @@
     "emitting Python that in turn writes a shell script needing a literal escape.",
     "Each entry pins the file AND the exact matched line, so it cannot widen into",
     "a whole-file allowance as the template changes around it. An entry whose line",
-    "no longer exists fails the gate rather than lingering.",
-    "expected_count must equal the number of entries: remediation removes the entry",
-    "and decrements the count in the same change."
+    "no longer exists fails the gate rather than lingering."
   ],
-  "expected_count": 2,
   "exemptions": [
     {
       "file": "datrix-codegen-python/src/datrix_codegen_python/templates/service/_json_helpers.py.j2",

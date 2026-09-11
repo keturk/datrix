@@ -9,16 +9,13 @@
  symbols across the two targets that define them (python's Alembic migration
  generator and dotnet's FluentMigrator ops) and pinned two conclusions:
 
-   * Five of the six are genuinely divergent, not collapsible. Each entry in
-     parallel-implementation-drift-classification.json carries
-     collapsibility.mechanism = "none" with its own reason, and BOTH private
-     copies must still exist -- a later "cleanup" deleting one would be
-     deleting a target's real behaviour. The _build_upgrade_op_for_field_added
-     entry additionally recorded a behaviour gap that is now CLOSED (dotnet
-     emitted no backfill default, so a safe non-nullable FIELD_ADDED rendered a
+   * Five of the six are genuinely divergent, not collapsible, and BOTH
+     private copies must still exist -- a later "cleanup" deleting one would
+     be deleting a target's real behaviour. _build_upgrade_op_for_field_added
+     additionally carried a behaviour gap that is now CLOSED (dotnet emitted
+     no backfill default, so a safe non-nullable FIELD_ADDED rendered a
      migration that failed at apply time on a populated table); the gate holds
-     both halves of that -- the entry's `intentional` status, and the
-     default-bearing FluentMigratorColumn field that earns it.
+     the default-bearing FluentMigratorColumn field that closes it.
    * One genuinely shared fact WAS hoisted: both targets reassembled the
      INDEX_ADDED JSON detail into its SnapshotIndex with byte-identical
      semantics and error text. That parse now lives once, in
@@ -102,7 +99,7 @@ try {
         $pythonArgs += "--self-test"
     }
 
-    Write-Host "Running migration upgrade-op family gate (classification pins + shared INDEX_ADDED parse)" -ForegroundColor Cyan
+    Write-Host "Running migration upgrade-op family gate (divergent copies survive + shared INDEX_ADDED parse)" -ForegroundColor Cyan
     python @pythonArgs
     $exitCode = $LASTEXITCODE
 

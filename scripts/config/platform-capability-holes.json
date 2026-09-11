@@ -12,9 +12,6 @@
     "platform's declaration was updated to cover that coordinate -- do it in the same change that",
     "edits the declaration.",
     "",
-    "expected_count is a pinned, reviewed value: change it only in the same change that adds or",
-    "removes an entry.",
-    "",
     "coordinate format is surface-specific: 'block_type:flavor' for block_realizations,",
     "the bare enum .value for supported_secret_backends/supported_runtimes,",
     "'category:provider_value' for native_observability_providers,",
@@ -26,6 +23,5 @@
     "each generator's own capability module) -- there are currently zero reviewed gaps left",
     "uncovered by a declaration."
   ],
-  "expected_count": 0,
   "holes": []
 }

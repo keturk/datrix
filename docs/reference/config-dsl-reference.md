@@ -509,6 +509,40 @@ Use `datrix migrations init-rdbms-ids --app <app-dir>` to add missing `id` field
 
 ---
 
+## Migration Lifecycle (`migrations` block)
+
+The per-profile `migrations` block controls whether the RDBMS migration lifecycle runs during generation and whether it keeps a ledger. Both keys are **additive, gated, and default on** — a profile that does not declare the block produces byte-identical generation output.
+
+**Declaration:**
+
+```dcfg
+config system library.System {
+  base {
+    migrations {
+      enabled = true;
+      ledger = false;
+    }
+  }
+}
+```
+
+**Keys:**
+
+| Key | Default | Behavior |
+|-----|---------|----------|
+| `enabled` | `true` | Whether the lifecycle runs at all. `false` renders no `0001_initial` baseline and persists no state; a deployment of such a project comes up against a database with no tables, so it fits only a project that is never booted. |
+| `ledger` | `true` | Whether the lifecycle keeps its append-only record beside the source (`.datrix/rdbms-migrations/{target}/{rdbms_id}/`). `false` runs the lifecycle **stateless**: every generation renders the baseline from the current schema, in whichever target language the run asks for, and writes nothing back into the application directory. Meaningful only with `enabled = true`. |
+
+**When to turn the ledger off.** A persisted ledger records exactly one language's rendering of each revision and replays it verbatim, so it belongs to the language that sealed it — a second `--language` against the same ledger is refused, naming the sealing language and both remedies. A project that is generated in several languages and only ever meets a fresh database (every reference example under `datrix/examples/`) has nothing to migrate *from*: it declares `ledger = false`, gets a complete baseline in every language, and never owns a revision history. A deployed project keeps the default and, if it changes language, reseals with `datrix migrations rebaseline --language <lang>`.
+
+**Important Notes:**
+
+- **Orthogonal to `driftPolicy`:** `driftPolicy` governs how a destructive diff is handled once a migration history exists; `migrations` governs whether that lifecycle exists and whether it keeps a history.
+- **No database connectivity:** neither key grants Datrix a database connection.
+- **`enabled = false` with `ledger = false`** is consistent (nothing runs, so nothing is recorded) and is accepted.
+
+---
+
 ## Drift Policy Selector
 
 The drift policy selector controls whether database drift detection and reconciliation is required in an environment. It is **additive, gated, and defaults to off** — a project that does not declare it produces byte-identical generation output.

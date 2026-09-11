@@ -26,8 +26,8 @@
   you a real unified diff of what changed rather than only a sha256 mismatch.
 
   An example that cannot generate is NOT blessed: the run fails and names it. Add it
-  to scripts/config/parity-known-nongenerating.json (with a reason and a bumped
-  expected_count) only when the defect is genuine, pre-existing, and tracked.
+  to scripts/config/parity-known-nongenerating.json (with a reason) only when the
+  defect is genuine, pre-existing, and tracked.
 
   Every successful bless (whether the default corpus example or an explicit
   -Example target) also updates scripts/config/parity-blessed-count.json --
