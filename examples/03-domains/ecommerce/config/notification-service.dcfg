@@ -157,4 +157,91 @@
       }
     }
   }
+
+  profile aws as "aws" extends base {
+    alias env = "AWS";
+    alias resource = "aws";
+
+    replicas = 2;
+    scaling {
+      replicas {
+        min = 2;
+        max = 4;
+      }
+      triggers = [];
+    }
+    replace rdbms notificationDb {
+      id = "64704790-5f82-4b4e-8d2b-0dbc989dfd3f";
+      engine = "postgres";
+      flavor = "rds";
+      port = 5432;
+      database = "library_books";
+      poolSize = 40;
+      maxOverflow = 20;
+      ssl = true;
+      instanceClass = "db.t3.medium";
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+    }
+    strategy {
+      rolling {
+        maxUnavailable = "25%";
+      }
+    }
+  }
+
+  profile azure as "azure" extends base {
+    alias env = "AZURE";
+    alias resource = "azure";
+
+    replicas = 2;
+    scaling {
+      replicas {
+        min = 2;
+        max = 4;
+      }
+      triggers = [];
+    }
+    replace rdbms notificationDb {
+      id = "64704790-5f82-4b4e-8d2b-0dbc989dfd3f";
+      engine = "postgres";
+      flavor = "flexible-server";
+      port = 5432;
+      database = "library_books";
+      poolSize = 40;
+      maxOverflow = 20;
+      ssl = true;
+      sku = "Standard_B1ms";
+      tier = "Burstable";
+      storageGb = 32;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+    }
+    strategy {
+      rolling {
+        maxUnavailable = "25%";
+      }
+    }
+  }
+
+  profile azureVm as "azvm" extends base {
+    alias env = "AZVM";
+    alias resource = "azvm";
+
+    replace rdbms notificationDb {
+      id = "64704790-5f82-4b4e-8d2b-0dbc989dfd3f";
+      engine = "postgres";
+      flavor = "flexible-server";
+      port = 5432;
+      database = "library_books";
+      poolSize = 20;
+      maxOverflow = 20;
+      ssl = true;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+    }
+  }
 }

@@ -60,13 +60,31 @@ A complete e-commerce platform with product catalog, shopping cart, orders, paym
 
 ## Usage
 
-```bash
-# Generate Python services with Docker
-datrix generate examples/02-domains/ecommerce/system.dtrx -l python -p docker
+The target language is a generation parameter; the deployment target is selected
+by the ConfigDSL profile in `config/system.dcfg`.
 
-# Generate TypeScript services with Docker
-datrix generate examples/02-domains/ecommerce/system.dtrx -l typescript -p docker
+```bash
+# Local docker-compose stack (the default profile, `test`)
+datrix generate -s examples/03-domains/ecommerce/system.dtrx -L python
+
+# Same stack for another language
+datrix generate -s examples/03-domains/ecommerce/system.dtrx -L typescript
 ```
+
+| Profile | Target | Notes |
+|---------|--------|-------|
+| `test`, `development`, `production` | docker-compose on the developer machine | nginx gateway, self-hosted Zitadel, Prometheus/Jaeger/Loki/Grafana/Alertmanager |
+| `aws` | ECS Fargate | managed API Gateway, RDS, ElastiCache, MSK, SQS, DocumentDB, S3, CloudWatch/X-Ray, AppConfig, Cognito |
+| `azure` | Web App for Containers | API Management, Flexible Server, Azure Cache for Redis, Event Hubs (pooled namespace), Service Bus, Cosmos DB, Blob Storage, Azure Monitor/Application Insights, App Configuration, Entra |
+| `azureVm` | docker-compose on one Azure VM | the `compose` stack behind API Management with PostgreSQL and blob storage on the managed Flexible Server and Storage Account |
+
+```bash
+datrix generate -s examples/03-domains/ecommerce/system.dtrx -L python --profile aws
+```
+
+The cloud profiles declare CloudWatch / Azure Monitor metrics; a language whose
+generator does not realize those providers is rejected at generation time with
+the provider it does realize.
 
 ## Files
 

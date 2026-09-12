@@ -1,4 +1,9 @@
-﻿config system library.System {
+config system library.System {
+  // `base` holds only what is true on every deployment target. Anything that
+  // names a target-native mechanism (the nginx rate limiter, the docker
+  // observability stack, the self-hosted Zitadel, the Cognito pools) lives in
+  // the profile of the target that realizes it -- a profile can override a
+  // value it inherits, but it cannot un-declare one.
   base {
     migrations {
       // `enabled = false` is for projects that are generated fresh and never
@@ -16,12 +21,67 @@
       // written back under `.datrix/`.
       ledger = false;
     }
+    defaultTimeout = 30000;
+    maxPageSize = 100;
+    gateway {
+      auth {
+        jwt {
+          algorithm = "RS256";
+          issuer = "library";
+          expiresIn = 86400;
+        }
+      }
+      cors {
+        origins = ["http://localhost:3000"];
+        methods = ["GET", "POST", "PUT", "DELETE", "PATCH"];
+        headers = ["Content-Type", "Authorization"];
+      }
+    }
+    observability {
+      metrics {
+        endpoint = "/metrics";
+        includeDefault = true;
+      }
+      tracing {
+        samplingRate = 0.1;
+      }
+      logging {
+        level = "info";
+        format = "json";
+      }
+    }
+    configStore {
+      applicationName = "library-system";
+      environment = "dev";
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            Boolean debugMode : description("Enable debug mode.") = false;
+          }
+        }
+      }
+    }
+    clients {
+      angular {
+        baseUrlToken = "ECOMMERCE_API_BASE_URL";
+      }
+    }
+  }
+
+  // Everything a docker-compose realization shares wherever the compose host
+  // runs: the nginx gateway, Prometheus / Jaeger / Loki / Alertmanager, a
+  // file-backed config store and a Datrix-managed Zitadel. `local` (the
+  // developer machine) and `azureVm` (an Azure VM behind API Management)
+  // both extend it.
+  profile compose as "compose" extends base {
+    alias env = "COMPOSE";
+    alias resource = "compose";
+
     deployment {
       runtime = "docker-compose";
       provider = "local";
     }
-    defaultTimeout = 30000;
-    maxPageSize = 100;
     platforms {
       docker {
         kafka_default_retention_ms = 604800000;
@@ -91,36 +151,16 @@
           key = "ip";
         }
       }
-      auth {
-        jwt {
-          algorithm = "RS256";
-          issuer = "library";
-          expiresIn = 86400;
-        }
-      }
-      cors {
-        origins = ["http://localhost:3000"];
-        methods = ["GET", "POST", "PUT", "DELETE", "PATCH"];
-        headers = ["Content-Type", "Authorization"];
-      }
     }
     observability {
       metrics {
         provider = "prometheus";
-        endpoint = "/metrics";
-        includeDefault = true;
       }
       tracing {
         provider = "jaeger";
-        samplingRate = 0.1;
       }
       logging {
-        level = "info";
-        format = "json";
         provider = "loki";
-      }
-      visualization {
-        provider = "grafana";
       }
       alerting {
         provider = "alertmanager";
@@ -148,42 +188,37 @@
     configStore {
       engine = "file";
       flavor = "container";
-      applicationName = "library-system";
-      environment = "dev";
-      profiles {
-        settings {
-          kind = "freeform";
-          keys {
-            Boolean debugMode : description("Enable debug mode.") = false;
-          }
-        }
-      }
     }
-    clients {
-      angular {
-        baseUrlToken = "ECOMMERCE_API_BASE_URL";
+  }
+
+  // The developer-machine target. Grafana is reachable on the host directly,
+  // so it needs no staff identity realm in front of it; `test`, `development`
+  // and `production` are all realizations of this target.
+  profile local as "local" extends compose {
+    alias env = "LOCAL";
+    alias resource = "local";
+
+    observability {
+      visualization {
+        provider = "grafana";
       }
     }
   }
 
-  profile test as "test" extends base {
+  profile test as "test" extends local {
     alias env = "TEST";
     alias resource = "test";
   }
 
-  profile development as "dev" extends base {
+  profile development as "dev" extends local {
     alias env = "DEV";
     alias resource = "dev";
   }
 
-  profile production as "prod" extends base {
+  profile production as "prod" extends local {
     alias env = "PROD";
     alias resource = "prod";
 
-    deployment {
-      runtime = "docker-compose";
-      provider = "local";
-    }
     gateway {
       cors {
         origins = ["https://library.example.com"];
@@ -195,5 +230,378 @@
       }
     }
     region = "us-east-1";
+  }
+
+  // AWS target: ECS Fargate services behind the managed API Gateway, RDS,
+  // ElastiCache, MSK, SQS, DocumentDB and S3, CloudWatch / X-Ray telemetry,
+  // AppConfig as the config store and a Cognito User Pool for the
+  // customer-facing identity provider.
+  profile aws as "aws" extends base {
+    alias env = "AWS";
+    alias resource = "aws";
+
+    deployment {
+      runtime = "ecs-fargate";
+      provider = "aws";
+    }
+    gateway {
+      type = "managed";
+      throttle {
+        steadyState = 100;
+        burst = 200;
+      }
+      auth {
+        jwt {
+          // The API Gateway JWT authorizer validates against the Cognito User
+          // Pool declared under awsIdentity below.
+          issuer = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_EcommerceIdentity";
+          audience = "ecommerce-identity-app";
+        }
+      }
+      cors {
+        origins = ["https://library.example.com"];
+      }
+    }
+    observability {
+      metrics {
+        provider = "cloudwatch";
+      }
+      tracing {
+        provider = "xray";
+      }
+      logging {
+        provider = "cloudwatch-logs";
+      }
+      visualization {
+        provider = "cloudwatch";
+      }
+      alerting {
+        provider = "cloudwatch-alarms";
+      }
+    }
+    configStore {
+      engine = "aws-managed";
+      flavor = "managed";
+    }
+    awsIdentity {
+      region = "us-east-1";
+      providers {
+        identity {
+          userPoolId = "us-east-1_EcommerceIdentity";
+          clientId = "ecommerce-identity-app";
+        }
+      }
+    }
+    region = "us-east-1";
+    platforms {
+      aws {
+        vpcCidr = "10.0.0.0/16";
+        elasticacheNodeType = "cache.t3.small";
+        dlqMaxReceiveCount = 5;
+        sqsVisibilityTimeoutSeconds = 30;
+        sqsRetentionDays = 4;
+        sqsDlqRetentionDays = 14;
+        diagnostics {
+          retentionDays = 30;
+        }
+        serviceDiscovery {
+          dnsTtlSeconds = 10;
+        }
+        alarms {
+          rdsCpuUtilizationPercent = 80;
+          rdsFreeStoragePercent = 20;
+          rdsConnectionCountPercent = 80;
+          elasticacheCpuPercent = 75;
+          elasticacheMemoryPercent = 80;
+          elasticacheEvictionsPerMin = 100;
+          dynamodbThrottledRequests = 0;
+          dynamodbConsumedCapacityPercent = 80;
+          sqsVisibleMessages = 1000;
+          sqsOldestMessageAgeSeconds = 300;
+          sqsDlqDepth = 0;
+          mskBrokerCpuPercent = 75;
+          mskOfflinePartitions = 0;
+          mskUnderReplicatedPartitions = 0;
+          amazonMqQueueDepth = 1000;
+          amazonMqConsumerCount = 1;
+          amazonMqBrokerCpuPercent = 75;
+          documentdbCpuPercent = 80;
+          documentdbConnectionPercent = 80;
+          documentdbFreeStoragePercent = 20;
+          opensearchClusterRed = 1;
+          opensearchCpuPercent = 80;
+          opensearchJvmMemoryPressurePercent = 85;
+          opensearchFreeStoragePercent = 20;
+        }
+        lambda {
+          consumerMemoryMb = 512;
+          consumerTimeoutSeconds = 300;
+          consumerBatchSize = 10;
+        }
+        migrationTask {
+          fargateCpu = 256;
+          fargateMemoryMb = 512;
+        }
+        scheduledTask {
+          retryAttempts = 2;
+          maxEventAgeSeconds = 3600;
+          dlqRetentionDays = 14;
+        }
+        sorLifecycle {
+          transitionDays = 90;
+        }
+        consumerLambdaTriggers {
+          retentionDays = 14;
+          maxReceiveCount = 3;
+          visibilityTimeoutMultiplier = 6;
+        }
+        ecsHealthCheck {
+          intervalSeconds = 30;
+          timeoutSeconds = 5;
+          retries = 3;
+          startPeriodSeconds = 60;
+        }
+        appRunnerHealthCheck {
+          intervalSeconds = 10;
+          timeoutSeconds = 5;
+          healthyThreshold = 1;
+          unhealthyThreshold = 5;
+        }
+        ecsScaling {
+          cpuTargetPercent = 70;
+          scaleInCooldownSeconds = 60;
+          scaleOutCooldownSeconds = 60;
+        }
+        cloudFront {
+          connectionAttempts = 3;
+          connectionTimeoutSeconds = 10;
+        }
+        appConfig {
+          growthFactor = 100.0;
+          finalBakeTimeMinutes = 0;
+          replicateTo = "NONE";
+        }
+      }
+    }
+  }
+
+  // Azure target: Web App for Containers behind API Management, Flexible
+  // Server, Azure Cache for Redis, Event Hubs, Service Bus, Cosmos DB and
+  // Blob Storage, Azure Monitor / Application Insights telemetry, App
+  // Configuration as the config store, Entra External ID for customers and
+  // Entra ID for machine callers.
+  profile azure as "azure" extends base {
+    alias env = "AZURE";
+    alias resource = "azure";
+
+    deployment {
+      runtime = "azure-app-service-container";
+      provider = "azure";
+    }
+    gateway {
+      type = "managed";
+      auth {
+        jwt {
+          issuer = "https://ecommerceid.ciamlogin.com/ecommerceid/v2.0";
+          audience = "ecommerce-identity-app";
+        }
+      }
+      cors {
+        origins = ["https://library.example.com"];
+      }
+    }
+    observability {
+      metrics {
+        provider = "azure-monitor";
+      }
+      tracing {
+        provider = "application-insights";
+      }
+      logging {
+        provider = "log-analytics";
+      }
+      visualization {
+        provider = "azure-monitor";
+      }
+      alerting {
+        provider = "azure-monitor-alerts";
+      }
+    }
+    configStore {
+      engine = "azure-managed";
+      flavor = "managed";
+      sku = "standard";
+    }
+    azureIdentity {
+      entraTenantId = "ecommerce.onmicrosoft.com";
+      entraExternalIdTenantId = "ecommerceid";
+    }
+    // Every service's `mq` block is the same Kafka bus (the topics cross
+    // service boundaries), so on Azure they pool onto one Event Hubs
+    // namespace instead of one namespace per block.
+    namespaceGroups {
+      ecommerce-events {
+        sku = "Standard";
+        capacity = 2;
+      }
+    }
+    region = "eastus";
+    platforms {
+      azure {
+        appServicePlanSku = "P1v3";
+        appServicePlanCapacity = 1;
+        pythonVersion = "3.12";
+        servicebusMessageTtl = "P14D";
+        servicebusMaxDeliveryCount = 10;
+        diagnostics {
+          retentionDays = 30;
+        }
+        appInsights {
+        }
+        migrationJob {
+          cpu = "0.25";
+          memoryGi = "0.5Gi";
+        }
+        replicaJob {
+          timeoutSeconds = 300;
+          retryLimit = 2;
+        }
+        subnets {
+          vnetAddressPrefix = "10.0.0.0/16";
+          apps = "10.0.0.0/21";
+          database = "10.0.8.0/24";
+          cache = "10.0.9.0/24";
+          messaging = "10.0.10.0/24";
+          storage = "10.0.11.0/24";
+          keyvault = "10.0.12.0/24";
+          appServiceIntegration = "10.0.13.0/24";
+          appServicePrivateEndpoints = "10.0.14.0/24";
+          pgDelegated = ["10.0.20.0/28", "10.0.20.16/28", "10.0.20.32/28", "10.0.20.48/28", "10.0.20.64/28", "10.0.20.80/28"];
+        }
+        postgresPrivateDnsZone = "ecommerce.private.postgres.database.azure.com";
+        alarms {
+          rdbmsCpuPercent = 80.0;
+          rdbmsStoragePercent = 85.0;
+          rdbmsActiveConnectionsPercent = 80.0;
+          redisCpuPercent = 75.0;
+          redisMemoryPercent = 80.0;
+          redisEvictionsPerMin = 100.0;
+          servicebusActiveMessages = 1000.0;
+          servicebusDeadLetterMessages = 0.0;
+          servicebusQueueLength = 5000.0;
+          cosmosdbNormalizedRuPercent = 80.0;
+          cosmosdbThrottledRequests = 0.0;
+          cosmosdbAvailabilityPercent = 99.9;
+          containerAppsCpuPercent = 80.0;
+          containerAppsMemoryPercent = 80.0;
+          appServiceHttp5xxCount = 0.0;
+          appServiceResponseTimeSeconds = 5.0;
+        }
+        databaseDefaults {
+          haMode = "Disabled";
+          backupRetentionDays = 7;
+          geoRedundant = false;
+          haStandbyZone = "2";
+        }
+        pgbouncer {
+          defaultPoolSize = 50;
+        }
+        waf {
+          mode = "Prevention";
+          sku = "Premium_AzureFrontDoor";
+        }
+        functions {
+          planSku = "Y1";
+        }
+        eventHubs {
+          retentionDays = 7;
+          partitionCount = 4;
+          maxThroughputUnits = 20;
+        }
+        serviceBus {
+          lockDuration = "PT1M";
+          maxSizeMb = 1024;
+        }
+        cosmos {
+          consistencyLevel = "Session";
+          capacityMode = "Provisioned";
+        }
+        keyVault {
+          softDeleteRetentionDays = 30;
+        }
+        frontDoor {
+          healthProbeSampleSize = 4;
+          successfulSamplesRequired = 3;
+          probeIntervalSeconds = 30;
+        }
+        apiManagement {
+          sku = "Developer";
+          capacity = 1;
+        }
+      }
+    }
+  }
+
+  // Azure VM target: the `compose` stack (nginx, the Prometheus / Jaeger /
+  // Loki / Alertmanager containers, the self-hosted Zitadel, the file-backed
+  // config store) running on one Azure VM behind API Management, with
+  // PostgreSQL and blob storage moved to the managed Flexible Server and
+  // Storage Account the platform provisions. The Grafana UI is deliberately
+  // not published here: through the managed edge it would need a
+  // workforce-audience identity realm with a browser login, and this
+  // application declares no staff users.
+  profile azureVm as "azvm" extends compose {
+    alias env = "AZVM";
+    alias resource = "azvm";
+
+    deployment {
+      runtime = "docker-compose";
+      provider = "azure-vm";
+    }
+    gateway {
+      cors {
+        origins = ["https://library.example.com"];
+      }
+    }
+    zitadelIdentity {
+      externalDomain = "id.library.example.com";
+      externalSecure = true;
+    }
+    region = "eastus";
+    platforms {
+      azureVm {
+        vmSize = "Standard_D4as_v5";
+        osImage = "Ubuntu 24.04 LTS";
+        dataDisk {
+          sku = "Premium_LRS";
+          sizeGb = 128;
+        }
+        postgres {
+          sku = "Standard_B2ms";
+          storageGb = 32;
+          backupRetentionDays = 7;
+        }
+        storage {
+          sku = "Standard_LRS";
+          accessTier = "Hot";
+        }
+        serviceBus {
+          sku = "Standard";
+        }
+        network {
+          vnetCidr = "10.20.0.0/16";
+          vmSubnetCidr = "10.20.1.0/24";
+          pgDelegatedSubnetCidr = "10.20.2.0/28";
+        }
+        // A real ed25519 public key generated for this example whose private
+        // half was discarded, so installing it grants nobody access. Replace
+        // it with your operator's public key before deploying.
+        adminSshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII4iTRkbUzccSRbCQtkdtPIE8jKgGyovXfv+JdSWJuT9 ecommerce-example";
+        apiManagement {
+          sku = "Developer";
+          capacity = 1;
+        }
+      }
+    }
   }
 }

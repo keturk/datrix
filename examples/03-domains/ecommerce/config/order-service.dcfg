@@ -208,4 +208,132 @@
       }
     }
   }
+
+  profile aws as "aws" extends base {
+    alias env = "AWS";
+    alias resource = "aws";
+
+    replicas = 2;
+    scaling {
+      replicas {
+        min = 2;
+        max = 4;
+      }
+      triggers = [];
+    }
+    replace rdbms orderDb {
+      id = "5e1f5fca-1f9c-4cec-b43b-7d069bd7a02d";
+      engine = "postgres";
+      flavor = "rds";
+      port = 5432;
+      database = "library_books";
+      poolSize = 40;
+      maxOverflow = 20;
+      ssl = true;
+      instanceClass = "db.t3.medium";
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+    }
+    replace cache redis {
+      engine = "redis";
+      flavor = "elasticache";
+      port = 6379;
+      nodeType = "cache.t3.small";
+    }
+    replace pubsub mq {
+      engine = "kafka";
+      flavor = "msk";
+      instanceType = "kafka.m5.large";
+      brokerCount = 3;
+      storageGb = 100;
+      kafkaVersion = "3.6.0";
+      partitions = 3;
+      replicationFactor = 3;
+      retention = "7d";
+    }
+    replace queues {
+      engine = "sqs";
+      flavor = "sqs";
+      region = "us-east-1";
+    }
+    strategy {
+      rolling {
+        maxUnavailable = "25%";
+      }
+    }
+  }
+
+  profile azure as "azure" extends base {
+    alias env = "AZURE";
+    alias resource = "azure";
+
+    replicas = 2;
+    scaling {
+      replicas {
+        min = 2;
+        max = 4;
+      }
+      triggers = [];
+    }
+    replace rdbms orderDb {
+      id = "5e1f5fca-1f9c-4cec-b43b-7d069bd7a02d";
+      engine = "postgres";
+      flavor = "flexible-server";
+      port = 5432;
+      database = "library_books";
+      poolSize = 40;
+      maxOverflow = 20;
+      ssl = true;
+      sku = "Standard_B1ms";
+      tier = "Burstable";
+      storageGb = 32;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+    }
+    replace cache redis {
+      engine = "redis";
+      flavor = "cache-for-redis";
+      sku = "Balanced_B0";
+    }
+    replace pubsub mq {
+      engine = "kafka";
+      flavor = "event-hubs";
+      sku = "Standard";
+      namespaceGroup = "ecommerce-events";
+      partitions = 3;
+      replicationFactor = 3;
+      retention = "7d";
+    }
+    replace queues {
+      engine = "service-bus";
+      flavor = "service-bus";
+      sku = "Standard";
+    }
+    strategy {
+      rolling {
+        maxUnavailable = "25%";
+      }
+    }
+  }
+
+  profile azureVm as "azvm" extends base {
+    alias env = "AZVM";
+    alias resource = "azvm";
+
+    replace rdbms orderDb {
+      id = "5e1f5fca-1f9c-4cec-b43b-7d069bd7a02d";
+      engine = "postgres";
+      flavor = "flexible-server";
+      port = 5432;
+      database = "library_books";
+      poolSize = 20;
+      maxOverflow = 20;
+      ssl = true;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+    }
+  }
 }

@@ -5,10 +5,12 @@ from ecommerce.common import Currency, OrderLineInput, generateOrderNumber;
 service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), description('order management service') {
     // discovery block declares dependencies on other services
     // loadBalance and healthyOnly configure client-side load balancing
+    // Only the services this one actually calls synchronously. Payment and
+    // shipping are reached through queues and events, never by a direct call,
+    // and PaymentService calls back into this service's internal API -- a
+    // declared dependency on it here would make that relationship circular.
     discovery {
         ProductService { loadBalance: roundRobin, healthyOnly: true }
-        PaymentService { loadBalance: roundRobin, healthyOnly: true }
-        ShippingService { loadBalance: roundRobin, healthyOnly: true }
         UserService { loadBalance: roundRobin, healthyOnly: true }
     }
 

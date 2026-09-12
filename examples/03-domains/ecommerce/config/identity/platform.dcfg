@@ -19,4 +19,22 @@ config identity platform {
 
   profile production as "prod" extends base {
   }
+
+  // AWS provisions exactly one Cognito User Pool per application, and the
+  // customer-facing 'identity' provider owns it. The machine-to-machine
+  // provider is therefore validated against an operator-managed OIDC issuer
+  // on this target rather than provisioned.
+  profile aws as "aws" extends base {
+    mode = "external";
+    provider = "external";
+    issuer = "https://machine-auth.ecommerce.example.com";
+    clientId = "ecommerce-service-clients";
+    clientSecret = "platform_identity_client_secret";
+  }
+
+  profile azure as "azure" extends base {
+  }
+
+  profile azureVm as "azvm" extends base {
+  }
 }

@@ -102,6 +102,7 @@ Each new surface lives in one of two config locations, chosen by ownership bound
 | RDBMS port (for pooled groups) | `ServerGroupSpec.port` | L | block | Added to pooled server-group sizing |
 | Cache pool sizing | `SearchConfig.replicasCount`, `SearchConfig.partitions` | G | block | `search idx { replicasCount = 3; partitions = 1; }` |
 | NoSQL sizing | `NosqlConfig.instance_count`, `NosqlConfig.engine_version` | L | block | `nosql catalog { instanceCount = 1; engineVersion = "5.0.0"; }` |
+| NoSQL partition key | `NosqlConfig.partition_key` | L | block | `nosql reviews { partitionKey = "productId"; }` — the field a partitioned managed store (Cosmos DB, DynamoDB) shards on; resolved in this order: this override, else the entity's primary key, else a generation error. Must name a field on every entity in the block |
 | Resilience timeout defaults | `ResilienceProfileConfig.defaults.timeout` | H | service | `resilience { defaults { timeout = "10s"; } }` |
 | Resilience circuit-breaker timeout | `CircuitBreakerConfig.timeout` | L | service | `resilience { defaults { circuitBreaker { timeout = "30s"; } } }` |
 
