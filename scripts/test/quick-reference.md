@@ -1821,6 +1821,8 @@ reported `[FAIL]` with a nonzero exit.
 
 **Exemptions are scoped, and the scope is load-bearing.** Each entry excuses **one** rule (identified by the `.gitignore` file plus the pattern text git reports) over **one** path scope, and carries a written reason. An entry for the root `build/` tree does not excuse the same unanchored `build/` rule swallowing a `templates/build/` directory full of source — that is the same defect wearing a different name, and the self-test proves the scope rejects it. `repos` is a list of repo names or `["*"]` for every framework repo; `path_glob` is segment-aware (`**/` spans whole segments, `**` spans the remainder, `*`/`?` stay inside one segment). `pinned_count` is enforced against `len(exemptions)`, so an entry cannot be added or removed without the reviewed number moving in the same change.
 
+**A stray temp directory is a different finding with a different fix.** Temp, scratch and test-output directories never belong inside a package repo (`guard-repo-temp-dirs.py` refuses to create one; the workspace-level `D:\datrix\.tmp`, `.scripts`, `.test-output` are where they go). One that exists anyway — left by a run before the hook, or by a tool that defaulted its output path — is full of `.py`/`.java`/`.sql` files that an ignore backstop hides, and to a scan that only knows "ignored, unexempted" it looks like hundreds of thousands of shadowed source files whose fix is to edit the ignore line or add an exemption; both are wrong. The gate classifies such paths by the **same name list the hook enforces** (`claude-config/.claude/hooks/_repo_temp_dir_names.py` — one definition, two enforcement points; the gate refuses to run if it cannot load it rather than keep a copy) and reports each directory **once**, as a `WARNING` carrying the file count and the `Remove-Item` command. It never appears in the shadowed-source report, it can never be exempted, and it does not fail the gate: the contents are already unpublishable, and the gate's verdict is about what a clone would lose. `commit-and-push.ps1` prints the same warning and proceeds.
+
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Run the gate** | `.\test\ignored-source-gate.ps1` | Scan every framework repo in the workspace |
@@ -1839,6 +1841,7 @@ reported `[FAIL]` with a nonzero exit.
 - a planted publishable file (`src/pkg/keep.py`) is **not** reported;
 - a `__pycache__/` file and a root `build/` file **are** excused by their real entries, while the same `build/` rule shadowing `src/pkg/templates/build/template.j2` is **not** — proving the path scope is load-bearing;
 - an empty exemption set excuses nothing (the exemption matcher is not vacuously true);
+- two files planted in different subtrees of a `.test-output/` directory fold into **one** stray-temp-directory finding with a count of 2 and a delete command, appear in **no** shadowed-source finding, and do not swallow the `MANIFEST` finding beside them — which also proves the hook's shared name list still names `.test-output`;
 - git's own semantics are honoured: a `!`-re-included path is not reported, and a lowercase `manifest` directory under an uppercase `MANIFEST` rule is detected **iff** `core.ignorecase` is true in that repo;
 - the scope glob is segment-aware across nine positive and negative cases.
 

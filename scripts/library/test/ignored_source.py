@@ -54,6 +54,24 @@ an entry for the root ``build/`` directory must not also excuse an unanchored
 ``build/`` rule swallowing a ``templates/build/`` directory full of source --
 that is the same defect wearing a different name.
 
+A STRAY TEMP DIRECTORY IS A DIFFERENT FINDING, WITH A DIFFERENT FIX
+--------------------------------------------------------------------
+Temp, scratch and test-output directories never belong inside a package repo
+(the workspace-level ``D:\\datrix\\.tmp``, ``.scripts``, ``.test-output`` are
+where they go), and the ``guard-repo-temp-dirs.py`` hook refuses to create one
+there. One that exists anyway -- left by a run before the hook, or by a tool
+that defaulted its output path -- is full of ``.py``/``.java``/``.sql`` files a
+``.gitignore`` backstop rule hides, and to a scan that only knows "ignored,
+unexempted" it looks like hundreds of shadowed source files whose fix is to
+edit the ignore line or add an exemption. Both are wrong: the files are not
+source, and the directory should not exist. So the gate classifies such a path
+by the SAME name list the hook enforces (``_repo_temp_dir_names.py`` beside the
+hook -- one definition, two enforcement points) and reports it once, as a
+stray directory with the delete command, never as a shadowed-source finding
+and never as a reason to exempt the directory. It does not fail the gate: the
+contents are already unpublishable, and this gate's verdict is about what a
+clone would lose.
+
 Repo-level validation script, per the datrix showcase boundary: the showcase
 repo hosts no pytest suite, so cross-repo checks live here as scripts and the
 gate's own self-test is its coverage.
@@ -67,12 +85,14 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import logging
 import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -86,6 +106,12 @@ from dev.customer_domain_isolation import framework_repos  # noqa: E402
 logger = logging.getLogger(__name__)
 
 EXEMPTION_RELPATH = ("scripts", "config", "ignored-source-exemptions.json")
+
+# The one definition of a temp/scratch directory name, kept beside the hook that
+# refuses to create one (see the module docstring). Loaded by path because the
+# hooks directory is not a package: the hook must import it with nothing but its
+# own directory on sys.path, and this gate must read the same file, not a copy.
+TEMP_DIR_NAMES_RELPATH = ("claude-config", ".claude", "hooks", "_repo_temp_dir_names.py")
 
 # Wildcard accepted in an entry's `repos` list, meaning "every framework repo".
 # Present so a rule that is uniform across packages (a bytecode cache, an
@@ -187,6 +213,29 @@ class ExemptionSet:
 
 
 @dataclass(frozen=True)
+class StrayTempDir:
+    """A temp/scratch directory sitting inside a package repo, with what it holds.
+
+    Not a shadowed-source finding: its contents are unpublishable by
+    construction, and the fix is to delete the directory, never to edit the
+    ignore rule that hides it or to exempt it.
+    """
+
+    repo: str
+    relpath: str
+    file_count: int
+
+    def render(self, repo_path: Path) -> str:
+        """One line per directory, carrying the delete command."""
+        absolute = repo_path / Path(self.relpath)
+        return (
+            f"{self.repo}/{self.relpath}/  -- stray temp directory inside a package repo, "
+            f"{self.file_count} ignored file(s). Delete it: "
+            f"Remove-Item -Recurse -Force \"{absolute}\""
+        )
+
+
+@dataclass(frozen=True)
 class RepoResult:
     """One repo's census: what git hides, what is excused, what is not."""
 
@@ -194,6 +243,44 @@ class RepoResult:
     shadowed_total: int
     exempt_total: int
     violations: tuple[ShadowedPath, ...]
+    stray_temp_dirs: tuple[StrayTempDir, ...]
+
+
+TempDirSegmentFn = Callable[[list[str]], "str | None"]
+
+
+def temp_dir_names_path(datrix_root: Path) -> Path:
+    """Canonical location of the shared temp-directory name definition."""
+    return datrix_root.joinpath(*TEMP_DIR_NAMES_RELPATH)
+
+
+def load_temp_dir_segment(datrix_root: Path) -> TempDirSegmentFn:
+    """Load ``temp_dir_segment`` from the definition the temp-dir hook enforces.
+
+    Raises:
+        IgnoredSourceGateError: the module is missing or does not export the
+            function. The gate refuses to run rather than fall back to a private
+            name list -- a second list is how the two enforcement points drift.
+    """
+    path = temp_dir_names_path(datrix_root)
+    if not path.is_file():
+        raise IgnoredSourceGateError(
+            f"Temp-directory name definition not found at {path}. The ignored-source gate "
+            f"classifies stray temp directories by the same list guard-repo-temp-dirs.py "
+            f"enforces; restore that module rather than giving the gate a copy."
+        )
+    spec = importlib.util.spec_from_file_location("_repo_temp_dir_names", path)
+    if spec is None or spec.loader is None:
+        raise IgnoredSourceGateError(f"Could not build an import spec for {path}.")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    function = getattr(module, "temp_dir_segment", None)
+    if not callable(function):
+        raise IgnoredSourceGateError(
+            f"{path} exports no callable 'temp_dir_segment'. The hook and this gate share "
+            f"that one function; it must be defined there."
+        )
+    return function
 
 
 def exemption_path(datrix_root: Path) -> Path:
@@ -397,12 +484,44 @@ def _to_shadowed(repo_name: str, record: list[str]) -> ShadowedPath:
     return ShadowedPath(repo=repo_name, path=path, rule=rule)
 
 
-def scan_repo(repo_path: Path, exemptions: ExemptionSet, used: set[str]) -> RepoResult:
-    """Compute one repo's shadowed set and split it into exempt and violating."""
+def stray_temp_dir_of(path: str, temp_dir_segment: TempDirSegmentFn) -> str | None:
+    """The repo-relative temp directory containing *path*, or None.
+
+    Only DIRECTORY segments are consulted: a file whose own name happens to be
+    ``tmp`` is a file, and this classification is about where a path lives.
+    The result is the prefix up to and including the temp segment, so every
+    file under one stray directory folds into one finding.
+    """
+    segments = path.split("/")
+    directories = segments[:-1]
+    hit = temp_dir_segment(directories)
+    if hit is None:
+        return None
+    return "/".join(directories[: directories.index(hit) + 1])
+
+
+def scan_repo(
+    repo_path: Path,
+    exemptions: ExemptionSet,
+    used: set[str],
+    temp_dir_segment: TempDirSegmentFn,
+) -> RepoResult:
+    """Compute one repo's shadowed set and split it three ways.
+
+    A path inside a temp directory is folded into a stray-directory finding
+    BEFORE the exemption lookup: it is neither a violation (its contents are
+    not source) nor something an exemption may excuse (the directory should
+    not exist). Everything else is exempt or violating, as before.
+    """
     shadowed = attribute_rules(repo_path, ignored_paths(repo_path))
     violations: list[ShadowedPath] = []
+    stray_counts: dict[str, int] = {}
     exempt_total = 0
     for candidate in shadowed:
+        stray = stray_temp_dir_of(candidate.path, temp_dir_segment)
+        if stray is not None:
+            stray_counts[stray] = stray_counts.get(stray, 0) + 1
+            continue
         entry = exemptions.covering(candidate)
         if entry is None:
             violations.append(candidate)
@@ -414,19 +533,26 @@ def scan_repo(repo_path: Path, exemptions: ExemptionSet, used: set[str]) -> Repo
         shadowed_total=len(shadowed),
         exempt_total=exempt_total,
         violations=tuple(violations),
+        stray_temp_dirs=tuple(
+            StrayTempDir(repo=repo_path.name, relpath=relpath, file_count=count)
+            for relpath, count in sorted(stray_counts.items())
+        ),
     )
 
 
-def violations_in(repo_path: Path, exemptions: ExemptionSet) -> tuple[ShadowedPath, ...]:
-    """Every shadowed publishable path in ONE repo.
+def scan_for_commit(
+    repo_path: Path, exemptions: ExemptionSet, temp_dir_segment: TempDirSegmentFn
+) -> RepoResult:
+    """One repo's census for a caller outside this gate.
 
-    The entry point for callers outside this gate -- notably the commit seam in
-    ``git/commit-and-push.py``, which asks the question per dirty repo rather
-    than across the whole workspace. Exemption-usage bookkeeping is a reporting
-    concern of the standalone gate, so it is discarded here rather than pushed
-    onto every caller.
+    The entry point for the commit seam in ``git/commit-and-push.py``, which
+    asks the question per dirty repo rather than across the whole workspace.
+    Exemption-usage bookkeeping is a reporting concern of the standalone gate,
+    so it is discarded here rather than pushed onto every caller; the stray
+    temp directories travel with the violations because the caller reports
+    them differently (a warning with a delete command versus a refusal).
     """
-    return scan_repo(repo_path, exemptions, set()).violations
+    return scan_repo(repo_path, exemptions, set(), temp_dir_segment)
 
 
 def group_by_rule(violations: tuple[ShadowedPath, ...]) -> dict[IgnoreRule, list[str]]:
@@ -446,6 +572,26 @@ def report_repo(result: RepoResult) -> None:
             print(f"      {path}")
         if len(paths) > MAX_REPORTED_PATHS:
             print(f"      ... and {len(paths) - MAX_REPORTED_PATHS} more")
+
+
+def report_stray_temp_dirs(results: list[RepoResult], repo_paths: dict[str, Path]) -> None:
+    """Warn once per stray temp directory, with the command that removes it.
+
+    Reported, never failed: the contents are already unpublishable, so a clone
+    loses nothing. What is wrong is that the directory exists inside a repo at
+    all, and the fix for that is deletion -- not an ignore-rule edit and not an
+    exemption entry, which is why these never reach the violation report.
+    """
+    strays = [stray for result in results for stray in result.stray_temp_dirs]
+    if not strays:
+        return
+    print(
+        f"\n  WARNING: {len(strays)} stray temp director(ies) inside package repos. Temp "
+        f"output belongs under D:\\datrix\\.tmp, .scripts or .test-output -- never inside "
+        f"a repo. Not shadowed source and not exemptable; delete them:"
+    )
+    for stray in strays:
+        print(f"    {stray.render(repo_paths[stray.repo])}")
 
 
 def report_unused(exemptions: ExemptionSet, used: set[str]) -> None:
@@ -489,7 +635,7 @@ def resolve_repos(workspace_root: Path, wanted: list[str] | None) -> list[Path]:
 # that is precisely how the defect this gate exists to prevent survived.
 # --------------------------------------------------------------------------
 
-SELF_TEST_IGNORE_LINES = ("__pycache__/", "build/", "MANIFEST")
+SELF_TEST_IGNORE_LINES = ("__pycache__/", "build/", "MANIFEST", ".test-output/")
 
 # Planted tree for the main self-test repo. Each entry is a repo-relative path
 # and what the gate must conclude about it.
@@ -498,6 +644,14 @@ SELF_TEST_SHADOWED_BY_NESTED_BUILD = "src/pkg/templates/build/template.j2"
 SELF_TEST_EXEMPT_PYCACHE = "src/pkg/__pycache__/module.pyc"
 SELF_TEST_EXEMPT_ROOT_BUILD = "build/lib/artifact.txt"
 SELF_TEST_PUBLISHED = "src/pkg/keep.py"
+# A stray temp directory: source-shaped files an ignore backstop hides. Two files
+# in two different subtrees, so the finding provably folds the whole tree into
+# the one temp directory (not its children) with a count.
+SELF_TEST_STRAY_TEMP_DIR = ".test-output"
+SELF_TEST_STRAY_TEMP_FILES = (
+    f"{SELF_TEST_STRAY_TEMP_DIR}/leftover-run/svc/src/main.py",
+    f"{SELF_TEST_STRAY_TEMP_DIR}/second-run/svc/sql/schema.sql",
+)
 
 SELF_TEST_PLANTED = (
     SELF_TEST_SHADOWED_BY_MANIFEST,
@@ -505,6 +659,7 @@ SELF_TEST_PLANTED = (
     SELF_TEST_EXEMPT_PYCACHE,
     SELF_TEST_EXEMPT_ROOT_BUILD,
     SELF_TEST_PUBLISHED,
+    *SELF_TEST_STRAY_TEMP_FILES,
 )
 
 
@@ -603,6 +758,48 @@ def _check_exemption_scope(repo: Path, exemptions: ExemptionSet) -> list[str]:
     return failures
 
 
+def _check_stray_temp_classification(
+    repo: Path, exemptions: ExemptionSet, temp_dir_segment: TempDirSegmentFn
+) -> list[str]:
+    """A temp directory is one stray finding, never a violation, never exempt.
+
+    Also the non-vacuity half for the shared name list: if the hook's module
+    stopped naming ``.test-output``, the planted tree would surface as two
+    violations and this check would say so.
+    """
+    failures: list[str] = []
+    result = scan_repo(repo, exemptions, set(), temp_dir_segment)
+    violating_paths = {violation.path for violation in result.violations}
+    for relpath in SELF_TEST_STRAY_TEMP_FILES:
+        if relpath in violating_paths:
+            failures.append(
+                f"self-test: {relpath} inside a planted temp directory was reported as "
+                f"shadowed source instead of a stray temp directory"
+            )
+    strays = {stray.relpath: stray for stray in result.stray_temp_dirs}
+    stray = strays.get(SELF_TEST_STRAY_TEMP_DIR)
+    if stray is None:
+        failures.append(
+            f"self-test: planted temp directory {SELF_TEST_STRAY_TEMP_DIR} was NOT reported "
+            f"as stray (found: {sorted(strays) or 'none'})"
+        )
+        return failures
+    if stray.file_count != len(SELF_TEST_STRAY_TEMP_FILES):
+        failures.append(
+            f"self-test: stray directory {SELF_TEST_STRAY_TEMP_DIR} counted "
+            f"{stray.file_count} file(s), expected {len(SELF_TEST_STRAY_TEMP_FILES)}"
+        )
+    if SELF_TEST_SHADOWED_BY_MANIFEST not in violating_paths:
+        failures.append(
+            "self-test: stray-directory folding swallowed a shadowed source finding "
+            f"({SELF_TEST_SHADOWED_BY_MANIFEST})"
+        )
+    delete_hint = stray.render(repo)
+    if "Remove-Item" not in delete_hint or SELF_TEST_STRAY_TEMP_DIR.split("/")[0] not in delete_hint:
+        failures.append(f"self-test: the stray-directory report carries no delete command: {delete_hint}")
+    return failures
+
+
 def _check_git_semantics(root: Path) -> list[str]:
     """Negation and case-folding are git's to decide, and must be honoured."""
     failures: list[str] = []
@@ -630,7 +827,7 @@ def _check_git_semantics(root: Path) -> list[str]:
     return failures
 
 
-def self_test(exemptions: ExemptionSet) -> list[str]:
+def self_test(exemptions: ExemptionSet, temp_dir_segment: TempDirSegmentFn) -> list[str]:
     """Prove the gate is non-vacuous. Returns a list of failure descriptions.
 
     Runs before every real scan. A scanner that silently stopped scanning
@@ -643,6 +840,7 @@ def self_test(exemptions: ExemptionSet) -> list[str]:
         _make_repo(main_repo, SELF_TEST_IGNORE_LINES, SELF_TEST_PLANTED)
         failures.extend(_check_planted_detection(main_repo, exemptions))
         failures.extend(_check_exemption_scope(main_repo, exemptions))
+        failures.extend(_check_stray_temp_classification(main_repo, exemptions, temp_dir_segment))
         failures.extend(_check_git_semantics(root))
     return failures
 
@@ -681,19 +879,24 @@ def print_exemptions(exemptions: ExemptionSet) -> None:
         print(f"      {entry.reason}")
 
 
-def run_scan(repos: list[Path], exemptions: ExemptionSet) -> int:
+def run_scan(
+    repos: list[Path], exemptions: ExemptionSet, temp_dir_segment: TempDirSegmentFn
+) -> int:
     """Scan every repo, print the census, and return the process exit code."""
     print(
         f"Comparing working tree against what 'git add -A' would stage in "
         f"{len(repos)} repo(s), with {len(exemptions.entries)} reviewed exemption entr(ies)"
     )
     used: set[str] = set()
-    results = [scan_repo(repo, exemptions, used) for repo in repos]
+    results = [scan_repo(repo, exemptions, used, temp_dir_segment) for repo in repos]
     for result in results:
+        stray_files = sum(stray.file_count for stray in result.stray_temp_dirs)
         print(
             f"  {result.repo}: {result.shadowed_total} unstaged path(s), "
-            f"{result.exempt_total} exempt, {len(result.violations)} shadowed"
+            f"{result.exempt_total} exempt, {stray_files} in stray temp dir(s), "
+            f"{len(result.violations)} shadowed"
         )
+    report_stray_temp_dirs(results, {repo.name: repo for repo in repos})
     report_unused(exemptions, used)
 
     violating = [result for result in results if result.violations]
@@ -727,6 +930,7 @@ def main(argv: list[str]) -> int:
 
     try:
         exemptions = load_exemptions(exemption_path(DATRIX_ROOT))
+        temp_dir_segment = load_temp_dir_segment(DATRIX_ROOT)
     except IgnoredSourceGateError as exc:
         print(f"IGNORED-SOURCE GATE CANNOT RUN: {exc}", file=sys.stderr)
         return 2
@@ -736,7 +940,7 @@ def main(argv: list[str]) -> int:
         print_exemptions(exemptions)
 
     try:
-        failures = self_test(exemptions)
+        failures = self_test(exemptions, temp_dir_segment)
     except IgnoredSourceGateError as exc:
         print(f"IGNORED-SOURCE GATE CANNOT RUN: self-test could not execute: {exc}", file=sys.stderr)
         return 2
@@ -752,7 +956,7 @@ def main(argv: list[str]) -> int:
 
     try:
         repos = resolve_repos(workspace_root, args.repo)
-        return run_scan(repos, exemptions)
+        return run_scan(repos, exemptions, temp_dir_segment)
     except IgnoredSourceGateError as exc:
         print(f"IGNORED-SOURCE GATE CANNOT RUN: {exc}", file=sys.stderr)
         return 2

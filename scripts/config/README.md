@@ -138,6 +138,12 @@ A missing or malformed file is an error, never an empty exemption set. An entry
 that matches nothing on a given machine is reported, not failed — a coverage report or an
 `npm install` tree only exists once the tool has run.
 
+**A temp directory inside a repo never gets an entry here.** Paths under a temp/scratch/
+test-output directory (the name list `guard-repo-temp-dirs.py` enforces, shared from
+`claude-config/.claude/hooks/_repo_temp_dir_names.py`) are classified by the gate as a stray
+directory before the exemption lookup and reported once with a delete command. The fix is
+deletion; an entry would license the directory to stay.
+
 ## semgrep-rules/
 
 Individual YAML rule files for the Semgrep anti-pattern scanner (`dev/semgrep.ps1`). Each file defines one Semgrep rule that enforces a `.cursorrules` coding standard.

@@ -43,9 +43,11 @@ from dev.customer_domain_isolation import (  # noqa: E402
 from test.ignored_source import (  # noqa: E402
     IgnoredSourceGateError,
     ShadowedPath,
+    StrayTempDir,
     exemption_path,
     load_exemptions,
-    violations_in,
+    load_temp_dir_segment,
+    scan_for_commit,
 )
 from test.ignored_source import self_test as ignored_source_self_test  # noqa: E402
 
@@ -993,11 +995,12 @@ def enforce_ignored_source(dirty_repos: list[DirtyRepo], datrix_root: Path) -> N
     """
     try:
         exemptions = load_exemptions(exemption_path(datrix_root))
+        temp_dir_segment = load_temp_dir_segment(datrix_root)
     except IgnoredSourceGateError as exc:
         raise ScriptError(f"Ignored-source check could not run: {exc}") from exc
 
     try:
-        failures = ignored_source_self_test(exemptions)
+        failures = ignored_source_self_test(exemptions, temp_dir_segment)
     except IgnoredSourceGateError as exc:
         raise ScriptError(f"Ignored-source check could not run its self-test: {exc}") from exc
     if failures:
@@ -1007,11 +1010,29 @@ def enforce_ignored_source(dirty_repos: list[DirtyRepo], datrix_root: Path) -> N
         )
 
     shadowed: list[ShadowedPath] = []
+    strays: list[tuple[StrayTempDir, Path]] = []
     for dr in dirty_repos:
         try:
-            shadowed.extend(violations_in(dr.path, exemptions))
+            result = scan_for_commit(dr.path, exemptions, temp_dir_segment)
         except IgnoredSourceGateError as exc:
             raise ScriptError(f"Ignored-source check failed in {dr.name}: {exc}") from exc
+        shadowed.extend(result.violations)
+        strays.extend((stray, dr.path) for stray in result.stray_temp_dirs)
+
+    # A stray temp directory is a warning, not a refusal: its contents are
+    # already unpublishable, so the commit loses nothing. It is reported once
+    # per directory with the delete command, because to this scan's raw output
+    # a generated project left inside a repo looks like hundreds of shadowed
+    # source files whose "fix" would be an ignore-rule edit or an exemption --
+    # both wrong, since the directory should not exist at all.
+    if strays:
+        print(
+            f"Ignored-source: WARNING -- {len(strays)} stray temp director(ies) inside the "
+            f"repos being committed. Temp output belongs under D:\\datrix\\.tmp, .scripts or "
+            f".test-output, never inside a repo. Not exemptable; delete them:"
+        )
+        for stray, repo_path in strays:
+            print(f"  {stray.render(repo_path)}")
 
     if not shadowed:
         print(f"Ignored-source: clean across {len(dirty_repos)} dirty repo(s).")

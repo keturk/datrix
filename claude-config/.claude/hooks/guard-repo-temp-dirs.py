@@ -20,8 +20,10 @@ This hook blocks two ways in:
     an existing stray directory stays allowed -- cleaning one up must not be
     blocked by the hook that objects to it.
 
-Detection is by directory NAME, not by guesswork: the banned names below appear
-nowhere in any repo's tracked files, so a match is unambiguous.
+Detection is by directory NAME, not by guesswork: the banned names (one
+definition, in `_repo_temp_dir_names.py`, shared with the ignored-source gate
+that reports a stray one already on disk) appear nowhere in any repo's tracked
+files, so a match is unambiguous.
 
 Exit codes:
   0 -- allow
@@ -31,6 +33,8 @@ Exit codes:
 import json
 import re
 import sys
+
+from _repo_temp_dir_names import temp_dir_segment
 
 # Every git repository under the workspace root. The list grows with each new
 # language, platform or frontend target -- add the repo here in the same change
@@ -55,38 +59,6 @@ _REPOS = (
     "datrix-cli",
     "datrix",
 )
-
-# Directory names that mark a temp/scratch/output location. Exact segment match,
-# case-insensitive. Verified absent from every repo's tracked file list, so none
-# of these can collide with real source, tests, docs, or fixtures.
-_BANNED_SEGMENTS = frozenset(
-    {
-        ".tmp",
-        "tmp",
-        ".temp",
-        "temp",
-        ".scratch",
-        "scratch",
-        "scratchpad",
-        ".scripts",
-        ".agent_output",
-        "agent_output",
-        ".test_output",
-        "test_output",
-        ".test-output",
-        "test-output",
-    }
-)
-
-# `.test-output-foundation-check`, `test-output-2`, ... -- same thing with a suffix.
-_BANNED_PREFIXES = (".test-output", "test-output", ".test_output", "test_output")
-
-# Third-party / tooling trees that legitimately carry a `tmp` of their own. Their
-# contents are not ours to police and are already ignored by every repo.
-_EXEMPT_SEGMENTS = frozenset({"node_modules", ".venv", ".git", "site-packages"})
-
-# Written by test.ps1 inside each package by design, and ignored there.
-_EXEMPT_EXACT = frozenset({".test_results", ".benchmarks"})
 
 # A repo-rooted path is either absolute under the workspace (`d:/datrix/<repo>/`)
 # or workspace-relative (`<repo>/...`, the shell's default cwd). The workspace
@@ -141,19 +113,6 @@ def _block(what: str) -> None:
     sys.exit(2)
 
 
-def _banned_segment(segments: list[str]) -> str | None:
-    """Return the first segment that names a temp/scratch directory, if any."""
-    for segment in segments:
-        name = segment.strip().lower()
-        if not name or name in (".", ".."):
-            continue
-        if name in _EXEMPT_SEGMENTS or name in _EXEMPT_EXACT:
-            return None
-        if name in _BANNED_SEGMENTS or name.startswith(_BANNED_PREFIXES):
-            return segment
-    return None
-
-
 def _check_path(raw_path: str) -> None:
     """Block a Write/Edit target that lands in a temp directory inside a repo."""
     match = _REPO_PATH_RE.search(_normalize(raw_path))
@@ -161,7 +120,7 @@ def _check_path(raw_path: str) -> None:
         return
 
     repo, tail = match.group(1), match.group(2)
-    hit = _banned_segment(tail.split("/"))
+    hit = temp_dir_segment(tail.split("/"))
     if hit:
         _block(
             f"refusing to write `{raw_path}` -- `{hit}` is a temp/scratch "
@@ -175,7 +134,7 @@ def _check_command(command: str) -> None:
 
     for match in _REPO_PATH_RE.finditer(text):
         repo, tail = match.group(1), match.group(2)
-        hit = _banned_segment(tail.split("/"))
+        hit = temp_dir_segment(tail.split("/"))
         preceding = text[max(0, match.start() - _WRITE_INTENT_WINDOW) : match.start()]
         if hit and _WRITE_INTENT_RE.search(preceding):
             _block(
