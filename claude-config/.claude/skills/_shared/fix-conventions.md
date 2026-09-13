@@ -75,6 +75,7 @@ Reporting a cross-package finding and stopping there is **not** an outcome.
 | `azure` → `datrix-codegen-azure` | `/fix-codegen-azure` |
 | `component` → `datrix-codegen-component` | `/fix-codegen-component` |
 | `angular` → `datrix-codegen-angular` | `/fix-codegen-angular` |
+| `react` → `datrix-codegen-react` | `/fix-codegen-react` |
 | (shared codegen base) → `datrix-codegen-common` | `/fix-codegen-common` |
 
 Datrix is a multi-language, multi-platform generator — this table grows. A `{generator}` token with no row here means the table is stale, **not** that the generator is unowned: its package is `datrix-codegen-{generator}`, and its fix skill is `/fix-codegen-{generator}`.

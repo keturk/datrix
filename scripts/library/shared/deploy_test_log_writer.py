@@ -16,6 +16,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .codegen_hint_mapper import (
+    COMPOSE_BUILDER_HINT_GENERATOR,
+    COMPOSE_BUILDER_HINT_TEMPLATE,
+)
 from .structured_log_writer import (
     _ANSI_ESCAPE,
     _DOUBLE_QUOTED,
@@ -177,6 +181,155 @@ _PHASE_FAILURE_PATTERNS: dict[str, re.Pattern[str]] = {
         r"jest_tests_failed"
     ),
 }
+
+#: Prefix of one logging record written by the generated deploy-test runner:
+#: ``YYYY-MM-DD HH:MM:SS,mmm LEVEL ``. A line carrying it STARTS a record, and
+#: every unprefixed line after it, up to the next prefixed line, is that
+#: record's body. The runner logs a failed command as ONE record -- the
+#: ``<label> output:`` header on the prefixed line and the command's captured
+#: stdout+stderr on the lines below -- so the diagnosis is never on the line
+#: the ERROR token is on. Reading the log line-by-line kept the header and lost
+#: the diagnosis: every compose interpolation failure was recorded as
+#: ``ERROR docker_build output:`` and clustered by its timestamp.
+_LOG_RECORD_PREFIX = re.compile(
+    r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} "
+    r"(?:DEBUG|INFO|WARNING|ERROR|CRITICAL) "
+)
+
+#: A record header that names a command and nothing else; its payload is the
+#: captured output on the following lines.
+_OUTPUT_HEADER = re.compile(r"^\S+ output:\s*$")
+
+#: Upper bound on the lines an extracted phase error message keeps, taken from
+#: the END of the record: docker and compose print progress first and the
+#: diagnosis last, so a ``docker compose up`` that started sixty containers
+#: before the daemon refused a mount carries its one useful line at the bottom
+#: of a very long record.
+_MAX_ERROR_MESSAGE_LINES = 40
+
+
+def _split_log_records(lines: list[str]) -> list[list[str]]:
+    """Group log lines into the records the runner wrote them as.
+
+    A line carrying the runner's timestamped prefix starts a record and owns
+    every following unprefixed line until the next prefixed one. An unprefixed
+    line that follows no prefixed line -- the legacy human-readable log shape
+    (``=== Docker Build ===``) -- is a record on its own, so those logs keep
+    their line-per-record reading.
+
+    Args:
+        lines: The log lines of one phase, in order.
+
+    Returns:
+        The records, each a non-empty list of lines with the header first.
+    """
+    records: list[list[str]] = []
+    continuing = False
+    for line in lines:
+        if _LOG_RECORD_PREFIX.match(line):
+            records.append([line])
+            continuing = True
+        elif continuing:
+            records[-1].append(line)
+        else:
+            records.append([line])
+    return records
+
+
+def _record_error_message(record: list[str]) -> str:
+    """Return the diagnosis one log record carries.
+
+    The header's timestamp and level are stripped -- they are the run's
+    metadata, not the error's, and left in place they were what clustering
+    normalized on. For a ``<label> output:`` record the header names only the
+    command that failed; the diagnosis is the captured output below it, so the
+    header is dropped and the body is the message. Bounded to
+    ``_MAX_ERROR_MESSAGE_LINES`` lines with the elided count stated.
+
+    Args:
+        record: One record as returned by ``_split_log_records``.
+
+    Returns:
+        The message text, possibly multi-line, with no leading or trailing
+        blank lines.
+    """
+    header = _LOG_RECORD_PREFIX.sub("", record[0], count=1).strip()
+    body = _record_body(record)
+    if _OUTPUT_HEADER.match(header) and body:
+        lines = body
+    elif header:
+        lines = [header, *body]
+    else:
+        lines = body
+    if len(lines) > _MAX_ERROR_MESSAGE_LINES:
+        elided = len(lines) - _MAX_ERROR_MESSAGE_LINES
+        lines = [f"... ({elided} earlier lines elided)", *lines[-_MAX_ERROR_MESSAGE_LINES:]]
+    return "\n".join(lines).strip()
+
+
+def _record_body(record: list[str]) -> list[str]:
+    """The lines under a record's header, blank edges trimmed."""
+    body = [line.rstrip() for line in record[1:]]
+    while body and not body[0].strip():
+        body.pop(0)
+    while body and not body[-1].strip():
+        body.pop()
+    return body
+
+
+def _diagnosis_line(message: str) -> str:
+    """The last non-empty line of a lifecycle error message.
+
+    For a single-line message this is the message itself. For a captured
+    command output it is the line docker or compose printed last, which is
+    the one that says why the command failed.
+
+    Args:
+        message: A phase error message as extracted by ``_record_error_message``.
+
+    Returns:
+        The diagnosis line, or the message unchanged when it has no lines.
+    """
+    for line in reversed(message.split("\n")):
+        if line.strip():
+            return line
+    return message
+
+
+def _is_output_record(record: list[str]) -> bool:
+    """True for a ``<label> output:`` record that carries captured output."""
+    header = _LOG_RECORD_PREFIX.sub("", record[0], count=1).strip()
+    return bool(_OUTPUT_HEADER.match(header)) and bool(_record_body(record))
+
+
+def _failing_record_message(
+    section_lines: list[str], failure_pattern: re.Pattern[str]
+) -> str | None:
+    """Return the diagnosis of the first failure a phase's records show.
+
+    The runner logs a failed command in two records: ``<label> output:`` with
+    the captured stdout+stderr, then ``<label>_failed exit_code=N``. A phase's
+    failure pattern may match either -- ``ERROR.*build`` matches the first,
+    ``docker_up_failed`` only the second -- and the diagnosis is always in the
+    output record. So when the matched record is a bare marker and the record
+    right before it is an output record, that one is the message.
+
+    Args:
+        section_lines: The phase's log lines, in order.
+        failure_pattern: The phase's failure pattern.
+
+    Returns:
+        The diagnosis, or None when no record matches.
+    """
+    records = _split_log_records(section_lines)
+    for index, record in enumerate(records):
+        if not failure_pattern.search("\n".join(record)):
+            continue
+        marker_only = len(record) == 1
+        if marker_only and index > 0 and _is_output_record(records[index - 1]):
+            return _record_error_message(records[index - 1])
+        return _record_error_message(record)
+    return None
 
 # Duration extraction from deploy log
 _DURATION_PATTERN = re.compile(
@@ -522,19 +675,15 @@ class DeployTestLogWriter:
             if refined[phase_name].result == "SKIPPED":
                 refined[phase_name] = PhaseResult(result="PASSED")
 
-            # Check for failure patterns in this phase's section
+            # Check for failure patterns in this phase's section. The message
+            # is the whole RECORD the pattern matched, not the line: the
+            # runner puts a failed command's output under a one-line header.
             section_text = "\n".join(section_lines)
             failure_pattern = _PHASE_FAILURE_PATTERNS[phase_name]
-            failure_match = failure_pattern.search(section_text)
+            error_message = _failing_record_message(section_lines, failure_pattern)
 
-            if failure_match:
+            if error_message is not None:
                 found_failure = True
-                error_message = failure_match.group(0).strip()
-                # Extract full error context (the line containing the match)
-                for sline in section_lines:
-                    if failure_match.group(0) in sline:
-                        error_message = sline.strip()
-                        break
 
                 # Extract relevant containers for Docker phases
                 relevant_containers: list[str] = []
@@ -1257,8 +1406,11 @@ class DeployTestLogWriter:
 
         groups: dict[str, list[DeployError]] = {}
         for error in errors:
+            # A lifecycle error's message is a failed command's captured
+            # output, and docker/compose print the diagnosis LAST -- after the
+            # progress lines. Cluster on that line, not on "Container x Started".
             key = self._normalize_error_message(
-                error.error_type, error.error_message
+                error.error_type, _diagnosis_line(error.error_message)
             )
             if key not in groups:
                 groups[key] = []
@@ -1338,11 +1490,12 @@ class DeployTestLogWriter:
         Returns:
             Dict with probable_template and probable_generator, or None.
         """
-        # Docker lifecycle phases -> Docker generators
+        # Docker lifecycle phases -> the compose builders (the compose file has
+        # no Jinja template; naming one sends triage to a file nobody can open)
         if phase in ("docker-build", "docker-up"):
             return {
-                "probable_template": "docker-compose.yml.j2",
-                "probable_generator": "DockerComposeGenerator",
+                "probable_template": COMPOSE_BUILDER_HINT_TEMPLATE,
+                "probable_generator": COMPOSE_BUILDER_HINT_GENERATOR,
             }
 
         if phase == "health-check":
@@ -1610,8 +1763,9 @@ class DeployTestLogWriter:
                 )
                 error_str = ""
                 if phase.error_message:
-                    # Truncate long error messages
-                    msg = phase.error_message[:80]
+                    # One line per phase here; the full multi-line message is
+                    # in the ERRORS section and the errors/ detail file.
+                    msg = phase.error_message.split("\n", 1)[0][:80]
                     error_str = f"  \u2192 {msg}"
                 elif phase.counts:
                     passed = phase.counts.get("passed", 0)

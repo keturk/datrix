@@ -19,6 +19,14 @@ class CodegenHint:
     probable_generator: str
 
 
+#: The compose file's "template" is the YAML-builder module, not a Jinja file;
+#: shared with the deploy-test log writer's lifecycle-phase hint so both name
+#: the same place.
+COMPOSE_BUILDER_HINT_TEMPLATE: Final[str] = (
+    "generators/compose/compose_builder.py (YAML builders; no Jinja template)"
+)
+COMPOSE_BUILDER_HINT_GENERATOR: Final[str] = "ComposeBuilder"
+
 # Pattern → hint mapping (most specific first).
 # Each entry is (compiled regex, CodegenHint).
 # Patterns match against forward-slash-normalized paths.
@@ -98,9 +106,13 @@ _PATH_PATTERNS: Final[list[tuple[re.Pattern[str], CodegenHint]]] = [
         CodegenHint("config.ts.j2", "ConfigGenerator"),
     ),
     # ── Docker/Compose targets ──
+    # The compose file has no Jinja template: it is assembled by the YAML
+    # builders under generators/compose/ and serialized by ComposeBuilder. A
+    # hint naming a .j2 that does not exist sends triage to a file nobody can
+    # open; name the builder module instead.
     (
         re.compile(r".*/docker-compose\.ya?ml$"),
-        CodegenHint("docker-compose.yml.j2", "DockerComposeGenerator"),
+        CodegenHint(COMPOSE_BUILDER_HINT_TEMPLATE, COMPOSE_BUILDER_HINT_GENERATOR),
     ),
     (
         re.compile(r".*/Dockerfile$"),

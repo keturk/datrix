@@ -69,7 +69,12 @@ from shared.aggregate_test_writer import (  # noqa: E402
     ProjectSummary,
     SuiteFailureCluster,
 )
-from shared.codegen_hint_mapper import CodegenHint, get_codegen_hint  # noqa: E402
+from shared.codegen_hint_mapper import (  # noqa: E402
+    COMPOSE_BUILDER_HINT_GENERATOR,
+    COMPOSE_BUILDER_HINT_TEMPLATE,
+    CodegenHint,
+    get_codegen_hint,
+)
 from shared.deploy_test_aggregate_writer import DeployTestAggregateWriter  # noqa: E402
 from shared.deploy_test_log_writer import (  # noqa: E402
     DEPLOY_PHASES,
@@ -988,8 +993,11 @@ def check_codegen_hint_docker_patterns() -> None:
     """docker-compose.yml and Dockerfile each return their generator hint."""
     compose = get_codegen_hint("project/docker-compose.yml")
     assert compose is not None
-    assert compose.probable_template == "docker-compose.yml.j2"
-    assert compose.probable_generator == "DockerComposeGenerator"
+    # The compose file is YAML-builder emitted; the hint must name the builder
+    # module, never a .j2 that does not exist.
+    assert compose.probable_template == COMPOSE_BUILDER_HINT_TEMPLATE
+    assert compose.probable_generator == COMPOSE_BUILDER_HINT_GENERATOR
+    assert ".j2" not in compose.probable_template
 
     dockerfile = get_codegen_hint("svc/Dockerfile")
     assert dockerfile is not None
@@ -1059,7 +1067,7 @@ def _deploy_agg_infrastructure_index() -> dict[str, object]:
                 "pattern": "ContainerUnhealthy: * is unhealthy",
                 "phase": "docker-up",
                 "count": 1,
-                "codegen_hint": {"probable_template": "docker-compose.yml.j2"},
+                "codegen_hint": {"probable_template": COMPOSE_BUILDER_HINT_TEMPLATE},
             },
         ],
     }
@@ -2626,6 +2634,119 @@ def check_deploy_test_log_docker_log_excerpting_and_fallback() -> None:
                 assert "PHASE:" in fallback_files[0].read_text(encoding="utf-8")
 
 
+def check_deploy_test_log_lifecycle_error_message_is_the_record_body() -> None:
+    """The runner logs a failed command as ONE record: a ``<label> output:``
+    header on the timestamped ERROR line and the command's stdout+stderr on
+    the lines below. The phase error message, the errors/ detail file, and the
+    cluster pattern must carry that body -- the compose diagnosis -- not the
+    header line, and never the timestamp. A legacy human-readable log keeps its
+    line-per-record reading, and an over-long body is bounded with the elided
+    count stated."""
+    diagnosis = (
+        "error while interpolating services.library-system-grafana.environment."
+        "GF_SECURITY_ADMIN_USER: required variable GRAFANA_ADMIN_USER is missing "
+        "a value: GRAFANA_ADMIN_USER is required -- set it in .env; Grafana must "
+        "not run on a default account name"
+    )
+    with TemporaryDirectory(prefix="dtlw-record-") as tmp:
+        root = Path(tmp)
+
+        run_dir = _new_deploy_run_dir(root, "compose-interpolation")
+        (run_dir / "deploy-test-output.log").write_text(
+            "2026-09-12 12:41:50,306 ERROR docker_build output:\n"
+            f"{diagnosis}\n"
+            "\n"
+            "2026-09-12 12:41:50,307 ERROR docker_build_failed exit_code=15\n",
+            encoding="utf-8",
+        )
+        writer = _make_deploy_writer(run_dir, root, project_name="01-foundation", example="01-foundation")
+        index = json.loads(writer.write(timestamp=_TIMESTAMP).read_text(encoding="utf-8"))
+        assert index["failed_phase"] == "docker-build"
+        phase_message = index["phases"]["docker-build"]["error_message"]
+        assert phase_message == diagnosis, phase_message
+        assert "12:41:50" not in phase_message, "the record's timestamp is run metadata, not the error"
+        assert len(index["errors"]) == 1
+        assert index["errors"][0]["error_message"] == diagnosis
+        assert index["error_clusters"][0]["pattern"].endswith("is required -- set it in .env; Grafana must not run on a default account name"), (
+            index["error_clusters"][0]["pattern"]
+        )
+        error_file = sorted((run_dir / "errors").glob("*.txt"))[0].read_text(encoding="utf-8")
+        assert f"MESSAGE: {diagnosis}" in error_file
+        summary = (run_dir / "summary.txt").read_text(encoding="utf-8")
+        assert "error while interpolating" in summary
+        assert "ERROR docker_build output:" not in summary
+
+        run_multiline = _new_deploy_run_dir(root, "multiline-body")
+        body_lines = [f"step {n} failed: reason {n}" for n in range(1, 61)]
+        (run_multiline / "deploy-test-output.log").write_text(
+            "2026-09-12 12:41:50,306 ERROR docker_build output:\n"
+            + "\n".join(body_lines)
+            + "\n2026-09-12 12:41:50,307 ERROR docker_build_failed exit_code=1\n",
+            encoding="utf-8",
+        )
+        writer_multiline = _make_deploy_writer(run_multiline, root)
+        index_multiline = json.loads(
+            writer_multiline.write(timestamp=_TIMESTAMP).read_text(encoding="utf-8")
+        )
+        message_lines = index_multiline["phases"]["docker-build"]["error_message"].split("\n")
+        assert message_lines[0] == "... (20 earlier lines elided)", message_lines[0]
+        assert message_lines[1] == "step 21 failed: reason 21"
+        assert message_lines[-1] == "step 60 failed: reason 60", (
+            "docker prints the diagnosis LAST; the bound must keep the tail"
+        )
+        assert len(message_lines) == 41
+        assert "docker_build_failed" not in index_multiline["phases"]["docker-build"]["error_message"], (
+            "the NEXT record must not bleed into this one's body"
+        )
+
+        # docker-up: the phase's failure pattern matches only the bare
+        # `docker_up_failed` MARKER, and the diagnosis is in the `docker_up_retry
+        # output:` record logged right before it -- at the END of compose's
+        # progress lines.
+        run_up = _new_deploy_run_dir(root, "up-marker")
+        progress = "\n".join(f" Container svc-{n}  Started" for n in range(1, 6))
+        daemon_error = (
+            "Error response from daemon: path / is mounted on / but it is not a "
+            "shared or slave mount"
+        )
+        (run_up / "deploy-test-output.log").write_text(
+            "2026-09-12 15:15:40,000 INFO docker_build_completed\n"
+            "2026-09-12 15:15:57,656 ERROR docker_up output:\n"
+            f"{progress}\n{daemon_error}\n\n"
+            "2026-09-12 15:15:57,669 WARNING docker_up_retrying reason=dependency_may_need_restart\n"
+            "2026-09-12 15:16:20,012 ERROR docker_up_retry output:\n"
+            f"{progress}\n{daemon_error}\n\n"
+            "2026-09-12 15:16:20,013 ERROR docker_up_failed exit_code=1\n",
+            encoding="utf-8",
+        )
+        writer_up = _make_deploy_writer(run_up, root)
+        index_up = json.loads(writer_up.write(timestamp=_TIMESTAMP).read_text(encoding="utf-8"))
+        assert index_up["failed_phase"] == "docker-up"
+        up_message = index_up["phases"]["docker-up"]["error_message"]
+        assert up_message.split("\n")[-1] == daemon_error, up_message
+        assert "docker_up_failed" not in up_message, "the marker is not the diagnosis"
+        assert index_up["error_clusters"][0]["pattern"].endswith(daemon_error), (
+            "a lifecycle cluster keys on the DIAGNOSIS line, the last one docker "
+            f"printed, never on a progress line -- got {index_up['error_clusters'][0]['pattern']!r}"
+        )
+        up_summary = (run_up / "summary.txt").read_text(encoding="utf-8")
+        assert daemon_error in up_summary
+
+        run_legacy = _new_deploy_run_dir(root, "legacy")
+        (run_legacy / "deploy-test-output.log").write_text(
+            "=== Docker Build ===\n"
+            "Building services...\n"
+            "failed to build library-book-service: exit status 1\n"
+            "some unrelated trailing line\n",
+            encoding="utf-8",
+        )
+        writer_legacy = _make_deploy_writer(run_legacy, root)
+        index_legacy = json.loads(writer_legacy.write(timestamp=_TIMESTAMP).read_text(encoding="utf-8"))
+        assert index_legacy["phases"]["docker-build"]["error_message"] == (
+            "failed to build library-book-service: exit status 1"
+        )
+
+
 def check_deploy_test_log_transient_vs_logic_classification() -> None:
     """ConnectionResetError-family messages classify as transient with NO
     codegen hint (not a codegen bug); AssertionError classifies as logic WITH a
@@ -3110,6 +3231,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_deploy_test_log_phase_detection,
     check_deploy_test_log_regression_no_markers_must_fail_not_pass,
     check_deploy_test_log_docker_log_excerpting_and_fallback,
+    check_deploy_test_log_lifecycle_error_message_is_the_record_body,
     check_deploy_test_log_transient_vs_logic_classification,
     check_deploy_test_log_clustering,
     check_deploy_test_log_index_summary_schema,

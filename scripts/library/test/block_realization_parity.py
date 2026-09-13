@@ -130,6 +130,7 @@ _PRESENCE_SHAPED_SCALAR_FIELDS: Final[tuple[str, ...]] = (
     "gateway_terminates_tls",
     "rdbms_login_principal_is_per_service",
     "published_host_ports",
+    "published_host_port_bindings",
     "edge_origin_host_port",
     "edge_path_routed_origins",
     "cache_pooled_slice_delivery",
@@ -586,6 +587,7 @@ def _synthetic_declaration(
         supported_runtimes=frozenset({RuntimeId("self-test-runtime")}),
         serverless_compute_model=ServerlessPlatform.CONTAINER,
         block_realizations=block_realizations,
+        model_realizations={},
         declared_set_exclusions=set_exclusions or {},
     )
 

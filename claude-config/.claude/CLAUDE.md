@@ -273,7 +273,7 @@ outcome — never submit it. An unproven BLOCKED is the second worst.**
 `/codegen-fix-loop`, `/operationalize-design`, `/task-orchestrator`, `/commit-and-push`,
 `/evaluate-generated`, `/evaluate-generated-service`, `/fix-cli`, `/fix-common`,
 `/fix-extensions`, `/fix-language`, `/fix-vscode`,
-`/fix-codegen-{angular,aws,azure,common,component,docker,dotnet,java,python,sql,typescript}`.
+`/fix-codegen-{angular,aws,azure,common,component,docker,dotnet,java,python,react,sql,typescript}`.
 
 **Jon types these — you cannot:** `/opus-work`, `/fable-work`, `/delegate`, `/imports`,
 `/logic-map`, `/fix`, `/scope`, `/codegen-review`, `/execute-tasks`,
