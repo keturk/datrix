@@ -53,8 +53,8 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
 
     // ': audit' on the rdbms block enables audit logging for all entities
     rdbms paymentDb : audit {
-        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
-        alert transactionDuration(p99) over(1m) > 2s @severity(critical);
+        alert queryDuration(avg) over(5m) > 200ms @severity(warning);
+        alert transactionDuration(max) over(1m) > 2s @severity(critical);
 
         entity Payment extends BaseEntity {
             UUID orderId : index;
@@ -176,7 +176,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
     }
 
     rest_api PaymentAPI : basePath('/api/v1/payments'), rdbms(paymentDb) {
-        alert responseTime(p95) over(5m) > 500ms @severity(warning);
+        alert responseTime(avg) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 3% @severity(critical);
 
         resource paymentDb.Payment : auth(required, providers: [identity]), only(get);

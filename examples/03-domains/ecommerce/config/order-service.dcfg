@@ -213,6 +213,11 @@
     alias env = "AWS";
     alias resource = "aws";
 
+    // Consumers run inside the ECS task, not as SQS-triggered Lambdas: the
+    // Lambda packaging path is realized for python and typescript only, and
+    // this example generates in every registered language.
+    runtime { consumers = "in-process"; }
+
     replicas = 2;
     scaling {
       replicas {

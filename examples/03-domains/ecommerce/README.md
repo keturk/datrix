@@ -82,9 +82,15 @@ datrix generate -s examples/03-domains/ecommerce/system.dtrx -L typescript
 datrix generate -s examples/03-domains/ecommerce/system.dtrx -L python --profile aws
 ```
 
-The cloud profiles declare CloudWatch / Azure Monitor metrics; a language whose
-generator does not realize those providers is rejected at generation time with
-the provider it does realize.
+Every language realizes the `aws` profile's CloudWatch metrics (the service exposes
+the same Prometheus endpoint a CloudWatch-agent sidecar scrapes). Today only
+`-L python` generates the `aws` profile end to end: the profile's service-level
+`subscribe`/`enqueue` consumers are deployed as Lambda functions on AWS and
+`datrix-codegen-aws` packages Lambda images for Python only (`-L java`/`-L dotnet`
+are rejected naming those consumers), and the MSK broker endpoints are deploy-resolved,
+which the TypeScript runtime cannot bind (`-L typescript` is rejected at the pubsub
+block). The `azure` profile's Azure Monitor metrics are realized by Python alone;
+other languages are rejected naming the provider they do realize.
 
 ## Files
 

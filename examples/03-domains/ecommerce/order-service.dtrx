@@ -51,8 +51,11 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
     }
 
     rdbms orderDb {
-        // 'alert' defines monitoring thresholds for the datasource
-        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
+        // 'alert' defines monitoring thresholds for the datasource. Duration
+        // alerts use avg/max: a percentile over a scraped histogram is not
+        // computable on CloudWatch (it receives Count/Sum/Min/Max), and this
+        // example generates for every platform.
+        alert queryDuration(avg) over(5m) > 200ms @severity(warning);
         alert connectionPool(utilization) over(1m) > 80% @severity(critical);
 
         // ': audit' enables automatic audit logging for the entity
@@ -339,7 +342,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
 
     rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(orderDb) {
         // API-level monitoring alerts
-        alert responseTime(p95) over(5m) > 500ms @severity(warning);
+        alert responseTime(avg) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 
         // Paginated list endpoint with optional filtering

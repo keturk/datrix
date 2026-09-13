@@ -88,10 +88,13 @@ It cuts both ways, and both directions are your work:
 
 ### Verification is per profile, on the artifact
 
-Static first (CLAUDE.md's ladder): compute the reach set from the `extends` graph and the emitter, then regenerate **only the profiles in that set**, each with its own wrapper. Regeneration is local and deploys nothing.
+Static first (CLAUDE.md's ladder): compute the reach set from the `extends` graph and the emitter. The reach set is the set of profiles your fix must be *correct* for; it is **not** the set you regenerate.
+
+**Regenerate `devd` and `staging` only — and only those of the two that are in the reach set.** Every other profile is regenerated only when Jon names it in the request. A reach set of five python profiles still means two regeneration runs, not five: `test`, `dev`, `prod` and any other profile are verified by reading — the `extends` clause that puts them in the reach set and the emitter that feeds them — never by a run nobody asked for. Each run uses its own wrapper; regeneration is local and deploys nothing.
 
 ```
-powershell -File "<scripts-root>/<profile>/generate.ps1"
+powershell -File "<scripts-root>/devd/generate.ps1"
+powershell -File "<scripts-root>/staging/generate.ps1"
 ```
 
 Then census the result. **Census every repo the run can write**, which is shape-dependent — a census that covers one repo of a split product silently misses the other:
@@ -108,9 +111,10 @@ git -C <dsl-root>       status --porcelain .datrix/    # ledger revisions append
 git -C <dsl-root>       diff --stat
 ```
 
-- Every profile tree appearing in that diff must be one you intended to change. **An unexpected profile tree in the diff IS the "you broke another profile" signal** — caught statically, before anything is deployed.
-- For each **exhibiting** profile: parse/grep the specific artifact and show the defect is gone.
-- For each **reached-but-not-exhibiting** profile: show the artifact is unchanged, or changed exactly as intended.
+- Every profile tree appearing in that diff must be one you intended to change. **An unexpected profile tree in the diff IS the "you broke another profile" signal** — caught statically, before anything is deployed. A tree for a profile you were not asked to regenerate is that signal too, even when its content is right.
+- For each **regenerated exhibiting** profile: parse/grep the specific artifact and show the defect is gone.
+- For each **regenerated reached-but-not-exhibiting** profile: show the artifact is unchanged, or changed exactly as intended.
+- For each **reached profile you did not regenerate**: name the `.dcfg` `extends` edge or the emitter that places it in the reach set, and say so in the report — its tree is stale on disk until its own next generation, and that is expected.
 
 **"I fixed it in `base`" is not evidence.** A profile that overrides that key is still broken. Per-profile artifact output, or the fix is unproven — this is the "fix the class, not the instance" rule applied along the profile axis.
 
@@ -229,11 +233,13 @@ Report layout varies between products (a product may use a richer template with 
    Grouped root causes: {count unique fixes} (covering {N} individual bugs)
 
    Execution plan:
-   1. [B] {generator fix description} — resolves: {bug-file-1}, {bug-file-2} — regenerates: {profiles}
-   2. [A] {app fix description} — resolves: {bug-file-3} — regenerates: {profiles}
+   1. [B] {generator fix description} — resolves: {bug-file-1}, {bug-file-2} — reaches: {profiles}
+   2. [A] {app fix description} — resolves: {bug-file-3} — reaches: {profiles}
    ...
 
-   Profiles to regenerate (union of reach sets): {profiles}
+   Union of reach sets: {profiles}
+   Profiles to regenerate (devd/staging ∩ reach, plus any Jon named): {profiles}
+   Reached, verified by reading only: {profiles}
    ```
 
 8. **Scope gate:**
@@ -301,13 +307,14 @@ Bug reports resolved by this fix: {list of bug filenames}
 
 #### Profile Gate (after the last edit that reaches a given profile):
 
-Regenerate each profile in the union of the reach sets with its own wrapper, then produce the census and the per-profile artifact evidence described in "Deployment Profiles → Verification is per profile, on the artifact". Paste the command and its output — a regeneration you did not run, or a profile tree you did not look at, is an unverified claim.
+Regenerate `devd` and `staging` (those in the union of the reach sets, plus any profile Jon named) with their own wrappers, then produce the census and the per-profile artifact evidence described in "Deployment Profiles → Verification is per profile, on the artifact". Paste the command and its output — a regeneration you did not run, or a profile tree you did not look at, is an unverified claim. A regeneration nobody asked for is not extra evidence; it is a profile tree churned for nothing.
 
-The gate passes only when all three hold:
+The gate passes only when all four hold:
 
-1. Every exhibiting profile's artifact shows the defect gone.
-2. The generated-tree census (every repo the run can write — see "Verification is per profile, on the artifact") names no profile tree you did not intend to change.
-3. Every reached-but-not-exhibiting profile's artifact is unchanged, or changed exactly as intended and stated.
+1. Every regenerated exhibiting profile's artifact shows the defect gone.
+2. The generated-tree census (every repo the run can write — see "Verification is per profile, on the artifact") names no profile tree you did not intend to change — and no tree for a profile you were not asked to regenerate.
+3. Every regenerated reached-but-not-exhibiting profile's artifact is unchanged, or changed exactly as intended and stated.
+4. Every reached profile you did not regenerate is listed with the `extends` edge or emitter that reaches it.
 
 A profile that fails any of the three is unfinished work, not a footnote — go fix it. Partial-profile completion is the same dodge as "out of scope".
 
@@ -421,7 +428,7 @@ See `d:\datrix\.claude\skills\_shared\fix-conventions.md` (also applies per-bug:
 - **NO stopping at the reporting profile** — the same emitter or config key feeding another profile makes that profile yours too; a latent copy is a defect, not a coincidence
 - **NO "fixed in `base`, so all profiles are fixed"** — a profile overriding that key is still broken. Per-profile artifact evidence, or it is unproven
 - **NO branching on a profile name inside a generator** — profiles are product config; the generator sees runtime/provider/target only
-- **NO regenerating profiles outside the reach set** and **NO deploy/sync/release/provision of any profile** — regeneration wrappers and reads are the whole verification toolkit here
+- **NO regenerating any profile other than `devd` and `staging`** unless Jon names it in the request — a reach set of five is still two runs; the rest are verified by reading. **NO regenerating a profile outside the reach set** either, and **NO deploy/sync/release/provision of any profile** — regeneration wrappers and reads are the whole verification toolkit here
 - **NO debug scatter** — zero temporary logging statements
 - **NO modifying original bug report content** — only append the Resolution section
 - **NO committing changes** — user decides when to commit
