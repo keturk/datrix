@@ -223,6 +223,14 @@ determines its example id, its parity-baseline key, and the path registered in
 `scripts/test/example-registry-gate.ps1` enforces all three, alongside the rule
 that every example is registered in at least one `test-projects.json` test set.
 
+An example may additionally carry a **`generated/<language>-<platform>/`** snapshot of
+its own output for readers who want to see the code without running the generator
+(today: [ecommerce](03-domains/ecommerce/generated/), for every registered language on
+the docker-compose profile). A snapshot holds no `.dtrx`/`.dcfg`, so it is not a nested
+example; it is copied verbatim from a `datrix generate` run minus build output, the
+run's `.datrix/` state, and the per-service `secrets/` directories the generated
+`.gitignore` already excludes. Regenerating is still the supported workflow.
+
 ### Entry Point Pattern
 
 The `system.dtrx` file is the **entry point** for each project:

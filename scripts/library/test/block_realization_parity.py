@@ -162,6 +162,20 @@ _EXPLANATORY_METADATA_FIELDS: Final[frozenset[str]] = frozenset({
     "declared_set_exclusions",
 })
 
+#: Fields that INVENTORY what this platform's own tooling writes into the
+#: generated project tree, rather than declare a capability another platform
+#: could realize or lack. ``untracked_project_artifacts`` lists the gitignore
+#: patterns for a platform's own deploy transcripts, secret files and
+#: environment files; a pattern one platform declares says nothing about
+#: another platform, whose tooling writes different files or none. Comparing
+#: these across platforms would manufacture a "hole" for every platform that
+#: does not run the docker secret engine. The check that belongs to this field
+#: is per package -- a seam test in the owning platform that every path its
+#: templates write is declared -- and it lives beside each declaration.
+_EMISSION_INVENTORY_FIELDS: Final[frozenset[str]] = frozenset({
+    "untracked_project_artifacts",
+})
+
 
 def configure_logging(debug: bool = False) -> None:
     """Configure logging output."""
@@ -178,7 +192,8 @@ def _assert_scalar_field_partition_complete() -> None:
     ``PlatformCapabilityDeclaration`` and silently escapes every surface.
     Every OPTIONAL field (one with a default) must be a member of EXACTLY
     ONE of: ``_SURFACE_OWNED_OPTIONAL_FIELDS``, ``_SET_SHAPED_SCALAR_FIELDS``,
-    ``_PRESENCE_SHAPED_SCALAR_FIELDS``.
+    ``_PRESENCE_SHAPED_SCALAR_FIELDS``, ``_EXPLANATORY_METADATA_FIELDS``,
+    ``_EMISSION_INVENTORY_FIELDS``.
 
     Raises:
         AssertionError: If any optional field is unaccounted for, or is
@@ -195,6 +210,7 @@ def _assert_scalar_field_partition_complete() -> None:
         frozenset(_SET_SHAPED_SCALAR_FIELDS),
         frozenset(_PRESENCE_SHAPED_SCALAR_FIELDS),
         _EXPLANATORY_METADATA_FIELDS,
+        _EMISSION_INVENTORY_FIELDS,
     )
     accounted: set[str] = set()
     overlaps: set[str] = set()

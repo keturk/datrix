@@ -376,6 +376,25 @@ censuses every registered language's templates against its own idioms: a realize
 fails by name. A missing value is never defaulted on any language — the MSK region raises when
 unset on python and typescript alike.
 
+## Untracked Project Artifacts — Declared Per Platform, Rendered Once
+
+A generated project's root `.gitignore` has two blocks with two owners. The language's
+`service/gitignore.j2` lists only what that language's toolchain leaves behind. What a
+**platform's** tooling writes into the tree after generation — the docker runtime's
+per-service file-backed secrets (`secrets/*/`) and compose `.env`, the Azure deploy scripts'
+transcript directories — is declared on that platform's
+`PlatformCapabilityDeclaration.untracked_project_artifacts` (pattern + reason, on the platform
+that *emits* the tooling: the `docker` generator, never the `local` identity), resolved by
+`capability_resolution.untracked_project_artifacts_for(provider, runtime)` as the union of the
+provider and every scaffold contributor for the runtime, and appended by the shared
+`DocGenerator` (`datrix_common.generation.project_ignore`, which also carries the shared deploy
+wrappers' `.venv/`). A language template never re-types a platform's secret layout — two of
+four once carried docker's by hand and the other two would have committed every per-service
+database password on a first `git add -A`. The cross-platform parity gate does not compare the
+field (what one platform's script writes says nothing about another's); the check is the
+producer-vs-declaration seam test beside each declaration, and each language's doc-generator
+test asserts the resolved set is a subset of its rendered file.
+
 ## Framework HTTP Headers — One Registry, Declared Holes
 
 Every header Datrix itself mints on a generated service's wire — the trusted-caller token, the

@@ -64,21 +64,22 @@ service taskmgmt.TaskService : version('1.0.0') {
 
 That's it. Datrix generates the FastAPI app, SQLAlchemy models, Alembic migrations, Pydantic schemas, CRUD endpoints, Docker setup, tests, and monitoring — all production-ready.
 
-Browse the full example: [task-management/](examples/03-domains/task-management/) | [generated output](examples/03-domains/task-management/generated/python-docker/)
+Browse the full example: [task-management/](examples/03-domains/task-management/)
 
 ## The E-Commerce Example
 
-For something more ambitious: **5 microservices, ~2,500 lines of `.dtrx`** generating **~800 files** of production code:
+For something more ambitious: **6 microservices, ~2,500 lines of `.dtrx`** generating **1,000–1,300 files** of production code per language:
 
 - **OrderService** — Order lifecycle, idempotency keys, payment coordination
 - **ProductService** — Catalog, inventory, reviews (MongoDB), image storage (S3)
 - **UserService** — Registration, JWT auth, sessions, preferences
 - **PaymentService** — Payment processing, refunds, Stripe webhooks
 - **ShippingService** — Multi-carrier tracking, shipment events
+- **NotificationService** — Order-confirmation consumer
 
-Infrastructure included: PostgreSQL (per service), MongoDB, Redis, Kafka, MinIO, Nginx reverse proxy, Prometheus, Grafana, Jaeger tracing — all wired together in `docker-compose.yml`.
+Infrastructure included: PostgreSQL, MongoDB, Redis, Kafka, RabbitMQ, MinIO, Nginx reverse proxy, Zitadel identity, Prometheus, Grafana, Loki, Jaeger tracing — all wired together in `docker-compose.yml`.
 
-Browse the full example: [ecommerce/](examples/03-domains/ecommerce/) | [generated output](examples/03-domains/ecommerce/generated/python-docker/)
+Browse the full example: [ecommerce/](examples/03-domains/ecommerce/), and the same system generated for each language: [Python](examples/03-domains/ecommerce/generated/python-docker/) · [TypeScript](examples/03-domains/ecommerce/generated/typescript-docker/) · [.NET](examples/03-domains/ecommerce/generated/dotnet-docker/) · [Java](examples/03-domains/ecommerce/generated/java-docker/)
 
 ---
 

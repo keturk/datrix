@@ -89,7 +89,7 @@ datrix generate --source examples/03-domains/ecommerce/system.dtrx --output ./ge
 
 **Note:** Deployment configuration (runtime and provider) is specified in the ConfigDSL files, not via CLI flags.
 
-Some domains also ship **pre-generated** trees under `generated/` for inspection; regenerating is still the supported workflow.
+The e-commerce domain also ships **pre-generated** trees for inspection — one per registered language on the docker-compose profile, under [`examples/03-domains/ecommerce/generated/`](../../examples/03-domains/ecommerce/generated/) (`python-docker/`, `typescript-docker/`, `dotnet-docker/`, `java-docker/`); regenerating is still the supported workflow.
 
 ---
 
