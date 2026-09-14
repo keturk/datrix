@@ -1,0 +1,82 @@
+groups:
+  - name: ecommerce-payment-service-standard
+    rules:
+      - alert: HighErrorRate
+        expr: sum(rate(http_errors_total{service="ecommerce-payment-service",status_code=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{service="ecommerce-payment-service"}[5m])), 1e-9) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: ecommerce-payment-service
+        annotations:
+          summary: "High error rate on ecommerce-payment-service"
+          description: "5xx error rate above 5% for 5 minutes."
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service="ecommerce-payment-service"}[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: ecommerce-payment-service
+        annotations:
+          summary: "High P95 latency on ecommerce-payment-service"
+          description: "P95 latency above 2 seconds for 5 minutes."
+      - alert: DatabaseConnectionPoolExhausted
+        expr: sum(sqlalchemy_pool_checked_out{service="ecommerce-payment-service"}) / clamp_min(sum(sqlalchemy_pool_size{service="ecommerce-payment-service"}), 1) > 0.9
+        for: 2m
+        labels:
+          severity: critical
+          service: ecommerce-payment-service
+        annotations:
+          summary: "DB pool nearly exhausted on ecommerce-payment-service"
+          description: "Checked-out connections exceed 90% of configured pool capacity."
+  - name: ecommerce-payment-service-dsl
+    rules:
+      - alert: payment_db_query_duration_high
+        expr: sum(rate(payment_db_query_duration_sum[5m])) / sum(rate(payment_db_query_duration_count[5m])) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          service: ecommerce-payment-service
+          block: paymentDb
+        annotations:
+          summary: "paymentDb.queryDuration avg exceeds 200.0ms"
+          description: "avg(payment_db_query_duration) over 5m > 200.0ms"
+      - alert: payment_db_transaction_duration_high
+        expr: histogram_quantile(1, sum(rate(payment_db_transaction_duration_bucket[1m])) by (le)) > 2.0
+        for: 1m
+        labels:
+          severity: critical
+          service: ecommerce-payment-service
+          block: paymentDb
+        annotations:
+          summary: "paymentDb.transactionDuration max exceeds 2.0s"
+          description: "max(payment_db_transaction_duration) over 1m > 2.0s"
+      - alert: mq_failed_messages_high
+        expr: sum(increase(mq_failed_messages_total[5m])) > 5.0
+        for: 5m
+        labels:
+          severity: critical
+          service: ecommerce-payment-service
+          block: mq
+        annotations:
+          summary: "mq.failedMessages count exceeds 5.0"
+          description: "count(mq_failed_messages) over 5m > 5.0"
+      - alert: payment_api_response_time_high
+        expr: sum(rate(payment_api_response_time_sum[5m])) / sum(rate(payment_api_response_time_count[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: ecommerce-payment-service
+          block: PaymentAPI
+        annotations:
+          summary: "PaymentAPI.responseTime avg exceeds 500.0ms"
+          description: "avg(payment_api_response_time) over 5m > 500.0ms"
+      - alert: payment_api_error_rate_high
+        expr: payment_api_error_rate > 0.03
+        for: 5m
+        labels:
+          severity: critical
+          service: ecommerce-payment-service
+          block: PaymentAPI
+        annotations:
+          summary: "PaymentAPI.errorRate ratio exceeds 3.0%"
+          description: "ratio(payment_api_error_rate) over 5m > 3.0%"

@@ -1,0 +1,21 @@
+{
+  "connections": {
+    "docdb_database": "product_analytics",
+    "docdb_host": "ecommerce-product-service-docdb",
+    "docdb_port": 27017,
+    "docdb_user": "app",
+    "mq_brokers": "ecommerce-kafka:9092",
+    "mq_port": 9092,
+    "product_db_database": "library_books",
+    "product_db_host": "ecommerce-postgresql",
+    "product_db_port": 5432,
+    "product_db_user": "postgres",
+    "redis_database": 1,
+    "redis_host": "ecommerce-redis",
+    "redis_port": 6379,
+    "store_endpoint": "http://ecommerce-product-service-minio:9000"
+  },
+  "settings": {
+    "debugMode": false
+  }
+}

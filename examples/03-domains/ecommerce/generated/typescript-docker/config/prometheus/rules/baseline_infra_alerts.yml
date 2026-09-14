@@ -1,0 +1,65 @@
+groups:
+  - name: baseline-container-health
+    rules:
+      - alert: ContainerHighCpuUsage
+        expr: rate(container_cpu_usage_seconds_total{name!=""}[5m]) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          datrix_alert_type: baseline
+        annotations:
+          summary: "A container is sustaining CPU usage above 0.85 cores"
+          description: "cAdvisor-reported container CPU usage exceeded 0.85 cores for 5 minutes."
+      - alert: ContainerHighMemoryUsage
+        # The zero-limit guard is a filtering comparison on the selector
+        # (`... > 0`), NOT a matcher inside `{}` -- a metric compared to a
+        # number is not a valid label matcher and makes Prometheus reject the
+        # whole rule file. `{name!=""} > 0` keeps only series with a real
+        # memory limit, avoiding a divide-by-zero for limitless containers.
+        expr: (container_memory_usage_bytes{name!=""} / (container_spec_memory_limit_bytes{name!=""} > 0)) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          datrix_alert_type: baseline
+        annotations:
+          summary: "A container is using more than 90% of its memory limit"
+          description: "cAdvisor-reported container memory usage exceeded 0.9 of the configured memory limit for 5 minutes."
+      - alert: ContainerMemoryLimitMissing
+        # ContainerHighMemoryUsage above divides by the memory limit and its
+        # `> 0` filter drops every series whose limit is zero -- so a container
+        # running with NO memory limit is invisible to it and can grow until the
+        # host OOMs with no alert ever firing. That is not a threshold this rule
+        # tunes; it is the absence of a bound, which is itself the fault. cAdvisor
+        # reports `container_spec_memory_limit_bytes == 0` for an unbounded
+        # container, so the unbounded set is stated directly -- no division, no
+        # vector matching, nothing that could make Prometheus reject the file.
+        expr: container_spec_memory_limit_bytes{name!=""} == 0
+        for: 5m
+        labels:
+          severity: warning
+          datrix_alert_type: baseline
+        annotations:
+          summary: "A container is running with no memory limit"
+          description: "cAdvisor reports no memory limit for this container, so ContainerHighMemoryUsage can never evaluate it and unbounded growth would reach the host OOM killer unannounced. Declare a memory limit for it."
+      - alert: ContainerRestarted
+        # Best-effort: container_start_time_seconds changing indicates a
+        # restart. Not a guaranteed exact count -- see docs/observability-stack.md.
+        expr: changes(container_start_time_seconds{name!=""}[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          datrix_alert_type: baseline
+        annotations:
+          summary: "A container restarted within the last 1h"
+          description: "container_start_time_seconds changed for a container in the last 1h, indicating a restart (best-effort signal)."
+  - name: baseline-infra-container-down
+    rules:
+      - alert: InfraContainerDown
+        expr: (time() - container_last_seen{name=~"ecommerce-prometheus|ecommerce-cadvisor|ecommerce-grafana|ecommerce-loki|ecommerce-promtail|ecommerce-alertmanager|ecommerce-jaeger"}) > 60
+        for: 1m
+        labels:
+          severity: critical
+          datrix_alert_type: baseline
+        annotations:
+          summary: "An observability infra container has not been seen by cAdvisor recently"
+          description: 'container_last_seen is stale by more than 60s for an infra container matching ''ecommerce-prometheus|ecommerce-cadvisor|ecommerce-grafana|ecommerce-loki|ecommerce-promtail|ecommerce-alertmanager|ecommerce-jaeger''.'

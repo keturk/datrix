@@ -1,0 +1,30 @@
+{
+  "comments": {
+    "dev_dependencies": "The test runners (tests/unit-tests.js, tests/deploy-test.js) execute node <root>/node_modules/jest/bin/jest.js, so the Jest toolchain must be declared HERE - pnpm only links a package's own dependencies into its node_modules, never a workspace member's",
+    "do_not_remove": "Removing this breaks dependency sharing and leaves the test runners with no resolvable Jest",
+    "shared_deps": "Every service package and the tests package below this root share this root's node_modules",
+    "workspace": "This package.json plus pnpm-workspace.yaml make the project root a pnpm workspace"
+  },
+  "description": "Datrix TypeScript workspace root - one node_modules shared by every package in this project",
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "name": "datrix-typescript-workspace",
+  "packageManager": "pnpm@9.15.9",
+  "private": true,
+  "scripts": {
+    "build:all": "pnpm -r --workspace-concurrency=4 run build",
+    "install:all": "pnpm install",
+    "test:all": "pnpm -r --workspace-concurrency=4 run test"
+  },
+  "version": "1.0.0"
+}

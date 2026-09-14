@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>DeployTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" Version="2.3.2" />
+    <PackageReference Include="xunit.v3.mtp-v2" Version="3.2.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../ecommerce_user_service/src/UserService/UserService.csproj" />
+    <ProjectReference Include="../../ecommerce_product_service/src/ProductService/ProductService.csproj" />
+    <ProjectReference Include="../../ecommerce_order_service/src/OrderService/OrderService.csproj" />
+    <ProjectReference Include="../../ecommerce_payment_service/src/PaymentService/PaymentService.csproj" />
+    <ProjectReference Include="../../ecommerce_shipping_service/src/ShippingService/ShippingService.csproj" />
+  </ItemGroup>
+
+</Project>

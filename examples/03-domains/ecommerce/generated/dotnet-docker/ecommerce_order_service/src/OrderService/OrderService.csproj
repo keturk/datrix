@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>OrderService</RootNamespace>
+    <AssemblyName>App</AssemblyName>
+    <!-- Emits an XML documentation file the OpenAPI document generator
+         (Microsoft.AspNetCore.OpenApi's AddOpenApi()) reads to populate
+         operation summaries/descriptions and schema property descriptions
+         from XML doc comments. This project sets no warnings-as-errors
+         policy anywhere, so the missing-XML-comment warning a construct
+         with no doc comment now produces (compiler warning CS1591) stays a
+         warning, never a build failure; no warning-suppression property is
+         added here because none is needed. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Confluent.Kafka" Version="2.15.0" />
+    <PackageReference Include="FluentMigrator" Version="8.0.1" />
+    <PackageReference Include="FluentMigrator.Runner" Version="8.0.1" />
+    <PackageReference Include="FluentMigrator.Runner.Postgres" Version="8.0.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.8.0" />
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0" />
+    <PackageReference Include="Quartz" Version="3.18.2" />
+    <PackageReference Include="Quartz.Extensions.Hosting" Version="3.18.2" />
+    <PackageReference Include="RabbitMQ.Client" Version="7.2.1" />
+    <PackageReference Include="StackExchange.Redis" Version="3.0.17" />
+    <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
+  </ItemGroup>
+
+  <!-- Bundled identity provider plan artifact:
+       present only for a wheel-deployed target's JWKS-validating service
+       (DotnetIdentityPlanArtifactGenerator); the Condition makes this
+       ItemGroup a no-op for every other service without threading an extra
+       Jinja flag through generate_csproj. -->
+  <ItemGroup>
+    <None Include="Config/identity-provider-plan.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('Config/identity-provider-plan.json')" />
+  </ItemGroup>
+
+</Project>

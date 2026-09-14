@@ -1,0 +1,20 @@
+# Spring Boot test profile for ecommerce.PaymentService (JUnit 5 + Spring Boot Test)
+spring:
+  threads:
+    virtual:
+      enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: none
+  liquibase:
+    enabled: false
+
+# Test-profile log floor. The service's own `logging.level.root` in
+# application.yaml is the level the DEPLOYED app should emit at; applying it
+# under test turns every Spring/Hibernate/connection-pool startup line into
+# console noise wrapped around a handful of assertions. This profile-specific
+# value overrides it for tests only -- WARN and ERROR still print, so a real
+# problem is never hidden.
+logging:
+  level:
+    root: WARN

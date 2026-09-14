@@ -1,0 +1,19 @@
+# Datrix TypeScript Workspace Configuration
+#
+# This file sits at the generated project root and makes every package below it
+# a member of ONE pnpm workspace, so a single `pnpm install` at this root
+# installs for all of them and they share this root's node_modules store.
+#
+# Members are enumerated explicitly from the services in the generated system
+# plus the project-level `tests` package. Explicit members mean the workspace
+# never depends on a naming convention for service directories, and pnpm never
+# has to walk the tree to discover them.
+
+packages:
+  - 'ecommerce_user_service'
+  - 'ecommerce_product_service'
+  - 'ecommerce_order_service'
+  - 'ecommerce_payment_service'
+  - 'ecommerce_shipping_service'
+  - 'ecommerce_notification_service'
+  - 'tests'

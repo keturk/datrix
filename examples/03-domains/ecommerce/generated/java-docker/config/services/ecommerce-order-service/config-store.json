@@ -1,0 +1,20 @@
+{
+  "connections": {
+    "ecommerce_product_service_base_url": "http://ecommerce-product-service:8004",
+    "ecommerce_user_service_base_url": "http://ecommerce-user-service:8006",
+    "mq_brokers": "ecommerce-kafka:9092",
+    "mq_port": 9092,
+    "order_db_database": "library_books",
+    "order_db_host": "ecommerce-postgresql",
+    "order_db_port": 5432,
+    "order_db_user": "postgres",
+    "queues_host": "ecommerce-order-service-queue-rabbitmq",
+    "queues_port": 5672,
+    "redis_database": 2,
+    "redis_host": "ecommerce-redis",
+    "redis_port": 6379
+  },
+  "settings": {
+    "debugMode": false
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "connections": {
+    "ecommerce_order_service_base_url": "http://ecommerce-order-service:8002",
+    "notification_db_database": "library_books",
+    "notification_db_host": "ecommerce-postgresql",
+    "notification_db_port": 5432,
+    "notification_db_user": "postgres",
+    "queues_host": "ecommerce-order-service-queue-rabbitmq",
+    "queues_port": 5672
+  },
+  "settings": {
+    "debugMode": false
+  }
+}

@@ -1,0 +1,1698 @@
+services:
+  ecommerce-user-service:
+    build:
+      context: ./ecommerce_user_service
+      dockerfile: Dockerfile
+    image: ecommerce-user-service:latest
+    container_name: ecommerce-user-service
+    ports:
+    - 127.0.0.1::8006
+    environment:
+      PORT: '8006'
+      SERVICE_NAME: ecommerce-user-service
+      UV_THREADPOOL_SIZE: '16'
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      SERVICE_JWT_EXPIRY_MINUTES: ${SERVICE_JWT_EXPIRY_MINUTES:-60}
+      SMTP_HOST: ecommerce-mailpit
+      SMTP_PORT: '1025'
+      SMTP_FROM: noreply@example.com
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://ecommerce-jaeger:4317
+      DEBUG: 'false'
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: library
+      IDENTITY_IDENTITY_CLIENT_SECRET_REF: ${IDENTITY_IDENTITY_CLIENT_SECRET_REF}
+      IDENTITY_PLATFORM_CLIENT_SECRET_REF: ${IDENTITY_PLATFORM_CLIENT_SECRET_REF}
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+      ecommerce-redis:
+        condition: service_healthy
+      ecommerce-kafka:
+        condition: service_healthy
+      ecommerce-user-service-mq-init:
+        condition: service_completed_successfully
+      ecommerce-jaeger:
+        condition: service_healthy
+      ecommerce-zitadel:
+        condition: service_healthy
+      ecommerce-zitadel-init:
+        condition: service_completed_successfully
+      ecommerce-user-service-user-db-migrate:
+        condition: service_completed_successfully
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-user-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-user-service__smtp_host
+      target: smtp_host
+    - source: ecommerce-user-service__smtp_password
+      target: smtp_password
+    - source: ecommerce-user-service__smtp_port
+      target: smtp_port
+    - source: ecommerce-user-service__smtp_username
+      target: smtp_username
+    - source: ecommerce-user-service__user_db_password
+      target: user_db_password
+    cpu_shares: 1024
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8006/ready')"
+      interval: 10s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+    - backend
+    - broker
+    - cache
+    - database
+    - observability
+    restart: unless-stopped
+  ecommerce-product-service:
+    build:
+      context: ./ecommerce_product_service
+      dockerfile: Dockerfile
+    image: ecommerce-product-service:latest
+    container_name: ecommerce-product-service
+    ports:
+    - 127.0.0.1::8004
+    environment:
+      PORT: '8004'
+      SERVICE_NAME: ecommerce-product-service
+      UV_THREADPOOL_SIZE: '16'
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      SERVICE_JWT_EXPIRY_MINUTES: ${SERVICE_JWT_EXPIRY_MINUTES:-60}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://ecommerce-jaeger:4317
+      DEBUG: 'false'
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: library
+      IDENTITY_IDENTITY_CLIENT_SECRET_REF: ${IDENTITY_IDENTITY_CLIENT_SECRET_REF}
+      IDENTITY_PLATFORM_CLIENT_SECRET_REF: ${IDENTITY_PLATFORM_CLIENT_SECRET_REF}
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+      ecommerce-redis:
+        condition: service_healthy
+      ecommerce-kafka:
+        condition: service_healthy
+      ecommerce-product-service-docdb:
+        condition: service_healthy
+      ecommerce-product-service-mq-init:
+        condition: service_completed_successfully
+      ecommerce-jaeger:
+        condition: service_healthy
+      ecommerce-product-service-minio:
+        condition: service_healthy
+      init-storage-ecommerce-product-service:
+        condition: service_completed_successfully
+      ecommerce-zitadel:
+        condition: service_healthy
+      ecommerce-zitadel-init:
+        condition: service_completed_successfully
+      ecommerce-product-service-product-db-migrate:
+        condition: service_completed_successfully
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-product-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-product-service__docdb_secret-key
+      target: docdb_secret-key
+    - source: ecommerce-product-service__minio_access_key
+      target: minio_access_key
+    - source: ecommerce-product-service__minio_secret_key
+      target: minio_secret_key
+    - source: ecommerce-product-service__product_db_password
+      target: product_db_password
+    cpu_shares: 1024
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8004/ready')"
+      interval: 10s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+    - backend
+    - broker
+    - cache
+    - database
+    - observability
+    - storage
+    restart: unless-stopped
+  ecommerce-order-service:
+    build:
+      context: ./ecommerce_order_service
+      dockerfile: Dockerfile
+    image: ecommerce-order-service:latest
+    container_name: ecommerce-order-service
+    ports:
+    - 127.0.0.1::8002
+    environment:
+      PORT: '8002'
+      SERVICE_NAME: ecommerce-order-service
+      UV_THREADPOOL_SIZE: '16'
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      SERVICE_JWT_EXPIRY_MINUTES: ${SERVICE_JWT_EXPIRY_MINUTES:-60}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://ecommerce-jaeger:4317
+      ECOMMERCE_PRODUCT_SERVICE_SERVICE_URL: http://ecommerce-product-service:8004
+      ECOMMERCE_USER_SERVICE_SERVICE_URL: http://ecommerce-user-service:8006
+      DEBUG: 'false'
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: library
+      IDENTITY_IDENTITY_CLIENT_SECRET_REF: ${IDENTITY_IDENTITY_CLIENT_SECRET_REF}
+      IDENTITY_PLATFORM_CLIENT_SECRET_REF: ${IDENTITY_PLATFORM_CLIENT_SECRET_REF}
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+      ecommerce-redis:
+        condition: service_healthy
+      ecommerce-kafka:
+        condition: service_healthy
+      ecommerce-order-service-queue-rabbitmq:
+        condition: service_healthy
+      ecommerce-order-service-mq-init:
+        condition: service_completed_successfully
+      ecommerce-jaeger:
+        condition: service_healthy
+      ecommerce-zitadel:
+        condition: service_healthy
+      ecommerce-zitadel-init:
+        condition: service_completed_successfully
+      ecommerce-order-service-order-db-migrate:
+        condition: service_completed_successfully
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-order-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-order-service__order_db_password
+      target: order_db_password
+    - source: ecommerce-order-service__queues_password
+      target: queues_password
+    cpu_shares: 1024
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8002/ready')"
+      interval: 10s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+    - backend
+    - broker
+    - cache
+    - database
+    - observability
+    restart: unless-stopped
+  ecommerce-order-service-queue-worker:
+    image: ecommerce-order-service:latest
+    pull_policy: never
+    container_name: ecommerce-order-service-queue-worker
+    environment:
+      PORT: '8002'
+      SERVICE_NAME: ecommerce-order-service
+      UV_THREADPOOL_SIZE: '16'
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      SERVICE_JWT_EXPIRY_MINUTES: ${SERVICE_JWT_EXPIRY_MINUTES:-60}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://ecommerce-jaeger:4317
+      ECOMMERCE_PRODUCT_SERVICE_SERVICE_URL: http://ecommerce-product-service:8004
+      ECOMMERCE_USER_SERVICE_SERVICE_URL: http://ecommerce-user-service:8006
+      DEBUG: 'false'
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: library
+      IDENTITY_IDENTITY_CLIENT_SECRET_REF: ${IDENTITY_IDENTITY_CLIENT_SECRET_REF}
+      IDENTITY_PLATFORM_CLIENT_SECRET_REF: ${IDENTITY_PLATFORM_CLIENT_SECRET_REF}
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+      ecommerce-redis:
+        condition: service_healthy
+      ecommerce-kafka:
+        condition: service_healthy
+      ecommerce-order-service-queue-rabbitmq:
+        condition: service_healthy
+      ecommerce-order-service-mq-init:
+        condition: service_completed_successfully
+      ecommerce-jaeger:
+        condition: service_healthy
+      ecommerce-zitadel:
+        condition: service_healthy
+      ecommerce-zitadel-init:
+        condition: service_completed_successfully
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-order-service-queue-worker/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-order-service-queue-worker__order_db_password
+      target: order_db_password
+    - source: ecommerce-order-service-queue-worker__queues_password
+      target: queues_password
+    cpu_shares: 256
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - kill -0 1 2>/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    command:
+    - python
+    - -m
+    - ecommerce_order_service.jobs.queue_consumer
+    networks:
+    - backend
+    - broker
+    - cache
+    - database
+    - observability
+    restart: unless-stopped
+  ecommerce-payment-service:
+    build:
+      context: ./ecommerce_payment_service
+      dockerfile: Dockerfile
+    image: ecommerce-payment-service:latest
+    container_name: ecommerce-payment-service
+    ports:
+    - 127.0.0.1::8003
+    environment:
+      PORT: '8003'
+      SERVICE_NAME: ecommerce-payment-service
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      SERVICE_JWT_EXPIRY_MINUTES: ${SERVICE_JWT_EXPIRY_MINUTES:-60}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://ecommerce-jaeger:4317
+      ECOMMERCE_ORDER_SERVICE_SERVICE_URL: http://ecommerce-order-service:8002
+      DEBUG: 'false'
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: library
+      IDENTITY_IDENTITY_CLIENT_SECRET_REF: ${IDENTITY_IDENTITY_CLIENT_SECRET_REF}
+      IDENTITY_PLATFORM_CLIENT_SECRET_REF: ${IDENTITY_PLATFORM_CLIENT_SECRET_REF}
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+      ecommerce-kafka:
+        condition: service_healthy
+      ecommerce-order-service-queue-rabbitmq:
+        condition: service_healthy
+      ecommerce-payment-service-mq-init:
+        condition: service_completed_successfully
+      ecommerce-jaeger:
+        condition: service_healthy
+      ecommerce-zitadel:
+        condition: service_healthy
+      ecommerce-zitadel-init:
+        condition: service_completed_successfully
+      ecommerce-payment-service-payment-db-migrate:
+        condition: service_completed_successfully
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-payment-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-payment-service__payment_db_password
+      target: payment_db_password
+    - source: ecommerce-payment-service__queues_password
+      target: queues_password
+    cpu_shares: 1024
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8003/ready')"
+      interval: 10s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+    - backend
+    - broker
+    - database
+    - observability
+    restart: unless-stopped
+  ecommerce-shipping-service:
+    build:
+      context: ./ecommerce_shipping_service
+      dockerfile: Dockerfile
+    image: ecommerce-shipping-service:latest
+    container_name: ecommerce-shipping-service
+    ports:
+    - 127.0.0.1::8005
+    environment:
+      PORT: '8005'
+      SERVICE_NAME: ecommerce-shipping-service
+      UV_THREADPOOL_SIZE: '16'
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      SERVICE_JWT_EXPIRY_MINUTES: ${SERVICE_JWT_EXPIRY_MINUTES:-60}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://ecommerce-jaeger:4317
+      DEBUG: 'false'
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: library
+      IDENTITY_IDENTITY_CLIENT_SECRET_REF: ${IDENTITY_IDENTITY_CLIENT_SECRET_REF}
+      IDENTITY_PLATFORM_CLIENT_SECRET_REF: ${IDENTITY_PLATFORM_CLIENT_SECRET_REF}
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+      ecommerce-redis:
+        condition: service_healthy
+      ecommerce-kafka:
+        condition: service_healthy
+      ecommerce-shipping-service-mq-init:
+        condition: service_completed_successfully
+      ecommerce-jaeger:
+        condition: service_healthy
+      ecommerce-zitadel:
+        condition: service_healthy
+      ecommerce-zitadel-init:
+        condition: service_completed_successfully
+      ecommerce-shipping-service-shipping-db-migrate:
+        condition: service_completed_successfully
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-shipping-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-shipping-service__shipping_db_password
+      target: shipping_db_password
+    cpu_shares: 1024
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8005/ready')"
+      interval: 10s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+    - backend
+    - broker
+    - cache
+    - database
+    - observability
+    restart: unless-stopped
+  ecommerce-notification-service:
+    build:
+      context: ./ecommerce_notification_service
+      dockerfile: Dockerfile
+    image: ecommerce-notification-service:latest
+    container_name: ecommerce-notification-service
+    environment:
+      PORT: '8001'
+      SERVICE_NAME: ecommerce-notification-service
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      SERVICE_JWT_EXPIRY_MINUTES: ${SERVICE_JWT_EXPIRY_MINUTES:-60}
+      SMTP_HOST: ecommerce-mailpit
+      SMTP_PORT: '1025'
+      SMTP_FROM: noreply@example.com
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://ecommerce-jaeger:4317
+      ECOMMERCE_ORDER_SERVICE_SERVICE_URL: http://ecommerce-order-service:8002
+      DEBUG: 'false'
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: library
+      IDENTITY_IDENTITY_CLIENT_SECRET_REF: ${IDENTITY_IDENTITY_CLIENT_SECRET_REF}
+      IDENTITY_PLATFORM_CLIENT_SECRET_REF: ${IDENTITY_PLATFORM_CLIENT_SECRET_REF}
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+      ecommerce-order-service-queue-rabbitmq:
+        condition: service_healthy
+      ecommerce-jaeger:
+        condition: service_healthy
+      ecommerce-zitadel:
+        condition: service_healthy
+      ecommerce-zitadel-init:
+        condition: service_completed_successfully
+      ecommerce-notification-service-notification-db-migrate:
+        condition: service_completed_successfully
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-notification-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-notification-service__notification_db_password
+      target: notification_db_password
+    - source: ecommerce-notification-service__queues_password
+      target: queues_password
+    - source: ecommerce-notification-service__smtp_host
+      target: smtp_host
+    - source: ecommerce-notification-service__smtp_password
+      target: smtp_password
+    - source: ecommerce-notification-service__smtp_port
+      target: smtp_port
+    - source: ecommerce-notification-service__smtp_username
+      target: smtp_username
+    cpu_shares: 1024
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/ready')"
+      interval: 10s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+    - backend
+    - broker
+    - database
+    - observability
+    restart: unless-stopped
+  ecommerce-payment-service-enqueue-worker-ecommerce-order-service-process-payment:
+    image: ecommerce-payment-service:latest
+    pull_policy: never
+    container_name: ecommerce-payment-service-enqueue-worker-ecommerce-order-service-process-payment
+    environment:
+      PORT: '8003'
+      SERVICE_NAME: ecommerce-payment-service
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      SERVICE_JWT_EXPIRY_MINUTES: ${SERVICE_JWT_EXPIRY_MINUTES:-60}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://ecommerce-jaeger:4317
+      ECOMMERCE_ORDER_SERVICE_SERVICE_URL: http://ecommerce-order-service:8002
+      DEBUG: 'false'
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: library
+      IDENTITY_IDENTITY_CLIENT_SECRET_REF: ${IDENTITY_IDENTITY_CLIENT_SECRET_REF}
+      IDENTITY_PLATFORM_CLIENT_SECRET_REF: ${IDENTITY_PLATFORM_CLIENT_SECRET_REF}
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+      ecommerce-kafka:
+        condition: service_healthy
+      ecommerce-order-service-queue-rabbitmq:
+        condition: service_healthy
+      ecommerce-payment-service-mq-init:
+        condition: service_completed_successfully
+      ecommerce-jaeger:
+        condition: service_healthy
+      ecommerce-zitadel:
+        condition: service_healthy
+      ecommerce-zitadel-init:
+        condition: service_completed_successfully
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-payment-service-enqueue-worker-ecommerce-order-service-process-payment/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-payment-service-enqueue-worker-ecommerce-order-service-process-payment__payment_db_password
+      target: payment_db_password
+    - source: ecommerce-payment-service-enqueue-worker-ecommerce-order-service-process-payment__queues_password
+      target: queues_password
+    cpu_shares: 256
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - kill -0 1 2>/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    command:
+    - python
+    - -m
+    - ecommerce_payment_service.workers.queue_worker
+    networks:
+    - backend
+    - broker
+    - database
+    - observability
+    restart: unless-stopped
+  ecommerce-payment-service-enqueue-worker-ecommerce-order-service-settle-payment:
+    image: ecommerce-payment-service:latest
+    pull_policy: never
+    container_name: ecommerce-payment-service-enqueue-worker-ecommerce-order-service-settle-payment
+    environment:
+      PORT: '8003'
+      SERVICE_NAME: ecommerce-payment-service
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      SERVICE_JWT_EXPIRY_MINUTES: ${SERVICE_JWT_EXPIRY_MINUTES:-60}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://ecommerce-jaeger:4317
+      ECOMMERCE_ORDER_SERVICE_SERVICE_URL: http://ecommerce-order-service:8002
+      DEBUG: 'false'
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: library
+      IDENTITY_IDENTITY_CLIENT_SECRET_REF: ${IDENTITY_IDENTITY_CLIENT_SECRET_REF}
+      IDENTITY_PLATFORM_CLIENT_SECRET_REF: ${IDENTITY_PLATFORM_CLIENT_SECRET_REF}
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+      ecommerce-kafka:
+        condition: service_healthy
+      ecommerce-order-service-queue-rabbitmq:
+        condition: service_healthy
+      ecommerce-payment-service-mq-init:
+        condition: service_completed_successfully
+      ecommerce-jaeger:
+        condition: service_healthy
+      ecommerce-zitadel:
+        condition: service_healthy
+      ecommerce-zitadel-init:
+        condition: service_completed_successfully
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-payment-service-enqueue-worker-ecommerce-order-service-settle-payment/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-payment-service-enqueue-worker-ecommerce-order-service-settle-payment__payment_db_password
+      target: payment_db_password
+    - source: ecommerce-payment-service-enqueue-worker-ecommerce-order-service-settle-payment__queues_password
+      target: queues_password
+    cpu_shares: 256
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - kill -0 1 2>/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    command:
+    - python
+    - -m
+    - ecommerce_payment_service.workers.queue_worker
+    networks:
+    - backend
+    - broker
+    - database
+    - observability
+    restart: unless-stopped
+  ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation:
+    image: ecommerce-notification-service:latest
+    pull_policy: never
+    container_name: ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation
+    environment:
+      PORT: '8001'
+      SERVICE_NAME: ecommerce-notification-service
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      SERVICE_JWT_EXPIRY_MINUTES: ${SERVICE_JWT_EXPIRY_MINUTES:-60}
+      SMTP_HOST: ecommerce-mailpit
+      SMTP_PORT: '1025'
+      SMTP_FROM: noreply@example.com
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://ecommerce-jaeger:4317
+      ECOMMERCE_ORDER_SERVICE_SERVICE_URL: http://ecommerce-order-service:8002
+      DEBUG: 'false'
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: library
+      IDENTITY_IDENTITY_CLIENT_SECRET_REF: ${IDENTITY_IDENTITY_CLIENT_SECRET_REF}
+      IDENTITY_PLATFORM_CLIENT_SECRET_REF: ${IDENTITY_PLATFORM_CLIENT_SECRET_REF}
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+      ecommerce-order-service-queue-rabbitmq:
+        condition: service_healthy
+      ecommerce-jaeger:
+        condition: service_healthy
+      ecommerce-zitadel:
+        condition: service_healthy
+      ecommerce-zitadel-init:
+        condition: service_completed_successfully
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation__notification_db_password
+      target: notification_db_password
+    - source: ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation__queues_password
+      target: queues_password
+    - source: ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation__smtp_host
+      target: smtp_host
+    - source: ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation__smtp_password
+      target: smtp_password
+    - source: ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation__smtp_port
+      target: smtp_port
+    - source: ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation__smtp_username
+      target: smtp_username
+    cpu_shares: 256
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - kill -0 1 2>/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    command:
+    - python
+    - -m
+    - ecommerce_notification_service.workers.queue_worker
+    networks:
+    - backend
+    - broker
+    - database
+    - observability
+    restart: unless-stopped
+  ecommerce-postgresql:
+    image: postgres:17-alpine
+    container_name: ecommerce-postgresql
+    ports:
+    - '5432'
+    environment:
+      POSTGRES_DB: library_books
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${ECOMMERCE_POSTGRESQL_POSTGRES_PASSWORD}
+    volumes:
+    - ecommerce-postgresql-data:/var/lib/postgresql/data
+    - ./scripts/init-db/ecommerce-postgresql.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -h 127.0.0.1 -U $$POSTGRES_USER
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    cpu_shares: 1024
+    networks:
+    - database
+    restart: unless-stopped
+  ecommerce-redis:
+    image: redis:7
+    container_name: ecommerce-redis
+    ports:
+    - '6379'
+    volumes:
+    - ecommerce-redis-data:/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - redis-cli ping
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    cpu_shares: 1024
+    networks:
+    - cache
+    restart: unless-stopped
+  ecommerce-product-service-docdb:
+    image: mongo:7
+    container_name: ecommerce-product-service-docdb
+    ports:
+    - '27017'
+    environment:
+      MONGO_INITDB_DATABASE: product_analytics
+      MONGO_INITDB_ROOT_USERNAME: app
+      MONGO_INITDB_ROOT_PASSWORD: ${ECOMMERCE_PRODUCT_SERVICE_DOCDB_MONGO_ROOT_PASSWORD}
+    volumes:
+    - ecommerce-product-service-docdb-data:/data/db
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - 'mongosh --eval ''db.adminCommand({ ping: 1 })'''
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    cpu_shares: 1024
+    networks:
+    - database
+    restart: unless-stopped
+  ecommerce-order-service-queue-rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: ecommerce-order-service-queue-rabbitmq
+    ports:
+    - '5672'
+    - '15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: N3VN11zUKE2FOg6gzvDSmE_C
+    volumes:
+    - ecommerce-order-service-queue-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    cpu_shares: 1024
+    networks:
+    - broker
+    restart: unless-stopped
+  ecommerce-mailpit:
+    image: axllent/mailpit:v1.21
+    container_name: ecommerce-mailpit
+    ports:
+    - '1025'
+    - '8025'
+    cpu_shares: 1024
+    networks:
+    - backend
+    restart: unless-stopped
+  ecommerce-kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: ecommerce-kafka
+    ports:
+    - 29092:29092
+    environment:
+      KAFKA_NODE_ID: '1'
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@ecommerce-kafka:9093
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://ecommerce-kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: '1'
+      KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS: '1'
+      KAFKA_OFFSETS_TOPIC_SEGMENT_BYTES: '16777216'
+      KAFKA_LOG_CLEANER_ENABLE: 'true'
+      KAFKA_METADATA_LOG_SEGMENT_BYTES: '33554432'
+      KAFKA_LOG_RETENTION_MS: '604800000'
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    volumes:
+    - ecommerce-kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1
+      interval: 10s
+      timeout: 15s
+      retries: 20
+      start_period: 60s
+    cpu_shares: 1024
+    networks:
+    - broker
+    restart: unless-stopped
+  ecommerce-user-service-mq-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: ecommerce-user-service-mq-init
+    volumes:
+    - ./scripts/init-topics:/scripts/init-topics:ro
+    command:
+    - /bin/bash
+    - /scripts/init-topics/ecommerce-user-service-mq.sh
+    depends_on:
+      ecommerce-kafka:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - broker
+    restart: 'no'
+  ecommerce-product-service-mq-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: ecommerce-product-service-mq-init
+    volumes:
+    - ./scripts/init-topics:/scripts/init-topics:ro
+    command:
+    - /bin/bash
+    - /scripts/init-topics/ecommerce-product-service-mq.sh
+    depends_on:
+      ecommerce-kafka:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - broker
+    restart: 'no'
+  ecommerce-order-service-mq-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: ecommerce-order-service-mq-init
+    volumes:
+    - ./scripts/init-topics:/scripts/init-topics:ro
+    command:
+    - /bin/bash
+    - /scripts/init-topics/ecommerce-order-service-mq.sh
+    depends_on:
+      ecommerce-kafka:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - broker
+    restart: 'no'
+  ecommerce-payment-service-mq-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: ecommerce-payment-service-mq-init
+    volumes:
+    - ./scripts/init-topics:/scripts/init-topics:ro
+    command:
+    - /bin/bash
+    - /scripts/init-topics/ecommerce-payment-service-mq.sh
+    depends_on:
+      ecommerce-kafka:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - broker
+    restart: 'no'
+  ecommerce-shipping-service-mq-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: ecommerce-shipping-service-mq-init
+    volumes:
+    - ./scripts/init-topics:/scripts/init-topics:ro
+    command:
+    - /bin/bash
+    - /scripts/init-topics/ecommerce-shipping-service-mq.sh
+    depends_on:
+      ecommerce-kafka:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - broker
+    restart: 'no'
+  ecommerce-kafka-config-check:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: ecommerce-kafka-config-check
+    volumes:
+    - ./scripts/init-topics:/scripts/init-topics:ro
+    command:
+    - /bin/bash
+    - /scripts/init-topics/ecommerce-kafka-broker-config.sh
+    depends_on:
+      ecommerce-kafka:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - broker
+    restart: 'no'
+  ecommerce-cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.5
+    container_name: ecommerce-cadvisor
+    ports:
+    - '8080'
+    volumes:
+    - /var/run:/var/run:ro
+    - /sys:/sys:ro
+    command:
+    - --enable_metrics=app,cpu,cpuLoad,diskIO,memory,network,oom_event,percpu,perf_event
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:8080/api/v1.3/docker/ecommerce-cadvisor
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    cpu_shares: 256
+    networks:
+    - observability
+    privileged: true
+    restart: unless-stopped
+  ecommerce-prometheus:
+    image: prom/prometheus:v2.49.1
+    container_name: ecommerce-prometheus
+    ports:
+    - '9090'
+    volumes:
+    - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    - ./config/prometheus/rules:/etc/prometheus/rules:ro
+    - prometheus-data:/prometheus
+    command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --storage.tsdb.path=/prometheus
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:9090/-/healthy
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    cpu_shares: 256
+    networks:
+    - backend
+    - observability
+    restart: unless-stopped
+  ecommerce-jaeger:
+    image: jaegertracing/all-in-one:1.53
+    container_name: ecommerce-jaeger
+    ports:
+    - '16686'
+    - '14268'
+    - '4317'
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'
+    volumes:
+    - ./config/jaeger/sampling_strategies.json:/etc/jaeger/sampling_strategies.json:ro
+    command:
+    - --sampling.strategies-file=/etc/jaeger/sampling_strategies.json
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:14269/
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    cpu_shares: 256
+    networks:
+    - observability
+    restart: unless-stopped
+  ecommerce-loki:
+    image: grafana/loki:2.9.10
+    container_name: ecommerce-loki
+    ports:
+    - '3100'
+    volumes:
+    - loki-data:/loki
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    cpu_shares: 256
+    networks:
+    - observability
+    restart: unless-stopped
+  ecommerce-promtail:
+    image: grafana/promtail:2.9.10
+    container_name: ecommerce-promtail
+    ports:
+    - '9080'
+    volumes:
+    - ./config/promtail/promtail-config.yaml:/etc/promtail/config.yml:ro
+    - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+    - -config.file=/etc/promtail/config.yml
+    depends_on:
+      ecommerce-loki:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - bash
+      - -c
+      - 'exec 3<>/dev/tcp/127.0.0.1/9080 && printf "GET /ready HTTP/1.1\r\nHost: localhost\r\nConnection:
+        close\r\n\r\n" >&3 && head -1 <&3 | grep -q "200 OK"'
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    cpu_shares: 256
+    networks:
+    - observability
+    restart: unless-stopped
+  ecommerce-alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: ecommerce-alertmanager
+    ports:
+    - '9093'
+    volumes:
+    - ./config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+    - --config.file=/etc/alertmanager/alertmanager.yml
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget --no-verbose --tries=1 --spider http://localhost:9093/-/healthy || exit
+        1
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    cpu_shares: 256
+    networks:
+    - observability
+    restart: unless-stopped
+  ecommerce-grafana:
+    image: grafana/grafana:10.2.3
+    container_name: ecommerce-grafana
+    ports:
+    - '3000'
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required
+        -- set it in .env; Grafana must not run on a default account name}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD
+        is required -- set it in .env; Grafana must not run on a default password}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_SERVER_ROOT_URL: http://localhost:8080/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
+    volumes:
+    - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    - grafana-data:/var/lib/grafana
+    depends_on:
+      ecommerce-cadvisor:
+        condition: service_started
+      ecommerce-prometheus:
+        condition: service_started
+      ecommerce-jaeger:
+        condition: service_started
+      ecommerce-loki:
+        condition: service_started
+      ecommerce-promtail:
+        condition: service_started
+      ecommerce-alertmanager:
+        condition: service_started
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -f http://localhost:3000/api/health || exit 1
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    cpu_shares: 256
+    networks:
+    - observability
+    restart: unless-stopped
+  ecommerce-product-service-minio:
+    image: minio/minio:latest
+    container_name: ecommerce-product-service-minio
+    ports:
+    - '9000'
+    - '9001'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD_ECOMMERCE_PRODUCT_SERVICE}
+    volumes:
+    - ecommerce-product-service-minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:9000/minio/health/live
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    cpu_shares: 1024
+    networks:
+    - storage
+    env_file:
+    - .env
+    restart: unless-stopped
+  init-storage-ecommerce-product-service:
+    image: minio/mc:RELEASE.2024-01-13T08-44-48Z
+    container_name: init-storage-ecommerce-product-service
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD_ECOMMERCE_PRODUCT_SERVICE}
+    entrypoint:
+    - /bin/sh
+    - -c
+    command:
+    - mc alias set local http://ecommerce-product-service-minio:9000 "$$MINIO_ROOT_USER"
+      "$$MINIO_ROOT_PASSWORD" && mc mb local/product-images --ignore-existing && echo
+      'Storage initialization complete'
+    depends_on:
+      ecommerce-product-service-minio:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - storage
+    env_file:
+    - .env
+    restart: 'no'
+  ecommerce-zitadel-db:
+    image: postgres:16-alpine
+    container_name: ecommerce-zitadel-db
+    environment:
+      POSTGRES_DB: zitadel
+      POSTGRES_USER: zitadel
+      POSTGRES_PASSWORD: ${ECOMMERCE_ZITADEL_DB_PASSWORD}
+    volumes:
+    - ecommerce-zitadel-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -h 127.0.0.1 -U zitadel -d zitadel
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    cpu_shares: 4096
+    networks:
+    - backend
+    - database
+    env_file:
+    - .env
+    restart: unless-stopped
+  ecommerce-zitadel-machinekey-init:
+    image: busybox:1.37
+    container_name: ecommerce-zitadel-machinekey-init
+    volumes:
+    - ecommerce-zitadel-machinekey:/machinekey
+    command:
+    - chown
+    - 1000:1000
+    - /machinekey
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - backend
+    restart: 'no'
+  ecommerce-zitadel:
+    image: ghcr.io/zitadel/zitadel:v3.0.0
+    container_name: ecommerce-zitadel
+    environment:
+      ZITADEL_DATABASE_POSTGRES_HOST: ecommerce-zitadel-db
+      ZITADEL_DATABASE_POSTGRES_PORT: '5432'
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${ECOMMERCE_ZITADEL_DB_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${ECOMMERCE_ZITADEL_DB_PASSWORD}
+      ZITADEL_MASTERKEY: ${IDENTITY_ZITADEL_MASTER_KEY}
+      ZITADEL_TLS_ENABLED: 'false'
+      ZITADEL_EXTERNALDOMAIN: localhost
+      ZITADEL_EXTERNALSECURE: 'false'
+      ZITADEL_EXTERNALPORT: '8080'
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: admin
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${IDENTITY_ZITADEL_ADMIN_PASSWORD}
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: datrix-provisioner
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: Datrix Provisioner
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: '9999-12-31T23:59:59Z'
+      ZITADEL_FIRSTINSTANCE_PATPATH: /machinekey/provisioner.pat
+    volumes:
+    - ecommerce-zitadel-machinekey:/machinekey
+    command:
+    - start-from-init
+    - --masterkeyFromEnv
+    - --tlsMode
+    - disabled
+    depends_on:
+      ecommerce-zitadel-db:
+        condition: service_healthy
+      ecommerce-zitadel-machinekey-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+      - CMD
+      - /app/zitadel
+      - ready
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
+    cpu_shares: 4096
+    networks:
+      backend:
+        aliases:
+        - zitadel
+    env_file:
+    - .env
+    restart: unless-stopped
+  ecommerce-zitadel-init:
+    image: python:3.12-slim
+    container_name: ecommerce-zitadel-init
+    environment:
+      ZITADEL_INSTANCE_URL: http://ecommerce-zitadel:8080
+      ZITADEL_HOST_HEADER: localhost:8080
+      ZITADEL_PAT_FILE: /machinekey/provisioner.pat
+      ZITADEL_PROVISIONING_PATH: /provisioning/zitadel-provisioning.json
+      IDENTITY_PROVIDER_PLAN_FILE: /identity/identity-providers.json
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    volumes:
+    - ./config/identity/zitadel-provisioning.json:/provisioning/zitadel-provisioning.json:ro
+    - ./scripts/zitadel/apply_provisioning.py:/scripts/apply_provisioning.py:ro
+    - ./config/identity/identity-providers.json:/identity/identity-providers.json
+    - ecommerce-zitadel-machinekey:/machinekey:ro
+    - ecommerce-machine-credentials:/machine-credentials
+    command:
+    - python
+    - /scripts/apply_provisioning.py
+    depends_on:
+      ecommerce-zitadel:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - backend
+    env_file:
+    - .env
+    restart: 'no'
+  datrix-test-jwks:
+    image: python:3.12-slim
+    container_name: ecommerce-datrix-test-jwks
+    volumes:
+    - ./scripts/test_jwks_server.py:/jwks/test_jwks_server.py:ro
+    command:
+    - python
+    - /jwks/test_jwks_server.py
+    cpu_shares: 1024
+    networks:
+    - backend
+    restart: unless-stopped
+  ecommerce-user-service-user-db-migrate:
+    image: ecommerce-user-service:latest
+    pull_policy: never
+    container_name: ecommerce-user-service-user-db-migrate
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-user-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-user-service__smtp_host
+      target: smtp_host
+    - source: ecommerce-user-service__smtp_password
+      target: smtp_password
+    - source: ecommerce-user-service__smtp_port
+      target: smtp_port
+    - source: ecommerce-user-service__smtp_username
+      target: smtp_username
+    - source: ecommerce-user-service__user_db_password
+      target: user_db_password
+    command:
+    - python
+    - migrations-user-db/run_alembic_upgrade.py
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - backend
+    - broker
+    - cache
+    - database
+    restart: 'no'
+  ecommerce-product-service-product-db-migrate:
+    image: ecommerce-product-service:latest
+    pull_policy: never
+    container_name: ecommerce-product-service-product-db-migrate
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-product-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-product-service__docdb_secret-key
+      target: docdb_secret-key
+    - source: ecommerce-product-service__minio_access_key
+      target: minio_access_key
+    - source: ecommerce-product-service__minio_secret_key
+      target: minio_secret_key
+    - source: ecommerce-product-service__product_db_password
+      target: product_db_password
+    command:
+    - python
+    - migrations-product-db/run_alembic_upgrade.py
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - backend
+    - broker
+    - cache
+    - database
+    - storage
+    restart: 'no'
+  ecommerce-order-service-order-db-migrate:
+    image: ecommerce-order-service:latest
+    pull_policy: never
+    container_name: ecommerce-order-service-order-db-migrate
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-order-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-order-service__order_db_password
+      target: order_db_password
+    - source: ecommerce-order-service__queues_password
+      target: queues_password
+    command:
+    - python
+    - migrations-order-db/run_alembic_upgrade.py
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - backend
+    - broker
+    - cache
+    - database
+    restart: 'no'
+  ecommerce-payment-service-payment-db-migrate:
+    image: ecommerce-payment-service:latest
+    pull_policy: never
+    container_name: ecommerce-payment-service-payment-db-migrate
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-payment-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-payment-service__payment_db_password
+      target: payment_db_password
+    - source: ecommerce-payment-service__queues_password
+      target: queues_password
+    command:
+    - python
+    - migrations-payment-db/run_alembic_upgrade.py
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - backend
+    - broker
+    - database
+    restart: 'no'
+  ecommerce-shipping-service-shipping-db-migrate:
+    image: ecommerce-shipping-service:latest
+    pull_policy: never
+    container_name: ecommerce-shipping-service-shipping-db-migrate
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-shipping-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-shipping-service__shipping_db_password
+      target: shipping_db_password
+    command:
+    - python
+    - migrations-shipping-db/run_alembic_upgrade.py
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - backend
+    - broker
+    - cache
+    - database
+    restart: 'no'
+  ecommerce-notification-service-notification-db-migrate:
+    image: ecommerce-notification-service:latest
+    pull_policy: never
+    container_name: ecommerce-notification-service-notification-db-migrate
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - ecommerce-machine-credentials:/machine-credentials:ro
+    - ./config/services/ecommerce-notification-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: ecommerce-notification-service__notification_db_password
+      target: notification_db_password
+    - source: ecommerce-notification-service__queues_password
+      target: queues_password
+    - source: ecommerce-notification-service__smtp_host
+      target: smtp_host
+    - source: ecommerce-notification-service__smtp_password
+      target: smtp_password
+    - source: ecommerce-notification-service__smtp_port
+      target: smtp_port
+    - source: ecommerce-notification-service__smtp_username
+      target: smtp_username
+    command:
+    - python
+    - migrations-notification-db/run_alembic_upgrade.py
+    depends_on:
+      ecommerce-postgresql:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    cpu_shares: 1024
+    networks:
+    - backend
+    - broker
+    - database
+    restart: 'no'
+  ecommerce-api-gateway:
+    image: nginx:1.25-alpine
+    container_name: ecommerce-api-gateway
+    ports:
+    - ${GATEWAY_PORT:-8080}:80
+    volumes:
+    - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      ecommerce-user-service:
+        condition: service_healthy
+      ecommerce-product-service:
+        condition: service_healthy
+      ecommerce-order-service:
+        condition: service_healthy
+      ecommerce-payment-service:
+        condition: service_healthy
+      ecommerce-shipping-service:
+        condition: service_healthy
+      ecommerce-notification-service:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - nginx
+      - -t
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    cpu_shares: 1024
+    networks:
+    - backend
+    - frontend
+    - observability
+    restart: unless-stopped
+volumes:
+  ecommerce-postgresql-data:
+    driver: local
+  ecommerce-redis-data:
+    driver: local
+  ecommerce-product-service-docdb-data:
+    driver: local
+  ecommerce-order-service-queue-rabbitmq-data:
+    driver: local
+  ecommerce-kafka-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local
+  ecommerce-product-service-minio-data:
+    driver: local
+  ecommerce-zitadel-db-data:
+    driver: local
+  ecommerce-machine-credentials:
+    driver: local
+  ecommerce-zitadel-machinekey:
+    driver: local
+networks:
+  backend:
+    driver: bridge
+  broker:
+    driver: bridge
+  cache:
+    driver: bridge
+  database:
+    driver: bridge
+  frontend:
+    driver: bridge
+  observability:
+    driver: bridge
+  storage:
+    driver: bridge
+secrets:
+  ecommerce-user-service__smtp_host:
+    file: ./secrets/ecommerce-user-service/smtp_host
+  ecommerce-user-service__smtp_password:
+    file: ./secrets/ecommerce-user-service/smtp_password
+  ecommerce-user-service__smtp_port:
+    file: ./secrets/ecommerce-user-service/smtp_port
+  ecommerce-user-service__smtp_username:
+    file: ./secrets/ecommerce-user-service/smtp_username
+  ecommerce-user-service__user_db_password:
+    file: ./secrets/ecommerce-user-service/user_db_password
+  ecommerce-product-service__docdb_secret-key:
+    file: ./secrets/ecommerce-product-service/docdb_secret-key
+  ecommerce-product-service__minio_access_key:
+    file: ./secrets/ecommerce-product-service/minio_access_key
+  ecommerce-product-service__minio_secret_key:
+    file: ./secrets/ecommerce-product-service/minio_secret_key
+  ecommerce-product-service__product_db_password:
+    file: ./secrets/ecommerce-product-service/product_db_password
+  ecommerce-order-service__order_db_password:
+    file: ./secrets/ecommerce-order-service/order_db_password
+  ecommerce-order-service__queues_password:
+    file: ./secrets/ecommerce-order-service/queues_password
+  ecommerce-order-service-queue-worker__order_db_password:
+    file: ./secrets/ecommerce-order-service-queue-worker/order_db_password
+  ecommerce-order-service-queue-worker__queues_password:
+    file: ./secrets/ecommerce-order-service-queue-worker/queues_password
+  ecommerce-payment-service__payment_db_password:
+    file: ./secrets/ecommerce-payment-service/payment_db_password
+  ecommerce-payment-service__queues_password:
+    file: ./secrets/ecommerce-payment-service/queues_password
+  ecommerce-shipping-service__shipping_db_password:
+    file: ./secrets/ecommerce-shipping-service/shipping_db_password
+  ecommerce-notification-service__notification_db_password:
+    file: ./secrets/ecommerce-notification-service/notification_db_password
+  ecommerce-notification-service__queues_password:
+    file: ./secrets/ecommerce-notification-service/queues_password
+  ecommerce-notification-service__smtp_host:
+    file: ./secrets/ecommerce-notification-service/smtp_host
+  ecommerce-notification-service__smtp_password:
+    file: ./secrets/ecommerce-notification-service/smtp_password
+  ecommerce-notification-service__smtp_port:
+    file: ./secrets/ecommerce-notification-service/smtp_port
+  ecommerce-notification-service__smtp_username:
+    file: ./secrets/ecommerce-notification-service/smtp_username
+  ecommerce-payment-service-enqueue-worker-ecommerce-order-service-process-payment__payment_db_password:
+    file: ./secrets/ecommerce-payment-service-enqueue-worker-ecommerce-order-service-process-payment/payment_db_password
+  ecommerce-payment-service-enqueue-worker-ecommerce-order-service-process-payment__queues_password:
+    file: ./secrets/ecommerce-payment-service-enqueue-worker-ecommerce-order-service-process-payment/queues_password
+  ecommerce-payment-service-enqueue-worker-ecommerce-order-service-settle-payment__payment_db_password:
+    file: ./secrets/ecommerce-payment-service-enqueue-worker-ecommerce-order-service-settle-payment/payment_db_password
+  ecommerce-payment-service-enqueue-worker-ecommerce-order-service-settle-payment__queues_password:
+    file: ./secrets/ecommerce-payment-service-enqueue-worker-ecommerce-order-service-settle-payment/queues_password
+  ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation__notification_db_password:
+    file: ./secrets/ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation/notification_db_password
+  ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation__queues_password:
+    file: ./secrets/ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation/queues_password
+  ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation__smtp_host:
+    file: ./secrets/ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation/smtp_host
+  ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation__smtp_password:
+    file: ./secrets/ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation/smtp_password
+  ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation__smtp_port:
+    file: ./secrets/ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation/smtp_port
+  ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation__smtp_username:
+    file: ./secrets/ecommerce-notification-service-enqueue-worker-ecommerce-order-service-send-order-confirmation/smtp_username

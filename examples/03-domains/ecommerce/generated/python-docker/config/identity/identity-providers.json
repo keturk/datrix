@@ -1,0 +1,611 @@
+{
+  "application": "application",
+  "environment": "test",
+  "providers": {
+    "identity": {
+      "allowedAlgorithms": [
+        "RS256"
+      ],
+      "allowedAudienceRefs": [],
+      "allowedAudiences": [
+        "zitadel-project-audience:library-identity"
+      ],
+      "attributeMappings": {
+        "email": {
+          "claimPath": "email",
+          "datrixType": "String",
+          "guarantee": "optional",
+          "nullable": false
+        }
+      },
+      "audience": "customer",
+      "discoveryUri": "http://localhost:8080/.well-known/openid-configuration",
+      "issuer": "http://localhost:8080",
+      "jwksCacheTtlSeconds": 3600,
+      "jwksUri": "http://localhost:8080/oauth/v2/keys",
+      "localIdentity": {
+        "mode": "deterministicUuid5",
+        "namespace": "c9a255a1-350b-4414-beb9-7f06f7dfd92d"
+      },
+      "mode": "platformManaged",
+      "name": "identity",
+      "principalType": "human",
+      "providerType": "zitadel",
+      "revocationMode": "none",
+      "roleMappings": {
+        "admins": "admin"
+      },
+      "roleSource": {
+        "claimPath": "urn:zitadel:iam:org:project:roles"
+      },
+      "secretRefs": {
+        "clientSecret": "IDENTITY_IDENTITY_CLIENT_SECRET_REF"
+      }
+    },
+    "platform": {
+      "allowedAlgorithms": [
+        "RS256"
+      ],
+      "allowedAudienceRefs": [],
+      "allowedAudiences": [
+        "zitadel-project-audience:library-platform"
+      ],
+      "attributeMappings": {},
+      "audience": "machine",
+      "discoveryUri": "http://localhost:8080/.well-known/openid-configuration",
+      "issuer": "http://localhost:8080",
+      "jwksCacheTtlSeconds": 3600,
+      "jwksUri": "http://localhost:8080/oauth/v2/keys",
+      "localIdentity": {
+        "mode": "deterministicUuid5",
+        "namespace": "c9a255a1-350b-4414-beb9-7f06f7dfd92d"
+      },
+      "mode": "platformManaged",
+      "name": "platform",
+      "principalType": "machine",
+      "providerType": "zitadel",
+      "revocationMode": "none",
+      "roleMappings": {},
+      "roleSource": {
+        "claimPath": "urn:zitadel:iam:org:project:roles"
+      },
+      "secretRefs": {
+        "clientSecret": "IDENTITY_PLATFORM_CLIENT_SECRET_REF"
+      }
+    },
+    "test_auth": {
+      "allowedAlgorithms": [
+        "RS256"
+      ],
+      "allowedAudiences": [],
+      "attributeMappings": {},
+      "audience": "customer",
+      "issuer": "http://datrix-test-jwks:8080",
+      "jwksCacheTtlSeconds": 300,
+      "jwksUri": "http://datrix-test-jwks:8080/.well-known/jwks.json",
+      "localIdentity": {
+        "mode": "subjectText"
+      },
+      "mode": "self",
+      "name": "test_auth",
+      "principalType": "human",
+      "providerType": "zitadel",
+      "revocationMode": "none",
+      "roleMappings": {},
+      "roleSource": {
+        "claimPath": "roles"
+      },
+      "secretRefs": {}
+    }
+  },
+  "schemaVersion": 2,
+  "surfaces": {
+    "delete:delete_product": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": [
+        "admin"
+      ]
+    },
+    "delete:delete_user": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": [
+        "admin"
+      ]
+    },
+    "get:": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "get:/:id": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "get:/me": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "get:/my-payments": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "get:/order/:orderId": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "get:get_payment": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "get:get_shipment": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "get:get_user": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": [
+        "admin"
+      ]
+    },
+    "get:list_users": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": [
+        "admin"
+      ]
+    },
+    "get:orderByIdInternal": {
+      "delegation": "none",
+      "mode": "service",
+      "principalTypes": [
+        "machine"
+      ],
+      "profile": "none",
+      "providers": [
+        "platform",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "get:productByIdInternal": {
+      "delegation": "none",
+      "mode": "service",
+      "principalTypes": [
+        "machine"
+      ],
+      "profile": "none",
+      "providers": [
+        "platform",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "get:userByIdInternal": {
+      "delegation": "none",
+      "mode": "service",
+      "principalTypes": [
+        "machine"
+      ],
+      "profile": "none",
+      "providers": [
+        "platform",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "post:": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": [
+        "admin"
+      ]
+    },
+    "post:/:id/events": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": [
+        "admin"
+      ]
+    },
+    "post:/:id/refund": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": [
+        "admin"
+      ]
+    },
+    "post:/logout": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "post:/process": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "post:checkAvailability": {
+      "delegation": "none",
+      "mode": "service",
+      "principalTypes": [
+        "machine"
+      ],
+      "profile": "none",
+      "providers": [
+        "platform",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "post:createShipment": {
+      "delegation": "none",
+      "mode": "service",
+      "principalTypes": [
+        "machine"
+      ],
+      "profile": "none",
+      "providers": [
+        "platform",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "post:create_user": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": [
+        "admin"
+      ]
+    },
+    "post:paymentConfirmation": {
+      "delegation": "none",
+      "mode": "service",
+      "principalTypes": [
+        "machine"
+      ],
+      "profile": "none",
+      "providers": [
+        "platform",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "post:productsBulk": {
+      "delegation": "none",
+      "mode": "service",
+      "principalTypes": [
+        "machine"
+      ],
+      "profile": "none",
+      "providers": [
+        "platform",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "post:reservationConfirmation": {
+      "delegation": "none",
+      "mode": "service",
+      "principalTypes": [
+        "machine"
+      ],
+      "profile": "none",
+      "providers": [
+        "platform",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "post:reservationRelease": {
+      "delegation": "none",
+      "mode": "service",
+      "principalTypes": [
+        "machine"
+      ],
+      "profile": "none",
+      "providers": [
+        "platform",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "post:reserveInventory": {
+      "delegation": "none",
+      "mode": "service",
+      "principalTypes": [
+        "machine"
+      ],
+      "profile": "none",
+      "providers": [
+        "platform",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "post:sessionValidation": {
+      "delegation": "none",
+      "mode": "service",
+      "principalTypes": [
+        "machine"
+      ],
+      "profile": "none",
+      "providers": [
+        "platform",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "post:shipmentUpdate": {
+      "delegation": "none",
+      "mode": "service",
+      "principalTypes": [
+        "machine"
+      ],
+      "profile": "none",
+      "providers": [
+        "platform",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "put:/:id/cancel": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "put:/:id/inventory": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": [
+        "admin"
+      ]
+    },
+    "put:/:id/publish": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": [
+        "admin"
+      ]
+    },
+    "put:/:id/status": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": [
+        "admin"
+      ]
+    },
+    "put:/me": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "put:/me/password": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "put:update_product": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": [
+        "admin"
+      ]
+    },
+    "put:update_user": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "identity",
+        "test_auth"
+      ],
+      "roles": [
+        "admin"
+      ]
+    }
+  }
+}

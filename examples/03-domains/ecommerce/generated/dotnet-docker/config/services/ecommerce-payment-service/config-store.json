@@ -1,0 +1,16 @@
+{
+  "connections": {
+    "ecommerce_order_service_base_url": "http://ecommerce-order-service:8002",
+    "mq_brokers": "ecommerce-kafka:9092",
+    "mq_port": 9092,
+    "payment_db_database": "library_books",
+    "payment_db_host": "ecommerce-postgresql",
+    "payment_db_port": 5432,
+    "payment_db_user": "postgres",
+    "queues_host": "ecommerce-order-service-queue-rabbitmq",
+    "queues_port": 5672
+  },
+  "settings": {
+    "debugMode": false
+  }
+}

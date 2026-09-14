@@ -1,0 +1,13 @@
+{
+  "connections": {
+    "notification_db_database": "library_books",
+    "notification_db_host": "localhost",
+    "notification_db_port": 5432,
+    "notification_db_user": "postgres",
+    "queues_host": "localhost",
+    "queues_port": 5672
+  },
+  "settings": {
+    "debugMode": false
+  }
+}

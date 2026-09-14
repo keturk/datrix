@@ -1,0 +1,15 @@
+{
+  "connections": {
+    "mq_brokers": "localhost:9092",
+    "mq_port": 9092,
+    "payment_db_database": "library_books",
+    "payment_db_host": "localhost",
+    "payment_db_port": 5432,
+    "payment_db_user": "postgres",
+    "queues_host": "localhost",
+    "queues_port": 5672
+  },
+  "settings": {
+    "debugMode": false
+  }
+}

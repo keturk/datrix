@@ -1,0 +1,120 @@
+groups:
+  - name: ecommerce-order-service-standard
+    rules:
+      - alert: HighErrorRate
+        expr: sum(rate(http_errors_total{service="ecommerce-order-service",status_code=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{service="ecommerce-order-service"}[5m])), 1e-9) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: ecommerce-order-service
+        annotations:
+          summary: "High error rate on ecommerce-order-service"
+          description: "5xx error rate above 5% for 5 minutes."
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service="ecommerce-order-service"}[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: ecommerce-order-service
+        annotations:
+          summary: "High P95 latency on ecommerce-order-service"
+          description: "P95 latency above 2 seconds for 5 minutes."
+      - alert: DatabaseConnectionPoolExhausted
+        expr: sum(sqlalchemy_pool_checked_out{service="ecommerce-order-service"}) / clamp_min(sum(sqlalchemy_pool_size{service="ecommerce-order-service"}), 1) > 0.9
+        for: 2m
+        labels:
+          severity: critical
+          service: ecommerce-order-service
+        annotations:
+          summary: "DB pool nearly exhausted on ecommerce-order-service"
+          description: "Checked-out connections exceed 90% of configured pool capacity."
+      - alert: HighRedisCacheMissRatio
+        expr: sum(rate(redis_cache_misses_total{service="ecommerce-order-service"}[15m])) / clamp_min(sum(rate(redis_cache_hits_total{service="ecommerce-order-service"}[15m])) + sum(rate(redis_cache_misses_total{service="ecommerce-order-service"}[15m])), 1e-9) > 0.5
+        for: 15m
+        labels:
+          severity: warning
+          service: ecommerce-order-service
+        annotations:
+          summary: "High Redis miss ratio on ecommerce-order-service"
+          description: "More than half of cache lookups are misses over 15 minutes."
+      - alert: JobFailureRate
+        expr: increase(job_failures_total{service="ecommerce-order-service"}[1h]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          service: ecommerce-order-service
+        annotations:
+          summary: "Background job failures on ecommerce-order-service"
+          description: "At least one job failure recorded in the last hour."
+  - name: ecommerce-order-service-dsl
+    rules:
+      - alert: order_db_query_duration_high
+        expr: sum(rate(order_db_query_duration_sum[5m])) / sum(rate(order_db_query_duration_count[5m])) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          service: ecommerce-order-service
+          block: orderDb
+        annotations:
+          summary: "orderDb.queryDuration avg exceeds 200.0ms"
+          description: "avg(order_db_query_duration) over 5m > 200.0ms"
+      - alert: order_db_connection_pool_high
+        expr: order_db_connection_pool > 0.8
+        for: 1m
+        labels:
+          severity: critical
+          service: ecommerce-order-service
+          block: orderDb
+        annotations:
+          summary: "orderDb.connectionPool utilization exceeds 80.0%"
+          description: "utilization(order_db_connection_pool) over 1m > 80.0%"
+      - alert: redis_hit_ratio_high
+        expr: redis_hit_ratio < 0.7
+        for: 5m
+        labels:
+          severity: warning
+          service: ecommerce-order-service
+          block: redis
+        annotations:
+          summary: "redis.hitRatio ratio exceeds 70.0%"
+          description: "ratio(redis_hit_ratio) over 5m < 70.0%"
+      - alert: mq_consumer_lag_high
+        expr: max_over_time(mq_consumer_lag[5m]) > 1000.0
+        for: 5m
+        labels:
+          severity: critical
+          service: ecommerce-order-service
+          block: mq
+        annotations:
+          summary: "mq.consumerLag max exceeds 1000.0"
+          description: "max(mq_consumer_lag) over 5m > 1000.0"
+      - alert: mq_failed_messages_high
+        expr: sum(increase(mq_failed_messages_total[5m])) > 10.0
+        for: 5m
+        labels:
+          severity: warning
+          service: ecommerce-order-service
+          block: mq
+        annotations:
+          summary: "mq.failedMessages count exceeds 10.0"
+          description: "count(mq_failed_messages) over 5m > 10.0"
+      - alert: order_api_response_time_high
+        expr: sum(rate(order_api_response_time_sum[5m])) / sum(rate(order_api_response_time_count[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: ecommerce-order-service
+          block: OrderAPI
+        annotations:
+          summary: "OrderAPI.responseTime avg exceeds 500.0ms"
+          description: "avg(order_api_response_time) over 5m > 500.0ms"
+      - alert: order_api_error_rate_high
+        expr: order_api_error_rate > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: ecommerce-order-service
+          block: OrderAPI
+        annotations:
+          summary: "OrderAPI.errorRate ratio exceeds 5.0%"
+          description: "ratio(order_api_error_rate) over 5m > 5.0%"

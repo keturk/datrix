@@ -1,0 +1,6 @@
+{
+  "default_strategy": {
+    "param": 0.1,
+    "type": "probabilistic"
+  }
+}

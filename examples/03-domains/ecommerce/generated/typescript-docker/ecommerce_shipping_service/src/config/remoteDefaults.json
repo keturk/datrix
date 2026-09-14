@@ -1,0 +1,16 @@
+{
+  "connections": {
+    "mq_brokers": "localhost:9092",
+    "mq_port": 9092,
+    "redis_database": 0,
+    "redis_host": "localhost",
+    "redis_port": 6379,
+    "shipping_db_database": "library_books",
+    "shipping_db_host": "localhost",
+    "shipping_db_port": 5432,
+    "shipping_db_user": "postgres"
+  },
+  "settings": {
+    "debugMode": false
+  }
+}

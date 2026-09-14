@@ -1,0 +1,18 @@
+{
+  "connections": {
+    "mq_brokers": "localhost:9092",
+    "mq_port": 9092,
+    "order_db_database": "library_books",
+    "order_db_host": "localhost",
+    "order_db_port": 5432,
+    "order_db_user": "postgres",
+    "queues_host": "localhost",
+    "queues_port": 5672,
+    "redis_database": 0,
+    "redis_host": "localhost",
+    "redis_port": 6379
+  },
+  "settings": {
+    "debugMode": false
+  }
+}
