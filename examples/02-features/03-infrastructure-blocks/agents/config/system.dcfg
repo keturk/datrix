@@ -1,0 +1,154 @@
+config system credentials.System {
+  base {
+    migrations {
+      // enabled: this example's spec test writes and reads rows through the ORM
+      // (db.Issuer.create, record.save()), so it needs a real migration baseline
+      // rendering actual tables -- unlike a project that is generated and never
+      // booted.
+      enabled = true;
+      // No ledger: this example is generated fresh on every run and only ever
+      // meets a fresh database, so it has nothing to migrate FROM. A ledger
+      // would record one language's rendering of each revision and persist
+      // state back into the source tree.
+      ledger = false;
+    }
+    deployment {
+      runtime = "docker-compose";
+      provider = "local";
+    }
+    defaultTimeout = 30000;
+    maxPageSize = 100;
+    platforms {
+      docker {
+        kafka_default_retention_ms = 604800000;
+        infra {
+          defaultHealthcheck {
+            interval = "10s";
+            timeout = "10s";
+            retries = 10;
+            startPeriod = "30s";
+          }
+          elasticsearchHealthcheck {
+            interval = "10s";
+            timeout = "5s";
+            retries = 5;
+            startPeriod = "30s";
+          }
+          rabbitmqHealthcheck {
+            interval = "10s";
+            timeout = "15s";
+            retries = 20;
+            startPeriod = "60s";
+          }
+          kafkaHealthcheck {
+            interval = "10s";
+            timeout = "15s";
+            retries = 20;
+            startPeriod = "60s";
+          }
+          jobWorkerHealthcheck {
+            interval = "30s";
+            timeout = "10s";
+            retries = 3;
+            startPeriod = "40s";
+          }
+          observabilityHealthcheck {
+            interval = "15s";
+            timeout = "10s";
+            retries = 5;
+            startPeriod = "30s";
+          }
+          pgbouncer {
+            maxClientConn = 200;
+            defaultPoolSize = 20;
+          }
+          elasticsearch {
+            heap = "512m";
+          }
+          initScript {
+            maxRetries = 30;
+            retryDelaySeconds = 2;
+          }
+          multiRdbmsStartPeriodSeconds = 120;
+          // Desktop Docker hosts mount `/` privately, so the container-metrics
+          // collector's host-tree binds are refused and the whole stack fails to
+          // start. This example is documentation people run, most of them on such a
+          // host, so it declares the host it targets rather than the Linux default.
+          // A product deploying to a Linux host omits this and keeps the binds.
+          sharedMountPropagation = false;
+        }
+      }
+    }
+    observability {
+      metrics {
+        provider = "prometheus";
+        endpoint = "/metrics";
+        includeDefault = true;
+      }
+      tracing {
+        provider = "jaeger";
+        samplingRate = 0.1;
+      }
+      logging {
+        level = "info";
+        format = "json";
+        provider = "loki";
+      }
+      visualization {
+        provider = "grafana";
+      }
+      alerting {
+        provider = "alertmanager";
+      }
+    }
+    zitadelIdentity {
+      host = "zitadel";
+      port = 8080;
+      externalDomain = "localhost";
+      externalSecure = false;
+      adminUser = "admin";
+      adminPassword = "identity_zitadel_admin_password";
+      masterKey = "identity_zitadel_master_key";
+      providers {
+        staff {
+          project = "credentials";
+          clientId = "credentials-staff-app";
+        }
+      }
+    }
+    configStore {
+      engine = "file";
+      flavor = "container";
+      applicationName = "credentials-system";
+      environment = "dev";
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            Boolean debugMode : description("Enable debug mode.") = false;
+          }
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+    deployment {
+      runtime = "docker-compose";
+      provider = "local";
+    }
+    observability {
+      tracing {
+        endpoint = "http://jaeger:4317";
+      }
+    }
+    region = "us-east-1";
+  }
+}
