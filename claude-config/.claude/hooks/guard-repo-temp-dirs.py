@@ -45,6 +45,7 @@ _REPOS = (
     "datrix-codegen-component",
     "datrix-codegen-angular",
     "datrix-codegen-common",
+    "datrix-codegen-react",
     "datrix-codegen-docker",
     "datrix-codegen-dotnet",
     "datrix-codegen-azure",

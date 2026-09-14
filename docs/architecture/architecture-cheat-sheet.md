@@ -449,6 +449,36 @@ Generating a service that compiles is not generating a service that runs. Three 
 
 Full decision log: [Architecture Overview — Decision 45](./architecture-overview.md#decision-45-a-generated-service-must-be-able-to-reach-its-database--probe-transport-migration-readiness-and-chain-owned-schema-approved--implementation-in-progress) · migration specifics: [RDBMS Migration Decisions D39–D41](./rdbms-migration-decisions.md#boot-path-readiness-and-chain-owned-schema-d39d41).
 
+## AI Agents — Model-Driven Tool Loops as a Declared Block
+
+One new `service` block, `agents <alias> { model h; tool T(…) -> R : description('…') { ensure …; … }
+agent A(…) -> R { model(h); tools(…); steps(N); attachments(p); prompt { … } } }`, lets a
+generated service call a model in a bounded loop: observe → decide → act → update, stopping on a
+typed final answer, a limit, or an unrecoverable error. **The author declares; the generator emits
+the loop.** Provider, model id, sampling, timeout, key handle and budget live under the block alias
+in the service ConfigDSL, on the two axes every infrastructure block already uses — `provider`
+(the API family, an open identifier a platform declares) and `flavor` (`container` / `external` /
+`managed` / `direct`, where the model runs). **Approved — implementation in progress.**
+
+| # | Invariant | Enforcement |
+|---|---|---|
+| 1 | The model chooses among declared actions and nothing else | `tools(…)` is closed at generation; an undeclared request is a server fault, never a lookup |
+| 2 | Model-supplied arguments are untrusted input validated at the boundary | Parsed to declared types, then the tool's leading `ensure` clauses (grammar-ordered ahead of every statement), before the body runs |
+| 3 | Tools run with the caller's identity, never the model's | The agent call inherits the principal of the function that made it; no ambient authority |
+| 4 | A model result is data | Parsed against the declared `T` or rejected, then checked in ordinary DSL before anything is written |
+| 5 | Provider realization is platform-declared and fails closed | A **required** per-provider declaration on the platform capability declaration (flavors, sampling, tool calling, schema-constrained output mode, accepted media types, pricing); absence is a construction error; no provider name in a shared layer |
+| 6 | Credentials are handles; transport is verified TLS off-loopback | Keys hold logical secret handles from the `secrets { }` table; `external` handles declare `auth` explicitly; `http` to a non-loopback host is an error with no override; no certificate-verification switch exists |
+| 7 | `test` never reaches a live model | `replay` is the only provider the test profile may bind and appears in no other profile; fixtures are authored turns per scenario, selected by `: replay('…')` on the spec test, validated exactly like live turns |
+| 8 | Every limit and every budget field is realized | Enforced before the call that would exceed it; perturb/diff conformance entries per field (Decision 32 kit) |
+| 9 | Logs carry identity and counts, never content | Negative assertion per language over generated log statements |
+| 10 | Every language and platform declares its stance | `MODEL` builtin group + agents domain stance per language; block-kind census in the pre-generation realization stage rejects an `agents` block on an unsupported language before any file is written; a runtime-derived platform gate refuses to pass with fewer than two platforms |
+
+Python + docker (two providers: one hosted API, one self-hostable server API) is the first
+realization; approvals, the model resilience kind, observability, cloud-managed providers and the
+other languages are staged after it, and `approval` is rejected outright until its gate exists.
+
+Full decision log: [Architecture Overview — Decision 46](./architecture-overview.md#decision-46-ai-agents--model-driven-tool-loops-as-a-declared-service-block-approved--implementation-in-progress).
+
 ## Transpiler pipeline (per file)
 
 ```

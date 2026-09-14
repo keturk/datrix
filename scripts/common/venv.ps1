@@ -947,6 +947,7 @@ function Test-DatrixWorkspacePresent {
  "datrix-codegen-aws",
  "datrix-codegen-azure",
  "datrix-codegen-angular",
+ "datrix-codegen-react",
  "datrix-codegen-docker"
  )
 

@@ -1,0 +1,200 @@
+// CertificateService intakes a scanned training certificate, transcribes it with a
+// vision model, extracts the fields with an analyst model that may call two lookup
+// tools, checks the result in ordinary DSL, and writes the confirmed values. A low
+// confidence extraction is routed to a human reviewer instead of being written.
+service credentials.CertificateService('config/certificate-service.dcfg') : version('1.0.0'), description('certificate intake') {
+
+    scalar CertificateNumber : String(20) {
+        pattern("^[A-Z]{2}-[0-9]{6}$");
+    }
+
+    enum IntakeStatus { Received, Extracting, Validating, Confirmed, NeedsReview, Rejected, Failed }
+
+    rdbms db {
+        // Abstract base entity with standard audit fields (server-generated id
+        // and timestamps, matching the sibling infrastructure-block examples).
+        abstract entity BaseEntity {
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
+        }
+
+        entity Issuer extends BaseEntity {
+            String(10) code : unique, trim;
+            String(200) name : trim;
+            Boolean active = true;
+            hasMany Program as programs;
+        }
+
+        entity Program extends BaseEntity {
+            String(20) code : unique, trim;
+            String(200) name : trim;
+            belongsTo Issuer : index;
+        }
+
+        entity Certificate extends BaseEntity {
+            CertificateNumber number : unique;
+            String(200) holderName : trim;
+            Date issuedOn;
+            Date? expiresOn;
+            String scanPath;
+            belongsTo Issuer : index;
+            belongsTo Program : index;
+        }
+
+        entity CertificateIntake extends BaseEntity {
+            String scanPath;
+            IntakeStatus status : index = IntakeStatus.Received;
+            String? reason;
+            DateTime? completedAt;
+            String? errorMessage;
+        }
+    }
+
+    storage scans {
+        folder certificates : path('certificates/{intakeId}'), allowed(['application/pdf', 'image/jpeg', 'image/png']), maxSize('20mb');
+    }
+
+    queues {
+        queue ProcessIntake(UUID intakeId);
+        queue ReviewIntake(UUID intakeId, String reason);
+    }
+
+    struct OcrPage { Int page; Text text; }
+    struct OcrResult { Array<OcrPage> pages; }
+
+    struct CertificateDraft {
+        String issuerCode;
+        String programCode;
+        String number;
+        String holderName;
+        Date issuedOn;
+        Date? expiresOn;
+        Decimal confidence;
+    }
+
+    agents intake {
+
+        model vision;
+        model analyst;
+
+        @retry(maxAttempts: 2)
+        tool findIssuers(String text) -> Array<db.Issuer> : description('Find active issuers whose code or name contains the given text.') {
+            ensure text.length > 0;
+            return db.Issuer.where(active: true).all().filter(i => i.code.contains(text) || i.name.contains(text));
+        }
+
+        tool programsOf(String issuerCode) -> Array<db.Program> : description('List the programs of an issuer, by issuer code.') {
+            let db.Issuer? issuer = db.Issuer.where(code: issuerCode).first();
+            if (issuer == null) { return []; }
+            return db.Program.where(issuerId: issuer.id).all();
+        }
+
+        agent Transcribe(Bytes scan) -> OcrResult {
+            model(vision);
+            attachments(scan);
+            prompt {
+                return "Transcribe every line of text on the attached document, page by page, exactly as printed. Do not summarize.";
+            }
+        }
+
+        agent Extract(OcrResult ocr) -> CertificateDraft {
+            model(analyst);
+            tools(findIssuers, programsOf);
+            steps(6);
+            prompt {
+                let String body = ocr.pages.map(p => #"--- page {p.page} ---\n{p.text}").join("\n");
+                return #"
+                    The text below was recognized from a scanned training certificate.
+                    Identify the issuing organisation, the program, the certificate number, the holder's
+                    full name, the issue date and the expiry date if present. Use the lookup tools to
+                    match the issuer and program to known codes; never invent a code. Report a confidence
+                    between 0 and 1 for the whole extraction.
+
+                    {body}
+                ";
+            }
+        }
+    }
+
+    fn reject(db.CertificateIntake record, String reason) -> Void {
+        record.status = IntakeStatus.Rejected;
+        record.reason = reason;
+        record.completedAt = DateTime.now();
+        record.save();
+    }
+
+    // The row is named `record`, not `intake`: `intake` is the agents block alias, and a
+    // parameter of that name would shadow it inside this body.
+    fn processIntake(db.CertificateIntake record) -> Void {
+        record.status = IntakeStatus.Extracting;
+        record.save();
+        let OcrResult ocr = intake.Transcribe(scans.download(record.scanPath));
+
+        record.status = IntakeStatus.Validating;
+        record.save();
+        let CertificateDraft draft = intake.Extract(ocr);
+
+        let db.Issuer? issuer = db.Issuer.where(code: draft.issuerCode, active: true).first();
+        if (issuer == null) { reject(record, #"unknown issuer {draft.issuerCode}"); return; }
+        let db.Program? program = db.Program.where(code: draft.programCode, issuerId: issuer.id).first();
+        if (program == null) { reject(record, #"unknown program {draft.programCode} for issuer {issuer.code}"); return; }
+
+        if (!Regex.matches(draft.number, "^[A-Z]{2}-[0-9]{6}$")) { reject(record, #"malformed number {draft.number}"); return; }
+        if (draft.expiresOn != null && draft.expiresOn <= draft.issuedOn) { reject(record, "expiry precedes issue"); return; }
+        if (draft.confidence < 0.85) {
+            let String reason = #"low confidence {draft.confidence}";
+            record.status = IntakeStatus.NeedsReview;
+            record.reason = reason;
+            record.save();
+            dispatch ReviewIntake(record.id, reason);
+            return;
+        }
+
+        transaction(db) {
+            let db.Certificate cert = db.Certificate.create({
+                number: draft.number,
+                holderName: draft.holderName,
+                issuedOn: draft.issuedOn,
+                expiresOn: draft.expiresOn,
+                scanPath: record.scanPath,
+                issuer: issuer,
+                program: program
+            });
+            cert.save();
+            record.status = IntakeStatus.Confirmed;
+            record.completedAt = DateTime.now();
+            record.save();
+        }
+    }
+
+    enqueue credentials.CertificateService.ProcessIntake(UUID intakeId) {
+        processIntake(db.CertificateIntake.findOrFail(intakeId));
+    }
+
+    rest_api IntakeAPI : basePath('/api/v1/certificates'), rdbms(db) {
+        @path('/:id')
+        get(UUID id) : auth(public) -> db.CertificateIntake {
+            return db.CertificateIntake.findOrFail(id);
+        }
+    }
+
+    // replay('low-confidence') binds every replay handle to the low-confidence scenario fixtures.
+    // The issuer and program the replayed analyst names must exist: the database checks run
+    // before the confidence check, so a missing program would reject the intake instead of
+    // routing it to review. The scan the intake names is an authored storage fixture
+    // (config/fixtures/storage/scans/certificates/test/low.pdf), seeded into the bucket
+    // before the deploy tests run.
+    test("low-confidence extraction is routed to review, nothing is written") : replay('low-confidence') {
+        let db.Issuer issuer = db.Issuer.create({ code: "AC", name: "Acme Certification" });
+        issuer.save();
+        let db.Program program = db.Program.create({ code: "AC-101", name: "Acme Safety Fundamentals", issuerId: issuer.id });
+        program.save();
+        let db.CertificateIntake record = db.CertificateIntake.create({ scanPath: "certificates/test/low.pdf", status: IntakeStatus.Received });
+        record.save();
+        processIntake(record);
+        assert record.status == IntakeStatus.NeedsReview;
+        assert db.Certificate.where(holderName: "Test Holder").all().length == 0;
+        assert dispatched(ReviewIntake(record.id, "low confidence 0.61"));
+    }
+}

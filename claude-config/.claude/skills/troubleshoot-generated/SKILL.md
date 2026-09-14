@@ -266,7 +266,7 @@ Deploy test failures differ from unit tests — they include Docker lifecycle ph
    - `--- Container Log Excerpt ---`: error-grepped lines + last 50 lines from the container log
    - `--- Codegen Hint ---`: probable template and generator
 2. **Only read full Docker logs from `docker-logs/`** if the excerpt is insufficient
-3. Use `codegen_hint` to identify the probable template (e.g., `docker-compose.yml.j2`)
+3. Use `codegen_hint` to identify the probable source. The compose file has **no Jinja template** — it is assembled by the YAML builders under `datrix-codegen-docker/src/datrix_codegen_docker/generators/compose/` and serialized by `ComposeBuilder`, and the hint names that module.
 
 #### If `failed_phase` is a test phase (spec-tests or integration-tests):
 
@@ -295,7 +295,7 @@ Deploy test failures differ from unit tests — they include Docker lifecycle ph
 ### Phase 3D: Deploy Test Structured Root Cause Tracing
 
 **Goal:** Trace from the structured data back to the codegen source — trace exactly as Phase 3S, with two deploy-test-specific deltas:
-- For infrastructure errors (docker-compose issues): read the docker-compose template and `DockerComposeGenerator` specifically.
+- For infrastructure errors (docker-compose issues): read the YAML builders under `datrix-codegen-docker/src/datrix_codegen_docker/generators/compose/` (`ComposeBuilder.build_compose` is the orchestrator) — there is no docker-compose Jinja template to read.
 - Use `dtrx_source` from the index (rather than deriving it manually) to find the .dtrx file that produced the failing project.
 
 Proceed to Phase 4 (Impact and Report) as before.

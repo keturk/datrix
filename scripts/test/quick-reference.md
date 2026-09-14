@@ -1175,6 +1175,41 @@ gap was found, 2 = the non-vacuity self-test failed or fewer than 2 platforms ar
 
 ---
 
+### `test\model-realization-parity-gate.ps1`
+
+Model-realization capability-declaration parity gate (Decision 46 invariant 6): every installed
+`datrix.platforms` plugin declares a well-formed `model_realizations` mapping on its
+`PlatformCapabilityDeclaration` — one `ModelRealization` per model provider (API family) the
+platform realizes, each cell's `flavors` drawn from the closed placement domain
+`container | external | managed | direct`. The field is REQUIRED with no default: a platform
+realizing zero providers must still declare an explicit empty mapping, so a missing declaration
+is a construction error (reported naming the platform, never a raw traceback), not a silently
+absent capability. Scoped to that single field — it never compares provider sets across
+platforms (a platform realizing zero providers is conforming); the cross-platform union
+comparison over every OTHER capability surface is `block-realization-parity-gate.ps1`'s job.
+
+Derives its target platform set from `importlib.metadata.entry_points(group="datrix.platforms")`
+at runtime — never a hardcoded `aws`/`azure`/`docker`/`local` literal.
+
+**Built-in non-vacuity self-test, every invocation.** Feeds the comparator a synthetic matching
+declaration pair (must report zero violations) and a synthetic pair with one planted
+out-of-domain flavor cell (must report exactly one violation, naming the offending platform and
+flavor). Fails loud (exit 2) if fewer than 2 platforms are registered.
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate** | `.\test\model-realization-parity-gate.ps1` | Check every registered platform's `model_realizations` declaration |
+| **Debug** | `.\test\model-realization-parity-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\model-realization-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Exit codes:** 0 = every registered platform declares a well-formed `model_realizations`
+mapping, 1 = at least one violation (an unconstructible declaration or an out-of-domain
+flavor), 2 = the non-vacuity self-test failed or fewer than 2 platforms are registered.
+
+---
+
 ### `test\pooled-cache-realization-gate.ps1`
 
 Pooled-cache member-slice realization gate: for every registered `datrix.languages` /
@@ -1738,7 +1773,10 @@ tie-breaking and suite-failure clusters as a separate cluster type from error/fa
 deploy-test phase detection from both human-readable (`=== Docker Build ===`) and structured
 (`docker_build_started`/`docker_build_failed exit_code=1`) log markers — including the regression
 where a Docker-unavailable-with-no-markers or fully empty deploy dir must resolve to FAILED at
-docker-build with every phase SKIPPED, never silently PASSED — transient-vs-logic failure
+docker-build with every phase SKIPPED, never silently PASSED, and the one where a lifecycle
+failure's message must be the failed command's captured output (the record body under the
+runner's `<label> output:` header, bounded, with a legacy line-per-record log unchanged), never
+the header line or its timestamp — transient-vs-logic failure
 classification, `failures.json` read as the ENVELOPE the generated runners write (its `failures`
 entries decide the phase result — a green run whose envelope carries an empty list must not read as
 FAILED), per-service counts derived from each runner's own suite totals rather than from a tally of
@@ -1755,13 +1793,13 @@ suite (per the datrix showcase boundary).
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the gate** | `.\test\shared-library-gate.ps1` | Run all 51 absorbed checks |
+| **Run the gate** | `.\test\shared-library-gate.ps1` | Run all 52 absorbed checks |
 | **Harness self-test** | `.\test\shared-library-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
 | **Debug** | `.\test\shared-library-gate.ps1 -Dbg` | Print the python invocation before running |
 
 **Parameters:** `-HarnessSelfTest`, `-Dbg`
 
-**Assertions:** 51 named checks covering `structured_log_writer.py`, `test_runner.py`,
+**Assertions:** 52 named checks covering `structured_log_writer.py`, `test_runner.py`,
 `codegen_hint_mapper.py`, `deploy_test_aggregate_writer.py`, `generated_test_log_writer.py`,
 `aggregate_test_writer.py`, `deploy_test_log_writer.py`, and `logging_utils.py`'s log-content and
 cleanup functions. One of them pins the parallel phase's distribution mode to `-n auto --dist

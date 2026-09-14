@@ -1122,12 +1122,18 @@ def prepare_env_file(project_dir: Path) -> list[str]:
     """Close the compose/environment seam before booting the generated stack.
 
     The emitted compose file CONSUMES variables; the emitted ``.env.example``
-    PRODUCES most of them but deliberately leaves the deployment-owned ones
-    blank, because the generator must not invent a credential. Nothing compares
-    the two sets, and an unsupplied one aborts interpolation with a message
+    PRODUCES every one the generator is the authority for (on the local profile
+    this gate generates under, that includes every credential of a container
+    the generator itself provisions) but deliberately leaves blank the ones an
+    operator or a provider's deploy step supplies -- an external database's
+    admin password, a provider-realized endpoint -- because the generator
+    cannot know those. An unsupplied one aborts interpolation with a message
     that names the variable and nothing else -- so this computes
     ``required - supplied`` from the emitted files themselves and supplies a
-    freshly generated value for each remaining name.
+    freshly generated value for each remaining name. On a fully provisioned
+    project the remaining set is empty; a non-empty one on such a project is a
+    generator seam defect, not something to paper over here, which is why the
+    names are returned and reported.
 
     The values come from the standard library's cryptographic source, are new
     on every run, are never logged, and live only in the throwaway project this

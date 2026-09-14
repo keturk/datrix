@@ -1,0 +1,212 @@
+config service credentials.CertificateService {
+  base {
+    port = 8000;
+    flavor = "compose";
+    replicas = 1;
+    resources {
+      requests {
+        cpu = "100m";
+        memory = "256Mi";
+      }
+      limits {
+        cpu = "500m";
+        memory = "512Mi";
+      }
+    }
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms db {
+      id = "1ec1281d-1314-46c4-bc81-bb6a1a9ac779";
+      engine = "postgres";
+      flavor = "container";
+      host = "localhost";
+      port = 5432;
+      database = "credentials_intake";
+      poolSize = 20;
+      maxOverflow = 20;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+      dockerImage = "postgres:17-alpine";
+      volumePath = "/var/lib/postgresql/data";
+      defaultUser = "postgres";
+    }
+    storage scans {
+      provider = "minio";
+      flavor = "minio";
+      endpoint = "http://localhost:9000";
+      bucket = "certificates";
+      region = "us-east-1";
+    }
+    queues {
+      engine = "rabbitmq";
+      flavor = "container";
+      host = "localhost";
+      port = 5672;
+      managementPort = 15672;
+      defaultUser = "guest";
+      dockerImage = "rabbitmq:3-management-alpine";
+      volumePath = "/var/lib/rabbitmq";
+      healthCheckCmd = "rabbitmq-diagnostics -q ping";
+    }
+    registration {
+      tags = ["api", "credentials", "v1"];
+      meta = {};
+      healthCheck {
+        type = "http";
+        path = "/health";
+        interval = "10s";
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "10s";
+        retry {
+          maxAttempts = 2;
+          backoff {
+            type = "exponential";
+            initial = "100ms";
+            multiplier = 2;
+          }
+        }
+      }
+    }
+    httpSecurity {
+      allowedHosts = ["certificate-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    cacheOps {
+      ttlSeconds = 300;
+      keyMaxLength = 100;
+      redisPoolSize = 10;
+    }
+    queueOps {
+      sqsPollWaitSeconds = 20;
+      sqsMaxMessagesPerPoll = 10;
+      servicebusMaxWaitSeconds = 5;
+    }
+    kafkaOps {
+      consumerPollTimeoutMs = 1000;
+      keepalivePollTimeoutMs = 1000;
+      maxPollIntervalMs = 600000;
+    }
+    messagingOps {
+      rabbitmqPrefetchCount = 10;
+    }
+    downloadOps {
+      timeoutSeconds = 300;
+      chunkSizeBytes = 65536;
+      maxRetries = 3;
+      retryDelaySeconds = 1.0;
+      retryableStatusCodes = [429, 500, 502, 503, 504];
+    }
+    remoteConfigOps {
+      consulTimeoutSeconds = 5.0;
+      appconfigMinPollSeconds = 15;
+    }
+    rateLimitOps {
+      windowSeconds = 60;
+    }
+    microserviceClientOps {
+      timeoutSeconds = 300;
+      circuitBreakerFailMax = 5;
+      circuitBreakerResetSeconds = 30;
+      bulkheadMaxConcurrent = 10;
+      integrationConnectTimeoutMs = 1000;
+      integrationReadTimeoutMs = 30000;
+      mailgunTimeoutSeconds = 30;
+    }
+    retryBudgetOps {
+      window = 100;
+      ratio = 0.1;
+    }
+    outboxOps {
+      flushBatchSize = 500;
+    }
+    serviceCredentialOps {
+      tokenExpirySkewSeconds = 30;
+    }
+    secrets {
+      secret certificate_model_key {
+        required = true;
+        purpose = "API key for the hosted model behind the certificate intake vision handle";
+      }
+    }
+    agents intake {
+      models {
+        vision {
+          provider = "anthropic";               // API family, validated against installed platforms
+          flavor = "direct";
+          model = "claude-opus-5";
+          maxOutputTokens = 4096;
+          timeout = "90s";
+          apiKey = "certificate_model_key";     // a logical secret handle (secrets { } above), never a value
+          budget { perRun { tokens = 30000; wallclock = "2m"; } daily { tokens = 2000000; } }
+        }
+        analyst {
+          provider = "ollama";
+          flavor = "external";                  // a model server on this machine or the local network
+          url = "http://localhost:11434";
+          auth = "none";                        // explicit: an absent value never means unauthenticated
+          model = "qwen3.8";
+          temperature = 0;                      // required here: ollama declares sampling
+          maxOutputTokens = 2048;
+          timeout = "60s";
+          budget { perRun { tokens = 60000; wallclock = "3m"; } }
+        }
+      }
+      approvals { approverRole = "support-admin"; timeout = "24h"; }
+    }
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+    replace agents intake {                     // replace: profiles deep-merge, and a flavor change
+      models {                                  // must not inherit the other flavor's keys
+        vision {
+          provider = "anthropic";
+          flavor = "direct";
+          model = "claude-opus-5";
+          maxOutputTokens = 4096;
+          timeout = "90s";
+          apiKey = "certificate_model_key";
+          budget { perRun { tokens = 30000; wallclock = "2m"; } daily { tokens = 2000000; } }
+        }
+        analyst {
+          provider = "ollama";
+          flavor = "container";                 // Datrix runs the model server in compose
+          image = "ollama/ollama:0.34.0";
+          port = 11434;
+          model = "qwen3.8";
+          temperature = 0;
+          maxOutputTokens = 2048;
+          timeout = "60s";
+          budget { perRun { tokens = 60000; wallclock = "3m"; } }
+        }
+      }
+      approvals { approverRole = "support-admin"; timeout = "24h"; }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+    replace agents intake {
+      models {
+        vision {
+          provider = "replay";
+          fixtures = "fixtures/agents/intake/vision/";
+          attachments = ["application/pdf", "image/jpeg", "image/png"];   // the set the live handle accepts
+          budget { perRun { tokens = 30000; wallclock = "2m"; } }
+        }
+        analyst { provider = "replay"; fixtures = "fixtures/agents/intake/analyst/"; budget { perRun { tokens = 60000; wallclock = "3m"; } } }
+      }
+      approvals { approverRole = "support-admin"; timeout = "24h"; }
+    }
+  }
+}

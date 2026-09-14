@@ -1,0 +1,2 @@
+{"toolCalls": [{"name": "findIssuers", "arguments": {"text": "Acme"}}], "usage": {"inputTokens": 1180, "outputTokens": 42}}
+{"final": {"issuerCode": "AC", "programCode": "AC-101", "number": "AC-000123", "holderName": "Test Holder", "issuedOn": "2025-03-01", "expiresOn": null, "confidence": 0.61}, "usage": {"inputTokens": 1410, "outputTokens": 96}}
