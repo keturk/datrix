@@ -56,6 +56,10 @@
           "reason": "Emits the deploy-test harness, not service runtime."
         },
         {
+          "template": "templates/project/_deploy_test_preflight.py.j2",
+          "reason": "Emits the deploy-test harness, not service runtime: its host-port preflight resolves compose's ${VAR:-default} overrides with compose's own shell-then-.env precedence."
+        },
+        {
           "template": "templates/project/_deploy_test_pytest_phases.py.j2",
           "reason": "Emits the deploy-test harness, not service runtime."
         },
