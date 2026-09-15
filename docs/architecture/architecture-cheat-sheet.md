@@ -474,8 +474,23 @@ in the service ConfigDSL, on the two axes every infrastructure block already use
 | 10 | Every language and platform declares its stance | `MODEL` builtin group + agents domain stance per language; block-kind census in the pre-generation realization stage rejects an `agents` block on an unsupported language before any file is written; a runtime-derived platform gate refuses to pass with fewer than two platforms |
 
 Python + docker (two providers: one hosted API, one self-hostable server API) is the first
-realization; approvals, the model resilience kind, observability, cloud-managed providers and the
-other languages are staged after it, and `approval` is rejected outright until its gate exists.
+realization, and `approval` is rejected outright until its gate exists. The settled second
+phase adds a fail-closed `approval` marker: a marked tool suspends the run behind an injected
+request row (arguments, run correlation id, deciding subject, timestamps) and a separate,
+author-unreachable transcript row deleted on outcome delivery — the request row, not the
+notifying queue message, is the compare-and-set contract that keeps a duplicate delivery from
+running an irreversible tool twice. Four role-gated endpoints (approve, deny, read, list)
+refuse a deciding principal who is the run's own requester, gateway exposure is a required
+declaration, and a denial or expiry resumes through a continuation declared on the agent —
+never the tool — rebinding the original caller's subject. AWS and Azure each declare a
+managed placement for the hosted model API, authenticated by the workload's own platform
+identity with no credential key, and external-only for the self-hostable one, with capability
+cells moving per-placement and cost budgets staying rejected on both. Model calls become a
+resilient-client dependency kind with the handle as sole timeout owner, retry and
+health-probe keys rejected. Agent signals ride the five existing observability categories
+under one declared, producer/consumer-compared metric and span name set, with the
+approval-backlog gauge's producer named as the sweep job. Capturing live model turns into
+replay fixtures stays out of this phase.
 
 Full decision log: [Architecture Overview — Decision 46](./architecture-overview.md#decision-46-ai-agents--model-driven-tool-loops-as-a-declared-service-block-approved--implementation-in-progress).
 
