@@ -824,24 +824,56 @@ On success, the gate prints every registered language's full stance table (one r
 
 ---
 
-### `dev\parallel-implementation-drift-report.ps1`
+### `test\decision-parity-gate.ps1`
 
-Parallel-implementation drift REPORT: AST-walks every registered target package's `src/` tree (`datrix.languages` by default, `datrix.platforms` with `-Axis platforms`) for module-level and class-method function declarations, groups them by bare name, and lists every name declared in **>= 2 registered target packages and in ZERO other `datrix-*` package**. Each qualifying name is **identical** (every declaration byte-for-byte equal, decorators included) or **drifted** (at least one differs). Target derivation and the "everywhere else" package set are both runtime/filesystem discovery, never a hardcoded list. On the platform axis the comparison unit is the package, not the registered name (`azure`/`azure-vm` fold into one entry), so a package is never compared against itself.
+**Replaces the retired name-keyed drift report on the language axis.** AST-walks every
+registered target package's `src/` tree and groups functions into **roles** — a *signature
+role* (shared-typed parameter/return annotations from `datrix_common`/`datrix_codegen_common`)
+or, for functions with no shared-typed parameter, a *normalized-name role* (bare name with each
+language's own declared `name_tokens` stripped) — so a language token inside a name can never
+hide a parallel implementation. Each role's members are compared by **decision skeleton**
+(`if`/`for`/`while`/comprehension/`return`/`raise` structure, model-rooted predicates and calls
+preserved, every other literal collapsed) rather than by verbatim text, and classified
+`identical`, `same-decisions` (skeletons equal, bodies differ), or `decision-divergence`.
 
-**It is a report, not a gate: no baseline, no count, never fails on what it finds.** A name-keyed scan cannot tell an intentional per-language emission difference from an unreconciled divergence, and the decrease-only count baseline and per-name classification ledger it once carried never pointed at a defect -- four generators sharing a function name and differing in body is what four generators look like -- while every rename in any language package had to touch them. Run it when a hoist is being considered and you want the list. The guards that catch real cross-language drift are `reference-example-parity-gate.ps1` (byte identity), `supported-domain-parity-gate.ps1` (the domain-universe union) and each package's closed compilation of its declared tables.
+**Two hard-zero buckets, one shape-exempt, one declared-exception:**
+- `identical` / `same-decisions` fail unless every member is a **pre-binding adapter** (a single
+  `return` of a call into `datrix_codegen_common`, recognized by AST shape only — no written
+  exemption list).
+- `decision-divergence` fails unless every member package other than the ones agreeing with
+  Python declares the construct unsupported on one of three surfaces: its
+  `DomainDeclaration.status == "unsupported"` for the role's resolved domain, the domain in its
+  `on_demand_domains`, or (for an `@emit_adapter`-marked member) its emit-table row's builtin
+  group having an `unsupported` `builtin_group_stances` entry. An `undomained` role admits only
+  the builtin-group surface. A role the gate cannot classify (unparseable member, unresolvable
+  annotation) is reported as a **failure naming the member** — never skipped.
 
-Built-in non-vacuity self-test on every invocation (synthetic two/three-language trees prove identical/drifted/third-language/nowhere-else/package-fold behaviour); exits 2 if fewer than two targets are registered on the chosen axis.
+**Scope is migration-only.** While `datrix/scripts/config/decision-parity-scope.json` exists,
+only the domains it lists (plus the literal `undomained` if listed) can fail the gate; every
+other role is reported but never fails. `-Scope` overrides the file for one run. When the file
+is absent, every domain is in scope (hard zero). The file only grows, never shrinks, and is
+deleted once every domain is in scope.
+
+**Non-vacuity is enforced on every run.** A synthetic five-bucket tree (one identical role, one
+same-decisions role, one divergent role, one role split only by a language token, one role
+unified only by shared-typed signature) must land in exactly its bucket, and a single-target
+tree must be refused.
+
+**The platform axis (`-Axis platforms`) is report-only and never fails** — the platform packages
+realize different infrastructure by design.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the report** | `.\dev\parallel-implementation-drift-report.ps1` | List drifted names across every registered language package |
-| **Platform axis** | `.\dev\parallel-implementation-drift-report.ps1 -Axis platforms` | Same over every registered platform package |
-| **Debug** | `.\dev\parallel-implementation-drift-report.ps1 -Dbg` | Debug logging (also lists every "identical" group) |
-| **Self-test only** | `.\dev\parallel-implementation-drift-report.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Run the gate** | `.\test\decision-parity-gate.ps1` | Language axis, default (empty or file) scope |
+| **Scoped** | `.\test\decision-parity-gate.ps1 -Scope queue,cache` | Fail only roles in these domains |
+| **Platform axis** | `.\test\decision-parity-gate.ps1 -Axis platforms` | Report only, always exits 0 |
+| **Debug** | `.\test\decision-parity-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\decision-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test |
 
-**Parameters:** `-Axis <languages\|platforms>` (default: languages), `-Dbg`, `-SelfTest`
+**Parameters:** `-Axis <languages|platforms>` (default: languages), `-Scope <id,...>`, `-Dbg`, `-SelfTest`
 
-**Exit codes:** 0 = the report ran (or a successful `-SelfTest`), 2 = the self-test failed, fewer than two targets are registered, or a discovery/parse error occurred.
+**Exit codes:** 0 = no failing role in scope (or a successful `-SelfTest`, or `-Axis platforms`),
+1 = ≥1 failing role in scope, 2 = usage/discovery/parse error or the self-test failed.
 
 ---
 
@@ -1893,6 +1925,41 @@ A self-test failure aborts before any real result is trusted (exit 1).
 
 ---
 
+### `test\polystring-case-roundtrip-gate.ps1`
+
+**The repo's proof that no name goes `str()` → `to_*_case()`.** Every identifier the generator re-cases — an entity, service, block, field, queue or shared-container name, `QualifiedNode.name`, `qualified_name` — is a `PolyString`: a `str` subclass that split its words **once** and exposes `.snake`, `.camel`, `.pascal`, `.kebab`, `.screaming_snake` and `.simple`. The case functions in `datrix_common.utils.text` are for text that is *not* already a name object. For the `datrix` showcase repo and every `datrix-*` clone (discovered from disk at runtime), the gate parses every publishable `.py` file with `ast` and fails on any case-function call — by canonical name, import alias, or module attribute — whose argument is one of four shapes:
+
+| Kind | Shape | Fix |
+|------|-------|-----|
+| `str-wrapped` | `to_X_case(str(E))` | read `E.X`; if `E` is genuinely plain text, drop the `str()` — case functions accept any `str`, PolyString included |
+| `str-bound` | `to_X_case(NAME)` where `NAME = str(E)` is bound in the same function/module scope | read `E.X` off the original name object |
+| `nested` | `to_X_case(to_Y_case(E))` | the outer call alone is equivalent; a derived name is `PolyString.compose(...).X` |
+| `simple-name` | `to_X_case(extract_simple_name(E))` | `E.simple.X` |
+
+**Held at a hard zero with no exemption file.** No shape above has a legitimate instance: a case function never needs a `str()` around its argument, and a nested call never needs its inner one. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), and the gate's own self-test is its coverage.
+
+**Why it exists.** The round trip is not merely wasteful (it recomputes the word split the name already paid for): it hides from the next reader that the value was a name, so they treat it as text too, and the pattern spread to several hundred sites across the language and platform packages before anything refused it. A Semgrep rule (`redundant-case-conversion`) named the shape but ran only on demand, as a WARNING — an advisory nobody has to read is the same as no rule.
+
+**What it cannot see.** `to_snake_case(node.name)` — a PolyString passed straight to a case function — is the same waste without the `str()`, but whether `.name` is a PolyString or an `Enum` member's plain-`str` `.name` is a type fact, and no type checker runs in this repo. That shape is left to review.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\polystring-case-roundtrip-gate.ps1` | Scan every publishable `.py` file in every framework repo |
+| **One repo** | `.\test\polystring-case-roundtrip-gate.ps1 -Repo datrix-codegen-aws` | Scan only the named repo(s) |
+| **Pending changes only** | `.\test\polystring-case-roundtrip-gate.ps1 -PendingOnly` | Scan only what a `git add -A` would stage (the commit-path form) |
+| **Self-test only** | `.\test\polystring-case-roundtrip-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Debug** | `.\test\polystring-case-roundtrip-gate.ps1 -Dbg` | DEBUG logging; print the python invocation before running |
+
+**Parameters:** `-Repo <name[,name...]>`, `-SelfTest`, `-PendingOnly`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** A planted module carrying one instance of every kind and every callee spelling (canonical, `as` alias, `text.to_snake_case` attribute, function-level import) plus a nested function must yield exactly the expected `(line, kind, function)` triples — so the scope barrier is proven, not assumed; a clean module (reading `.snake`, casing a value that was never `str()`-wrapped, `str()` applied *after* the case call, `PolyString.compose`) must yield zero; and an unparseable module must refuse (exit 2) rather than report clean. A self-test failure aborts before any real result is trusted (exit 1).
+
+**Also enforced at the commit seam.** `git\commit-and-push.ps1` runs the same scanner over the pending files of every dirty repo before it generates a message or stages anything, and refuses the whole run on a hit (`-SkipPolyStringCaseCheck` overrides, loudly). This gate is the whole-workspace counterpart: it also covers repos the current run is not committing.
+
+**Exit codes:** 0 = zero round trips in every scanned file, 1 = at least one round trip or the self-test failed, 2 = usage error (unknown `-Repo` name, no framework repo found) or a scanned file that could not be parsed.
+
+---
+
 ### `test\design-task-reference-gate.ps1`
 
 **The repo's proof that no committed artifact cites a design document or a task file.** `design/` and `.tasks/` are gitignored and are developed on more than one machine, so their numbering collides: two different `044-*` documents can exist, and after a clone neither is present. A reference to one from anything committed is a dangling pointer — it resolves to nothing, or to a different artifact elsewhere. The gate scans the committed trees for the SHAPE of such a reference and fails on any hit. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
@@ -1994,6 +2061,7 @@ Runs the affected set of Datrix package suites concurrently and returns one GREE
 - The scheduler never launches two live children for the same package.
 - A package whose newest run directory has no/INCOMPLETE `index.json` (a run in progress) is refused unless `-Force`.
 - A child that exits without advancing its package's newest run directory past its pre-launch baseline is reported RED with reason `CHILD_PRODUCED_NO_RUN`, never silently defaulting to whatever stale prior result exists.
+- Every other package is judged on **the run directory its child produced** (captured the moment the child exited, and pinned through `gate_verdict.evaluate_projects(pinned_runs=...)`), never on the newest run at verdict time. A targeted `-Specific` run from another session that lands after the child exits would otherwise replace a RED whole-suite result with an unrelated GREEN subset — a 59-test targeted run once stood in for a 5,950-test RED suite exactly this way, and the gate printed `OVERALL: GREEN` with exit 0. A pinned run with no results file is RED with reason `PINNED_RUN_HAS_NO_RESULTS`; it never falls through to the newest run.
 
 **Exit codes:** 0 = overall GREEN (or a successful `-SelfTest` run), 1 = overall RED (or `-SelfTest` reports a failing check), 2 = usage error (bad `-MaxConcurrent`/`-WorkersPerChild`, unknown/duplicate package name, both `-Projects` and `-All` given).
 

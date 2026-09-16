@@ -184,7 +184,7 @@ def to_test_method_name(method_name: str) -> str:
 
 def to_fixture_name(entity_name: str) -> str:
     """Convert entity name to fixture name."""
-    return to_snake_case(str(entity_name))
+    return to_snake_case(entity_name)
 
 
 class UnmappedSQLAlchemyTypeError(ValueError):
@@ -238,7 +238,7 @@ def sqlalchemy_to_python_type(sa_type: str) -> str:
 
 def cdk_id(name: str) -> str:
     """Convert name to CDK construct ID (PascalCase without underscores)."""
-    return to_pascal_case(str(name)).replace("_", "")
+    return to_pascal_case(name).replace("_", "")
 
 
 def tojson_filter(value: Any) -> str:

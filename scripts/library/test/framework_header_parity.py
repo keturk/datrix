@@ -65,7 +65,7 @@ from datrix_common.generation.http_headers import (  # noqa: E402
 from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
 
 from shared.registered_targets import registered_language_names  # noqa: E402
-from test.parallel_implementation_drift import (  # noqa: E402
+from shared.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
     WORKSPACE_ROOT,
     discover_target_package_src_dirs,

@@ -1,0 +1,13 @@
+{
+  "_comment": [
+    "Migration-only scope list for the decision-parity gate (scripts/library/test/decision_parity.py,",
+    "wrapped by scripts/test/decision-parity-gate.ps1). While this file exists, the shared domain ids",
+    "listed under 'domains' are the ONLY ones the gate can fail on; every role in any other domain is",
+    "reported but never fails. The literal 'undomained' may be listed to gate the roles that resolve to",
+    "no shared domain. A domain is added here once every role in it has been brought to language-axis",
+    "decision parity, and the list only grows -- an entry is never removed. When every domain is in",
+    "scope this file is DELETED and the gate runs unscoped: every domain in scope, hard zero.",
+    "-Scope on the wrapper (--scope on the module) overrides this list for one run."
+  ],
+  "domains": []
+}

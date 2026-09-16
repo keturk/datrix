@@ -114,6 +114,10 @@ _CATEGORY_BINDINGS: Final[dict[str, _CategoryBinding]] = {
 #: discriminating power and must never influence the real comparison.
 _SELF_TEST_LANGUAGE: Final[str] = "self_test_lang"
 
+#: name_tokens must match ^[a-z0-9]+$ -- _SELF_TEST_LANGUAGE itself contains
+#: underscores and cannot be reused as a token.
+_SELF_TEST_LANGUAGE_TOKEN: Final[str] = "selftestlang"
+
 
 def configure_logging(debug: bool = False) -> None:
     """Configure logging output."""
@@ -299,6 +303,7 @@ def _assert_self_test_leg1() -> None:
     clean = {
         _SELF_TEST_LANGUAGE: LanguageCapabilityDeclaration(
             language_label=_SELF_TEST_LANGUAGE,
+            name_tokens=frozenset({_SELF_TEST_LANGUAGE_TOKEN}),
             realized_observability_providers={c: frozenset() for c in _CATEGORY_BINDINGS},
         )
     }
@@ -313,6 +318,7 @@ def _assert_self_test_leg1() -> None:
     claiming = {
         _SELF_TEST_LANGUAGE: LanguageCapabilityDeclaration(
             language_label=_SELF_TEST_LANGUAGE,
+            name_tokens=frozenset({_SELF_TEST_LANGUAGE_TOKEN}),
             realized_observability_providers={category: frozenset({provider_value})},
         )
     }
@@ -350,6 +356,7 @@ def _assert_self_test_leg2() -> None:
     realizes_nothing = {
         _SELF_TEST_LANGUAGE: LanguageCapabilityDeclaration(
             language_label=_SELF_TEST_LANGUAGE,
+            name_tokens=frozenset({_SELF_TEST_LANGUAGE_TOKEN}),
             realized_observability_providers={category: frozenset()},
         )
     }

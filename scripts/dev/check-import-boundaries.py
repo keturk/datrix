@@ -86,6 +86,27 @@ count increases past its frozen baseline
 --update-baseline (combined with --check-shared-target-names) recomputes and
 overwrites that baseline.
 
+Also implements the I4 own-target-name ratchet (Decision D5, Invariant I4):
+opt-in via --check-own-target-names, it AST-scans EVERY registered LANGUAGE
+package's own src/ tree (the discovered taxonomy's language_packages -- the
+same source I6/G1 already use, never a hardcoded per-language tuple) for a
+function or method DEFINITION whose name carries THAT SAME package's own
+registered language id or declared alias (read live via
+``declaration_for_language(lang).name_tokens | {lang}``, never a hardcoded
+per-language literal set) as an identifier segment. This is the mirror image
+of G2: G2 holds the ONE shared-layer package to zero symbols carrying ANY
+registered language's name; I4 holds EVERY language package to zero
+functions carrying ITS OWN name -- the token that hides a parallel
+implementation from a name-keyed decision-parity scan (a function inside
+datrix_codegen_java does not need "java" in its name; the package already
+says it). Scope is FUNCTION/METHOD DEFINITION names only -- never a class
+name, dataclass field, or type reference (a language package legitimately
+references its own types by name everywhere). Fails if any package's count
+increases past its frozen baseline
+(scripts/config/own-target-name-baseline.toml).
+--update-baseline (combined with --check-own-target-names) recomputes and
+overwrites that baseline.
+
 Also implements the G3 cross-package vocabulary ratchet (Decision D2.1-D2.4):
 opt-in via --check-cross-package-vocabulary, it AST-scans EVERY discovered
 datrix-* package's src/ tree (via discover_packages() -- not only the four
@@ -111,7 +132,7 @@ Self-test (--self-test): proves the rule model (the manifest-discovered
 generator taxonomy, build_boundary_rules over it, the allowed-
 subtree carve-outs), the AST scanners (provider-conditional,
 function-level-import, shared-vocabulary, shared-target-name,
-cross-package-vocabulary), and the ratchet comparators are non-vacuous --
+own-target-name, cross-package-vocabulary), and the ratchet comparators are non-vacuous --
 including a real mutation-based CLI proof (plants a
 regression in an isolated fixture monorepo, proves the CLI detects it,
 proves it clears on revert). The self-test runs automatically as step 1 of
@@ -126,12 +147,13 @@ itself) and is not intended for direct use.
 Exit codes:
     0: Clean (no violations) or --warn mode
     1: Violations found in fail mode (import-boundary and/or I1/I6/function-
-       level-import/shared-vocabulary/shared-target-name/cross-package-
-       vocabulary ratchets), or a self-test failure
+       level-import/shared-vocabulary/shared-target-name/own-target-name/
+       cross-package-vocabulary ratchets), or a self-test failure
     2: Usage error, configuration error, or (with --check-target-literals,
        --check-provider-conditionals, --check-function-level-imports,
-       --check-shared-vocabulary, --check-shared-target-names, or
-       --check-cross-package-vocabulary) a missing baseline file
+       --check-shared-vocabulary, --check-shared-target-names,
+       --check-own-target-names, or --check-cross-package-vocabulary) a
+       missing baseline file
 """
 
 import argparse
@@ -159,8 +181,13 @@ if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
 from shared.registered_targets import (  # noqa: E402
+    AXIS_LANGUAGES,
+    entry_point_module_roots,
     registered_language_names,
     registered_platform_names,
+)
+from datrix_common.plugin.capability_resolution import (  # noqa: E402
+    declaration_for_language,
 )
 
 
@@ -3015,6 +3042,280 @@ def check_shared_target_name_ratchet(
 
 
 # ---------------------------------------------------------------------------
+# I4 Own-Target-Name Ratchet (Decision D5, Invariant I4)
+#
+# The mirror image of G2: G2 holds the ONE shared-layer package
+# (datrix_codegen_common) to zero symbols carrying ANY registered language's
+# name; I4 holds EVERY registered LANGUAGE package to zero function/method
+# DEFINITIONS carrying THAT SAME package's own registered language id or
+# declared alias -- the token that defeats a name-keyed decision-parity
+# scan's grouping of members across packages (a `build_python_thing` inside
+# `datrix_codegen_python` does not need "python" in its name; the package
+# already says it). Scope is function/method
+# DEFINITION names only -- never a class name, dataclass field, or type
+# reference (a language package legitimately imports and references its own
+# language's types by name everywhere; that is what G2's declaration/type-
+# reference scan already covers, for the ONE shared package it polices).
+#
+# The policed package set is the discovered taxonomy's `language_packages`
+# (the same source I6/G1 already thread through their own scan functions) --
+# never a hardcoded per-language tuple, so a fifth `datrix-codegen-<lang>`
+# package is policed automatically the moment its manifest registers a
+# `datrix.languages` entry point. The per-package VOCABULARY is read live
+# from `declaration_for_language(lang).name_tokens` (the registered language
+# id resolved from the package's own import root via
+# `entry_point_module_roots`), never a hardcoded per-language literal set.
+
+
+@dataclass(frozen=True)
+class OwnTargetNameHit:
+    """One function/method definition whose name carries its own package's
+    language id or declared alias as an identifier segment (Decision D5,
+    Invariant I4).
+
+    Attributes:
+        file_path: File containing the definition.
+        line_number: Definition's line number.
+        identifier: The bare function/method name.
+        matched_token: The registered token it carries (from
+            ``declaration_for_language(lang).name_tokens | {lang}``).
+    """
+
+    file_path: Path
+    line_number: int
+    identifier: str
+    matched_token: str
+
+
+def scan_file_for_own_target_names(
+    file_path: Path, own_tokens: frozenset[str]
+) -> list[OwnTargetNameHit]:
+    """AST-walk *file_path* for ``FunctionDef``/``AsyncFunctionDef`` NAMES
+    only (module-level and class-method) carrying a segment in *own_tokens*
+    -- reuses ``_identifier_carries_target_name`` (G2, above) unchanged.
+
+    Deliberately narrower than G2's shared-target-name scan: I4 is about a
+    function's OWN name, never a class name, dataclass field, or type
+    reference (a language package legitimately imports and references its
+    own language's types by name everywhere).
+
+    Args:
+        file_path: Path to Python source file.
+        own_tokens: This package's own ``name_tokens | {registered_name}``.
+
+    Returns:
+        List of hits found in the file, in AST-walk order.
+
+    Raises:
+        SyntaxError: propagated from ast.parse (caller decides how to report).
+        OSError: propagated if the file cannot be read.
+    """
+    source_code = file_path.read_text(encoding="utf-8-sig")
+    tree = ast.parse(source_code, filename=str(file_path))
+    hits: list[OwnTargetNameHit] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            matched = _identifier_carries_target_name(node.name, own_tokens)
+            if matched is not None:
+                hits.append(OwnTargetNameHit(file_path, node.lineno, node.name, matched))
+    return hits
+
+
+def _own_target_name_tokens_by_package(
+    language_packages: tuple[str, ...],
+) -> dict[str, frozenset[str]]:
+    """Map each language package's IMPORT name (e.g. ``datrix_codegen_python``,
+    as ``GeneratorTaxonomy.language_packages`` holds) to its own
+    ``declaration_for_language(lang).name_tokens | {lang}``, read live --
+    never a hardcoded per-language literal set.
+
+    ``declaration_for_language`` takes the REGISTERED ``datrix.languages``
+    entry-point name (e.g. ``"python"``), not the import root, so each import
+    name is resolved back to its registered name via
+    ``entry_point_module_roots`` (the same live entry-point map
+    ``discover_target_package_src_dirs`` itself builds from), inverted.
+
+    Args:
+        language_packages: Import package names to resolve (e.g. from
+            ``GeneratorTaxonomy.language_packages``).
+
+    Returns:
+        Import package name -> its own declared name-token vocabulary.
+
+    Raises:
+        ValueError: If an import name has no registered ``datrix.languages``
+            entry point pointing at it -- a real configuration inconsistency
+            between a package's manifest and its installed entry point,
+            never silently skipped.
+    """
+    import_root_to_language = {
+        import_root: language_name
+        for language_name, import_root in entry_point_module_roots(AXIS_LANGUAGES).items()
+    }
+    tokens_by_package: dict[str, frozenset[str]] = {}
+    for import_name in language_packages:
+        language_name = import_root_to_language.get(import_name)
+        if language_name is None:
+            raise ValueError(
+                f"Language package {import_name!r} (declared by its manifest's "
+                f"'datrix.languages' entry point) has no matching installed "
+                f"'datrix.languages' entry point. Installed entry-point names: "
+                f"{sorted(import_root_to_language.values())}. Fix: verify the "
+                f"package is installed into the active virtual environment and "
+                f"its pyproject.toml entry-point name matches the installed one."
+            )
+        tokens_by_package[import_name] = declaration_for_language(
+            language_name
+        ).name_tokens | {language_name}
+    return tokens_by_package
+
+
+def scan_own_target_names(
+    packages: dict[str, PackageInfo],
+    monorepo_root: Path,
+    language_packages: tuple[str, ...],
+) -> dict[str, list[OwnTargetNameHit]]:
+    """Scan every registered language package's OWN ``src/`` tree against ITS
+    OWN tokens only -- never another language's, and never the shared
+    ``datrix_codegen_common`` package (that is G2's job).
+
+    Args:
+        packages: Package name -> PackageInfo, as returned by discover_packages().
+        monorepo_root: Monorepo root for relative path reporting.
+        language_packages: The discovered taxonomy's language packages
+            (``GeneratorTaxonomy.language_packages``).
+
+    Returns:
+        Mapping of package name -> hits in that package (packages with zero
+        hits omitted).
+    """
+    results: dict[str, list[OwnTargetNameHit]] = {}
+    tokens_by_package = _own_target_name_tokens_by_package(language_packages)
+
+    for package_name in language_packages:
+        package_info = packages.get(package_name)
+        if package_info is None:
+            continue
+
+        own_tokens = tokens_by_package[package_name]
+        package_hits: list[OwnTargetNameHit] = []
+        for py_file in package_info.src_dir.rglob("*.py"):
+            try:
+                package_hits.extend(scan_file_for_own_target_names(py_file, own_tokens))
+            except SyntaxError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(
+                    f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. A policed "
+                    f"file that cannot be parsed would escape this scan; fix its syntax "
+                    f"or encoding.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            except OSError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(
+                    f"ERROR: Failed to read {rel_path} - {e}. A policed file that cannot "
+                    f"be read would escape this scan; resolve the read error.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+
+        if package_hits:
+            results[package_name] = package_hits
+
+    return results
+
+
+def load_own_target_name_baseline(baseline_path: Path) -> dict[str, int]:
+    """Load ``{package_name: frozen_count}`` from the own-target-name
+    baseline TOML. Returns an empty dict if the file does not exist yet.
+    Mirrors ``load_shared_target_name_baseline`` exactly, keyed by
+    ``package`` instead of ``file``.
+    """
+    if not baseline_path.exists():
+        return {}
+
+    try:
+        import tomllib  # Python 3.11+
+    except ImportError:
+        try:
+            import tomli as tomllib  # type: ignore[no-redef, import-not-found]
+        except ImportError:
+            print(
+                "Warning: TOML library not available. Install tomli for baseline support.",
+                file=sys.stderr,
+            )
+            return {}
+
+    with baseline_path.open("rb") as f:
+        data = tomllib.load(f)
+
+    counts: dict[str, int] = {}
+    for entry in data.get("baseline", []):
+        if not isinstance(entry, dict):
+            continue
+        package_name = entry.get("package", "")
+        count = entry.get("count")
+        if package_name and isinstance(count, int):
+            counts[package_name] = count
+
+    return counts
+
+
+def write_own_target_name_baseline(baseline_path: Path, counts: dict[str, int]) -> None:
+    """Write *counts* to the own-target-name baseline TOML as
+    ``[[baseline]] package=... count=...`` entries, sorted by package name.
+    Mirrors ``write_shared_target_name_baseline``."""
+    header = (
+        "# I4 Own-Target-Name Ratchet Baseline (Decision D5, Invariant I4)\n"
+        "#\n"
+        "# Frozen per-PACKAGE counts of function/method definitions whose name\n"
+        "# carries that package's OWN registered language id or declared alias\n"
+        "# (declaration_for_language(lang).name_tokens | {lang}) as a whole\n"
+        "# underscore-delimited identifier segment. Any INCREASE fails\n"
+        "# datrix/scripts/dev/check-import-boundaries.py --check-own-target-names.\n"
+        "# Decreases are always allowed and should be captured by re-running with\n"
+        "# --update-baseline once a rename removes a remaining hit. The terminal\n"
+        "# state is zero for every package, then the baseline file itself is\n"
+        "# deleted and the check runs hard-zero.\n"
+        "#\n"
+        "# Format:\n"
+        "#   [[baseline]]\n"
+        '#   package = "datrix_codegen_python"\n'
+        "#   count = <int>\n"
+        '#   reason = "free text, not read by the loader"\n'
+    )
+
+    lines = [header]
+    for package_name in sorted(counts.keys()):
+        lines.append("\n[[baseline]]\n")
+        lines.append(f'package = "{package_name}"\n')
+        lines.append(f"count = {counts[package_name]}\n")
+
+    baseline_path.parent.mkdir(parents=True, exist_ok=True)
+    baseline_path.write_text("".join(lines), encoding="utf-8")
+
+
+def check_own_target_name_ratchet(
+    current_counts: dict[str, int],
+    baseline: dict[str, int],
+) -> list[str]:
+    """Compare *current_counts* against *baseline*; return one message per
+    package whose count INCREASED (baseline missing == baseline 0). Mirrors
+    ``check_shared_target_name_ratchet`` exactly -- never flags a decrease."""
+    messages: list[str] = []
+    for package_name in sorted(current_counts.keys()):
+        current = current_counts[package_name]
+        frozen = baseline.get(package_name, 0)
+        if current > frozen:
+            messages.append(
+                f"{package_name}: own-target-name count increased from baseline "
+                f"{frozen} to {current}"
+            )
+    return messages
+
+
+# ---------------------------------------------------------------------------
 # G3 Cross-Package Vocabulary Ratchet (Decision D2.1-D2.4, Property 2)
 #
 # Fails when a module-level set/frozenset/dict/tuple literal's normalized
@@ -3593,7 +3894,7 @@ def _real_repo_rules() -> tuple[GeneratorTaxonomy, dict[str, BoundaryRule]]:
 def _self_test_allowed_denied_subtrees(rules: dict[str, BoundaryRule]) -> bool:
     """The platform allowed-subtree carve-out constant is frozen exactly, and
     every representative allowed/denied import is classified correctly."""
-    _step("Self-test 1/17: platform allowed/denied codegen-common subtrees")
+    _step("Self-test 1/18: platform allowed/denied codegen-common subtrees")
     ok = True
 
     expected_allowed_subtrees: frozenset[str] = frozenset(
@@ -3680,7 +3981,7 @@ def _self_test_allowed_denied_subtrees(rules: dict[str, BoundaryRule]) -> bool:
 def _self_test_dotted_precision_and_carveout(rules: dict[str, BoundaryRule]) -> bool:
     """Subtree matching is exact-or-child (not raw prefix), and the carve-out
     never leaks to a package that did not opt in."""
-    _step("Self-test 2/17: dotted-boundary precision and carve-out non-leakage")
+    _step("Self-test 2/18: dotted-boundary precision and carve-out non-leakage")
     ok = True
     platform_source = "datrix_codegen_aws"
 
@@ -3727,7 +4028,7 @@ def _self_test_dotted_precision_and_carveout(rules: dict[str, BoundaryRule]) -> 
 def _self_test_sql_and_component_coverage(rules: dict[str, BoundaryRule]) -> bool:
     """The rule table covers datrix_codegen_sql and datrix_codegen_component,
     each enforcing the sibling-language prohibition absolutely."""
-    _step("Self-test 3/17: SQL and Component boundary rule coverage")
+    _step("Self-test 3/18: SQL and Component boundary rule coverage")
     ok = True
 
     ok &= _check(
@@ -3907,7 +4208,7 @@ def _self_test_platform_to_platform_prohibition(
     monorepo must classify exactly as its manifests say.
     """
     _step(
-        "Self-test 4/17: taxonomy discovery + platform -> sibling-platform "
+        "Self-test 4/18: taxonomy discovery + platform -> sibling-platform "
         "import prohibition"
     )
     ok = True
@@ -4033,7 +4334,7 @@ def _self_test_platform_cli_non_vacuity() -> bool:
     clears (exit 0) -- i.e. the rule flags the defect and permits the fix.
     """
     _step(
-        "Self-test 9/17: platform -> platform CLI mutation non-vacuity "
+        "Self-test 9/18: platform -> platform CLI mutation non-vacuity "
         "(plant a real aws -> docker import, prove detection, prove the shared-layer fix clears it)"
     )
     ok = True
@@ -4137,7 +4438,7 @@ def _self_test_provider_literal_cli_non_vacuity() -> bool:
     monorepo rather than the real committed baseline.
     """
     _step(
-        "Self-test 10/17: provider-literal ratchet CLI mutation non-vacuity "
+        "Self-test 10/18: provider-literal ratchet CLI mutation non-vacuity "
         '(plant a real == "azure" conditional, prove detection, prove it clears on revert)'
     )
     ok = True
@@ -4225,7 +4526,7 @@ def _self_test_shared_package_provider_literal_cli_non_vacuity() -> bool:
     required NEGATIVE acceptance proof for D6.1's shared-package half.
     """
     _step(
-        "Self-test 11/17: shared-package provider-literal zero-tolerance CLI "
+        "Self-test 11/18: shared-package provider-literal zero-tolerance CLI "
         'mutation non-vacuity (plant a real == "azure" conditional in '
         "datrix-common, prove detection, prove it clears on revert)"
     )
@@ -4288,7 +4589,7 @@ def _self_test_shared_vocabulary_scanner() -> bool:
     have missed every one of them, and each non-Enum shape's bare-literal
     redeclaration is detected while its importing form is not."""
     _step(
-        "Self-test 12/17: shared-vocabulary scanner (detection + exemption "
+        "Self-test 12/18: shared-vocabulary scanner (detection + exemption "
         "non-vacuity, Enum and non-Enum canonical sources alike)"
     )
     ok = True
@@ -4604,7 +4905,7 @@ def _self_test_shared_vocabulary_cli_non_vacuity() -> bool:
     fixture file.
     """
     _step(
-        "Self-test 13/17: shared-vocabulary ratchet CLI mutation non-vacuity "
+        "Self-test 13/18: shared-vocabulary ratchet CLI mutation non-vacuity "
         "(fixture importing QueryTerminal exits 0; redeclaring its four "
         "members as bare literals exits 1; reverting clears it -- plus one "
         "mutate/detect/revert cycle per non-Enum canonical vocabulary)"
@@ -4691,7 +4992,7 @@ def _self_test_shared_target_name_scanner() -> bool:
     design, and the full scanner does not flag a bare local variable inside
     a function body but DOES detect a plain module-level constant via the
     scoped Assign path."""
-    _step("Self-test 14/17: shared-target-name scanner (segment matching + non-flood proof)")
+    _step("Self-test 14/18: shared-target-name scanner (segment matching + non-flood proof)")
     ok = True
 
     target_names = frozenset({"python", "typescript", "java", "dotnet"})
@@ -4887,7 +5188,7 @@ def _self_test_shared_target_name_cli_non_vacuity() -> bool:
     proves it clears.
     """
     _step(
-        "Self-test 15/17: shared-target-name ratchet CLI mutation non-vacuity "
+        "Self-test 15/18: shared-target-name ratchet CLI mutation non-vacuity "
         "('class PythonFooSlice' exits 1; 'class FooSliceProtocol' exits 0)"
     )
     ok = True
@@ -4934,7 +5235,7 @@ def _self_test_provider_conditional_scanner() -> bool:
     conditional shape (ProviderId-shaped, deployment-provider-value, match/case,
     and -- added by this task -- the two D5 provider-literal sub-patterns) and
     excludes every look-alike that must not ratchet."""
-    _step("Self-test 5/17: provider-conditional AST scanner (detection + exclusion)")
+    _step("Self-test 5/18: provider-conditional AST scanner (detection + exclusion)")
     ok = True
     provider_ids = registered_platform_names()
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"provider-scanner-{uuid.uuid4().hex}"
@@ -5084,7 +5385,7 @@ def _self_test_function_level_import_scanner() -> bool:
     """scan_file_for_function_level_imports counts zero for module-top
     imports and exactly one for each nested (function/TYPE_CHECKING/
     try-except) import."""
-    _step("Self-test 6/17: function-level-import AST scanner")
+    _step("Self-test 6/18: function-level-import AST scanner")
     ok = True
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"fli-scanner-{uuid.uuid4().hex}"
     scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -5126,7 +5427,7 @@ def _self_test_function_level_import_scanner() -> bool:
 def _self_test_ratchets() -> bool:
     """All three ratchet comparators fire on any per-file increase, never on
     a decrease, and treat a baseline-absent file as baseline 0."""
-    _step("Self-test 7/17: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
+    _step("Self-test 7/18: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
     ok = True
 
     clean = check_provider_conditional_ratchet(
@@ -5330,7 +5631,7 @@ def _self_test_cli_non_vacuity() -> bool:
     temporarily-mutated fixture tree -- never a simulated one, and never the
     real datrix-common source tree."""
     _step(
-        "Self-test 8/17: function-level-import CLI mutation non-vacuity "
+        "Self-test 8/18: function-level-import CLI mutation non-vacuity "
         "(plant a real regression, prove detection, prove it clears on revert)"
     )
     ok = True
@@ -5379,7 +5680,7 @@ def _self_test_cross_package_vocabulary_scanner() -> bool:
     EnumClass.MEMBER references, and DOES recognize a bare tuple literal as
     a candidate container shape."""
     _step(
-        "Self-test 16/17: cross-package-vocabulary scanner (cross-package "
+        "Self-test 16/18: cross-package-vocabulary scanner (cross-package "
         "duplicate detection + same-package/qualified-enum/uniqueness "
         "exemptions + bare-tuple recognition)"
     )
@@ -5578,7 +5879,7 @@ def _self_test_cross_package_vocabulary_cli_non_vacuity() -> bool:
     the scanner-level self-test, ``_self_test_cross_package_vocabulary_scanner``,
     which this CLI proof complements with a real subprocess round-trip)."""
     _step(
-        "Self-test 17/17: cross-package-vocabulary ratchet CLI mutation "
+        "Self-test 17/18: cross-package-vocabulary ratchet CLI mutation "
         "non-vacuity (two non-overlapping fixture packages exit 0; "
         "redeclaring alpha's set in beta exits 1; reverting clears it)"
     )
@@ -5627,6 +5928,213 @@ def _self_test_cross_package_vocabulary_cli_non_vacuity() -> bool:
     return ok
 
 
+def _self_test_own_target_name_build_fixture_monorepo(tmp_root: Path) -> Path:
+    """Build a minimal isolated monorepo: one datrix-codegen-python package
+    (a LANGUAGE package by its manifest's ``datrix.languages`` entry point,
+    exactly like ``_self_test_shared_vocabulary_build_fixture_monorepo``)
+    with a module declaring a target-NEUTRAL function, plus a baseline TOML
+    freezing that package at count 0."""
+    _self_test_write_manifest(
+        tmp_root,
+        "datrix-codegen-python",
+        "datrix_codegen_python",
+        entry_point_groups={LANGUAGES_ENTRY_POINT_GROUP: {"python": "PythonLanguagePlugin"}},
+    )
+    package_src = tmp_root / "datrix-codegen-python" / "src" / "datrix_codegen_python"
+    package_src.mkdir(parents=True, exist_ok=True)
+    (package_src / "__init__.py").write_text("", encoding="utf-8")
+
+    module_path = package_src / "sample_module.py"
+    module_path.write_text("def build_thing() -> None:\n    pass\n", encoding="utf-8")
+
+    config_dir = tmp_root / "datrix" / "scripts" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    baseline_path = config_dir / "own-target-name-baseline.toml"
+    baseline_path.write_text(
+        '[[baseline]]\npackage = "datrix_codegen_python"\ncount = 0\n', encoding="utf-8"
+    )
+    return module_path
+
+
+def _self_test_own_target_name_run_cli(tmp_root: Path) -> "subprocess.CompletedProcess[str]":
+    """Invoke THIS script as a real subprocess against the isolated fixture."""
+    return subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--base-dir",
+            str(tmp_root),
+            "--check-own-target-names",
+            "--skip-auto-self-test",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _self_test_own_target_name_cli_non_vacuity() -> bool:
+    """End-to-end proof the I4 own-target-name ratchet actually FIRES.
+
+    Covers all four proof categories this ratchet's own test plan
+    requires: the scanner's shape (function/method names only, never a class
+    name), the ratchet comparator's regression/no-regression/missing-
+    baseline-as-zero behavior, the baseline loader/writer round-trip, and
+    (the real end-to-end proof) a mutation-based CLI non-vacuity check:
+    starts from a fixture declaring a target-NEUTRAL function name (exits
+    0), mutates it to carry the package's OWN registered language token
+    (``build_python_thing``, exits 1, names the package and the exact
+    delta), then reverts and proves it clears.
+    """
+    _step(
+        "Self-test 18/18: own-target-name ratchet (scanner shape, ratchet "
+        "comparator, baseline round-trip, and CLI mutation non-vacuity: "
+        "'build_python_thing' exits 1; 'build_thing' exits 0)"
+    )
+    ok = True
+
+    # -- Scanner shape: function/method DEFINITION names only, never a class
+    # name, using python's REAL declared name_tokens (the declaration already
+    # includes "python" itself in PYTHON_LANGUAGE_CAPABILITY_DECLARATION).
+    python_tokens = declaration_for_language("python").name_tokens | {"python"}
+    scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"own-target-scanner-{uuid.uuid4().hex}"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        neutral_function_file = scratch_dir / "neutral_function.py"
+        neutral_function_file.write_text(
+            "def build_thing() -> None:\n    pass\n", encoding="utf-8"
+        )
+        ok &= _check(
+            "a target-neutral function name (build_thing) is NOT a hit",
+            scan_file_for_own_target_names(neutral_function_file, python_tokens) == [],
+        )
+
+        own_token_function_file = scratch_dir / "own_token_function.py"
+        own_token_function_file.write_text(
+            "def build_python_thing() -> None:\n    pass\n", encoding="utf-8"
+        )
+        own_token_hits = scan_file_for_own_target_names(own_token_function_file, python_tokens)
+        ok &= _check(
+            "a function name carrying the package's own token (build_python_thing) IS a hit",
+            len(own_token_hits) == 1
+            and own_token_hits[0].identifier == "build_python_thing"
+            and own_token_hits[0].matched_token == "python",
+        )
+
+        own_token_class_file = scratch_dir / "own_token_class.py"
+        own_token_class_file.write_text("class PythonThing:\n    value: str\n", encoding="utf-8")
+        ok &= _check(
+            "a CLASS carrying the package's own token (PythonThing) is NOT a "
+            "hit -- I4 scope is function/method names only",
+            scan_file_for_own_target_names(own_token_class_file, python_tokens) == [],
+        )
+
+        own_token_method_file = scratch_dir / "own_token_method.py"
+        own_token_method_file.write_text(
+            "class Converter:\n    def to_python_dict(self) -> dict[str, object]:\n        return {}\n",
+            encoding="utf-8",
+        )
+        method_hits = scan_file_for_own_target_names(own_token_method_file, python_tokens)
+        ok &= _check(
+            "a METHOD carrying the package's own token (to_python_dict) IS a "
+            "hit -- class methods are in scope",
+            len(method_hits) == 1 and method_hits[0].identifier == "to_python_dict",
+        )
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+    # -- Ratchet comparator: regression / no-regression / missing-baseline-as-zero.
+    own_target_clean = check_own_target_name_ratchet(
+        {"datrix_codegen_python": 2}, {"datrix_codegen_python": 2}
+    )
+    ok &= _check("own-target-name ratchet: clean when current == baseline", own_target_clean == [])
+
+    own_target_increase = check_own_target_name_ratchet(
+        {"datrix_codegen_python": 3}, {"datrix_codegen_python": 2}
+    )
+    ok &= _check(
+        "own-target-name ratchet: fires once on a real increase, naming package + delta",
+        len(own_target_increase) == 1
+        and "datrix_codegen_python" in own_target_increase[0]
+        and "increased from baseline 2 to 3" in own_target_increase[0],
+    )
+
+    own_target_decrease = check_own_target_name_ratchet(
+        {"datrix_codegen_python": 1}, {"datrix_codegen_python": 5}
+    )
+    ok &= _check("own-target-name ratchet: allows a decrease", own_target_decrease == [])
+
+    own_target_missing_baseline = check_own_target_name_ratchet(
+        {"datrix_codegen_typescript": 1}, {}
+    )
+    ok &= _check(
+        "own-target-name ratchet: a package absent from baseline is treated as baseline 0",
+        len(own_target_missing_baseline) == 1
+        and "increased from baseline 0 to 1" in own_target_missing_baseline[0],
+    )
+
+    # -- Baseline loader/writer round-trip, and a missing file loading as {}.
+    baseline_scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"own-target-baseline-{uuid.uuid4().hex}"
+    baseline_scratch_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        baseline_path = baseline_scratch_dir / "own-target-name-baseline.toml"
+        ok &= _check(
+            "load_own_target_name_baseline on a missing file returns {}",
+            load_own_target_name_baseline(baseline_path) == {},
+        )
+        round_trip_counts = {"datrix_codegen_python": 3, "datrix_codegen_typescript": 0}
+        write_own_target_name_baseline(baseline_path, round_trip_counts)
+        ok &= _check(
+            "write_own_target_name_baseline then load_own_target_name_baseline round-trips exactly",
+            load_own_target_name_baseline(baseline_path) == round_trip_counts,
+        )
+    finally:
+        shutil.rmtree(baseline_scratch_dir, ignore_errors=True)
+
+    # -- Real end-to-end CLI mutation non-vacuity proof.
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"own-target-cli-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        module_path = _self_test_own_target_name_build_fixture_monorepo(tmp_root)
+        clean_source = module_path.read_text(encoding="utf-8")
+
+        clean_result = _self_test_own_target_name_run_cli(tmp_root)
+        ok &= _check(
+            f"target-neutral fixture (build_thing) exits 0, got {clean_result.returncode}",
+            clean_result.returncode == 0,
+        )
+        ok &= _check(
+            "clean fixture's clean output names the scanned package and its live count",
+            "datrix_codegen_python: 0" in clean_result.stdout,
+        )
+
+        module_path.write_text("def build_python_thing() -> None:\n    pass\n", encoding="utf-8")
+        failing_result = _self_test_own_target_name_run_cli(tmp_root)
+        ok &= _check(
+            f"own-token fixture (build_python_thing) exits 1, got {failing_result.returncode}",
+            failing_result.returncode == 1,
+        )
+        ok &= _check(
+            "failure output names the mutated package",
+            "datrix_codegen_python" in failing_result.stdout,
+        )
+        ok &= _check(
+            "failure output names the exact count delta (0 -> 1)",
+            "increased from baseline 0 to 1" in failing_result.stdout,
+        )
+
+        module_path.write_text(clean_source, encoding="utf-8")
+        reverted_result = _self_test_own_target_name_run_cli(tmp_root)
+        ok &= _check(
+            f"reverting the mutation clears the failure, got exit {reverted_result.returncode}",
+            reverted_result.returncode == 0,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+    return ok
+
+
 def run_self_test() -> bool:
     """Run every self-test check; return True iff all passed.
 
@@ -5659,6 +6167,7 @@ def run_self_test() -> bool:
         _self_test_shared_target_name_cli_non_vacuity(),
         _self_test_cross_package_vocabulary_scanner(),
         _self_test_cross_package_vocabulary_cli_non_vacuity(),
+        _self_test_own_target_name_cli_non_vacuity(),
     ]
     print()
     if all(results):
@@ -5769,6 +6278,21 @@ def main() -> int:
             "every discovered package, not only the four language "
             "packages G1 scans -- independent of whether either copy "
             "also duplicates a datrix_codegen_common.enums vocabulary."
+        ),
+    )
+    parser.add_argument(
+        "--check-own-target-names",
+        action="store_true",
+        help=(
+            "Run the I4 own-target-name ratchet check (Decision D5, "
+            "Invariant I4) in addition to the import-boundary check. "
+            "Fails when a function or method DEFINED in a registered "
+            "datrix.languages package carries THAT SAME package's own "
+            "registered language id or declared alias "
+            "(declaration_for_language(lang).name_tokens) as an identifier "
+            "segment -- a name-keyed decision-parity scan cannot see a "
+            "parallel implementation hiding behind its own language's name "
+            "in the function name."
         ),
     )
     parser.add_argument(
@@ -5941,6 +6465,11 @@ def main() -> int:
         / "config"
         / "cross-package-vocabulary-baseline.toml"
     )
+    # I4 own-target-name ratchet (Decision D5, Invariant I4) — opt-in via
+    # --check-own-target-names.
+    own_target_name_baseline_path = (
+        monorepo_root / "datrix" / "scripts" / "config" / "own-target-name-baseline.toml"
+    )
 
     # D6.1 shared-package zero-tolerance check (distinct from the I6
     # language-package ratchet above) -- runs UNCONDITIONALLY whenever
@@ -6046,12 +6575,28 @@ def main() -> int:
             )
             updated_any = True
 
+        if args.check_own_target_names:
+            own_target_name_hits_by_package = scan_own_target_names(
+                packages, monorepo_root, taxonomy.language_packages
+            )
+            current_counts = {
+                package_name: len(own_target_name_hits_by_package.get(package_name, []))
+                for package_name in taxonomy.language_packages
+            }
+            write_own_target_name_baseline(own_target_name_baseline_path, current_counts)
+            print(
+                f"Updated I4 own-target-name baseline: {len(current_counts)} package(s) "
+                f"recorded at {own_target_name_baseline_path.relative_to(monorepo_root)}"
+            )
+            updated_any = True
+
         if args.check_target_literals or not (
             args.check_provider_conditionals
             or args.check_function_level_imports
             or args.check_shared_vocabulary
             or args.check_shared_target_names
             or args.check_cross_package_vocabulary
+            or args.check_own_target_names
         ):
             target_literal_hits_by_file = scan_target_literals(packages, monorepo_root)
             current_counts = {
@@ -6221,6 +6766,31 @@ def main() -> int:
             current_counts, baseline
         )
 
+    own_target_name_messages: list[str] = []
+    own_target_name_current_counts: dict[str, int] = {}
+    if args.check_own_target_names:
+        if not own_target_name_baseline_path.exists():
+            print(
+                f"Error: I4 own-target-name baseline not found at "
+                f"{own_target_name_baseline_path}. Run "
+                f"'check-import-boundaries.py --check-own-target-names --update-baseline' "
+                f"first to freeze the initial baseline.",
+                file=sys.stderr,
+            )
+            return 2
+
+        baseline = load_own_target_name_baseline(own_target_name_baseline_path)
+        own_target_name_hits_by_package = scan_own_target_names(
+            packages, monorepo_root, taxonomy.language_packages
+        )
+        own_target_name_current_counts = {
+            package_name: len(own_target_name_hits_by_package.get(package_name, []))
+            for package_name in taxonomy.language_packages
+        }
+        own_target_name_messages = check_own_target_name_ratchet(
+            own_target_name_current_counts, baseline
+        )
+
     # Report violations / ratchet failures
     if (
         non_allowlisted_violations
@@ -6231,6 +6801,7 @@ def main() -> int:
         or shared_vocabulary_messages
         or shared_target_name_messages
         or cross_package_vocabulary_messages
+        or own_target_name_messages
     ):
         mode = "Warning" if args.warn else "Error"
 
@@ -6306,6 +6877,15 @@ def main() -> int:
                 print(message)
             print()
 
+        if own_target_name_messages:
+            print(
+                f"{mode}: I4 own-target-name ratchet failed for "
+                f"{len(own_target_name_messages)} package(s):\n"
+            )
+            for message in own_target_name_messages:
+                print(message)
+            print()
+
         if args.warn:
             return 0
         return 1
@@ -6317,6 +6897,13 @@ def main() -> int:
             "Shared-package provider-literal zero-tolerance check: 0 hits "
             f"({shared_package_list})."
         )
+
+    if args.check_own_target_names:
+        print("I4 own-target-name live counts (per registered language package):")
+        for package_name in sorted(own_target_name_current_counts):
+            print(f"  {package_name}: {own_target_name_current_counts[package_name]}")
+        if not own_target_name_current_counts:
+            print("  (no registered language package discovered)")
 
     if args.verbose:
         print("No import boundary violations found.", file=sys.stderr)
@@ -6342,6 +6929,10 @@ def main() -> int:
             print(
                 "No G3 cross-package-vocabulary ratchet regressions found.",
                 file=sys.stderr,
+            )
+        if args.check_own_target_names:
+            print(
+                "No I4 own-target-name ratchet regressions found.", file=sys.stderr
             )
 
     return 0

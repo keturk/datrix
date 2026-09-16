@@ -20,7 +20,7 @@ Each file contains one (or a closely related set of) semgrep rule(s).
 | `string-concat-codegen.yaml` | `code += f"..."` string concatenation | WARNING |
 | `todo-comment.yaml` | `# TODO` comments | INFO |
 | `magic-number-status.yaml` | Bare `200`/`404`/`500` in comparisons | WARNING |
-| `redundant-case-conversion.yaml` | `to_*_case(str(x))`, nested `to_*_case(to_*_case(x))`, `to_*_case(extract_simple_name(x))` | WARNING |
+| `redundant-case-conversion.yaml` | `to_*_case(str(x))`, nested `to_*_case(to_*_case(x))`, `to_*_case(extract_simple_name(x))` — advisory here; the same shapes plus the two-step `x = str(…)` form are a hard-zero commit gate in `test/polystring-case-roundtrip-gate.ps1` | WARNING |
 | `module-scope-logging-config.yaml` | `logging.basicConfig(...)` / `dictConfig` / root `setLevel` at module scope | ERROR |
 
 ## Usage

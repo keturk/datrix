@@ -349,7 +349,7 @@ def run_scheduled(
     max_concurrent: int,
     workers_per_child_count: int,
     dbg: bool,
-) -> set[str]:
+) -> tuple[set[str], dict[str, str]]:
     """Launch `ordered_packages` (already longest-first) as `test.ps1`
     child processes, never more than max_concurrent live at once, and never
     two live children for the same package (each package appears at most
@@ -357,17 +357,27 @@ def run_scheduled(
     Blocks until every child has exited.
 
     Returns:
-        Names of packages whose child exited without the package's newest
-        test-results-* run directory advancing past its pre-launch
-        baseline -- a hard crash before any index.json was even written.
-        The caller must treat these as forced-RED rather than trusting
-        gate_verdict's own newest-run lookup, which would otherwise
-        silently report a STALE prior (possibly GREEN) run.
+        ``(forced_red, produced_runs)``. ``forced_red`` names the packages
+        whose child exited without the package's newest test-results-* run
+        directory advancing past its pre-launch baseline -- a hard crash
+        before any index.json was even written; the caller must treat these
+        as forced-RED rather than trusting gate_verdict's own newest-run
+        lookup, which would otherwise silently report a STALE prior
+        (possibly GREEN) run. ``produced_runs`` maps every other package to
+        the run directory its child produced, captured the moment the child
+        exited; the caller must judge THAT run and no other. Between a child
+        exiting and the verdict being aggregated, a targeted run from
+        another session can land a newer directory, and a newest-run lookup
+        then reports that unrelated result -- a GREEN 59-test subset once
+        stood in for a RED 5,950-test suite this way. ``test.ps1`` holds a
+        per-package lock while it runs, so the newest directory at exit is
+        the child's own.
     """
     baseline = {pkg: _newest_run_dir_any_state(workspace / pkg / ".test_results") for pkg in ordered_packages}
     pending = list(ordered_packages)
     running: list[RunningChild] = []
     forced_red: set[str] = set()
+    produced_runs: dict[str, str] = {}
     while pending or running:
         while pending and len(running) < max_concurrent:
             package = pending.pop(0)
@@ -377,7 +387,7 @@ def run_scheduled(
         for child in finished:
             elapsed = time.monotonic() - child.started_at
             newest_after = _newest_run_dir_any_state(workspace / child.package / ".test_results")
-            if newest_after == baseline[child.package]:
+            if newest_after is None or newest_after == baseline[child.package]:
                 forced_red.add(child.package)
                 print(
                     f"{child.package}: child exited code={child.process.returncode} "
@@ -385,11 +395,15 @@ def run_scheduled(
                     f"-- forcing RED (never trusting a stale prior result)"
                 )
             else:
-                print(f"{child.package}: child exited code={child.process.returncode} after {elapsed:.1f}s")
+                produced_runs[child.package] = newest_after
+                print(
+                    f"{child.package}: child exited code={child.process.returncode} "
+                    f"after {elapsed:.1f}s run={newest_after}"
+                )
             running.remove(child)
         if running:
             time.sleep(_POLL_INTERVAL_SECONDS)
-    return forced_red
+    return forced_red, produced_runs
 
 
 def run_mypy_for_changed(workspace: Path, changed: list[str], max_concurrent: int, dbg: bool) -> bool:
@@ -438,6 +452,7 @@ def _aggregate_verdict(
     workspace: Path,
     affected: list[str],
     forced_red: dict[str, str],
+    produced_runs: dict[str, str],
     output_path: Path,
 ) -> int:
     """Aggregate the final verdict via ``gate_verdict.evaluate_projects``.
@@ -453,11 +468,17 @@ def _aggregate_verdict(
     run and could report GREEN -- exactly the false-green this gate must
     never produce. Passing them as ``forced_red`` makes the override part of
     gate_verdict's own contract rather than a local patch-up.
+
+    `produced_runs` pins every other package to the run its child produced.
+    The newest-run lookup is wrong in the other direction too: a run that
+    lands AFTER the child exits (a targeted subset from another session)
+    would replace the child's RED whole-suite result with an unrelated GREEN.
     """
     result = gate_verdict.evaluate_projects(
         workspace,
         affected,
         forced_red=forced_red,
+        pinned_runs=produced_runs,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -575,7 +596,7 @@ def _run(args: argparse.Namespace) -> int:
         ordered, max_concurrent, workers, logical_cores,
     )
 
-    forced_red_set = run_scheduled(workspace, ordered, max_concurrent, workers, args.debug)
+    forced_red_set, produced_runs = run_scheduled(workspace, ordered, max_concurrent, workers, args.debug)
     forced_red = {pkg: _REASON_CHILD_PRODUCED_NO_RUN for pkg in forced_red_set}
 
     mypy_ok = True
@@ -585,7 +606,7 @@ def _run(args: argparse.Namespace) -> int:
             print("mypy: at least one changed package failed type-checking", file=sys.stderr)
 
     output_path = _resolve_output_path(args.output, workspace)
-    exit_code = _aggregate_verdict(workspace, affected, forced_red, output_path)
+    exit_code = _aggregate_verdict(workspace, affected, forced_red, produced_runs, output_path)
     if args.mypy and not mypy_ok:
         return _EXIT_RED
     return exit_code
@@ -687,6 +708,7 @@ def _check_child_with_no_new_run_forces_red_never_stale_green() -> None:
             workspace,
             ["datrix-crashed"],
             {"datrix-crashed": _REASON_CHILD_PRODUCED_NO_RUN},
+            {},
             output_path,
         )
         assert exit_code == _EXIT_RED, f"forced_red package must make the overall verdict RED, got {exit_code}"
@@ -694,6 +716,71 @@ def _check_child_with_no_new_run_forces_red_never_stale_green() -> None:
         row = payload["projects"][0]
         assert row["verdict"] == _VERDICT_RED, row
         assert row["reason"] == _REASON_CHILD_PRODUCED_NO_RUN, row
+
+
+def _write_index(run_dir: Path, *, status: str, passed: int, failed: int) -> None:
+    """A minimal ``index.json`` in the shape ``test.ps1`` writes and
+    ``status_tests.parse_pytest_summary`` reads (``result`` + ``counts``)."""
+    run_dir.mkdir(parents=True)
+    (run_dir / "index.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "result": status,
+                "counts": {"passed": passed, "failed": failed, "error": 0, "skipped": 0},
+                "failures": [],
+                "errors": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _check_verdict_is_pinned_to_the_childs_run_never_a_newer_one() -> None:
+    """The run the child produced is RED; a NEWER run (a targeted subset
+    another session landed after the child exited) is GREEN. The aggregate
+    must judge the child's run and report RED. The newest-run lookup would
+    report the later GREEN -- the false green that was actually observed:
+    a 59-test targeted run standing in for a 5,950-test RED suite."""
+    with tempfile.TemporaryDirectory(prefix="affected-gate-selftest-") as tmp:
+        workspace = Path(tmp)
+        results = workspace / "datrix-raced" / ".test_results"
+        child_run = "test-results-20260101-000100"
+        _write_index(results / child_run, status="FAILED", passed=5949, failed=1)
+        _write_index(results / "test-results-20260101-000200", status="PASSED", passed=59, failed=0)
+        output_path = workspace / ".tmp" / "test" / "affected-gate.json"
+        exit_code = _aggregate_verdict(
+            workspace, ["datrix-raced"], {}, {"datrix-raced": child_run}, output_path,
+        )
+        assert exit_code == _EXIT_RED, f"the pinned RED run must make the verdict RED, got {exit_code}"
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        row = payload["projects"][0]
+        assert row["verdict"] == _VERDICT_RED, row
+        assert row["run_dir"].endswith(child_run), row
+        assert row["counts"]["failed"] == 1, row
+
+
+def _check_pinned_run_without_results_is_red_never_a_fallthrough() -> None:
+    """A pinned run directory with no index.json and no full.log is RED
+    with its own reason -- never a fall-through to the newest run, which
+    here is a GREEN one that must not be consulted."""
+    with tempfile.TemporaryDirectory(prefix="affected-gate-selftest-") as tmp:
+        workspace = Path(tmp)
+        results = workspace / "datrix-empty" / ".test_results"
+        (results / "test-results-20260101-000100").mkdir(parents=True)
+        _write_index(results / "test-results-20260101-000200", status="PASSED", passed=10, failed=0)
+        output_path = workspace / ".tmp" / "test" / "affected-gate.json"
+        exit_code = _aggregate_verdict(
+            workspace,
+            ["datrix-empty"],
+            {},
+            {"datrix-empty": "test-results-20260101-000100"},
+            output_path,
+        )
+        assert exit_code == _EXIT_RED, f"an unreadable pinned run must be RED, got {exit_code}"
+        row = json.loads(output_path.read_text(encoding="utf-8"))["projects"][0]
+        assert row["verdict"] == _VERDICT_RED, row
+        assert row["reason"] == "PINNED_RUN_HAS_NO_RESULTS", row
 
 
 def _check_is_run_in_progress_missing_index_json() -> None:
@@ -763,6 +850,14 @@ _SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
     (
         "child_with_no_new_run_forces_red_never_stale_green",
         _check_child_with_no_new_run_forces_red_never_stale_green,
+    ),
+    (
+        "verdict_is_pinned_to_the_childs_run_never_a_newer_one",
+        _check_verdict_is_pinned_to_the_childs_run_never_a_newer_one,
+    ),
+    (
+        "pinned_run_without_results_is_red_never_a_fallthrough",
+        _check_pinned_run_without_results_is_red_never_a_fallthrough,
     ),
     ("is_run_in_progress_missing_index_json", _check_is_run_in_progress_missing_index_json),
     ("is_run_in_progress_incomplete_status", _check_is_run_in_progress_incomplete_status),

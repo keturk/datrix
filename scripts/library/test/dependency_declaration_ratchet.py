@@ -90,8 +90,9 @@ import jinja2
 import jinja2.nodes
 import yaml
 
-# Add scripts/library to sys.path, mirroring parallel_implementation_drift.py's
-# own path setup (this file lives at library/test/, shared/ is a sibling).
+# Add scripts/library to sys.path -- the same pattern every library/test/
+# script uses to import its sibling library/shared/ modules (this file lives
+# at library/test/, shared/ is a sibling).
 _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
@@ -99,7 +100,7 @@ if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
 from datrix_common.config.project.catalog import DependencyCatalog  # noqa: E402
 
 from shared.registered_targets import registered_language_names  # noqa: E402
-from test.parallel_implementation_drift import (  # noqa: E402
+from shared.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
     WORKSPACE_ROOT,
     discover_target_package_src_dirs,
@@ -589,7 +590,7 @@ def _require_min_languages(language_names: frozenset[str]) -> None:
 def scan_all_registered_languages() -> dict[str, list[OutOfTableSite]]:
     """Run `scan_language` for every name `registered_language_names()` returns,
     resolved to its package's `src/` root via the SAME on-disk package-map
-    discovery `parallel_implementation_drift.discover_target_package_src_dirs`
+    discovery `shared.registered_targets.discover_target_package_src_dirs`
     already implements (never a hardcoded `datrix-codegen-{name}`
     string-format assumption).
 

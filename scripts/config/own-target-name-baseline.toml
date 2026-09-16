@@ -1,0 +1,33 @@
+# I4 Own-Target-Name Ratchet Baseline (Decision D5, Invariant I4)
+#
+# Frozen per-PACKAGE counts of function/method definitions whose name
+# carries that package's OWN registered language id or declared alias
+# (declaration_for_language(lang).name_tokens | {lang}) as a whole
+# underscore-delimited identifier segment. Any INCREASE fails
+# datrix/scripts/dev/check-import-boundaries.py --check-own-target-names.
+# Decreases are always allowed and should be captured by re-running with
+# --update-baseline once a rename removes a remaining hit. The terminal
+# state is zero for every package, then the baseline file itself is
+# deleted and the check runs hard-zero.
+#
+# Format:
+#   [[baseline]]
+#   package = "datrix_codegen_python"
+#   count = <int>
+#   reason = "free text, not read by the loader"
+
+[[baseline]]
+package = "datrix_codegen_dotnet"
+count = 144
+
+[[baseline]]
+package = "datrix_codegen_java"
+count = 127
+
+[[baseline]]
+package = "datrix_codegen_python"
+count = 193
+
+[[baseline]]
+package = "datrix_codegen_typescript"
+count = 241

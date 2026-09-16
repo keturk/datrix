@@ -167,14 +167,69 @@ def _age_minutes(run_dir_name: str) -> float | None:
     return round((datetime.now() - timestamp).total_seconds() / 60.0, 1)
 
 
-def _evaluate_project(workspace: Path, project: str) -> ProjectVerdict:
-    """Evaluate one project's newest test-results run."""
+_FULL_LOG_NAME = "full.log"
+_REASON_PINNED_RUN_HAS_NO_RESULTS = "PINNED_RUN_HAS_NO_RESULTS"
+
+
+def _results_file_in(run_dir: Path) -> Path | None:
+    """The structured index of ONE named run, else its log, else None.
+
+    The same discovery order ``find_latest_log_file`` applies to the newest
+    run, applied to a run the caller has already chosen.
+    """
+    for name in (_INDEX_JSON_NAME, _FULL_LOG_NAME):
+        candidate = run_dir / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _pinned_run_missing_verdict(project: str, run_dir: Path) -> ProjectVerdict:
+    """RED for a run the caller pinned that carries no results file.
+
+    A pinned run that cannot be read is never allowed to fall through to the
+    newest-run lookup: that lookup is exactly the path that let an unrelated,
+    later run stand in for the one being judged.
+    """
+    return ProjectVerdict(
+        project=project,
+        run_dir=str(run_dir),
+        result=None,
+        counts=None,
+        verdict=_RED,
+        reason=_REASON_PINNED_RUN_HAS_NO_RESULTS,
+        failing=[],
+        failing_total=0,
+        age_minutes=_age_minutes(run_dir.name),
+    )
+
+
+def _evaluate_project(
+    workspace: Path, project: str, pinned_run: str | None = None
+) -> ProjectVerdict:
+    """Evaluate one project's test-results run.
+
+    Without ``pinned_run`` this is the project's NEWEST run -- the right
+    question for a status report. With it, it is exactly the named
+    ``test-results-*`` directory and nothing else. A scheduler that launched
+    the run must judge THAT run: between its child exiting and the verdict
+    being aggregated, a targeted run from another session (or the same one)
+    can land a newer directory, and the newest-run lookup would then report
+    that unrelated result -- a GREEN targeted subset standing in for a RED
+    whole suite. That false green was observed; pinning is what forbids it.
+    """
     test_results_dir = workspace / project / ".test_results"
     if not test_results_dir.is_dir():
         return _no_results_verdict(project)
-    latest = find_latest_log_file(test_results_dir)
-    if latest is None:
-        return _no_results_verdict(project)
+    if pinned_run is not None:
+        pinned_dir = test_results_dir / pinned_run
+        latest = _results_file_in(pinned_dir)
+        if latest is None:
+            return _pinned_run_missing_verdict(project, pinned_dir)
+    else:
+        latest = find_latest_log_file(test_results_dir)
+        if latest is None:
+            return _no_results_verdict(project)
 
     parsed = parse_pytest_summary(latest)
     run_dir = latest.parent
@@ -260,8 +315,13 @@ def evaluate_projects(
     projects: Sequence[str],
     *,
     forced_red: Mapping[str, str] | None = None,
+    pinned_runs: Mapping[str, str] | None = None,
 ) -> GateVerdictResult:
-    """Evaluate each project's newest run and return the aggregate verdict.
+    """Evaluate each project's run and return the aggregate verdict.
+
+    A project is judged on its NEWEST run unless ``pinned_runs`` names the
+    ``test-results-*`` directory to judge instead (see ``_evaluate_project``
+    for why a scheduler must pin). ``forced_red`` wins over both.
 
     This is the module's public entry point for reuse by other tooling
     (e.g. a concurrent scheduler that must aggregate a final verdict without
@@ -276,6 +336,10 @@ def evaluate_projects(
             reported RED with that reason WITHOUT consulting its newest run --
             used by callers that know a run crashed and must not be allowed to
             pass on a stale prior result.
+        pinned_runs: Optional package -> ``test-results-*`` directory name
+            map. A package listed here is judged on exactly that run; a pinned
+            run with no results file is RED, never a fall-through to the
+            newest run.
 
     Returns:
         The aggregate result: per-project rows, the overall verdict, the
@@ -283,10 +347,13 @@ def evaluate_projects(
         the process exit code.
     """
     forced = forced_red or {}
+    pinned = pinned_runs or {}
     rows = [
         _forced_red_verdict(project, forced[project])
         if project in forced
-        else _evaluate_project(workspace, project)
+        else _evaluate_project(
+            workspace, project, pinned[project] if project in pinned else None
+        )
         for project in projects
     ]
     overall = _GREEN if all(row.verdict == _GREEN for row in rows) else _RED

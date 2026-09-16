@@ -56,7 +56,7 @@ _MIN_TARGETS_PER_AXIS: Final[int] = 2
 
 # This file: datrix/scripts/library/test/pooled_cache_realization_gate.py --
 # parents[0]=.../library/test, [1]=.../library, [2]=.../scripts, [3]=<datrix>,
-# [4]=<the monorepo workspace root>. Mirrors parallel_implementation_drift.py's
+# [4]=<the monorepo workspace root>. Mirrors shared/registered_targets.py's
 # identical-depth path math.
 _HERE: Final[Path] = Path(__file__).resolve()
 DATRIX_DIR: Final[Path] = _HERE.parents[3]
@@ -257,7 +257,8 @@ def _resolve_target_src_dir(axis: str, target: str, monorepo_root: Path) -> Path
 def _collect_module_and_method_defs(body: list[ast.stmt]) -> list[_FunctionDefNode]:
     """Recursively collect every module-level or class-method function def,
     reachable through non-function statement containers (If/While/For/With/
-    Try) -- mirrors parallel_implementation_drift.py's own def-collector.
+    Try) -- mirrors the shared def-collector shape used across this library's
+    AST-walking scanners.
 
     Never descends into a FunctionDef/AsyncFunctionDef's own body: a function
     nested inside another function is a closure, not a module-level-or-

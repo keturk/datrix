@@ -39,6 +39,7 @@ Shared utilities used across multiple scripts.
 | `test_runner.py` | Test execution framework |
 | `test_projects.py` | Project discovery from test-projects.json |
 | `logging_utils.py` | Logging and tee-style output (console + file) |
+| `registered_targets.py` | Canonical enumeration of registered `datrix.languages`/`datrix.platforms` targets (entry-point name discovery) plus on-disk `src/` directory resolution for those targets (`discover_target_package_src_dirs`, `discover_all_other_package_src_dirs`) -- the one place every script sources "which targets exist" and "where do they live on disk" |
 | `structured_log_writer.py` | Post-processes JUnit XML into structured test result directories (codegen package tests via `test.ps1`) |
 | `generated_test_log_writer.py` | Post-processes JUnit XML and Jest JSON into structured test result directories for generated projects (multi-service, cross-project aggregation, codegen hints). Called from `run_complete.py`. Shares clustering/normalization utilities with `structured_log_writer.py`. |
 | `venv.py` | Virtual environment utilities (Python side) |

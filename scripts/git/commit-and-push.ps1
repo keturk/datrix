@@ -66,6 +66,20 @@ shipped templates -- invisible locally, the files on disk and the tests green,
 and only visible after a clone as a package that cannot generate. Pass this only
 for a confirmed false positive -- it prints a warning and commits regardless.
 
+.PARAMETER SkipPolyStringCaseCheck
+Skip the PolyString case round-trip check that runs before anything is staged.
+
+Every dirty repo's pending .py files are parsed, and any call to a
+datrix_common.utils.text case function whose argument is str()-wrapped,
+str()-bound in the same scope, a nested case call, or an extract_simple_name()
+call aborts the whole run with nothing committed (see
+test/polystring-case-roundtrip-gate.ps1). A name the generator re-cases is a
+PolyString that already carries .snake/.pascal/...; the round trip discards
+the variants and hides that the value was a name, and it reached more than a
+thousand sites while the only check was an on-demand Semgrep warning. Pass
+this only for a confirmed false positive -- it prints a warning and commits
+regardless.
+
 .EXAMPLE
 .\commit-and-push.ps1
 Auto-detect backend, generate messages, commit and push every dirty repo.
@@ -109,7 +123,9 @@ param(
 
     [switch]$SkipCustomerDomainCheck,
 
-    [switch]$SkipIgnoredSourceCheck
+    [switch]$SkipIgnoredSourceCheck,
+
+    [switch]$SkipPolyStringCaseCheck
 )
 
 $ErrorActionPreference = 'Stop'
@@ -149,6 +165,10 @@ if ($SkipCustomerDomainCheck) {
 
 if ($SkipIgnoredSourceCheck) {
     $pyArgs += '--skip-ignored-source-check'
+}
+
+if ($SkipPolyStringCaseCheck) {
+    $pyArgs += '--skip-polystring-case-check'
 }
 
 & $pythonExe @pyArgs

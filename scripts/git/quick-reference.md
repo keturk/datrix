@@ -42,7 +42,7 @@ Pulls all git repositories under the workspace root.
 | **Force Claude** | `.\git\commit-and-push.ps1 -MessageSource claude` | Use the Claude Code CLI |
 | **Preview only** | `.\git\commit-and-push.ps1 -DryRun` | Print generated messages; do not commit |
 
-**Parameters:** `-MessageSource` (`auto`\|`ollama`\|`claude`, default `auto`), `-OllamaBaseUrl`, `-OllamaModel`, `-OllamaTimeoutMs`, `-OllamaNumPredict`, `-ClaudeModel`, `-ClaudeTimeoutMs`, `-MaxDiffCharsPerRepo`, `-DryRun`, `-SkipCustomerDomainCheck`, `-SkipIgnoredSourceCheck`
+**Parameters:** `-MessageSource` (`auto`\|`ollama`\|`claude`, default `auto`), `-OllamaBaseUrl`, `-OllamaModel`, `-OllamaTimeoutMs`, `-OllamaNumPredict`, `-ClaudeModel`, `-ClaudeTimeoutMs`, `-MaxDiffCharsPerRepo`, `-DryRun`, `-SkipCustomerDomainCheck`, `-SkipIgnoredSourceCheck`, `-SkipPolyStringCaseCheck`
 
 **Prerequisites:** For the Claude fallback, the Claude Code CLI must be installed and available in PATH (`claude` command). For the Ollama path, the configured Ollama endpoint must be reachable.
 
@@ -61,3 +61,9 @@ The same seam asked in the opposite direction. The isolation check asks what a `
 A package once carried the stock Python `.gitignore`'s **unanchored** `MANIFEST` line. Git matches an unanchored pattern at any depth and `core.ignorecase=true` here makes it case-insensitive, so it swallowed a `templates/manifest/` directory of shipped Jinja2 templates. Nothing was visible locally: the files were on disk, the tests passed, the emitted output compiled. The loss only appears after a clone or a wheel install, as a package that cannot generate — and by then the files are absent from history. `git add -A` is where that decision is made, so this is where it is checked.
 
 The scanner runs its own non-vacuity self-test first; a self-test failure aborts the run rather than reporting a verdict nobody can trust. `-SkipIgnoredSourceCheck` bypasses the check for a confirmed false positive; it prints a warning and commits regardless. To audit the whole workspace rather than just the dirty repos, run `test\ignored-source-gate.ps1`.
+
+### The PolyString case round-trip check runs third, still before anything is staged
+
+Every pending `.py` file in every dirty repo is parsed with `ast`, and any call to a `datrix_common.utils.text` case function (`to_snake_case`, `to_camel_case`, `to_pascal_case`, `to_kebab_case`, `to_screaming_snake_case` — by canonical name, import alias, or module attribute) whose argument is `str(...)`-wrapped, bound by `NAME = str(...)` in the same scope, another case call, or an `extract_simple_name(...)` call aborts the **whole run** with nothing committed, reported as `repo/path:line:col  <kind>  to_x_case(...)  -- <fix>`. Every name the generator re-cases is a `PolyString` that already carries `.snake`/`.camel`/`.pascal`/`.kebab`/`.screaming_snake`/`.simple`; the round trip discards the variants, recomputes the word split, and hides from the next reader that the value was a name. It reached more than a thousand sites while the only check was an on-demand Semgrep warning. Held at a hard zero: there is no exemption file, because no shape has a legitimate instance — a case function never needs a `str()` around its argument.
+
+The scanner runs its own non-vacuity self-test first. `-SkipPolyStringCaseCheck` bypasses the check for a confirmed false positive; it prints a warning and commits regardless. To audit the whole workspace rather than just the pending files, run `test\polystring-case-roundtrip-gate.ps1`.

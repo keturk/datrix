@@ -50,6 +50,12 @@ from test.ignored_source import (  # noqa: E402
     scan_for_commit,
 )
 from test.ignored_source import self_test as ignored_source_self_test  # noqa: E402
+from test.polystring_case_roundtrip import (  # noqa: E402
+    PolyStringGateError,
+    RepoResult,
+)
+from test.polystring_case_roundtrip import scan_for_commit as polystring_scan_for_commit  # noqa: E402
+from test.polystring_case_roundtrip import self_test as polystring_self_test  # noqa: E402
 
 TEXT_SNIPPET_EXTENSIONS = {
     ".cfg",
@@ -1051,6 +1057,59 @@ def enforce_ignored_source(dirty_repos: list[DirtyRepo], datrix_root: Path) -> N
     )
 
 
+def enforce_polystring_case_roundtrips(dirty_repos: list[DirtyRepo]) -> None:
+    """Refuse the whole run if a pending file re-cases a name through plain text.
+
+    Same seam as the two checks above: ``git add -A`` is where a
+    ``to_snake_case(str(node.name))`` -- or its two-step spelling,
+    ``x = str(node.name)`` then ``to_snake_case(x)`` -- becomes part of a
+    framework package. Every name the generator re-cases is a PolyString that
+    already carries ``.snake``/``.pascal``/... ; the round trip throws the
+    variants away and hides that the value was a name. A Semgrep rule named
+    the shape and it still spread to more than a thousand sites, because an
+    advisory nobody has to run is the same as no rule. This one runs on every
+    commit and is held at a hard zero with no exemption file.
+
+    Checked BEFORE a message is generated or anything is staged, and across
+    ALL dirty repos at once, so a hit in the last repo cannot leave the first
+    four already pushed. See ``test/polystring_case_roundtrip.py`` for the
+    four shapes and the fix each one wants.
+    """
+    failures = polystring_self_test()
+    if failures:
+        raise ScriptError(
+            "PolyString case round-trip scanner failed its own non-vacuity self-test, so "
+            "its verdict cannot be trusted and no commit is safe to make: "
+            + "; ".join(failures)
+        )
+
+    results: list[RepoResult] = []
+    for dr in dirty_repos:
+        try:
+            results.append(polystring_scan_for_commit(dr.path))
+        except PolyStringGateError as exc:
+            raise ScriptError(
+                f"PolyString case round-trip check failed in {dr.name}: {exc}"
+            ) from exc
+
+    violating = [result for result in results if result.hits]
+    if not violating:
+        print(f"PolyString case round-trips: clean across {len(dirty_repos)} dirty repo(s).")
+        return
+
+    total = sum(len(result.hits) for result in violating)
+    detail = "\n".join(
+        f"  {hit.render()}" for result in violating for hit in result.hits
+    )
+    raise ScriptError(
+        f"PolyString case round-trip check FAILED: {total} pending call(s) re-case a name "
+        f"through plain text. Nothing was committed or pushed. Read the case variant off "
+        f"the PolyString (.snake/.camel/.pascal/.kebab/.screaming_snake/.simple) instead of "
+        f"str()-ing it and calling a to_*_case function; if the value is genuinely plain "
+        f"text, drop the str() -- case functions accept any str.\n" + detail
+    )
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1094,6 +1153,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "every clone."
         ),
     )
+    parser.add_argument(
+        "--skip-polystring-case-check",
+        action="store_true",
+        help=(
+            "Skip the PolyString case round-trip check. Only for a confirmed false positive: "
+            "the check is what keeps to_*_case(str(name)) out of the framework repos."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -1124,6 +1191,15 @@ def main(argv: list[str]) -> int:
         )
     else:
         enforce_ignored_source(dirty_repos, workspace_root / "datrix")
+
+    if args.skip_polystring_case_check:
+        print(
+            "WARNING: --skip-polystring-case-check was passed. Names re-cased through "
+            "plain text are NOT being checked for; any to_*_case(str(name)) a pending "
+            "change carries will be pushed."
+        )
+    else:
+        enforce_polystring_case_roundtrips(dirty_repos)
 
     if not args.dry_run:
         set_git_identity()

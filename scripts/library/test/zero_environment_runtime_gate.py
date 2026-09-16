@@ -70,7 +70,7 @@ from datrix_common.plugin.language_capability import (  # noqa: E402
 )
 
 from shared.registered_targets import registered_language_names  # noqa: E402
-from test.parallel_implementation_drift import (  # noqa: E402
+from shared.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
     WORKSPACE_ROOT,
     discover_target_package_src_dirs,

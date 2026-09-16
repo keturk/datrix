@@ -77,6 +77,16 @@
  per-file counts against the frozen baseline at
  scripts/config/cross-package-vocabulary-baseline.toml.
 
+.PARAMETER CheckOwnTargetNames
+ Run the I4 own-target-name ratchet check (Decision D5, Invariant I4) in
+ addition to the import-boundary check. Fails when a
+ function or method defined INSIDE a registered `datrix.languages` package
+ carries THAT SAME package's own registered language id or declared alias
+ (`declaration_for_language(lang).name_tokens`) as an identifier segment --
+ scoped to function/method DEFINITION names only, never a class name,
+ field, or type reference. Compares current per-package counts against the
+ frozen baseline at scripts/config/own-target-name-baseline.toml.
+
 .PARAMETER SelfTest
  Run only the self-test suite (rule-model, AST-scanner, and ratchet
  invariants, including a real mutation-based CLI non-vacuity proof) and
@@ -152,6 +162,14 @@
  Recompute and overwrite the frozen cross-package-vocabulary baseline
 
 .EXAMPLE
+ .\check-import-boundaries.ps1 -CheckOwnTargetNames
+ Run the I4 own-target-name ratchet check (Decision D5, Invariant I4) against the frozen baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckOwnTargetNames -UpdateBaseline
+ Recompute and overwrite the frozen own-target-name baseline
+
+.EXAMPLE
  .\check-import-boundaries.ps1 -SelfTest
  Run only the self-test suite (rule model, scanners, ratchets, CLI mutation proof)
 #>
@@ -187,6 +205,9 @@ param(
 
     [Parameter()]
     [switch]$CheckCrossPackageVocabulary,
+
+    [Parameter()]
+    [switch]$CheckOwnTargetNames,
 
     [Parameter()]
     [switch]$SelfTest,
@@ -254,6 +275,7 @@ try {
     if ($CheckSharedVocabulary) { $pythonArgs += "--check-shared-vocabulary" }
     if ($CheckSharedTargetNames) { $pythonArgs += "--check-shared-target-names" }
     if ($CheckCrossPackageVocabulary) { $pythonArgs += "--check-cross-package-vocabulary" }
+    if ($CheckOwnTargetNames) { $pythonArgs += "--check-own-target-names" }
     if ($SelfTest) { $pythonArgs += "--self-test" }
 
     # Debug output if requested

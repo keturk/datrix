@@ -168,6 +168,10 @@ Execution contract §12.5 holds the surface→check table.
   codegen package, codegen-common, language, common, or `datrix/examples` changed.
   For an intended-output-neutral refactor it is *stronger* evidence than consumer
   unit suites; for intended output changes, re-bless deliberately per its docs.
+- **`decision-parity-gate.ps1`** (~1 min): groups functions into roles by shared-typed
+  signature or normalized name (language tokens stripped) and fails a role whose members carry
+  the same decision skeleton, or diverge without every lagging language declaring the construct
+  unsupported. Run it when a language codegen package, codegen-common, or common changed.
 - Other gates only when their surface was touched: `shared-library-gate` /
   `test-tooling-parsing-gate` / `review-library-gate` (datrix/scripts/library),
   `check-docs-conformance` (architecture docs), `check-generated-file-ratchet`
