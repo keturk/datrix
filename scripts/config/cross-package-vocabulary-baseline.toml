@@ -79,8 +79,8 @@ count = 1
 
 [[baseline]]
 file = "datrix-codegen-aws/src/datrix_codegen_aws/plugin/capability.py"
-count = 1
-reason = "_AWS_IDENTITY_PROVIDER_REALIZATIONS: this platform's own identity-provider realization column. Open-world identity (Decision 22 I3) requires each platform to declare its (provider type, feature) support on its own PlatformCapabilityDeclaration and forbids a central table, so the key set legitimately coincides with every other platform's identity realization dict."
+count = 2
+reason = "Both hits are this platform's own realization columns. _AWS_IDENTITY_PROVIDER_REALIZATIONS: open-world identity (Decision 22 I3) requires each platform to declare its (provider type, feature) support on its own PlatformCapabilityDeclaration and forbids a central table, so the key set legitimately coincides with every other platform's identity realization dict. _AWS_MODEL_REALIZATIONS: AI agents (Decision 46 invariant 5) require each platform to declare per-provider model realization on its own PlatformCapabilityDeclaration and forbid any provider name in a shared layer, so its key set legitimately coincides with every other platform's model realization dict and with the python target's per-provider client table."
 
 [[baseline]]
 file = "datrix-codegen-azure/src/datrix_codegen_azure/environment_label.py"
@@ -138,6 +138,11 @@ count = 1
 file = "datrix-codegen-azure/src/datrix_codegen_azure/plugin/_azure_vm_identity_realizations.py"
 count = 1
 reason = "_AZURE_VM_IDENTITY_PROVIDER_REALIZATIONS: this platform's own identity-provider realization column. Open-world identity (Decision 22 I3) requires each platform to declare its (provider type, feature) support on its own PlatformCapabilityDeclaration and forbids a central table, so the key set legitimately coincides with every other platform's identity realization dict."
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/plugin/_model_realizations.py"
+count = 1
+reason = "AZURE_MODEL_REALIZATIONS: this platform's own model-provider realization column. AI agents (Decision 46 invariant 5) require each platform to declare per-provider model realization on its own PlatformCapabilityDeclaration and forbid any provider name in a shared layer, so its key set legitimately coincides with every other platform's model realization dict and with the python target's per-provider client table."
 
 [[baseline]]
 file = "datrix-codegen-azure/src/datrix_codegen_azure/plugin/azure_vm_capability.py"
@@ -271,10 +276,6 @@ count = 1
 [[baseline]]
 file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/infra/infrastructure.py"
 count = 3
-
-[[baseline]]
-file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/local_secret_seed_generator.py"
-count = 1
 
 [[baseline]]
 file = "datrix-codegen-docker/src/datrix_codegen_docker/plugin/capability.py"
@@ -436,7 +437,7 @@ count = 1
 
 [[baseline]]
 file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/operators.py"
-count = 4
+count = 3
 
 [[baseline]]
 file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/payment_calls.py"
@@ -536,10 +537,6 @@ count = 2
 
 [[baseline]]
 file = "datrix-codegen-java/src/datrix_codegen_java/generators/serverless/hooks.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/service/secrets_resolver_generator.py"
 count = 1
 
 [[baseline]]
@@ -647,10 +644,6 @@ file = "datrix-codegen-python/src/datrix_codegen_python/generators/api/_regex_he
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/api/_response_struct_context.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/cross_cutting/_health_checks.py"
 count = 1
 
@@ -708,8 +701,8 @@ count = 1
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/micro_generators/agents.py"
-count = 1
-reason = "PROVIDER_CLIENT_REALIZATIONS: this language target's per-provider decide-client table (template, runtime, class per provider). It is a per-target realized-provider set (Decision 36 D9): AI agents (Decision 46 invariant 5) forbid any provider name in a shared layer, and which providers a platform realizes is that platform's own declaration (datrix-codegen-docker plugin/capability.py), so the two key sets coincide by design and can have no shared home."
+count = 2
+reason = "Both hits are this language target's per-target realization tables (Decision 36 D9). PROVIDER_CLIENT_REALIZATIONS: the per-provider decide-client table (template, runtime, class per provider); AI agents (Decision 46 invariant 5) forbid any provider name in a shared layer, and which providers a platform realizes is that platform's own declaration (docker/aws/azure plugin capability), so the key sets coincide by design and can have no shared home. MANAGED_CREDENTIAL_REALIZATIONS: the per-kind managed-credential realization (class, scope keyword, parameter keywords), keyed by the ManagedCredentialKind vocabulary datrix-common declares (plugin/model_realization.py); the values are this package's own emitted classes, so the table has no shared home, and its key set is held equal to the declared kinds by tests/integration/generators/test_agents_managed_rendering.py."
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/orchestration/pubsub_consumer.py"
@@ -726,6 +719,11 @@ count = 1
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_entity_query_filters.py"
 count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_expr_call_dispatch.py"
+count = 1
+reason = "_SPEC_ASSERTION_HANDLERS: this language target's lowering table for the spec-test assertion builtins, keyed by the vocabulary datrix-common's test validator declares (SPEC_ASSERTION_BUILTIN_NAMES). Its values are this package's own transpile callables, so the table can have no shared home (Decision 36 D9, a per-target realization), and its key set is held equal to the obligation computed for python (spec_assertion_builtin_names_required_for) by tests/integration/generators/test_agents_spec_statements.py."
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_expr_property_access.py"
@@ -748,10 +746,6 @@ file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/builtins.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/core.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/emit_tables.py"
 count = 1
 
@@ -761,7 +755,12 @@ count = 1
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/special_calls.py"
-count = 2
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/visitor_statements.py"
+count = 1
+reason = "_SPEC_STATEMENT_METHODS: this language target's lowering table for the spec-test statement builtins, keyed by the vocabulary datrix-common's test validator declares (SPEC_STATEMENT_BUILTIN_NAMES). Its values are the python method names this package emits, so the table can have no shared home (Decision 36 D9, a per-target realization), and its key set is held equal to the obligation computed for python (spec_statement_builtin_names_required_for) by tests/integration/generators/test_agents_spec_statements.py."
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/type_mappings.py"
@@ -830,10 +829,6 @@ count = 1
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/_graphql_schema_types.py"
 count = 3
-
-[[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/_response_struct_context.py"
-count = 1
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/cross_cutting/_deployment_test_cases.py"
@@ -925,7 +920,7 @@ count = 3
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/special_calls.py"
-count = 2
+count = 1
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/visitor_expressions.py"
@@ -1036,6 +1031,11 @@ file = "datrix-common/src/datrix_common/migration/live_snapshot_export.py"
 count = 1
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/plugin/model_realization.py"
+count = 1
+reason = "MANAGED_CREDENTIAL_PROVISIONED_PARAMETERS: the shared side of the ManagedCredentialKind vocabulary -- per kind, the deploy-time parameter names a provisioning platform writes -- keyed by every declared kind. This IS the one home; the python target's per-kind credential realization (micro_generators/agents.py, its own reasoned entry) is keyed by the same kinds by design and can never be merged into a shared layer without naming a platform's emitted class there."
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/seed/validator.py"
 count = 1
 
@@ -1061,7 +1061,8 @@ count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/test.py"
-count = 1
+count = 2
+reason = "SPEC_ASSERTION_BUILTIN_NAMES and SPEC_STATEMENT_BUILTIN_NAMES: the declared spec-test builtin vocabularies every language's lowering table is keyed by. This IS the one home; each language's lowering table (python transpiler/_expr_call_dispatch.py and transpiler/visitor_statements.py, each its own reasoned entry) holds that language's own emitted callables or method names under the same keys and is held equal to the obligation computed for it by that package's seam test."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/testing/determinism_fixtures.py"
