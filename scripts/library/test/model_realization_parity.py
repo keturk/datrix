@@ -1,13 +1,25 @@
 """Model-realization capability-declaration parity gate.
 
 Every installed ``datrix.platforms`` plugin declares a ``PlatformCapabilityDeclaration``
-(``datrix_common.plugin.capability``) carrying a REQUIRED ``model_realizations`` mapping --
-one ``ModelRealization`` per provider (API family) the platform realizes, each cell's
-``flavors`` drawn from the closed placement domain ``container | external | managed | direct``.
+carrying a REQUIRED ``model_realizations`` mapping -- one ``ModelRealization`` per provider
+(API family) the platform realizes, whose ``flavors`` is a per-flavor mapping
+``Mapping[str, ModelFlavorCell]``: each declared placement carries ITS
+OWN ``schema_constrained_output``/``pricing``/``managed_keys``/``managed_transport`` -- nothing
+is inherited from the provider level or from another flavor's cell.
 
-Scoped to that single field: does every installed platform's declaration construct, and does
-every cell reference only a flavor from the closed domain. A platform realizing zero providers
-is NOT a violation (an empty mapping is a statement); only a missing or malformed declaration is.
+``ModelRealization`` itself already rejects an out-of-domain flavor key, and an inconsistent
+managed/non-managed cell, at construction time
+(``datrix_common.plugin.model_realization.ModelRealization.__post_init__``). This gate exists
+for the class of defect that construction-time check CANNOT catch, because neither
+``PlatformCapabilityDeclaration.model_realizations`` nor a ``ModelRealization.flavors`` value is
+runtime-typechecked against installed third-party plugins: a plugin's declared realization or
+flavor cell can be any object that merely looks right, and a genuine ``ModelFlavorCell`` can
+carry a ``schema_constrained_output`` that was never really stated (Python does not enforce
+``Literal`` membership at construction time). This gate proves the SHAPE of every installed
+platform's ``model_realizations`` mapping: every flavor key is in the closed placement domain,
+every cell is a real ``ModelFlavorCell`` with every dataclass field present, and every cell's
+``schema_constrained_output`` is one of the closed literal modes -- each check catching a defect
+none of the others, nor ``ModelRealization``'s own validation, would.
 
 The platform set is never hardcoded: it is enumerated from the installed ``datrix.platforms``
 entry points at run time via ``shared.registered_targets.registered_platform_names``.
@@ -20,7 +32,7 @@ import dataclasses
 import logging
 import sys
 from pathlib import Path
-from typing import Final
+from typing import Final, get_args
 
 _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
@@ -41,7 +53,12 @@ from datrix_common.plugin.capability import (
 )
 from datrix_common.plugin.capability_resolution import declaration_for_provider  # noqa: E402
 from datrix_common.plugin.identity import RuntimeId  # noqa: E402
-from datrix_common.plugin.model_realization import ModelRealization  # noqa: E402
+from datrix_common.plugin.model_realization import (
+    # noqa: E402
+    ModelFlavorCell,
+    ModelRealization,
+    SchemaConstrainedOutputMode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,15 +68,86 @@ _MIN_PLATFORMS_FOR_COMPARISON: Final[int] = 2
 #: The closed placement domain a ``ModelRealization.flavors`` entry may name.
 _VALID_FLAVORS: Final[frozenset[str]] = frozenset({"container", "external", "managed", "direct"})
 
+#: The closed set of legal ``ModelFlavorCell.schema_constrained_output`` values, derived from the
+#: real ``Literal`` alias rather than hand-typed here -- a future mode added to
+#: ``SchemaConstrainedOutputMode`` is picked up with no edit to this gate.
+_VALID_SCHEMA_CONSTRAINED_OUTPUT_MODES: Final[frozenset[str]] = frozenset(
+    get_args(SchemaConstrainedOutputMode)
+)
+
+#: Every ``ModelFlavorCell`` field this gate requires to be genuinely present -- read from
+#: the real ``ModelFlavorCell`` dataclass rather than hardcoded field-by-field; kept as an
+#: explicit constant here ONLY as the gate's own cross-check that the dataclass has not
+#: silently dropped a field the contract requires (``run_self_test`` compares this against
+#: ``_required_cell_field_names()``, which derives the real list from ``dataclasses.fields`` at
+#: runtime instead of trusting this literal alone).
+_EXPECTED_CELL_FIELD_NAMES: Final[frozenset[str]] = frozenset({
+    "schema_constrained_output", "pricing", "managed_keys", "managed_transport",
+})
+
 
 @dataclasses.dataclass(frozen=True)
 class ModelRealizationViolation:
-    """One finding: a platform whose declaration is missing/unconstructible, or whose cell for
-    ``provider`` names a flavor outside the closed domain."""
+    """One finding: a platform whose declaration is missing/unconstructible, whose cell for
+    ``provider``/``flavor`` names a flavor outside the closed domain, or whose cell is missing,
+    malformed, or omits a required per-flavor value."""
 
     platform: str
     provider: str | None
+    flavor: str | None
     reason: str
+
+
+def _required_cell_field_names() -> frozenset[str]:
+    """The real field names on ``ModelFlavorCell`` as landed, not a hand-maintained literal."""
+    return frozenset(f.name for f in dataclasses.fields(ModelFlavorCell))
+
+
+def _cell_violations(
+    platform: str, provider: str, flavor: str, cell: object
+) -> list[ModelRealizationViolation]:
+    """Check that *cell* is a real, fully-populated, validly-valued ``ModelFlavorCell``.
+
+    Three independent checks, each catching a defect the others -- and
+    ``ModelRealization.__post_init__`` -- do not:
+
+    1. ``cell`` is not a ``ModelFlavorCell`` instance at all -- a plugin author's object that
+       merely looks right (``model_realizations``/``.flavors`` values are never runtime-checked
+       against installed third-party plugins).
+    2. ``cell`` IS a ``ModelFlavorCell`` instance but is missing one of its own dataclass fields
+       (checked via ``dataclasses.fields`` + ``hasattr`` rather than a fixed attribute list, so a
+       future field addition to ``ModelFlavorCell`` is covered without a gate edit) --
+       unreachable through the dataclass's own constructor, but not through a
+       corrupted/partially-rehydrated instance.
+    3. ``cell.schema_constrained_output`` is not one of the closed literal modes --
+       ``ModelRealization._validate_cell`` validates ``managed_transport``/``managed_keys``/
+       ``pricing`` by flavor, but never this field's VALUE, so a cell that never really states it
+       (``None``, or any other placeholder) constructs without error and would otherwise reach
+       ``resolve_model_realization`` silently -- exactly the per-flavor-cell invariant that
+       nothing is inherited from another flavor or the provider level, turned into its most
+       literal violation.
+    """
+    if not isinstance(cell, ModelFlavorCell):
+        return [ModelRealizationViolation(
+            platform=platform, provider=provider, flavor=flavor,
+            reason=f"flavor cell is not a ModelFlavorCell instance (got {type(cell).__name__})",
+        )]
+    missing = sorted(name for name in _required_cell_field_names() if not hasattr(cell, name))
+    if missing:
+        return [ModelRealizationViolation(
+            platform=platform, provider=provider, flavor=flavor,
+            reason=f"omits required per-flavor value(s): {missing}",
+        )]
+    if cell.schema_constrained_output not in _VALID_SCHEMA_CONSTRAINED_OUTPUT_MODES:
+        return [ModelRealizationViolation(
+            platform=platform, provider=provider, flavor=flavor,
+            reason=(
+                f"omits a required per-flavor value: schema_constrained_output="
+                f"{cell.schema_constrained_output!r} is not one of "
+                f"{sorted(_VALID_SCHEMA_CONSTRAINED_OUTPUT_MODES)}"
+            ),
+        )]
+    return []
 
 
 def _declaration_violations(
@@ -68,18 +156,20 @@ def _declaration_violations(
     """Check the SHAPE of one platform's ``model_realizations`` mapping."""
     violations: list[ModelRealizationViolation] = []
     for provider, realization in dict(decl.model_realizations).items():
-        bad_flavors = set(realization.flavors) - _VALID_FLAVORS
+        flavors = dict(realization.flavors)
+        bad_flavors = set(flavors) - _VALID_FLAVORS
         if bad_flavors:
-            violations.append(
-                ModelRealizationViolation(
-                    platform=platform,
-                    provider=provider,
-                    reason=(
-                        f"declares flavor(s) {sorted(bad_flavors)} outside the closed domain "
-                        f"{sorted(_VALID_FLAVORS)}"
-                    ),
-                )
-            )
+            violations.append(ModelRealizationViolation(
+                platform=platform, provider=provider, flavor=None,
+                reason=(
+                    f"declares flavor(s) {sorted(bad_flavors)} outside the closed domain "
+                    f"{sorted(_VALID_FLAVORS)}"
+                ),
+            ))
+        for flavor, cell in flavors.items():
+            if flavor not in _VALID_FLAVORS:
+                continue  # already reported above
+            violations.extend(_cell_violations(platform, provider, flavor, cell))
     return violations
 
 
@@ -117,7 +207,8 @@ def _synthetic_declaration(
 ) -> PlatformCapabilityDeclaration:
     """A minimal, valid ``PlatformCapabilityDeclaration`` for the self-test only -- never a
     stand-in for a real platform. Every other required field takes the same minimal value
-    ``block_realization_parity._synthetic_declaration`` uses; only ``model_realizations`` varies."""
+    ``block_realization_parity._synthetic_declaration`` uses; only ``model_realizations`` varies.
+    """
     return PlatformCapabilityDeclaration(
         deployable_constructs=frozenset({DeployableConstruct.REST_API}),
         platform_label=platform_label,
@@ -138,30 +229,82 @@ def _synthetic_declaration(
 
 
 def _realization(flavor: str) -> ModelRealization:
+    """A well-formed, single-flavor ModelRealization for the self-test's clean side."""
     return ModelRealization(
-        flavors=frozenset({flavor}),
         sampling=False,
         tool_calling=True,
-        schema_constrained_output="always",
         attachments=frozenset(),
-        pricing=False,
+        flavors={flavor: ModelFlavorCell(
+            schema_constrained_output="always", pricing=False,
+            managed_keys=(), managed_transport=None,
+        )},
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class _RealizationLike:
+    """A minimal stand-in exposing exactly the ``.flavors`` shape ``_declaration_violations``
+    reads off a provider's realization. ``ModelRealization.__post_init__`` now rejects an
+    out-of-domain flavor key at construction time (the closed placement-flavor domain), so a
+    REAL ``ModelRealization`` can no longer carry one -- this stand-in proves
+    ``_declaration_violations``'s own flavor-domain check still catches a plugin's
+    ``model_realizations`` value that never went through that constructor at all, which the type
+    system permits (``PlatformCapabilityDeclaration.model_realizations`` is typed
+    ``Mapping[str, ModelRealization]`` with no runtime enforcement)."""
+
+    flavors: dict[str, ModelFlavorCell]
+
+
+def _realization_with_incomplete_cell(flavor: str) -> ModelRealization:
+    """A ModelRealization whose one flavor cell never really states its
+    ``schema_constrained_output`` -- the per-flavor-cell invariant that nothing is inherited,
+    turned into its most literal violation. ``ModelFlavorCell.schema_constrained_output`` is a
+    ``Literal``
+    with no runtime enforcement, and neither ``ModelRealization.__post_init__`` nor
+    ``ModelFlavorCell`` itself validates this field's VALUE (unlike ``managed_transport``/
+    ``managed_keys``/``pricing``, which ARE validated by ``ModelRealization._validate_cell``), so
+    a cell like this one constructs without error and would otherwise reach
+    ``resolve_model_realization`` silently. Proving THIS gate catches it is the point of the
+    self-test's third scenario.
+    """
+    return ModelRealization(
+        sampling=False, tool_calling=True, attachments=frozenset(),
+        flavors={flavor: ModelFlavorCell(
+            schema_constrained_output=None,  # type: ignore[arg-type]
+            pricing=False, managed_keys=(), managed_transport=None,
+        )},
     )
 
 
 def run_self_test() -> list[str]:
-    """Prove the comparator detects a forced divergence before any real run is trusted.
+    """Prove the comparator detects BOTH a bad flavor name AND an incomplete cell before any
+    real run is trusted, and that this module's own field-name documentation has not drifted
+    from ``ModelFlavorCell``'s real fields.
 
-    A matching pair (both platforms declare only valid flavors) must report zero violations; an
-    offending pair (platform B declares a cell whose flavor is outside the closed domain) must
-    report exactly one violation naming platform B and the bogus flavor, and none for A.
+    Four checks:
+    0. ``_EXPECTED_CELL_FIELD_NAMES`` still matches ``ModelFlavorCell``'s real dataclass fields.
+    1. A matching pair (both platforms declare only valid, complete flavors) -> zero violations.
+    2. Platform B's realization names a flavor outside the closed domain -> exactly one
+       violation naming B and the bogus flavor.
+    3. Platform B declares a cell that OMITS a required per-flavor value (the "nothing is
+       inherited" invariant) -> exactly one violation naming B and the flavor.
 
     Returns:
         Failure descriptions -- empty means the comparator is sound.
     """
     problems: list[str] = []
-    clean = _realization("direct")
-    offending = _realization(_SELF_TEST_OFFENDING_FLAVOR)
 
+    actual_fields = _required_cell_field_names()
+    if actual_fields != _EXPECTED_CELL_FIELD_NAMES:
+        problems.append(
+            f"self-test: ModelFlavorCell's real fields {sorted(actual_fields)} no longer match "
+            f"this module's _EXPECTED_CELL_FIELD_NAMES {sorted(_EXPECTED_CELL_FIELD_NAMES)} -- "
+            "update _EXPECTED_CELL_FIELD_NAMES to match the landed dataclass."
+        )
+
+    clean = _realization("direct")
+
+    # Scenario 1: matching pair.
     matching = {
         _SELF_TEST_PLATFORM_A: _synthetic_declaration("A", model_realizations={_SELF_TEST_PROVIDER: clean}),
         _SELF_TEST_PLATFORM_B: _synthetic_declaration("B", model_realizations={_SELF_TEST_PROVIDER: clean}),
@@ -173,23 +316,53 @@ def run_self_test() -> list[str]:
             f"violation(s) -- over-triggering: {matching_violations}"
         )
 
-    divergent = {
+    # Scenario 2: bad flavor name -- a realization-like object that never went through
+    # ModelRealization's own constructor (which now rejects this itself at construction time).
+    bad_flavor_cell = ModelFlavorCell(
+        schema_constrained_output="always", pricing=False,
+        managed_keys=(), managed_transport=None,
+    )
+    bad_flavor_realization = _RealizationLike(flavors={_SELF_TEST_OFFENDING_FLAVOR: bad_flavor_cell})
+    divergent_flavor = {
         _SELF_TEST_PLATFORM_A: _synthetic_declaration("A", model_realizations={_SELF_TEST_PROVIDER: clean}),
-        _SELF_TEST_PLATFORM_B: _synthetic_declaration("B", model_realizations={_SELF_TEST_PROVIDER: offending}),
+        _SELF_TEST_PLATFORM_B: _synthetic_declaration(
+            "B",
+            model_realizations={_SELF_TEST_PROVIDER: bad_flavor_realization},  # type: ignore[dict-item]
+        ),
     }
-    divergent_violations = all_violations(divergent)
-    b_hits = [
-        v for v in divergent_violations
-        if v.platform == _SELF_TEST_PLATFORM_B and v.provider == _SELF_TEST_PROVIDER
+    flavor_violations = all_violations(divergent_flavor)
+    flavor_hits = [
+        v for v in flavor_violations
+        if v.platform == _SELF_TEST_PLATFORM_B and "outside the closed domain" in v.reason
     ]
-    if len(b_hits) != 1:
+    if len(flavor_hits) != 1:
         problems.append(
-            f"self-test: expected exactly one violation for platform B's out-of-domain flavor "
-            f"{_SELF_TEST_OFFENDING_FLAVOR!r}, got {divergent_violations}"
+            f"self-test: expected exactly one bad-flavor violation for platform B, "
+            f"got {flavor_violations}"
         )
-    a_hits = [v for v in divergent_violations if v.platform == _SELF_TEST_PLATFORM_A]
-    if a_hits:
-        problems.append(f"self-test: platform A (valid flavors only) was reported: {a_hits}")
+    a_hits_flavor = [v for v in flavor_violations if v.platform == _SELF_TEST_PLATFORM_A]
+    if a_hits_flavor:
+        problems.append(f"self-test: platform A (valid flavors only) was reported: {a_hits_flavor}")
+
+    # Scenario 3: incomplete cell (the design acceptance property this task adds).
+    incomplete = _realization_with_incomplete_cell("direct")
+    divergent_cell = {
+        _SELF_TEST_PLATFORM_A: _synthetic_declaration("A", model_realizations={_SELF_TEST_PROVIDER: clean}),
+        _SELF_TEST_PLATFORM_B: _synthetic_declaration("B", model_realizations={_SELF_TEST_PROVIDER: incomplete}),
+    }
+    cell_violations = all_violations(divergent_cell)
+    cell_hits = [
+        v for v in cell_violations
+        if v.platform == _SELF_TEST_PLATFORM_B and v.flavor == "direct"
+    ]
+    if len(cell_hits) != 1:
+        problems.append(
+            f"self-test: expected exactly one incomplete-cell violation for platform B's "
+            f"'direct' flavor, got {cell_violations}"
+        )
+    a_hits_cell = [v for v in cell_violations if v.platform == _SELF_TEST_PLATFORM_A]
+    if a_hits_cell:
+        problems.append(f"self-test: platform A (complete cells only) was reported: {a_hits_cell}")
 
     return problems
 
@@ -230,7 +403,10 @@ def check_model_realization_parity() -> int:
 
     violations = all_violations(per_platform)
     for v in violations:
-        logger.error("VIOLATION platform=%s provider=%s reason=%s", v.platform, v.provider, v.reason)
+        logger.error(
+            "VIOLATION platform=%s provider=%s flavor=%s reason=%s",
+            v.platform, v.provider, v.flavor, v.reason,
+        )
     if violations:
         logger.error(
             "Invariant 6 VIOLATION: %d malformed model_realizations cell(s) across %d platform(s).",

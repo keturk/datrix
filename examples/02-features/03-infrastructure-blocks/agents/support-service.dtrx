@@ -1,0 +1,206 @@
+// SupportService resolves customer support tickets with a two-tier agent. Frontline triages
+// a ticket and decides whether to hand a billing question to the Billing specialist agent or
+// to escalate the ticket to a person; Billing may issue a refund, an irreversible tool marked
+// `approval`: the loop validates the model's arguments, writes the approval request and
+// suspends the call with ModelApprovalPending, and the refund body runs only after a
+// support admin approves it. Delegation is a tool whose body runs another agent. The refund
+// tool writes its own Refund row -- this example has no separate payment service to call.
+service credentials.SupportService('config/support-service.dcfg') : version('1.0.0'), description('customer support ticket resolution') {
+
+    // The staff identity provider: every staff principal may resolve a ticket; only members
+    // of the "support-admins" group carry the role that may approve or deny a refund
+    // (approvals.approverRole in config/support-service.dcfg). The block is application-
+    // scoped and declared in certificate-service.dtrx; this is a restatement of that
+    // declaration, which a later file may repeat but never extend.
+    identity {
+        provider staff config('config/identity/staff.dcfg') {
+            group "support-admins" as supportAdmin;
+        }
+    }
+
+    enum TicketCategory { Billing, Shipping, Account, Other }
+    enum TicketStatus { Open, InProgress, Resolved, Escalated }
+
+    rdbms db {
+        // Abstract base entity with standard audit fields (server-generated id
+        // and timestamps, matching the sibling certificate service).
+        abstract entity BaseEntity {
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
+        }
+
+        entity Order extends BaseEntity {
+            String(20) orderNumber : unique, trim;
+            UUID customerId : index;
+            Money amount;
+        }
+
+        entity Ticket extends BaseEntity {
+            UUID customerId : index;
+            Text message;
+            TicketCategory category = TicketCategory.Other;
+            TicketStatus status : index = TicketStatus.Open;
+            String? resolutionSummary;
+        }
+
+        entity Refund extends BaseEntity {
+            String(20) orderNumber : index, trim;
+            Money amount;
+            String(500) reason;
+        }
+    }
+
+    queues {
+        queue HumanReview(UUID ticketId, String reason);
+        queue RefundDecided(UUID requestId, Boolean approved, String summary);
+    }
+
+    struct Resolution { TicketCategory category; String summary; Boolean resolved; }
+    struct RefundReceipt { UUID refundId; Money amount; }
+
+    agents support {
+
+        model primary;
+
+        @retry(maxAttempts: 2)
+        tool recentOrders(UUID customerId) -> Array<db.Order> : description('The five most recent orders of a customer.') {
+            return db.Order.where(customerId: customerId).orderBy(createdAt: desc).limit(5).all();
+        }
+
+        // Irreversible, so it is gated by approval: the loop never runs this body on the
+        // pass that requests it. The refund is recorded as the service's own Refund row.
+        tool refund(String orderNumber, Money amount, String reason) -> RefundReceipt : description('Issue a refund for an order. Irreversible.'), approval {
+            ensure amount > 0;
+            ensure reason.length >= 10;
+            let db.Refund receipt = db.Refund.create({ orderNumber: orderNumber, amount: amount, reason: reason });
+            receipt.save();
+            return { refundId: receipt.id, amount: amount };
+        }
+
+        tool escalate(UUID ticketId, String reason) -> Void : description('Hand the ticket to a human reviewer with a reason.') {
+            dispatch HumanReview(ticketId, reason);
+        }
+
+        tool billingSpecialist(UUID ticketId) -> Resolution : description('Resolve a billing question about this ticket.') {
+            return support.Billing(db.Ticket.findOrFail(ticketId));
+        }
+
+        // The innermost agent that names the approval tool: it is the one whose context is
+        // persisted on suspension and resumed after the decision, and its onDecision fn
+        // receives the outcome. Frontline, which reaches it through billingSpecialist, is
+        // never resumed.
+        agent Billing(db.Ticket ticket) -> Resolution {
+            model(primary);
+            tools(recentOrders, refund);
+            steps(8);
+            onDecision(onRefundDecided);
+            prompt {
+                return #"Resolve this billing question. Ticket {ticket.id}: {ticket.message}";
+            }
+        }
+
+        agent Frontline(db.Ticket ticket) -> Resolution {
+            model(primary);
+            tools(billingSpecialist, escalate);
+            steps(12);
+            prompt {
+                return #"
+                    You are a support agent for an online shop. Resolve the customer's ticket using only the
+                    tools available. Never promise anything a tool did not confirm. If you cannot resolve the
+                    ticket, escalate it with a clear reason.
+                    Ticket {ticket.id} from customer {ticket.customerId}: {ticket.message}
+                ";
+            }
+        }
+    }
+
+    // The continuation of a suspended Billing run: `result` is present only when the refund
+    // was approved and the resumed loop reached its final answer. A denial or expiry never
+    // resumes the loop, so the refund body never ran and the ticket needs a person.
+    fn onRefundDecided(UUID requestId, ApprovalOutcome outcome, Resolution? result) -> Void {
+        if (outcome == ApprovalOutcome.Approved && result != null) {
+            dispatch RefundDecided(requestId, true, result.summary);
+            return;
+        }
+        dispatch RefundDecided(requestId, false, "refund not approved; the ticket needs a human reviewer");
+    }
+
+    // A ticket the customer already filed under Billing goes straight to the specialist;
+    // everything else is triaged by Frontline, which may delegate to Billing itself.
+    fn resolveTicket(db.Ticket ticket) -> Resolution {
+        ticket.status = TicketStatus.InProgress;
+        ticket.save();
+        if (ticket.category == TicketCategory.Billing) {
+            return support.Billing(ticket);
+        }
+        return support.Frontline(ticket);
+    }
+
+    rest_api SupportAPI : basePath('/api/v1/support'), rdbms(db) {
+        // Suspends with 202 (model-approval-pending) when the run requests a refund; the
+        // approval endpoints injected on this service decide it, and onRefundDecided runs.
+        @path('/tickets/:id/resolve')
+        post(UUID id) : auth(required, providers: [staff]) -> db.Ticket {
+            let db.Ticket ticket = db.Ticket.findOrFail(id);
+            let Resolution resolution = resolveTicket(ticket);
+            ticket.category = resolution.category;
+            ticket.resolutionSummary = resolution.summary;
+            ticket.status = resolution.resolved ? TicketStatus.Resolved : TicketStatus.Escalated;
+            ticket.save();
+            return ticket;
+        }
+    }
+
+    // replay('approve') binds the primary handle to fixtures/agents/support/primary/approve.jsonl:
+    // the model requests the refund (the run suspends with ModelApprovalPending and a Pending
+    // ApprovalRequest row), the test approves the request, and the resumed loop's next turn
+    // is the final Resolution. called() observes the refund wrapper's record, made after its
+    // ensure clauses and before its body -- only the approved path ever records it.
+    test("an approved refund runs the tool once and reaches the continuation") : replay('approve') {
+        let db.Ticket ticket = db.Ticket.create({ customerId: uuid(), message: "I was charged twice for order ORD-1001.", category: TicketCategory.Billing });
+        ticket.save();
+        assert throws(() => resolveTicket(ticket), ModelApprovalPending());
+        let db.ApprovalRequest? request = db.ApprovalRequest.where(state: ApprovalState.Pending).first();
+        assert request != null;
+        approve(request.id);
+        assert called(support.refund("ORD-1001", 42.50, "duplicate charge confirmed by customer"));
+        assert db.Refund.where(orderNumber: "ORD-1001").all().length == 1;
+        assert dispatched(RefundDecided(request.id, true, "Refund issued for the duplicate charge."));
+        let db.ApprovalRequest? decided = db.ApprovalRequest.find(request.id);
+        assert decided != null;
+        assert decided.state == ApprovalState.Completed;
+    }
+
+    // A denied refund never resumes the loop: the tool body never runs, no Refund row exists,
+    // and the continuation receives the null outcome.
+    test("a denied refund never issues a refund and delivers a null outcome") : replay('deny') {
+        let db.Ticket ticket = db.Ticket.create({ customerId: uuid(), message: "I want a refund for order ORD-1002.", category: TicketCategory.Billing });
+        ticket.save();
+        assert throws(() => resolveTicket(ticket), ModelApprovalPending());
+        let db.ApprovalRequest? request = db.ApprovalRequest.where(state: ApprovalState.Pending).first();
+        assert request != null;
+        deny(request.id);
+        assert db.Refund.where(orderNumber: "ORD-1002").all().length == 0;
+        assert dispatched(RefundDecided(request.id, false, "refund not approved; the ticket needs a human reviewer"));
+        let db.ApprovalRequest? decided = db.ApprovalRequest.find(request.id);
+        assert decided != null;
+        assert decided.state == ApprovalState.Denied;
+    }
+
+    // An expired request is swept at its own deadline and behaves like a denial: no refund,
+    // the loop is never resumed, the continuation receives the null outcome.
+    test("an expired refund request is swept and never issues a refund") : replay('expire') {
+        let db.Ticket ticket = db.Ticket.create({ customerId: uuid(), message: "Please refund order ORD-1003.", category: TicketCategory.Billing });
+        ticket.save();
+        assert throws(() => resolveTicket(ticket), ModelApprovalPending());
+        let db.ApprovalRequest? request = db.ApprovalRequest.where(state: ApprovalState.Pending).first();
+        assert request != null;
+        expire(request.id);
+        assert db.Refund.where(orderNumber: "ORD-1003").all().length == 0;
+        assert dispatched(RefundDecided(request.id, false, "refund not approved; the ticket needs a human reviewer"));
+        let db.ApprovalRequest? decided = db.ApprovalRequest.find(request.id);
+        assert decided != null;
+        assert decided.state == ApprovalState.Expired;
+    }
+}

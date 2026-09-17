@@ -136,6 +136,7 @@ _PRESENCE_SHAPED_SCALAR_FIELDS: Final[tuple[str, ...]] = (
     "cache_pooled_slice_delivery",
     "publishes_gateway_behind_managed_edge",
     "trusted_edge_client_address_include",
+    "deploy_preflight_entrypoint",
 )
 
 #: Fields that carry an explanatory RATIONALE for another field's already-

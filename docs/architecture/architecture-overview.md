@@ -1625,7 +1625,24 @@ AWS and Azure each declare a managed placement for the hosted Anthropic API fami
 | 10 | Logs carry no content | Negative assertion per language: generated log statements interpolate no prompt, argument, result or response variable |
 | 11 | Credentials are handles and transport is verified TLS off-loopback | A credential-bearing key holding anything but a declared logical handle is rejected by the existing handle census; an `external` `http` URL on a non-loopback host is a validation error with no override; the emitted client carries no certificate-verification switch, proven by a negative scan of the generated client source |
 
-**Status:** Approved — Implementation In Progress. Nothing has landed yet; the first phase (grammar and transformers, AST and validators, ConfigDSL section with replay handles, the shared loop plan and schema derivation, the python realization with two docker-declared providers, the platform declaration surface, the reference example and its fixtures, and the gates in invariants 5–9) is planned as one task phase across the language, foundation, CLI, shared codegen, python, docker, typescript, java, dotnet, aws, azure and showcase repositories.
+**Status:** Approved — Implementation In Progress. **Landed:** the first phase in full — grammar
+and transformers, AST and validators, the ConfigDSL section with `replay` handles, the shared
+loop plan and schema derivation, the python realization with two docker-declared providers
+(`anthropic`, `ollama`), the platform declaration surface, the reference example (a certificate-intake
+workflow and a two-tier support agent) with its fixtures, and the gates in invariants 1, 2, 4–10.
+The settled second phase has also landed: the fail-closed `approval` marker with its injected
+request/transcript entities, queue, consumer and sweep job; the four role-gated endpoints and the
+self-approval refusal; `onDecision` and the `ApprovalOutcome`/`ApprovalState` builtin enums; the
+`model` resilience dependency kind; the declared agents metric/span name set with its
+producer/consumer comparisons on every platform, the Agents dashboard row, and the three
+framework alert rules (denied-tool rate, limit-exceeded rate, approval-backlog age); and AWS and
+Azure both declaring a `managed` placement for the hosted Anthropic API (Bedrock Mantle,
+authenticated by a per-request SigV4 signature; Azure AI Foundry, authenticated by the workload's
+managed identity) and `external`-only for the self-hostable one — invariant 3 now holds. **Remaining
+(Phase 3):** `eval` and its runner; `typescript`/`java`/`dotnet` realization of `MODEL`; `ollama`
+image attachments, once its accepted formats are pinned from the server source; the fixture
+capture switch; and `cost` budgets on whichever `managed` placement first has a per-model price
+readable from a stable published source — neither cloud publishes one today.
 
 ---
 

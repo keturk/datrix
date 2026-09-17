@@ -26,7 +26,7 @@
       {"name": "jobs",                  "path": "examples/02-features/03-infrastructure-blocks/jobs/system.dtrx",                "description": "Background jobs with scheduling"},
       {"name": "nosql",                 "path": "examples/02-features/03-infrastructure-blocks/nosql/system.dtrx",               "description": "NoSQL/document store collections"},
       {"name": "storage",              "path": "examples/02-features/03-infrastructure-blocks/storage/system.dtrx",              "description": "Object/blob storage folders"},
-      {"name": "agents",                "path": "examples/02-features/03-infrastructure-blocks/agents/system.dtrx",              "description": "Agents block: model handles, tools and a bounded model-driven tool loop (certificate intake)"},
+      {"name": "agents",                "path": "examples/02-features/03-infrastructure-blocks/agents/system.dtrx",              "description": "Agents block: model handles, tools and a bounded model-driven tool loop (certificate intake), plus an approval-gated refund tool with the injected approval endpoints, state machine and spec-test statements (support tickets)"},
       {"name": "graphql",               "path": "examples/02-features/03-infrastructure-blocks/graphql/system.dtrx",            "description": "GraphQL API with types, queries, mutations"},
       {"name": "advanced-types",        "path": "examples/02-features/04-advanced-data-features/advanced-types/system.dtrx",    "description": "Advanced types (Money, Slug, semantic types)"},
       {"name": "advanced-relationships","path": "examples/02-features/04-advanced-data-features/advanced-relationships/system.dtrx", "description": "Many-to-many and hasOne relationships"},

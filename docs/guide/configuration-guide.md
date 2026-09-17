@@ -1220,7 +1220,6 @@ test:
   circuitBreaker:
     enabled: true
     failureThreshold: 5         # Open circuit after 5 failures
-    successThreshold: 2         # Close circuit after 2 successes
     timeout: 60000              # Stay open for 60 seconds
 
   retry:
@@ -1257,7 +1256,6 @@ Prevents cascading failures by opening circuit after repeated failures.
 circuitBreaker:
   enabled: true
   failureThreshold: 5      # Open after 5 failures
-  successThreshold: 2      # Close after 2 successes
   timeout: 60000           # Half-open after 60 seconds
 ```
 
@@ -1265,6 +1263,17 @@ circuitBreaker:
 - **Closed** — Normal operation
 - **Open** — All requests fail immediately
 - **Half-Open** — Test requests allowed to check recovery
+
+**Half-open shape is declared per language.** `successThreshold` (successes that close the
+circuit again) and `halfOpenRequests` (calls admitted while half-open) both default to `1`.
+What an emitted breaker actually does in half-open is a fact of the library each target
+generates, declared on that language plugin's `LanguageCapabilityDeclaration.circuit_breaker_half_open`.
+Every shipped target's breaker admits one trial call and closes on its success, so both
+fields are fixed at `1` there — except java, which renders `halfOpenRequests` as
+resilience4j's permitted half-open call count. Declaring a value a target fixes at a
+different one is a generation error naming the field and the realized value; a value the
+generated code would silently ignore is never shipped. Omit both fields unless the target
+renders them.
 
 ### Retry Policy
 

@@ -4,6 +4,18 @@
 // confidence extraction is routed to a human reviewer instead of being written.
 service credentials.CertificateService('config/certificate-service.dcfg') : version('1.0.0'), description('certificate intake') {
 
+    discovery { }
+
+    // The identity block is application-scoped and declared once, here in the first included
+    // service. Only an authenticated staff principal may submit a scan; the "support-admins"
+    // group maps to the role the support service's refund approvals require (support-service.dtrx
+    // restates this provider so its own binding reads on its own).
+    identity {
+        provider staff config('config/identity/staff.dcfg') {
+            group "support-admins" as supportAdmin;
+        }
+    }
+
     scalar CertificateNumber : String(20) {
         pattern("^[A-Z]{2}-[0-9]{6}$");
     }
@@ -48,6 +60,21 @@ service credentials.CertificateService('config/certificate-service.dcfg') : vers
             String? reason;
             DateTime? completedAt;
             String? errorMessage;
+
+            // An intake row records work THIS service performs: a restart proves no
+            // extraction or validation is still running, so an in-flight row is stale
+            // and is failed at startup rather than left claiming a run that died with
+            // the process. The agent loop persists nothing of its own; the durable run
+            // is the author's row, declared here.
+            work {
+                state:       status;
+                inFlight:    IntakeStatus.Extracting, IntakeStatus.Validating;
+                interrupted: IntakeStatus.Failed;
+                completedAt: completedAt;
+                error:       errorMessage;
+                owner:       self;
+                onOrphan:    failAtStartup;
+            }
         }
     }
 
@@ -71,6 +98,15 @@ service credentials.CertificateService('config/certificate-service.dcfg') : vers
         Date issuedOn;
         Date? expiresOn;
         Decimal confidence;
+    }
+
+    // 'UploadedFile' carries the uploaded bytes plus their metadata (contentType, size,
+    // filename); the storage block's allowed(...) list is what admits or refuses it. The
+    // stored name is a separate required field: UploadedFile.filename is nullable (multipart
+    // permits a missing name), so the upload call needs an explicit one.
+    struct UploadCertificateRequest {
+        UploadedFile file;
+        String filename;
     }
 
     agents intake {
@@ -173,9 +209,15 @@ service credentials.CertificateService('config/certificate-service.dcfg') : vers
     }
 
     rest_api IntakeAPI : basePath('/api/v1/certificates'), rdbms(db) {
-        @path('/:id')
-        get(UUID id) : auth(public) -> db.CertificateIntake {
-            return db.CertificateIntake.findOrFail(id);
+        // A staff principal submits a scan; the intake is recorded, the scan stored, and the
+        // pipeline runs on the queue worker, never inside the request.
+        @path('/intake')
+        post(UploadCertificateRequest request) : auth(required, providers: [staff]) -> db.CertificateIntake {
+            let db.CertificateIntake record = db.CertificateIntake.create({ scanPath: '', status: IntakeStatus.Received });
+            record.scanPath = scans.upload(request.file, { folder: 'certificates', intakeId: record.id, filename: request.filename });
+            record.save();
+            dispatch ProcessIntake(record.id);
+            return record;
         }
     }
 
