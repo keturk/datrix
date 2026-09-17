@@ -1,4 +1,5 @@
 include 'certificate-service.dtrx';
+include 'support-service.dtrx';
 
 system credentials.System('config/system.dcfg') : version('1.0.0') {
 }

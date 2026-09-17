@@ -1,0 +1,1 @@
+{"toolCalls": [{"name": "refund", "arguments": {"orderNumber": "ORD-1002", "amount": 19.99, "reason": "customer requested refund for late delivery"}}], "usage": {"inputTokens": 610, "outputTokens": 54}}

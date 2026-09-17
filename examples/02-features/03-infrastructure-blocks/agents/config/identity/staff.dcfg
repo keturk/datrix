@@ -1,6 +1,9 @@
-// Platform-managed identity provider for 'staff'.
+// Platform-managed identity provider for 'staff': the workforce principals that
+// resolve support tickets. Its "support-admins" group maps (support-service.dtrx)
+// to the role that may approve or deny a refund, so it is the provider
+// approvals.providers names in config/support-service.dcfg.
 // mode = platformManaged: the generator resolves the target-native provider at
-// generation time (docker → Keycloak, Azure → Entra, AWS → Cognito).
+// generation time (docker → Zitadel, Azure → Entra, AWS → Cognito).
 config identity staff {
   base {
     audience = "workforce";
@@ -18,5 +21,20 @@ config identity staff {
   }
 
   profile production as "prod" extends base {
+  }
+
+  profile aws as "aws" extends base {
+  }
+
+  // Entra ID registers a browser app for a human audience, so the origin the
+  // staff console redirects back to is declared here -- redirect URIs are never
+  // derived from service names or ports.
+  profile azure as "azure" extends base {
+    publicClient {
+      baseUrls {
+        azure = "https://staff.credentials.example.com";
+      }
+      flows = ["authorization_code"];
+    }
   }
 }

@@ -1547,7 +1547,6 @@ config service OrderService {
         resilience {
             circuitBreaker {
                 failureThreshold: 5
-                successThreshold: 2
                 timeout: 60000
             }
             retry {

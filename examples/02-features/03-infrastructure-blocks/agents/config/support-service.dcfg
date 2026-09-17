@@ -1,6 +1,6 @@
-config service credentials.CertificateService {
+config service credentials.SupportService {
   base {
-    port = 8000;
+    port = 8001;
     flavor = "compose";
     replicas = 1;
     resources {
@@ -18,12 +18,12 @@ config service credentials.CertificateService {
       initialDelay = "10s";
     }
     rdbms db {
-      id = "1ec1281d-1314-46c4-bc81-bb6a1a9ac779";
+      id = "2c1e3f4a-5b6c-47d8-9e10-1a2b3c4d5e6f";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
       port = 5432;
-      database = "credentials_intake";
+      database = "credentials_support";
       poolSize = 20;
       maxOverflow = 20;
       asyncDriver = "postgresql+asyncpg";
@@ -32,13 +32,6 @@ config service credentials.CertificateService {
       dockerImage = "postgres:17-alpine";
       volumePath = "/var/lib/postgresql/data";
       defaultUser = "postgres";
-    }
-    storage scans {
-      provider = "minio";
-      flavor = "minio";
-      endpoint = "http://localhost:9000";
-      bucket = "certificates";
-      region = "us-east-1";
     }
     queues {
       engine = "rabbitmq";
@@ -90,7 +83,7 @@ config service credentials.CertificateService {
       }
     }
     httpSecurity {
-      allowedHosts = ["certificate-service.example.com", "localhost"];
+      allowedHosts = ["support-service.example.com", "localhost"];
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
@@ -147,33 +140,33 @@ config service credentials.CertificateService {
       tokenExpirySkewSeconds = 30;
     }
     secrets {
-      secret certificate_model_key {
+      secret support_model_key {
         required = true;
-        purpose = "API key for the hosted model behind the certificate intake vision handle";
+        purpose = "API key for the hosted model behind the support agent's primary handle";
       }
     }
-    agents intake {
+    agents support {
       models {
-        vision {
+        primary {
           provider = "anthropic";               // API family, validated against installed platforms
           flavor = "direct";
           model = "claude-opus-5";
           maxOutputTokens = 4096;
           timeout = "90s";
-          apiKey = "certificate_model_key";     // a logical secret handle (secrets { } above), never a value
-          budget { perRun { tokens = 30000; wallclock = "2m"; } daily { tokens = 2000000; } }
+          apiKey = "support_model_key";         // a logical secret handle (secrets { } above), never a value
+          budget { perRun { tokens = 40000; wallclock = "3m"; } daily { tokens = 2000000; } }
         }
-        analyst {
-          provider = "ollama";
-          flavor = "external";                  // a model server on this machine or the local network
-          url = "http://localhost:11434";
-          auth = "none";                        // explicit: an absent value never means unauthenticated
-          model = "qwen3.8";
-          temperature = 0;                      // required here: ollama declares sampling
-          maxOutputTokens = 2048;
-          timeout = "60s";
-          budget { perRun { tokens = 60000; wallclock = "3m"; } }
-        }
+      }
+      // Present only because the block declares an approval tool (refund): the role that may
+      // decide, the provider(s) whose principals carry it, how long a request stays decidable,
+      // when the sweep expires overdue requests, and whether the four approval endpoints join
+      // the gateway's public route table (internal: reachable on the service only).
+      approvals {
+        approverRole = "supportAdmin";
+        providers = ["staff"];
+        timeout = "24h";
+        sweepSchedule = "*/15 * * * *";
+        exposure = "internal";
       }
     }
   }
@@ -181,30 +174,6 @@ config service credentials.CertificateService {
   profile development as "dev" extends base {
     alias env = "DEV";
     alias resource = "dev";
-    replace agents intake {                     // replace: profiles deep-merge, and a flavor change
-      models {                                  // must not inherit the other flavor's keys
-        vision {
-          provider = "anthropic";
-          flavor = "direct";
-          model = "claude-opus-5";
-          maxOutputTokens = 4096;
-          timeout = "90s";
-          apiKey = "certificate_model_key";
-          budget { perRun { tokens = 30000; wallclock = "2m"; } daily { tokens = 2000000; } }
-        }
-        analyst {
-          provider = "ollama";
-          flavor = "container";                 // Datrix runs the model server in compose
-          image = "ollama/ollama:0.34.0";
-          port = 11434;
-          model = "qwen3.8";
-          temperature = 0;
-          maxOutputTokens = 2048;
-          timeout = "60s";
-          budget { perRun { tokens = 60000; wallclock = "3m"; } }
-        }
-      }
-    }
   }
 
   profile production as "prod" extends base {
@@ -215,15 +184,20 @@ config service credentials.CertificateService {
   profile test as "test" extends base {
     alias env = "TEST";
     alias resource = "test";
-    replace agents intake {
-      models {
-        vision {
+    replace agents support {                    // replace: a replay handle carries no transport keys,
+      models {                                  // so the live handle's keys must not be inherited
+        primary {
           provider = "replay";
-          fixtures = "fixtures/agents/intake/vision/";
-          attachments = ["application/pdf", "image/jpeg", "image/png"];   // the set the live handle accepts
-          budget { perRun { tokens = 30000; wallclock = "2m"; } }
+          fixtures = "fixtures/agents/support/primary/";
+          budget { perRun { tokens = 40000; wallclock = "3m"; } }
         }
-        analyst { provider = "replay"; fixtures = "fixtures/agents/intake/analyst/"; budget { perRun { tokens = 60000; wallclock = "3m"; } } }
+      }
+      approvals {
+        approverRole = "supportAdmin";
+        providers = ["staff"];
+        timeout = "24h";
+        sweepSchedule = "*/15 * * * *";
+        exposure = "internal";
       }
     }
   }
@@ -231,9 +205,9 @@ config service credentials.CertificateService {
   profile aws as "aws" extends base {
     alias env = "AWS";
     alias resource = "aws";
-    // The intake consumer runs an agent loop bounded by the handles' wallclock
-    // budgets, so it runs inside the ECS task rather than as an SQS-triggered
-    // Lambda.
+    // The approval-decision consumer resumes a suspended agent loop bounded by
+    // the handle's wallclock budget, so consumers run inside the ECS task
+    // rather than as SQS-triggered Lambdas.
     runtime { consumers = "in-process"; }
     scaling {
       replicas {
@@ -243,11 +217,11 @@ config service credentials.CertificateService {
       triggers = [];
     }
     replace rdbms db {
-      id = "1ec1281d-1314-46c4-bc81-bb6a1a9ac779";
+      id = "2c1e3f4a-5b6c-47d8-9e10-1a2b3c4d5e6f";
       engine = "postgres";
       flavor = "rds";
       port = 5432;
-      database = "credentials_intake";
+      database = "credentials_support";
       poolSize = 20;
       maxOverflow = 20;
       ssl = true;
@@ -256,47 +230,29 @@ config service credentials.CertificateService {
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
-    replace storage scans {
-      provider = "s3";
-      flavor = "s3";
-      bucket = "certificates";
-      region = "us-east-1";
-      credentials = "iam";
-    }
     replace queues {
       engine = "sqs";
       flavor = "sqs";
       region = "us-east-1";
     }
-    secrets {                                   // merged into the base table: the bearer token
-      secret analyst_model_token {              // the external analyst server expects
-        required = true;
-        purpose = "Bearer token for the operator-run model server behind the analyst handle";
-      }
-    }
-    replace agents intake {                     // replace: a managed handle carries sizing only,
+    replace agents support {                    // replace: a managed handle carries sizing only,
       models {                                  // never the direct flavor's credential key
-        vision {
+        primary {
           provider = "anthropic";
           flavor = "managed";                   // the cloud's hosted Messages API, signed per
           model = "claude-opus-5";              // request with the task role -- no apiKey
           maxOutputTokens = 4096;
           timeout = "90s";
-          budget { perRun { tokens = 30000; wallclock = "2m"; } daily { tokens = 2000000; } }
+          budget { perRun { tokens = 40000; wallclock = "3m"; } daily { tokens = 2000000; } }
           managed { }                           // AWS provisions nothing per handle: no sizing keys
         }
-        analyst {
-          provider = "ollama";
-          flavor = "external";                  // no cloud offers a managed Ollama placement: a
-          url = "https://models.internal.example.com";   // model server the operator runs, TLS
-          auth = "bearer";                      // terminated on its host, bearer-authenticated
-          token = "analyst_model_token";        // a logical secret handle (secrets { } below)
-          model = "qwen3.8";
-          temperature = 0;
-          maxOutputTokens = 2048;
-          timeout = "60s";
-          budget { perRun { tokens = 60000; wallclock = "3m"; } }
-        }
+      }
+      approvals {                               // restated: replace drops every sibling key
+        approverRole = "supportAdmin";
+        providers = ["staff"];
+        timeout = "24h";
+        sweepSchedule = "*/15 * * * *";
+        exposure = "internal";
       }
     }
   }
@@ -312,11 +268,11 @@ config service credentials.CertificateService {
       triggers = [];
     }
     replace rdbms db {
-      id = "1ec1281d-1314-46c4-bc81-bb6a1a9ac779";
+      id = "2c1e3f4a-5b6c-47d8-9e10-1a2b3c4d5e6f";
       engine = "postgres";
       flavor = "flexible-server";
       port = 5432;
-      database = "credentials_intake";
+      database = "credentials_support";
       poolSize = 20;
       maxOverflow = 20;
       ssl = true;
@@ -327,50 +283,33 @@ config service credentials.CertificateService {
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
-    replace storage scans {
-      provider = "azure_blob";
-      flavor = "blob-storage";
-      container = "certificates";
-      credentials = "managed-identity";
-    }
     replace queues {
       engine = "service-bus";
       flavor = "service-bus";
       sku = "Standard";
     }
-    secrets {                                   // merged into the base table: the bearer token
-      secret analyst_model_token {              // the external analyst server expects
-        required = true;
-        purpose = "Bearer token for the operator-run model server behind the analyst handle";
-      }
-    }
-    replace agents intake {                     // replace: a managed handle carries sizing only,
+    replace agents support {                    // replace: a managed handle carries sizing only,
       models {                                  // never the direct flavor's credential key
-        vision {
+        primary {
           provider = "anthropic";
           flavor = "managed";                   // one Azure AI Foundry deployment, reached with
           model = "claude-opus-5";              // the service's managed identity -- no apiKey
           maxOutputTokens = 4096;
           timeout = "90s";
-          budget { perRun { tokens = 30000; wallclock = "2m"; } daily { tokens = 2000000; } }
+          budget { perRun { tokens = 40000; wallclock = "3m"; } daily { tokens = 2000000; } }
           managed {                             // sizing only: the platform's declared keys
             deploymentSku = "GlobalStandard";
             capacity = 25;                      // thousands of tokens per minute
             modelVersion = "1";                 // the Foundry catalog version, not the model id
           }
         }
-        analyst {
-          provider = "ollama";
-          flavor = "external";                  // no cloud offers a managed Ollama placement: a
-          url = "https://models.internal.example.com";   // model server the operator runs, TLS
-          auth = "bearer";                      // terminated on its host, bearer-authenticated
-          token = "analyst_model_token";        // a logical secret handle (secrets { } below)
-          model = "qwen3.8";
-          temperature = 0;
-          maxOutputTokens = 2048;
-          timeout = "60s";
-          budget { perRun { tokens = 60000; wallclock = "3m"; } }
-        }
+      }
+      approvals {                               // restated: replace drops every sibling key
+        approverRole = "supportAdmin";
+        providers = ["staff"];
+        timeout = "24h";
+        sweepSchedule = "*/15 * * * *";
+        exposure = "internal";
       }
     }
   }

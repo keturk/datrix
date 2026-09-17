@@ -1,0 +1,2 @@
+{"toolCalls": [{"name": "refund", "arguments": {"orderNumber": "ORD-1001", "amount": 42.50, "reason": "duplicate charge confirmed by customer"}}], "usage": {"inputTokens": 640, "outputTokens": 58}}
+{"final": {"category": "Billing", "summary": "Refund issued for the duplicate charge.", "resolved": true}, "usage": {"inputTokens": 820, "outputTokens": 40}}

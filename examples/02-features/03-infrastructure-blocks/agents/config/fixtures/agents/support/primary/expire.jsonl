@@ -1,0 +1,1 @@
+{"toolCalls": [{"name": "refund", "arguments": {"orderNumber": "ORD-1003", "amount": 15.00, "reason": "goodwill refund for shipping delay complaint"}}], "usage": {"inputTokens": 605, "outputTokens": 52}}

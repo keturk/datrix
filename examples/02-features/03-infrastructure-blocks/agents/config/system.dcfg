@@ -137,6 +137,16 @@ config system credentials.System {
     alias resource = "test";
   }
 
+  // The developer-machine target with live model handles: the hosted
+  // Anthropic API reached with a key, and the analyst model server run in
+  // compose (see the service .dcfg files' development profiles).
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  // The compose stack on one production host: the observability collectors
+  // are platform-managed on the compose network, so no endpoint is authored.
   profile production as "prod" extends base {
     alias env = "PROD";
     alias resource = "prod";
@@ -144,11 +154,232 @@ config system credentials.System {
       runtime = "docker-compose";
       provider = "local";
     }
+    region = "us-east-1";
+  }
+
+  // AWS target: ECS Fargate services, RDS, SQS and S3, CloudWatch / X-Ray
+  // telemetry, AppConfig as the config store, Cognito for the staff identity
+  // provider. Every `anthropic` handle binds `managed` here: the service calls
+  // the cloud's own hosted Messages API and signs each request with its task
+  // role, so no profile carries a model credential key (see the service
+  // .dcfg files).
+  profile aws as "aws" extends base {
+    alias env = "AWS";
+    alias resource = "aws";
+
+    deployment {
+      runtime = "ecs-fargate";
+      provider = "aws";
+    }
     observability {
+      metrics {
+        provider = "cloudwatch";
+      }
       tracing {
-        endpoint = "http://jaeger:4317";
+        provider = "xray";
+      }
+      logging {
+        provider = "cloudwatch-logs";
+      }
+      visualization {
+        provider = "cloudwatch";
+      }
+      alerting {
+        provider = "cloudwatch-alarms";
+      }
+    }
+    configStore {
+      engine = "aws-managed";
+      flavor = "managed";
+    }
+    // The platform-managed `staff` provider resolves to Cognito on AWS; the
+    // User Pool it validates against is a deploy-time fact declared here, never
+    // in the platform-agnostic identity source.
+    awsIdentity {
+      region = "us-east-1";
+      providers {
+        staff {
+          userPoolId = "us-east-1_CredentialsStaff";
+          clientId = "credentials-staff-app";
+        }
       }
     }
     region = "us-east-1";
+    platforms {
+      aws {
+        vpcCidr = "10.0.0.0/16";
+        // The public ALB terminates TLS with this ACM certificate; a plaintext
+        // listener is never emitted.
+        certificateArn = "arn:aws:acm:us-east-1:123456789012:certificate/credentials-system";
+        dlqMaxReceiveCount = 5;
+        sqsVisibilityTimeoutSeconds = 30;
+        sqsRetentionDays = 4;
+        sqsDlqRetentionDays = 14;
+        diagnostics {
+          retentionDays = 30;
+        }
+        serviceDiscovery {
+          dnsTtlSeconds = 10;
+        }
+        alarms {
+          rdsCpuUtilizationPercent = 80;
+          rdsFreeStoragePercent = 20;
+          rdsConnectionCountPercent = 80;
+          sqsVisibleMessages = 1000;
+          sqsOldestMessageAgeSeconds = 300;
+          sqsDlqDepth = 0;
+        }
+        lambda {
+          consumerMemoryMb = 512;
+          consumerTimeoutSeconds = 300;
+          consumerBatchSize = 10;
+        }
+        migrationTask {
+          fargateCpu = 256;
+          fargateMemoryMb = 512;
+        }
+        scheduledTask {
+          retryAttempts = 2;
+          maxEventAgeSeconds = 3600;
+          dlqRetentionDays = 14;
+        }
+        consumerLambdaTriggers {
+          retentionDays = 14;
+          maxReceiveCount = 3;
+          visibilityTimeoutMultiplier = 6;
+        }
+        ecsHealthCheck {
+          intervalSeconds = 30;
+          timeoutSeconds = 5;
+          retries = 3;
+          startPeriodSeconds = 60;
+        }
+        ecsScaling {
+          cpuTargetPercent = 70;
+          scaleInCooldownSeconds = 60;
+          scaleOutCooldownSeconds = 60;
+        }
+        appConfig {
+          growthFactor = 100.0;
+          finalBakeTimeMinutes = 0;
+          replicateTo = "NONE";
+        }
+      }
+    }
+  }
+
+  // Azure target: Web App for Containers, Flexible Server, Service Bus and
+  // Blob Storage, Azure Monitor / Application Insights telemetry, App
+  // Configuration as the config store, Entra ID for the staff identity
+  // provider. Every `anthropic` handle binds `managed` here: the platform
+  // provisions one Azure AI Foundry deployment per handle and the service
+  // authenticates with its own managed identity, so no profile carries a
+  // model credential key. Foundry creates an Anthropic deployment only for a
+  // named legal entity, country and industry -- supplying them below is the
+  // Marketplace acceptance for the offer.
+  profile azure as "azure" extends base {
+    alias env = "AZURE";
+    alias resource = "azure";
+
+    deployment {
+      runtime = "azure-app-service-container";
+      provider = "azure";
+    }
+    observability {
+      metrics {
+        provider = "azure-monitor";
+      }
+      tracing {
+        provider = "application-insights";
+      }
+      logging {
+        provider = "log-analytics";
+      }
+      visualization {
+        provider = "azure-monitor";
+      }
+      alerting {
+        provider = "azure-monitor-alerts";
+      }
+    }
+    configStore {
+      engine = "azure-managed";
+      flavor = "managed";
+      sku = "standard";
+    }
+    // The platform-managed `staff` provider resolves to Entra ID on Azure; the
+    // workforce tenant it validates against is a deploy-time fact declared
+    // here, never in the platform-agnostic identity source.
+    azureIdentity {
+      entraTenantId = "credentials.onmicrosoft.com";
+    }
+    region = "eastus";
+    platforms {
+      azure {
+        appServicePlanSku = "P1v3";
+        appServicePlanCapacity = 1;
+        pythonVersion = "3.12";
+        servicebusMessageTtl = "P14D";
+        servicebusMaxDeliveryCount = 10;
+        agentsOrganizationTerms {
+          organizationName = "Acme Certification";
+          countryCode = "US";
+          industry = "technology";
+        }
+        diagnostics {
+          retentionDays = 30;
+        }
+        appInsights {
+        }
+        migrationJob {
+          cpu = "0.25";
+          memoryGi = "0.5Gi";
+        }
+        subnets {
+          vnetAddressPrefix = "10.0.0.0/16";
+          apps = "10.0.0.0/21";
+          database = "10.0.8.0/24";
+          cache = "10.0.9.0/24";
+          messaging = "10.0.10.0/24";
+          storage = "10.0.11.0/24";
+          keyvault = "10.0.12.0/24";
+          appServiceIntegration = "10.0.13.0/24";
+          appServicePrivateEndpoints = "10.0.14.0/24";
+          pgDelegated = ["10.0.20.0/28", "10.0.20.16/28"];
+        }
+        postgresPrivateDnsZone = "credentials.private.postgres.database.azure.com";
+        alarms {
+          rdbmsCpuPercent = 80.0;
+          rdbmsStoragePercent = 85.0;
+          rdbmsActiveConnectionsPercent = 80.0;
+          servicebusActiveMessages = 1000.0;
+          servicebusDeadLetterMessages = 0.0;
+          servicebusQueueLength = 5000.0;
+          containerAppsCpuPercent = 80.0;
+          containerAppsMemoryPercent = 80.0;
+          appServiceHttp5xxCount = 0.0;
+          appServiceResponseTimeSeconds = 5.0;
+        }
+        databaseDefaults {
+          haMode = "Disabled";
+          backupRetentionDays = 7;
+          geoRedundant = false;
+          haStandbyZone = "2";
+        }
+        pgbouncer {
+          defaultPoolSize = 50;
+        }
+        functions {
+          planSku = "Y1";
+        }
+        serviceBus {
+          lockDuration = "PT1M";
+          maxSizeMb = 1024;
+        }
+        keyVault {
+          softDeleteRetentionDays = 30;
+        }
+      }
+    }
   }
 }
