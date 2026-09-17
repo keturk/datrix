@@ -100,11 +100,17 @@ registers is a failure naming the member, never a skip.
 Scope (migration-only)
 ----------------------
 ``--scope <id>[,<id>...]`` -- universe ids plus the literal ``undomained`` --
-overrides ``datrix/scripts/config/decision-parity-scope.json``, which is read
-only when ``--scope`` is absent. File present: its ``domains`` list is the
-scope (an empty list means no role fails). File absent: every domain is in
-scope -- the hard-zero end state once the migration is over. An unknown id
-in either place is a usage error naming the valid options.
+overrides ``datrix/scripts/config/decision-parity-scope.json``'s ``domains``
+list, read only when ``--scope`` is absent. ``--buckets <id>[,<id>...]`` --
+verdict names (``identical``, ``same-decisions``, ``decision-divergence``)
+-- overrides the file's ``buckets`` list the same way, gating every role of
+that verdict across EVERY domain regardless of ``domains``/``--scope``. A
+role is in scope when either half admits it. File present: its ``domains``
+list is the domain scope (empty means no role fails by domain) and its
+``buckets`` list (absent key means none) is the bucket scope. File absent:
+every domain is in scope and no bucket is -- the hard-zero end state once
+the migration is over. An unknown id in either place is a usage error naming
+the valid options.
 
 Fail-closed rule: an unparseable file, an unparseable string annotation, a
 member the skeleton extractor cannot classify, an ``@emit_adapter`` member
@@ -117,7 +123,7 @@ role; 2 usage error, discovery/parse failure, or self-test failure.
 
 Usage:
     python decision_parity.py --self-test
-    python decision_parity.py --axis languages [--scope queue,cache] [--reference python] [--debug]
+    python decision_parity.py --axis languages [--scope queue,cache] [--buckets identical] [--reference python] [--debug]
     python decision_parity.py --axis languages --report-only [--debug]
     python decision_parity.py --axis platforms [--debug]
 """
@@ -238,6 +244,13 @@ UNDOMAINED: Final[str] = "undomained"
 _DEFAULT_REFERENCE_LANGUAGE: Final[str] = "python"
 _SCOPE_SEPARATOR: Final[str] = ","
 _SCOPE_FILE_DOMAINS_KEY: Final[str] = "domains"
+_SCOPE_FILE_BUCKETS_KEY: Final[str] = "buckets"
+#: The only valid --buckets / scope-file "buckets" entries: the three verdict
+#: names a role can classify as. Gating a bucket fails every role of that
+#: verdict across EVERY domain, independent of the domains list.
+_VALID_BUCKET_IDS: Final[frozenset[str]] = frozenset(
+    {_VERDICT_IDENTICAL, _VERDICT_SAME_DECISIONS, _VERDICT_DIVERGENCE}
+)
 #: The migration-only scope list; read only when ``--scope`` is absent, and
 #: only while it exists (its absence means every domain is in scope).
 DECISION_PARITY_SCOPE_PATH: Final[Path] = DATRIX_DIR / "scripts" / "config" / "decision-parity-scope.json"
@@ -1508,6 +1521,28 @@ def live_exemption_surfaces(
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class GateScope:
+    """The gate's full in-scope surface. A role is in scope when EITHER half
+    admits it: its resolved domain is in ``domains`` (or ``domains`` is
+    ``None``, meaning every domain), OR its verdict is in ``buckets``. The
+    two halves grow independently and neither is ever read as narrowing the
+    other -- Section 6 step 2 needs to gate the whole ``identical`` bucket
+    while ``domains`` still lists no domain at all.
+
+    Attributes:
+        domains: The in-scope shared domain ids, or ``None`` for every
+            domain (the hard-zero end state once the migration scope file
+            is deleted).
+        buckets: The verdict names (drawn from ``_VALID_BUCKET_IDS``) gated
+            across every domain regardless of ``domains``. Empty means no
+            bucket-wide gating.
+    """
+
+    domains: frozenset[str] | None
+    buckets: frozenset[str]
+
+
 def parse_scope_argument(value: str | None) -> tuple[str, ...] | None:
     """``--scope``'s raw value -> the ids it names (``None`` when absent).
 
@@ -1526,6 +1561,24 @@ def parse_scope_argument(value: str | None) -> tuple[str, ...] | None:
     return ids
 
 
+def parse_buckets_argument(value: str | None) -> tuple[str, ...] | None:
+    """``--buckets``'s raw value -> the verdict-bucket ids it names (``None`` when absent).
+
+    Raises:
+        ValueError: ``--buckets`` was given but names no id.
+    """
+    if value is None:
+        return None
+    ids = tuple(part.strip() for part in value.split(_SCOPE_SEPARATOR) if part.strip())
+    if not ids:
+        raise ValueError(
+            f"decision_parity: --buckets was given but names no verdict-bucket id; expected a "
+            f"{_SCOPE_SEPARATOR!r}-separated list drawn from {sorted(_VALID_BUCKET_IDS)}. Fix: pass at least one "
+            f"id, or omit --buckets to use the scope file."
+        )
+    return ids
+
+
 def _validate_scope_ids(ids: Iterable[str], universe: frozenset[str], origin: str) -> frozenset[str]:
     valid = universe | {UNDOMAINED}
     unknown = sorted(set(ids) - valid)
@@ -1537,22 +1590,51 @@ def _validate_scope_ids(ids: Iterable[str], universe: frozenset[str], origin: st
     return frozenset(ids)
 
 
-def _read_scope_file(scope_path: Path) -> list[str]:
-    """The ``domains`` list of the scope file, shape-validated.
+def _validate_bucket_ids(ids: Iterable[str], origin: str) -> frozenset[str]:
+    unknown = sorted(set(ids) - _VALID_BUCKET_IDS)
+    if unknown:
+        raise ValueError(
+            f"decision_parity: unknown bucket id(s) {unknown} in {origin}; valid options are "
+            f"{sorted(_VALID_BUCKET_IDS)}. Fix: pass one or more of {sorted(_VALID_BUCKET_IDS)}."
+        )
+    return frozenset(ids)
+
+
+def _parse_scope_file(scope_path: Path) -> dict[str, object]:
+    """Parse the scope file JSON, refusing anything that is not a JSON object.
 
     Raises:
-        ValueError: The file is not JSON, not an object, lacks the
-            ``domains`` key, or lists a non-string.
+        ValueError: The file is not valid JSON, or is valid JSON that is not
+            an object.
     """
-    expected = f"a JSON object with a {_SCOPE_FILE_DOMAINS_KEY!r} array of domain-id strings"
+    expected = (
+        f"a JSON object with a {_SCOPE_FILE_DOMAINS_KEY!r} array of domain-id strings and an optional "
+        f"{_SCOPE_FILE_BUCKETS_KEY!r} array of verdict-bucket-id strings"
+    )
     try:
         data = json.loads(scope_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(
             f"decision_parity: scope file {scope_path} is not valid JSON ({exc}); expected {expected}."
         ) from exc
-    if not isinstance(data, dict) or _SCOPE_FILE_DOMAINS_KEY not in data:
+    if not isinstance(data, dict):
         raise ValueError(f"decision_parity: malformed scope file {scope_path}: expected {expected}.")
+    return data
+
+
+def _read_scope_file(scope_path: Path) -> list[str]:
+    """The ``domains`` list of the scope file, shape-validated.
+
+    Raises:
+        ValueError: The file is malformed (see ``_parse_scope_file``), lacks
+            the ``domains`` key, or lists a non-string.
+    """
+    data = _parse_scope_file(scope_path)
+    if _SCOPE_FILE_DOMAINS_KEY not in data:
+        raise ValueError(
+            f"decision_parity: malformed scope file {scope_path}: expected a {_SCOPE_FILE_DOMAINS_KEY!r} array of "
+            f"domain-id strings."
+        )
     domains = data[_SCOPE_FILE_DOMAINS_KEY]
     if not isinstance(domains, list) or not all(isinstance(domain, str) for domain in domains):
         raise ValueError(
@@ -1562,33 +1644,75 @@ def _read_scope_file(scope_path: Path) -> list[str]:
     return domains
 
 
-def load_scope(
-    explicit_scope: Sequence[str] | None, universe: frozenset[str], scope_path: Path
-) -> frozenset[str] | None:
-    """Resolve the set of domains whose roles may fail.
+def _read_scope_buckets(scope_path: Path) -> list[str]:
+    """The optional ``buckets`` list of the scope file; ``[]`` when the key
+    is absent (no bucket-wide gating) -- unlike ``domains`` this key is not
+    mandatory, so an existing scope file with no ``buckets`` key keeps
+    today's behaviour unchanged.
 
-    ``--scope`` given -> its ids (the file is not read). ``--scope`` absent
-    and *scope_path* present -> the file's ``domains`` list (empty means no
-    role fails). Both absent -> ``None``, meaning EVERY domain is in scope:
-    the hard-zero end state once the migration scope file is deleted.
+    Raises:
+        ValueError: The file is malformed (see ``_parse_scope_file``), or
+            ``buckets`` is present but not an array of strings.
+    """
+    buckets = _parse_scope_file(scope_path).get(_SCOPE_FILE_BUCKETS_KEY, [])
+    if not isinstance(buckets, list) or not all(isinstance(bucket, str) for bucket in buckets):
+        raise ValueError(
+            f"decision_parity: malformed scope file {scope_path}: {_SCOPE_FILE_BUCKETS_KEY!r} must be an array of "
+            f"verdict-bucket-id strings, got {buckets!r}; valid options are {sorted(_VALID_BUCKET_IDS)}. "
+            f"Fix: set {_SCOPE_FILE_BUCKETS_KEY!r} to an array of zero or more of {sorted(_VALID_BUCKET_IDS)}."
+        )
+    return buckets
+
+
+def load_scope(
+    explicit_scope: Sequence[str] | None,
+    explicit_buckets: Sequence[str] | None,
+    universe: frozenset[str],
+    scope_path: Path,
+) -> GateScope:
+    """Resolve the gate's full scope: which domains and which verdict
+    buckets may fail.
+
+    Domains: ``--scope`` given -> its ids (the file is not read for
+    domains). ``--scope`` absent and *scope_path* present -> the file's
+    ``domains`` list (empty means no role fails by domain). Both absent ->
+    ``None``, meaning EVERY domain is in scope: the hard-zero end state once
+    the migration scope file is deleted.
+
+    Buckets: ``--buckets`` given -> its ids (the file is not read for
+    buckets). ``--buckets`` absent -> the file's ``buckets`` list if
+    *scope_path* exists (empty or missing key means no bucket-wide gate),
+    else empty. A role is in scope when EITHER half admits it.
 
     Args:
         explicit_scope: ``parse_scope_argument``'s result.
+        explicit_buckets: ``parse_buckets_argument``'s result.
         universe: ``SHARED_CONTEXT_TYPES``' keys (or a synthetic universe).
-        scope_path: The scope file to read when *explicit_scope* is ``None``.
+        scope_path: The scope file read for whichever half has no explicit
+            override.
 
     Returns:
-        The in-scope ids, or ``None`` for "every domain".
+        The resolved ``GateScope``.
 
     Raises:
-        ValueError: An unknown id (naming the valid options) or a malformed
-            scope file.
+        ValueError: An unknown domain id, an unknown bucket id (naming the
+            valid options), or a malformed scope file.
     """
     if explicit_scope is not None:
-        return _validate_scope_ids(explicit_scope, universe, "--scope")
-    if not scope_path.exists():
-        return None
-    return _validate_scope_ids(_read_scope_file(scope_path), universe, str(scope_path))
+        domains = _validate_scope_ids(explicit_scope, universe, "--scope")
+    elif not scope_path.exists():
+        domains = None
+    else:
+        domains = _validate_scope_ids(_read_scope_file(scope_path), universe, str(scope_path))
+
+    if explicit_buckets is not None:
+        buckets = _validate_bucket_ids(explicit_buckets, "--buckets")
+    elif not scope_path.exists():
+        buckets = frozenset()
+    else:
+        buckets = _validate_bucket_ids(_read_scope_buckets(scope_path), str(scope_path))
+
+    return GateScope(domains=domains, buckets=buckets)
 
 
 def reference_label_for(reference: str, labels: Iterable[str]) -> str:
@@ -1696,7 +1820,7 @@ def _divergence_reasons(
 
 
 def evaluate_role(
-    verdict: RoleVerdict, *, reference: str, scope: frozenset[str] | None, surfaces: ExemptionSurfaces
+    verdict: RoleVerdict, *, reference: str, scope: GateScope, surfaces: ExemptionSurfaces
 ) -> RoleEvaluation:
     """Resolve *verdict*'s domain, decide whether it is in *scope*, and
     compute its failure reasons -- for EVERY role, in scope or not, so an
@@ -1705,7 +1829,7 @@ def evaluate_role(
     Args:
         verdict: A classified role.
         reference: The reference language's package label.
-        scope: The in-scope ids, or ``None`` for every domain.
+        scope: The resolved domains/buckets scope.
         surfaces: The declared exemption surfaces.
 
     Returns:
@@ -1723,13 +1847,13 @@ def evaluate_role(
     return RoleEvaluation(
         verdict=dataclasses.replace(verdict, domain=domain),
         domain=domain,
-        in_scope=scope is None or domain in scope,
+        in_scope=scope.domains is None or domain in scope.domains or verdict.verdict in scope.buckets,
         failure_reasons=reasons,
     )
 
 
 def evaluate_roles(
-    verdicts: Sequence[RoleVerdict], *, reference: str, scope: frozenset[str] | None, surfaces: ExemptionSurfaces
+    verdicts: Sequence[RoleVerdict], *, reference: str, scope: GateScope, surfaces: ExemptionSurfaces
 ) -> list[RoleEvaluation]:
     """``evaluate_role`` over every verdict, order preserved."""
     return [evaluate_role(verdict, reference=reference, scope=scope, surfaces=surfaces) for verdict in verdicts]
@@ -1770,12 +1894,14 @@ def _log_evaluation(evaluation: RoleEvaluation, workspace_root: Path, *, debug: 
         logger.debug(line)
 
 
-def _scope_text(scope: frozenset[str] | None) -> str:
-    return "every domain (no scope file: hard zero)" if scope is None else f"{sorted(scope)}"
+def _scope_text(scope: GateScope) -> str:
+    domains_text = "every domain (no scope file: hard zero)" if scope.domains is None else f"{sorted(scope.domains)}"
+    buckets_text = f"{sorted(scope.buckets)}" if scope.buckets else "none"
+    return f"domains={domains_text} buckets={buckets_text}"
 
 
 def render_gate_report(
-    evaluations: Sequence[RoleEvaluation], workspace_root: Path, *, scope: frozenset[str] | None, debug: bool
+    evaluations: Sequence[RoleEvaluation], workspace_root: Path, *, scope: GateScope, debug: bool
 ) -> None:
     """Log one line per role (in-scope failures at ERROR, out-of-scope
     failures at INFO, passes at DEBUG unless *debug*), the per-bucket
@@ -1827,6 +1953,7 @@ _SELF_TEST_REASON: Final[str] = "self-test synthetic reason -- never a real capa
 _SELF_TEST_BUILTIN_KEY: Final[BuiltinKey] = ("SelfTestOrder", "ship")
 _SELF_TEST_EMIT_FUNCTION: Final[str] = "self_test_ship"
 _SELF_TEST_UNKNOWN_SCOPE_ID: Final[str] = "bogus"
+_SELF_TEST_UNKNOWN_BUCKET_ID: Final[str] = "not-a-verdict"
 #: The synthetic importable package ``collect_emit_tables`` is exercised on.
 _SELF_TEST_PACKAGE: Final[str] = "decision_parity_self_test_pkg"
 
@@ -1968,7 +2095,7 @@ class _RecordingHandler(logging.Handler):
         self.messages.append(record.getMessage())
 
 
-def _recorded_gate_lines(evaluations: Sequence[RoleEvaluation], scope: frozenset[str] | None) -> list[str]:
+def _recorded_gate_lines(evaluations: Sequence[RoleEvaluation], scope: GateScope) -> list[str]:
     """Render the gate report into a recording handler (nothing reaches the
     real handlers) and return every line."""
     handler = _RecordingHandler()
@@ -2381,15 +2508,22 @@ def _self_test_case_builtin_group_surface_fails_closed() -> bool:
 
 
 def _self_test_case_scope_rules() -> bool:
-    """(p) Scope: ``--scope`` overrides the file, the file's list applies when
-    ``--scope`` is absent, an absent file means every domain, and an unknown
-    id (either origin), an empty ``--scope`` or a malformed file are refused
+    """(p) Scope: ``--scope``/``--buckets`` override the file, each half's
+    file list applies when its flag is absent, an absent file means every
+    domain and no bucket, an old-style domains-only file still loads with
+    ``buckets=frozenset()``, and an unknown id (either origin, either half),
+    an empty ``--scope``/``--buckets`` or a malformed file are refused
     naming the problem."""
     domain, other = _two_universe_ids()
     universe = frozenset(SHARED_CONTEXT_TYPES)
     with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-p-") as tmp:
         present = Path(tmp) / "scope.json"
         present.write_text(json.dumps({_SCOPE_FILE_DOMAINS_KEY: [domain, UNDOMAINED]}), encoding="utf-8")
+        with_buckets = Path(tmp) / "with-buckets.json"
+        with_buckets.write_text(
+            json.dumps({_SCOPE_FILE_DOMAINS_KEY: [domain], _SCOPE_FILE_BUCKETS_KEY: [_VERDICT_IDENTICAL]}),
+            encoding="utf-8",
+        )
         absent = Path(tmp) / "missing.json"
         malformed = Path(tmp) / "malformed.json"
         malformed.write_text(json.dumps({"other_key": [domain]}), encoding="utf-8")
@@ -2397,24 +2531,75 @@ def _self_test_case_scope_rules() -> bool:
         unknown_in_file.write_text(
             json.dumps({_SCOPE_FILE_DOMAINS_KEY: [_SELF_TEST_UNKNOWN_SCOPE_ID]}), encoding="utf-8"
         )
+        unknown_bucket_in_file = Path(tmp) / "unknown-bucket.json"
+        unknown_bucket_in_file.write_text(
+            json.dumps({_SCOPE_FILE_DOMAINS_KEY: [], _SCOPE_FILE_BUCKETS_KEY: [_SELF_TEST_UNKNOWN_BUCKET_ID]}),
+            encoding="utf-8",
+        )
+        non_list_buckets_in_file = Path(tmp) / "non-list-buckets.json"
+        non_list_buckets_in_file.write_text(
+            json.dumps({_SCOPE_FILE_DOMAINS_KEY: [], _SCOPE_FILE_BUCKETS_KEY: _VERDICT_IDENTICAL}),
+            encoding="utf-8",
+        )
+        non_string_bucket_in_file = Path(tmp) / "non-string-bucket.json"
+        non_string_bucket_in_file.write_text(
+            json.dumps({_SCOPE_FILE_DOMAINS_KEY: [], _SCOPE_FILE_BUCKETS_KEY: [_VERDICT_IDENTICAL, 1]}),
+            encoding="utf-8",
+        )
         rules_hold = (
-            load_scope(None, universe, present) == frozenset({domain, UNDOMAINED})
-            and load_scope(None, universe, absent) is None
-            and load_scope((other,), universe, present) == frozenset({other})
+            load_scope(None, None, universe, present)
+            == GateScope(domains=frozenset({domain, UNDOMAINED}), buckets=frozenset())
+            and load_scope(None, None, universe, absent) == GateScope(domains=None, buckets=frozenset())
+            and load_scope((other,), None, universe, present)
+            == GateScope(domains=frozenset({other}), buckets=frozenset())
+            and load_scope(None, None, universe, with_buckets)
+            == GateScope(domains=frozenset({domain}), buckets=frozenset({_VERDICT_IDENTICAL}))
+            and load_scope(None, (_VERDICT_SAME_DECISIONS,), universe, with_buckets)
+            == GateScope(domains=frozenset({domain}), buckets=frozenset({_VERDICT_SAME_DECISIONS}))
             and parse_scope_argument(f"{domain} {_SCOPE_SEPARATOR} {other}") == (domain, other)
             and parse_scope_argument(None) is None
+            and parse_buckets_argument(f"{_VERDICT_IDENTICAL}{_SCOPE_SEPARATOR}{_VERDICT_SAME_DECISIONS}")
+            == (_VERDICT_IDENTICAL, _VERDICT_SAME_DECISIONS)
+            and parse_buckets_argument(None) is None
         )
         refusals_hold = (
             _refuses(
-                lambda: load_scope((_SELF_TEST_UNKNOWN_SCOPE_ID,), universe, absent),
+                lambda: load_scope((_SELF_TEST_UNKNOWN_SCOPE_ID,), None, universe, absent),
                 _SELF_TEST_UNKNOWN_SCOPE_ID,
                 UNDOMAINED,
             )
             and _refuses(
-                lambda: load_scope(None, universe, unknown_in_file), _SELF_TEST_UNKNOWN_SCOPE_ID, str(unknown_in_file)
+                lambda: load_scope(None, None, universe, unknown_in_file),
+                _SELF_TEST_UNKNOWN_SCOPE_ID,
+                str(unknown_in_file),
             )
-            and _refuses(lambda: load_scope(None, universe, malformed), str(malformed), _SCOPE_FILE_DOMAINS_KEY)
+            and _refuses(
+                lambda: load_scope(None, None, universe, malformed), str(malformed), _SCOPE_FILE_DOMAINS_KEY
+            )
             and _refuses(lambda: parse_scope_argument(_SCOPE_SEPARATOR), "--scope")
+            and _refuses(
+                lambda: load_scope(None, (_SELF_TEST_UNKNOWN_BUCKET_ID,), universe, absent),
+                _SELF_TEST_UNKNOWN_BUCKET_ID,
+                "--buckets",
+            )
+            and _refuses(
+                lambda: load_scope(None, None, universe, unknown_bucket_in_file),
+                _SELF_TEST_UNKNOWN_BUCKET_ID,
+                str(unknown_bucket_in_file),
+            )
+            and _refuses(
+                lambda: load_scope(None, None, universe, non_list_buckets_in_file),
+                str(non_list_buckets_in_file),
+                _SCOPE_FILE_BUCKETS_KEY,
+                *sorted(_VALID_BUCKET_IDS),
+            )
+            and _refuses(
+                lambda: load_scope(None, None, universe, non_string_bucket_in_file),
+                str(non_string_bucket_in_file),
+                _SCOPE_FILE_BUCKETS_KEY,
+                *sorted(_VALID_BUCKET_IDS),
+            )
+            and _refuses(lambda: parse_buckets_argument(_SCOPE_SEPARATOR), "--buckets")
         )
         return rules_hold and refusals_hold
 
@@ -2470,14 +2655,16 @@ def _self_test_case_gate_outcome() -> bool:
     if not _single_role_with_verdict(_name_roles(verdicts, "divergent_thing"), _VERDICT_DIVERGENCE):
         return False
     evaluate = functools.partial(evaluate_roles, verdicts, reference=_SELF_TEST_ALPHA)
-    undeclared = evaluate(scope=None, surfaces=ExemptionSurfaces.none())
+    no_scope = GateScope(domains=None, buckets=frozenset())
+    undeclared = evaluate(scope=no_scope, surfaces=ExemptionSurfaces.none())
     declared = evaluate(
-        scope=None, surfaces=_surfaces(stances={_SELF_TEST_GAMMA: {domain: _unsupported_declaration(domain)}})
+        scope=no_scope, surfaces=_surfaces(stances={_SELF_TEST_GAMMA: {domain: _unsupported_declaration(domain)}})
     )
-    out_of_scope = evaluate(scope=frozenset({other}), surfaces=ExemptionSurfaces.none())
-    in_scope = evaluate(scope=frozenset({domain}), surfaces=ExemptionSurfaces.none())
-    undeclared_lines = _recorded_gate_lines(undeclared, None)
-    out_of_scope_lines = _recorded_gate_lines(out_of_scope, frozenset({other}))
+    out_of_scope_gate = GateScope(domains=frozenset({other}), buckets=frozenset())
+    out_of_scope = evaluate(scope=out_of_scope_gate, surfaces=ExemptionSurfaces.none())
+    in_scope = evaluate(scope=GateScope(domains=frozenset({domain}), buckets=frozenset()), surfaces=ExemptionSurfaces.none())
+    undeclared_lines = _recorded_gate_lines(undeclared, no_scope)
+    out_of_scope_lines = _recorded_gate_lines(out_of_scope, out_of_scope_gate)
     return (
         gate_exit_code(undeclared) == EXIT_FAIL
         and undeclared[0].domain == domain
@@ -2515,13 +2702,46 @@ def _duplicate_buckets_gate_correctly() -> bool:
     evaluations = {
         role_label(evaluation.verdict.role_key): evaluation
         for evaluation in evaluate_roles(
-            verdicts, reference=_SELF_TEST_ALPHA, scope=None, surfaces=ExemptionSurfaces.none()
+            verdicts,
+            reference=_SELF_TEST_ALPHA,
+            scope=GateScope(domains=None, buckets=frozenset()),
+            surfaces=ExemptionSurfaces.none(),
         )
     }
     return (
         not evaluations["build_adapter_thing"].fails
         and evaluations["build_deciding_thing"].fails_in_scope
         and evaluations["build_deciding_thing"].domain == UNDOMAINED
+    )
+
+
+def _self_test_case_bucket_scope_gate() -> bool:
+    """(t) Bucket-wide scope: a planted 'identical'-verdict role, with an
+    EMPTY domains scope (so the domains half admits nothing), still FAILs
+    when its verdict bucket is scoped (``buckets={"identical"}``), and is
+    only REPORTED (fails, out of scope) when no bucket is scoped
+    (``buckets=frozenset()``) -- the bucket key gates a verdict across every
+    domain independently of the domains list."""
+    domain, _ = _two_universe_ids()
+    identical_body = "def shared_identical_thing(command):\n    return command.name\n"
+    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-t-") as tmp:
+        root = Path(tmp)
+        for label in (_SELF_TEST_ALPHA, _SELF_TEST_BETA):
+            _write_module(root / label / _MICRO_GENERATORS_DIR, identical_body, f"{domain}{_PY_SUFFIX}")
+        verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
+    if not _single_role_with_verdict(_name_roles(verdicts, "shared_identical_thing"), _VERDICT_IDENTICAL):
+        return False
+    evaluate = functools.partial(
+        evaluate_roles, verdicts, reference=_SELF_TEST_ALPHA, surfaces=ExemptionSurfaces.none()
+    )
+    bucket_gated = evaluate(scope=GateScope(domains=frozenset(), buckets=frozenset({_VERDICT_IDENTICAL})))
+    bucket_ungated = evaluate(scope=GateScope(domains=frozenset(), buckets=frozenset()))
+    return (
+        gate_exit_code(bucket_gated) == EXIT_FAIL
+        and bucket_gated[0].in_scope
+        and gate_exit_code(bucket_ungated) == EXIT_OK
+        and not bucket_ungated[0].in_scope
+        and bucket_ungated[0].fails
     )
 
 
@@ -2664,6 +2884,11 @@ def run_self_test() -> bool:
         "platform axis never gates",
     )
     ok &= _assert(
+        _self_test_case_bucket_scope_gate(),
+        "(t) buckets: a verdict-bucket gates every role of that verdict across every domain, independent of an "
+        "empty domains scope; ungated the same role is reported only",
+    )
+    ok &= _assert(
         _self_test_case_collect_emit_tables(),
         "(s) emit tables: a table in a nested module of a synthetic package is found once; an unimportable module "
         "refuses the collection naming it",
@@ -2694,6 +2919,15 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--buckets",
+        default=None,
+        help=(
+            f"{_SCOPE_SEPARATOR!r}-separated verdict-bucket ids, drawn from {sorted(_VALID_BUCKET_IDS)}, gated "
+            f"across EVERY domain regardless of --scope/{DECISION_PARITY_SCOPE_PATH.name}'s domains list; "
+            f"overrides the file's {_SCOPE_FILE_BUCKETS_KEY!r} list. Language axis only."
+        ),
+    )
+    parser.add_argument(
         "--reference",
         default=None,
         help=(
@@ -2709,9 +2943,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _refuse_gate_options_when_not_gating(args: argparse.Namespace) -> None:
-    """``--scope``/``--reference`` shape a gate; on a run that renders a report
-    only they would be silently ignored, so they are refused instead."""
-    given = [name for name, value in (("--scope", args.scope), ("--reference", args.reference)) if value is not None]
+    """``--scope``/``--buckets``/``--reference`` shape a gate; on a run that
+    renders a report only they would be silently ignored, so they are
+    refused instead."""
+    given = [
+        name
+        for name, value in (("--scope", args.scope), ("--buckets", args.buckets), ("--reference", args.reference))
+        if value is not None
+    ]
     if given:
         raise ValueError(
             f"decision_parity: {given} only apply to a gating run (--axis {AXIS_LANGUAGES} without --report-only); "
@@ -2739,7 +2978,12 @@ def _run_scan(args: argparse.Namespace) -> int:
         _refuse_gate_options_when_not_gating(args)
         render_report(discover_roles_for(axis, target_src_dirs, WORKSPACE_ROOT), WORKSPACE_ROOT, debug=args.debug)
         return EXIT_OK
-    scope = load_scope(parse_scope_argument(args.scope), frozenset(SHARED_CONTEXT_TYPES), DECISION_PARITY_SCOPE_PATH)
+    scope = load_scope(
+        parse_scope_argument(args.scope),
+        parse_buckets_argument(args.buckets),
+        frozenset(SHARED_CONTEXT_TYPES),
+        DECISION_PARITY_SCOPE_PATH,
+    )
     reference_name = args.reference if args.reference is not None else _DEFAULT_REFERENCE_LANGUAGE
     reference = reference_label_for(reference_name, target_src_dirs)
     logger.info("decision-parity gate: reference=%s scope=%s", reference, _scope_text(scope))

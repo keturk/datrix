@@ -75,7 +75,10 @@
  packages the G1 ratchet scans -- independent of whether either copy also
  duplicates a datrix_codegen_common.enums vocabulary. Compares current
  per-file counts against the frozen baseline at
- scripts/config/cross-package-vocabulary-baseline.toml.
+ scripts/config/cross-package-vocabulary-baseline.toml. A baseline entry
+ carrying a `reason` key is a duplicate a design requires (Decision 36 D9)
+ and must never be driven to zero; -UpdateBaseline reads every reason back
+ and re-emits it rather than discarding it with the rewritten file.
 
 .PARAMETER CheckOwnTargetNames
  Run the I4 own-target-name ratchet check (Decision D5, Invariant I4) in

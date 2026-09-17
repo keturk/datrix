@@ -10,16 +10,20 @@
 # and should be captured by re-running with --update-baseline once
 # a later change deletes or hoists a redundant container.
 #
-# A handful of entries below are KNOWN-LEGITIMATE duplicates --
-# each carries a written reason directly above its [[baseline]]
-# entry (design decision D9) and must never be driven to zero; see
-# each comment for why. Every other entry drives to 0 as later
-# consolidation work removes the redundant copy.
+# An entry carrying a `reason` is a KNOWN-LEGITIMATE duplicate that
+# a design requires (Decision 36 D9: per-platform capability
+# declarations and per-target realized-provider sets are declared
+# once per target because their governing decisions forbid a shared
+# table). Such an entry must never be driven to zero, and its reason
+# is part of the frozen record: --update-baseline reads every reason
+# back and re-emits it. Every entry WITHOUT a reason drives to 0 as
+# later consolidation work removes the redundant copy.
 #
 # Format:
 #   [[baseline]]
 #   file = "path/relative/to/monorepo-root, forward slashes"
 #   count = <int>
+#   reason = "why a design requires this duplicate (optional)"
 
 [[baseline]]
 file = "datrix-cli/src/datrix_cli/commands/seed.py"
@@ -76,6 +80,7 @@ count = 1
 [[baseline]]
 file = "datrix-codegen-aws/src/datrix_codegen_aws/plugin/capability.py"
 count = 1
+reason = "_AWS_IDENTITY_PROVIDER_REALIZATIONS: this platform's own identity-provider realization column. Open-world identity (Decision 22 I3) requires each platform to declare its (provider type, feature) support on its own PlatformCapabilityDeclaration and forbids a central table, so the key set legitimately coincides with every other platform's identity realization dict."
 
 [[baseline]]
 file = "datrix-codegen-azure/src/datrix_codegen_azure/environment_label.py"
@@ -132,6 +137,7 @@ count = 1
 [[baseline]]
 file = "datrix-codegen-azure/src/datrix_codegen_azure/plugin/_azure_vm_identity_realizations.py"
 count = 1
+reason = "_AZURE_VM_IDENTITY_PROVIDER_REALIZATIONS: this platform's own identity-provider realization column. Open-world identity (Decision 22 I3) requires each platform to declare its (provider type, feature) support on its own PlatformCapabilityDeclaration and forbids a central table, so the key set legitimately coincides with every other platform's identity realization dict."
 
 [[baseline]]
 file = "datrix-codegen-azure/src/datrix_codegen_azure/plugin/azure_vm_capability.py"
@@ -140,6 +146,7 @@ count = 2
 [[baseline]]
 file = "datrix-codegen-azure/src/datrix_codegen_azure/plugin/capability.py"
 count = 1
+reason = "_AZURE_IDENTITY_PROVIDER_REALIZATIONS: this platform's own identity-provider realization column. Open-world identity (Decision 22 I3) requires each platform to declare its (provider type, feature) support on its own PlatformCapabilityDeclaration and forbids a central table, so the key set legitimately coincides with every other platform's identity realization dict."
 
 [[baseline]]
 file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/cache.py"
@@ -271,11 +278,13 @@ count = 1
 
 [[baseline]]
 file = "datrix-codegen-docker/src/datrix_codegen_docker/plugin/capability.py"
-count = 2
+count = 3
+reason = "Floor is 1, not 3: _DOCKER_MODEL_REALIZATIONS is this platform's own model-provider realization column. AI agents (Decision 46 invariant 5) require each platform to declare per-provider realization on its own PlatformCapabilityDeclaration and forbid any provider name in a shared layer, so its key set legitimately coincides with the python target's per-provider client table (datrix-codegen-python micro_generators/agents.py). The other two hits (_DOCKER_UNREALIZABLE_SURFACES, _LOCAL_NOTIFICATION_TABLES) carry no such reason and still drive to 0."
 
 [[baseline]]
 file = "datrix-codegen-docker/src/datrix_codegen_docker/plugin/identity_realization.py"
 count = 1
+reason = "DOCKER_IDENTITY_PROVIDER_REALIZATIONS: this platform's own identity-provider realization column. Open-world identity (Decision 22 I3) requires each platform to declare its (provider type, feature) support on its own PlatformCapabilityDeclaration and forbids a central table, so the key set legitimately coincides with every other platform's identity realization dict."
 
 [[baseline]]
 file = "datrix-codegen-docker/src/datrix_codegen_docker/plugin/search_realization.py"
@@ -696,6 +705,11 @@ count = 1
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/testing/test_spec_generator.py"
 count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/micro_generators/agents.py"
+count = 1
+reason = "PROVIDER_CLIENT_REALIZATIONS: this language target's per-provider decide-client table (template, runtime, class per provider). It is a per-target realized-provider set (Decision 36 D9): AI agents (Decision 46 invariant 5) forbid any provider name in a shared layer, and which providers a platform realizes is that platform's own declaration (datrix-codegen-docker plugin/capability.py), so the two key sets coincide by design and can have no shared home."
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/orchestration/pubsub_consumer.py"

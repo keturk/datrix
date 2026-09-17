@@ -26,6 +26,13 @@
  datrix/scripts/config/decision-parity-scope.json when given; when absent,
  the scope file's list applies if it exists, else every domain is in scope.
 
+.PARAMETER Buckets
+ Comma-separated or repeated verdict-bucket ids (identical, same-decisions,
+ decision-divergence) to fail across every domain, regardless of -Scope.
+ Overrides datrix/scripts/config/decision-parity-scope.json's "buckets" list
+ when given; when absent, the scope file's "buckets" list applies if it
+ exists, else no bucket is gated.
+
 .PARAMETER Dbg
  Enable debug logging.
 
@@ -39,6 +46,9 @@
  .\decision-parity-gate.ps1 -Axis languages -Scope queue,cache
 
 .EXAMPLE
+ .\decision-parity-gate.ps1 -Axis languages -Buckets identical
+
+.EXAMPLE
  .\decision-parity-gate.ps1 -Axis platforms -Dbg
 #>
 
@@ -50,6 +60,9 @@ param(
 
     [Parameter()]
     [string[]]$Scope,
+
+    [Parameter()]
+    [string[]]$Buckets,
 
     [Parameter()]
     [switch]$Dbg,
@@ -89,6 +102,7 @@ try {
 
     $pythonArgs = @($runnerScript, "--axis", $Axis)
     if ($Scope) { $pythonArgs += "--scope"; $pythonArgs += ($Scope -join ",") }
+    if ($Buckets) { $pythonArgs += "--buckets"; $pythonArgs += ($Buckets -join ",") }
     if ($Dbg) { $pythonArgs += "--debug" }
     if ($SelfTest) { $pythonArgs += "--self-test" }
 

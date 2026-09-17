@@ -7,7 +7,11 @@
     "no shared domain. A domain is added here once every role in it has been brought to language-axis",
     "decision parity, and the list only grows -- an entry is never removed. When every domain is in",
     "scope this file is DELETED and the gate runs unscoped: every domain in scope, hard zero.",
-    "-Scope on the wrapper (--scope on the module) overrides this list for one run."
+    "-Scope on the wrapper (--scope on the module) overrides this list for one run.",
+    "'buckets' independently gates every role of a named verdict (identical, same-decisions,",
+    "decision-divergence) across EVERY domain regardless of 'domains'; it also only grows, and",
+    "-Buckets/--buckets overrides it for one run the same way -Scope/--scope overrides 'domains'."
   ],
-  "domains": []
+  "domains": [],
+  "buckets": ["identical"]
 }

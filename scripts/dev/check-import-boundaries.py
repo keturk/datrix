@@ -126,7 +126,10 @@ the way G1 does -- G3 must never consult that module). Fails if
 any file's count increases past its frozen baseline
 (scripts/config/cross-package-vocabulary-baseline.toml).
 --update-baseline (combined with --check-cross-package-vocabulary)
-recomputes and overwrites that baseline.
+recomputes and overwrites that baseline. An entry carrying a `reason`
+key is a duplicate a design requires (Decision 36 D9) and the reason is
+part of the frozen record: the regeneration reads every reason back and
+re-emits it, and names any reasoned entry that no longer has a hit.
 
 Self-test (--self-test): proves the rule model (the manifest-discovered
 generator taxonomy, build_boundary_rules over it, the allowed-
@@ -159,6 +162,7 @@ Exit codes:
 import argparse
 import ast
 import enum
+import json
 import re
 import shutil
 import subprocess
@@ -3594,59 +3598,79 @@ def scan_cross_package_vocabulary(
     return results
 
 
-def load_cross_package_vocabulary_baseline(baseline_path: Path) -> dict[str, int]:
-    """Load ``{relative_file: frozen_count}`` from the cross-package-
-    vocabulary baseline TOML.
+@dataclass(frozen=True)
+class CrossPackageVocabularyBaseline:
+    """The frozen G3 baseline: one count per file, plus the written reason
+    for every entry a design REQUIRES to stay duplicated (Decision 36 D9).
+
+    ``reasons`` is keyed by the same relative file path as ``counts`` and
+    holds only the entries that carry a ``reason`` key. A reason is part
+    of the frozen record, not a comment beside it: ``--update-baseline``
+    reads it back through this type and re-emits it, so a regenerated
+    baseline can never silently turn a reviewed duplicate into an
+    unexplained count.
+    """
+
+    counts: dict[str, int]
+    reasons: dict[str, str]
+
+
+def load_cross_package_vocabulary_baseline(
+    baseline_path: Path,
+) -> CrossPackageVocabularyBaseline:
+    """Load the cross-package-vocabulary baseline TOML: ``{relative_file:
+    frozen_count}`` plus ``{relative_file: reason}`` for every entry that
+    carries a written D9 reason.
 
     Args:
         baseline_path: Path to the cross-package-vocabulary baseline TOML file.
 
     Returns:
-        An empty dict if the file does not exist yet.
+        Empty counts and reasons if the file does not exist yet.
     """
     if not baseline_path.exists():
-        return {}
-
-    try:
-        import tomllib  # Python 3.11+
-    except ImportError:
-        try:
-            import tomli as tomllib  # type: ignore[no-redef, import-not-found]
-        except ImportError:
-            print(
-                "Warning: TOML library not available. Install tomli for baseline support.",
-                file=sys.stderr,
-            )
-            return {}
+        return CrossPackageVocabularyBaseline(counts={}, reasons={})
 
     with baseline_path.open("rb") as f:
         data = tomllib.load(f)
 
     counts: dict[str, int] = {}
+    reasons: dict[str, str] = {}
     for entry in data.get("baseline", []):
         if not isinstance(entry, dict):
             continue
         file_rel = entry.get("file", "")
         count = entry.get("count")
-        if file_rel and isinstance(count, int):
-            counts[file_rel] = count
+        if not (file_rel and isinstance(count, int)):
+            continue
+        counts[file_rel] = count
+        reason = entry.get("reason")
+        if isinstance(reason, str) and reason.strip():
+            reasons[file_rel] = reason
 
-    return counts
+    return CrossPackageVocabularyBaseline(counts=counts, reasons=reasons)
 
 
 def write_cross_package_vocabulary_baseline(
-    baseline_path: Path, counts: dict[str, int]
+    baseline_path: Path, counts: dict[str, int], reasons: dict[str, str]
 ) -> None:
     """Write ``counts`` to the cross-package-vocabulary baseline TOML as
-    ``[[baseline]] file=... count=...`` entries, sorted by file for
-    deterministic diffs. Per-entry human-written D9 "keep forever" reasons
-    are hand-added as comments directly above their ``[[baseline]]`` block
-    after this function runs -- this function only (re)writes the header
-    and the mechanical file/count entries, never a reason.
+    ``[[baseline]] file=... count=... [reason=...]`` entries, sorted by file
+    for deterministic diffs.
+
+    A ``reason`` is the written D9 record that a file's duplicate is one a
+    design requires (a per-platform capability declaration, a per-target
+    realized-provider set) and must never be driven to zero. It is emitted
+    for every file in ``reasons`` that still has a count, encoded as a TOML
+    basic string, so a hand-written reason survives every
+    ``--update-baseline`` regeneration. A reasoned file that no longer has
+    any hit is dropped from the file -- its declaration is gone, so there
+    is nothing left to explain -- and the caller reports it.
 
     Args:
         baseline_path: Path to the cross-package-vocabulary baseline TOML file to write.
         counts: Mapping of relative file path (forward slashes) -> hit count.
+        reasons: Mapping of relative file path -> written D9 reason.
     """
     header = (
         "# G3 Cross-Package Vocabulary Ratchet Baseline (Decision D2.1-D2.4, Property 2)\n"
@@ -3661,16 +3685,20 @@ def write_cross_package_vocabulary_baseline(
         "# and should be captured by re-running with --update-baseline once\n"
         "# a later change deletes or hoists a redundant container.\n"
         "#\n"
-        "# A handful of entries below are KNOWN-LEGITIMATE duplicates --\n"
-        "# each carries a written reason directly above its [[baseline]]\n"
-        "# entry (design decision D9) and must never be driven to zero; see\n"
-        "# each comment for why. Every other entry drives to 0 as later\n"
-        "# consolidation work removes the redundant copy.\n"
+        "# An entry carrying a `reason` is a KNOWN-LEGITIMATE duplicate that\n"
+        "# a design requires (Decision 36 D9: per-platform capability\n"
+        "# declarations and per-target realized-provider sets are declared\n"
+        "# once per target because their governing decisions forbid a shared\n"
+        "# table). Such an entry must never be driven to zero, and its reason\n"
+        "# is part of the frozen record: --update-baseline reads every reason\n"
+        "# back and re-emits it. Every entry WITHOUT a reason drives to 0 as\n"
+        "# later consolidation work removes the redundant copy.\n"
         "#\n"
         "# Format:\n"
         "#   [[baseline]]\n"
         '#   file = "path/relative/to/monorepo-root, forward slashes"\n'
         "#   count = <int>\n"
+        '#   reason = "why a design requires this duplicate (optional)"\n'
     )
 
     lines = [header]
@@ -3678,6 +3706,10 @@ def write_cross_package_vocabulary_baseline(
         lines.append("\n[[baseline]]\n")
         lines.append(f'file = "{file_rel}"\n')
         lines.append(f"count = {counts[file_rel]}\n")
+        if file_rel in reasons:
+            # json.dumps yields a TOML basic string: the escapes it emits
+            # (\" \\ \n \r \t \b \f \uXXXX) are all TOML basic-string escapes.
+            lines.append(f"reason = {json.dumps(reasons[file_rel])}\n")
 
     baseline_path.parent.mkdir(parents=True, exist_ok=True)
     baseline_path.write_text("".join(lines), encoding="utf-8")
@@ -5851,7 +5883,7 @@ def _self_test_cross_package_vocabulary_build_fixture_monorepo(
 
 
 def _self_test_cross_package_vocabulary_run_cli(
-    tmp_root: Path,
+    tmp_root: Path, *extra_args: str
 ) -> "subprocess.CompletedProcess[str]":
     return subprocess.run(
         [
@@ -5861,6 +5893,7 @@ def _self_test_cross_package_vocabulary_run_cli(
             str(tmp_root),
             "--check-cross-package-vocabulary",
             "--skip-auto-self-test",
+            *extra_args,
         ],
         check=False,
         capture_output=True,
@@ -5881,7 +5914,9 @@ def _self_test_cross_package_vocabulary_cli_non_vacuity() -> bool:
     _step(
         "Self-test 17/18: cross-package-vocabulary ratchet CLI mutation "
         "non-vacuity (two non-overlapping fixture packages exit 0; "
-        "redeclaring alpha's set in beta exits 1; reverting clears it)"
+        "redeclaring alpha's set in beta exits 1; reverting clears it; a "
+        "written D9 reason survives --update-baseline and a vanished "
+        "reasoned entry is dropped and named)"
     )
     ok = True
     tmp_root = _SELF_TEST_SCRATCH_ROOT / f"cross-pkg-vocab-cli-{uuid.uuid4().hex}"
@@ -5922,6 +5957,63 @@ def _self_test_cross_package_vocabulary_cli_non_vacuity() -> bool:
         ok &= _check(
             f"reverting clears the failure, got exit {reverted_result.returncode}",
             reverted_result.returncode == 0,
+        )
+
+        # D9 reasons are part of the frozen record: a hand-written reason on
+        # alpha's entry survives --update-baseline verbatim (including a
+        # character TOML must escape), beta's reasonless entry gains none,
+        # and the loader reads the reason back.
+        baseline_path = tmp_root / "datrix" / "scripts" / "config" / (
+            "cross-package-vocabulary-baseline.toml"
+        )
+        alpha_rel = "datrix-codegen-alpha/src/datrix_codegen_alpha/sample_alpha.py"
+        beta_rel = "datrix-codegen-beta/src/datrix_codegen_beta/sample_beta.py"
+        planted_reason = 'per-target "realized" set -- a design forbids a shared table'
+        beta_module.write_text(
+            clean_beta_source + '\n_BETA_DUPLICATE = frozenset({"a", "b"})\n',
+            encoding="utf-8",
+        )
+        write_cross_package_vocabulary_baseline(
+            baseline_path, {alpha_rel: 0, beta_rel: 0}, {alpha_rel: planted_reason}
+        )
+        update_result = _self_test_cross_package_vocabulary_run_cli(
+            tmp_root, "--update-baseline"
+        )
+        ok &= _check(
+            f"--update-baseline exits 0, got {update_result.returncode}",
+            update_result.returncode == 0,
+        )
+        regenerated = load_cross_package_vocabulary_baseline(baseline_path)
+        ok &= _check(
+            "regenerated baseline records both duplicated files at count 1",
+            regenerated.counts == {alpha_rel: 1, beta_rel: 1},
+        )
+        ok &= _check(
+            "alpha's planted D9 reason survives --update-baseline verbatim",
+            regenerated.reasons.get(alpha_rel) == planted_reason,
+        )
+        ok &= _check(
+            "beta's reasonless entry gains no reason",
+            beta_rel not in regenerated.reasons,
+        )
+        ok &= _check(
+            "update output reports the number of entries carrying a D9 reason",
+            "(1 carrying a D9 reason)" in update_result.stdout,
+        )
+
+        # A reasoned entry whose declaration vanished is dropped AND named.
+        beta_module.write_text(clean_beta_source, encoding="utf-8")
+        vanish_result = _self_test_cross_package_vocabulary_run_cli(
+            tmp_root, "--update-baseline"
+        )
+        after_vanish = load_cross_package_vocabulary_baseline(baseline_path)
+        ok &= _check(
+            "a reasoned entry with no remaining hit is dropped from the baseline",
+            after_vanish.counts == {} and after_vanish.reasons == {},
+        )
+        ok &= _check(
+            "the dropped reasoned entry is named on stderr",
+            f"G3 baseline entry {alpha_rel} carried a D9 reason" in vanish_result.stderr,
         )
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)
@@ -6565,13 +6657,29 @@ def main() -> int:
                 str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
                 for file_path, hits in cross_package_vocabulary_hits_by_file.items()
             }
+            # Reasons are part of the frozen record: carry every written D9
+            # reason across the regeneration, and name any reasoned entry
+            # whose declaration has since vanished so the reviewer sees it.
+            previous_reasons = load_cross_package_vocabulary_baseline(
+                cross_package_vocabulary_baseline_path
+            ).reasons
             write_cross_package_vocabulary_baseline(
-                cross_package_vocabulary_baseline_path, current_counts
+                cross_package_vocabulary_baseline_path, current_counts, previous_reasons
             )
+            for vanished in sorted(previous_reasons.keys() - current_counts.keys()):
+                print(
+                    f"Warning: G3 baseline entry {vanished} carried a D9 reason but "
+                    f"has no cross-package hit any more; its entry and reason were "
+                    f"dropped. Expected only when that declaration was deliberately "
+                    f"removed -- if it still exists, the scanner no longer sees it.",
+                    file=sys.stderr,
+                )
             print(
                 f"Updated G3 cross-package-vocabulary baseline: {len(current_counts)} "
                 f"file(s) recorded at "
-                f"{cross_package_vocabulary_baseline_path.relative_to(monorepo_root)}"
+                f"{cross_package_vocabulary_baseline_path.relative_to(monorepo_root)} "
+                f"({len(previous_reasons.keys() & current_counts.keys())} carrying a "
+                f"D9 reason)"
             )
             updated_any = True
 
@@ -6752,7 +6860,7 @@ def main() -> int:
             )
             return 2
 
-        baseline = load_cross_package_vocabulary_baseline(
+        cross_package_vocabulary_baseline = load_cross_package_vocabulary_baseline(
             cross_package_vocabulary_baseline_path
         )
         cross_package_vocabulary_hits_by_file = scan_cross_package_vocabulary(
@@ -6763,7 +6871,7 @@ def main() -> int:
             for file_path, hits in cross_package_vocabulary_hits_by_file.items()
         }
         cross_package_vocabulary_messages = check_cross_package_vocabulary_ratchet(
-            current_counts, baseline
+            current_counts, cross_package_vocabulary_baseline.counts
         )
 
     own_target_name_messages: list[str] = []

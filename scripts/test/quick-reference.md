@@ -853,6 +853,11 @@ only the domains it lists (plus the literal `undomained` if listed) can fail the
 other role is reported but never fails. `-Scope` overrides the file for one run. When the file
 is absent, every domain is in scope (hard zero). The file only grows, never shrinks, and is
 deleted once every domain is in scope.
+The same file's `buckets` list independently gates every role of a named verdict across every
+domain regardless of `domains`; it too only grows and accepts only the three verdict names.
+A role fails when EITHER half admits it — a scoped bucket is never narrowed by an empty or
+unrelated `domains` list, and vice versa. `-Buckets` overrides the file's `buckets` list for
+one run the same way `-Scope` overrides `domains`.
 
 **Non-vacuity is enforced on every run.** A synthetic five-bucket tree (one identical role, one
 same-decisions role, one divergent role, one role split only by a language token, one role
@@ -866,11 +871,12 @@ realize different infrastructure by design.
 |------|---------|-------------|
 | **Run the gate** | `.\test\decision-parity-gate.ps1` | Language axis, default (empty or file) scope |
 | **Scoped** | `.\test\decision-parity-gate.ps1 -Scope queue,cache` | Fail only roles in these domains |
+| **Bucket-gated** | `.\test\decision-parity-gate.ps1 -Buckets identical` | Fail every role in these verdict buckets (identical, same-decisions, decision-divergence) across every domain, regardless of -Scope |
 | **Platform axis** | `.\test\decision-parity-gate.ps1 -Axis platforms` | Report only, always exits 0 |
 | **Debug** | `.\test\decision-parity-gate.ps1 -Dbg` | Debug logging |
 | **Self-test only** | `.\test\decision-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test |
 
-**Parameters:** `-Axis <languages|platforms>` (default: languages), `-Scope <id,...>`, `-Dbg`, `-SelfTest`
+**Parameters:** `-Axis <languages|platforms>` (default: languages), `-Scope <id,...>`, `-Buckets <id,...>`, `-Dbg`, `-SelfTest`
 
 **Exit codes:** 0 = no failing role in scope (or a successful `-SelfTest`, or `-Axis platforms`),
 1 = ≥1 failing role in scope, 2 = usage/discovery/parse error or the self-test failed.
