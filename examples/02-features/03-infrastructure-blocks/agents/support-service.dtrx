@@ -9,7 +9,9 @@ service credentials.SupportService('config/support-service.dcfg') : version('1.0
 
     // The staff identity provider: every staff principal may resolve a ticket; only members
     // of the "support-admins" group carry the role that may approve or deny a refund
-    // (approvals.approverRole in config/support-service.dcfg).
+    // (approvals.approverRole in config/support-service.dcfg). The block is application-
+    // scoped and declared in certificate-service.dtrx; this is a restatement of that
+    // declaration, which a later file may repeat but never extend.
     identity {
         provider staff config('config/identity/staff.dcfg') {
             group "support-admins" as supportAdmin;

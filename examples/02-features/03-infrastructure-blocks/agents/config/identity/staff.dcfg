@@ -1,5 +1,6 @@
 // Platform-managed identity provider for 'staff': the workforce principals that
-// resolve support tickets. Its "support-admins" group maps (support-service.dtrx)
+// submit certificate scans (certificate-service.dtrx) and resolve support tickets
+// (support-service.dtrx). Its "support-admins" group maps, in the support service,
 // to the role that may approve or deny a refund, so it is the provider
 // approvals.providers names in config/support-service.dcfg.
 // mode = platformManaged: the generator resolves the target-native provider at

@@ -500,7 +500,9 @@ typed final answer, a limit, or an unrecoverable error. **The author declares; t
 the loop.** Provider, model id, sampling, timeout, key handle and budget live under the block alias
 in the service ConfigDSL, on the two axes every infrastructure block already uses — `provider`
 (the API family, an open identifier a platform declares) and `flavor` (`container` / `external` /
-`managed` / `direct`, where the model runs). **Approved — implementation in progress.**
+`managed` / `direct`, where the model runs). **Approved — Phase 1 and Phase 2 implemented; Phase 3
+(broader language realization, `eval`, `ollama` image attachments, fixture capture, cost budgets)
+not started.**
 
 | # | Invariant | Enforcement |
 |---|---|---|
@@ -515,9 +517,9 @@ in the service ConfigDSL, on the two axes every infrastructure block already use
 | 9 | Logs carry identity and counts, never content | Negative assertion per language over generated log statements |
 | 10 | Every language and platform declares its stance | `MODEL` builtin group + agents domain stance per language; block-kind census in the pre-generation realization stage rejects an `agents` block on an unsupported language before any file is written; a runtime-derived platform gate refuses to pass with fewer than two platforms |
 
-Python + docker (two providers: one hosted API, one self-hostable server API) is the first
-realization, and `approval` is rejected outright until its gate exists. The settled second
-phase adds a fail-closed `approval` marker: a marked tool suspends the run behind an injected
+Python + docker (two providers: one hosted API, one self-hostable server API) was the first
+realization; `approval` was rejected outright until its gate landed. The settled second
+phase has landed and adds a fail-closed `approval` marker: a marked tool suspends the run behind an injected
 request row (arguments, run correlation id, deciding subject, timestamps) and a separate,
 author-unreachable transcript row deleted on outcome delivery — the request row, not the
 notifying queue message, is the compare-and-set contract that keeps a duplicate delivery from
