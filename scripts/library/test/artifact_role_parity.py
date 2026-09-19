@@ -1,12 +1,25 @@
 """Cross-language artifact-role parity gate (D7): the G-A closure.
 
 Detects a language silently emitting nothing for a construct another
-language realizes, WITHOUT GENERATING ANYTHING -- it reads the blessed
-baseline manifests that reference-example-parity-gate.ps1 already writes
-under datrix/scripts/config/parity-baselines/<example_id>/<language>.sha256.
+language realizes, WITHOUT GENERATING ANYTHING -- it reads the generation
+pipeline's own file manifests (``.datrix/manifests/<target>.json``, one per
+generator target, each carrying the ``files`` it wrote and a ``generated_at``
+stamp) from the example trees ``generate.ps1`` writes under
+``<workspace>/.generated/<language>/<runtime>/<provider>/<example>/``.
 
-For every example with >= 2 blessed language baselines:
-  1. Load each blessed language's manifest (a path list, ignoring hashes).
+THERE IS NO STORED BASELINE. The repo commits no snapshot of generated output
+and nothing is ever "blessed": every run reads whatever the generator most
+recently produced, so a stale committed manifest cannot exist and no
+re-recording step exists to skip. The trade is that this gate is only as
+current as the local corpus -- it prints every tree's ``generated_at`` stamp
+and REFUSES to run (exit 2) when any registered language's corpus is
+incomplete (a registered example with no tree and no entry in
+parity-known-nongenerating.json), naming exactly which pairs to generate.
+Generate the full corpus first, once per registered language:
+``generate.ps1 -All -L <language>`` (Jon runs this; it is blocked for agents).
+
+For every (example, runtime, provider) generated in >= 2 languages:
+  1. Load each language's path list from that tree's pipeline manifests.
   2. Classify each path by domain ROLE using that language's OWN derived
      DomainDeclaration.structural_pattern set (derive_domain_declarations
      over the plugin's own registered specs -- the same fnmatch globs the
@@ -15,7 +28,7 @@ For every example with >= 2 blessed language baselines:
      naming differs by design across languages; the ROLE set is the
      contract, not the literal path shape).
   3. The set of roles with >= 1 matching path must be IDENTICAL across the
-     example's blessed languages, EXCLUDING three kinds of non-drift:
+     example's generated languages, EXCLUDING three kinds of non-drift:
        a. any domain the "missing" language declares globally `unsupported`
           in its own DomainDeclaration -- a declared absence explained once,
           at the language level, never a per-example fact, so the
@@ -29,7 +42,7 @@ For every example with >= 2 blessed language baselines:
           language-level shape as (a), declared once with its reason; and
        c. any domain the "missing" language declares `supported` whose
           structural_pattern nonetheless matches ZERO files across that
-          language's ENTIRE blessed footprint (every example, not just the
+          language's ENTIRE generated footprint (every example, not just the
           one being compared) -- an EMPIRICAL corpus-wide fact derived from
           the same manifests this gate already reads (never DSL source):
           the domain's triggering construct simply never occurs anywhere in
@@ -44,29 +57,29 @@ For every example with >= 2 blessed language baselines:
           which of those generators CANNOT be reached and which merely ARE
           NOT is the state this file's records end.
      A difference over a domain the language declares `supported` AND
-     realizes somewhere else in its own blessed footprint (this specific
-     example's blessed manifest just has no matching file, while another
-     blessed language's does) must carry an entry in
-     artifact-role-exemptions.json (coordinates + reason) --
-     `load_exemptions` itself refuses an entry naming a domain its language
-     declares `unsupported` or on-demand, since the gate never consults the
-     exemption file for those in the first place.
+     realizes somewhere else in its own generated footprint (this specific
+     example's tree just has no matching file, while another language's
+     does) must carry an entry in artifact-role-exemptions.json
+     (coordinates + reason) -- `load_exemptions` itself refuses an entry
+     naming a domain its language declares `unsupported` or on-demand, since
+     the gate never consults the exemption file for those in the first place.
 
-Relationship to the byte gate: replaces nothing. reference-example-parity-gate.ps1
-still pins CONTENT per (example, language) pair; this gate pins PRESENCE
-across languages. Its coverage grows automatically as later phases bless
-more of the (example, language) matrix -- no code change needed here when
-that happens.
+This gate pins PRESENCE across languages. Whether the CONTENT of a generated
+file is right is proven where it can be decided: each language package's own
+suite, and the generated project's own build and tests (``generate.ps1`` at
+STANDARD, ``run-complete.ps1``). No gate compares generated bytes against a
+stored snapshot -- see docs/architecture/generated-output-stability.md.
 
 Built-in non-vacuity self-test, every invocation: proves compare_role_sets
 detects a forced mismatch and does not false-positive a matching pair, and
 proves classify_paths correctly buckets a synthetic manifest against
 synthetic declarations (including the unclassified bucket). Refuses to pass
-vacuously: zero examples with >= 2 blessed languages is exit 2, never a
-silent 0-example pass.
+vacuously: zero (example, runtime, provider) groups generated in >= 2
+languages is exit 2, never a silent 0-example pass.
 
 Usage:
     python artifact_role_parity.py
+    python artifact_role_parity.py --generated-root D:/datrix/.generated
     python artifact_role_parity.py --debug
     python artifact_role_parity.py --self-test
     python artifact_role_parity.py --census
@@ -78,8 +91,10 @@ import argparse
 import fnmatch
 import json
 import logging
+import os
+import shutil
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final, cast
@@ -90,9 +105,8 @@ from datrix_codegen_common.parity.domain_declaration import (
     DomainDeclarations,
 )
 
-# Add scripts/library to sys.path to import shared.registered_targets --
-# mirrors reference_example_parity.py's own shim (this file lives at
-# library/test/, shared/ lives at the sibling library/shared/).
+# Add scripts/library to sys.path to import shared.registered_targets (this
+# file lives at library/test/, shared/ lives at the sibling library/shared/).
 _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
@@ -102,19 +116,37 @@ from shared.registered_targets import registered_language_names  # noqa: E402
 logger = logging.getLogger(__name__)
 
 # This file: datrix/scripts/library/test/artifact_role_parity.py
-# parents[3] -> datrix/ ; parents[4] -> the monorepo root. Mirrors
-# reference_example_parity.py's own identical-depth path math.
+# parents[3] -> datrix/ ; parents[4] -> the monorepo root.
 _HERE = Path(__file__).resolve()
 DATRIX_DIR: Path = _HERE.parents[3]
+WORKSPACE_ROOT: Path = _HERE.parents[4]
 
-BASELINES_ROOT: Path = DATRIX_DIR / "scripts" / "config" / "parity-baselines"
+EXAMPLES_ROOT: Path = DATRIX_DIR / "examples"
+#: Where ``generate.ps1`` writes example trees by default (its ``-OutputBase``):
+#: ``<workspace>/.generated/<language>/<runtime>/<provider>/<example relpath>``
+#: -- see ``shared/test_projects.py::build_output_path``. Overridable per run
+#: with ``--generated-root``.
+DEFAULT_GENERATED_ROOT: Path = WORKSPACE_ROOT / ".generated"
+#: Inside every generated project: one JSON manifest per generator target,
+#: written by the pipeline's ``write:{target}`` stage, listing exactly the
+#: files that target wrote (``files``) and when (``generated_at``).
+MANIFESTS_RELPATH: Path = Path(".datrix") / "manifests"
+#: Registered examples the real generator cannot build today, with a reason
+#: each -- the only sanctioned gap in a language's corpus (see
+#: :func:`load_known_non_generating`).
+KNOWN_NON_GENERATING_PATH: Path = (
+    DATRIX_DIR / "scripts" / "config" / "parity-known-nongenerating.json"
+)
 EXEMPTIONS_PATH: Path = DATRIX_DIR / "scripts" / "config" / "artifact-role-exemptions.json"
 CORPUS_VACUITY_RECORDS_PATH: Path = (
     DATRIX_DIR / "scripts" / "config" / "corpus-vacuity-records.json"
 )
 
 _MIN_LANGUAGES_FOR_COMPARISON: Final[int] = 2
-_MANIFEST_SEP = "  "  # matches reference_example_parity.py's _SEP
+#: Separator in a language-qualified parity-known-nongenerating.json key
+#: (``"<example_id>::<language>"``); a bare ``example_id`` key parks the
+#: example for every registered language.
+_LANGUAGE_KEY_SEP: Final[str] = "::"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -127,7 +159,7 @@ _SELF_TEST_DOMAIN_FORCED_GAP: Final[str] = "self_test_shipment"
 
 #: A corpus-vacuity record's `status`: NO reference example can produce a file
 #: matching this pattern, whatever it declares and whatever it targets, because
-#: something outside the example's control gates the emission (the blessing
+#: something outside the example's control gates the emission (the generation
 #: pipeline's own configuration, a realization the language deliberately routes
 #: to a different file family). Adding an example is never the remedy; the
 #: record's `reason` names what the remedy actually is.
@@ -184,76 +216,302 @@ class CorpusVacuityRecord:
 
 
 # ---------------------------------------------------------------------------
-# Baseline discovery + manifest reading
+# Generated-corpus discovery + pipeline-manifest reading
 # ---------------------------------------------------------------------------
 
 
-def blessed_language_baselines(example_id: str) -> dict[str, Path]:
-    """Return {language: baseline_path} for every REGISTERED language that has
-    a blessed .sha256 manifest for *example_id*.
+@dataclass(frozen=True)
+class GeneratedTree:
+    """One generated example project found under the generated root.
+
+    Attributes:
+        example: The example's posix path relative to ``EXAMPLES_ROOT``
+            (e.g. ``02-features/03-infrastructure-blocks/jobs``).
+        language: The registered ``datrix.languages`` target it was generated in.
+        runtime: The deployment runtime path segment (e.g. ``docker-compose``).
+        provider: The provider path segment (e.g. ``local``).
+        root: Absolute path of the generated project.
+        generated_at: The newest ``generated_at`` stamp across the tree's
+            pipeline manifests -- reported so a reader can see how current
+            the compared corpus is.
+        paths: Every relative path any generator target wrote, sorted.
+    """
+
+    example: str
+    language: str
+    runtime: str
+    provider: str
+    root: Path
+    generated_at: str
+    paths: tuple[str, ...]
+
+    @property
+    def group_key(self) -> tuple[str, str, str]:
+        """The cross-language comparison group this tree belongs to."""
+        return (self.example, self.runtime, self.provider)
+
+
+def example_id(example_relpath: str) -> str:
+    """The kebab id parity-known-nongenerating.json keys an example by.
 
     Args:
-        example_id: An example id as used by parity-baselines/ directory names
-            (kebab-joined path segments, e.g. "01-foundation").
+        example_relpath: Posix path relative to ``EXAMPLES_ROOT``.
 
     Returns:
-        Mapping of registered language name -> its baseline file, for
-        languages that actually have one blessed. Never raises for a missing
-        manifest -- an unblessed language for this example is simply absent.
+        The path's segments joined by ``-`` (e.g.
+        ``02-features-03-infrastructure-blocks-jobs``).
     """
-    example_dir = BASELINES_ROOT / example_id
-    if not example_dir.is_dir():
-        return {}
-    found: dict[str, Path] = {}
-    for language in sorted(registered_language_names()):
-        candidate = example_dir / f"{language}.sha256"
-        if candidate.is_file():
-            found[language] = candidate
+    return "-".join(PurePosixPath(example_relpath).parts)
+
+
+def registered_example_relpaths() -> list[str]:
+    """Every example under ``EXAMPLES_ROOT`` (a directory holding ``system.dtrx``).
+
+    Returns:
+        Sorted posix paths relative to ``EXAMPLES_ROOT``.
+
+    Raises:
+        ValueError: If no example exists -- an empty corpus would make every
+            completeness check pass vacuously.
+    """
+    relpaths = sorted(
+        p.parent.relative_to(EXAMPLES_ROOT).as_posix()
+        for p in EXAMPLES_ROOT.rglob("system.dtrx")
+    )
+    if not relpaths:
+        raise ValueError(
+            f"No system.dtrx found under {EXAMPLES_ROOT}; the artifact-role gate "
+            f"has no example corpus to check."
+        )
+    return relpaths
+
+
+def load_known_non_generating() -> dict[str, str]:
+    """Load and validate parity-known-nongenerating.json.
+
+    Each key is either a bare ``example_id`` (parks the example for every
+    registered language) or ``"example_id::language"`` (parks that one
+    language only). A parked pair is the only sanctioned reason for a
+    registered example to have no generated tree.
+
+    Returns:
+        Mapping of key -> reason string.
+
+    Raises:
+        ValueError: If the file is missing, malformed, has an empty reason,
+            names an unregistered language, or names an example that does
+            not exist under ``EXAMPLES_ROOT``.
+    """
+    if not KNOWN_NON_GENERATING_PATH.exists():
+        raise ValueError(
+            f"Missing {KNOWN_NON_GENERATING_PATH}. It records the registered "
+            f"examples the real generator cannot build today. Restore it from git; "
+            f"the gate never creates it."
+        )
+    data = json.loads(KNOWN_NON_GENERATING_PATH.read_text(encoding="utf-8"))
+    examples = data.get("examples")
+    if not isinstance(examples, dict):
+        raise ValueError(
+            f"Malformed {KNOWN_NON_GENERATING_PATH}: expected an object with "
+            f"'examples' (object of example_id[::language] -> reason)."
+        )
+    registered_languages = registered_language_names()
+    registered_ids = {example_id(rel) for rel in registered_example_relpaths()}
+    for key, reason in examples.items():
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(
+                f"Entry {key!r} in {KNOWN_NON_GENERATING_PATH.name} has an empty "
+                f"reason. Every entry must state the defect and a tracking identifier."
+            )
+        ex_id, _, language = key.partition(_LANGUAGE_KEY_SEP)
+        if ex_id not in registered_ids:
+            raise ValueError(
+                f"Entry {key!r} in {KNOWN_NON_GENERATING_PATH.name} names example id "
+                f"{ex_id!r}, which is not under {EXAMPLES_ROOT}. Delete the entry if "
+                f"the example was removed, or fix the id."
+            )
+        if language and language not in registered_languages:
+            raise ValueError(
+                f"Entry {key!r} in {KNOWN_NON_GENERATING_PATH.name} names language "
+                f"{language!r}, which is not in the registered datrix.languages set "
+                f"({', '.join(sorted(registered_languages))}). Fix the typo or the key."
+            )
+    return {str(k): str(v) for k, v in examples.items()}
+
+
+def known_non_generating_reason(
+    known: Mapping[str, str], example_relpath: str, language: str
+) -> str | None:
+    """The parked reason for this (example, language) pair, or ``None``.
+
+    A language-qualified entry takes precedence over a bare one for the same
+    example.
+    """
+    ex_id = example_id(example_relpath)
+    qualified = known.get(f"{ex_id}{_LANGUAGE_KEY_SEP}{language}")
+    if qualified is not None:
+        return qualified
+    return known.get(ex_id)
+
+
+def read_pipeline_manifests(manifests_dir: Path) -> tuple[tuple[str, ...], str]:
+    """Read every generator target's manifest under one generated project.
+
+    Args:
+        manifests_dir: The project's ``.datrix/manifests`` directory.
+
+    Returns:
+        ``(paths, generated_at)``: the sorted union of every target's ``files``
+        list, and the newest ``generated_at`` stamp among the manifests.
+
+    Raises:
+        ValueError: If the directory holds no manifest, or a manifest lacks a
+            ``files`` list or a ``generated_at`` string.
+    """
+    manifest_files = sorted(manifests_dir.glob("*.json"))
+    if not manifest_files:
+        raise ValueError(
+            f"No pipeline manifest under {manifests_dir}; the tree was not written "
+            f"by the generation pipeline. Regenerate it with generate.ps1."
+        )
+    paths: set[str] = set()
+    stamps: list[str] = []
+    for manifest_file in manifest_files:
+        data = json.loads(manifest_file.read_text(encoding="utf-8"))
+        files = data.get("files")
+        stamp = data.get("generated_at")
+        if not isinstance(files, list) or not all(isinstance(f, str) for f in files):
+            raise ValueError(
+                f"Malformed pipeline manifest {manifest_file}: expected a 'files' "
+                f"list of relative path strings."
+            )
+        if not isinstance(stamp, str) or not stamp:
+            raise ValueError(
+                f"Malformed pipeline manifest {manifest_file}: expected a non-empty "
+                f"'generated_at' string."
+            )
+        paths.update(files)
+        stamps.append(stamp)
+    return tuple(sorted(paths)), max(stamps)
+
+
+def discover_generated_trees(
+    generated_root: Path, languages: Iterable[str]
+) -> list[GeneratedTree]:
+    """Find every generated example project under *generated_root*.
+
+    The layout is ``<language>/<runtime>/<provider>/<example relpath>``; a
+    directory is a generated tree iff it carries pipeline manifests. Anything
+    else at those depths (a formatter cache, a stray directory) is ignored.
+
+    Args:
+        generated_root: The ``generate.ps1`` output base.
+        languages: The registered language names to look for.
+
+    Returns:
+        Every tree found, sorted by (language, example, runtime, provider).
+    """
+    trees: list[GeneratedTree] = []
+    examples = registered_example_relpaths()
+    for language in sorted(languages):
+        language_root = generated_root / language
+        if not language_root.is_dir():
+            continue
+        for runtime_dir in sorted(p for p in language_root.iterdir() if p.is_dir()):
+            for provider_dir in sorted(p for p in runtime_dir.iterdir() if p.is_dir()):
+                trees.extend(
+                    _trees_under_provider(language, runtime_dir.name, provider_dir, examples)
+                )
+    return sorted(trees, key=lambda t: (t.language, t.example, t.runtime, t.provider))
+
+
+def _trees_under_provider(
+    language: str, runtime: str, provider_dir: Path, examples: Sequence[str]
+) -> list[GeneratedTree]:
+    """Every registered example generated under one ``<runtime>/<provider>``."""
+    found: list[GeneratedTree] = []
+    for example in examples:
+        manifests_dir = provider_dir / example / MANIFESTS_RELPATH
+        if not manifests_dir.is_dir():
+            continue
+        paths, generated_at = read_pipeline_manifests(manifests_dir)
+        found.append(
+            GeneratedTree(
+                example=example,
+                language=language,
+                runtime=runtime,
+                provider=provider_dir.name,
+                root=provider_dir / example,
+                generated_at=generated_at,
+                paths=paths,
+            )
+        )
     return found
 
 
-def discover_multi_language_examples() -> dict[str, dict[str, Path]]:
-    """Every example id under BASELINES_ROOT with >= 2 blessed language baselines.
-
-    Returns:
-        {example_id: {language: baseline_path}}, only for examples meeting
-        the >= 2 threshold. Sorted by example id for deterministic output.
-    """
-    result: dict[str, dict[str, Path]] = {}
-    if not BASELINES_ROOT.is_dir():
-        return result
-    for example_dir in sorted(p for p in BASELINES_ROOT.iterdir() if p.is_dir()):
-        languages = blessed_language_baselines(example_dir.name)
-        if len(languages) >= _MIN_LANGUAGES_FOR_COMPARISON:
-            result[example_dir.name] = languages
-    return result
-
-
-def manifest_paths(baseline_path: Path) -> list[str]:
-    """The relative-path column of one blessed .sha256 manifest (hashes ignored).
+def missing_corpus_pairs(
+    trees: Sequence[GeneratedTree],
+    languages: Iterable[str],
+    known: Mapping[str, str],
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """Compare the generated corpus against the registered example set.
 
     Args:
-        baseline_path: A `<example_id>/<language>.sha256` file.
+        trees: Every discovered tree.
+        languages: The registered language names.
+        known: The parked pairs (:func:`load_known_non_generating`).
 
     Returns:
-        Every path recorded in the manifest, in file order.
-
-    Raises:
-        ValueError: On a malformed line (not "path<2sp>sha256hex").
+        ``(missing, stale_parks)``: ``missing`` is every (example, language)
+        pair with no tree and no park entry -- the corpus is incomplete for
+        that language until it is generated; ``stale_parks`` is every parked
+        pair that DOES have a tree -- the defect the entry records is fixed
+        and the entry must be deleted.
     """
-    paths: list[str] = []
-    for raw in baseline_path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        parts = line.split(_MANIFEST_SEP, 1)
-        if len(parts) != 2:
-            raise ValueError(
-                f"Malformed manifest line in {baseline_path} (expected "
-                f"'path{_MANIFEST_SEP}sha256hex'): {line!r}"
-            )
-        paths.append(parts[0])
-    return paths
+    generated = {(t.example, t.language) for t in trees}
+    missing: list[tuple[str, str]] = []
+    stale: list[tuple[str, str]] = []
+    for language in sorted(languages):
+        for example in registered_example_relpaths():
+            parked = known_non_generating_reason(known, example, language) is not None
+            present = (example, language) in generated
+            if present and parked:
+                stale.append((example, language))
+            elif not present and not parked:
+                missing.append((example, language))
+    return missing, stale
+
+
+def comparison_groups(
+    trees: Sequence[GeneratedTree],
+) -> dict[tuple[str, str, str], dict[str, GeneratedTree]]:
+    """Group trees by (example, runtime, provider) and keep the multi-language ones.
+
+    Returns:
+        ``{group_key: {language: tree}}`` for every group generated in at
+        least ``_MIN_LANGUAGES_FOR_COMPARISON`` languages, sorted by key.
+    """
+    by_key: dict[tuple[str, str, str], dict[str, GeneratedTree]] = {}
+    for tree in trees:
+        by_key.setdefault(tree.group_key, {})[tree.language] = tree
+    return {
+        key: languages
+        for key, languages in sorted(by_key.items())
+        if len(languages) >= _MIN_LANGUAGES_FOR_COMPARISON
+    }
+
+
+def corpus_footprint(trees: Sequence[GeneratedTree]) -> dict[str, list[str]]:
+    """Every generated path per language, across the whole corpus.
+
+    This is the footprint :func:`_is_corpus_vacuous_for_language` judges a
+    domain against -- every example the language generated, not just the
+    groups this gate compares.
+    """
+    footprint: dict[str, list[str]] = {}
+    for tree in trees:
+        footprint.setdefault(tree.language, []).extend(tree.paths)
+    return footprint
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +597,7 @@ def classify_paths(
     domain-specific content.
 
     Args:
-        paths: Relative paths from one blessed manifest.
+        paths: Relative paths from one generated tree's pipeline manifests.
         declarations: `domain_id -> DomainDeclaration`.
 
     Returns:
@@ -385,7 +643,7 @@ def compare_role_sets(
     reinventing a comparison rule.
 
     Args:
-        per_language: {language: role_set} for one example's blessed languages.
+        per_language: {language: role_set} for one example's generated languages.
 
     Returns:
         {language: missing_role_ids} -- empty per language iff every
@@ -575,48 +833,24 @@ def _is_declared_unsupported(declarations: Mapping[str, DomainDeclaration], doma
     return declaration is not None and declaration.status == "unsupported"
 
 
-#: Every path from every blessed baseline for a language, across the WHOLE
-#: corpus under BASELINES_ROOT (not just examples with >= 2 blessed
-#: languages) -- memoized per language since `_is_corpus_vacuous_for_language`
-#: is consulted once per (example, language, missing domain) triple and
-#: re-reading every one of a language's baselines on each call would be
-#: quadratic in the corpus size.
-_ALL_BLESSED_PATHS_CACHE: dict[str, list[str]] = {}
-
-
-def _all_blessed_paths_for_language(language: str) -> list[str]:
-    """Every path in every blessed `.sha256` baseline for *language*, across
-    every example directory under `BASELINES_ROOT` -- not scoped to examples
-    with >= 2 blessed languages, since a domain's corpus-wide realization
-    must be judged against the language's FULL blessed footprint, not just
-    the subset this gate compares.
-    """
-    if language not in _ALL_BLESSED_PATHS_CACHE:
-        paths: list[str] = []
-        if BASELINES_ROOT.is_dir():
-            for example_dir in sorted(p for p in BASELINES_ROOT.iterdir() if p.is_dir()):
-                baseline = example_dir / f"{language}.sha256"
-                if baseline.is_file():
-                    paths.extend(manifest_paths(baseline))
-        _ALL_BLESSED_PATHS_CACHE[language] = paths
-    return _ALL_BLESSED_PATHS_CACHE[language]
-
-
-def _domain_ever_matches_for_self_test(pattern: str, all_paths: Iterable[str]) -> bool:
+def _domain_ever_matches(pattern: str, all_paths: Iterable[str]) -> bool:
     """Whether *pattern* matches at least one path in *all_paths* -- the pure
     predicate `_is_corpus_vacuous_for_language` delegates to, taking an
     already-resolved path list so the self-test can exercise it directly
-    against synthetic data without touching real blessed baselines.
+    against synthetic data without touching a real generated corpus.
     """
     return any(fnmatch.fnmatch(path, pattern) for path in all_paths)
 
 
 def _is_corpus_vacuous_for_language(
-    language: str, domain_id: str, declarations: Mapping[str, DomainDeclaration]
+    language: str,
+    domain_id: str,
+    declarations: Mapping[str, DomainDeclaration],
+    footprint: Mapping[str, Sequence[str]],
 ) -> bool:
     """Whether *domain_id* is a declared-`supported` domain for *language*
     whose structural_pattern matches ZERO files anywhere in *language*'s
-    ENTIRE blessed footprint -- not just the one example currently being
+    ENTIRE generated footprint -- not just the one example currently being
     compared.
 
     A `True` result means the domain's triggering DSL construct simply never
@@ -626,20 +860,23 @@ def _is_corpus_vacuous_for_language(
     per-example one, so a single-example 'missing' verdict against it carries
     no information and is not drift. Distinct from `_is_declared_unsupported`
     (a language-level stance the plugin itself asserts) -- this is instead
-    an EMPIRICAL fact about the language's own blessed output, derived from
+    an EMPIRICAL fact about the language's own generated output, derived from
     the same manifests this gate already reads, never from DSL source.
 
     Args:
-        language: The language whose blessed footprint to scan.
+        language: The language whose footprint to scan.
         domain_id: The domain to check.
         declarations: `language`'s own `domain_id -> DomainDeclaration`.
+        footprint: ``{language: every generated path}`` over the whole corpus
+            (:func:`corpus_footprint`). A language absent from it has no
+            footprint, so every supported domain reads as vacuous -- which is
+            why :func:`check_artifact_role_parity` refuses to run on an
+            incomplete corpus before this predicate is ever consulted.
     """
     declaration = declarations.get(domain_id)
     if declaration is None or declaration.status != "supported" or not declaration.structural_pattern:
         return False
-    return not _domain_ever_matches_for_self_test(
-        declaration.structural_pattern, _all_blessed_paths_for_language(language)
-    )
+    return not _domain_ever_matches(declaration.structural_pattern, footprint.get(language, ()))
 
 
 # ---------------------------------------------------------------------------
@@ -647,19 +884,22 @@ def _is_corpus_vacuous_for_language(
 # ---------------------------------------------------------------------------
 
 
-def corpus_vacuous_pairs() -> list[tuple[str, str]]:
+def corpus_vacuous_pairs(footprint: Mapping[str, Sequence[str]]) -> list[tuple[str, str]]:
     """Census every `(language, domain)` this gate would skip as corpus-vacuous.
 
     `_is_corpus_vacuous_for_language` is consulted per (example, language,
     missing domain) triple, so the pairs it actually silences depend on which
-    examples happen to be blessed in >= 2 languages. This census does not: it
-    asks the question over EVERY registered language and EVERY domain that
+    examples happen to be generated in >= 2 languages. This census does not:
+    it asks the question over EVERY registered language and EVERY domain that
     language declares `supported`, so the reviewed-record set below is
-    complete regardless of how the blessed matrix grows.
+    complete regardless of how the generated matrix grows.
+
+    Args:
+        footprint: ``{language: every generated path}`` (:func:`corpus_footprint`).
 
     Returns:
         Sorted `(language, domain_id)` pairs whose declared structural_pattern
-        matches zero paths anywhere in that language's blessed footprint.
+        matches zero paths anywhere in that language's generated footprint.
     """
     pairs: list[tuple[str, str]] = []
     for language in sorted(registered_language_names()):
@@ -667,7 +907,7 @@ def corpus_vacuous_pairs() -> list[tuple[str, str]]:
         pairs.extend(
             (language, domain_id)
             for domain_id in sorted(declarations)
-            if _is_corpus_vacuous_for_language(language, domain_id, declarations)
+            if _is_corpus_vacuous_for_language(language, domain_id, declarations, footprint)
         )
     return pairs
 
@@ -774,7 +1014,7 @@ def compare_vacuity_records(
     problems.extend(
         f"UNRECORDED CORPUS VACUITY language={language} domain={domain}: this "
         f"language declares the domain 'supported', its structural_pattern "
-        f"matches zero paths anywhere in its blessed footprint, and "
+        f"matches zero paths anywhere in its generated footprint, and "
         f"{CORPUS_VACUITY_RECORDS_PATH.name} says nothing about it. Add a "
         f"record naming the structural reason and its status (one of "
         f"{sorted(_VACUITY_STATUSES)}), or add a reference example that "
@@ -783,14 +1023,14 @@ def compare_vacuity_records(
     )
     problems.extend(
         f"STALE CORPUS-VACUITY RECORD language={language} domain={domain}: the "
-        f"blessed corpus now matches this domain's structural_pattern, so the "
+        f"generated corpus now matches this domain's structural_pattern, so the "
         f"record no longer describes anything. Delete it."
         for language, domain in sorted(recorded - censused)
     )
     return problems
 
 
-def check_corpus_vacuity_records() -> bool:
+def check_corpus_vacuity_records(footprint: Mapping[str, Sequence[str]]) -> bool:
     """Hold every corpus-vacuous `(language, domain)` to a reviewed record.
 
     A corpus-vacuous domain is skipped SILENTLY by
@@ -801,11 +1041,16 @@ def check_corpus_vacuity_records() -> bool:
     reach this" from "no example HAPPENS to". This turns each skip into a
     typed, counted, reviewed record.
 
+    Args:
+        footprint: ``{language: every generated path}`` over the COMPLETE
+            corpus (:func:`corpus_footprint`); the caller has already refused
+            an incomplete one.
+
     Returns:
         True when the census and the records agree in both directions.
     """
     records = load_corpus_vacuity_records()
-    pairs = corpus_vacuous_pairs()
+    pairs = corpus_vacuous_pairs(footprint)
     logger.info(
         "corpus_vacuity_census pairs=%d records=%d", len(pairs), len(records),
     )
@@ -1020,20 +1265,20 @@ def run_self_test() -> list[str]:
 
     # _is_corpus_vacuous_for_language: proves the three-way split -- a
     # declared-supported domain matching zero paths anywhere in the
-    # language's blessed footprint is corpus-vacuous (True); the SAME
+    # language's generated footprint is corpus-vacuous (True); the SAME
     # pattern matching >= 1 path elsewhere is NOT corpus-vacuous (False,
     # even though it is also absent from the one path list checked here);
     # and a declared-unsupported domain is never corpus-vacuous (False --
     # `_is_declared_unsupported` already owns that case, so this predicate
-    # only ever fires for domains a language claims to realize). The cache
-    # is pre-populated directly (never touching real blessed baselines) so
-    # `_all_blessed_paths_for_language` is exercised for real while the
-    # underlying file scan stays fully synthetic.
+    # only ever fires for domains a language claims to realize). The
+    # footprint is a synthetic mapping, so no real generated tree is read.
     _SELF_TEST_VACUOUS_LANGUAGE: Final[str] = "self_test_lang_vacuous_check"
-    _ALL_BLESSED_PATHS_CACHE[_SELF_TEST_VACUOUS_LANGUAGE] = [
-        "svc/unrelated/readme.md",
-        "svc/orders/order.txt",
-    ]
+    synthetic_footprint: dict[str, list[str]] = {
+        _SELF_TEST_VACUOUS_LANGUAGE: [
+            "svc/unrelated/readme.md",
+            "svc/orders/order.txt",
+        ]
+    }
     vacuous_domain_declarations: DomainDeclarations = {
         _SELF_TEST_DOMAIN_SHARED: DomainDeclaration(
             domain_id=_SELF_TEST_DOMAIN_SHARED,
@@ -1047,37 +1292,167 @@ def run_self_test() -> list[str]:
         ),
     }
     if not _is_corpus_vacuous_for_language(
-        _SELF_TEST_VACUOUS_LANGUAGE, _SELF_TEST_DOMAIN_SHARED, vacuous_domain_declarations
+        _SELF_TEST_VACUOUS_LANGUAGE,
+        _SELF_TEST_DOMAIN_SHARED,
+        vacuous_domain_declarations,
+        synthetic_footprint,
     ):
         problems.append(
             "self-test: _is_corpus_vacuous_for_language did not flag a domain "
             "whose pattern matches zero paths anywhere in the language's "
-            "blessed footprint"
+            "generated footprint"
         )
     if _is_corpus_vacuous_for_language(
-        _SELF_TEST_VACUOUS_LANGUAGE, _SELF_TEST_DOMAIN_FORCED_GAP, vacuous_domain_declarations
+        _SELF_TEST_VACUOUS_LANGUAGE,
+        _SELF_TEST_DOMAIN_FORCED_GAP,
+        vacuous_domain_declarations,
+        synthetic_footprint,
     ):
         problems.append(
             "self-test: _is_corpus_vacuous_for_language flagged a domain "
             "whose pattern DOES match a path elsewhere in the language's "
-            "blessed footprint"
+            "generated footprint"
         )
     if _is_corpus_vacuous_for_language(
-        _SELF_TEST_VACUOUS_LANGUAGE, _SELF_TEST_DOMAIN_SHARED,
+        _SELF_TEST_VACUOUS_LANGUAGE,
+        _SELF_TEST_DOMAIN_SHARED,
         {_SELF_TEST_DOMAIN_SHARED: DomainDeclaration(
             domain_id=_SELF_TEST_DOMAIN_SHARED, status="unsupported",
             reason="self-test: declared absence, not corpus-vacuous territory",
         )},
+        synthetic_footprint,
     ):
         problems.append(
             "self-test: _is_corpus_vacuous_for_language flagged a "
             "declared-unsupported domain -- that case belongs to "
             "_is_declared_unsupported, not this predicate"
         )
-    del _ALL_BLESSED_PATHS_CACHE[_SELF_TEST_VACUOUS_LANGUAGE]
+
+    problems.extend(_self_test_corpus_discovery())
 
     problems.extend(_self_test_vacuity_records())
 
+    return problems
+
+
+#: Scratch root for the discovery self-test's synthetic generated corpus --
+#: workspace-level per the temp-file policy, PID-scoped so two concurrent
+#: gate runs never share a directory.
+_SELF_TEST_SCRATCH_ROOT: Path = WORKSPACE_ROOT / ".test-output" / "artifact-role-self-test"
+
+
+def _write_synthetic_tree(
+    root: Path, language: str, runtime: str, provider: str, example: str,
+    manifests: Mapping[str, tuple[str, list[str]]],
+) -> None:
+    """Write one synthetic generated project with the given pipeline manifests.
+
+    Args:
+        manifests: ``{target: (generated_at, files)}``.
+    """
+    manifests_dir = root / language / runtime / provider / example / MANIFESTS_RELPATH
+    manifests_dir.mkdir(parents=True, exist_ok=True)
+    for target, (stamp, files) in manifests.items():
+        (manifests_dir / f"{target}.json").write_text(
+            json.dumps({"target": target, "generated_at": stamp, "files": files}),
+            encoding="utf-8",
+        )
+
+
+def _self_test_corpus_discovery() -> list[str]:
+    """Prove the generated-corpus reader sees what is there and nothing else.
+
+    Builds a synthetic ``.generated`` layout under a PID-scoped scratch root
+    against ONE real registered example path (so the discovery walk is the
+    production walk), then proves: two targets' manifests union into one
+    path list with the newest stamp; a directory without pipeline manifests
+    is not a tree; a tree generated in one language only forms no comparison
+    group while a two-language tree does; and the corpus-completeness check
+    names a missing pair and a stale park entry.
+    """
+    problems: list[str] = []
+    example = registered_example_relpaths()[0]
+    other_example = registered_example_relpaths()[-1]
+    scratch = _SELF_TEST_SCRATCH_ROOT / str(os.getpid())
+    if scratch.exists():
+        shutil.rmtree(scratch)
+    try:
+        _write_synthetic_tree(
+            scratch, _SELF_TEST_LANGUAGE_A, "rt", "prov", example,
+            {
+                "svc": ("2026-01-01T00:00:00Z", ["svc/a.txt", "svc/b.txt"]),
+                "infra": ("2026-01-02T00:00:00Z", ["compose.yml", "svc/a.txt"]),
+            },
+        )
+        _write_synthetic_tree(
+            scratch, _SELF_TEST_LANGUAGE_B, "rt", "prov", example,
+            {"svc": ("2026-01-03T00:00:00Z", ["svc/a.txt"])},
+        )
+        _write_synthetic_tree(
+            scratch, _SELF_TEST_LANGUAGE_A, "rt", "prov", other_example,
+            {"svc": ("2026-01-04T00:00:00Z", ["svc/z.txt"])},
+        )
+        # A directory at tree depth with no manifests is not a generated tree.
+        (scratch / _SELF_TEST_LANGUAGE_B / "rt" / "prov" / other_example).mkdir(parents=True)
+
+        languages = (_SELF_TEST_LANGUAGE_A, _SELF_TEST_LANGUAGE_B)
+        trees = discover_generated_trees(scratch, languages)
+        by_key = {(t.language, t.example): t for t in trees}
+        if set(by_key) != {
+            (_SELF_TEST_LANGUAGE_A, example),
+            (_SELF_TEST_LANGUAGE_B, example),
+            (_SELF_TEST_LANGUAGE_A, other_example),
+        }:
+            problems.append(
+                f"self-test: discover_generated_trees found {sorted(by_key)}, expected "
+                f"exactly the three synthetic trees carrying pipeline manifests"
+            )
+            return problems
+        merged = by_key[(_SELF_TEST_LANGUAGE_A, example)]
+        if merged.paths != ("compose.yml", "svc/a.txt", "svc/b.txt"):
+            problems.append(
+                f"self-test: read_pipeline_manifests did not union two targets' "
+                f"files into a sorted, de-duplicated list: {merged.paths}"
+            )
+        if merged.generated_at != "2026-01-02T00:00:00Z":
+            problems.append(
+                f"self-test: read_pipeline_manifests did not keep the newest "
+                f"generated_at stamp: {merged.generated_at}"
+            )
+        groups = comparison_groups(trees)
+        if list(groups) != [(example, "rt", "prov")]:
+            problems.append(
+                f"self-test: comparison_groups returned {sorted(groups)}, expected only "
+                f"the group generated in two languages"
+            )
+        footprint = corpus_footprint(trees)
+        if footprint.get(_SELF_TEST_LANGUAGE_A) != [
+            "compose.yml", "svc/a.txt", "svc/b.txt", "svc/z.txt",
+        ]:
+            problems.append(
+                f"self-test: corpus_footprint did not concatenate every tree of a "
+                f"language: {footprint.get(_SELF_TEST_LANGUAGE_A)}"
+            )
+        known = {f"{example_id(other_example)}{_LANGUAGE_KEY_SEP}{_SELF_TEST_LANGUAGE_A}": "self-test park"}
+        missing, stale = missing_corpus_pairs(trees, languages, known)
+        expected_missing = sorted(
+            (ex, lang)
+            for lang in languages
+            for ex in registered_example_relpaths()
+            if (lang, ex) not in by_key
+        )
+        if sorted(missing) != expected_missing:
+            problems.append(
+                f"self-test: missing_corpus_pairs reported {len(missing)} missing "
+                f"pairs, expected {len(expected_missing)}"
+            )
+        if stale != [(other_example, _SELF_TEST_LANGUAGE_A)]:
+            problems.append(
+                f"self-test: missing_corpus_pairs did not flag the parked pair that "
+                f"has a generated tree as stale: {stale}"
+            )
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
     return problems
 
 
@@ -1166,18 +1541,80 @@ def _self_test_vacuity_records() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def check_artifact_role_parity() -> int:
-    """Run the gate over every example with >= 2 blessed language baselines.
+class IncompleteCorpusError(ValueError):
+    """The generated corpus under the given root is not complete for every
+    registered language (or a park entry is stale), so no comparison over it
+    can be trusted. Every offending pair has already been logged by name."""
+
+
+def load_complete_corpus(generated_root: Path) -> list[GeneratedTree]:
+    """Discover the generated corpus and refuse an incomplete or stale-parked one.
+
+    Args:
+        generated_root: The ``generate.ps1`` output base to read.
+
+    Returns:
+        Every discovered tree, when the corpus is complete for every registered
+        language.
+
+    Raises:
+        IncompleteCorpusError: After logging every missing (example, language)
+            pair with the command that generates it, and every stale park
+            entry. Fail-closed: a partial corpus would make every absent
+            example's domains read as corpus-vacuous and silently shrink the
+            comparison.
+    """
+    languages = sorted(registered_language_names())
+    known = load_known_non_generating()
+    trees = discover_generated_trees(generated_root, languages)
+    for language in languages:
+        stamps = sorted(t.generated_at for t in trees if t.language == language)
+        logger.info(
+            "generated_corpus language=%s trees=%d oldest=%s newest=%s",
+            language, len(stamps), stamps[0] if stamps else "-", stamps[-1] if stamps else "-",
+        )
+    missing, stale = missing_corpus_pairs(trees, languages, known)
+    for example, language in stale:
+        logger.error(
+            "STALE PARK ENTRY example=%s language=%s: %s parks this pair, but a "
+            "generated tree exists for it -- the recorded defect is fixed. Delete "
+            "the entry.",
+            example, language, KNOWN_NON_GENERATING_PATH.name,
+        )
+    if missing:
+        by_language: dict[str, list[str]] = {}
+        for example, language in missing:
+            by_language.setdefault(language, []).append(example)
+        for language, examples in sorted(by_language.items()):
+            logger.error(
+                "INCOMPLETE CORPUS language=%s: %d registered example(s) have no "
+                "generated tree under %s and no entry in %s: %s. Generate the full "
+                "corpus first: generate.ps1 -All -L %s",
+                language, len(examples), generated_root, KNOWN_NON_GENERATING_PATH.name,
+                examples, language,
+            )
+    if missing or stale:
+        raise IncompleteCorpusError(
+            f"ARTIFACT-ROLE GATE CANNOT RUN: the generated corpus under {generated_root} "
+            f"is not complete for every registered language ({len(missing)} missing "
+            f"pair(s), {len(stale)} stale park entr{'y' if len(stale) == 1 else 'ies'}; "
+            f"see above)."
+        )
+    return trees
+
+
+def check_artifact_role_parity(generated_root: Path) -> int:
+    """Run the gate over every (example, runtime, provider) generated in >= 2 languages.
 
     A domain missing from one language's role set is compared against
     exemptions only when that language declares the domain `supported` AND
-    realizes it somewhere else in its own blessed footprint. Two kinds of
+    realizes it somewhere else in its own generated footprint. Two kinds of
     "missing" are never drift and never need an exemption:
       - the language declares the domain `unsupported` -- a declared absence
         explained once at the language level (see `language_domain_declarations`
         / `_is_declared_unsupported`), not a per-example fact; or
       - the language declares the domain `supported`, but its structural_pattern
-        matches zero files anywhere across that language's ENTIRE blessed
+        matches zero files anywhere across that language's ENTIRE generated
         footprint (see `_is_corpus_vacuous_for_language`) -- an empirical,
         corpus-wide fact (the triggering construct never occurs in the corpus
         for this language) rather than something particular to this example.
@@ -1187,48 +1624,54 @@ def check_artifact_role_parity() -> int:
     stating WHY nothing exercises it, and refuses both an unrecorded pair and
     a record whose pair is no longer vacuous.
 
+    Args:
+        generated_root: The ``generate.ps1`` output base to read.
+
     Returns:
-        Exit code (0 = every example's role sets agree modulo exemptions,
+        Exit code (0 = every group's role sets agree modulo exemptions,
         declared-unsupported domains, and recorded corpus-vacuous domains,
         1 = an un-exempted divergence over a genuinely per-example-realized
         domain was found, or a corpus-vacuous domain has no reviewed record
-        (or a record has no corpus-vacuous domain), 2 = zero examples have
-        >= 2 blessed language baselines -- a vacuous comparison).
+        (or a record has no corpus-vacuous domain), 2 = the corpus is
+        incomplete for some language, a park entry is stale, or zero groups
+        are generated in >= 2 languages -- a vacuous comparison).
     """
-    multi_language_examples = discover_multi_language_examples()
-    if not multi_language_examples:
+    trees = load_complete_corpus(generated_root)
+    groups = comparison_groups(trees)
+    if not groups:
         logger.error(
-            "ARTIFACT-ROLE GATE CANNOT RUN: no example has >= 2 blessed language "
-            "baselines under %s -- a cross-language comparison over < 2 languages "
-            "is vacuous.",
-            BASELINES_ROOT,
+            "ARTIFACT-ROLE GATE CANNOT RUN: no (example, runtime, provider) under %s "
+            "is generated in >= 2 languages -- a cross-language comparison over "
+            "< 2 languages is vacuous.",
+            generated_root,
         )
         return EXIT_USAGE
 
     exemptions = load_exemptions()
     logger.info(
-        "artifact_role_parity_start examples=%d exemptions=%d",
-        len(multi_language_examples), len(exemptions),
+        "artifact_role_parity_start trees=%d groups=%d exemptions=%d",
+        len(trees), len(groups), len(exemptions),
     )
 
-    ok = check_corpus_vacuity_records()
+    footprint = corpus_footprint(trees)
+    ok = check_corpus_vacuity_records(footprint)
     on_demand_by_language: dict[str, Mapping[str, str]] = {}
-    for example_id, language_baselines in multi_language_examples.items():
+    for (example, runtime, provider), language_trees in groups.items():
+        ex_id = example_id(example)
         per_language_roles: dict[str, frozenset[str]] = {}
         per_language_declarations: dict[str, DomainDeclarations] = {}
-        for language, baseline_path in sorted(language_baselines.items()):
+        for language, tree in sorted(language_trees.items()):
             declarations = language_domain_declarations(language)
             per_language_declarations[language] = declarations
             if language not in on_demand_by_language:
                 on_demand_by_language[language] = language_on_demand_domains(language)
-            paths = manifest_paths(baseline_path)
-            roles, unclassified = classify_paths(paths, declarations)
+            roles, unclassified = classify_paths(list(tree.paths), declarations)
             per_language_roles[language] = roles
             if unclassified:
                 logger.info(
                     "artifact_role_unclassified example=%s language=%s count=%d "
                     "(reported, not compared): %s",
-                    example_id, language, len(unclassified), unclassified[:5],
+                    example, language, len(unclassified), unclassified[:5],
                 )
         missing_by_language = compare_role_sets(per_language_roles)
         example_clean = True
@@ -1250,10 +1693,10 @@ def check_artifact_role_parity() -> int:
                     # language emits baseline scaffolding for it regardless.
                     # One declared fact, never one exemption per example.
                     continue
-                if _is_corpus_vacuous_for_language(language, domain_id, declarations):
+                if _is_corpus_vacuous_for_language(language, domain_id, declarations, footprint):
                     # An empirical corpus-wide fact, not a per-example one:
                     # this language declares the domain supported, but its
-                    # ENTIRE blessed footprint (every example, not just this
+                    # ENTIRE generated footprint (every example, not just this
                     # one) matches zero files to it -- the domain's
                     # triggering DSL construct simply never occurs anywhere
                     # in the reference-example corpus for this language. A
@@ -1262,28 +1705,29 @@ def check_artifact_role_parity() -> int:
                     # an example that DOES exercise the construct; this skip
                     # self-corrects instead.
                     continue
-                if _is_exempt(exemptions, example_id, domain_id, language):
+                if _is_exempt(exemptions, ex_id, domain_id, language):
                     continue
                 ok = False
                 example_clean = False
                 logger.error(
-                    "ARTIFACT-ROLE DRIFT example=%s language=%s missing_domain=%s "
-                    "(present in >= 1 other blessed language for this example; "
-                    "%s's blessed manifest matches no file to this domain's "
-                    "structural_pattern)",
-                    example_id, language, domain_id, language,
+                    "ARTIFACT-ROLE DRIFT example=%s runtime=%s provider=%s language=%s "
+                    "missing_domain=%s (present in >= 1 other language generated for "
+                    "this example; %s's generated tree %s matches no file to this "
+                    "domain's structural_pattern)",
+                    example, runtime, provider, language, domain_id, language,
+                    language_trees[language].root,
                 )
         if example_clean:
             logger.info(
-                "artifact_role_example_clean example=%s languages=%s",
-                example_id, sorted(language_baselines),
+                "artifact_role_example_clean example=%s runtime=%s provider=%s languages=%s",
+                example, runtime, provider, sorted(language_trees),
             )
 
     if ok:
         logger.info(
-            "ARTIFACT-ROLE GATE PASSED: %d example(s) with >= 2 blessed languages, "
+            "ARTIFACT-ROLE GATE PASSED: %d group(s) generated in >= 2 languages, "
             "role sets identical modulo %d reviewed exemption(s).",
-            len(multi_language_examples), len(exemptions),
+            len(groups), len(exemptions),
         )
         return EXIT_OK
     return EXIT_FAIL
@@ -1293,13 +1737,23 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(
         description=(
-            "Cross-language artifact-role parity gate (D7): for every example "
-            "with >= 2 blessed language baselines, the set of domain roles with "
-            ">= 1 matching file must be identical across languages. Reads blessed "
-            "manifests only -- generates nothing."
+            "Cross-language artifact-role parity gate (D7): for every (example, "
+            "runtime, provider) generated in >= 2 languages, the set of domain "
+            "roles with >= 1 matching file must be identical across languages. "
+            "Reads the pipeline's own manifests from the generated trees -- "
+            "generates nothing and stores nothing."
         ),
     )
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG logging")
+    parser.add_argument(
+        "--generated-root",
+        type=Path,
+        default=DEFAULT_GENERATED_ROOT,
+        help=(
+            "The generate.ps1 output base holding <language>/<runtime>/<provider>/"
+            f"<example> trees (default: {DEFAULT_GENERATED_ROOT})"
+        ),
+    )
     parser.add_argument(
         "--self-test",
         action="store_true",
@@ -1309,7 +1763,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--census",
         action="store_true",
         help=(
-            "Print every (language, domain) the blessed corpus exercises "
+            "Print every (language, domain) the generated corpus exercises "
             "nowhere, with its reviewed record status, and exit -- the "
             "measurement corpus-vacuity-records.json is authored against"
         ),
@@ -1317,16 +1771,25 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def print_corpus_vacuity_census() -> int:
+def print_corpus_vacuity_census(generated_root: Path) -> int:
     """Report the corpus-vacuity census next to the reviewed records.
 
+    Args:
+        generated_root: The ``generate.ps1`` output base to read.
+
     Returns:
-        Exit code: 0 always -- this is a measurement, not a gate. The gate's
-        own verdict on the same data is `check_corpus_vacuity_records`.
+        Exit code: 0 -- this is a measurement, not a gate; the gate's own
+        verdict on the same data is `check_corpus_vacuity_records`.
+
+    Raises:
+        IncompleteCorpusError: When the corpus is incomplete, since a census
+            over a partial corpus would misreport vacuity (`main` maps it to
+            exit 2).
     """
+    trees = load_complete_corpus(generated_root)
     records = load_corpus_vacuity_records() if CORPUS_VACUITY_RECORDS_PATH.exists() else []
     by_pair = {(record.language, record.domain): record for record in records}
-    pairs = corpus_vacuous_pairs()
+    pairs = corpus_vacuous_pairs(corpus_footprint(trees))
     patterns_by_language: dict[str, DomainDeclarations] = {}
     for language, domain in pairs:
         record = by_pair.get((language, domain))
@@ -1349,9 +1812,9 @@ def main(argv: list[str] | None = None) -> int:
 
     Returns:
         Process exit code: 0 = gate passed (or a successful `--self-test`),
-        1 = an un-exempted role drift was found, 2 = self-test failure, zero
-        comparable examples, a malformed exemption file, or an underivable
-        domain declaration.
+        1 = an un-exempted role drift was found, 2 = self-test failure, an
+        incomplete generated corpus, zero comparable groups, a malformed
+        config file, or an underivable domain declaration.
     """
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     logging.basicConfig(
@@ -1372,10 +1835,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.census:
-            return print_corpus_vacuity_census()
-        return check_artifact_role_parity()
+            return print_corpus_vacuity_census(args.generated_root)
+        return check_artifact_role_parity(args.generated_root)
     except (ValueError, DerivationError) as exc:
-        logger.error("ERROR: %s", exc)
+        logger.error("%s", exc)
         return EXIT_USAGE
 
 

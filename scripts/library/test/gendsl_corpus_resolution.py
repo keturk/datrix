@@ -19,7 +19,7 @@ packages) and a cross-package test (prohibited everywhere in the repo, not
 just in the showcase package). The proof is inherently repo-level -- it
 spans every generator package -- so it belongs as a script under
 ``datrix/scripts/test/``, the same home as the other repo-level corpus gates
-(``reference-example-parity-gate.ps1``, ``type-mapping-completeness.ps1``),
+(``artifact-role-parity-gate.ps1``, ``type-mapping-completeness.ps1``),
 not inside any single package's own test suite.
 
 **Each module is imported in its own dedicated subprocess -- never in this

@@ -24,7 +24,6 @@ Development tool implementations.
 | `rebuild_parser.py` | `dev/rebuild-parser.ps1` | Tree-sitter parser rebuilding |
 | `ruff_checker.py` | `dev/ruff-checker.ps1` | Jinja2 template linting |
 | `syntax_checker.py` | `dev/syntax-checker.ps1` | .dtrx syntax validation |
-| `byte_identity_generate.py` | `dev/byte-identity-generate.ps1` | Output-neutrality proof: generate a corpus under before/after code states and byte-diff the trees |
 | `conformance_gate.py` | `dev/conformance-gate.ps1` | Declarative design-acceptance assertion runner (spec JSON, non-vacuity control, self-testing) |
 | `gendsl_census.py` | `dev/gendsl-census.ps1` | Per-domain genDSL census + double-emit offender detection |
 | `evaluate_generated_scan.py` | `dev/evaluate-generated-scan.ps1` | Project-level generated-output scan for `/evaluate-generated` (inventory, manifests, infra checks, prompts) |

@@ -14,6 +14,22 @@ call into the shared codegen layer, passing its own parameters straight
 through (plus, at most, this package's own constants, state and casing
 callables).
 
+Also recognizes a second, broader shape exemption, ``is_rendering_leaf``: a
+body that makes no decision at all -- no branch, loop, ``try``, ``with``,
+comprehension or ``raise``, no attribute chain rooted at a parameter or
+``self``, and every call resolving to the shared codegen layer, the standard
+library, or nothing in the function's own import table. ``decision_arity``
+is a second, independent fact -- the function's decision-bearing parameter
+count -- that ``decision_parity.py`` combines with the statement-line
+skeleton below when classifying a role. Arity is measured PER ROLE, not per
+member: ``plumbing_parameter_names`` names the parameters one member drops
+as language-private, ``decision_parity.py`` unions that set across every
+member of the role, and passes it back into ``decision_arity`` as
+``extra_plumbing`` so a parameter name any member drops as plumbing is
+dropped for every member -- a language whose own file-scope subclass
+happens to live inside the shared layer must not count a parameter its
+sibling languages drop.
+
 Rendering rules
 ---------------
 One skeleton line per decision, in source order:
@@ -22,6 +38,8 @@ One skeleton line per decision, in source order:
     while <pred> / else / endwhile    match <subject> / case <pattern> [if <guard>] / endmatch
     return <expr>                     raise
     assert <pred>                     break / continue
+    try / except <exc> / else / finally / endtry   (``trystar``/``endtrystar`` for ``except*``)
+    with <expr> / endwith
     = <expr>        (an assignment whose value reads model data and is not a rename)
     <expr>          (a bare expression statement that reads model data;
                      a yield always)
@@ -98,6 +116,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import builtins
 import logging
 import shutil
 import sys
@@ -316,6 +335,28 @@ def _resolve_relative_module(module: str | None, level: int, package: str) -> st
 # ---------------------------------------------------------------------------
 
 
+def _all_parameters(node: _FunctionDefNode) -> list[ast.arg]:
+    """Every parameter of *node*, ``self``/``cls`` included, in one flat
+    list: positional-only, positional, keyword-only, then ``*args``/
+    ``**kwargs`` when present. The one enumeration walk
+    ``_function_parameter_names``, ``decision_arity`` and
+    ``plumbing_parameter_names`` each need, kept in exactly one place.
+
+    Args:
+        node: The function/method AST node.
+
+    Returns:
+        Every parameter, in declaration order.
+    """
+    args = node.args
+    params = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    if args.vararg is not None:
+        params.append(args.vararg)
+    if args.kwarg is not None:
+        params.append(args.kwarg)
+    return params
+
+
 def _function_parameter_names(node: _FunctionDefNode) -> frozenset[str]:
     """Every parameter name eligible to render as the placeholder ``P``:
     positional-only, positional, keyword-only, ``*args``, ``**kwargs``.
@@ -328,12 +369,7 @@ def _function_parameter_names(node: _FunctionDefNode) -> frozenset[str]:
     Returns:
         The frozenset of ``P``-eligible parameter names.
     """
-    args = node.args
-    names = {a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)}
-    if args.vararg is not None:
-        names.add(args.vararg.arg)
-    if args.kwarg is not None:
-        names.add(args.kwarg.arg)
+    names = {param.arg for param in _all_parameters(node)}
     return frozenset(names - {_SELF_NAME, _CLS_NAME})
 
 
@@ -668,6 +704,27 @@ def _mapping_key_text(key: ast.expr) -> str:
     return _STRING_TOKEN if isinstance(key.value, str) else repr(key.value)
 
 
+def _peel_attribute_chain(node: ast.expr) -> tuple[str, list[str]] | None:
+    """Peel *node*'s outer ``.attr`` accesses down to its root ``Name``.
+
+    Args:
+        node: The expression to peel.
+
+    Returns:
+        ``(root name, attrs from root outward)``, or ``None`` if *node* is
+        not an attribute chain (zero or more ``.attr`` accesses) ending at a
+        bare name.
+    """
+    parts: list[str] = []
+    cursor: ast.expr = node
+    while isinstance(cursor, ast.Attribute):
+        parts.append(cursor.attr)
+        cursor = cursor.value
+    if not isinstance(cursor, ast.Name):
+        return None
+    return cursor.id, list(reversed(parts))
+
+
 def _model_chain_root(node: ast.expr, scope: RenderScope) -> str | None:
     """If *node* is an attribute chain rooted at a parameter, at ``self``, or
     at a derived root, return its rendered chain text (``P.<attr>...``,
@@ -684,22 +741,19 @@ def _model_chain_root(node: ast.expr, scope: RenderScope) -> str | None:
     Returns:
         The rendered chain text, or ``None`` if *node* is not a model chain.
     """
-    parts: list[str] = []
-    cursor: ast.expr = node
-    while isinstance(cursor, ast.Attribute):
-        parts.append(cursor.attr)
-        cursor = cursor.value
-    if not isinstance(cursor, ast.Name):
+    peeled = _peel_attribute_chain(node)
+    if peeled is None:
         return None
-    if cursor.id == _SELF_NAME:
+    root_id, parts = peeled
+    if root_id == _SELF_NAME:
         root = _SELF_TOKEN
-    elif cursor.id in scope.param_names:
+    elif root_id in scope.param_names:
         root = _PARAM_TOKEN
-    elif cursor.id in scope.derived_roots:
-        root = scope.derived_roots[cursor.id]
+    elif root_id in scope.derived_roots:
+        root = scope.derived_roots[root_id]
     else:
         return None
-    return ".".join([root, *reversed(parts)])
+    return ".".join([root, *parts])
 
 
 def _contains_model_chain(node: ast.expr, scope: RenderScope) -> bool:
@@ -892,6 +946,148 @@ def decision_skeleton(fn: FunctionSource) -> str:
     return "\n".join(lines)
 
 
+#: A parameter annotated with a type from either half of the shared layer is
+#: never language-private -- the same two prefixes `is_rendering_leaf` (below)
+#: allows a call to resolve into.
+_COMMON_MODULE_PREFIX: Final[str] = "datrix_common."
+
+
+def decision_arity(fn: FunctionSource, *, extra_plumbing: frozenset[str] = frozenset()) -> int:
+    """The count of *fn*'s parameters that carry a decision: every
+    positional/keyword/vararg/kwarg parameter after dropping ``self``/``cls``
+    (the same rule ``_function_parameter_names`` already applies for
+    ``P``-eligibility), dropping any parameter whose annotation resolves,
+    through ``fn.import_table``, to a type OUTSIDE both
+    ``datrix_common``/``datrix_codegen_common`` -- a package's own
+    transpiler-core or file-scope type, present under a different concrete
+    name in every language's version of a dispatch function and therefore
+    never itself a decision -- and dropping any parameter whose NAME is in
+    *extra_plumbing*. An unannotated parameter is never dropped by its
+    annotation -- there is nothing to resolve -- so it counts unless its
+    name is in *extra_plumbing*.
+
+    Two functions reading a different number of real inputs make a
+    different decision even when their statement-level skeletons otherwise
+    match: the eight geo query builders take one MORE parameter in python
+    (``entity_name``, ``field_snake``, ``rest`` -- arity 3) than in
+    dotnet/java (``field_expr``/``field``, ``rest`` -- arity 2).
+
+    *extra_plumbing* exists because arity is measured PER ROLE, not per
+    member: a parameter name any member of a role drops as language-private
+    plumbing must be dropped for every member sharing that name, even a
+    member whose own annotation resolves inside the shared layer and so
+    would not, on its own, be dropped by the rule above --
+    ``decision_parity.py``'s ``_classify_role`` computes the union of
+    ``plumbing_parameter_names`` across a role's members and passes it back
+    in here for each one.
+
+    Args:
+        fn: The function to measure.
+        extra_plumbing: Parameter names to drop regardless of annotation --
+            names a sibling member of the same role already drops as
+            language-private.
+
+    Returns:
+        The decision-bearing parameter count.
+    """
+    return sum(
+        1
+        for param in _all_parameters(fn.node)
+        if param.arg not in (_SELF_NAME, _CLS_NAME)
+        and param.arg not in extra_plumbing
+        and not _is_language_private_annotation(param.annotation, fn.import_table)
+    )
+
+
+def plumbing_parameter_names(fn: FunctionSource) -> frozenset[str]:
+    """The names of *fn*'s parameters that ``decision_arity`` drops as
+    language-private plumbing: every non-``self``/``cls`` parameter whose
+    annotation resolves, through ``fn.import_table``, to a type outside both
+    halves of the shared layer. Exposed so a role's classifier can drop the
+    same NAMES from every member -- a language whose file-scope subclass
+    happens to live in the shared layer must not count a parameter its
+    sibling languages drop.
+
+    Args:
+        fn: The function to inspect.
+
+    Returns:
+        The frozenset of plumbing parameter names.
+    """
+    return frozenset(
+        param.arg
+        for param in _all_parameters(fn.node)
+        if param.arg not in (_SELF_NAME, _CLS_NAME)
+        and _is_language_private_annotation(param.annotation, fn.import_table)
+    )
+
+
+def _is_language_private_annotation(annotation: ast.expr | None, import_table: dict[str, str]) -> bool:
+    """Whether *annotation* resolves, through *import_table*, to a type this
+    package does not share with the rest of the pipeline. An unannotated
+    parameter, a builtin, and anything under ``datrix_common``/
+    ``datrix_codegen_common`` are never language-private; an unresolvable
+    shape (a subscript, a union, a bare name absent from the import table,
+    or a quoted forward-reference string that does not parse to one of
+    those two resolvable shapes) is treated as not-provably-private -- the
+    fail-open direction is correct here because failing closed would DROP a
+    real parameter from the arity count on a shape this function cannot
+    resolve, silently hiding a genuine arity difference.
+
+    Args:
+        annotation: The parameter's annotation expression, or ``None``.
+        import_table: The function's own file's import table.
+
+    Returns:
+        True iff *annotation* is provably a language-private type.
+    """
+    if annotation is None:
+        return False
+    qualified = _qualified_annotation_name(annotation, import_table)
+    if qualified is None:
+        return False
+    return not qualified.startswith((_SHARED_LAYER_MODULE_PREFIX, _COMMON_MODULE_PREFIX))
+
+
+def _qualified_annotation_name(node: ast.expr, import_table: dict[str, str]) -> str | None:
+    """Resolve a bare ``Name`` or a ``Name``-rooted attribute chain to a
+    fully-qualified name via *import_table*; ``None`` for any other shape.
+
+    A quoted forward-reference string (``"Command"``, needed only to satisfy
+    a linter under ``from __future__ import annotations``, which already
+    defers evaluation of an unquoted one) is re-parsed as an expression
+    first -- the same technique ``decision_parity.py``'s
+    ``_parse_string_annotation`` uses for a return annotation -- then
+    resolved the same way; a string that fails to parse is unresolvable,
+    not an error, matching this function's own fail-open contract (unlike
+    ``_parse_string_annotation``'s fail-closed one, which serves role
+    *grouping* rather than an arity count that must never silently drop a
+    real parameter).
+
+    Args:
+        node: The annotation expression (or a piece of one).
+        import_table: The function's own file's import table.
+
+    Returns:
+        The fully-qualified name, or ``None`` if unresolvable.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        try:
+            node = ast.parse(node.value, mode="eval").body
+        except SyntaxError:
+            return None
+    if isinstance(node, ast.Name):
+        return import_table.get(node.id)
+    attrs: list[str] = []
+    cursor: ast.expr = node
+    while isinstance(cursor, ast.Attribute):
+        attrs.append(cursor.attr)
+        cursor = cursor.value
+    if not attrs or not isinstance(cursor, ast.Name) or cursor.id not in import_table:
+        return None
+    return ".".join([import_table[cursor.id], *reversed(attrs)])
+
+
 def _emit_block(body: list[ast.stmt], scope: RenderScope, lines: list[str]) -> None:
     for stmt in body:
         _emit_statement(stmt, scope, lines)
@@ -924,14 +1120,14 @@ def _emit_statement(stmt: ast.stmt, scope: RenderScope, lines: list[str]) -> Non
             _emit_match(subject, cases, scope, lines)
         case ast.FunctionDef(body=body) | ast.AsyncFunctionDef(body=body):
             _emit_block(body, scope.nested(stmt), lines)
-        case ast.ClassDef(body=body) | ast.With(body=body) | ast.AsyncWith(body=body):
+        case ast.ClassDef(body=body):
             _emit_block(body, scope, lines)
-        case (
-            ast.Try(body=body, handlers=handlers, orelse=orelse, finalbody=finalbody)
-            | ast.TryStar(body=body, handlers=handlers, orelse=orelse, finalbody=finalbody)
-        ):
-            for nested in (body, *(handler.body for handler in handlers), orelse, finalbody):
-                _emit_block(nested, scope, lines)
+        case ast.With(items=items, body=body) | ast.AsyncWith(items=items, body=body):
+            _emit_with(items, body, scope, lines)
+        case ast.Try(body=body, handlers=handlers, orelse=orelse, finalbody=finalbody):
+            _emit_try("try", body, handlers, orelse, finalbody, scope, lines)
+        case ast.TryStar(body=body, handlers=handlers, orelse=orelse, finalbody=finalbody):
+            _emit_try("trystar", body, handlers, orelse, finalbody, scope, lines)
         case (
             ast.Return()
             | ast.Raise()
@@ -952,6 +1148,71 @@ def _emit_statement(stmt: ast.stmt, scope: RenderScope, lines: list[str]) -> Non
                 f"row for the new statement kind (a decision-free kind joins "
                 f"_NO_DECISION_STATEMENT_KINDS)."
             )
+
+
+def _emit_try(
+    keyword: str,
+    body: list[ast.stmt],
+    handlers: list[ast.ExceptHandler],
+    orelse: list[ast.stmt],
+    finalbody: list[ast.stmt],
+    scope: RenderScope,
+    lines: list[str],
+) -> None:
+    """Emit a ``try``/``except``[*]/``else``/``finally`` block as skeleton
+    structure: a ``try``/``trystar`` line, the guarded body, one
+    ``except <type>`` line per handler (the exception type rendered through
+    ``render_expr`` like any other expression -- a bare exception class name
+    is never a model chain and collapses to ``_``, so ``except ValueError``
+    and ``except KeyError`` read the same unless the type itself is
+    model-rooted) followed by that handler's body, an ``else`` block when
+    present, a ``finally`` block when present, and a closing
+    ``end<keyword>`` line.
+
+    A handler that returns/continues already contributes its own line via
+    the normal statement dispatch; what this function adds is the
+    ``try``/``except``/``endtry`` BOUNDARY, so a function that wraps a call
+    in a swallow-and-return handler and a function that makes the same call
+    unguarded no longer compare equal merely because both eventually
+    contribute a matching ``return`` line.
+
+    Args:
+        keyword: ``"try"`` or ``"trystar"``.
+        body: The guarded statements.
+        handlers: The ``except``/``except*`` clauses, in source order.
+        orelse: The ``else`` block, empty if absent.
+        finalbody: The ``finally`` block, empty if absent.
+        scope: The enclosing scope.
+        lines: The skeleton lines accumulator.
+    """
+    lines.append(keyword)
+    _emit_block(body, scope, lines)
+    for handler in handlers:
+        exc_text = render_expr(handler.type, scope) if handler.type is not None else _COLLAPSED
+        lines.append(f"except {exc_text}")
+        _emit_block(handler.body, scope, lines)
+    _emit_else(orelse, scope, lines)
+    if finalbody:
+        lines.append("finally")
+        _emit_block(finalbody, scope, lines)
+    lines.append(f"end{keyword}")
+
+
+def _emit_with(
+    items: list[ast.withitem], body: list[ast.stmt], scope: RenderScope, lines: list[str]
+) -> None:
+    """Emit ``with``/``async with`` as skeleton structure: one ``with <expr>``
+    line per context manager (rendered through ``render_expr`` -- a
+    model-rooted context manager keeps its chain, e.g. ``with entity.lock:``
+    renders ``with P.lock``), the body, and a closing ``endwith`` line. The
+    ``as <name>`` target is never rendered -- identifiers never enter the
+    skeleton (module docstring); a captured name that is READ becomes a
+    derived root exactly as it already does today via ``_target_bindings``.
+    """
+    for item in items:
+        lines.append(f"with {render_expr(item.context_expr, scope)}")
+    _emit_block(body, scope, lines)
+    lines.append("endwith")
 
 
 def _simple_statement_lines(stmt: ast.stmt, scope: RenderScope) -> list[str]:
@@ -1183,6 +1444,224 @@ def _is_pass_through_argument(argument: ast.expr, scope: RenderScope) -> bool:
             return chain is None or chain.split(".")[0] == _SELF_TOKEN
         case _:
             return False
+
+
+# ---------------------------------------------------------------------------
+# Rendering-leaf recognition
+# ---------------------------------------------------------------------------
+
+#: Statement kinds that make a decision -- any of these anywhere in *fn*'s
+#: own body (not a nested ``def``/``class``'s own body) denies the
+#: rendering-leaf exemption.
+_DECISION_STATEMENT_KINDS: Final[tuple[type[ast.stmt], ...]] = (
+    ast.If,
+    ast.For,
+    ast.AsyncFor,
+    ast.While,
+    ast.Try,
+    ast.TryStar,
+    ast.With,
+    ast.AsyncWith,
+    ast.Raise,
+)
+#: Both halves of the shared codegen layer -- a call resolving under either
+#: prefix makes no decision of its own; it delegates to code this gate
+#: compares separately at its own definition site.
+_RENDERING_LEAF_SHARED_PREFIXES: Final[tuple[str, ...]] = (
+    _SHARED_LAYER_MODULE_PREFIX,
+    _COMMON_MODULE_PREFIX,
+)
+
+
+def is_rendering_leaf(fn: FunctionSource) -> bool:
+    """Whether *fn* makes no decision at all -- the generalization of
+    ``is_pre_binding_adapter`` from a single-statement ``return``-of-call
+    body to a body of any shape, recognized by AST shape only, exactly like
+    the adapter shape it generalizes.
+
+    A rendering leaf's body (after its docstring) contains no
+    decision-bearing statement or comprehension anywhere, no attribute
+    chain rooted at a parameter/``self``/a derived root (a bare, whole
+    parameter reference is allowed -- forwarding it into an f-string or a
+    container literal renders it, it does not decide anything about it;
+    reading a PIECE of it, ``P.<attr>``, is the same disqualifying shape
+    ``_is_pass_through_argument`` already denies for the narrower adapter
+    case), and every call it makes resolves to the shared codegen layer, to
+    the standard library, or to nothing at all in the function's own import
+    table (a genuine Python builtin, or a method call on a non-imported
+    receiver such as a string literal or a local variable -- ``"x".join(...)``,
+    ``value.strip()``). A call resolving to an import from anywhere else --
+    this package's own sibling module, a third-party dependency -- IS a
+    decision and denies the exemption; so does a call to a same-file local
+    name that is not a real Python builtin (a private helper this function
+    delegates to). A docstring-only or ``...``-only body, and a bare
+    ``return <Name>`` of a module-level constant, both qualify vacuously.
+
+    An attribute chain rooted at a parameter whose annotation is
+    language-private (``plumbing_parameter_names`` -- the same rule the
+    skeleton's own decision-arity count already applies) is exempt from the
+    piece-read rule above: such a parameter is never a model root by the
+    skeleton extractor's own definition (only a shared-typed parameter is a
+    root), so a read through it can never surface as a decision the
+    skeleton itself would expose. The exemption carries through a derived
+    root whose own single binding reads nothing but already-exempt names
+    (``_exempt_root_names``) -- naming a private-typed read with a local
+    variable before using it is still only a private-typed read. A chain
+    rooted at ``self``, at a shared-typed or unannotated parameter, or at a
+    derived root sourced even partly from one of those stays disqualifying.
+
+    Args:
+        fn: The function to test.
+
+    Returns:
+        True iff *fn* has the rendering-leaf shape.
+    """
+    body = _body_without_docstring(fn.node.body)
+    if _contains_decision_construct(body):
+        return False
+    scope = RenderScope.for_function(fn.node)
+    exempt_root_names = _exempt_root_names(fn, scope, plumbing_parameter_names(fn))
+    for stmt in body:
+        for node in ast.walk(stmt):
+            if isinstance(node, ast.expr) and _is_disqualifying_attribute_chain(
+                node, scope, exempt_root_names
+            ):
+                return False
+            if isinstance(node, ast.Call) and not _is_rendering_leaf_callee(node.func, fn.import_table):
+                return False
+    return True
+
+
+def _exempt_root_names(
+    fn: FunctionSource, scope: RenderScope, private_param_names: frozenset[str]
+) -> frozenset[str]:
+    """Every root name a chain may be rooted at without disqualifying
+    ``is_rendering_leaf``: *fn*'s own language-private parameters, plus
+    every derived root whose single binding source reads nothing but
+    already-exempt names, resolved to a fixed point (a root sourced two
+    private-typed reads deep is exempt the same as one sourced directly).
+
+    Args:
+        fn: The function being tested.
+        scope: Its top-level render scope, supplying the derived-root table
+            ``is_rendering_leaf`` already built.
+        private_param_names: *fn*'s own language-private parameter names
+            (``plumbing_parameter_names``).
+
+    Returns:
+        The frozenset of exempt root names.
+    """
+    single_sourced = {
+        binding.name: binding.source
+        for binding in _collect_bindings(_body_without_docstring(fn.node.body))
+        if binding.name in scope.derived_roots and binding.source is not None
+    }
+    exempt = set(private_param_names)
+    changed = True
+    while changed:
+        changed = False
+        for name, source in single_sourced.items():
+            if name not in exempt and _every_model_chain_rooted_in(source, scope, frozenset(exempt)):
+                exempt.add(name)
+                changed = True
+    return frozenset(exempt)
+
+
+def _every_model_chain_rooted_in(node: ast.expr, scope: RenderScope, allowed_roots: frozenset[str]) -> bool:
+    """Whether every model-chain root anywhere in *node* is a name in
+    *allowed_roots* -- vacuously true when *node* contains no model chain
+    at all."""
+    for sub in ast.walk(node):
+        if not isinstance(sub, ast.expr) or _model_chain_root(sub, scope) is None:
+            continue
+        peeled = _peel_attribute_chain(sub)
+        if peeled is None or peeled[0] not in allowed_roots:
+            return False
+    return True
+
+
+def _contains_decision_construct(body: list[ast.stmt]) -> bool:
+    """Whether *body* holds a decision-bearing statement or a comprehension
+    anywhere, never descending into a nested ``def``/``class``'s own body
+    (its decisions are its own).
+
+    Recurses only through ``_nested_blocks`` -- the same helper
+    ``_collect_bindings`` uses for the identical "own scope only" concern --
+    rather than ``ast.walk``, because ``ast.walk`` over a statement already
+    enumerates every descendant, nested ``def``/``class`` bodies included;
+    skipping just the wrapper node in that flat sequence does not stop its
+    children from being visited afterward.
+    """
+    for stmt in body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if isinstance(stmt, _DECISION_STATEMENT_KINDS):
+            return True
+        if any(
+            isinstance(node, _ComprehensionNode)
+            for expression in _direct_expressions(stmt)
+            for node in ast.walk(expression)
+        ):
+            return True
+        if any(_contains_decision_construct(nested) for nested in _nested_blocks(stmt)):
+            return True
+    return False
+
+
+def _is_disqualifying_attribute_chain(
+    node: ast.expr, scope: RenderScope, exempt_root_names: frozenset[str]
+) -> bool:
+    """A model chain with at least one ``.attr`` beyond its root -- reading a
+    PIECE of a parameter/``self``/derived root is a decision; a bare
+    reference with no attribute access is not. Exempted when the chain's
+    root is a name in *exempt_root_names* (``_exempt_root_names`` --
+    ``fn``'s language-private parameters, per ``plumbing_parameter_names``,
+    plus every derived root sourced only from such reads): the skeleton
+    extractor's own decision-arity count already treats a language-private
+    parameter as never a model root, so a read through it, or through a
+    local variable that reads nothing else, is not a disqualifying decision
+    either.
+    """
+    chain = _model_chain_root(node, scope)
+    if chain is None or "." not in chain:
+        return False
+    peeled = _peel_attribute_chain(node)
+    return peeled is None or peeled[0] not in exempt_root_names
+
+
+def _is_rendering_leaf_callee(func: ast.expr, import_table: dict[str, str]) -> bool:
+    """Whether a call's callee makes no decision of its own.
+
+    Args:
+        func: The ``Call.func`` expression.
+        import_table: The function's own file's import table.
+
+    Returns:
+        True iff the callee resolves to the shared codegen layer, to the
+        standard library, to a genuine builtin, or to a method call on a
+        non-imported receiver. False for a callee resolving to any other
+        import (a sibling package, a third-party dependency) or to a
+        same-file local name that is not a builtin.
+    """
+    match func:
+        case ast.Name(id=name):
+            if name in import_table:
+                return _is_shared_or_stdlib(import_table[name])
+            return hasattr(builtins, name)
+        case ast.Attribute(value=ast.Name(id=root), attr=attr):
+            if root in import_table:
+                return _is_shared_or_stdlib(f"{import_table[root]}.{attr}")
+            return True
+        case ast.Attribute():
+            return True
+        case _:
+            return True
+
+
+def _is_shared_or_stdlib(qualified: str) -> bool:
+    if qualified.startswith(_RENDERING_LEAF_SHARED_PREFIXES):
+        return True
+    return qualified.split(".", 1)[0] in sys.stdlib_module_names
 
 
 # ---------------------------------------------------------------------------
@@ -1907,12 +2386,87 @@ def _run_derived_root_checks() -> bool:
     ok &= _assert(
         captures
         == (
-            "if P.lock.contended\nraise\nendif\nmatch P.kind\ncase class(_) if P.kind.name\n"
-            "return P.kind.name\ncase _\nreturn P.kind\nendmatch"
+            "with P.lock\nif P.lock.contended\nraise\nendif\nendwith\nmatch P.kind\n"
+            "case class(_) if P.kind.name\nreturn P.kind.name\ncase _\nreturn P.kind\nendmatch"
         ),
         "(26) with-as and case captures over a model-rooted subject are derived roots (keyword capture spells .attr)",
     )
     return ok
+
+
+def _run_arity_checks() -> bool:
+    """Arity is role-level: ``plumbing_parameter_names`` names a
+    private-annotated parameter and stays empty for a shared-annotated one;
+    ``decision_arity(fn, extra_plumbing=...)`` drops a name regardless of
+    whose own annotation earned it, which is what lets a role-level union
+    reconcile a parameter one member drops for annotation reasons the other
+    members don't share."""
+    ok = True
+    private_annotated = _function_source_from_code(
+        """
+        from datrix_codegen_java.transpiler.scope import JavaFileScope
+
+        def emit_break_statement(scope: JavaFileScope):
+            return scope
+        """
+    )
+    shared_annotated = _function_source_from_code(
+        """
+        from datrix_common.transpiler.scope import FileScope
+
+        def emit_break_statement(scope: FileScope):
+            return scope
+        """
+    )
+    unannotated = _function_source_from_code(
+        "def emit_break_statement(scope):\n    return scope\n"
+    )
+    ok &= _assert(
+        plumbing_parameter_names(private_annotated) == frozenset({"scope"})
+        and plumbing_parameter_names(shared_annotated) == frozenset()
+        and plumbing_parameter_names(unannotated) == frozenset(),
+        "(27) plumbing_parameter_names names a private-annotated parameter; a shared-annotated or "
+        "unannotated one names none",
+    )
+    ok &= _assert(
+        decision_arity(shared_annotated) == 1 and decision_arity(shared_annotated, extra_plumbing=frozenset({"scope"})) == 0,
+        "(28) decision_arity(fn, extra_plumbing=...) drops a role-plumbing name even on a shared-annotated member",
+    )
+    return ok
+
+
+def _run_rendering_leaf_privacy_checks() -> bool:
+    """``is_rendering_leaf`` grants the same parameter-privacy exemption
+    ``decision_arity`` already applies to arity (D1 -- only a shared-typed
+    parameter is a model root): a function whose only param-attribute reads
+    are on a private-typed parameter, directly or through a derived root
+    sourced only from it, is a rendering leaf; an otherwise identical
+    function reading a shared-typed parameter's attribute the same way is
+    not."""
+    private_leaf = _function_source_from_code(
+        """
+        from datrix_codegen_java.transpiler.scope import JavaFileScope
+
+        def build_import_line(scope: JavaFileScope, helper: str) -> str:
+            module = scope.transpiler.module_name
+            return f"import {module}.{helper}"
+        """
+    )
+    shared_not_leaf = _function_source_from_code(
+        """
+        from datrix_common.transpiler.scope import FileScope
+
+        def build_import_line(scope: FileScope, helper: str) -> str:
+            module = scope.transpiler.module_name
+            return f"import {module}.{helper}"
+        """
+    )
+    return _assert(
+        is_rendering_leaf(private_leaf) and not is_rendering_leaf(shared_not_leaf),
+        "(29) is_rendering_leaf exempts a private-typed parameter's attribute reads, and a "
+        "derived root sourced only from them, from the piece-read rule; the same shape over "
+        "a shared-typed parameter stays disqualifying",
+    )
 
 
 def run_self_test() -> bool:
@@ -1920,8 +2474,10 @@ def run_self_test() -> bool:
     skeletons for rendering-only variants, unequal skeletons for
     decision-differing variants, adapter recognition by shape only, import
     resolution through TYPE_CHECKING and relative imports, fail-closed
-    parsing, derived-root resolution, and a whole-grammar sweep that raises
-    on nothing classifiable.
+    parsing, derived-root resolution, role-level arity, the rendering-leaf
+    exemption for a language-private parameter (and a derived root sourced
+    only from it), and a whole-grammar sweep that raises on nothing
+    classifiable.
 
     Returns:
         True iff every assertion passed.
@@ -1938,6 +2494,8 @@ def run_self_test() -> bool:
         "(20) every statement and match-pattern kind in the grammar is swept and none raises",
     )
     ok &= _run_derived_root_checks()
+    ok &= _run_arity_checks()
+    ok &= _run_rendering_leaf_privacy_checks()
     return ok
 
 

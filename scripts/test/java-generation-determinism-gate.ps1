@@ -6,13 +6,13 @@
   never produce two different outcomes.
 
 .DESCRIPTION
-  Background: a bless sweep for the java parity baseline found that running
-  the IDENTICAL command against an UNCHANGED tree three times in a row
-  produced THREE DIFFERENT outcomes -- once failing inside the "generate:java"
+  Background: a corpus generation sweep for java found that running the
+  IDENTICAL command against an UNCHANGED tree three times in a row produced
+  THREE DIFFERENT outcomes -- once failing inside the "generate:java"
   pipeline stage itself (a struct-test planner unable to resolve a struct from
   the Application it was planned against), twice failing later at `mvnw
   compile` with a set of Java compiler errors. Same input, same invocation,
-  different output: every java parity baseline is only provisionally
+  different output: no conclusion drawn from one java generation is
   trustworthy until this class of regression is caught automatically.
 
   Each run is its OWN `generate.ps1` process (a fresh `python.exe`
@@ -20,11 +20,9 @@
   bugs that a single long-lived process would never surface -- a `set`
   iterated without a deterministic sort produces different orderings across
   separate Python processes by default, but always the same ordering within
-  one process. `dev\byte-identity-generate.ps1` diffs a "before" code state
-  against the current tree (proving a CODE CHANGE is output-neutral); it does
-  NOT run the same code twice, so it cannot catch this class of bug. This
-  gate closes that hole: same code, N runs, N outcomes compared to each
-  other.
+  one process. No before/after comparison of two code states can catch this
+  class of bug, because it never runs the same code twice. This gate does:
+  same code, N runs, N outcomes compared to each other.
 
   The gate:
     1. Generates the reference example N times (default 5, matching the

@@ -130,9 +130,9 @@ _VIOLATION_MESSAGES: dict[str, str] = {
 
 
 def example_id_from_system_dtrx(system_dtrx: Path) -> str:
-    """The SAME dash-joined example id
-    `reference_example_parity.example_id()` computes -- both gates must agree
-    on identity for the same disk example.
+    """The SAME dash-joined example id `artifact_role_parity.example_id()`
+    computes (and parity-known-nongenerating.json keys on) -- both gates must
+    agree on identity for the same disk example.
 
     Args:
         system_dtrx: Absolute path to a `system.dtrx` under `EXAMPLES_ROOT`.

@@ -189,10 +189,13 @@ from test.decision_skeleton import (  # noqa: E402
     FunctionSource,
     SkeletonError,
     build_import_table,
+    decision_arity,
     decision_skeleton,
     is_pre_binding_adapter,
+    is_rendering_leaf,
     normalized_source,
     parse_module_or_raise,
+    plumbing_parameter_names,
 )
 from test.supported_domain_parity import stance_table_by_language  # noqa: E402
 
@@ -331,6 +334,7 @@ class RoleVerdict:
     verdict: Verdict
     members: tuple[FunctionSource, ...]
     adapter_exempt: bool
+    rendering_leaf_exempt: bool
 
 
 # ---------------------------------------------------------------------------
@@ -835,7 +839,15 @@ def _classify_role(members: tuple[FunctionSource, ...]) -> Verdict:
 
     Returns:
         ``identical`` if every member's ``normalized_source`` is equal; else
-        ``same-decisions`` if every member's ``decision_skeleton`` is equal;
+        ``same-decisions`` if every member's ``(decision_skeleton,
+        decision_arity)`` pair is equal, with arity computed ROLE-LEVEL: the
+        plumbing parameter set is the union of every member's own
+        ``plumbing_parameter_names`` (plumbing names dropped across every
+        member), so a parameter name any member drops as language-private
+        plumbing is dropped for every member, not just the one whose own
+        annotation is private -- two members whose statement-level
+        skeletons match but that read a different number of REAL inputs
+        (the geo query builder shape) still are NOT the same decision;
         else ``decision-divergence``.
 
     Raises:
@@ -844,7 +856,11 @@ def _classify_role(members: tuple[FunctionSource, ...]) -> Verdict:
     """
     if len({normalized_source(member) for member in members}) == 1:
         return _VERDICT_IDENTICAL
-    if len({decision_skeleton(member) for member in members}) == 1:
+    plumbing = frozenset[str]().union(*(plumbing_parameter_names(member) for member in members))
+    skeleton_arity_pairs = {
+        (decision_skeleton(member), decision_arity(member, extra_plumbing=plumbing)) for member in members
+    }
+    if len(skeleton_arity_pairs) == 1:
         return _VERDICT_SAME_DECISIONS
     return _VERDICT_DIVERGENCE
 
@@ -943,6 +959,7 @@ def group_and_classify_roles(
                 verdict=_classify_role(members_tuple),
                 members=members_tuple,
                 adapter_exempt=all(is_pre_binding_adapter(member) for member in members_tuple),
+                rendering_leaf_exempt=all(is_rendering_leaf(member) for member in members_tuple),
             )
         )
     return sorted(verdicts, key=lambda verdict: role_label(verdict.role_key))
@@ -1015,21 +1032,36 @@ def member_reference(member: FunctionSource, workspace_root: Path) -> str:
 def verdict_line(verdict: RoleVerdict, workspace_root: Path) -> str:
     """One report line for *verdict*."""
     members = ", ".join(member_reference(member, workspace_root) for member in verdict.members)
-    exempt_suffix = " adapter-exempt" if verdict.adapter_exempt else ""
+    suffixes = [
+        label
+        for flag, label in (
+            (verdict.adapter_exempt, "adapter-exempt"),
+            (verdict.rendering_leaf_exempt, "rendering-leaf-exempt"),
+        )
+        if flag
+    ]
+    suffix_text = "".join(f" {label}" for label in suffixes)
     return (
         f"VERDICT kind={verdict.kind} role={role_label(verdict.role_key)} "
-        f"verdict={verdict.verdict}{exempt_suffix} members=[{members}]"
+        f"verdict={verdict.verdict}{suffix_text} members=[{members}]"
     )
 
 
 def _log_bucket_counts(verdicts: Sequence[RoleVerdict]) -> None:
     """The per-bucket summary line every report ends with."""
     counts = Counter(verdict.verdict for verdict in verdicts)
+    adapter_exempt_counts = Counter(verdict.verdict for verdict in verdicts if verdict.adapter_exempt)
+    leaf_exempt_counts = Counter(verdict.verdict for verdict in verdicts if verdict.rendering_leaf_exempt)
     logger.info(
-        "DECISION-PARITY REPORT: %d role(s) -- %d identical, %d same-decisions, %d decision-divergence.",
+        "DECISION-PARITY REPORT: %d role(s) -- %d identical (%d adapter-exempt, %d rendering-leaf-exempt), "
+        "%d same-decisions (%d adapter-exempt, %d rendering-leaf-exempt), %d decision-divergence.",
         len(verdicts),
         counts[_VERDICT_IDENTICAL],
+        adapter_exempt_counts[_VERDICT_IDENTICAL],
+        leaf_exempt_counts[_VERDICT_IDENTICAL],
         counts[_VERDICT_SAME_DECISIONS],
+        adapter_exempt_counts[_VERDICT_SAME_DECISIONS],
+        leaf_exempt_counts[_VERDICT_SAME_DECISIONS],
         counts[_VERDICT_DIVERGENCE],
     )
 
@@ -1066,20 +1098,23 @@ def _type_qualname(context_type: type) -> str:
 
 @functools.cache
 def _rich_context_type_qualnames() -> Mapping[str, tuple[str, ...]]:
-    """Reverse map ``"module.QualName" -> (domain_id, ...)`` over the shared
-    parity registry's rich context types.
+    """Reverse map ``"module.QualName" -> (domain_id, ...)`` over every type
+    registered for every shared parity registry domain.
 
     Built lazily on first use and cached for the process: the registry is
     itself computed at import time, so a first-call cache (rather than a
     module-level constant) avoids any import-order hazard, and
-    ``resolve_domain`` runs once per role over hundreds of roles. A type
-    shared by several domains -- the test-plan context every ``*_test``
-    domain binds -- maps to every one of them; ladder step 1 requires
-    EXACTLY one, so such a type never resolves there.
+    ``resolve_domain`` runs once per role over hundreds of roles. A domain
+    that registers several distinct types (a multi-context micro-generator)
+    contributes one reverse-map entry per type, all pointing back at that one
+    domain id. A type shared by SEVERAL domains -- the test-plan context
+    every ``*_test`` domain binds -- maps to every one of them; ladder step 1
+    requires EXACTLY one, so such a type never resolves there.
     """
     reverse: dict[str, list[str]] = {}
-    for domain_id, context_type in _RICH_CONTEXT_TYPES.items():
-        reverse.setdefault(_type_qualname(context_type), []).append(domain_id)
+    for domain_id, context_types in _RICH_CONTEXT_TYPES.items():
+        for context_type in context_types:
+            reverse.setdefault(_type_qualname(context_type), []).append(domain_id)
     return MappingProxyType({qualname: tuple(ids) for qualname, ids in reverse.items()})
 
 
@@ -1792,13 +1827,16 @@ def lagging_languages(role: RoleVerdict, reference: str) -> tuple[str, ...]:
 
 def _duplicate_skeleton_reasons(verdict: RoleVerdict) -> tuple[str, ...]:
     """``identical``/``same-decisions``: fail unless every member is a
-    pre-binding adapter (AST shape; no written exemption)."""
-    if verdict.adapter_exempt:
+    pre-binding adapter or a rendering leaf (AST shape; no written
+    exemption). ``same-decisions`` compares role-level arity (plumbing names
+    dropped across every member), so this failure also covers a role whose
+    members read the same real parameter count once plumbing is reconciled."""
+    if verdict.adapter_exempt or verdict.rendering_leaf_exempt:
         return ()
     packages = sorted({member.package for member in verdict.members})
     return (
         f"{verdict.verdict}: one decision skeleton lives in {len(packages)} packages {packages} and the members "
-        f"are not pre-binding adapters",
+        f"are not pre-binding adapters or rendering leaves",
     )
 
 
@@ -2008,6 +2046,7 @@ def _synthetic_role(
         verdict=verdict,
         members=tuple(members),
         adapter_exempt=False,
+        rendering_leaf_exempt=False,
     )
 
 
@@ -2793,6 +2832,161 @@ def _self_test_case_collect_emit_tables() -> bool:
     return found and refused
 
 
+def _self_test_case_try_except_structure() -> bool:
+    """(u) A member that wraps its only call in ``try/except ...: return
+    False`` diverges from a sibling that makes the same call unguarded --
+    the new try/except BOUNDARY, not just the extra ``return``, is what must
+    show, since both members already contribute a matching ``return False``
+    line inside their own control flow."""
+    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-u-") as tmp:
+        root = Path(tmp)
+        _write_module(
+            root / _SELF_TEST_ALPHA,
+            "def guarded_thing(command):\n"
+            "    if not command.ready:\n"
+            "        return False\n"
+            "    return True\n",
+        )
+        _write_module(
+            root / _SELF_TEST_BETA,
+            "def guarded_thing(command):\n"
+            "    try:\n"
+            "        if not command.ready:\n"
+            "            return False\n"
+            "    except ValueError:\n"
+            "        return False\n"
+            "    return True\n",
+        )
+        verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
+        return _single_role_with_verdict(_name_roles(verdicts, "guarded_thing"), _VERDICT_DIVERGENCE)
+
+
+def _self_test_case_decision_arity() -> bool:
+    """(v) Two members whose statement-level skeletons render identically
+    but read a different number of real parameters (arity 3 vs 2, the geo
+    query builder shape) land in ``decision-divergence``."""
+    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-v-") as tmp:
+        root = Path(tmp)
+        _write_module(root / _SELF_TEST_ALPHA, "def build_point(field, rest):\n    return field\n")
+        _write_module(root / _SELF_TEST_BETA, "def build_point(entity_name, field, rest):\n    return field\n")
+        verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
+        return _single_role_with_verdict(_name_roles(verdicts, "build_point"), _VERDICT_DIVERGENCE)
+
+
+def _self_test_case_rendering_leaf_exempt() -> bool:
+    """(w) A role whose every member's body is a docstring-only carrier (the
+    ``registry_definition`` shape -- no ``return`` at all) is
+    ``rendering_leaf_exempt`` though it is not a pre-binding adapter."""
+    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-w-") as tmp:
+        root = Path(tmp)
+        body = 'def registry_thing():\n    """\n    generator thing { }\n    """\n'
+        _write_module(root / _SELF_TEST_ALPHA, body)
+        _write_module(root / _SELF_TEST_BETA, body)
+        verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
+        matches = _name_roles(verdicts, "registry_thing")
+        return (
+            _single_role_with_verdict(matches, _VERDICT_IDENTICAL)
+            and matches[0].rendering_leaf_exempt
+            and not matches[0].adapter_exempt
+        )
+
+
+def _self_test_case_rendering_leaf_denies_private_callee() -> bool:
+    """(x) A body with no branch and no attribute chain, but that calls a
+    same-package sibling function, is NOT rendering-leaf-exempt --
+    delegating to language-private logic is a decision even when the
+    delegating body itself makes no branch -- and the role stays
+    ``same-decisions`` (i.e. still fails the gate)."""
+    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-x-") as tmp:
+        root = Path(tmp)
+        body = (
+            "def _own_private_helper(value):\n    return value\n\n"
+            "def leafy_thing(value):\n    return _own_private_helper(value)\n"
+        )
+        _write_module(root / _SELF_TEST_ALPHA, body)
+        _write_module(root / _SELF_TEST_BETA, body)
+        verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
+        matches = _name_roles(verdicts, "leafy_thing")
+        return _single_role_with_verdict(matches, _VERDICT_IDENTICAL) and not matches[0].rendering_leaf_exempt
+
+
+def _self_test_case_role_level_arity() -> bool:
+    """(y) Role-level arity: a parameter name a PRIVATE-annotated sibling
+    drops as language-private plumbing is dropped for a SHARED-annotated
+    member of the same role too (the ``emit_break_statement``/
+    ``emit_continue_statement`` shape, where one language's file-scope
+    subclass happens to live inside the shared layer while its siblings'
+    live in their own packages) -- the role lands in ``same-decisions``, not
+    ``decision-divergence``. A second, differently named role planted in the
+    same synthetic tree, where one member takes a real extra unannotated
+    parameter beside the same plumbing-shaped one, still lands in
+    ``decision-divergence``: the role-level rule drops a shared NAME, never
+    a genuine extra input."""
+    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-y-") as tmp:
+        root = Path(tmp)
+        _write_module(
+            root / _SELF_TEST_ALPHA,
+            "from datrix_common.transpiler.scope import FileScope\n\n\n"
+            "def dispatch_role(scope: FileScope):\n"
+            "    return scope\n\n\n"
+            "def other_role(scope: FileScope, value):\n"
+            "    return value\n",
+        )
+        _write_module(
+            root / _SELF_TEST_BETA,
+            "from decision_parity_selftest_beta.scope import BScope\n\n\n"
+            "def dispatch_role(scope: BScope):\n"
+            "    return scope\n\n\n"
+            "def other_role(scope: BScope, value, extra):\n"
+            "    return value\n",
+        )
+        _write_module(
+            root / _SELF_TEST_GAMMA,
+            "from decision_parity_selftest_gamma.scope import CScope\n\n\n"
+            "def dispatch_role(scope: CScope):\n"
+            "    return scope\n",
+        )
+        verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA, _SELF_TEST_GAMMA))
+        dispatch = _name_roles(verdicts, "dispatch_role")
+        other = _name_roles(verdicts, "other_role")
+        return (
+            _single_role_with_verdict(dispatch, _VERDICT_SAME_DECISIONS)
+            and len(dispatch[0].members) == 3
+            and _single_role_with_verdict(other, _VERDICT_DIVERGENCE)
+        )
+
+
+def _self_test_case_rendering_leaf_private_parameter_exemption() -> bool:
+    """(z) A role reading nothing but a language-private parameter's
+    attributes -- directly, and through a derived root bound from one --
+    alongside a role whose trivial return makes no such read at all (the
+    ``_ambient_request_import_line`` shape) lands ``same-decisions
+    rendering-leaf-exempt``, not a bare ``same-decisions`` failure: neither
+    member decides anything the skeleton itself would ever expose."""
+    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-z-") as tmp:
+        root = Path(tmp)
+        _write_module(
+            root / _SELF_TEST_ALPHA,
+            "from decision_parity_selftest_alpha.ctx import AlphaContext\n\n\n"
+            "def build_import_line(ctx: AlphaContext, helper):\n"
+            "    module = ctx.transpiler.module_name\n"
+            '    return f"import {module}.{helper}"\n',
+        )
+        _write_module(
+            root / _SELF_TEST_BETA,
+            "from decision_parity_selftest_beta.ctx import BetaContext\n\n\n"
+            "def build_import_line(_ctx: BetaContext, helper):\n"
+            '    return f"import {helper}"\n',
+        )
+        verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
+        matches = _name_roles(verdicts, "build_import_line")
+        return (
+            _single_role_with_verdict(matches, _VERDICT_SAME_DECISIONS)
+            and matches[0].rendering_leaf_exempt
+            and not matches[0].adapter_exempt
+        )
+
+
 def _forget_self_test_package() -> None:
     """Drop the synthetic package's modules from ``sys.modules`` so the case
     re-imports from disk and leaves nothing behind."""
@@ -2892,6 +3086,33 @@ def run_self_test() -> bool:
         _self_test_case_collect_emit_tables(),
         "(s) emit tables: a table in a nested module of a synthetic package is found once; an unimportable module "
         "refuses the collection naming it",
+    )
+    ok &= _assert(
+        _self_test_case_try_except_structure(),
+        "(u) a try/except wrapper around an otherwise-matching call diverges from an unguarded sibling",
+    )
+    ok &= _assert(
+        _self_test_case_decision_arity(),
+        "(v) matching statement lines with a different real parameter count land in 'decision-divergence'",
+    )
+    ok &= _assert(
+        _self_test_case_rendering_leaf_exempt(),
+        "(w) a docstring-only-body role is rendering-leaf-exempt though it is not a pre-binding adapter",
+    )
+    ok &= _assert(
+        _self_test_case_rendering_leaf_denies_private_callee(),
+        "(x) a leaf-shaped body calling a same-package private helper is denied the rendering-leaf exemption",
+    )
+    ok &= _assert(
+        _self_test_case_role_level_arity(),
+        "(y) role-level arity: a plumbing name any member drops is dropped for a shared-annotated sibling too, so "
+        "a same-named parameter differing only in where its private subclass lives no longer splits the role; a "
+        "genuine extra parameter beside it still does",
+    )
+    ok &= _assert(
+        _self_test_case_rendering_leaf_private_parameter_exemption(),
+        "(z) a role reading only a language-private parameter's attributes (directly and through a derived "
+        "root), beside a role with no such read, lands same-decisions rendering-leaf-exempt",
     )
     return ok
 

@@ -26,10 +26,13 @@ GENERATION: THE REAL PIPELINE, NOT A HAND-BUILT CONTEXT
 Generates one small fixture project (module constants below) via
 ``datrix_cli.pipeline.generation.GenerationPipeline`` -- the exact code path
 ``datrix generate`` / ``generate.ps1`` runs -- once per registered target.
-``reference_example_parity.py``'s own docstring records why a hand-built
-``Application``/``CodegenContext`` (``parse_fixture_with_semantics`` +
-``attach_default_configs`` + a package-private test context) is NOT the
-generator and drifts from it; this gate follows that same lesson.
+A hand-built ``Application``/``CodegenContext`` (``parse_fixture_with_semantics``
++ ``attach_default_configs`` + a package-private test context) is NOT the
+generator: it skips ConfigDSL resolution, ``DeploymentPlan.resolve()``,
+``build_runtime_bootstrap()``, the secret-backend policy, the companion
+generators and the post-generation language hooks, and a previous repo gate
+built that way drifted until it could not generate at all. Calling the
+pipeline cannot drift.
 
 ASSERTING ON GENERATED ARTIFACTS, NOT A RUNNING SERVICE (task amendment)
 ---------------------------------------------------------------------------
@@ -93,7 +96,8 @@ import shutil
 import sys
 import tokenize
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field as dataclass_field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Final
 

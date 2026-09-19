@@ -4,23 +4,39 @@
  Cross-language artifact-role parity gate (D7).
 
 .DESCRIPTION
- For every example with >= 2 blessed language baselines under
- datrix/scripts/config/parity-baselines/, classifies each blessed manifest's
- paths by domain role (via each language's own derived
- DomainDeclaration.structural_pattern) and asserts the set of roles with
- >= 1 matching file is identical across that example's blessed languages.
+ For every (example, runtime, provider) generated in >= 2 registered
+ languages under the generate.ps1 output base
+ (<workspace>/.generated/<language>/<runtime>/<provider>/<example>/),
+ classifies each language's generated paths by domain role (via each
+ language's own derived DomainDeclaration.structural_pattern) and asserts
+ the set of roles with >= 1 matching file is identical across those
+ languages.
 
- Generates NOTHING -- reads the blessed .sha256 manifests
- reference-example-parity-gate.ps1 already writes. Replaces nothing: the
- byte gate still pins CONTENT per (example, language) pair; this gate pins
- PRESENCE across languages. Coverage grows automatically as later phases
- bless more of the matrix.
+ Generates NOTHING and stores NOTHING -- it reads the generation pipeline's
+ own per-target manifests (.datrix/manifests/<target>.json: the files each
+ target wrote, plus a generated_at stamp) from the trees generate.ps1 already
+ wrote. There is no committed baseline and no re-recording step: the gate is
+ exactly as current as the local corpus, prints every language's oldest and
+ newest generated_at stamp, and REFUSES to run (exit 2) when any registered
+ language's corpus is incomplete -- a registered example with no generated
+ tree and no entry in scripts/config/parity-known-nongenerating.json -- naming
+ every missing (example, language) pair. Generate the full corpus first, once
+ per registered language:
+
+   .\dev\generate.ps1 -All -L <language>
+
+ A parked example that DOES have a generated tree is a stale park entry and
+ also fails the gate: the recorded defect is fixed and the entry must go.
 
  Runs a built-in non-vacuity self-test on every invocation. Fails loud
- (exit 2) if zero examples have >= 2 blessed language baselines.
+ (exit 2) if zero groups are generated in >= 2 languages.
 
  Repo-level validation script (per the datrix showcase boundary -- no
  pytest suite lives in datrix).
+
+.PARAMETER GeneratedRoot
+ The generate.ps1 output base to read. Default: <workspace>/.generated
+ (generate.ps1's own default -OutputBase).
 
 .PARAMETER Dbg
  Enable debug logging.
@@ -29,14 +45,19 @@
  Run only the non-vacuity self-test and skip the real comparison.
 
 .PARAMETER Census
- Print every (language, domain) the blessed corpus exercises nowhere, with
+ Print every (language, domain) the generated corpus exercises nowhere, with
  its reviewed status from corpus-vacuity-records.json (or UNRECORDED), and
  exit 0. A measurement, not a verdict -- the gate's own verdict on the same
- data runs as part of a normal invocation.
+ data runs as part of a normal invocation. Requires a complete corpus for
+ the same reason the gate does.
 
 .EXAMPLE
  .\artifact-role-parity-gate.ps1
- Run the gate for every example with >= 2 blessed language baselines.
+ Run the gate over every multi-language group under <workspace>/.generated.
+
+.EXAMPLE
+ .\artifact-role-parity-gate.ps1 -GeneratedRoot D:\datrix\.generated
+ Same, with the output base named explicitly.
 
 .EXAMPLE
  .\artifact-role-parity-gate.ps1 -SelfTest
@@ -49,6 +70,9 @@
 
 [CmdletBinding()]
 param(
+    [Parameter()]
+    [string]$GeneratedRoot,
+
     [Parameter()]
     [switch]$Dbg,
 
@@ -89,11 +113,12 @@ try {
     Ensure-DatrixPackagesInstalled
 
     $pythonArgs = @($runnerScript)
+    if ($GeneratedRoot) { $pythonArgs += @("--generated-root", $GeneratedRoot) }
     if ($Dbg) { $pythonArgs += "--debug" }
     if ($SelfTest) { $pythonArgs += "--self-test" }
     if ($Census) { $pythonArgs += "--census" }
 
-    Write-Host "Running artifact-role parity gate (D7, blessed baselines only)" -ForegroundColor Cyan
+    Write-Host "Running artifact-role parity gate (D7, over the local generated corpus)" -ForegroundColor Cyan
     python @pythonArgs
     $exitCode = $LASTEXITCODE
 

@@ -18,16 +18,16 @@
 
 [[baseline]]
 package = "datrix_codegen_dotnet"
-count = 143
+count = 135
 
 [[baseline]]
 package = "datrix_codegen_java"
-count = 125
+count = 117
 
 [[baseline]]
 package = "datrix_codegen_python"
-count = 191
+count = 180
 
 [[baseline]]
 package = "datrix_codegen_typescript"
-count = 240
+count = 227

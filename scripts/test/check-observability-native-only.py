@@ -183,7 +183,7 @@ def scan_examples(examples_root: Path) -> list[Violation]:
 
     A load_system_config failure unrelated to this guard (a pre-existing
     example config defect) is never caught-and-skipped -- it propagates,
-    exactly like reference-example-parity-gate.ps1's generation calls do.
+    exactly like generate.ps1 does for the same example.
     """
     violations: list[Violation] = []
     for config_path in discover_system_configs(examples_root):

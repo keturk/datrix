@@ -613,7 +613,7 @@ entity User extends BaseEntity {
 | Scalar defs, builtin objects, `db_extensions()`, extra deps, templates | Extension pack implementing `DatrixExtension` |
 | Per-language type and ORM mappings | The owning language generator — `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, `datrix-codegen-dotnet`, `datrix-codegen-java`, and every language package added later |
 
-Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhaustive mapping rules still apply: unknown extension keys or unmapped types **fail at generation time** with explicit errors (for example `ExtensionNotSupportedError` from `build_python_type_map` when Python has no map for a declared extension).
+Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhaustive mapping rules still apply: unknown extension keys or unmapped types **fail at generation time** with explicit errors (for example `ExtensionNotSupportedError` from the shared `build_type_map` when Python has no map for a declared extension).
 
 **See also:** [Extensions guide](../../../datrix-extensions/docs/extensions-guide.md) and [Architecture Overview — Domain extension system](./architecture/repository-architecture.md#domain-extension-system).
 

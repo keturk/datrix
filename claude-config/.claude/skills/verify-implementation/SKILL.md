@@ -117,7 +117,7 @@ For each design requirement:
      powershell -File "d:/datrix/datrix/scripts/dev/conformance-gate.ps1" -Spec "D:\datrix\.tmp\verify-{design}-{req}.spec.json"
      ```
      `must_not_contain` is the NEGATIVE half (point `negative_control` at a tree where the forbidden token legitimately appears — the gate fails a vacuous grep); `must_contain` / `file_exists` / `count_equals` cover the POSITIVE half. The ledger JSON + exit code are your pasted evidence, and the spec is re-runnable at Phase 4.
-   - **For "output-neutral" / "byte-identical to pre-change" requirements**, use `dev\byte-identity-generate.ps1` (generates the corpus under before/after code states and byte-diffs the trees) instead of hand-rolled hash comparisons.
+   - **For "output-neutral" / "byte-identical to pre-change" requirements**, point at the test in the owning package that renders the affected construct for a fixture and asserts its output (it must exist and cover the construct), and at the affected closure's green suites. Never a hand-rolled hash comparison and never a stored snapshot — the repo keeps none (`datrix/docs/architecture/generated-output-stability.md`).
    - **NEGATIVE:** prove the old / forbidden construct is gone **everywhere on the requirement's surface set** (sweep the whole set, not one file). Paste the command + output.
    - **POSITIVE:** prove the new path exists and is reachable — read the call chain that reaches it, point at the test that covers it (its existence and content, not a fresh run of it), show generation emitting it, or show the validator rejecting the bad input. Paste the command + output.
    - Put any scratch runners under `D:\datrix\.scripts\`, spec files under `D:\datrix\.tmp\`, output under `D:\datrix\.test-output\`.

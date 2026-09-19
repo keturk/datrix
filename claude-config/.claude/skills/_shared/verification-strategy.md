@@ -163,11 +163,15 @@ Static scans (`dev/semgrep.ps1`, `dev/libcst.ps1`, `dev/check-import-boundaries.
 them in speed — run the ones whose surface you touched before reaching for a suite, never after.
 Execution contract §12.5 holds the surface→check table.
 
-- **`reference-example-parity-gate.ps1`** (~4 min): byte-level manifest of ALL
-  examples × all registered languages through the real pipeline. Run it whenever a
-  codegen package, codegen-common, language, common, or `datrix/examples` changed.
-  For an intended-output-neutral refactor it is *stronger* evidence than consumer
-  unit suites; for intended output changes, re-bless deliberately per its docs.
+- **There is no stored-baseline output gate and no bless step.** The repo keeps no
+  snapshot of generated output (`datrix/docs/architecture/generated-output-stability.md`).
+  An "output-neutral" or "byte-identical" claim is proven by a test in the owning package
+  that renders the construct for a fixture and asserts its output, plus the affected
+  closure's suites — never by a corpus hash and never by re-recording a baseline.
+- **`artifact-role-parity-gate.ps1`** (seconds, reads only): cross-language presence of
+  every domain role, read from the pipeline manifests in the local `.generated/` corpus.
+  Phase-boundary only: it refuses to run until every registered language's corpus is
+  complete (`generate.ps1 -All -L <language>`, which Jon runs — blocked for agents).
 - **`decision-parity-gate.ps1`** (~1 min): groups functions into roles by shared-typed
   signature or normalized name (language tokens stripped) and fails a role whose members carry
   the same decision skeleton, or diverge without every lagging language declaring the construct

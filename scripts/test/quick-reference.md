@@ -365,136 +365,6 @@ discovery/import error occurred.
 
 ---
 
-### `test\reference-example-parity-gate.ps1`
-
-**The repo's proof that generated output does not change unintentionally.** For ONE reference
-example (`PARITY_EXAMPLE_RELPATH` in `scripts/library/test/reference_example_parity.py`), runs
-the **real generation pipeline**
-(`datrix_cli.pipeline.generation.GenerationPipeline` — the same code path `generate.ps1` runs,
-with the same `PipelineConfig` defaults: profile `test`, `format_output=True`, but at
-`validation_level=FAST`) and compares a per-file sha256 manifest of the **whole generated
-output tree** against the stored baseline in
-`datrix/scripts/config/parity-baselines/<example_id>/<language>.sha256`. Any changed byte in any
-generated file, and any file that appears or disappears, fails the gate.
-
-**`FAST`, not the CLI's `STANDARD`.** Every byte-shaping hook still runs (`fix_imports`,
-`format_files`); only `validate_files` — the read-only compile pass (`tsc --noEmit`,
-`mvnw compile`, `dotnet build`) — is skipped. It writes nothing the manifest covers (its build
-directories are already excluded), so it could never change the verdict, and it cost a compiler
-plus a full `node_modules` tree per (example, language) pair — enough, across a corpus bless, to
-exhaust the reference machine. Whether generated output compiles is proven by each language
-package's own hook tests and by `generate.ps1` at `STANDARD`.
-
-**One example, not the corpus.** `datrix/examples/` covers DSL features; this gate detects
-drift, and drift in a shared template surfaces in the FIRST example that renders it — so
-sweeping all of them bought redundancy rather than coverage, at one full pipeline run per
-example per language. It also made blessing unusable: whole-tree manifests written at example
-granularity meant an intentional one-line change could not be blessed without also blessing
-every unrelated pending delta in the same tree. The corpus example must generate in EVERY
-registered language, which is a real constraint — most examples do not.
-
-Repo-level validation **script**, not a pytest suite (per the datrix showcase boundary), and
-`datrix_codegen_common` may not import `datrix_cli`.
-
-| Mode | Command | Description |
-|------|---------|-------------|
-| **Run the gate** | `.\test\reference-example-parity-gate.ps1` | Check the corpus example, once per registered language |
-| **Another example** | `.\test\reference-example-parity-gate.ps1 -Example "02-features/01-core-data-modeling/identity"` | Check any example by name, corpus member or not |
-| **Debug** | `.\test\reference-example-parity-gate.ps1 -Dbg` | DEBUG logging (very verbose: every pipeline stage) |
-
-**Parameters:** `-Example` (path relative to `datrix/examples/`, optional — default is the corpus
-example; an explicit value may name ANY example), `-Dbg`
-
-**Sweeps the registered language set.** The target generation language is a real CLI input
-(`datrix generate --language`, forwarded by `generate.ps1`/`generate.py`) rather than a
-`config/system.dcfg` field, so every example is genuinely generatable in every registered
-`datrix.languages` target. Each selected example is generated and checked once **per registered
-language** (derived at runtime from the installed `datrix.languages` entry points — never a
-hardcoded `python`/`typescript` literal), against that language's own
-`<example_id>/<language>.sha256` baseline. A missing baseline for a swept `(example, language)`
-pair is reported loudly as a failure — never silently skipped. Narrowing the EXAMPLE corpus
-never narrows the LANGUAGE sweep: a new `datrix-codegen-<lang>` package is picked up with no
-edit here. Bless new `(example, language)` baselines with `regen-parity-baselines.ps1`.
-
-**Non-vacuity is enforced on every run.** Before trusting any comparison, the gate copies a real
-generated tree, mutates one byte of one file, and requires that the comparison reports exactly
-that path as CHANGED with a rendered unified diff. If the comparator cannot detect a real change,
-the gate fails regardless of how the examples compare.
-
-**An example never keeps a migration ledger, and the gate checks it.** Every example that runs the
-migration lifecycle declares `migrations { ledger = false; }` (the pipeline renders a fresh baseline
-in whichever language is asked for and writes nothing under `.datrix/`); a persisted ledger records
-one language's rendering per revision and would seal the example against every other language in
-the same sweep. After every generation the gate asserts no `.datrix/rdbms-migrations/` appeared
-beside the example's source and fails naming the config fix if one did — and a self-test on every
-run plants one in scratch to prove the check fires.
-
-**Reading a failure.** The report names **every** changed / added / removed path (not "the first
-divergent file") and, when a local baseline cache from the last bless is present under
-`.test-output/parity-baseline-cache/`, renders a real **unified diff** of each changed file. The
-freshly generated tree is left under `.test-output/parity-current/<example_id>/`.
-
-**Known non-generating examples** live in `scripts/config/parity-known-nongenerating.json`, each
-with a written reason, and are reported loudly on every run — never silently skipped. "Non-
-generating" means the pipeline at `FAST` cannot produce the tree: a config-resolution error, a
-generate-stage refusal. A target-language **compile** failure of generated output is never a park
-reason — this gate never compiles, so such a pair generates, is blessed, and is hash-compared like
-any other; its build defect is the generated tier's finding (`run-complete.ps1`, `generate.ps1` at
-`STANDARD`).
-
-**A parked pair is never just skipped — check mode attempts generation for it.** The recorded
-reason for a parked, baseline-less `(example, language)` pair can go stale (the underlying defect
-gets fixed by unrelated work, and nothing announces it). Every check run generates each parked
-pair into its own scratch tree (never the bless cache, so a failed probe never pollutes the diff
-cache real blessed generations populate) and branches on the outcome: if generation now
-**succeeds**, the gate FAILS with `PARKED PAIR NOW GENERATES — remove its entry from
-parity-known-nongenerating.json and bless with regen-parity-baselines.ps1`; if it still
-fails, the outcome stays `skip`, reported with the
-recorded reason plus the fresh error's first line (so a stale recorded reason is visible without
-becoming a hard failure).
-
-**Blessed-coverage ratchet.** Every check run also compares the live count of `.sha256` files under `scripts/config/parity-baselines/` against the pinned value in `scripts/config/parity-blessed-count.json`; a live count LOWER than the pinned value fails the gate (a baseline was deleted without a park entry). Growth never fails. `regen-parity-baselines.ps1` is the only writer of the pinned value.
-
-**Exit codes:** 0 = every example matches its baseline and the comparator is non-vacuous,
-1 = drift / missing baseline / generation failure / self-test failure, 2 = usage or config error.
-
----
-
-### `test\regen-parity-baselines.ps1`
-
-**The single re-bless command** for the reference-example parity gate. Regenerates the stored
-baselines by running the same real pipeline **once per registered `datrix.languages` target**
-(never a hardcoded `python`/`typescript` literal) and writing a per-file sha256 manifest to
-`datrix/scripts/config/parity-baselines/<example_id>/<language>.sha256`. This is the **only**
-sanctioned baseline writer — the gate never writes baselines (no auto-heal). Run it deliberately,
-**after** you have explained the change.
-
-| Mode | Command | Description |
-|------|---------|-------------|
-| **Re-bless the corpus** | `.\test\regen-parity-baselines.ps1` | The normal case: the corpus example, once per registered language |
-| **Re-bless another example** | `.\test\regen-parity-baselines.ps1 -Example "02-features/01-core-data-modeling/identity"` | Bless any example by name, corpus member or not |
-| **Debug** | `.\test\regen-parity-baselines.ps1 -Dbg` | Debug logging |
-
-**Parameters:** `-Example` (path relative to `datrix/examples/`, optional — default is the corpus
-example; an explicit value may name ANY example), `-Dbg`
-
-**Why the explicit `-Example` still reaches beyond the corpus:** other repo gates bless a
-specific example's baseline as their own byte-level proof — `ingress-migration-conformance-gate.ps1`
-does exactly this for the identity example — and narrowing the gate's default corpus must not
-take that capability away. The full generated tree of each blessed example is kept under
-`.test-output/parity-baseline-cache/` so a later failing gate can show a real unified diff.
-
-**Note:** an example that cannot generate is never blessed — the run fails and names it. Always
-review the resulting baseline diff before committing: **an unexpected baseline change is a
-generator regression, not a baseline update.**
-
-**Also updates the blessed-coverage ratchet** (`scripts/config/parity-blessed-count.json`) in the same operation as any successful bless — the check gate's proof that coverage can never silently regress.
-
-**Exit codes:** 0 = all selected baselines written, 1 = an example failed to generate, 2 = usage
-or config error.
-
----
-
 ### `test\typescript-whole-system-gate.ps1`
 
 Whole-system **TypeScript** generation gate: proves the whole-system generate path emits real TypeScript (not a hollow/failed run) and is byte-deterministic. Generates the language-neutral `examples/01-foundation` twice with `-Language typescript`, into two explicit `--output` dirs, and asserts realness + byte-stability. The target comes solely from the flag — Datrix has no language-specific examples, and a `language` key in a system `.dcfg` is rejected at load time. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
@@ -518,7 +388,7 @@ Whole-system **TypeScript** generation gate: proves the whole-system generate pa
 
 ### `test\java-generation-determinism-gate.ps1`
 
-Java generation-pipeline determinism gate: the SAME source tree, generated N times in a row via the documented single-project `generate.ps1` path, must never produce two different outcomes (same failure mode every time, or a byte-identical success manifest every time). Each run is its own `generate.ps1` process (fresh `python.exe`, fresh `PYTHONHASHSEED`), so this also exercises hash-seed-driven set-iteration-order bugs a single long-lived process would never surface. Targets `examples/02-features/03-infrastructure-blocks/nosql/system.dtrx` — the example a java parity bless sweep found producing three different outcomes (a struct-test planning failure, then two different `mvnw compile` failures) from the identical, unchanged-tree invocation. Unlike `dev\byte-identity-generate.ps1` (diffs a "before" code state against the current tree — proves a CODE CHANGE is output-neutral), this gate runs the SAME code N times and compares outcomes to each other, so it catches non-determinism a before/after diff cannot. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+Java generation-pipeline determinism gate: the SAME source tree, generated N times in a row via the documented single-project `generate.ps1` path, must never produce two different outcomes (same failure mode every time, or a byte-identical success manifest every time). Each run is its own `generate.ps1` process (fresh `python.exe`, fresh `PYTHONHASHSEED`), so this also exercises hash-seed-driven set-iteration-order bugs a single long-lived process would never surface. Targets `examples/02-features/03-infrastructure-blocks/nosql/system.dtrx` — the example a java corpus generation sweep found producing three different outcomes (a struct-test planning failure, then two different `mvnw compile` failures) from the identical, unchanged-tree invocation. No before/after comparison of two code states can catch this class of bug, because it never runs the same code twice; this gate runs the SAME code N times and compares outcomes to each other. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -540,14 +410,14 @@ Java generation-pipeline determinism gate: the SAME source tree, generated N tim
 
 ### `test\ingress-migration-conformance-gate.ps1`
 
-Declaration-driven service ingress migration conformance gate. Repo-level, independent proof that regenerating the framework's own showcase examples produces only the four intended DI-6 realized-exposure deltas. Regenerates three representative registered examples individually (`identity` for delta d, `shared-block` for delta a, `authentication` + `01-foundation` for delta c) via single-project explicit-output `generate.ps1` calls, separately runs the existing full-tree example generation gate (`run-complete.ps1 -All -Skip3 -Skip4`) over every registered example, diffs the `identity` parity baseline via `regen-parity-baselines.ps1`, and greps for the removed config keys. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+Declaration-driven service ingress migration conformance gate. Repo-level, independent proof that regenerating the framework's own showcase examples produces only the four intended DI-6 realized-exposure deltas. Regenerates three representative registered examples individually (`identity` for delta d, `shared-block` for delta a, `authentication` + `01-foundation` for delta c) via single-project explicit-output `generate.ps1` calls, separately runs the existing full-tree example generation gate (`run-complete.ps1 -All -Skip3 -Skip4`) over every registered example, proves at the source level that the webhook verification prelude is independent of `AuthMode`, and greps for the removed config keys. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Run gate (both languages)** | `.\test\ingress-migration-conformance-gate.ps1` | Full DI-6 conformance sweep, python + typescript |
 | **Single language** | `.\test\ingress-migration-conformance-gate.ps1 -Languages python` | Faster iteration while debugging |
 | **Custom output root** | `.\test\ingress-migration-conformance-gate.ps1 -OutputRoot D:\datrix\.test-output\ingress-gate` | Override scratch generation root |
-| **Debug** | `.\test\ingress-migration-conformance-gate.ps1 -Dbg` | Forward `-Dbg` to generate.ps1/run-complete.ps1/regen-parity-baselines.ps1 |
+| **Debug** | `.\test\ingress-migration-conformance-gate.ps1 -Dbg` | Forward `-Dbg` to generate.ps1/run-complete.ps1 |
 
 **Parameters:** `-OutputRoot` (default: `D:\datrix\.test-output\ingress-gate`), `-Languages` (comma-separated, default: `python,typescript`), `-Dbg`/`-DebugLogging`
 
@@ -556,7 +426,7 @@ Declaration-driven service ingress migration conformance gate. Repo-level, indep
 - **Delta (a):** shared-block's `publisher-service.dtrx` (all-`auth(service)` surface) derives `INTERNAL` — no gateway route, no bare all-interfaces port publish.
 - **Delta (b):** documented, verified absence — no registered example reproduces the name-suppression fixture (owned by the docker/azure/aws package suites).
 - **Delta (c):** a single-service example with a declared `gateway {}` (`authentication`) emits a non-empty `config/nginx/nginx.conf`; a single-service example with NO declared gateway (`01-foundation`) emits none.
-- **Delta (d):** the `identity` parity baseline diff (via `regen-parity-baselines.ps1`) contains only mode-literal-class changes, justified by a direct read of the verification-prelude generator code (provably independent of `AuthMode`).
+- **Delta (d):** the shared webhook context builder, the python prelude builder and the typescript guard template each dispatch only on their verify-mode field and carry no `AuthMode` / `auth_contract.mode` / `access_level` reference, so the generated prelude is a pure function of the unchanged `verify(...)` contract; `identity` is also regenerated per language so the live tree is on disk for inspection (the repo keeps no stored output snapshot to diff against).
 - **Step 3:** zero ING001/ING002/ING003 and webhook-invariant errors across the full-tree generation gate, both languages (known, tracked, out-of-scope failures — e.g. shared-block's pre-existing API003/XSV017 defect — are reported but not conflated with an ingress regression).
 - **Step 4:** zero `publicIngress`/`platforms.azure.services` matches under `datrix/examples`.
 
@@ -832,9 +702,13 @@ role* (shared-typed parameter/return annotations from `datrix_common`/`datrix_co
 or, for functions with no shared-typed parameter, a *normalized-name role* (bare name with each
 language's own declared `name_tokens` stripped) — so a language token inside a name can never
 hide a parallel implementation. Each role's members are compared by **decision skeleton**
-(`if`/`for`/`while`/comprehension/`return`/`raise` structure, model-rooted predicates and calls
-preserved, every other literal collapsed) rather than by verbatim text, and classified
-`identical`, `same-decisions` (skeletons equal, bodies differ), or `decision-divergence`.
+(`if`/`for`/`while`/comprehension/`return`/`raise` structure, `try`/`except`/`with` structure,
+and parameter arity, model-rooted predicates and calls preserved, every other literal collapsed)
+rather than by verbatim text, and classified `identical`, `same-decisions` (skeletons and arity
+equal, bodies differ), or `decision-divergence`. **Arity is role-level:** a parameter name ANY
+member of a role drops as language-private plumbing is dropped for every member sharing that
+name, so a language whose own file-scope subclass happens to live inside the shared layer does
+not count a parameter its sibling languages drop.
 
 **Two hard-zero buckets, one shape-exempt, one declared-exception:**
 - `identical` / `same-decisions` fail unless every member is a **pre-binding adapter** (a single
@@ -847,6 +721,13 @@ preserved, every other literal collapsed) rather than by verbatim text, and clas
   group having an `unsupported` `builtin_group_stances` entry. An `undomained` role admits only
   the builtin-group surface. A role the gate cannot classify (unparseable member, unresolvable
   annotation) is reported as a **failure naming the member** — never skipped.
+- The `identical`/`same-decisions` shape exemption also covers a **rendering leaf**: a body with
+  no branch/loop/`try`/`with`/comprehension/`raise`, no attribute chain rooted at `self`, a
+  shared-typed or unannotated parameter, or a derived root sourced from one of those (a chain
+  rooted at a language-private parameter, or at a derived root sourced only from such reads, is
+  exempt — it is never a model root by the same rule the arity count already applies), and every
+  call resolving to the shared codegen layer or the standard library — reported
+  `rendering-leaf-exempt` beside `adapter-exempt`.
 
 **Scope is migration-only.** While `datrix/scripts/config/decision-parity-scope.json` exists,
 only the domains it lists (plus the literal `undomained` if listed) can fail the gate; every
@@ -1113,44 +994,29 @@ Problem-type parity gate: every registered language answers errors with RFC 7807
 
 ### `test\artifact-role-parity-gate.ps1`
 
-Cross-language artifact-role parity gate (D7) -- the G-A closure: detects a language silently emitting nothing for a construct another language realizes, without generating anything. For every example with >= 2 blessed language baselines under `scripts/config/parity-baselines/`, classifies each blessed manifest's paths by domain role via that language's own derived `DomainDeclaration.structural_pattern` set (the same fnmatch globs the domain self-consistency gate uses) and asserts the role set is identical across the example's blessed languages, EXCLUDING two cases the gate resolves structurally rather than through the exemption file. First, any domain the "missing" language declares globally `unsupported` -- a declared absence explained once at the language level, read directly off the declaration, never a per-example fact. Second, any domain whose `structural_pattern` matches nothing anywhere in that language's ENTIRE blessed footprint (corpus-vacuous): if no example exercises the construct, its absence from one example is not drift. Both rules are consulted BEFORE the exemption file, so neither needs an exemption entry -- but the second is no longer silent: every corpus-vacuous `(language, domain)` must carry a typed, counted record in `scripts/config/corpus-vacuity-records.json` saying why nothing exercises it, since a generator no example reaches has no end-to-end signal at all. Paths matching no pattern are reported in an "unclassified" bucket but never compared -- template-level naming legitimately differs by language; the role SET is the contract. Replaces nothing: `reference-example-parity-gate.ps1` still pins byte-level CONTENT per pair; this gate pins cross-language PRESENCE. Its coverage grows automatically as later phases bless more of the `(example, language)` matrix -- no code change needed here when that happens.
+Cross-language artifact-role parity gate (D7) -- the G-A closure: detects a language silently emitting nothing for a construct another language realizes, without generating anything and without storing anything. It reads the generation pipeline's own per-target manifests (`.datrix/manifests/<target>.json`: the files each target wrote, plus a `generated_at` stamp) from the example trees `generate.ps1` writes under `<workspace>/.generated/<language>/<runtime>/<provider>/<example>/`. **There is no committed baseline and no bless step** -- see `datrix/docs/architecture/generated-output-stability.md`. For every `(example, runtime, provider)` generated in >= 2 registered languages, classifies each language's paths by domain role via that language's own derived `DomainDeclaration.structural_pattern` set (the same fnmatch globs the domain self-consistency gate uses) and asserts the role set is identical across those languages, EXCLUDING two cases the gate resolves structurally rather than through the exemption file. First, any domain the "missing" language declares globally `unsupported` -- a declared absence explained once at the language level, read directly off the declaration, never a per-example fact. Second, any domain whose `structural_pattern` matches nothing anywhere in that language's ENTIRE generated footprint (corpus-vacuous): if no example exercises the construct, its absence from one example is not drift. Both rules are consulted BEFORE the exemption file, so neither needs an exemption entry -- but the second is no longer silent: every corpus-vacuous `(language, domain)` must carry a typed, counted record in `scripts/config/corpus-vacuity-records.json` saying why nothing exercises it, since a generator no example reaches has no end-to-end signal at all. Paths matching no pattern are reported in an "unclassified" bucket but never compared -- template-level naming legitimately differs by language; the role SET is the contract.
+
+**The gate is exactly as current as the local corpus, and refuses a partial one.** It prints every language's oldest and newest `generated_at` stamp, and exits 2 before comparing anything when any registered language has a registered example with no generated tree and no entry in `scripts/config/parity-known-nongenerating.json` -- naming every missing pair and the command that fills it (`generate.ps1 -All -L <language>`, once per registered language; Jon runs this, it is blocked for agents). A parked pair that DOES have a generated tree is a stale park entry and also fails: the recorded defect is fixed, delete the entry.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run gate** | `.\test\artifact-role-parity-gate.ps1` | Compare role sets for every example with >= 2 blessed language baselines |
+| **Run gate** | `.\test\artifact-role-parity-gate.ps1` | Compare role sets for every `(example, runtime, provider)` generated in >= 2 languages under `<workspace>/.generated` |
+| **Explicit output base** | `.\test\artifact-role-parity-gate.ps1 -GeneratedRoot D:\datrix\.generated` | Same, reading a named `generate.ps1` output base |
 | **Debug** | `.\test\artifact-role-parity-gate.ps1 -Dbg` | Debug logging |
 | **Self-test only** | `.\test\artifact-role-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
-| **Corpus-vacuity census** | `.\test\artifact-role-parity-gate.ps1 -Census` | Print every `(language, domain)` the blessed corpus exercises nowhere, with its reviewed status; exit 0 |
+| **Corpus-vacuity census** | `.\test\artifact-role-parity-gate.ps1 -Census` | Print every `(language, domain)` the generated corpus exercises nowhere, with its reviewed status; exit 0 (exit 2 on an incomplete corpus) |
 
-**Parameters:** `-Dbg`, `-SelfTest`, `-Census`
+**Parameters:** `-GeneratedRoot` (default: `<workspace>/.generated`), `-Dbg`, `-SelfTest`, `-Census`
 
 **Assertions:**
-- Every example directory under `scripts/config/parity-baselines/` with >= 2 registered-language `.sha256` manifests is compared.
-- A domain role present (>= 1 matching path) in one blessed language's manifest for an example and absent from another blessed language's manifest for the SAME example is a violation, UNLESS the missing language declares that domain globally `unsupported` (`_is_declared_unsupported`, skipped directly), OR declares it emitted on demand on its `LanguageCapabilityDeclaration.on_demand_domains` (it emits the domain only when the DSL invokes a triggering construct, where another language emits baseline scaffolding regardless -- dotnet's `Support/*.cs` helpers, python/java/dotnet's service-level `fn` file, python/typescript/java's `exceptions { }`-gated errors folder; skipped directly), OR the domain's pattern matches nothing across that language's entire blessed footprint (`_is_corpus_vacuous_for_language`, skipped directly), OR a reviewed entry exists in `scripts/config/artifact-role-exemptions.json` -- the last being reserved for a genuinely example-specific hole; the file is absent when there is none, which is the normal state.
+- Every registered language's corpus is complete: each `system.dtrx` under `datrix/examples/` has a generated tree (a directory carrying `.datrix/manifests/*.json`) or a park entry; no parked pair has a tree.
+- Every `(example, runtime, provider)` generated in >= 2 registered languages is compared.
+- A domain role present (>= 1 matching path) in one language's generated tree for an example and absent from another language's tree for the SAME `(example, runtime, provider)` is a violation, UNLESS the missing language declares that domain globally `unsupported` (`_is_declared_unsupported`, skipped directly), OR declares it emitted on demand on its `LanguageCapabilityDeclaration.on_demand_domains` (it emits the domain only when the DSL invokes a triggering construct, where another language emits baseline scaffolding regardless -- dotnet's `Support/*.cs` helpers, python/java/dotnet's service-level `fn` file, python/typescript/java's `exceptions { }`-gated errors folder; skipped directly), OR the domain's pattern matches nothing across that language's entire generated footprint (`_is_corpus_vacuous_for_language`, skipped directly), OR a reviewed entry exists in `scripts/config/artifact-role-exemptions.json` -- the last being reserved for a genuinely example-specific hole; the file is absent when there is none, which is the normal state.
 - `load_exemptions` refuses (raises `ValueError`, exit 2) an exemption entry naming a `(domain, language)` pair that language declares `unsupported` or on-demand -- such an entry would duplicate a declared absence the gate already reads directly; delete it instead of keeping it. A declared on-demand id that is not a shared universe domain is refused by name.
-- **Corpus vacuity is skipped but never silent.** `check_corpus_vacuity_records` censuses EVERY registered language against EVERY domain it declares `supported` (not just the pairs the blessed matrix happens to exercise) and holds each corpus-vacuous `(language, domain)` to a reviewed record in `scripts/config/corpus-vacuity-records.json`. The comparison runs in both directions: a censused pair with no record fails (exit 1), and a record whose pair is no longer vacuous fails as stale (exit 1). Each record carries one of three statuses, which are never interchangeable because each carries a different remedy -- `unreachable-by-design` (no example can produce a matching file at all, whatever it declares or targets), `cloud-platform-only` (only an example resolving `deployment.provider` to a cloud provider could, and the corpus has none), `unexercised` (an ordinary local/docker example could and none declares the construct). `load_corpus_vacuity_records` refuses (exit 2) a missing/malformed file, a status outside those three, or a duplicated `(language, domain)`.
-- Non-vacuity self-test (every invocation): a synthetic matching role-set pair reports zero divergence; a synthetic forced-mismatch pair reports exactly the planted gap; a synthetic manifest/declaration pair proves `classify_paths` buckets matched vs. unclassified paths correctly; `_is_declared_unsupported` correctly distinguishes a declared-unsupported domain, a declared-supported domain, and an undeclared domain id; `_is_corpus_vacuous_for_language` is proven against a pre-populated synthetic cache (never touching real baselines); `_reject_exemptions_for_unsupported_domains` correctly rejects a synthetic entry duplicating a declared-unsupported domain; and `compare_vacuity_records` reports nothing for an agreeing census/record pair, reports a censused pair carrying no record, and reports a record whose pair is no longer censused -- with `_parse_vacuity_record` accepting each declared status and refusing an undeclared one.
+- **Corpus vacuity is skipped but never silent.** `check_corpus_vacuity_records` censuses EVERY registered language against EVERY domain it declares `supported` (not just the pairs the multi-language groups happen to exercise) and holds each corpus-vacuous `(language, domain)` to a reviewed record in `scripts/config/corpus-vacuity-records.json`. The comparison runs in both directions: a censused pair with no record fails (exit 1), and a record whose pair is no longer vacuous fails as stale (exit 1). Each record carries one of three statuses, which are never interchangeable because each carries a different remedy -- `unreachable-by-design` (no example can produce a matching file at all, whatever it declares or targets), `cloud-platform-only` (only an example resolving `deployment.provider` to a cloud provider could, and the corpus has none), `unexercised` (an ordinary local/docker example could and none declares the construct). `load_corpus_vacuity_records` refuses (exit 2) a missing/malformed file, a status outside those three, or a duplicated `(language, domain)`.
+- Non-vacuity self-test (every invocation): a synthetic matching role-set pair reports zero divergence; a synthetic forced-mismatch pair reports exactly the planted gap; a synthetic manifest/declaration pair proves `classify_paths` buckets matched vs. unclassified paths correctly; `_is_declared_unsupported` correctly distinguishes a declared-unsupported domain, a declared-supported domain, and an undeclared domain id; `_is_corpus_vacuous_for_language` is proven against a synthetic footprint (never touching a real generated tree); the corpus reader is proven against a synthetic `.generated` layout under a PID-scoped scratch root (two targets' manifests union into one sorted path list with the newest stamp, a directory without pipeline manifests is not a tree, a single-language tree forms no comparison group, and the completeness check names a missing pair and a stale park entry); `_reject_exemptions_for_unsupported_domains` correctly rejects a synthetic entry duplicating a declared-unsupported domain; and `compare_vacuity_records` reports nothing for an agreeing census/record pair, reports a censused pair carrying no record, and reports a record whose pair is no longer censused -- with `_parse_vacuity_record` accepting each declared status and refusing an undeclared one.
 
-**Exit codes:** 0 = every comparable example's role sets agree modulo declared-unsupported skips, recorded corpus-vacuous skips and reviewed exemptions (or a successful `-SelfTest` / `-Census`), 1 = an un-exempted role drift was found over a domain the missing language declares `supported` and whose pattern is non-vacuous corpus-wide, or a corpus-vacuous `(language, domain)` carries no reviewed record (or a record carries no corpus-vacuous pair), 2 = the self-test failed, zero examples have >= 2 blessed language baselines, or the exemption / corpus-vacuity-record file is missing/malformed/miscounted (or, for exemptions, contains an entry duplicating a declared-unsupported domain).
-
----
-
-### `test\parity-bless-mode-parity-gate.ps1`
-
-Regression gate: `cmd_bless`'s single-process multi-language generation must produce the SAME manifests as generating each language in a fully isolated process. `cmd_bless` (`reference_example_parity.py`) generates one example once per registered language, all in a single process; a shared, non-process-isolated scratch/cache path once let two concurrent invocations interleave writes into the same directory, silently truncating the manifest for whichever language lost the race, with exit code 0 -- corrupting at least seven committed parity baselines before anyone caught it by hand. This gate generates one example two ways -- combined (every registered language, one process, mirrors `cmd_bless` exactly) and isolated (each language generated by its own freshly-spawned process) -- and asserts the manifests are byte-identical per language.
-
-| Mode | Command | Description |
-|------|---------|-------------|
-| **Run gate (corpus example)** | `.\test\parity-bless-mode-parity-gate.ps1` | Compare combined vs isolated blessing for the corpus example |
-| **Specific example** | `.\test\parity-bless-mode-parity-gate.ps1 -Example "02-features/03-infrastructure-blocks/queue"` | Compare for a specific example |
-
-**Parameters:** `-Example` (path relative to `datrix/examples/`, optional -- default is the corpus example)
-
-**Assertions:**
-- For every registered language, the manifest produced by a single-process run of all languages equals the manifest produced by generating that language alone in a fresh process.
-- Reports every added/missing/changed path per language on mismatch.
-
-**Exit codes:** 0 = combined and isolated generation agree for every registered language, 1 = at least one language's manifests disagree, 2 = usage error.
+**Exit codes:** 0 = every comparable example's role sets agree modulo declared-unsupported skips, recorded corpus-vacuous skips and reviewed exemptions (or a successful `-SelfTest` / `-Census`), 1 = an un-exempted role drift was found over a domain the missing language declares `supported` and whose pattern is non-vacuous corpus-wide, or a corpus-vacuous `(language, domain)` carries no reviewed record (or a record carries no corpus-vacuous pair), 2 = the self-test failed, the generated corpus is incomplete for some registered language (or a park entry is stale), zero groups are generated in >= 2 languages, or the exemption / corpus-vacuity-record / park file is missing/malformed (or, for exemptions, contains an entry duplicating a declared-unsupported domain).
 
 ---
 
@@ -2066,8 +1932,8 @@ Runs the affected set of Datrix package suites concurrently and returns one GREE
 - At no point do concurrently-running children's declared `PYTEST_XDIST_AUTO_NUM_WORKERS` values sum above the logical core count.
 - The scheduler never launches two live children for the same package.
 - A package whose newest run directory has no/INCOMPLETE `index.json` (a run in progress) is refused unless `-Force`.
-- A child that exits without advancing its package's newest run directory past its pre-launch baseline is reported RED with reason `CHILD_PRODUCED_NO_RUN`, never silently defaulting to whatever stale prior result exists.
-- Every other package is judged on **the run directory its child produced** (captured the moment the child exited, and pinned through `gate_verdict.evaluate_projects(pinned_runs=...)`), never on the newest run at verdict time. A targeted `-Specific` run from another session that lands after the child exits would otherwise replace a RED whole-suite result with an unrelated GREEN subset — a 59-test targeted run once stood in for a 5,950-test RED suite exactly this way, and the gate printed `OVERALL: GREEN` with exit 0. A pinned run with no results file is RED with reason `PINNED_RUN_HAS_NO_RESULTS`; it never falls through to the newest run.
+- A child that exits without naming a run directory of its own is reported RED with reason `CHILD_PRODUCED_NO_RUN`, never silently defaulting to whatever stale prior result exists.
+- Every other package is judged on **the run directory its child attributed to itself** — the absolute `index.json` path in the `Details:` line `test.ps1` prints under its own `[PASSED]`/`[FAILED]` block, relayed through the child's stdout and pinned through `gate_verdict.evaluate_projects(pinned_runs=...)`. The newest run directory under `.test_results` is never consulted, neither at child exit nor at verdict time: `test.ps1` holds the workspace package lock only through its install phase, so a targeted `-Specific` run from another session can land a newer directory before **or** after the child exits, and a newest-run lookup then replaces a RED whole-suite result with an unrelated GREEN subset — a 59-test targeted run once stood in for a 5,950-test RED suite this way (the gate printed `OVERALL: GREEN` with exit 0), and later a 7-test targeted run landed mid-suite and stood in for a child that had exited 1 with two failures. A pinned run with no results file is RED with reason `PINNED_RUN_HAS_NO_RESULTS`; it never falls through to the newest run.
 
 **Exit codes:** 0 = overall GREEN (or a successful `-SelfTest` run), 1 = overall RED (or `-SelfTest` reports a failing check), 2 = usage error (bad `-MaxConcurrent`/`-WorkersPerChild`, unknown/duplicate package name, both `-Projects` and `-All` given).
 

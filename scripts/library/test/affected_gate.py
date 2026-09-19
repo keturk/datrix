@@ -30,8 +30,9 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -56,6 +57,11 @@ _POLL_INTERVAL_SECONDS = 2.0
 _OUTPUT_FILENAME = "affected-gate.json"
 _OUTPUT_SUBDIRS = ("test",)
 _RUN_DIR_PATTERN = re.compile(r"^test-results-\d{8}-\d{6}$")
+#: The one line by which ``test.ps1`` attributes a run to itself: the absolute
+#: ``index.json`` path it prints under its own ``[PASSED]``/``[FAILED]`` block.
+#: The runner never guesses that path from the newest directory, and neither
+#: does this gate -- see :func:`attributed_run_dir`.
+_DETAILS_LINE_PATTERN = re.compile(r"^\s*Details:\s+(?P<index>.+?[\\/]index\.json)\s*$")
 _INCOMPLETE_MARKER = "INCOMPLETE"
 _REASON_CHILD_PRODUCED_NO_RUN = "CHILD_PRODUCED_NO_RUN"
 _VERDICT_RED = "RED"
@@ -87,8 +93,13 @@ def compute_affected_set(workspace: Path, changed: list[str]) -> list[str]:
     """
     packages = affected_set.discover_packages(workspace)
     import_names = {name: affected_set.discover_import_name(d) for name, d in packages.items()}
+    # The cross-ecosystem map carries the edges no import scan can see (a Node
+    # consumer of a Python package's build output). Building the graphs without
+    # it silently drops that consumer from the closure -- the gate would print
+    # GREEN having never run it. Same derivation as affected_set's own CLI.
+    cross_ecosystem = affected_set.load_cross_ecosystem_deps(workspace, packages)
     source_graph, test_graph, deferred_graph = affected_set.build_source_test_and_deferred_graphs(
-        packages, import_names, include_root_conftest=True
+        packages, import_names, include_root_conftest=True, cross_ecosystem=cross_ecosystem
     )
     closures = affected_set.compute_affected_closures(source_graph, test_graph, deferred_graph)
     affected: set[str] = set(changed)
@@ -317,19 +328,80 @@ def _reject_in_progress_unless_forced(workspace: Path, affected: list[str], forc
 # ---------------------------------------------------------------------------
 
 
+def _echo_to_stdout(line: str) -> None:
+    sys.stdout.write(line)
+    sys.stdout.flush()
+
+
+def _discard(line: str) -> None:
+    """The self-test's echo sink: fixture child output must not read as a real run."""
+
+
+class ChildOutputRelay:
+    """Tees one child's stdout to this process's stdout line by line -- so a
+    hang stays visible while the child runs -- and records the ``Details:``
+    line by which ``test.ps1`` names the run it owns."""
+
+    def __init__(self, stream: Iterable[str], echo: Callable[[str], None] | None = None) -> None:
+        self._stream = stream
+        self._echo = echo if echo is not None else _echo_to_stdout
+        self.reported_index_paths: list[str] = []
+        self.thread = threading.Thread(target=self._pump, daemon=True)
+        self.thread.start()
+
+    def _pump(self) -> None:
+        for line in self._stream:
+            self._echo(line)
+            index_path = details_index_path(line)
+            if index_path is not None:
+                self.reported_index_paths.append(index_path)
+
+
 @dataclass
 class RunningChild:
     """A test.ps1 child process currently executing for one package."""
 
     package: str
-    process: subprocess.Popen[bytes]
+    process: subprocess.Popen[str]
     started_at: float
+    relay: ChildOutputRelay
 
 
-def _launch_child(workspace: Path, package: str, workers: int, dbg: bool) -> subprocess.Popen[bytes]:
+def details_index_path(line: str) -> str | None:
+    """The absolute ``index.json`` path a ``Details:`` line names, else None."""
+    match = _DETAILS_LINE_PATTERN.match(line)
+    return match.group("index") if match is not None else None
+
+
+def attributed_run_dir(test_results_dir: Path, reported_index_paths: list[str]) -> str | None:
+    """The run directory a child attributed to ITSELF, or None when it named
+    none (or named one outside its own package's ``.test_results``).
+
+    This is the same rule ``test.ps1`` applies internally: a run directory is
+    never guessed from the newest entry under ``.test_results``. ``test.ps1``
+    holds the workspace package lock only through its install phase, so a
+    targeted ``-Specific`` run from another session can create a newer
+    directory while a child's full suite is still running -- and "newest at
+    exit" then pins that unrelated run. That is how a 7-test GREEN targeted run
+    once stood in for a child that exited 1 with two failures in 5,050 tests.
+    """
+    resolved_results = test_results_dir.resolve()
+    for raw_path in reported_index_paths:
+        index_path = Path(raw_path)
+        run_dir = index_path.parent
+        if run_dir.parent.resolve() != resolved_results:
+            continue
+        if _RUN_DIR_PATTERN.match(run_dir.name) is None:
+            continue
+        return run_dir.name
+    return None
+
+
+def _launch_child(workspace: Path, package: str, workers: int, dbg: bool) -> subprocess.Popen[str]:
     """Launch `test.ps1 <package>` as a child process with a capped xdist
-    worker budget. The child's own stdout/stderr stream to this process's
-    (never captured/suppressed), so a hang is visible while it runs."""
+    worker budget. The child's stdout is relayed line by line to this
+    process's stdout by a :class:`ChildOutputRelay` (never suppressed, so a
+    hang is visible while it runs); its stderr streams through directly."""
     env = os.environ.copy()
     env["PYTEST_XDIST_AUTO_NUM_WORKERS"] = str(workers)
     logger.info(
@@ -340,7 +412,9 @@ def _launch_child(workspace: Path, package: str, workers: int, dbg: bool) -> sub
     args = ["powershell", "-File", str(test_ps1), package]
     if dbg:
         args.append("-Dbg")
-    return subprocess.Popen(args, env=env)
+    return subprocess.Popen(
+        args, env=env, stdout=subprocess.PIPE, text=True, encoding="utf-8", errors="replace"
+    )
 
 
 def run_scheduled(
@@ -358,22 +432,21 @@ def run_scheduled(
 
     Returns:
         ``(forced_red, produced_runs)``. ``forced_red`` names the packages
-        whose child exited without the package's newest test-results-* run
-        directory advancing past its pre-launch baseline -- a hard crash
-        before any index.json was even written; the caller must treat these
-        as forced-RED rather than trusting gate_verdict's own newest-run
-        lookup, which would otherwise silently report a STALE prior
-        (possibly GREEN) run. ``produced_runs`` maps every other package to
-        the run directory its child produced, captured the moment the child
-        exited; the caller must judge THAT run and no other. Between a child
-        exiting and the verdict being aggregated, a targeted run from
-        another session can land a newer directory, and a newest-run lookup
-        then reports that unrelated result -- a GREEN 59-test subset once
-        stood in for a RED 5,950-test suite this way. ``test.ps1`` holds a
-        per-package lock while it runs, so the newest directory at exit is
-        the child's own.
+        whose child exited without naming a run directory of its own -- a
+        hard crash before ``test.ps1`` printed its ``Details:`` line; the
+        caller must treat these as forced-RED rather than trusting
+        gate_verdict's own newest-run lookup, which would otherwise silently
+        report a STALE prior (possibly GREEN) run. ``produced_runs`` maps
+        every other package to the run directory its child attributed to
+        itself on its own stdout (:func:`attributed_run_dir`); the caller
+        must judge THAT run and no other. The newest directory under
+        ``.test_results`` is never consulted: a targeted run from another
+        session can land a newer directory before OR after the child exits
+        (``test.ps1`` holds the package lock only through its install
+        phase), and a newest-run lookup then reports that unrelated result
+        -- a GREEN 59-test subset once stood in for a RED 5,950-test suite,
+        and a GREEN 7-test subset for a child that exited 1.
     """
-    baseline = {pkg: _newest_run_dir_any_state(workspace / pkg / ".test_results") for pkg in ordered_packages}
     pending = list(ordered_packages)
     running: list[RunningChild] = []
     forced_red: set[str] = set()
@@ -382,23 +455,35 @@ def run_scheduled(
         while pending and len(running) < max_concurrent:
             package = pending.pop(0)
             proc = _launch_child(workspace, package, workers_per_child_count, dbg)
-            running.append(RunningChild(package=package, process=proc, started_at=time.monotonic()))
+            if proc.stdout is None:
+                raise UsageError(f"child for {package} was launched without a stdout pipe")
+            running.append(
+                RunningChild(
+                    package=package,
+                    process=proc,
+                    started_at=time.monotonic(),
+                    relay=ChildOutputRelay(proc.stdout),
+                )
+            )
         finished = [child for child in running if child.process.poll() is not None]
         for child in finished:
             elapsed = time.monotonic() - child.started_at
-            newest_after = _newest_run_dir_any_state(workspace / child.package / ".test_results")
-            if newest_after is None or newest_after == baseline[child.package]:
+            child.relay.thread.join()
+            own_run = attributed_run_dir(
+                workspace / child.package / ".test_results", child.relay.reported_index_paths
+            )
+            if own_run is None:
                 forced_red.add(child.package)
                 print(
                     f"{child.package}: child exited code={child.process.returncode} "
-                    f"after {elapsed:.1f}s WITHOUT producing a new run directory "
+                    f"after {elapsed:.1f}s WITHOUT naming a run directory of its own "
                     f"-- forcing RED (never trusting a stale prior result)"
                 )
             else:
-                produced_runs[child.package] = newest_after
+                produced_runs[child.package] = own_run
                 print(
                     f"{child.package}: child exited code={child.process.returncode} "
-                    f"after {elapsed:.1f}s run={newest_after}"
+                    f"after {elapsed:.1f}s run={own_run}"
                 )
             running.remove(child)
         if running:
@@ -760,6 +845,56 @@ def _check_verdict_is_pinned_to_the_childs_run_never_a_newer_one() -> None:
         assert row["counts"]["failed"] == 1, row
 
 
+def _check_child_run_is_attributed_from_its_own_details_line_never_the_newest_dir() -> None:
+    """A child's run is pinned from the ``Details:`` line the child itself
+    printed -- never from the newest directory under ``.test_results``. A
+    targeted run from another session lands a NEWER GREEN directory while
+    the child's RED full suite is still running (``test.ps1`` releases the
+    package lock after its install phase); "newest at exit" pinned that
+    unrelated run and reported a child that exited 1 as GREEN 7 passed."""
+    with tempfile.TemporaryDirectory(prefix="affected-gate-selftest-") as tmp:
+        workspace = Path(tmp)
+        results = workspace / "datrix-overtaken" / ".test_results"
+        child_run = "test-results-20260101-000100"
+        concurrent_run = "test-results-20260101-000200"
+        _write_index(results / child_run, status="FAILED", passed=5047, failed=2)
+        _write_index(results / concurrent_run, status="PASSED", passed=7, failed=0)
+        assert _newest_run_dir_any_state(results) == concurrent_run, (
+            "fixture must make the concurrent run the newest directory, or the check is vacuous"
+        )
+        child_stdout = io.StringIO(
+            "[FAILED] datrix-overtaken\n"
+            "  pass: 5047, fail: 2, skip: 1\n"
+            f"  Details: {results / child_run / 'index.json'}\n"
+            "\n"
+            "[FAIL] Tests failed for datrix-overtaken (exit code: 1)\n"
+        )
+        relay = ChildOutputRelay(child_stdout, echo=_discard)
+        relay.thread.join()
+        own_run = attributed_run_dir(results, relay.reported_index_paths)
+        assert own_run == child_run, (
+            f"the child's own Details line must pin {child_run}, got {own_run!r}"
+        )
+
+        no_details = ChildOutputRelay(
+            io.StringIO("[1/1] Testing: datrix-overtaken\n"), echo=_discard
+        )
+        no_details.thread.join()
+        assert attributed_run_dir(results, no_details.reported_index_paths) is None, (
+            "a child that never named its run must attribute nothing (forced RED), "
+            "never fall through to the newest directory"
+        )
+
+        foreign = ChildOutputRelay(
+            io.StringIO(f"  Details: {workspace / 'datrix-other' / '.test_results' / child_run / 'index.json'}\n"),
+            echo=_discard,
+        )
+        foreign.thread.join()
+        assert attributed_run_dir(results, foreign.reported_index_paths) is None, (
+            "a Details line naming another package's run directory must not be attributed"
+        )
+
+
 def _check_pinned_run_without_results_is_red_never_a_fallthrough() -> None:
     """A pinned run directory with no index.json and no full.log is RED
     with its own reason -- never a fall-through to the newest run, which
@@ -836,7 +971,34 @@ def _check_max_concurrent_one_is_sequential() -> None:
         )
 
 
+def _check_cross_ecosystem_consumer_is_in_the_gates_affected_set() -> None:
+    """The gate's own closure honours the cross-ecosystem map.
+
+    Plant/observe: the same synthetic tree with the edge declared puts the Node
+    consumer in the affected set; with an empty map it does not. Without the
+    second half a derivation that swept every discovered package into every
+    closure would pass the first.
+    """
+    with tempfile.TemporaryDirectory(prefix="affected-gate-selftest-") as tmp:
+        root = Path(tmp)
+        affected_set._make_pkg(root, "datrix-language")
+        affected_set._make_node_pkg(root, "datrix-client")
+        affected_set._write_cross_ecosystem_config(root, {"datrix-client": ["datrix-language"]})
+        assert "datrix-client" in compute_affected_set(root, ["datrix-language"]), (
+            "a consumer declared in the cross-ecosystem map must be in the gate's "
+            "affected set for its target"
+        )
+        affected_set._write_cross_ecosystem_config(root, {})
+        assert "datrix-client" not in compute_affected_set(root, ["datrix-language"]), (
+            "an undeclared Node package must not be swept into the affected set"
+        )
+
+
 _SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
+    (
+        "cross_ecosystem_consumer_is_in_the_gates_affected_set",
+        _check_cross_ecosystem_consumer_is_in_the_gates_affected_set,
+    ),
     (
         "budget_never_exceeds_cores_across_simulated_schedule",
         _check_budget_never_exceeds_cores_across_simulated_schedule,
@@ -854,6 +1016,10 @@ _SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
     (
         "verdict_is_pinned_to_the_childs_run_never_a_newer_one",
         _check_verdict_is_pinned_to_the_childs_run_never_a_newer_one,
+    ),
+    (
+        "child_run_is_attributed_from_its_own_details_line_never_the_newest_dir",
+        _check_child_run_is_attributed_from_its_own_details_line_never_the_newest_dir,
     ),
     (
         "pinned_run_without_results_is_red_never_a_fallthrough",

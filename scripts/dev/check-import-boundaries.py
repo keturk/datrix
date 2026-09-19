@@ -159,6 +159,8 @@ Exit codes:
        missing baseline file
 """
 
+from __future__ import annotations
+
 import argparse
 import ast
 import enum
@@ -178,20 +180,20 @@ from typing import Literal
 # installed datrix.platforms entry points, never a hardcoded
 # "aws"/"azure"/"docker"/"local" literal. registered_platform_names() lives
 # under scripts/library/shared/ (a script tree, not an installed package),
-# so it is reached the same way reference_example_parity.py reaches
+# so it is reached the same way artifact_role_parity.py reaches
 # shared.registered_targets: insert scripts/library/ onto sys.path.
 _LIBRARY_DIR = Path(__file__).resolve().parent.parent / "library"
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
+from datrix_common.plugin.capability_resolution import (  # noqa: E402
+    declaration_for_language,
+)
 from shared.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
     entry_point_module_roots,
     registered_language_names,
     registered_platform_names,
-)
-from datrix_common.plugin.capability_resolution import (  # noqa: E402
-    declaration_for_language,
 )
 
 
@@ -2326,7 +2328,7 @@ class _NormalizedContainer:
 
 def _normalize_container(
     node: ast.AST, enum_members: dict[str, dict[str, str]]
-) -> "_NormalizedContainer | None":
+) -> _NormalizedContainer | None:
     """Normalize a module-level ``frozenset(...)``/``set(...)``/``{...}``/
     dict-literal RHS to its member value set, resolving both bare string
     literals and qualified ``EnumClass.MEMBER`` references to the same
@@ -3375,7 +3377,7 @@ def _resolve_g3_vocabulary_element(node: ast.AST) -> tuple[str, bool] | None:
     return None
 
 
-def _normalize_container_g3(node: ast.AST) -> "_NormalizedContainer | None":
+def _normalize_container_g3(node: ast.AST) -> _NormalizedContainer | None:
     """Same contract as ``_normalize_container``, extended to recognize a
     bare module-level ``ast.Tuple`` RHS (``_X = ("a", "b")``, no
     ``frozenset()``/``set()`` wrapper) -- G1 never needed this shape; G3's
@@ -4340,7 +4342,7 @@ def _self_test_platform_module_source(*, import_sibling: bool) -> str:
     return f"{import_line}\n\n\ndef f() -> str:\n    return compute_base_image_tag('x', 'app')\n"
 
 
-def _self_test_run_boundary_cli(tmp_root: Path) -> "subprocess.CompletedProcess[str]":
+def _self_test_run_boundary_cli(tmp_root: Path) -> subprocess.CompletedProcess[str]:
     """Invoke THIS script's plain import-boundary scan against an isolated fixture."""
     return subprocess.run(
         [
@@ -4440,7 +4442,7 @@ def _self_test_provider_literal_build_fixture_monorepo(tmp_root: Path) -> Path:
 
 def _self_test_provider_literal_run_cli(
     tmp_root: Path,
-) -> "subprocess.CompletedProcess[str]":
+) -> subprocess.CompletedProcess[str]:
     """Invoke THIS script as a real subprocess against the isolated fixture."""
     return subprocess.run(
         [
@@ -4850,7 +4852,7 @@ def _self_test_shared_vocabulary_build_fixture_monorepo(tmp_root: Path) -> Path:
     return module_path
 
 
-def _self_test_shared_vocabulary_run_cli(tmp_root: Path) -> "subprocess.CompletedProcess[str]":
+def _self_test_shared_vocabulary_run_cli(tmp_root: Path) -> subprocess.CompletedProcess[str]:
     """Invoke THIS script as a real subprocess against the isolated fixture."""
     return subprocess.run(
         [
@@ -5193,7 +5195,7 @@ def _self_test_shared_target_name_build_fixture_monorepo(tmp_root: Path) -> Path
     return module_path
 
 
-def _self_test_shared_target_name_run_cli(tmp_root: Path) -> "subprocess.CompletedProcess[str]":
+def _self_test_shared_target_name_run_cli(tmp_root: Path) -> subprocess.CompletedProcess[str]:
     """Invoke THIS script as a real subprocess against the isolated fixture."""
     return subprocess.run(
         [
@@ -5634,7 +5636,7 @@ def _self_test_build_fixture_monorepo(tmp_root: Path, initial_import_count: int)
     return module_path
 
 
-def _self_test_run_cli(tmp_root: Path) -> "subprocess.CompletedProcess[str]":
+def _self_test_run_cli(tmp_root: Path) -> subprocess.CompletedProcess[str]:
     """Invoke THIS script as a real subprocess against the isolated fixture.
 
     --skip-auto-self-test prevents the nested invocation from recursively
@@ -5884,7 +5886,7 @@ def _self_test_cross_package_vocabulary_build_fixture_monorepo(
 
 def _self_test_cross_package_vocabulary_run_cli(
     tmp_root: Path, *extra_args: str
-) -> "subprocess.CompletedProcess[str]":
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             sys.executable,
@@ -6048,7 +6050,7 @@ def _self_test_own_target_name_build_fixture_monorepo(tmp_root: Path) -> Path:
     return module_path
 
 
-def _self_test_own_target_name_run_cli(tmp_root: Path) -> "subprocess.CompletedProcess[str]":
+def _self_test_own_target_name_run_cli(tmp_root: Path) -> subprocess.CompletedProcess[str]:
     """Invoke THIS script as a real subprocess against the isolated fixture."""
     return subprocess.run(
         [

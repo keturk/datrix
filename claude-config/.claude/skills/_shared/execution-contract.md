@@ -508,7 +508,7 @@ you touched (paths relative to `d:/datrix/datrix/scripts/`):
 | Layering / target-name leakage | `dev/check-import-boundaries.ps1` (`-CheckTargetLiterals`, `-CheckProviderConditionals`, `-CheckSharedVocabulary`, `-CheckSharedTargetNames`) |
 | Debug scatter, stale bytecode | `dev/check-debug-artifacts.ps1`, `dev/check-python-bytecode.ps1` |
 | Docs drift | `dev/check-docs.ps1`, `test/check-docs-conformance.ps1` |
-| Generated-output drift | `test/reference-example-parity-gate.ps1` |
+| Generated-output preservation | A test in the owning package rendering the construct and asserting its output (no stored snapshot exists — `datrix/docs/architecture/generated-output-stability.md`); cross-language presence: `test/artifact-role-parity-gate.ps1` over a complete local `.generated/` corpus |
 | Realization / parity holes | `test/block-realization-parity-gate.ps1`, `test/standing-conformance-gate.ps1`, `test/supported-domain-parity-gate.ps1`, `test/observability-axis-parity-gate.ps1`, `test/gendsl-corpus-resolution-gate.ps1` |
 | Duplicate logic | `dev/logic-map.ps1` + a `markers.db` query (CLAUDE.md § Logic Map) |
 

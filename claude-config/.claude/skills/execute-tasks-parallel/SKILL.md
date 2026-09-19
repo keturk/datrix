@@ -290,7 +290,7 @@ Implementation results from all agents + task metadata from pre_check.
 
 1. **Determine affected packages:**
    - Group tasks by `package` field
-   - **Add each changed package's reverse-dependency closure** per `d:\datrix\.claude\skills\_shared\verification-strategy.md` (a change to `datrix-common`, `datrix-codegen-common`, `datrix-language`, or any shared contract pulls in every consuming package; a leaf codegen change is usually just itself). Do NOT default to `-All`, and do not skip a consumer the closure names. If the run touched a codegen package, codegen-common, language, common, or `datrix/examples`, also plan `reference-example-parity-gate.ps1`.
+   - **Add each changed package's reverse-dependency closure** per `d:\datrix\.claude\skills\_shared\verification-strategy.md` (a change to `datrix-common`, `datrix-codegen-common`, `datrix-language`, or any shared contract pulls in every consuming package; a leaf codegen change is usually just itself). Do NOT default to `-All`, and do not skip a consumer the closure names. There is no stored-baseline output gate to plan; an output-preservation claim is proven by tests in the owning package.
    - Skip documentation-only packages (no tests to run)
    - For each package with code tasks, identify the full suite command
 

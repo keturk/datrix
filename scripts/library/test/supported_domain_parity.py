@@ -63,7 +63,7 @@ a synthetic compiled id absent from the registry (must be reported, naming
 the declaring language), and a synthetic registry id no synthetic language
 declares (must be reported as a dead entry). A parity gate that cannot
 detect a real divergence is worthless -- this mirrors the self-test pattern
-already used by ``reference-example-parity-gate.ps1``,
+already used by ``artifact-role-parity-gate.ps1``,
 ``check-generated-file-ratchet.ps1``, and ``check-docs-conformance.ps1``.
 
 **Fails loud on an empty/single-target discovery.** Fewer than 2 registered

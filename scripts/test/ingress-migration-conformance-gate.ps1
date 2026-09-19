@@ -29,8 +29,11 @@
       (c) docker gateway existence follows the declaration (declared -> emitted
           even single-service)
       (d) the migrated webhook endpoint generates an unchanged verification
-          prelude (mode-only change), verified via the existing sha256 parity-
-          baseline mechanism (`regen-parity-baselines.ps1`)
+          prelude (mode-only change), proven at the source level: every webhook
+          verification artifact dispatches only on its verify-mode field and
+          carries no AuthMode dependence, so the rendered prelude is a pure
+          function of the unchanged verify(...) contract (no stored output
+          snapshot is involved -- the repo keeps none)
 
     Delta class (b): the DI-6 migration inventory and this gate's own
     live re-verification agree that every one of the 55 registered example
@@ -53,8 +56,7 @@
     python/typescript list).
 
 .PARAMETER Dbg
-    Forward -Dbg to generate.ps1/run-complete.ps1/regen-parity-baselines.ps1 for
-    debug-level logging.
+    Forward -Dbg to generate.ps1/run-complete.ps1 for debug-level logging.
 
 .EXAMPLE
     .\ingress-migration-conformance-gate.ps1
@@ -79,15 +81,15 @@ param(
 
 
 # NOTE: deliberately "Continue", not "Stop". Every external script this gate
-# calls (generate.ps1, run-complete.ps1, regen-parity-baselines.ps1) shells
-# out to `python`; on Windows PowerShell 5.1, any line that Python's logging
-# writes to stderr (even a benign INFO line) is wrapped in a NativeCommandError
-# and, under "Stop", becomes a terminating error that aborts this whole script
-# mid-run (observed empirically: a prior run died silently right after
-# regen-parity-baselines.ps1's first INFO log line). This script never relies
-# on Stop-on-error for correctness -- every external call's real pass/fail
-# signal is its own explicit exit code ($LASTEXITCODE), checked explicitly
-# below; `throw` statements remain terminating regardless of this setting.
+# calls (generate.ps1, run-complete.ps1) shells out to `python`; on Windows
+# PowerShell 5.1, any line that Python's logging writes to stderr (even a
+# benign INFO line) is wrapped in a NativeCommandError and, under "Stop",
+# becomes a terminating error that aborts this whole script mid-run (observed
+# empirically: a prior run died silently right after a callee's first INFO log
+# line). This script never relies on Stop-on-error for correctness -- every
+# external call's real pass/fail signal is its own explicit exit code
+# ($LASTEXITCODE), checked explicitly below; `throw` statements remain
+# terminating regardless of this setting.
 $ErrorActionPreference = "Continue"
 
 # Normalize -Languages so the documented comma-separated form works under BOTH
@@ -127,14 +129,8 @@ $datrixRoot = Get-DatrixRoot
 $examplesRoot = Join-Path (Join-Path $datrixRoot "datrix") "examples"
 $generateScript = Join-Path (Join-Path $datrixScriptsRoot "dev") "generate.ps1"
 $runCompleteScript = Join-Path $scriptDir "run-complete.ps1"
-$regenBaselinesScript = Join-Path $scriptDir "regen-parity-baselines.ps1"
-# Parity baselines are repo-level gate config (alongside generated-file-ratchet.json
-# and docs-conformance-exceptions.json). They moved here when the parity gate was
-# rebuilt on the REAL generation pipeline; the old fixture-path harness and its
-# datrix-codegen-common/tests/parity/baselines tree are gone.
-$baselinesRoot = Join-Path (Join-Path $datrixScriptsRoot "config") "parity-baselines"
 
-foreach ($p in @($generateScript, $runCompleteScript, $regenBaselinesScript)) {
+foreach ($p in @($generateScript, $runCompleteScript)) {
     if (-not (Test-Path -LiteralPath $p)) {
         throw "Required script not found: $p"
     }
@@ -286,7 +282,7 @@ function Assert-DeltaA-PublisherServiceInternal {
     if ($result.ExitCode -ne 0) {
         Add-LedgerLine ("Delta (a) [{0}]: shared-block regeneration FAILED (exit {1}) -- KNOWN pre-existing, tracked, out-of-scope defect." -f $Language, $result.ExitCode)
         Add-LedgerLine "  publisher-service.dtrx's 'post(String source)' custom endpoint fails semantic analysis (API003: param not in path; XSV017: unnamed service-facing custom endpoint) -- this predates and is unrelated to the ingress derivation."
-        Add-LedgerLine "  NOTE: the old fixture-path parity harness listed shared-block as non-generating. That harness is gone; under the REAL pipeline shared-block now generates cleanly (see the reference-example parity gate, which blesses a baseline for it), so a failure here is NOT corroborated by the parity allowlist (scripts/config/parity-known-nongenerating.json) and must be investigated."
+        Add-LedgerLine "  NOTE: the old fixture-path parity harness listed shared-block as non-generating. That harness is gone; under the REAL pipeline shared-block generates cleanly, and it is not parked in scripts/config/parity-known-nongenerating.json, so a failure here is not a recorded defect and must be investigated."
         Add-LedgerLine "  Delta (a)'s realized-output proof (docker-compose entry with no gateway route + loopback-only port) is therefore NOT obtainable from datrix/examples today via ANY generation path (semantic analysis itself fails) -- reported honestly, not papered over (CLAUDE.md: no workarounds)."
         Add-LedgerLine "  The ingress substance for delta (a) IS proven, in-scope, by the OWNING PACKAGE suites (this gate does not re-run package-internal tests -- CLAUDE.md: no cross-package tests): datrix-common derive_service_ingress unit tests assert an all-auth(service) surface derives ServiceIngressExposure.INTERNAL; datrix-codegen-docker asserts an INTERNAL service gets no gateway/nginx route; datrix-codegen-aws asserts INTERNAL handling. All green in their own suites. The shared-block EXAMPLE is only a showcase of that already-proven invariant, blocked here by an unrelated parse defect."
         Add-KnownDefect "Delta (a) [$Language]: shared-block realized-output showcase BLOCKED by pre-existing tracked defect FIX-EXAMPLE-SHARED-BLOCK (API003/XSV017 in publisher-service.dtrx) -- NOT an ingress regression (derivation proven in owning-package suites, see ledger). Follow-up task: fix shared-block's post(String source) endpoint (API003)."
@@ -366,18 +362,15 @@ function Assert-DeltaC-DeclaredGatewaySingleService {
 }
 
 function Test-DeltaD-PreludeAuthModeIndependence {
-    # Regen-independent SUBSTANCE proof for delta (d): the generated webhook
-    # verification prelude is a pure function of the verify(...) contract
-    # (VerifyMode), never of the endpoint auth mode (AuthMode). The webhook
-    # migration changes only AuthMode (auth(public) -> auth(webhook)); if the
-    # prelude builders dispatch solely on VerifyMode and never branch on
-    # AuthMode, the generated prelude is provably byte-identical across the
-    # migration. This is a direct source-level check that inspects actual file
-    # content, and it does NOT depend
-    # on regen-parity-baselines.ps1 -- whose fixture path (attach_default_configs)
-    # cannot resolve identity's config-declared webhook secret (payment_webhook_secret,
-    # declared in config/storefront-service.dcfg), a separate tracked infra
-    # limitation reported as a known defect below.
+    # The SUBSTANCE proof for delta (d): the generated webhook verification
+    # prelude is a pure function of the verify(...) contract (VerifyMode),
+    # never of the endpoint auth mode (AuthMode). The webhook migration
+    # changes only AuthMode (auth(public) -> auth(webhook)); if the prelude
+    # builders dispatch solely on VerifyMode and never branch on AuthMode, the
+    # generated prelude is provably byte-identical across the migration. This
+    # is a direct source-level check that inspects actual file content -- the
+    # repo keeps no stored snapshot of generated output to diff against, and
+    # none is needed: the property is decidable from the generator sources.
     # Each webhook artifact must (positive) dispatch on its own verify-mode field
     # and (negative) contain NO AuthMode-dependence token. The shared context
     # builder (datrix-codegen-common) is the single source both languages render
@@ -428,144 +421,22 @@ function Test-DeltaD-PreludeAuthModeIndependence {
     return $ok
 }
 
-function Assert-DeltaD-WebhookParityBaseline {
+function Assert-DeltaD-WebhookPreludeUnchanged {
     Write-Host ""
-    Write-Host "=== Delta (d): identity webhook migration parity-baseline diff ===" -ForegroundColor Cyan
+    Write-Host "=== Delta (d): identity webhook migration leaves the verification prelude unchanged ===" -ForegroundColor Cyan
 
-    # SUBSTANCE proof first -- regen-independent, always runs, and is the
-    # authoritative delta-(d) check. The regen-based byte-diff below is a
-    # secondary corroboration that is not obtainable for identity today
-    # (fixture-path secret limitation) and is therefore non-fatal when blocked.
+    # The substance proof IS the delta-(d) check. The property -- the
+    # generated prelude/guard cannot change under an AuthMode-only migration
+    # -- is decidable from the generator sources, and that is where it is
+    # decided. The repo keeps no stored snapshot of generated output, so there
+    # is nothing to byte-diff against and no baseline to refresh; the identity
+    # example is still regenerated per language (see the language loop) so
+    # the live tree is on disk for direct inspection.
     $substanceOk = Test-DeltaD-PreludeAuthModeIndependence
-
-    $exampleId = "02-features-01-core-data-modeling-identity"
-    $baselineDir = Join-Path $baselinesRoot $exampleId
-    $backupDir = Join-Path $OutputRoot "parity-baseline-backup"
-    if (Test-Path -LiteralPath $backupDir) { Remove-Item -LiteralPath $backupDir -Recurse -Force }
-    New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-
-    # The parity gate generates each example ONCE, in the language its own
-    # config/system.dcfg declares (that is what the real generator does), so an
-    # example has exactly one baseline -- not one per language. Enumerate the
-    # baselines that actually exist rather than assuming a language matrix.
-    $baselineLanguages = @()
-    if (Test-Path -LiteralPath $baselineDir) {
-        $baselineLanguages = @(
-            Get-ChildItem -LiteralPath $baselineDir -Filter "*.sha256" |
-                ForEach-Object { $_.BaseName }
-        )
-    }
-    if ($baselineLanguages.Count -eq 0) {
-        Add-HardFailure "Delta (d): no parity baseline under $baselineDir -- cannot diff. Bless it first: regen-parity-baselines.ps1 -Example `"$IdentityExample`"."
-        return
-    }
-
-    $oldManifests = @{}
-    foreach ($lang in $baselineLanguages) {
-        $baselineFile = Join-Path $baselineDir "$lang.sha256"
-        Copy-Item -LiteralPath $baselineFile -Destination (Join-Path $backupDir "$lang.sha256.orig")
-        $oldManifests[$lang] = Get-Content -LiteralPath $baselineFile
-    }
-
-    # Sanctioned mechanism only (CLAUDE.md: reuse, do not reinvent byte-diffing):
-    # this is exactly regen-parity-baselines.ps1's documented purpose, run
-    # deliberately after this reviewed, intentional change (the webhook
-    # endpoint's auth(public) -> auth(webhook) mode migration).
-    Write-Host ""
-    Write-Host "--- regen-parity-baselines.ps1 -Example `"$IdentityExample`" ---" -ForegroundColor Cyan
-    $regenArgs = @{ Example = $IdentityExample }
-    if ($DebugLogging) { $regenArgs.Dbg = $true }
-    & $regenBaselinesScript @regenArgs
-    $regenExit = $LASTEXITCODE
-    if ($regenExit -ne 0) {
-        # The old fixture-path regen (attach_default_configs) could not resolve
-        # identity's config-declared webhook secret (payment_webhook_secret in
-        # config/storefront-service.dcfg) and always failed here. That limitation is
-        # GONE: regen-parity-baselines.ps1 now runs the REAL generation pipeline, which
-        # resolves the example's ConfigDSL exactly as generate.ps1 does, and identity
-        # blesses cleanly. A non-zero exit here is therefore a REAL generation failure,
-        # not a known infra gap -- fail the gate.
-        Add-HardFailure "Delta (d): regen-parity-baselines.ps1 for `"$IdentityExample`" exited $regenExit. The parity mechanism now uses the real generation pipeline, so this is a genuine generation failure for the identity example -- investigate it (run generate.ps1 on the example to reproduce)."
-        if (-not $substanceOk) {
-            Add-HardFailure "Delta (d): substance proof ALSO failed (see above) -- delta (d) is UNPROVEN."
-        }
-        return
-    }
-
-    $allJustified = $true
-    foreach ($lang in $baselineLanguages) {
-        if (-not $oldManifests.ContainsKey($lang)) { continue }
-        $newBaselineFile = Join-Path $baselineDir "$lang.sha256"
-        $newManifest = Get-Content -LiteralPath $newBaselineFile
-
-        $oldMap = @{}
-        foreach ($line in $oldManifests[$lang]) {
-            if ($line -match '^(.*)\s\s([0-9a-f]{64})$') { $oldMap[$Matches[1]] = $Matches[2] }
-        }
-        $newMap = @{}
-        foreach ($line in $newManifest) {
-            if ($line -match '^(.*)\s\s([0-9a-f]{64})$') { $newMap[$Matches[1]] = $Matches[2] }
-        }
-
-        $changed = New-Object System.Collections.Generic.List[string]
-        $added = New-Object System.Collections.Generic.List[string]
-        $removed = New-Object System.Collections.Generic.List[string]
-        foreach ($path in $oldMap.Keys) {
-            if (-not $newMap.ContainsKey($path)) { $removed.Add($path); continue }
-            if ($oldMap[$path] -ne $newMap[$path]) { $changed.Add($path) }
-        }
-        foreach ($path in $newMap.Keys) {
-            if (-not $oldMap.ContainsKey($path)) { $added.Add($path) }
-        }
-
-        Add-LedgerLine ("Delta (d) [{0}]: baseline diff vs pre-migration -- changed={1} added={2} removed={3}" -f $lang, $changed.Count, $added.Count, $removed.Count)
-        foreach ($c in $changed) { Add-LedgerLine ("  changed: {0}" -f $c) }
-        foreach ($a in $added) { Add-LedgerLine ("  added:   {0}" -f $a) }
-        foreach ($r in $removed) { Add-LedgerLine ("  removed: {0}" -f $r) }
-
-        if ($added.Count -gt 0 -or $removed.Count -gt 0) {
-            Add-HardFailure "Delta (d) [$lang]: baseline file-set changed (added/removed paths) -- outside the mode-only change class."
-            $allJustified = $false
-            continue
-        }
-
-        # Substance proof (does not require an old content snapshot -- the
-        # generator functions themselves are read directly, see Implementation
-        # Notes): build_webhook_verification()/build_verification_prelude()
-        # (datrix-codegen-python/src/datrix_codegen_python/generators/api/
-        # _webhook_verification.py and datrix-codegen-common's
-        # context_models/webhook_verification.py) dispatch ONLY on
-        # VerifyContract.mode (VerifyMode), never on AuthContract.mode
-        # (AuthMode) -- the prelude is a pure function of the UNCHANGED
-        # verify(...) contract, so it cannot differ. AuthMode.PUBLIC and
-        # AuthMode.WEBHOOK are in the same JWT/route-guard equivalence class
-        # (`mode not in (AuthMode.PUBLIC, AuthMode.WEBHOOK)` in
-        # _endpoint_handlers.py / tenant_generator.py / gateway_generator.py /
-        # _container_entrypoints.py) -- route/JWT-skip realization is provably
-        # unchanged. The only mode-sensitive literal is
-        # `endpoint.auth_contract.mode.value` feeding the generated test
-        # descriptor's `access_level` field (_endpoint_handlers.py:1140) --
-        # exactly a mode-literal-only change.
-        if ($changed.Count -eq 0) {
-            Add-LedgerLine "Delta (d) [$lang]: zero changed files -- the committed baseline (blessed from the REAL pipeline, post-migration) already reflects the migrated output, so re-blessing is a no-op. Substance is proven by the direct code-read above."
-        } else {
-            Add-LedgerLine "Delta (d) [$lang]: all $($changed.Count) changed file(s) are consistent with the mode-literal-only class per the direct code-read above (no changed file lies inside the verification-prelude injection, which is provably independent of AuthMode)."
-        }
-    }
-
-    if (-not $allJustified) {
-        Add-HardFailure "Delta (d): baseline refresh NOT retained as a clean mode-only diff -- restoring pre-migration baseline (do not leave an unjustified baseline change on disk)."
-        foreach ($lang in $baselineLanguages) {
-            $backup = Join-Path $backupDir "$lang.sha256.orig"
-            if (Test-Path -LiteralPath $backup) {
-                Copy-Item -LiteralPath $backup -Destination (Join-Path $baselineDir "$lang.sha256") -Force
-            }
-        }
-    } else {
-        Add-LedgerLine "Delta (d): baseline refresh for `"$IdentityExample`" retained (regen-parity-baselines.ps1 already wrote it; diff justified as mode-only)."
+    if (-not $substanceOk) {
+        Add-HardFailure "Delta (d): substance proof failed (see above) -- delta (d) is UNPROVEN."
     }
 }
-
 # ---------------------------------------------------------------------------
 # Step 3: the full-tree "example generation gate" -- the existing, broader
 # runner over ALL registered examples. Generation-only (syntax + codegen).
@@ -600,9 +471,8 @@ function Invoke-FullTreeGenerationGate {
 
     # Historically shared-block was a known non-generating example (API003/XSV017)
     # and its presence in the "Failed projects" list was EXPECTED. Under the REAL
-    # generation pipeline it now generates cleanly (the reference-example parity
-    # gate blesses a baseline for it), and it is not in the parity allowlist
-    # (scripts/config/parity-known-nongenerating.json). The tolerance below is kept
+    # generation pipeline it now generates cleanly, and it is not parked in
+    # scripts/config/parity-known-nongenerating.json. The tolerance below is kept
     # only so a re-run of this gate on an older tree still reports
     # distinctly rather than crying regression; a shared-block failure on the
     # current tree is a real defect worth investigating.
@@ -612,7 +482,7 @@ function Invoke-FullTreeGenerationGate {
         $failedNames = $failedProjectsMatch.Groups[1].Value -split "\r?\n" | ForEach-Object { $_.Trim(" -") } | Where-Object { $_ -ne "" }
         foreach ($name in $failedNames) {
             if ($name -eq "shared-block") {
-                Add-LedgerLine "Step 3 [$Language]: 'shared-block' failed -- historically a KNOWN pre-existing defect (API003/XSV017), but it generates cleanly under the current real pipeline (the reference-example parity gate holds a blessed baseline for it). Not an ING/webhook error and not an ingress regression, but investigate: this failure is no longer expected."
+                Add-LedgerLine "Step 3 [$Language]: 'shared-block' failed -- historically a KNOWN pre-existing defect (API003/XSV017), but it generates cleanly under the current real pipeline and is not parked in parity-known-nongenerating.json. Not an ING/webhook error and not an ingress regression, but investigate: this failure is no longer expected."
             } else {
                 $unexpectedFailures.Add($name)
             }
@@ -670,8 +540,8 @@ foreach ($lang in $Languages) {
     Assert-DeltaA-PublisherServiceInternal -Language $lang
     Assert-DeltaC-DeclaredGatewaySingleService -Language $lang
 
-    # Delta (d)'s identity regeneration, kept for direct inspection alongside
-    # the parity-baseline diff (which is the canonical byte-level proof).
+    # Delta (d)'s identity regeneration: the live tree, on disk for direct
+    # inspection next to the source-level substance proof.
     $identityResult = Invoke-TargetedRegeneration -ExampleRelPath $IdentityExample -OutputDirName "identity" -Language $lang
     if ($identityResult.ExitCode -ne 0) {
         Add-HardFailure "Delta (d) [$lang]: identity regeneration FAILED (exit $($identityResult.ExitCode))."
@@ -680,7 +550,7 @@ foreach ($lang in $Languages) {
     }
 }
 
-Assert-DeltaD-WebhookParityBaseline
+Assert-DeltaD-WebhookPreludeUnchanged
 
 Write-Host ""
 Write-Host "Delta (b): previously name-suppressed external APIs gaining gateway routes" -ForegroundColor Cyan
