@@ -75,14 +75,21 @@
         }
       }
     }
+    // Operator-provisioned handles: each is mounted as a compose file secret
+    // and the deploy script refuses to start while its file is absent. The
+    // localDefault is a throwaway dev seed written on local profiles only
+    // (development, test); on every other profile the operator writes the
+    // real value to secrets/<service>/<handle> before deploying.
     secrets {
       secret stripe_secret_key {
         required = true;
         purpose = "Stripe secret API key for payment processing.";
+        localDefault = "dev-only-stripe-secret-key-not-a-credential";
       }
       secret payment_webhook_secret {
         required = true;
         purpose = "Signing key for inbound payment-gateway webhook signature verification.";
+        localDefault = "dev-only-payment-webhook-signing-key-not-a-credential";
       }
     }
     integrations {

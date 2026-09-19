@@ -61,22 +61,31 @@
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
     }
+    // Operator-provisioned handles: each is mounted as a compose file secret
+    // and the deploy script refuses to start while its file is absent. The
+    // localDefault is a throwaway dev seed written on local profiles only
+    // (development, test); on every other profile the operator writes the
+    // real value to secrets/<service>/<handle> before deploying.
     secrets {
       secret payment_webhook_secret {
         required = true;
         purpose = "Stripe webhook signature signing key";
+        localDefault = "dev-only-payment-webhook-signing-key-not-a-credential";
       }
       secret customer_identity_client_secret {
         required = true;
         purpose = "OIDC client secret for the customer identity provider (Zitadel shop-storefront application).";
+        localDefault = "dev-only-customer-oidc-client-secret-not-a-credential";
       }
       secret workforce_identity_client_secret {
         required = true;
         purpose = "OIDC client secret for the workforce identity provider (Zitadel shop-backoffice application).";
+        localDefault = "dev-only-workforce-oidc-client-secret-not-a-credential";
       }
       secret platform_machine_identity_client_secret {
         required = true;
         purpose = "OIDC client secret for the platform machine identity provider (Zitadel shop-service-clients application).";
+        localDefault = "dev-only-platform-machine-oidc-client-secret-not-a-credential";
       }
     }
     cacheOps {

@@ -184,6 +184,9 @@ config service credentials.SupportService {
   profile test as "test" extends base {
     alias env = "TEST";
     alias resource = "test";
+    replace secrets { }                         // replace: the replay handle below carries no credential,
+                                                // so the live handle's API key is not a secret this
+                                                // profile declares, mounts, or requires
     replace agents support {                    // replace: a replay handle carries no transport keys,
       models {                                  // so the live handle's keys must not be inherited
         primary {

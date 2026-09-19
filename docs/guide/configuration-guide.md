@@ -1146,18 +1146,38 @@ For cloud engines (`sns-sqs`, `servicebus`, `eventbridge`), `brokers` field is n
 
 ### NoSQL Configuration
 
-```yaml
-nosql:
-  engine: mongodb                     # mongodb, dynamodb, cosmosdb
-  platform: container                 # container, documentdb, atlas, cosmos-db
-  host: localhost
-  port: 27017
-  database: orders
-  username: admin
-  password: ${MONGO_PASSWORD}
-  docker_image: mongo:7
-  volume_path: ./data/mongo
-  health_check_cmd: "mongosh --eval 'db.runCommand({ping: 1})'"
+```dcfg
+nosql orders {
+  engine = "mongodb";              // mongodb, dynamodb, cosmosdb, firestore
+  flavor = "container";            // container, external, documentdb, atlas, cosmos-db, managed
+  host = "localhost";
+  port = 27017;
+  database = "orders";
+  dockerImage = "mongo:7";
+  volumePath = "/data/db";
+  healthCheckCmd = "mongosh --eval 'db.adminCommand({ ping: 1 })'";
+}
+```
+
+A MongoDB block addressed by `host`/`port` is always authenticated. A `container` block
+authenticates as the application user Datrix provisions (its password is generated at
+build time and delivered as the `<block>_secret-key` secret handle). An `external`
+block must declare `user` — the login the generated client authenticates as — and its
+password is the operator-provisioned `<block>_secret-key` handle (on docker compose,
+bridged from the deploy host's `NOSQL_<BLOCK>_APP_PASSWORD` variable named in
+`.env.example`); an external block with `host` and no `user` is rejected at config time.
+A connection string that carries its own credentials is declared as `uri` instead of
+`host`/`port`, and is delivered whole as the `<block>_connection-string` handle.
+
+```dcfg
+nosql orders {
+  engine = "mongodb";
+  flavor = "external";
+  host = "mongo.internal.example";
+  port = 27017;
+  database = "orders";
+  user = "orders_app";
+}
 ```
 
 ---

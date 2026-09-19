@@ -239,6 +239,16 @@
         maxUnavailable = "25%";
       }
     }
+    // The machine provider validates against an operator-managed OIDC issuer
+    // on this target (config/identity/platform.dcfg, profile aws), so its
+    // client secret is an operator-provisioned handle here: the value lives in
+    // the platform vault under this name, never in a generated artifact.
+    secrets {
+      secret platform_identity_client_secret {
+        required = true;
+        purpose = "OIDC client secret for the platform machine identity provider (external issuer on AWS).";
+      }
+    }
   }
 
   profile azure as "azure" extends base {
