@@ -99,10 +99,14 @@
         }
       }
     }
+    // Operator-provisioned handle: mounted as a compose file secret; the
+    // deploy script refuses to start while its file is absent. The
+    // localDefault is a throwaway dev seed written on local profiles only.
     secrets {
       secret carrier_webhook_secret {
         required = true;
         purpose = "Keyed-hash key for inbound carrier webhook signature verification.";
+        localDefault = "dev-only-carrier-webhook-signing-key-not-a-credential";
       }
     }
     httpSecurity {

@@ -1174,6 +1174,38 @@ The gate also enforces the examples tree's layout contract, since an example's i
 
 ---
 
+### `test\example-secret-seed-gate.ps1`
+
+Example secret-seed gate: every example's deploy test can start its stack. A handle a service
+declares in its `secrets { }` table is mounted into the container as a file, and the generated
+deployment script refuses to start while that file is absent, writing nothing in its place; on
+a local secret profile the generator writes the file only from the handle's `localDefault`. The
+corpus is deploy-tested on the `test` profile by an unattended harness, so for every example,
+on that profile, every `required = true` operator-provisioned handle must carry a `localDefault`
+-- or no full-corpus run can ever bring the example up. A handle the profile does not consume
+(a live-model API key on a profile that binds `replay`) is dropped from that profile with
+`replace secrets { ... }`, never seeded with a fake value.
+
+Resolves each example's service `.dcfg` files (kind detected by parsing, so identity/system
+configs are skipped) through `datrix_common.config.unified_loader.load_service_config` on the
+`test` profile -- the same resolution the pipeline applies -- and never parses a `.dtrx`.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\example-secret-seed-gate.ps1` | Check every example's resolved `test`-profile secret tables |
+| **Debug** | `.\test\example-secret-seed-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\example-secret-seed-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real check |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Assertions:**
+- For every `system.dtrx` under `datrix/examples/` and every service-kind `.dcfg` under its `config/`, the `test`-profile secret table has no handle that is `required = true`, `provisioningAuthority = "operator"` and without `localDefault`.
+- Non-vacuity self-test (every invocation, no file I/O): a synthetic table with seeded, unseeded, optional and Datrix-owned handles must report exactly the unseeded ones, and an empty table must report nothing.
+
+**Exit codes:** 0 = every handle seeded (or a successful `-SelfTest`), 1 = at least one unseeded handle, 2 = the self-test failed, zero examples or zero service configs exist on disk, or a config fails to parse or resolve.
+
+---
+
 ### `test\block-realization-parity-gate.ps1`
 
 Cross-platform capability-declaration parity gate (D1): the platform-axis counterpart of
