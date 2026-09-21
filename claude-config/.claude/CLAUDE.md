@@ -109,6 +109,7 @@ doing the wrong thing.
 | `SubagentStop` | `check-agent-report.py` | a subagent report ending on a dodge without a B1–B4 proof or filed task, or reporting a security downgrade / expedient fix (neither is lifted by a proof; §13's one exception is B3) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-predeploy-analysis.py` | a deploy with no fresh seam census in `.tmp/predeploy/` (dry-run/`--what-if` forms are always allowed) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-full-suite-runs.py` | whole-suite `test.ps1` runs (unconditional for subagents) |
+| `PreToolUse(Bash\|PowerShell)` | `guard-untargeted-scans.py` | whole-package `semgrep.ps1`/`libcst.ps1`/`ast-grep.ps1` runs with no `-Rule` and no `SCAN_QUESTION:` in the description; `-All` and subagent runs unconditionally |
 | `PreToolUse(Bash\|PowerShell)` | `validate-script-invocation.py` | `generate.ps1` with `-All`/`-Domains`/`-TestSet` (no override) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-forbidden-commands.py` | git reverts, standalone type-checkers (`mypy` and equivalents, wrappers included), and other prohibited commands |
 | `PreToolUse(Bash\|PowerShell)` | `guard-shell-file-writes.py` | authoring file content from a shell — heredocs, `>`/`>>` into a file, `Set-Content`/`Out-File`, and `python -c`/`python - <<` bodies that write files |
@@ -141,7 +142,10 @@ re-arms: re-read before acting.
 - **Static analysis first.** A deploy or runtime run is the most expensive, latest-arriving
   evidence available. Climb the ladder from the top: read source/template → parse the emitted
   artifact → targeted unit test → repo static gate → affected suites → generate → deploy.
-  *"I'll just deploy and see"* is the most expensive sentence available to you.
+  *"I'll just deploy and see"* is the most expensive sentence available to you. **The ladder
+  is a menu ordered by cost, not a sequence to execute** — each rung is taken only for a
+  question that rung answers and a cheaper one cannot; a rung run because it is on the list
+  is waste (see Budget).
 - **Every seam gets a set comparison, and it lives in code.** Name what produces the
   names/values and what consumes them, compute `consumed − produced`, require it empty or
   explained, then land the comparison as a validator or test. Parse structure; don't eyeball
@@ -203,6 +207,13 @@ Full text: execution-contract §10–§11.
   like compliance the whole time.
 - **Don't re-establish what you already know.** Don't re-read a file you just wrote; don't
   re-run a passing check as punctuation.
+- **A check is bought for a question, never for a rung.** Before any scan, gate, or suite,
+  name the defect class it targets and the failure it would show that your evidence so far
+  cannot. If you cannot name both, do not run it — "it's on the ladder" is not a question.
+  Repo-wide anti-pattern scans (`semgrep.ps1`, `libcst.ps1`, `ast-grep.ps1`) over whole
+  packages are phase-boundary acts, never per-fix punctuation; inside a fix, only a named
+  `-Rule` or a stated question (`guard-untargeted-scans.py`). This was learned the expensive
+  way: a ten-minute three-package semgrep run after every load-bearing check was already green.
 - **Wait by notification, never by polling.** Use `run_in_background` and resume on the
   notification. Never `until <check>; do sleep N; done`. Yielding between tool calls is not
   handing back.

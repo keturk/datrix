@@ -370,6 +370,17 @@ cheap it looks. Narrow the *form* of every check to the least it can be (a `grep
 targeted test over a suite, a parse over a regeneration) — but never narrow the *set* of questions
 you must answer to be correct.
 
+**A check is bought for a question, never for a rung.** The static-analysis ladder and the
+verification tiers are menus ordered by cost, not sequences to execute. Before running any scan,
+gate, or suite, write down (to yourself) the defect class it targets and the failure it would
+show that the evidence you already hold cannot. If you cannot name both, the check is punctuation:
+it can only return "clean" on code you have already read, and its cost — minutes of wall-clock,
+Jon's attention, and a background task to babysit — is paid for nothing. The concrete case: a
+three-package `semgrep.ps1` run after the targeted suites, the plugin-load proof, and both repo
+gates were already green, launched because "repo static gate" was the next rung. Whole-package
+anti-pattern scans are phase-boundary acts; `guard-untargeted-scans.py` refuses them inside a fix
+without a named `-Rule` or a stated `SCAN_QUESTION:`, and refuses `-All` and subagent runs outright.
+
 ### 11.1 Wait by notification, never by polling
 
 **A background task notifies you when it completes. Do not poll it.** Launch it with
