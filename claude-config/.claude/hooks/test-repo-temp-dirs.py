@@ -46,6 +46,7 @@ check(".scripts inside a repo", write("d:/datrix/datrix-extensions/.scripts/run.
 # The repo list is not a constant: a target added without updating it goes unguarded.
 check("angular (frontend target repo)", write("d:/datrix/datrix-codegen-angular/.tmp/out.log"), BLOCK)
 check("react (frontend target repo)", write("d:/datrix/datrix-codegen-react/.tmp/out.log"), BLOCK)
+check("flutter (mobile target repo)", write("d:/datrix/datrix-codegen-flutter/.tmp/out.log"), BLOCK)
 check("vscode (non-Python repo)", write(r"d:\datrix\datrix-vscode\temp\a.json"), BLOCK)
 
 print("== Write/Edit: legitimate paths stay writable ==")
