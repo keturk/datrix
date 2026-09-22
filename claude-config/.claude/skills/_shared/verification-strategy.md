@@ -172,10 +172,12 @@ Execution contract §12.5 holds the surface→check table.
   every domain role, read from the pipeline manifests in the local `.generated/` corpus.
   Phase-boundary only: it refuses to run until every registered language's corpus is
   complete (`generate.ps1 -All -L <language>`, which Jon runs — blocked for agents).
-- **`decision-parity-gate.ps1`** (~1 min): groups functions into roles by shared-typed
+- **`behaviour-parity-gate.ps1`** (~1 min): groups functions into roles by shared-typed
   signature or normalized name (language tokens stripped) and fails a role whose members carry
-  the same decision skeleton, or diverge without every lagging language declaring the construct
-  unsupported. Run it when a language codegen package, codegen-common, or common changed.
+  the same behaviour skeleton, or whose members split into more than one skeleton group once
+  every package declaring the construct unsupported is set aside (no reference language; the
+  failure names every group). Run it when a language codegen package, codegen-common, or
+  common changed.
 - Other gates only when their surface was touched: `shared-library-gate` /
   `test-tooling-parsing-gate` / `review-library-gate` (datrix/scripts/library),
   `check-docs-conformance` (architecture docs), `check-generated-file-ratchet`

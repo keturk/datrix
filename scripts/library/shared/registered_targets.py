@@ -95,7 +95,7 @@ DATRIX_DIR: Path = _HERE.parents[3]
 WORKSPACE_ROOT: Path = _HERE.parents[4]
 
 #: The two comparison axes used by every discovery/comparison scanner that
-#: consumes this module (the decision-parity gate, and any future
+#: consumes this module (the behaviour-parity gate, and any future
 #: cross-target scanner).
 AXIS_LANGUAGES: Final[str] = "languages"
 AXIS_PLATFORMS: Final[str] = "platforms"

@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
-"""Decision-parity gate: discovers every registered language (or platform)
+"""Behaviour-parity gate: discovers every registered language (or platform)
 package's module-level and class-method function definitions, groups them
 into ROLES -- never by raw name, so a language token in a name can never
 hide a parallel implementation -- classifies every role with two or more
-member packages as ``identical``, ``same-decisions``, or
-``decision-divergence`` using the decision-skeleton extractor, resolves each
-role to its owning shared domain, reads the declared exemption surfaces, and
-fails exactly the roles Decision 47 says must fail.
+member packages as ``identical``, ``same-behaviour``, or ``divergent``
+using the behaviour-skeleton extractor, resolves each role to its owning
+shared domain, reads the declared exemption surfaces, and fails exactly the
+roles the language-axis behaviour-parity invariants say must fail.
+
+A per-target difference in generator BEHAVIOUR -- what is read from the
+model, what is validated, what is emitted -- is a defect with as many copies
+as there are disagreeing packages, never a choice to adjudicate. No language
+is the reference: when copies disagree, the reconciliation takes the
+strongest behaviour on each axis (fails closed, reads everything the DSL
+declares, most secure, most correct output), and this gate cannot know which
+copy that is. It therefore names every group of disagreeing packages, never
+one "lagging" side.
 
 Two grouping keys, tried in order for every function:
 
@@ -30,18 +39,21 @@ Two grouping keys, tried in order for every function:
    the language axis; the bare registered name(s) on the platform axis)
    stripped as whole ``_``-delimited segments.
 
-Gate verdicts (Decision 47, invariants 1 and 2)
------------------------------------------------
-- ``identical`` and ``same-decisions`` fail unless every member is a
-  pre-binding adapter (recognized by AST shape in ``decision_skeleton``;
+Gate verdicts (language-axis invariants I1 and I2)
+--------------------------------------------------
+- ``identical`` and ``same-behaviour`` fail unless every member is a
+  pre-binding adapter (recognized by AST shape in ``behaviour_skeleton``;
   there is no written exemption for this bucket).
-- ``decision-divergence`` fails unless every LAGGING language declares the
-  construct unsupported. The reference language (``--reference``, Python by
-  Decision 47 invariant 5) fixes the decision: a member package agrees with
-  it when the set of decision skeletons its members contribute to the role
-  equals the reference's set, and is lagging otherwise. A role the reference
-  has no member in has no agreeing package -- every member package is
-  lagging and must declare the construct unsupported.
+- ``divergent`` is judged without a reference language. The role's member
+  packages are partitioned into SKELETON GROUPS: two packages share a group
+  when the sets of ``(behaviour skeleton, behaviour arity)`` pairs their
+  members contribute to the role are equal. Every package that declares the
+  construct ``unsupported(reason)`` on one of the declared surfaces below is
+  set aside. The role PASSES iff at most one group remains; otherwise it
+  FAILS with one reason naming every remaining group -- the gate cannot
+  know which group carries the correct behaviour, so it names all of them.
+  A role every member of which declares the construct unsupported passes (a
+  declared hole everywhere) and is still reported.
 - A failure counts toward the exit code only when the role's domain is in
   scope; every other role is reported and never fails (the migration-only
   scope below). The platform axis is measured, not reconciled: it is
@@ -67,8 +79,8 @@ Domain resolution ladder (first hit wins)
 Membership is always tested against ``SHARED_CONTEXT_TYPES``: no domain id
 is ever fabricated, and disagreeing members fall through to ``undomained``.
 
-Declared exemption surfaces (a lagging language is exempt on ANY one)
----------------------------------------------------------------------
+Declared exemption surfaces (a member package is set aside on ANY one)
+----------------------------------------------------------------------
 1. Its ``DomainDeclaration.status == "unsupported"`` for the role's domain
    (read through ``supported_domain_parity.stance_table_by_language``).
 2. The role's domain is a key of its
@@ -80,8 +92,9 @@ Declared exemption surfaces (a lagging language is exempt on ANY one)
 
 An ``undomained`` role admits only the third surface. Exemptions are
 role-keyed -- renaming a function never touches one -- and no classification
-file exists (Decision 47 invariant 11): the typed declaration on the plugin
-is the only surface.
+file exists (invariant I11): the typed declaration on the plugin is the
+only surface, and it records a capability hole, never a reason to behave
+differently.
 
 How surface 3 finds a language's emit tables: every module under the
 language package's ``src/<import root>`` is imported
@@ -100,10 +113,10 @@ registers is a failure naming the member, never a skip.
 Scope (migration-only)
 ----------------------
 ``--scope <id>[,<id>...]`` -- universe ids plus the literal ``undomained`` --
-overrides ``datrix/scripts/config/decision-parity-scope.json``'s ``domains``
+overrides ``datrix/scripts/config/behaviour-parity-scope.json``'s ``domains``
 list, read only when ``--scope`` is absent. ``--buckets <id>[,<id>...]`` --
-verdict names (``identical``, ``same-decisions``, ``decision-divergence``)
--- overrides the file's ``buckets`` list the same way, gating every role of
+verdict names (``identical``, ``same-behaviour``, ``divergent``) --
+overrides the file's ``buckets`` list the same way, gating every role of
 that verdict across EVERY domain regardless of ``domains``/``--scope``. A
 role is in scope when either half admits it. File present: its ``domains``
 list is the domain scope (empty means no role fails by domain) and its
@@ -122,10 +135,10 @@ role; 2 usage error, discovery/parse failure, or self-test failure.
 ``--axis platforms`` and ``--report-only`` render the report and exit 0.
 
 Usage:
-    python decision_parity.py --self-test
-    python decision_parity.py --axis languages [--scope queue,cache] [--buckets identical] [--reference python] [--debug]
-    python decision_parity.py --axis languages --report-only [--debug]
-    python decision_parity.py --axis platforms [--debug]
+    python behaviour_parity.py --self-test
+    python behaviour_parity.py --axis languages [--scope queue,cache] [--buckets identical] [--debug]
+    python behaviour_parity.py --axis languages --report-only [--debug]
+    python behaviour_parity.py --axis platforms [--debug]
 """
 
 from __future__ import annotations
@@ -185,12 +198,12 @@ from shared.registered_targets import (  # noqa: E402
     registered_platform_names,
 )
 
-from test.decision_skeleton import (  # noqa: E402
+from test.behaviour_skeleton import (  # noqa: E402
     FunctionSource,
     SkeletonError,
+    behaviour_arity,
+    behaviour_skeleton,
     build_import_table,
-    decision_arity,
-    decision_skeleton,
     is_pre_binding_adapter,
     is_rendering_leaf,
     normalized_source,
@@ -205,7 +218,7 @@ EXIT_OK: Final[int] = 0
 #: At least one role whose domain is in scope fails the gate.
 EXIT_FAIL: Final[int] = 1
 #: Also argparse's own usage-error exit code: a failed self-test, a
-#: single-package axis, an unknown scope id or reference language, and a
+#: single-package axis, an unknown scope or bucket id, and a
 #: parse/discovery failure all mean "nothing was proven".
 EXIT_USAGE: Final[int] = 2
 
@@ -234,17 +247,19 @@ _NAME_SEGMENT_SEPARATOR: Final[str] = "_"
 _MAX_REEXPORT_HOPS: Final[int] = 5
 
 _FunctionDefNode = ast.FunctionDef | ast.AsyncFunctionDef
-Verdict = Literal["identical", "same-decisions", "decision-divergence"]
+#: The three bucket labels, exactly as printed and accepted (invariant I12:
+#: these three spellings are the whole verdict vocabulary).
+Verdict = Literal["identical", "same-behaviour", "divergent"]
 _VERDICT_IDENTICAL: Final[Verdict] = "identical"
-_VERDICT_SAME_DECISIONS: Final[Verdict] = "same-decisions"
-_VERDICT_DIVERGENCE: Final[Verdict] = "decision-divergence"
+_VERDICT_SAME_BEHAVIOUR: Final[Verdict] = "same-behaviour"
+_VERDICT_DIVERGENT: Final[Verdict] = "divergent"
+#: One member's measured behaviour: its skeleton and its role-level arity --
+#: the pair ``_classify_role`` compares and ``skeleton_groups`` partitions on.
+BehaviourPair = tuple[str, int]
 
 #: The domain of a role the resolution ladder maps to no shared domain id.
 #: Also a valid ``--scope`` id, so the roles that resolve nowhere can be gated.
 UNDOMAINED: Final[str] = "undomained"
-#: The registered language whose decisions every other language adopts
-#: (Decision 47 invariant 5). Overridable per run with ``--reference``.
-_DEFAULT_REFERENCE_LANGUAGE: Final[str] = "python"
 _SCOPE_SEPARATOR: Final[str] = ","
 _SCOPE_FILE_DOMAINS_KEY: Final[str] = "domains"
 _SCOPE_FILE_BUCKETS_KEY: Final[str] = "buckets"
@@ -252,13 +267,13 @@ _SCOPE_FILE_BUCKETS_KEY: Final[str] = "buckets"
 #: names a role can classify as. Gating a bucket fails every role of that
 #: verdict across EVERY domain, independent of the domains list.
 _VALID_BUCKET_IDS: Final[frozenset[str]] = frozenset(
-    {_VERDICT_IDENTICAL, _VERDICT_SAME_DECISIONS, _VERDICT_DIVERGENCE}
+    {_VERDICT_IDENTICAL, _VERDICT_SAME_BEHAVIOUR, _VERDICT_DIVERGENT}
 )
 #: The migration-only scope list; read only when ``--scope`` is absent, and
 #: only while it exists (its absence means every domain is in scope).
-DECISION_PARITY_SCOPE_PATH: Final[Path] = DATRIX_DIR / "scripts" / "config" / "decision-parity-scope.json"
+BEHAVIOUR_PARITY_SCOPE_PATH: Final[Path] = DATRIX_DIR / "scripts" / "config" / "behaviour-parity-scope.json"
 #: The declared-status literal shared by ``DomainDeclaration`` and
-#: ``BuiltinGroupStance`` that exempts a lagging language.
+#: ``BuiltinGroupStance`` that sets a member package aside.
 _UNSUPPORTED_STATUS: Final[str] = "unsupported"
 #: The marker decorator, resolved structurally through a member's own import
 #: table -- derived from the real callable so a rename of the shared layer's
@@ -830,6 +845,24 @@ def collect_bare_names(src_dir: Path) -> frozenset[str]:
 # ---------------------------------------------------------------------------
 
 
+def _role_plumbing(members: Iterable[FunctionSource]) -> frozenset[str]:
+    """The ROLE-LEVEL plumbing parameter set: the union of every member's own
+    ``plumbing_parameter_names``, so a parameter name any member drops as
+    language-private plumbing is dropped for every member, not just the one
+    whose own annotation is private."""
+    return frozenset[str]().union(*(plumbing_parameter_names(member) for member in members))
+
+
+def _behaviour_pair(member: FunctionSource, plumbing: frozenset[str]) -> BehaviourPair:
+    """One member's ``(behaviour skeleton, role-level behaviour arity)``.
+
+    Raises:
+        SkeletonError: Propagates from the extractor on an unclassifiable
+            construct -- never caught here.
+    """
+    return (behaviour_skeleton(member), behaviour_arity(member, extra_plumbing=plumbing))
+
+
 def _classify_role(members: tuple[FunctionSource, ...]) -> Verdict:
     """The classification ladder for one role.
 
@@ -839,16 +872,11 @@ def _classify_role(members: tuple[FunctionSource, ...]) -> Verdict:
 
     Returns:
         ``identical`` if every member's ``normalized_source`` is equal; else
-        ``same-decisions`` if every member's ``(decision_skeleton,
-        decision_arity)`` pair is equal, with arity computed ROLE-LEVEL: the
-        plumbing parameter set is the union of every member's own
-        ``plumbing_parameter_names`` (plumbing names dropped across every
-        member), so a parameter name any member drops as language-private
-        plumbing is dropped for every member, not just the one whose own
-        annotation is private -- two members whose statement-level
-        skeletons match but that read a different number of REAL inputs
-        (the geo query builder shape) still are NOT the same decision;
-        else ``decision-divergence``.
+        ``same-behaviour`` if every member's ``_behaviour_pair`` is equal,
+        with arity computed role-level (``_role_plumbing``) -- two members
+        whose statement-level skeletons match but that read a different
+        number of REAL inputs (the geo query builder shape) still do NOT
+        behave the same; else ``divergent``.
 
     Raises:
         SkeletonError: Propagates from the extractor on an unclassifiable
@@ -856,13 +884,10 @@ def _classify_role(members: tuple[FunctionSource, ...]) -> Verdict:
     """
     if len({normalized_source(member) for member in members}) == 1:
         return _VERDICT_IDENTICAL
-    plumbing = frozenset[str]().union(*(plumbing_parameter_names(member) for member in members))
-    skeleton_arity_pairs = {
-        (decision_skeleton(member), decision_arity(member, extra_plumbing=plumbing)) for member in members
-    }
-    if len(skeleton_arity_pairs) == 1:
-        return _VERDICT_SAME_DECISIONS
-    return _VERDICT_DIVERGENCE
+    plumbing = _role_plumbing(members)
+    if len({_behaviour_pair(member, plumbing) for member in members}) == 1:
+        return _VERDICT_SAME_BEHAVIOUR
+    return _VERDICT_DIVERGENT
 
 
 def role_label(role_key: RoleKey) -> str:
@@ -886,7 +911,7 @@ def _require_min_packages(axis: str, labels: frozenset[str]) -> None:
     """
     if len(labels) < _MIN_PACKAGES_FOR_COMPARISON:
         raise ValueError(
-            f"Decision-parity comparison requires at least {_MIN_PACKAGES_FOR_COMPARISON} "
+            f"Behaviour-parity comparison requires at least {_MIN_PACKAGES_FOR_COMPARISON} "
             f"distinct registered 'datrix.{axis}' packages; got {len(labels)} "
             f"({sorted(labels)}). Registered names sharing one package are folded into a "
             f"single entry, so a name count above this floor does not imply a comparable "
@@ -1053,16 +1078,19 @@ def _log_bucket_counts(verdicts: Sequence[RoleVerdict]) -> None:
     adapter_exempt_counts = Counter(verdict.verdict for verdict in verdicts if verdict.adapter_exempt)
     leaf_exempt_counts = Counter(verdict.verdict for verdict in verdicts if verdict.rendering_leaf_exempt)
     logger.info(
-        "DECISION-PARITY REPORT: %d role(s) -- %d identical (%d adapter-exempt, %d rendering-leaf-exempt), "
-        "%d same-decisions (%d adapter-exempt, %d rendering-leaf-exempt), %d decision-divergence.",
+        "BEHAVIOUR-PARITY REPORT: %d role(s) -- %d %s (%d adapter-exempt, %d rendering-leaf-exempt), "
+        "%d %s (%d adapter-exempt, %d rendering-leaf-exempt), %d %s.",
         len(verdicts),
         counts[_VERDICT_IDENTICAL],
+        _VERDICT_IDENTICAL,
         adapter_exempt_counts[_VERDICT_IDENTICAL],
         leaf_exempt_counts[_VERDICT_IDENTICAL],
-        counts[_VERDICT_SAME_DECISIONS],
-        adapter_exempt_counts[_VERDICT_SAME_DECISIONS],
-        leaf_exempt_counts[_VERDICT_SAME_DECISIONS],
-        counts[_VERDICT_DIVERGENCE],
+        counts[_VERDICT_SAME_BEHAVIOUR],
+        _VERDICT_SAME_BEHAVIOUR,
+        adapter_exempt_counts[_VERDICT_SAME_BEHAVIOUR],
+        leaf_exempt_counts[_VERDICT_SAME_BEHAVIOUR],
+        counts[_VERDICT_DIVERGENT],
+        _VERDICT_DIVERGENT,
     )
 
 
@@ -1074,13 +1102,12 @@ def render_report(verdicts: Sequence[RoleVerdict], workspace_root: Path, *, debu
     Args:
         verdicts: Every classified role.
         workspace_root: Root that member paths are displayed relative to.
-        debug: Also log ``identical``/``same-decisions`` roles at INFO (they
-            log at DEBUG otherwise); ``decision-divergence`` roles always log
-            at INFO.
+        debug: Also log ``identical``/``same-behaviour`` roles at INFO (they
+            log at DEBUG otherwise); ``divergent`` roles always log at INFO.
     """
     for verdict in verdicts:
         line = verdict_line(verdict, workspace_root)
-        if debug or verdict.verdict == _VERDICT_DIVERGENCE:
+        if debug or verdict.verdict == _VERDICT_DIVERGENT:
             logger.info(line)
         else:
             logger.debug(line)
@@ -1226,8 +1253,8 @@ def resolve_domain(role: RoleVerdict) -> str:
 
 @dataclass(frozen=True)
 class ExemptionSurfaces:
-    """The three declared surfaces a lagging language may be exempt on, keyed
-    by member package label, read ONCE by the caller and passed in -- never
+    """The three declared surfaces a member package may be set aside on,
+    keyed by member package label, read ONCE by the caller and passed in -- never
     fetched inside the exemption check -- so the self-test injects synthetic
     tables exactly as the role-grouping self-test injects synthetic tokens.
 
@@ -1242,7 +1269,7 @@ class ExemptionSurfaces:
 
     @classmethod
     def none(cls) -> ExemptionSurfaces:
-        """No language declares anything: every lagging language is unexempted."""
+        """No language declares anything: no member package is set aside."""
         return cls(MappingProxyType({}), MappingProxyType({}), MappingProxyType({}), MappingProxyType({}))
 
 
@@ -1259,7 +1286,7 @@ def _adapter_identity(emit_function: object, table_key: str) -> AdapterIdentity:
     qualname = getattr(emit_function, "__qualname__", None)
     if not isinstance(code, CodeType) or not isinstance(qualname, str):
         raise ValueError(
-            f"decision_parity: emit function {table_key!r} ({emit_function!r}) carries no __code__/__qualname__; "
+            f"behaviour_parity:emit function {table_key!r} ({emit_function!r}) carries no __code__/__qualname__; "
             f"the gate matches @emit_adapter members on (defining file, qualified name). Fix: register a "
             f"module-level function or a method, not an arbitrary callable object."
         )
@@ -1274,7 +1301,7 @@ def _row_groups_by_emit_function(
     for key in sorted(table.declared_keys):
         if key not in registry:
             raise ValueError(
-                f"decision_parity: emit-table row {key!r} is not a key of the supplied builtin registry, so its "
+                f"behaviour_parity:emit-table row {key!r} is not a key of the supplied builtin registry, so its "
                 f"builtin group cannot be read. Fix: pass the registry the table was validated against."
             )
         group_name = registry[key].group.value
@@ -1312,7 +1339,7 @@ def adapter_group_index(
         for name, emit_function in table.registered_emit_functions.items():
             if name not in groups_by_name:
                 raise ValueError(
-                    f"decision_parity: emit function {name!r} is registered but referenced by no row of its "
+                    f"behaviour_parity:emit function {name!r} is registered but referenced by no row of its "
                     f"EmitTable; its builtin group cannot be read. Fix: reference it from a declared row."
                 )
             index.setdefault(_adapter_identity(emit_function, name), set()).update(groups_by_name[name])
@@ -1321,7 +1348,7 @@ def adapter_group_index(
 
 def _raise_walk_error(package_name: str) -> None:
     raise ValueError(
-        f"decision_parity: cannot import package {package_name!r} while collecting its EmitTables; an "
+        f"behaviour_parity:cannot import package {package_name!r} while collecting its EmitTables; an "
         f"unimportable package hides every table it may define, so the scan refuses to continue. Fix: make "
         f"the package import cleanly under the running interpreter."
     )
@@ -1332,7 +1359,7 @@ def _import_module_or_raise(module_name: str) -> object:
         return importlib.import_module(module_name)
     except Exception as exc:  # noqa: BLE001 -- re-raised with the fail-closed reason
         raise ValueError(
-            f"decision_parity: cannot import module {module_name!r} while collecting its package's EmitTables "
+            f"behaviour_parity:cannot import module {module_name!r} while collecting its package's EmitTables "
             f"({type(exc).__name__}: {exc}); an unimportable module hides every table it may define, so the "
             f"scan refuses to continue. Fix: make the module import cleanly under the running interpreter."
         ) from exc
@@ -1396,7 +1423,7 @@ def _adapter_groups_for_member(
     identity: AdapterIdentity = (member.file_path.resolve(), member.qualified_name)
     if identity not in adapter_groups:
         raise ValueError(
-            f"decision_parity: {member.package}:{member.file_path}:{member.line_number} ({member.qualified_name}) "
+            f"behaviour_parity:{member.package}:{member.file_path}:{member.line_number} ({member.qualified_name}) "
             f"is marked @emit_adapter but no EmitTable of {member.package!r} registers it, so its builtin group "
             f"cannot be read and the gate refuses to skip it. Every @emit_adapter function must be referenced by "
             f"a declared (category, method) row. Fix: register the function in a row, or remove the marker."
@@ -1445,19 +1472,19 @@ def _adapter_member_exempt(member: FunctionSource, language: str, surfaces: Exem
 
 
 def is_role_exempt(role: RoleVerdict, domain: str, language: str, surfaces: ExemptionSurfaces) -> bool:
-    """True iff *language* -- a lagging member package of *role* -- declares
-    the construct unsupported on ANY of the three declared surfaces.
+    """True iff *language* -- a member package of *role* -- declares the
+    construct unsupported on ANY of the three declared surfaces.
 
     Surfaces 1 and 2 are domain-keyed and apply only to a role resolved to a
     shared domain; an ``UNDOMAINED`` role admits only surface 3. Surface 3
     requires EVERY member *language* contributes to the role to be a marked
-    adapter over unsupported groups -- one deciding non-adapter member is
-    enough to deny it.
+    adapter over unsupported groups -- one behaviour-bearing non-adapter
+    member is enough to deny it.
 
     Args:
-        role: The ``decision-divergence`` role.
+        role: The ``divergent`` role.
         domain: ``resolve_domain(role)``.
-        language: The lagging member package label.
+        language: The member package label.
         surfaces: The declared surfaces, read once by the caller.
 
     Returns:
@@ -1488,7 +1515,7 @@ def _merge_declared(
         for key, value in mapping.items():
             if key in merged and merged[key] != value:
                 raise ValueError(
-                    f"decision_parity: the registered names folded into package label {label!r} declare "
+                    f"behaviour_parity:the registered names folded into package label {label!r} declare "
                     f"conflicting {surface} for {key!r}; one package must carry one declaration per key."
                 )
             merged[key] = value
@@ -1589,7 +1616,7 @@ def parse_scope_argument(value: str | None) -> tuple[str, ...] | None:
     ids = tuple(part.strip() for part in value.split(_SCOPE_SEPARATOR) if part.strip())
     if not ids:
         raise ValueError(
-            f"decision_parity: --scope was given but names no domain id; expected a {_SCOPE_SEPARATOR!r}-separated "
+            f"behaviour_parity:--scope was given but names no domain id; expected a {_SCOPE_SEPARATOR!r}-separated "
             f"list of shared domain ids and/or {UNDOMAINED!r}. Fix: pass at least one id, or omit --scope to "
             f"use the scope file."
         )
@@ -1607,7 +1634,7 @@ def parse_buckets_argument(value: str | None) -> tuple[str, ...] | None:
     ids = tuple(part.strip() for part in value.split(_SCOPE_SEPARATOR) if part.strip())
     if not ids:
         raise ValueError(
-            f"decision_parity: --buckets was given but names no verdict-bucket id; expected a "
+            f"behaviour_parity:--buckets was given but names no verdict-bucket id; expected a "
             f"{_SCOPE_SEPARATOR!r}-separated list drawn from {sorted(_VALID_BUCKET_IDS)}. Fix: pass at least one "
             f"id, or omit --buckets to use the scope file."
         )
@@ -1619,7 +1646,7 @@ def _validate_scope_ids(ids: Iterable[str], universe: frozenset[str], origin: st
     unknown = sorted(set(ids) - valid)
     if unknown:
         raise ValueError(
-            f"decision_parity: unknown scope id(s) {unknown} in {origin}; valid options are {sorted(valid)}. "
+            f"behaviour_parity:unknown scope id(s) {unknown} in {origin}; valid options are {sorted(valid)}. "
             f"Fix: pass a shared domain id or {UNDOMAINED!r}."
         )
     return frozenset(ids)
@@ -1629,7 +1656,7 @@ def _validate_bucket_ids(ids: Iterable[str], origin: str) -> frozenset[str]:
     unknown = sorted(set(ids) - _VALID_BUCKET_IDS)
     if unknown:
         raise ValueError(
-            f"decision_parity: unknown bucket id(s) {unknown} in {origin}; valid options are "
+            f"behaviour_parity:unknown bucket id(s) {unknown} in {origin}; valid options are "
             f"{sorted(_VALID_BUCKET_IDS)}. Fix: pass one or more of {sorted(_VALID_BUCKET_IDS)}."
         )
     return frozenset(ids)
@@ -1650,10 +1677,10 @@ def _parse_scope_file(scope_path: Path) -> dict[str, object]:
         data = json.loads(scope_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(
-            f"decision_parity: scope file {scope_path} is not valid JSON ({exc}); expected {expected}."
+            f"behaviour_parity:scope file {scope_path} is not valid JSON ({exc}); expected {expected}."
         ) from exc
     if not isinstance(data, dict):
-        raise ValueError(f"decision_parity: malformed scope file {scope_path}: expected {expected}.")
+        raise ValueError(f"behaviour_parity:malformed scope file {scope_path}: expected {expected}.")
     return data
 
 
@@ -1667,13 +1694,13 @@ def _read_scope_file(scope_path: Path) -> list[str]:
     data = _parse_scope_file(scope_path)
     if _SCOPE_FILE_DOMAINS_KEY not in data:
         raise ValueError(
-            f"decision_parity: malformed scope file {scope_path}: expected a {_SCOPE_FILE_DOMAINS_KEY!r} array of "
+            f"behaviour_parity:malformed scope file {scope_path}: expected a {_SCOPE_FILE_DOMAINS_KEY!r} array of "
             f"domain-id strings."
         )
     domains = data[_SCOPE_FILE_DOMAINS_KEY]
     if not isinstance(domains, list) or not all(isinstance(domain, str) for domain in domains):
         raise ValueError(
-            f"decision_parity: malformed scope file {scope_path}: {_SCOPE_FILE_DOMAINS_KEY!r} must be an array of "
+            f"behaviour_parity:malformed scope file {scope_path}: {_SCOPE_FILE_DOMAINS_KEY!r} must be an array of "
             f"domain-id strings, got {domains!r}."
         )
     return domains
@@ -1692,7 +1719,7 @@ def _read_scope_buckets(scope_path: Path) -> list[str]:
     buckets = _parse_scope_file(scope_path).get(_SCOPE_FILE_BUCKETS_KEY, [])
     if not isinstance(buckets, list) or not all(isinstance(bucket, str) for bucket in buckets):
         raise ValueError(
-            f"decision_parity: malformed scope file {scope_path}: {_SCOPE_FILE_BUCKETS_KEY!r} must be an array of "
+            f"behaviour_parity:malformed scope file {scope_path}: {_SCOPE_FILE_BUCKETS_KEY!r} must be an array of "
             f"verdict-bucket-id strings, got {buckets!r}; valid options are {sorted(_VALID_BUCKET_IDS)}. "
             f"Fix: set {_SCOPE_FILE_BUCKETS_KEY!r} to an array of zero or more of {sorted(_VALID_BUCKET_IDS)}."
         )
@@ -1750,22 +1777,6 @@ def load_scope(
     return GateScope(domains=domains, buckets=buckets)
 
 
-def reference_label_for(reference: str, labels: Iterable[str]) -> str:
-    """The package label carrying the registered *reference* language.
-
-    Raises:
-        ValueError: No compared label folds *reference*.
-    """
-    known = sorted(labels)
-    for label in known:
-        if reference in label.split(_LABEL_JOIN_SEPARATOR):
-            return label
-    raise ValueError(
-        f"decision_parity: --reference {reference!r} is not a registered language among the compared packages "
-        f"{known}. Fix: pass a registered 'datrix.languages' name."
-    )
-
-
 # ---------------------------------------------------------------------------
 # Gate evaluation
 # ---------------------------------------------------------------------------
@@ -1791,82 +1802,92 @@ class RoleEvaluation:
         return self.fails and self.in_scope
 
 
-def _skeletons_by_package(role: RoleVerdict) -> dict[str, frozenset[str]]:
-    collected: dict[str, set[str]] = {}
+def _behaviour_by_package(role: RoleVerdict) -> dict[str, frozenset[BehaviourPair]]:
+    """``{package label: the set of behaviour pairs its members contribute}``,
+    arity measured role-level exactly as ``_classify_role`` measures it."""
+    plumbing = _role_plumbing(role.members)
+    collected: dict[str, set[BehaviourPair]] = {}
     for member in role.members:
-        collected.setdefault(member.package, set()).add(decision_skeleton(member))
-    return {package: frozenset(skeletons) for package, skeletons in collected.items()}
+        collected.setdefault(member.package, set()).add(_behaviour_pair(member, plumbing))
+    return {package: frozenset(pairs) for package, pairs in collected.items()}
 
 
-def lagging_languages(role: RoleVerdict, reference: str) -> tuple[str, ...]:
-    """Every member package of *role* other than *reference* whose decisions
-    differ from the reference's.
-
-    A package agrees with the reference when the SET of decision skeletons
-    its members contribute equals the reference's set -- a missing variant
-    or an extra one is a difference either way. When the reference has no
-    member in the role its set is empty, so every other package is lagging.
+def skeleton_groups(role: RoleVerdict) -> tuple[frozenset[str], ...]:
+    """Partition *role*'s member packages into skeleton groups: two packages
+    share a group when the SETS of behaviour pairs their members contribute
+    to the role are equal -- a missing variant or an extra one is a
+    difference either way. No package is privileged: a group is a group
+    whichever language is in it.
 
     Args:
         role: A classified role.
-        reference: The reference language's package label.
 
     Returns:
-        The lagging package labels, sorted.
+        The groups, each a frozenset of package labels, ordered by their
+        sorted members so the report is stable.
     """
-    by_package = _skeletons_by_package(role)
-    reference_skeletons = by_package[reference] if reference in by_package else frozenset[str]()
-    return tuple(
-        sorted(
-            package
-            for package, skeletons in by_package.items()
-            if package != reference and skeletons != reference_skeletons
-        )
-    )
+    groups: dict[frozenset[BehaviourPair], set[str]] = {}
+    for package, pairs in _behaviour_by_package(role).items():
+        groups.setdefault(pairs, set()).add(package)
+    return tuple(sorted((frozenset(members) for members in groups.values()), key=sorted))
+
+
+def _group_text(group: Iterable[str]) -> str:
+    return "{" + ", ".join(sorted(group)) + "}"
 
 
 def _duplicate_skeleton_reasons(verdict: RoleVerdict) -> tuple[str, ...]:
-    """``identical``/``same-decisions``: fail unless every member is a
+    """``identical``/``same-behaviour``: fail unless every member is a
     pre-binding adapter or a rendering leaf (AST shape; no written
-    exemption). ``same-decisions`` compares role-level arity (plumbing names
+    exemption). ``same-behaviour`` compares role-level arity (plumbing names
     dropped across every member), so this failure also covers a role whose
     members read the same real parameter count once plumbing is reconciled."""
     if verdict.adapter_exempt or verdict.rendering_leaf_exempt:
         return ()
     packages = sorted({member.package for member in verdict.members})
     return (
-        f"{verdict.verdict}: one decision skeleton lives in {len(packages)} packages {packages} and the members "
+        f"{verdict.verdict}: one behaviour skeleton lives in {len(packages)} packages {packages} and the members "
         f"are not pre-binding adapters or rendering leaves",
     )
 
 
-def _divergence_reasons(
-    verdict: RoleVerdict, domain: str, reference: str, surfaces: ExemptionSurfaces
-) -> tuple[str, ...]:
-    """``decision-divergence``: one reason per lagging language exempt on no
-    declared surface."""
-    packages = {member.package for member in verdict.members}
-    reference_note = (
-        "" if reference in packages else f" ({reference} has no member in this role, so no package agrees with it)"
+def _divergence_reasons(verdict: RoleVerdict, domain: str, surfaces: ExemptionSurfaces) -> tuple[str, ...]:
+    """``divergent``: partition the member packages into skeleton groups,
+    set aside every package that declares the construct unsupported on a
+    declared surface, and pass iff at most one group remains. Otherwise one
+    reason names every remaining group -- the gate cannot know which group
+    carries the correct behaviour, so it names all of them. A role every
+    member of which declares the construct unsupported passes: a declared
+    hole everywhere.
+
+    Raises:
+        ValueError: A marked adapter member of any package resolves to no
+            emit-table row (``is_role_exempt`` fails closed).
+    """
+    packages = sorted({member.package for member in verdict.members})
+    declaring = frozenset(package for package in packages if is_role_exempt(verdict, domain, package, surfaces))
+    remaining = [group - declaring for group in skeleton_groups(verdict) if group - declaring]
+    if len(remaining) <= 1:
+        return ()
+    groups_text = " vs ".join(_group_text(group) for group in remaining)
+    declared_text = (
+        "no member declares the construct unsupported"
+        if not declaring
+        else f"only {_group_text(declaring)} declare(s) the construct unsupported"
     )
-    return tuple(
-        f"{language} diverges from {reference}{reference_note} and declares no unsupported stance for domain "
-        f"{domain!r} on any declared surface"
-        for language in lagging_languages(verdict, reference)
-        if not is_role_exempt(verdict, domain, language, surfaces)
+    return (
+        f"members split into {len(remaining)} skeleton groups: {groups_text}; {declared_text} for domain "
+        f"{domain!r} on any declared surface",
     )
 
 
-def evaluate_role(
-    verdict: RoleVerdict, *, reference: str, scope: GateScope, surfaces: ExemptionSurfaces
-) -> RoleEvaluation:
+def evaluate_role(verdict: RoleVerdict, *, scope: GateScope, surfaces: ExemptionSurfaces) -> RoleEvaluation:
     """Resolve *verdict*'s domain, decide whether it is in *scope*, and
     compute its failure reasons -- for EVERY role, in scope or not, so an
     out-of-scope failure is reported rather than hidden.
 
     Args:
         verdict: A classified role.
-        reference: The reference language's package label.
         scope: The resolved domains/buckets scope.
         surfaces: The declared exemption surfaces.
 
@@ -1878,8 +1899,8 @@ def evaluate_role(
         SkeletonError: A member's skeleton cannot be extracted.
     """
     domain = resolve_domain(verdict)
-    if verdict.verdict == _VERDICT_DIVERGENCE:
-        reasons = _divergence_reasons(verdict, domain, reference, surfaces)
+    if verdict.verdict == _VERDICT_DIVERGENT:
+        reasons = _divergence_reasons(verdict, domain, surfaces)
     else:
         reasons = _duplicate_skeleton_reasons(verdict)
     return RoleEvaluation(
@@ -1891,10 +1912,10 @@ def evaluate_role(
 
 
 def evaluate_roles(
-    verdicts: Sequence[RoleVerdict], *, reference: str, scope: GateScope, surfaces: ExemptionSurfaces
+    verdicts: Sequence[RoleVerdict], *, scope: GateScope, surfaces: ExemptionSurfaces
 ) -> list[RoleEvaluation]:
     """``evaluate_role`` over every verdict, order preserved."""
-    return [evaluate_role(verdict, reference=reference, scope=scope, surfaces=surfaces) for verdict in verdicts]
+    return [evaluate_role(verdict, scope=scope, surfaces=surfaces) for verdict in verdicts]
 
 
 def gate_exit_code(evaluations: Sequence[RoleEvaluation]) -> int:
@@ -1956,7 +1977,7 @@ def render_gate_report(
     _log_bucket_counts([evaluation.verdict for evaluation in evaluations])
     domain_counts = Counter(evaluation.domain for evaluation in evaluations)
     logger.info(
-        "DECISION-PARITY DOMAINS: %d role(s) resolved to a shared domain, %d undomained; per domain: %s",
+        "BEHAVIOUR-PARITY DOMAINS: %d role(s) resolved to a shared domain, %d undomained; per domain: %s",
         sum(count for domain, count in domain_counts.items() if domain != UNDOMAINED),
         domain_counts[UNDOMAINED],
         dict(sorted(domain_counts.items())),
@@ -1964,7 +1985,7 @@ def render_gate_report(
     failing_in_scope = sum(evaluation.fails_in_scope for evaluation in evaluations)
     failing_out_of_scope = sum(evaluation.fails and not evaluation.in_scope for evaluation in evaluations)
     logger.info(
-        "DECISION-PARITY GATE: scope=%s -- %d role(s) FAIL in scope, %d failing role(s) REPORTED out of scope, "
+        "BEHAVIOUR-PARITY GATE: scope=%s -- %d role(s) FAIL in scope, %d failing role(s) REPORTED out of scope, "
         "%d role(s) pass.",
         _scope_text(scope),
         failing_in_scope,
@@ -1993,7 +2014,14 @@ _SELF_TEST_EMIT_FUNCTION: Final[str] = "self_test_ship"
 _SELF_TEST_UNKNOWN_SCOPE_ID: Final[str] = "bogus"
 _SELF_TEST_UNKNOWN_BUCKET_ID: Final[str] = "not-a-verdict"
 #: The synthetic importable package ``collect_emit_tables`` is exercised on.
-_SELF_TEST_PACKAGE: Final[str] = "decision_parity_self_test_pkg"
+_SELF_TEST_PACKAGE: Final[str] = "behaviour_parity_self_test_pkg"
+#: The self-test's three-package divergent tree: two packages agreeing on
+#: one behaviour, a third adding a fail-closed raise.
+_SELF_TEST_AGREEING_SOURCE: Final[str] = "def divergent_thing(command):\n    return command.name\n"
+_SELF_TEST_RAISING_SOURCE: Final[str] = (
+    "def divergent_thing(command):\n    if not command.body:\n        raise ValueError('empty')\n    return command.name\n"
+)
+_SELF_TEST_DIVERGENT_ROLE: Final[str] = "divergent_thing"
 
 
 @emit_adapter
@@ -2035,7 +2063,7 @@ def _function_source(code: str, *, package: str, file_path: Path) -> FunctionSou
 
 
 def _synthetic_role(
-    role_key: RoleKey, members: Sequence[FunctionSource], verdict: Verdict = _VERDICT_DIVERGENCE
+    role_key: RoleKey, members: Sequence[FunctionSource], verdict: Verdict = _VERDICT_DIVERGENT
 ) -> RoleVerdict:
     """A hand-built role for the ladder/exemption cases (the scanner's own
     grouping is proven by cases (a)-(i))."""
@@ -2181,7 +2209,7 @@ def _single_role_with_verdict(matches: list[RoleVerdict], expected: Verdict) -> 
 def _self_test_case_identical() -> bool:
     """(a) Byte-identical bodies across 3 synthetic packages land in exactly
     one ``identical`` role."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-a-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-a-") as tmp:
         root = Path(tmp)
         body = "def helper_thing(value):\n    return value.strip()\n"
         for label in (_SELF_TEST_ALPHA, _SELF_TEST_BETA, _SELF_TEST_GAMMA):
@@ -2191,10 +2219,10 @@ def _self_test_case_identical() -> bool:
         return _single_role_with_verdict(matches, _VERDICT_IDENTICAL) and len(matches[0].members) == 3
 
 
-def _self_test_case_same_decisions() -> bool:
+def _self_test_case_same_behaviour() -> bool:
     """(b) Equal skeletons with different rendering (different string
-    literals, different parameter names) land in ``same-decisions``."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-b-") as tmp:
+    literals, different parameter names) land in ``same-behaviour``."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-b-") as tmp:
         root = Path(tmp)
         _write_module(
             root / _SELF_TEST_ALPHA,
@@ -2208,31 +2236,24 @@ def _self_test_case_same_decisions() -> bool:
             "def rendered_thing(cmd):\n    if cmd.is_valid:\n        return 'beta-ok'\n    return 'beta-no'\n",
         )
         verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
-        return _single_role_with_verdict(_name_roles(verdicts, "rendered_thing"), _VERDICT_SAME_DECISIONS)
+        return _single_role_with_verdict(_name_roles(verdicts, "rendered_thing"), _VERDICT_SAME_BEHAVIOUR)
 
 
 def _self_test_case_divergent() -> bool:
-    """(c) An added fail-closed raise branch lands the role in
-    ``decision-divergence``."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-c-") as tmp:
+    """(c) An added fail-closed raise branch lands the role in ``divergent``."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-c-") as tmp:
         root = Path(tmp)
-        _write_module(root / _SELF_TEST_ALPHA, "def divergent_thing(command):\n    return command.name\n")
-        _write_module(
-            root / _SELF_TEST_BETA,
-            "def divergent_thing(command):\n"
-            "    if not command.body:\n"
-            "        raise ValueError('empty')\n"
-            "    return command.name\n",
-        )
+        _write_module(root / _SELF_TEST_ALPHA, _SELF_TEST_AGREEING_SOURCE)
+        _write_module(root / _SELF_TEST_BETA, _SELF_TEST_RAISING_SOURCE)
         verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
-        return _single_role_with_verdict(_name_roles(verdicts, "divergent_thing"), _VERDICT_DIVERGENCE)
+        return _single_role_with_verdict(_name_roles(verdicts, _SELF_TEST_DIVERGENT_ROLE), _VERDICT_DIVERGENT)
 
 
 def _self_test_case_token_split_unification() -> bool:
     """(d) A role visible ONLY after stripping each package's own injected
     language token (``build_alpha_x`` / ``build_beta_x`` -> ``build_x``);
     the raw names must not form roles of their own."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-d-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-d-") as tmp:
         root = Path(tmp)
         _write_module(root / _SELF_TEST_ALPHA, "def build_alpha_x(value):\n    return value.strip()\n")
         _write_module(root / _SELF_TEST_BETA, "def build_beta_x(value):\n    return value.strip()\n")
@@ -2251,7 +2272,7 @@ def _self_test_case_signature_unification() -> bool:
     differing inputs -- a language-private transpiler core and an extra
     shared-typed container parameter on one side only -- that must not
     split the role."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-e-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-e-") as tmp:
         root = Path(tmp)
         shared_import = (
             "from datrix_common.datrix_model.containers import Service\n"
@@ -2284,7 +2305,7 @@ def _self_test_case_inputs_never_key_a_role() -> bool:
     never a signature role -- and a ``datrix_common`` return type is not a
     product either -- so hundreds of different jobs over one ``Service`` can
     never collapse into one role."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-e2-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-e2-") as tmp:
         root = Path(tmp)
         body = (
             "from datrix_common.datrix_model.containers import Service\n"
@@ -2299,15 +2320,15 @@ def _self_test_case_inputs_never_key_a_role() -> bool:
         verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
         return (
             not _signature_roles(verdicts)
-            and _single_role_with_verdict(_name_roles(verdicts, "label"), _VERDICT_SAME_DECISIONS)
-            and _single_role_with_verdict(_name_roles(verdicts, "render_file"), _VERDICT_SAME_DECISIONS)
+            and _single_role_with_verdict(_name_roles(verdicts, "label"), _VERDICT_SAME_BEHAVIOUR)
+            and _single_role_with_verdict(_name_roles(verdicts, "render_file"), _VERDICT_SAME_BEHAVIOUR)
         )
 
 
 def _self_test_case_adapter_exempt() -> bool:
     """(f) A pre-binding-adapter role (identical single-return-of-shared-call
     bodies) is marked ``adapter_exempt``; a non-adapter role is not."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-f-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-f-") as tmp:
         root = Path(tmp)
         body = (
             "from datrix_codegen_common.algorithms.entity import build_entity_context\n\n"
@@ -2332,7 +2353,7 @@ def _self_test_case_adapter_exempt() -> bool:
 def _self_test_case_excluded_by_other_package() -> bool:
     """(g) A name also bare-defined in a non-axis package is excluded
     entirely, even though >= 2 target packages define it."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-g-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-g-") as tmp:
         root = Path(tmp)
         body = "def shared_named_helper(value):\n    return value.strip()\n"
         for label in (_SELF_TEST_ALPHA, _SELF_TEST_BETA, _SELF_TEST_OTHER):
@@ -2356,7 +2377,7 @@ def _self_test_case_min_packages_refused() -> bool:
 def _self_test_case_unparseable_member_fails_closed() -> bool:
     """(i) A syntax error in one member's file aborts the scan naming the
     file -- never a silent skip of that package."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-i-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-i-") as tmp:
         root = Path(tmp)
         _write_module(root / _SELF_TEST_ALPHA, "def fine_thing(value):\n    return value\n")
         _write_module(root / _SELF_TEST_BETA, "def broken_thing(value:\n    return value\n")
@@ -2448,7 +2469,7 @@ def _self_test_case_domain_step_three() -> bool:
 
 def _self_test_case_domain_surfaces() -> bool:
     """(m) Surfaces 1 and 2: an ``unsupported`` stance or an on-demand entry
-    for the ROLE'S domain exempts the lagging language; a stance for another
+    for the ROLE'S domain sets the member package aside; a stance for another
     domain, a ``supported`` stance, no declaration at all, and any
     domain-keyed declaration on an ``undomained`` role do not."""
     domain, other = _two_universe_ids()
@@ -2484,8 +2505,8 @@ def _self_test_case_builtin_group_surface() -> bool:
     """(n) Surface 3: a marked adapter member whose synthetic ``EmitTable``
     row's builtin group the language declares ``unsupported`` is exempt --
     on an ``undomained`` role and on a domained one alike; a ``supported``
-    stance, no stance, or a deciding non-adapter member beside the adapter
-    denies it."""
+    stance, no stance, or a behaviour-bearing non-adapter member beside the
+    adapter denies it."""
     group = sorted(BuiltinGroup, key=lambda member: member.value)[0]
     index = adapter_group_index((_synthetic_emit_table(group),), _synthetic_registry(group))
     beta = _SELF_TEST_BETA
@@ -2555,7 +2576,7 @@ def _self_test_case_scope_rules() -> bool:
     naming the problem."""
     domain, other = _two_universe_ids()
     universe = frozenset(SHARED_CONTEXT_TYPES)
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-p-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-p-") as tmp:
         present = Path(tmp) / "scope.json"
         present.write_text(json.dumps({_SCOPE_FILE_DOMAINS_KEY: [domain, UNDOMAINED]}), encoding="utf-8")
         with_buckets = Path(tmp) / "with-buckets.json"
@@ -2593,12 +2614,12 @@ def _self_test_case_scope_rules() -> bool:
             == GateScope(domains=frozenset({other}), buckets=frozenset())
             and load_scope(None, None, universe, with_buckets)
             == GateScope(domains=frozenset({domain}), buckets=frozenset({_VERDICT_IDENTICAL}))
-            and load_scope(None, (_VERDICT_SAME_DECISIONS,), universe, with_buckets)
-            == GateScope(domains=frozenset({domain}), buckets=frozenset({_VERDICT_SAME_DECISIONS}))
+            and load_scope(None, (_VERDICT_SAME_BEHAVIOUR,), universe, with_buckets)
+            == GateScope(domains=frozenset({domain}), buckets=frozenset({_VERDICT_SAME_BEHAVIOUR}))
             and parse_scope_argument(f"{domain} {_SCOPE_SEPARATOR} {other}") == (domain, other)
             and parse_scope_argument(None) is None
-            and parse_buckets_argument(f"{_VERDICT_IDENTICAL}{_SCOPE_SEPARATOR}{_VERDICT_SAME_DECISIONS}")
-            == (_VERDICT_IDENTICAL, _VERDICT_SAME_DECISIONS)
+            and parse_buckets_argument(f"{_VERDICT_IDENTICAL}{_SCOPE_SEPARATOR}{_VERDICT_SAME_BEHAVIOUR}")
+            == (_VERDICT_IDENTICAL, _VERDICT_SAME_BEHAVIOUR)
             and parse_buckets_argument(None) is None
         )
         refusals_hold = (
@@ -2653,47 +2674,130 @@ def _refuses(action: Callable[[], object], *expected_texts: str) -> bool:
     return False
 
 
-def _self_test_case_lagging_languages() -> bool:
-    """(q) Lagging: only the package whose skeleton set differs from the
-    reference's is lagging; a role the reference has no member in makes
-    every other package lagging."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-q-") as tmp:
+def _divergent_tree_verdicts(domain: str) -> list[RoleVerdict]:
+    """The synthetic three-package divergent tree under a real universe
+    domain's owning-module shape: alpha and beta agree, gamma adds a
+    fail-closed raise. Cases (q1)-(q3) and (r) all judge this one role."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-divergent-") as tmp:
         root = Path(tmp)
-        agreeing = "def divergent_thing(command):\n    return command.name\n"
-        raising = "def divergent_thing(command):\n    if not command.body:\n        raise ValueError('empty')\n    return command.name\n"
-        _write_module(root / _SELF_TEST_ALPHA, agreeing)
-        _write_module(root / _SELF_TEST_BETA, agreeing.replace("command", "cmd"))
-        _write_module(root / _SELF_TEST_GAMMA, raising)
-        with_reference = _name_roles(
-            _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA, _SELF_TEST_GAMMA)), "divergent_thing"
-        )
-        without_reference = _name_roles(_scan(root, (_SELF_TEST_BETA, _SELF_TEST_GAMMA)), "divergent_thing")
-        return (
-            len(with_reference) == 1
-            and lagging_languages(with_reference[0], _SELF_TEST_ALPHA) == (_SELF_TEST_GAMMA,)
-            and len(without_reference) == 1
-            and lagging_languages(without_reference[0], _SELF_TEST_ALPHA) == (_SELF_TEST_BETA, _SELF_TEST_GAMMA)
-        )
+        for label, source in (
+            (_SELF_TEST_ALPHA, _SELF_TEST_AGREEING_SOURCE),
+            (_SELF_TEST_BETA, _SELF_TEST_AGREEING_SOURCE),
+            (_SELF_TEST_GAMMA, _SELF_TEST_RAISING_SOURCE),
+        ):
+            _write_module(root / label / _MICRO_GENERATORS_DIR, source, f"{domain}{_PY_SUFFIX}")
+        return _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA, _SELF_TEST_GAMMA))
+
+
+def _self_test_case_skeleton_groups_fail_naming_every_group() -> bool:
+    """(q1) A divergent role whose members split into two skeleton groups,
+    no package declaring the construct unsupported, FAILS with one reason
+    naming BOTH groups -- there is no reference language, so the gate cannot
+    single out one side as lagging. Reordering the packages (so the group
+    holding the raise comes first alphabetically) names the same groups."""
+    domain, _ = _two_universe_ids()
+    verdicts = _divergent_tree_verdicts(domain)
+    role = _name_roles(verdicts, _SELF_TEST_DIVERGENT_ROLE)
+    if not _single_role_with_verdict(role, _VERDICT_DIVERGENT):
+        return False
+    groups = skeleton_groups(role[0])
+    evaluation = evaluate_role(role[0], scope=GateScope(domains=None, buckets=frozenset()), surfaces=ExemptionSurfaces.none())
+    agreeing_group = _group_text((_SELF_TEST_ALPHA, _SELF_TEST_BETA))
+    raising_group = _group_text((_SELF_TEST_GAMMA,))
+    reason = evaluation.failure_reasons[0] if evaluation.failure_reasons else ""
+    return (
+        groups == (frozenset({_SELF_TEST_ALPHA, _SELF_TEST_BETA}), frozenset({_SELF_TEST_GAMMA}))
+        and evaluation.fails_in_scope
+        and len(evaluation.failure_reasons) == 1
+        and "2 skeleton groups" in reason
+        and agreeing_group in reason
+        and raising_group in reason
+        and "no member declares the construct unsupported" in reason
+    )
+
+
+def _self_test_case_declaring_package_set_aside() -> bool:
+    """(q2) The same role PASSES when the package in the odd group declares
+    the construct unsupported for the role's domain: one group remains. A
+    declaration on a package in the OTHER group does not rescue it -- two
+    groups still remain (one of them smaller) -- and the reason names the
+    declaring package as the only one set aside."""
+    domain, _ = _two_universe_ids()
+    role = _name_roles(_divergent_tree_verdicts(domain), _SELF_TEST_DIVERGENT_ROLE)[0]
+    no_scope = GateScope(domains=None, buckets=frozenset())
+    odd_declares = evaluate_role(
+        role, scope=no_scope, surfaces=_surfaces(stances={_SELF_TEST_GAMMA: {domain: _unsupported_declaration(domain)}})
+    )
+    other_declares = evaluate_role(
+        role, scope=no_scope, surfaces=_surfaces(stances={_SELF_TEST_ALPHA: {domain: _unsupported_declaration(domain)}})
+    )
+    other_reason = other_declares.failure_reasons[0] if other_declares.failure_reasons else ""
+    return (
+        not odd_declares.fails
+        and other_declares.fails_in_scope
+        and _group_text((_SELF_TEST_BETA,)) in other_reason
+        and _group_text((_SELF_TEST_GAMMA,)) in other_reason
+        and f"only {_group_text((_SELF_TEST_ALPHA,))} declare(s)" in other_reason
+    )
+
+
+def _self_test_case_every_member_declares() -> bool:
+    """(q3) A divergent role every member of which declares the construct
+    unsupported passes -- a declared hole everywhere -- and is still
+    reported: the evaluation exists, carries its domain, and prints a PASS
+    line naming the role."""
+    domain, _ = _two_universe_ids()
+    verdicts = _divergent_tree_verdicts(domain)
+    no_scope = GateScope(domains=None, buckets=frozenset())
+    everyone = _surfaces(
+        stances={
+            label: {domain: _unsupported_declaration(domain)}
+            for label in (_SELF_TEST_ALPHA, _SELF_TEST_BETA, _SELF_TEST_GAMMA)
+        }
+    )
+    evaluations = evaluate_roles(verdicts, scope=no_scope, surfaces=everyone)
+    lines = _recorded_gate_lines(evaluations, no_scope)
+    return (
+        len(evaluations) == 1
+        and not evaluations[0].fails
+        and evaluations[0].domain == domain
+        and gate_exit_code(evaluations) == EXIT_OK
+        and any(line.startswith("PASS ") and f"role={_SELF_TEST_DIVERGENT_ROLE}" in line for line in lines)
+    )
+
+
+def _self_test_case_bucket_labels() -> bool:
+    """(q4) The bucket labels printed and accepted are exactly ``identical``,
+    ``same-behaviour`` and ``divergent`` (invariant I12): the verdict type,
+    the ``--buckets`` vocabulary, every verdict line and the summary line
+    all spell them, and nothing else."""
+    expected = frozenset({"identical", "same-behaviour", "divergent"})
+    domain, _ = _two_universe_ids()
+    verdicts = _divergent_tree_verdicts(domain)
+    no_scope = GateScope(domains=None, buckets=frozenset())
+    lines = _recorded_gate_lines(evaluate_roles(verdicts, scope=no_scope, surfaces=ExemptionSurfaces.none()), no_scope)
+    summary = next((line for line in lines if line.startswith("BEHAVIOUR-PARITY REPORT:")), "")
+    return (
+        _VALID_BUCKET_IDS == expected
+        and frozenset(Verdict.__args__) == expected
+        and any(f"verdict={_VERDICT_DIVERGENT} " in line for line in lines)
+        and all(f" {label} (" in summary or f" {label}." in summary for label in expected)
+    )
 
 
 def _self_test_case_gate_outcome() -> bool:
     """(r) End to end on a synthetic three-package tree: a divergent role in a
     real universe domain with NO declaration fails in scope (exit 1, the
-    FAIL line names the role); the same role with a synthetic ``unsupported``
-    stance passes (exit 0); with the domain out of ``--scope`` it is REPORTED
-    but does not fail (exit 0); an identical non-adapter role fails while an
-    adapter-exempt one passes; and the platform axis never gates."""
+    FAIL line names the role and every group); the same role with a synthetic
+    ``unsupported`` stance passes (exit 0); with the domain out of ``--scope``
+    it is REPORTED but does not fail (exit 0); an identical non-adapter role
+    fails while an adapter-exempt one passes; and the platform axis never
+    gates."""
     domain, other = _two_universe_ids()
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-r-") as tmp:
-        root = Path(tmp)
-        agreeing = "def divergent_thing(command):\n    return command.name\n"
-        raising = "def divergent_thing(command):\n    if not command.body:\n        raise ValueError('empty')\n    return command.name\n"
-        for label, source in ((_SELF_TEST_ALPHA, agreeing), (_SELF_TEST_BETA, agreeing), (_SELF_TEST_GAMMA, raising)):
-            _write_module(root / label / _MICRO_GENERATORS_DIR, source, f"{domain}{_PY_SUFFIX}")
-        verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA, _SELF_TEST_GAMMA))
-    if not _single_role_with_verdict(_name_roles(verdicts, "divergent_thing"), _VERDICT_DIVERGENCE):
+    verdicts = _divergent_tree_verdicts(domain)
+    if not _single_role_with_verdict(_name_roles(verdicts, _SELF_TEST_DIVERGENT_ROLE), _VERDICT_DIVERGENT):
         return False
-    evaluate = functools.partial(evaluate_roles, verdicts, reference=_SELF_TEST_ALPHA)
+    evaluate = functools.partial(evaluate_roles, verdicts)
     no_scope = GateScope(domains=None, buckets=frozenset())
     undeclared = evaluate(scope=no_scope, surfaces=ExemptionSurfaces.none())
     declared = evaluate(
@@ -2708,13 +2812,18 @@ def _self_test_case_gate_outcome() -> bool:
         gate_exit_code(undeclared) == EXIT_FAIL
         and undeclared[0].domain == domain
         and any(
-            line.startswith("FAIL ") and "role=divergent_thing" in line and _SELF_TEST_GAMMA in line
+            line.startswith("FAIL ")
+            and f"role={_SELF_TEST_DIVERGENT_ROLE}" in line
+            and _group_text((_SELF_TEST_ALPHA, _SELF_TEST_BETA)) in line
+            and _group_text((_SELF_TEST_GAMMA,)) in line
             for line in undeclared_lines
         )
         and gate_exit_code(declared) == EXIT_OK
         and gate_exit_code(out_of_scope) == EXIT_OK
         and out_of_scope[0].fails
-        and any(line.startswith("REPORTED ") and "role=divergent_thing" in line for line in out_of_scope_lines)
+        and any(
+            line.startswith("REPORTED ") and f"role={_SELF_TEST_DIVERGENT_ROLE}" in line for line in out_of_scope_lines
+        )
         and gate_exit_code(in_scope) == EXIT_FAIL
         and _duplicate_buckets_gate_correctly()
         and not axis_gates(AXIS_PLATFORMS, report_only=False)
@@ -2726,7 +2835,7 @@ def _self_test_case_gate_outcome() -> bool:
 def _duplicate_buckets_gate_correctly() -> bool:
     """Case (r)'s duplicate-bucket half: the adapter/decider tree of case (f)
     -- the adapter-exempt identical role passes, the deciding one fails."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-r2-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-r2-") as tmp:
         root = Path(tmp)
         body = (
             "from datrix_codegen_common.algorithms.entity import build_entity_context\n\n"
@@ -2742,7 +2851,6 @@ def _duplicate_buckets_gate_correctly() -> bool:
         role_label(evaluation.verdict.role_key): evaluation
         for evaluation in evaluate_roles(
             verdicts,
-            reference=_SELF_TEST_ALPHA,
             scope=GateScope(domains=None, buckets=frozenset()),
             surfaces=ExemptionSurfaces.none(),
         )
@@ -2763,16 +2871,14 @@ def _self_test_case_bucket_scope_gate() -> bool:
     domain independently of the domains list."""
     domain, _ = _two_universe_ids()
     identical_body = "def shared_identical_thing(command):\n    return command.name\n"
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-t-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-t-") as tmp:
         root = Path(tmp)
         for label in (_SELF_TEST_ALPHA, _SELF_TEST_BETA):
             _write_module(root / label / _MICRO_GENERATORS_DIR, identical_body, f"{domain}{_PY_SUFFIX}")
         verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
     if not _single_role_with_verdict(_name_roles(verdicts, "shared_identical_thing"), _VERDICT_IDENTICAL):
         return False
-    evaluate = functools.partial(
-        evaluate_roles, verdicts, reference=_SELF_TEST_ALPHA, surfaces=ExemptionSurfaces.none()
-    )
+    evaluate = functools.partial(evaluate_roles, verdicts, surfaces=ExemptionSurfaces.none())
     bucket_gated = evaluate(scope=GateScope(domains=frozenset(), buckets=frozenset({_VERDICT_IDENTICAL})))
     bucket_ungated = evaluate(scope=GateScope(domains=frozenset(), buckets=frozenset()))
     return (
@@ -2809,7 +2915,7 @@ def _self_test_case_collect_emit_tables() -> bool:
             emit_functions={{{_SELF_TEST_EMIT_FUNCTION!r}: ship}},
         )
         """
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-s-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-s-") as tmp:
         package_dir = Path(tmp) / _SELF_TEST_PACKAGE
         _write_module(package_dir, "", "__init__.py")
         _write_module(package_dir / "sub", "", "__init__.py")
@@ -2838,7 +2944,7 @@ def _self_test_case_try_except_structure() -> bool:
     the new try/except BOUNDARY, not just the extra ``return``, is what must
     show, since both members already contribute a matching ``return False``
     line inside their own control flow."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-u-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-u-") as tmp:
         root = Path(tmp)
         _write_module(
             root / _SELF_TEST_ALPHA,
@@ -2858,26 +2964,29 @@ def _self_test_case_try_except_structure() -> bool:
             "    return True\n",
         )
         verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
-        return _single_role_with_verdict(_name_roles(verdicts, "guarded_thing"), _VERDICT_DIVERGENCE)
+        return _single_role_with_verdict(_name_roles(verdicts, "guarded_thing"), _VERDICT_DIVERGENT)
 
 
-def _self_test_case_decision_arity() -> bool:
+def _self_test_case_behaviour_arity() -> bool:
     """(v) Two members whose statement-level skeletons render identically
     but read a different number of real parameters (arity 3 vs 2, the geo
-    query builder shape) land in ``decision-divergence``."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-v-") as tmp:
+    query builder shape) land in ``divergent`` AND split into two skeleton
+    groups, so the arity difference reaches the gate rather than hiding
+    behind an equal statement-line skeleton."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-v-") as tmp:
         root = Path(tmp)
         _write_module(root / _SELF_TEST_ALPHA, "def build_point(field, rest):\n    return field\n")
         _write_module(root / _SELF_TEST_BETA, "def build_point(entity_name, field, rest):\n    return field\n")
         verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
-        return _single_role_with_verdict(_name_roles(verdicts, "build_point"), _VERDICT_DIVERGENCE)
+        matches = _name_roles(verdicts, "build_point")
+        return _single_role_with_verdict(matches, _VERDICT_DIVERGENT) and len(skeleton_groups(matches[0])) == 2
 
 
 def _self_test_case_rendering_leaf_exempt() -> bool:
     """(w) A role whose every member's body is a docstring-only carrier (the
     ``registry_definition`` shape -- no ``return`` at all) is
     ``rendering_leaf_exempt`` though it is not a pre-binding adapter."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-w-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-w-") as tmp:
         root = Path(tmp)
         body = 'def registry_thing():\n    """\n    generator thing { }\n    """\n'
         _write_module(root / _SELF_TEST_ALPHA, body)
@@ -2894,10 +3003,10 @@ def _self_test_case_rendering_leaf_exempt() -> bool:
 def _self_test_case_rendering_leaf_denies_private_callee() -> bool:
     """(x) A body with no branch and no attribute chain, but that calls a
     same-package sibling function, is NOT rendering-leaf-exempt --
-    delegating to language-private logic is a decision even when the
+    delegating to language-private logic is behaviour even when the
     delegating body itself makes no branch -- and the role stays
-    ``same-decisions`` (i.e. still fails the gate)."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-x-") as tmp:
+    ``same-behaviour`` (i.e. still fails the gate)."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-x-") as tmp:
         root = Path(tmp)
         body = (
             "def _own_private_helper(value):\n    return value\n\n"
@@ -2916,13 +3025,13 @@ def _self_test_case_role_level_arity() -> bool:
     member of the same role too (the ``emit_break_statement``/
     ``emit_continue_statement`` shape, where one language's file-scope
     subclass happens to live inside the shared layer while its siblings'
-    live in their own packages) -- the role lands in ``same-decisions``, not
-    ``decision-divergence``. A second, differently named role planted in the
-    same synthetic tree, where one member takes a real extra unannotated
+    live in their own packages) -- the role lands in ``same-behaviour``, not
+    ``divergent``. A second, differently named role planted in the same
+    synthetic tree, where one member takes a real extra unannotated
     parameter beside the same plumbing-shaped one, still lands in
-    ``decision-divergence``: the role-level rule drops a shared NAME, never
-    a genuine extra input."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-y-") as tmp:
+    ``divergent``: the role-level rule drops a shared NAME, never a genuine
+    extra input."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-y-") as tmp:
         root = Path(tmp)
         _write_module(
             root / _SELF_TEST_ALPHA,
@@ -2934,7 +3043,7 @@ def _self_test_case_role_level_arity() -> bool:
         )
         _write_module(
             root / _SELF_TEST_BETA,
-            "from decision_parity_selftest_beta.scope import BScope\n\n\n"
+            "from behaviour_parity_selftest_beta.scope import BScope\n\n\n"
             "def dispatch_role(scope: BScope):\n"
             "    return scope\n\n\n"
             "def other_role(scope: BScope, value, extra):\n"
@@ -2942,7 +3051,7 @@ def _self_test_case_role_level_arity() -> bool:
         )
         _write_module(
             root / _SELF_TEST_GAMMA,
-            "from decision_parity_selftest_gamma.scope import CScope\n\n\n"
+            "from behaviour_parity_selftest_gamma.scope import CScope\n\n\n"
             "def dispatch_role(scope: CScope):\n"
             "    return scope\n",
         )
@@ -2950,9 +3059,9 @@ def _self_test_case_role_level_arity() -> bool:
         dispatch = _name_roles(verdicts, "dispatch_role")
         other = _name_roles(verdicts, "other_role")
         return (
-            _single_role_with_verdict(dispatch, _VERDICT_SAME_DECISIONS)
+            _single_role_with_verdict(dispatch, _VERDICT_SAME_BEHAVIOUR)
             and len(dispatch[0].members) == 3
-            and _single_role_with_verdict(other, _VERDICT_DIVERGENCE)
+            and _single_role_with_verdict(other, _VERDICT_DIVERGENT)
         )
 
 
@@ -2960,28 +3069,28 @@ def _self_test_case_rendering_leaf_private_parameter_exemption() -> bool:
     """(z) A role reading nothing but a language-private parameter's
     attributes -- directly, and through a derived root bound from one --
     alongside a role whose trivial return makes no such read at all (the
-    ``_ambient_request_import_line`` shape) lands ``same-decisions
-    rendering-leaf-exempt``, not a bare ``same-decisions`` failure: neither
-    member decides anything the skeleton itself would ever expose."""
-    with tempfile.TemporaryDirectory(prefix="decision-parity-selftest-z-") as tmp:
+    ``_ambient_request_import_line`` shape) lands ``same-behaviour
+    rendering-leaf-exempt``, not a bare ``same-behaviour`` failure: neither
+    member carries behaviour the skeleton itself would ever expose."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-z-") as tmp:
         root = Path(tmp)
         _write_module(
             root / _SELF_TEST_ALPHA,
-            "from decision_parity_selftest_alpha.ctx import AlphaContext\n\n\n"
+            "from behaviour_parity_selftest_alpha.ctx import AlphaContext\n\n\n"
             "def build_import_line(ctx: AlphaContext, helper):\n"
             "    module = ctx.transpiler.module_name\n"
             '    return f"import {module}.{helper}"\n',
         )
         _write_module(
             root / _SELF_TEST_BETA,
-            "from decision_parity_selftest_beta.ctx import BetaContext\n\n\n"
+            "from behaviour_parity_selftest_beta.ctx import BetaContext\n\n\n"
             "def build_import_line(_ctx: BetaContext, helper):\n"
             '    return f"import {helper}"\n',
         )
         verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
         matches = _name_roles(verdicts, "build_import_line")
         return (
-            _single_role_with_verdict(matches, _VERDICT_SAME_DECISIONS)
+            _single_role_with_verdict(matches, _VERDICT_SAME_BEHAVIOUR)
             and matches[0].rendering_leaf_exempt
             and not matches[0].adapter_exempt
         )
@@ -3009,9 +3118,9 @@ def run_self_test() -> bool:
     ok = True
     ok &= _assert(_self_test_case_identical(), "(a) byte-identical bodies land in exactly one 'identical' role")
     ok &= _assert(
-        _self_test_case_same_decisions(), "(b) equal skeletons, differing rendering, land in 'same-decisions'"
+        _self_test_case_same_behaviour(), "(b) equal skeletons, differing rendering, land in 'same-behaviour'"
     )
-    ok &= _assert(_self_test_case_divergent(), "(c) an added raise branch lands the role in 'decision-divergence'")
+    ok &= _assert(_self_test_case_divergent(), "(c) an added raise branch lands the role in 'divergent'")
     ok &= _assert(
         _self_test_case_token_split_unification(),
         "(d) a role unified only by stripping each package's own language token",
@@ -3025,7 +3134,8 @@ def run_self_test() -> bool:
         "(e2) a shared-typed input with no shared product keys a name role, never a signature role",
     )
     ok &= _assert(
-        _self_test_case_adapter_exempt(), "(f) a pre-binding-adapter role is adapter-exempt; a deciding one is not"
+        _self_test_case_adapter_exempt(),
+        "(f) a pre-binding-adapter role is adapter-exempt; a behaviour-bearing one is not",
     )
     ok &= _assert(
         _self_test_case_excluded_by_other_package(), "(g) a name also defined in a non-axis package is excluded"
@@ -3048,13 +3158,13 @@ def run_self_test() -> bool:
     )
     ok &= _assert(
         _self_test_case_domain_surfaces(),
-        "(m) surfaces 1+2: an unsupported stance / on-demand entry for the role's domain exempts; wrong domain, "
-        "supported, none, or an undomained role do not",
+        "(m) surfaces 1+2: an unsupported stance / on-demand entry for the role's domain sets the package aside; "
+        "wrong domain, supported, none, or an undomained role do not",
     )
     ok &= _assert(
         _self_test_case_builtin_group_surface(),
-        "(n) surface 3: a marked adapter over an unsupported builtin group exempts; supported, unstanced, or a "
-        "deciding sibling member do not",
+        "(n) surface 3: a marked adapter over an unsupported builtin group sets the package aside; supported, "
+        "unstanced, or a behaviour-bearing sibling member do not",
     )
     ok &= _assert(
         _self_test_case_builtin_group_surface_fails_closed(),
@@ -3067,15 +3177,28 @@ def run_self_test() -> bool:
         "domain; unknown ids, an empty --scope and a malformed file are refused",
     )
     ok &= _assert(
-        _self_test_case_lagging_languages(),
-        "(q) lagging: only the package whose skeletons differ from the reference's; every package when the "
-        "reference has no member",
+        _self_test_case_skeleton_groups_fail_naming_every_group(),
+        "(q1) a divergent role split into two skeleton groups with no declaration FAILs with one reason naming "
+        "both groups -- no reference language, no lagging side",
+    )
+    ok &= _assert(
+        _self_test_case_declaring_package_set_aside(),
+        "(q2) the same role passes when the odd group's package declares the construct unsupported; a "
+        "declaration in the other group leaves two groups and is named as the only one set aside",
+    )
+    ok &= _assert(
+        _self_test_case_every_member_declares(),
+        "(q3) a role every member of which declares the construct unsupported passes and is still reported",
+    )
+    ok &= _assert(
+        _self_test_case_bucket_labels(),
+        "(q4) the bucket labels printed and accepted are exactly identical / same-behaviour / divergent",
     )
     ok &= _assert(
         _self_test_case_gate_outcome(),
-        "(r) gate: an undeclared divergent role FAILs in scope (exit 1, naming the role and language); declared "
-        "unsupported or out of scope it does not (exit 0); duplicate buckets fail unless adapter-exempt; the "
-        "platform axis never gates",
+        "(r) gate: an undeclared divergent role FAILs in scope (exit 1, naming the role and every group); "
+        "declared unsupported or out of scope it does not (exit 0); duplicate buckets fail unless adapter-exempt; "
+        "the platform axis never gates",
     )
     ok &= _assert(
         _self_test_case_bucket_scope_gate(),
@@ -3092,8 +3215,9 @@ def run_self_test() -> bool:
         "(u) a try/except wrapper around an otherwise-matching call diverges from an unguarded sibling",
     )
     ok &= _assert(
-        _self_test_case_decision_arity(),
-        "(v) matching statement lines with a different real parameter count land in 'decision-divergence'",
+        _self_test_case_behaviour_arity(),
+        "(v) matching statement lines with a different real parameter count land in 'divergent' and split into "
+        "two skeleton groups",
     )
     ok &= _assert(
         _self_test_case_rendering_leaf_exempt(),
@@ -3112,7 +3236,7 @@ def run_self_test() -> bool:
     ok &= _assert(
         _self_test_case_rendering_leaf_private_parameter_exemption(),
         "(z) a role reading only a language-private parameter's attributes (directly and through a derived "
-        "root), beside a role with no such read, lands same-decisions rendering-leaf-exempt",
+        "root), beside a role with no such read, lands same-behaviour rendering-leaf-exempt",
     )
     return ok
 
@@ -3125,7 +3249,7 @@ def run_self_test() -> bool:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Decision-parity gate: role grouping, decision-skeleton classification, domain resolution, "
+            "Behaviour-parity gate: role grouping, behaviour-skeleton classification, domain resolution, "
             "declared exemptions and migration scope."
         )
     )
@@ -3136,7 +3260,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             f"{_SCOPE_SEPARATOR!r}-separated shared domain ids and/or {UNDOMAINED!r} whose roles may fail; "
-            f"overrides {DECISION_PARITY_SCOPE_PATH.name}. Language axis only."
+            f"overrides {BEHAVIOUR_PARITY_SCOPE_PATH.name}. Language axis only."
         ),
     )
     parser.add_argument(
@@ -3144,16 +3268,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             f"{_SCOPE_SEPARATOR!r}-separated verdict-bucket ids, drawn from {sorted(_VALID_BUCKET_IDS)}, gated "
-            f"across EVERY domain regardless of --scope/{DECISION_PARITY_SCOPE_PATH.name}'s domains list; "
+            f"across EVERY domain regardless of --scope/{BEHAVIOUR_PARITY_SCOPE_PATH.name}'s domains list; "
             f"overrides the file's {_SCOPE_FILE_BUCKETS_KEY!r} list. Language axis only."
-        ),
-    )
-    parser.add_argument(
-        "--reference",
-        default=None,
-        help=(
-            f"The registered language whose decisions every other language must adopt "
-            f"(default {_DEFAULT_REFERENCE_LANGUAGE!r}). Language axis only."
         ),
     )
     parser.add_argument(
@@ -3164,17 +3280,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _refuse_gate_options_when_not_gating(args: argparse.Namespace) -> None:
-    """``--scope``/``--buckets``/``--reference`` shape a gate; on a run that
-    renders a report only they would be silently ignored, so they are
-    refused instead."""
-    given = [
-        name
-        for name, value in (("--scope", args.scope), ("--buckets", args.buckets), ("--reference", args.reference))
-        if value is not None
-    ]
+    """``--scope``/``--buckets`` shape a gate; on a run that renders a report
+    only they would be silently ignored, so they are refused instead."""
+    given = [name for name, value in (("--scope", args.scope), ("--buckets", args.buckets)) if value is not None]
     if given:
         raise ValueError(
-            f"decision_parity: {given} only apply to a gating run (--axis {AXIS_LANGUAGES} without --report-only); "
+            f"behaviour_parity: {given} only apply to a gating run (--axis {AXIS_LANGUAGES} without --report-only); "
             f"the {args.axis} axis {'with --report-only ' if args.report_only else ''}renders a report and never "
             f"fails. Fix: drop the option(s), or run the language axis without --report-only."
         )
@@ -3188,7 +3299,7 @@ def _run_scan(args: argparse.Namespace) -> int:
         report-only run.
 
     Raises:
-        ValueError: A usage/discovery error (unknown scope id or reference,
+        ValueError: A usage/discovery error (unknown scope or bucket id,
             unresolvable package, unimportable module, unregistered adapter).
         SkeletonError: An unparseable or unclassifiable member.
     """
@@ -3203,14 +3314,12 @@ def _run_scan(args: argparse.Namespace) -> int:
         parse_scope_argument(args.scope),
         parse_buckets_argument(args.buckets),
         frozenset(SHARED_CONTEXT_TYPES),
-        DECISION_PARITY_SCOPE_PATH,
+        BEHAVIOUR_PARITY_SCOPE_PATH,
     )
-    reference_name = args.reference if args.reference is not None else _DEFAULT_REFERENCE_LANGUAGE
-    reference = reference_label_for(reference_name, target_src_dirs)
-    logger.info("decision-parity gate: reference=%s scope=%s", reference, _scope_text(scope))
+    logger.info("behaviour-parity gate: packages=%s scope=%s", sorted(target_src_dirs), _scope_text(scope))
     verdicts = discover_roles_for(axis, target_src_dirs, WORKSPACE_ROOT)
     surfaces = live_exemption_surfaces(target_src_dirs, BUILTIN_REGISTRY)
-    evaluations = evaluate_roles(verdicts, reference=reference, scope=scope, surfaces=surfaces)
+    evaluations = evaluate_roles(verdicts, scope=scope, surfaces=surfaces)
     render_gate_report(evaluations, WORKSPACE_ROOT, scope=scope, debug=args.debug)
     return gate_exit_code(evaluations)
 
@@ -3228,9 +3337,9 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     if not run_self_test():
-        logger.error("DECISION-PARITY SELF-TEST FAILED -- aborting before any real scan is trusted.")
+        logger.error("BEHAVIOUR-PARITY SELF-TEST FAILED -- aborting before any real scan is trusted.")
         return EXIT_USAGE
-    logger.info("decision-parity self-test: PASS")
+    logger.info("behaviour-parity self-test: PASS")
 
     if args.self_test:
         return EXIT_OK
@@ -3238,7 +3347,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _run_scan(args)
     except (ValueError, SkeletonError) as exc:
-        logger.error("DECISION-PARITY SCAN CANNOT RUN: %s", exc)
+        logger.error("BEHAVIOUR-PARITY SCAN CANNOT RUN: %s", exc)
         return EXIT_USAGE
 
 

@@ -161,7 +161,7 @@ Closes what the shared-layer consolidation above left behind: private copies of 
 | 7 | One implementation per fact in the foundation, no new third-party dependency | Negative grep + a test proving the union of previously-divergent accepted inputs resolves through one path |
 | 8 | A declared dependency is an imported dependency | Absent from the manifest; clean editable install succeeds; the test-only library moves to an extra named in that package's own `dev` list |
 | 9 | An adapter cannot widen an orchestrator-owned policy set | Orchestrator validates every registered adapter and fails loud on a widening; both per-adapter sets survive |
-| 10 | Parallel implementations are measurable by a signal that survives divergence | `decision-parity-gate.ps1 -Axis languages\|platforms` (Decision 47) — one role-keyed scanner comparing decision skeletons on both axes; it reproduced the retired name-keyed drift report's platform-axis output before that report and its wrapper script were deleted. The platform axis compares packages, not registered names (name-sharing packages fold into one labelled entry, a no-op on the 1:1 language axis); each axis excludes the other axis's packages |
+| 10 | Parallel implementations are measurable by a signal that survives divergence | `behaviour-parity-gate.ps1 -Axis languages\|platforms` (Decision 47) — one role-keyed scanner comparing behaviour skeletons on both axes; it reproduced the retired name-keyed drift report's platform-axis output before that report and its wrapper script were deleted. The platform axis compares packages, not registered names (name-sharing packages fold into one labelled entry, a no-op on the 1:1 language axis); each axis excludes the other axis's packages |
 
 **A duplicate a design REQUIRES is a reviewed baseline entry, not a merge** — per-platform capability declarations (Decision 22 I3), per-target realized-provider sets (Decision 32 invariant 7), and per-adapter expressible-operation sets are all near-identical *because* their governing decisions forbid a shared table. A container assembled entirely from a shared enum's members is consumption, not duplication, and is exempt from both vocabulary ratchets.
 
@@ -169,7 +169,7 @@ Full decision log: [Architecture Overview — Decision 36](./architecture-overvi
 
 ## Lowering the Declarative Floor on Both Axes
 
-Decision 36 measures parallel implementations; this decision asks what would *remove* them, and shrinks the code that must be written once per language and once per platform toward its irreducible core. **Adopted.** Its collapsibility classification ledger (a `collapsibility.mechanism` and reason on every drifted group, on both axes, with an unclassified-count ratchet) was retired with the drift baselines: the ledger was retired as unmaintainable (every rename touched it), but at retirement 21 entries still carried a collapsing mechanism and 28 recorded byte-identical bodies as intentional; Decision 47 replaces classification with reconciliation against Python. The hoists it guided landed and stay held by the per-symbol and rendered-output tests beside each shared builder; what remains holds as executable gates:
+Decision 36 measures parallel implementations; this decision asks what would *remove* them, and shrinks the code that must be written once per language and once per platform toward its irreducible core. **Adopted.** Its collapsibility classification ledger (a `collapsibility.mechanism` and reason on every drifted group, on both axes, with an unclassified-count ratchet) was retired with the drift baselines: the ledger was retired as unmaintainable (every rename touched it), but at retirement 21 entries still carried a collapsing mechanism and 28 recorded byte-identical bodies as intentional; Decision 47 replaces classification with reconciliation to the best behaviour on each axis. The hoists it guided landed and stay held by the per-symbol and rendered-output tests beside each shared builder; what remains holds as executable gates:
 
 | # | Invariant | Check |
 |---|---|---|
@@ -350,7 +350,7 @@ Parity **measurement** on the language axis is mature; **prevention** is not. A 
 | 2 | Every builtin registry row belongs to a group, and `group=None` cannot be expressed | Registry and constructor tests; the ungrouped rows cluster into capability groups by category family |
 | 3 | A language's builtin capability is a **stance per group on its capability declaration**, not a hand-typed claim set plus per-method exemptions | `supported`/`unsupported(reason)` mapping on `LanguageCapabilityDeclaration`, keyed by group **name** because `datrix-common` must not import `datrix-codegen-common`; completeness enforced in `datrix-codegen-common` at plugin registration, where builtin obligation already lives; the per-method exemption file is deleted |
 | 4 | A `supported` group with an unmapped row fails when the package loads; an application using an `unsupported` group's builtin fails **before any file is written** | Import-time coverage validation at plugin registration; a pre-generation pipeline stage after `validate_type_completeness` raising once with every offending use, its group's declared reason, service and location |
-| 5 | A domain compared by input has one shared context builder per per-item context, and each domain maps to the tuple of frozen context types its micro-generator renders; every other domain compares by artifact presence, never by a digest | `_RICH_CONTEXT_TYPES` in `parity/domain_registry.py` is the whole declaration (36 of 63 domains today, each held to a real production constructor by a hard-zero AST census; `cqrs` registers six types, one per render method of its six-method micro-generator); the rest resolve to `None` and the artifact-role gate compares their presence in the live generated corpus. The fingerprint context is retired. A new cross-language feature gets a shared builder and a typed model as the rule of new work; an existing per-language divergence is hoisted when it produces a defect, proven byte-identical — there is no pending ledger and no promotion count; the retroactive reconciliation of the existing population is Decision 47 |
+| 5 | A domain compared by input has one shared context builder per per-item context, and each domain maps to the tuple of frozen context types its micro-generator renders; every other domain compares by artifact presence, never by a digest | `_RICH_CONTEXT_TYPES` in `parity/domain_registry.py` is the whole declaration (36 of 63 domains today, each held to a real production constructor by a hard-zero AST census; `cqrs` registers six types, one per render method of its six-method micro-generator); the rest resolve to `None` and the artifact-role gate compares their presence in the live generated corpus. The fingerprint context is retired. A new cross-language feature gets a shared builder and a typed model as the rule of new work; an existing per-language divergence is hoisted when it produces a defect, proven byte-identical — there is no pending ledger and no promotion count; the retroactive reconciliation of the existing population is Decision 47, to the best behaviour on each axis |
 | 6 | A per-language difference inside a shared builder is a **declared parameter**, never a branch | A `LanguageProfile` value, a typed parameter from the language's thin adapter, or a per-language render step — never a target-name conditional in the shared layer (the target-literal ratchet stays at its empty baseline) |
 | 7 | Every hoist is behaviour-preserving and removes every private copy | A test beside the shared builder renders the construct for a fixture and asserts its output for every affected language, plus a per-symbol test that no language package redefines the private name and every former copy's package reaches the shared one |
 | 8 | Every single-step routing decision is a declared row, and the declared table is the **first** dispatch stop | `emit_function_for` is consulted before any hand-written branch at every chain-step call site, and a branch duplicating a row's predicate is deleted in the same change — a declaration replaces a branch, never joins it |
@@ -361,39 +361,47 @@ Parity **measurement** on the language axis is mature; **prevention** is not. A 
 
 Full decision log: [Architecture Overview — Decision 44](./architecture-overview.md#decision-44-parity-by-construction--declared-universes-shared-plan-modules-and-declared-routing-on-the-language-axis-adopted).
 
-## Language-Axis Decision Parity
+## Language-Axis Behaviour Parity — Roles, Behaviour Skeletons, and the Best Realization as Reference
 
 Every language generator consumes the same validated model and must render differently by
-design; what must not differ is the set of decisions it makes over that source. The retired
-parallel-implementation drift scanner compared verbatim function text grouped by bare name, and
-its classification ledger's verdicts were written by where a copy lived rather than by whether
-the target language forced a difference — at retirement 21 of its entries still carried a
-mechanism other than `none`, and 28 recorded byte-identical bodies as `intentional`.
+design; what must not differ is its **behaviour** over that source — which model facts it reads,
+which conditions it branches on, which validations it enforces, which artifacts and fields it
+emits. A per-target difference in behaviour is a **defect with N copies**, never a choice and
+never a category with a written reason; only rendering legitimately differs per target. The
+retired parallel-implementation drift scanner compared verbatim function text grouped by bare
+name, and its classification ledger's verdicts were written by where a copy lived rather than
+by whether the target language forced a difference — at retirement 21 of its entries still
+carried a mechanism other than `none`, and 28 recorded byte-identical bodies as `intentional`.
 Re-measuring the 541 groups it called drifted: 26 differ only in docstrings, type annotations,
 or local variable names; grouping by role instead of bare name (stripping each language's own
 name tokens) surfaces 195 more parallel groups that a name-keyed scan hides entirely; and
-comparing decision skeletons rather than bodies over the resulting 774 roles finds 31 identical,
-137 making the same decisions under different rendering, and 554 making different decisions. A
-difference is a defect, not a category with a written reason: Python is the reference target,
-and a non-Python decision wins only under a closed three-case exception — a fail-closed
-validation Python lacks, a realization of a DSL-declared capability Python silently drops, or a
-stricter security posture. Every role is ported to parity before it is hoisted, never the
-reverse, and the proof is a test on the ported decision in the lagging language's own package.
-**Approved — implementation in progress.**
+comparing behaviour skeletons rather than bodies over the resulting 774 roles found 31
+identical, 137 with the same behaviour under different rendering, and 554 behaving differently
+(587 roles by the landed gate: 11 / 37 / 539). **There is no reference language.** When copies
+disagree, every copy is read and the shared implementation takes the strongest behaviour on
+each of four axes: it fails closed (a copy that rejects what the others paper over wins; a
+silent fallback never wins), it reads everything the DSL declares (the union of what any copy
+read), it is the most secure (a guard, an escaping step, a narrower permission, a smaller
+disclosure applied by one copy is adopted by all), and it emits the most correct output (a copy
+that drops an import, a field, or an event the source implies loses). Python is the reference
+only when it is the best copy, never by default. Every role is ported to parity before it is
+hoisted, never the reverse, and the proof is a rendered-surface test in each package whose
+behaviour changed. **Approved — implementation in progress.**
 
 | # | Invariant | Check |
 |---|---|---|
-| 1 | Two language packages never carry the same decision skeleton | `decision-parity-gate.ps1`: `identical` and `same-decisions` roles fail; pre-binding adapters and rendering leaves exempt by AST shape only |
-| 2 | Two language packages never make different decisions over the same source construct unless the lagging one declares `unsupported(reason)` | Same gate, `decision-divergence` bucket, read against the language's declared capability surface |
+| 1 | Two language packages never carry the same behaviour skeleton | `behaviour-parity-gate.ps1`: `identical` and `same-behaviour` roles fail; pre-binding adapters and rendering leaves exempt by AST shape only |
+| 2 | Two language packages never behave differently over the same source construct unless a package declares `unsupported(reason)` — a capability hole, never a choice | Same gate, `divergent` bucket: member packages are partitioned into skeleton groups, declaring packages are set aside, and the role passes iff at most one group remains — otherwise it fails naming every group, because the gate cannot know which one is right |
 | 3 | Grouping is by role, so a language token in a name cannot hide a parallel implementation | Signature-role and normalized-name grouping; self-test plants a token-split pair and requires it land as one role |
 | 4 | No function in a language package carries its own language's name | `check-import-boundaries.ps1`'s own-target-name check, decrease-only baseline driven to zero, then hard zero |
-| 5 | Python is the reference; a non-Python decision wins only under the closed three-case exception | Each port task's How-Solved names the case or states it follows Python; the phase design-conformance gate rejects any other wording |
-| 6 | A hoist follows parity, never precedes it | Task ordering makes every hoist depend on its role's port; the per-role output tests stay green, unchanged, on the hoist commit |
+| 5 | The best copy is the reference: every port names the behaviour adopted, which copy carried it, and the axis on which it was strongest; no port says "follows <language>" as its reason | Each port task's How-Solved carries that statement per reconciled difference; the phase design-conformance gate rejects a port without it |
+| 6 | A hoist follows parity, never precedes it | Task ordering makes every hoist depend on its role's port; every rendered-surface test passes unchanged on the hoist commit |
 | 7 | Every hoisted context builder is compared by input from then on | `_RICH_CONTEXT_TYPES` gains the role's context type; a hard-zero census holds it to a production constructor |
 | 8 | Every hoist removes every private copy and every former copy's package reaches the shared one | Per-symbol negative check plus a call-graph reachability test beside each shared builder |
-| 9 | A port is proven by rendered output | A test beside the ported role in the lagging language's package asserts the reconciled decision on its rendered output; the reference example is regenerated in that language and read while porting — never a stored snapshot |
+| 9 | A port is proven on the emitted surface | A rendered-surface test in each changed package, negative (the old behaviour is gone) and positive (the shared path produces the new one), over a fixture that exercises the construct — never a green suite alone, never a stored snapshot (the repo keeps none) |
 | 10 | The gate proves its own non-vacuity every run | Five-bucket synthetic self-test, single-target refusal |
-| 11 | No written reason ever records why two languages decide differently | No classification file exists; the only exception surface is the typed `unsupported(reason)` declaration on the plugin |
+| 11 | No written reason ever records why two languages behave differently | No classification file exists; the only exception surface is the typed `unsupported(reason)` declaration on the plugin |
+| 12 | The vocabulary never calls a behaviour difference a decision | No script, config, bucket label, doc or docstring describes the measured differences that way; the gate's self-test asserts its bucket labels are exactly `identical` / `same-behaviour` / `divergent` |
 
 **A function in a language package never carries its own language's name** — the package
 already says it, and the token is what defeats the instrument; the declared `name_tokens` per
@@ -401,7 +409,7 @@ language are python `{python, py, pydantic, sqlalchemy, sa, alembic, ruff, pip}`
 `{typescript, ts, js, nest, nestjs, mikroorm, mikro, jest, tsc, npm}`, java `{java, spring, jpa,
 maven, jackson}`, dotnet `{dotnet, net, cs, csharp, efcore, fluentmigrator, nuget, quartz}`.
 
-Full decision log: [Architecture Overview — Decision 47](./architecture-overview.md#decision-47-language-axis-decision-parity--roles-decision-skeletons-and-python-as-the-reference-target-approved--implementation-in-progress).
+Full decision log: [Architecture Overview — Decision 47](./architecture-overview.md#decision-47-language-axis-behaviour-parity--roles-behaviour-skeletons-and-the-best-realization-as-reference-approved--implementation-in-progress).
 
 ## Zero-Environment Runtime — Declared Per Language
 

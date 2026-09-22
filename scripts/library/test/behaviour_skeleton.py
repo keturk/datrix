@@ -1,30 +1,31 @@
 #!/usr/bin/env python3
-"""Decision-skeleton extraction: reduces a function's AST to the ordered
-sequence of decisions it makes over its parameters -- branches, loops, match
-arms, returns, raises, asserts, loop exits, and any assignment or expression
-statement that reads model data -- with every rendering choice (string
-literals, f-strings, identifier names, docstrings, annotations, decorators)
-collapsed away. Two functions that ask the same questions of the same data in
-the same order produce an equal skeleton no matter how differently they are
-written; two functions that ask different questions never do.
+"""Behaviour-skeleton extraction: reduces a function's AST to the ordered
+sequence of behaviour it carries over its parameters -- branches, loops,
+match arms, returns, raises, asserts, loop exits, and any assignment or
+expression statement that reads model data -- with every rendering choice
+(string literals, f-strings, identifier names, docstrings, annotations,
+decorators) collapsed away. Two functions that ask the same questions of the
+same data in the same order produce an equal skeleton no matter how
+differently they are written; two functions that ask different questions
+never do.
 
-Also recognizes the one AST shape a decision-parity role never needs to
+Also recognizes the one AST shape a behaviour-parity role never needs to
 reconcile: a "pre-binding adapter" whose entire body is a single return of a
 call into the shared codegen layer, passing its own parameters straight
 through (plus, at most, this package's own constants, state and casing
 callables).
 
 Also recognizes a second, broader shape exemption, ``is_rendering_leaf``: a
-body that makes no decision at all -- no branch, loop, ``try``, ``with``,
+body that carries no behaviour at all -- no branch, loop, ``try``, ``with``,
 comprehension or ``raise``, no attribute chain rooted at a parameter or
 ``self``, and every call resolving to the shared codegen layer, the standard
-library, or nothing in the function's own import table. ``decision_arity``
-is a second, independent fact -- the function's decision-bearing parameter
-count -- that ``decision_parity.py`` combines with the statement-line
+library, or nothing in the function's own import table. ``behaviour_arity``
+is a second, independent fact -- the function's behaviour-bearing parameter
+count -- that ``behaviour_parity.py`` combines with the statement-line
 skeleton below when classifying a role. Arity is measured PER ROLE, not per
 member: ``plumbing_parameter_names`` names the parameters one member drops
-as language-private, ``decision_parity.py`` unions that set across every
-member of the role, and passes it back into ``decision_arity`` as
+as language-private, ``behaviour_parity.py`` unions that set across every
+member of the role, and passes it back into ``behaviour_arity`` as
 ``extra_plumbing`` so a parameter name any member drops as plumbing is
 dropped for every member -- a language whose own file-scope subclass
 happens to live inside the shared layer must not count a parameter its
@@ -32,7 +33,7 @@ sibling languages drop.
 
 Rendering rules
 ---------------
-One skeleton line per decision, in source order:
+One skeleton line per behaviour-bearing statement, in source order:
 
     if <pred> / else / endif          for <iter> / else / endfor
     while <pred> / else / endwhile    match <subject> / case <pattern> [if <guard>] / endmatch
@@ -70,7 +71,7 @@ Docstrings, annotations, decorators and local identifier names never appear.
 Derived roots
 -------------
 A local name bound exactly once from a model-rooted expression is a *derived
-root* and renders as its binding chain, so a decision over a collection
+root* and renders as its binding chain, so a predicate over a collection
 element survives: ``for f in entity.fields: if f.required`` renders
 ``for P.fields / if P.fields[*].required / endif / endfor``. Bindings that
 derive: a ``for``/``async for`` target (the element is spelled
@@ -100,8 +101,8 @@ A file that cannot be parsed, a function snippet that cannot be re-parsed,
 and a statement or pattern kind this module does not know how to classify
 each raise ``SkeletonError`` naming the offending file/function -- never a
 silent skip and never a default skeleton. Expressions, by contrast, never
-raise: an unrecognized expression shape is *classifiable* (it is not a
-decision) and collapses to ``_``.
+raise: an unrecognized expression shape is *classifiable* (it carries no
+behaviour of its own) and collapses to ``_``.
 
 This module is a pure, dependency-free library: it never touches the plugin
 registry, never loads a language package, and is exercised end to end by its
@@ -109,7 +110,7 @@ own ``--self-test``. The role-grouping scanner that consumes it is built
 separately and hands it ``FunctionSource`` instances.
 
 Usage:
-    python decision_skeleton.py --self-test
+    python behaviour_skeleton.py --self-test
 """
 
 from __future__ import annotations
@@ -182,12 +183,12 @@ _UNARY_OP_NAMES: Final[dict[type[ast.unaryop], str]] = {
     ast.Invert: "invert",
 }
 
-#: Statement kinds that carry no decision and no nested statement list. The
+#: Statement kinds that carry no behaviour and no nested statement list. The
 #: ``type X = ...`` alias statement only exists from Python 3.12 on; the
 #: repository's floor is 3.11, so it joins the set exactly when the running
 #: interpreter can parse one.
 _TYPE_ALIAS_STATEMENT_KINDS: Final[tuple[type[ast.stmt], ...]] = (ast.TypeAlias,) if sys.version_info >= (3, 12) else ()
-_NO_DECISION_STATEMENT_KINDS: Final[tuple[type[ast.stmt], ...]] = (
+_INERT_STATEMENT_KINDS: Final[tuple[type[ast.stmt], ...]] = (
     ast.Pass,
     ast.Import,
     ast.ImportFrom,
@@ -239,7 +240,7 @@ def parse_module_or_raise(file_path: Path) -> ast.Module:
         return ast.parse(source, filename=str(file_path))
     except (SyntaxError, OSError) as exc:
         raise SkeletonError(
-            f"Cannot extract decision skeletons from {file_path}: {exc}. A role "
+            f"Cannot extract behaviour skeletons from {file_path}: {exc}. A role "
             f"with an unparseable member is a gate failure naming the file, never "
             f"a silent skip. Fix: make the file parse under the running interpreter "
             f"or remove it from the scanned package."
@@ -339,7 +340,7 @@ def _all_parameters(node: _FunctionDefNode) -> list[ast.arg]:
     """Every parameter of *node*, ``self``/``cls`` included, in one flat
     list: positional-only, positional, keyword-only, then ``*args``/
     ``**kwargs`` when present. The one enumeration walk
-    ``_function_parameter_names``, ``decision_arity`` and
+    ``_function_parameter_names``, ``behaviour_arity`` and
     ``plumbing_parameter_names`` each need, kept in exactly one place.
 
     Args:
@@ -759,7 +760,7 @@ def _model_chain_root(node: ast.expr, scope: RenderScope) -> str | None:
 def _contains_model_chain(node: ast.expr, scope: RenderScope) -> bool:
     """Whether *node* contains a model chain anywhere in its expression tree
     -- the test deciding whether an operand renders itself or collapses to
-    ``_``, and whether an assignment/expression statement is a decision."""
+    ``_``, and whether an assignment/expression statement carries behaviour."""
     return any(isinstance(sub, ast.expr) and _model_chain_root(sub, scope) is not None for sub in ast.walk(node))
 
 
@@ -769,11 +770,11 @@ def _contains_model_chain(node: ast.expr, scope: RenderScope) -> bool:
 
 
 def render_expr(node: ast.expr, scope: RenderScope) -> str:
-    """Render one expression to its decision-skeleton text (dispatch table in
+    """Render one expression to its behaviour-skeleton text (dispatch table in
     the module docstring). Never renders an identifier name, annotation,
     decorator or docstring, and never raises: an expression shape with no
-    row in the table is classifiable -- it is not a decision -- and
-    collapses to ``_``.
+    row in the table is classifiable -- it carries no behaviour of its own --
+    and collapses to ``_``.
 
     The model-chain probe runs FIRST, before any node-kind dispatch, so a
     bare ``command.name`` renders as ``P.name`` instead of falling through the
@@ -918,12 +919,12 @@ def _render_pattern(pattern: ast.pattern, scope: RenderScope) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Decision skeleton (statement-level)
+# Behaviour skeleton (statement-level)
 # ---------------------------------------------------------------------------
 
 
-def decision_skeleton(fn: FunctionSource) -> str:
-    """The ordered, rendering-blind decision skeleton for *fn*.
+def behaviour_skeleton(fn: FunctionSource) -> str:
+    """The ordered, rendering-blind behaviour skeleton for *fn*.
 
     Args:
         fn: The function to extract a skeleton from.
@@ -940,7 +941,7 @@ def decision_skeleton(fn: FunctionSource) -> str:
         _emit_block(fn.node.body, RenderScope.for_function(fn.node), lines)
     except SkeletonError as exc:
         raise SkeletonError(
-            f"Cannot extract the decision skeleton of {fn.qualified_name} "
+            f"Cannot extract the behaviour skeleton of {fn.qualified_name} "
             f"({fn.package}:{fn.file_path}:{fn.line_number}): {exc}"
         ) from exc
     return "\n".join(lines)
@@ -952,8 +953,8 @@ def decision_skeleton(fn: FunctionSource) -> str:
 _COMMON_MODULE_PREFIX: Final[str] = "datrix_common."
 
 
-def decision_arity(fn: FunctionSource, *, extra_plumbing: frozenset[str] = frozenset()) -> int:
-    """The count of *fn*'s parameters that carry a decision: every
+def behaviour_arity(fn: FunctionSource, *, extra_plumbing: frozenset[str] = frozenset()) -> int:
+    """The count of *fn*'s parameters that carry behaviour: every
     positional/keyword/vararg/kwarg parameter after dropping ``self``/``cls``
     (the same rule ``_function_parameter_names`` already applies for
     ``P``-eligibility), dropping any parameter whose annotation resolves,
@@ -961,13 +962,13 @@ def decision_arity(fn: FunctionSource, *, extra_plumbing: frozenset[str] = froze
     ``datrix_common``/``datrix_codegen_common`` -- a package's own
     transpiler-core or file-scope type, present under a different concrete
     name in every language's version of a dispatch function and therefore
-    never itself a decision -- and dropping any parameter whose NAME is in
+    never itself behaviour -- and dropping any parameter whose NAME is in
     *extra_plumbing*. An unannotated parameter is never dropped by its
     annotation -- there is nothing to resolve -- so it counts unless its
     name is in *extra_plumbing*.
 
-    Two functions reading a different number of real inputs make a
-    different decision even when their statement-level skeletons otherwise
+    Two functions reading a different number of real inputs behave
+    differently even when their statement-level skeletons otherwise
     match: the eight geo query builders take one MORE parameter in python
     (``entity_name``, ``field_snake``, ``rest`` -- arity 3) than in
     dotnet/java (``field_expr``/``field``, ``rest`` -- arity 2).
@@ -977,7 +978,7 @@ def decision_arity(fn: FunctionSource, *, extra_plumbing: frozenset[str] = froze
     plumbing must be dropped for every member sharing that name, even a
     member whose own annotation resolves inside the shared layer and so
     would not, on its own, be dropped by the rule above --
-    ``decision_parity.py``'s ``_classify_role`` computes the union of
+    ``behaviour_parity.py``'s ``_classify_role`` computes the union of
     ``plumbing_parameter_names`` across a role's members and passes it back
     in here for each one.
 
@@ -988,7 +989,7 @@ def decision_arity(fn: FunctionSource, *, extra_plumbing: frozenset[str] = froze
             language-private.
 
     Returns:
-        The decision-bearing parameter count.
+        The behaviour-bearing parameter count.
     """
     return sum(
         1
@@ -1000,7 +1001,7 @@ def decision_arity(fn: FunctionSource, *, extra_plumbing: frozenset[str] = froze
 
 
 def plumbing_parameter_names(fn: FunctionSource) -> frozenset[str]:
-    """The names of *fn*'s parameters that ``decision_arity`` drops as
+    """The names of *fn*'s parameters that ``behaviour_arity`` drops as
     language-private plumbing: every non-``self``/``cls`` parameter whose
     annotation resolves, through ``fn.import_table``, to a type outside both
     halves of the shared layer. Exposed so a role's classifier can drop the
@@ -1056,7 +1057,7 @@ def _qualified_annotation_name(node: ast.expr, import_table: dict[str, str]) -> 
     A quoted forward-reference string (``"Command"``, needed only to satisfy
     a linter under ``from __future__ import annotations``, which already
     defers evaluation of an unquoted one) is re-parsed as an expression
-    first -- the same technique ``decision_parity.py``'s
+    first -- the same technique ``behaviour_parity.py``'s
     ``_parse_string_annotation`` uses for a return annotation -- then
     resolved the same way; a string that fails to parse is unresolvable,
     not an error, matching this function's own fail-open contract (unlike
@@ -1097,14 +1098,14 @@ def _emit_statement(stmt: ast.stmt, scope: RenderScope, lines: list[str]) -> Non
     """Append the line(s) one statement contributes and recurse into every
     nested statement list. Every statement kind in the grammar is named
     here; an unknown kind raises rather than being walked past, because a
-    container this dispatch does not know about could hide decisions.
+    container this dispatch does not know about could hide behaviour.
 
     A nested ``def`` is walked in its own layered scope (its parameters are
     parameters too; its bindings shadow the outer table); ``with``/``try``/
     nested ``class`` bodies are walked transparently -- they contribute no
-    line but may hold decisions.
+    line but may hold behaviour.
     """
-    if isinstance(stmt, _NO_DECISION_STATEMENT_KINDS):
+    if isinstance(stmt, _INERT_STATEMENT_KINDS):
         return
     match stmt:
         case ast.If(test=test, body=body, orelse=orelse):
@@ -1145,8 +1146,8 @@ def _emit_statement(stmt: ast.stmt, scope: RenderScope, lines: list[str]) -> Non
                 f"Cannot classify statement kind {type(stmt).__name__!r} at line {stmt.lineno}: "
                 f"the statement grammar known to this extractor is "
                 f"{sorted(cls.__name__ for cls in ast.stmt.__subclasses__())}. Fix: add a dispatch "
-                f"row for the new statement kind (a decision-free kind joins "
-                f"_NO_DECISION_STATEMENT_KINDS)."
+                f"row for the new statement kind (a behaviour-free kind joins "
+                f"_INERT_STATEMENT_KINDS)."
             )
 
 
@@ -1390,7 +1391,7 @@ def is_pre_binding_adapter(fn: FunctionSource) -> bool:
     own state, an enum member, a module attribute), a literal constant, or a
     ``*name``/``**name`` spread of a bare name. A ``P.<attr>`` argument is
     NOT a pass-through: forwarding a *piece* of a parameter is the adapter
-    deciding which piece, which is exactly the decision this exemption must
+    choosing which piece, which is exactly the behaviour this exemption must
     not hide. Every other argument shape (a nested call, arithmetic, a
     container, a comprehension, a lambda, a conditional) denies the exemption.
 
@@ -1450,10 +1451,10 @@ def _is_pass_through_argument(argument: ast.expr, scope: RenderScope) -> bool:
 # Rendering-leaf recognition
 # ---------------------------------------------------------------------------
 
-#: Statement kinds that make a decision -- any of these anywhere in *fn*'s
+#: Statement kinds that carry behaviour -- any of these anywhere in *fn*'s
 #: own body (not a nested ``def``/``class``'s own body) denies the
 #: rendering-leaf exemption.
-_DECISION_STATEMENT_KINDS: Final[tuple[type[ast.stmt], ...]] = (
+_BEHAVIOUR_STATEMENT_KINDS: Final[tuple[type[ast.stmt], ...]] = (
     ast.If,
     ast.For,
     ast.AsyncFor,
@@ -1465,7 +1466,7 @@ _DECISION_STATEMENT_KINDS: Final[tuple[type[ast.stmt], ...]] = (
     ast.Raise,
 )
 #: Both halves of the shared codegen layer -- a call resolving under either
-#: prefix makes no decision of its own; it delegates to code this gate
+#: prefix carries no behaviour of its own; it delegates to code this gate
 #: compares separately at its own definition site.
 _RENDERING_LEAF_SHARED_PREFIXES: Final[tuple[str, ...]] = (
     _SHARED_LAYER_MODULE_PREFIX,
@@ -1474,16 +1475,16 @@ _RENDERING_LEAF_SHARED_PREFIXES: Final[tuple[str, ...]] = (
 
 
 def is_rendering_leaf(fn: FunctionSource) -> bool:
-    """Whether *fn* makes no decision at all -- the generalization of
+    """Whether *fn* carries no behaviour at all -- the generalization of
     ``is_pre_binding_adapter`` from a single-statement ``return``-of-call
     body to a body of any shape, recognized by AST shape only, exactly like
     the adapter shape it generalizes.
 
     A rendering leaf's body (after its docstring) contains no
-    decision-bearing statement or comprehension anywhere, no attribute
+    behaviour-bearing statement or comprehension anywhere, no attribute
     chain rooted at a parameter/``self``/a derived root (a bare, whole
     parameter reference is allowed -- forwarding it into an f-string or a
-    container literal renders it, it does not decide anything about it;
+    container literal renders it, it reads nothing of it;
     reading a PIECE of it, ``P.<attr>``, is the same disqualifying shape
     ``_is_pass_through_argument`` already denies for the narrower adapter
     case), and every call it makes resolves to the shared codegen layer, to
@@ -1491,18 +1492,18 @@ def is_rendering_leaf(fn: FunctionSource) -> bool:
     table (a genuine Python builtin, or a method call on a non-imported
     receiver such as a string literal or a local variable -- ``"x".join(...)``,
     ``value.strip()``). A call resolving to an import from anywhere else --
-    this package's own sibling module, a third-party dependency -- IS a
-    decision and denies the exemption; so does a call to a same-file local
+    this package's own sibling module, a third-party dependency -- IS
+    behaviour and denies the exemption; so does a call to a same-file local
     name that is not a real Python builtin (a private helper this function
     delegates to). A docstring-only or ``...``-only body, and a bare
     ``return <Name>`` of a module-level constant, both qualify vacuously.
 
     An attribute chain rooted at a parameter whose annotation is
     language-private (``plumbing_parameter_names`` -- the same rule the
-    skeleton's own decision-arity count already applies) is exempt from the
+    skeleton's own behaviour-arity count already applies) is exempt from the
     piece-read rule above: such a parameter is never a model root by the
     skeleton extractor's own definition (only a shared-typed parameter is a
-    root), so a read through it can never surface as a decision the
+    root), so a read through it can never surface as behaviour the
     skeleton itself would expose. The exemption carries through a derived
     root whose own single binding reads nothing but already-exempt names
     (``_exempt_root_names``) -- naming a private-typed read with a local
@@ -1517,7 +1518,7 @@ def is_rendering_leaf(fn: FunctionSource) -> bool:
         True iff *fn* has the rendering-leaf shape.
     """
     body = _body_without_docstring(fn.node.body)
-    if _contains_decision_construct(body):
+    if _contains_behaviour_construct(body):
         return False
     scope = RenderScope.for_function(fn.node)
     exempt_root_names = _exempt_root_names(fn, scope, plumbing_parameter_names(fn))
@@ -1580,10 +1581,10 @@ def _every_model_chain_rooted_in(node: ast.expr, scope: RenderScope, allowed_roo
     return True
 
 
-def _contains_decision_construct(body: list[ast.stmt]) -> bool:
-    """Whether *body* holds a decision-bearing statement or a comprehension
+def _contains_behaviour_construct(body: list[ast.stmt]) -> bool:
+    """Whether *body* holds a behaviour-bearing statement or a comprehension
     anywhere, never descending into a nested ``def``/``class``'s own body
-    (its decisions are its own).
+    (its behaviour is its own).
 
     Recurses only through ``_nested_blocks`` -- the same helper
     ``_collect_bindings`` uses for the identical "own scope only" concern --
@@ -1595,7 +1596,7 @@ def _contains_decision_construct(body: list[ast.stmt]) -> bool:
     for stmt in body:
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
-        if isinstance(stmt, _DECISION_STATEMENT_KINDS):
+        if isinstance(stmt, _BEHAVIOUR_STATEMENT_KINDS):
             return True
         if any(
             isinstance(node, _ComprehensionNode)
@@ -1603,7 +1604,7 @@ def _contains_decision_construct(body: list[ast.stmt]) -> bool:
             for node in ast.walk(expression)
         ):
             return True
-        if any(_contains_decision_construct(nested) for nested in _nested_blocks(stmt)):
+        if any(_contains_behaviour_construct(nested) for nested in _nested_blocks(stmt)):
             return True
     return False
 
@@ -1612,14 +1613,14 @@ def _is_disqualifying_attribute_chain(
     node: ast.expr, scope: RenderScope, exempt_root_names: frozenset[str]
 ) -> bool:
     """A model chain with at least one ``.attr`` beyond its root -- reading a
-    PIECE of a parameter/``self``/derived root is a decision; a bare
+    PIECE of a parameter/``self``/derived root is behaviour; a bare
     reference with no attribute access is not. Exempted when the chain's
     root is a name in *exempt_root_names* (``_exempt_root_names`` --
     ``fn``'s language-private parameters, per ``plumbing_parameter_names``,
     plus every derived root sourced only from such reads): the skeleton
-    extractor's own decision-arity count already treats a language-private
+    extractor's own behaviour-arity count already treats a language-private
     parameter as never a model root, so a read through it, or through a
-    local variable that reads nothing else, is not a disqualifying decision
+    local variable that reads nothing else, is not disqualifying behaviour
     either.
     """
     chain = _model_chain_root(node, scope)
@@ -1630,7 +1631,7 @@ def _is_disqualifying_attribute_chain(
 
 
 def _is_rendering_leaf_callee(func: ast.expr, import_table: dict[str, str]) -> bool:
-    """Whether a call's callee makes no decision of its own.
+    """Whether a call's callee carries no behaviour of its own.
 
     Args:
         func: The ``Call.func`` expression.
@@ -1696,8 +1697,8 @@ def _function_source_from_code(code: str, package: str = "self_test") -> Functio
 
 
 def _skeleton_of(code: str) -> str:
-    """Self-test shorthand: the decision skeleton of the first function in *code*."""
-    return decision_skeleton(_function_source_from_code(code))
+    """Self-test shorthand: the behaviour skeleton of the first function in *code*."""
+    return behaviour_skeleton(_function_source_from_code(code))
 
 
 #: Rendering-only tokens from the skeleton-equality variants below; none may
@@ -1730,7 +1731,7 @@ _VARIANT_B_CODE: Final[str] = '''
             return f"thing:{cmd.name}"
         return None
     '''
-#: Same decisions as variant A under every rendering difference the design
+#: Same behaviour as variant A under every rendering difference the design
 #: names: annotations, a decorator, a different string literal, a different
 #: f-string, different parameter and function names, no docstring.
 _VARIANT_RENDERED_CODE: Final[str] = """
@@ -1882,7 +1883,7 @@ def _sweep_function_renders(fn_node: _FunctionDefNode) -> bool:
     """Skeletonize one sweep function and render every expression in it;
     exceptions propagate to the caller, an empty skeleton is a failure."""
     fn = _function_source_from_code(ast.unparse(fn_node))
-    skeleton = decision_skeleton(fn)
+    skeleton = behaviour_skeleton(fn)
     scope = RenderScope.for_function(fn.node)
     for node in ast.walk(fn.node):
         if isinstance(node, ast.expr):
@@ -1898,7 +1899,7 @@ def _run_skeleton_equality_checks() -> bool:
     variant_a = _function_source_from_code(_VARIANT_A_CODE)
     variant_b = _function_source_from_code(_VARIANT_B_CODE)
     ok &= _assert(
-        decision_skeleton(variant_a) == decision_skeleton(variant_b),
+        behaviour_skeleton(variant_a) == behaviour_skeleton(variant_b),
         "(1) rendering-only variants (names, docstrings) produce equal skeletons",
     )
 
@@ -1914,7 +1915,7 @@ def _run_skeleton_equality_checks() -> bool:
         '''
     )
     ok &= _assert(
-        decision_skeleton(variant_a) != decision_skeleton(variant_added_raise),
+        behaviour_skeleton(variant_a) != behaviour_skeleton(variant_added_raise),
         "(2) an added fail-closed raise changes the skeleton",
     )
 
@@ -1929,7 +1930,7 @@ def _run_skeleton_equality_checks() -> bool:
         '''
     )
     ok &= _assert(
-        decision_skeleton(variant_a) != decision_skeleton(variant_added_model_read),
+        behaviour_skeleton(variant_a) != behaviour_skeleton(variant_added_model_read),
         "(3) an added model-rooted assignment changes the skeleton",
     )
     return ok
@@ -1993,7 +1994,7 @@ def _run_source_and_import_checks() -> bool:
         "(7) an import guarded by TYPE_CHECKING resolves in the import table",
     )
 
-    tmp_dir = Path(tempfile.mkdtemp(prefix="decision-skeleton-selftest-"))
+    tmp_dir = Path(tempfile.mkdtemp(prefix="behaviour-skeleton-selftest-"))
     try:
         broken_file = tmp_dir / "broken.py"
         broken_file.write_text("def broken(:\n    pass\n", encoding="utf-8")
@@ -2014,7 +2015,7 @@ def _run_extended_skeleton_checks() -> bool:
     variant_b = _function_source_from_code(_VARIANT_B_CODE)
     variant_rendered = _function_source_from_code(_VARIANT_RENDERED_CODE)
     ok &= _assert(
-        decision_skeleton(variant_a) == decision_skeleton(variant_rendered),
+        behaviour_skeleton(variant_a) == behaviour_skeleton(variant_rendered),
         "(9) annotations, a decorator, a string literal and an f-string leave the skeleton equal",
     )
 
@@ -2039,12 +2040,12 @@ def _run_extended_skeleton_checks() -> bool:
         '''
     )
     ok &= _assert(
-        decision_skeleton(variant_a) != decision_skeleton(variant_other_predicate)
-        and decision_skeleton(variant_a) != decision_skeleton(variant_added_branch),
+        behaviour_skeleton(variant_a) != behaviour_skeleton(variant_other_predicate)
+        and behaviour_skeleton(variant_a) != behaviour_skeleton(variant_added_branch),
         "(10) a different predicate or an added else-branch changes the skeleton",
     )
 
-    skeleton_texts = "\n".join(decision_skeleton(fn) for fn in (variant_a, variant_b, variant_rendered))
+    skeleton_texts = "\n".join(behaviour_skeleton(fn) for fn in (variant_a, variant_b, variant_rendered))
     ok &= _assert(
         not any(token in skeleton_texts for token in _RENDERING_TOKENS_THAT_MUST_NOT_LEAK),
         "(11) no docstring, parameter name, function name, annotation, decorator or literal leaks into a skeleton",
@@ -2089,7 +2090,7 @@ def _run_extended_skeleton_checks() -> bool:
     )
     ok &= _assert(
         match_a != match_b and match_a == match_a_renamed,
-        "(13) match arms are decisions: a differing arm body changes the skeleton, renaming does not",
+        "(13) match arms are behaviour: a differing arm body changes the skeleton, renaming does not",
     )
 
     dict_a = _skeleton_of('def ctx(entity):\n    return {"name": entity.name}\n')
@@ -2254,7 +2255,7 @@ def _run_derived_root_checks() -> bool:
     ok &= _assert(
         loop_required != loop_unique
         and loop_required == "for P.fields\nif P.fields[*].required\nreturn P.fields[*]\nendif\nendfor\nreturn None",
-        "(21) a predicate on a loop variable bound from a model collection is a decision, spelled <iterable>[*]",
+        "(21) a predicate on a loop variable bound from a model collection is behaviour, spelled <iterable>[*]",
     )
 
     alias = _skeleton_of(
@@ -2284,7 +2285,7 @@ def _run_derived_root_checks() -> bool:
     )
     ok &= _assert(
         alias == inline and alias != other_read,
-        "(22) a once-bound local alias of a model chain is a rename: it preserves the decision and adds no line",
+        "(22) a once-bound local alias of a model chain is a rename: it preserves the behaviour and adds no line",
     )
 
     twice_bound = _skeleton_of(
@@ -2337,7 +2338,7 @@ def _run_derived_root_checks() -> bool:
             "for P.entities.items()\nif P.entities.items()[*][1].is_root\n"
             "return P.entities.items()[*][0]\nendif\nendfor\nreturn None"
         ),
-        "(24) tuple-unpacking over a model mapping spells each position; a predicate on the unpacked item is a decision",
+        "(24) tuple-unpacking over a model mapping spells each position; a predicate on the unpacked item is behaviour",
     )
 
     chained = _skeleton_of(
@@ -2397,7 +2398,7 @@ def _run_derived_root_checks() -> bool:
 def _run_arity_checks() -> bool:
     """Arity is role-level: ``plumbing_parameter_names`` names a
     private-annotated parameter and stays empty for a shared-annotated one;
-    ``decision_arity(fn, extra_plumbing=...)`` drops a name regardless of
+    ``behaviour_arity(fn, extra_plumbing=...)`` drops a name regardless of
     whose own annotation earned it, which is what lets a role-level union
     reconcile a parameter one member drops for annotation reasons the other
     members don't share."""
@@ -2429,15 +2430,16 @@ def _run_arity_checks() -> bool:
         "unannotated one names none",
     )
     ok &= _assert(
-        decision_arity(shared_annotated) == 1 and decision_arity(shared_annotated, extra_plumbing=frozenset({"scope"})) == 0,
-        "(28) decision_arity(fn, extra_plumbing=...) drops a role-plumbing name even on a shared-annotated member",
+        behaviour_arity(shared_annotated) == 1
+        and behaviour_arity(shared_annotated, extra_plumbing=frozenset({"scope"})) == 0,
+        "(28) behaviour_arity(fn, extra_plumbing=...) drops a role-plumbing name even on a shared-annotated member",
     )
     return ok
 
 
 def _run_rendering_leaf_privacy_checks() -> bool:
     """``is_rendering_leaf`` grants the same parameter-privacy exemption
-    ``decision_arity`` already applies to arity (D1 -- only a shared-typed
+    ``behaviour_arity`` already applies to arity (only a shared-typed
     parameter is a model root): a function whose only param-attribute reads
     are on a private-typed parameter, directly or through a derived root
     sourced only from it, is a rendering leaf; an otherwise identical
@@ -2472,7 +2474,7 @@ def _run_rendering_leaf_privacy_checks() -> bool:
 def run_self_test() -> bool:
     """Prove the properties this module's design acceptance rests on: equal
     skeletons for rendering-only variants, unequal skeletons for
-    decision-differing variants, adapter recognition by shape only, import
+    behaviour-differing variants, adapter recognition by shape only, import
     resolution through TYPE_CHECKING and relative imports, fail-closed
     parsing, derived-root resolution, role-level arity, the rendering-leaf
     exemption for a language-private parameter (and a derived root sourced
@@ -2500,20 +2502,20 @@ def run_self_test() -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI entry point. This module is a library for the decision-parity
+    """CLI entry point. This module is a library for the behaviour-parity
     role-grouping scanner; it exposes only ``--self-test``.
 
     Returns:
         0 if the self-test passed, 2 otherwise.
     """
-    parser = argparse.ArgumentParser(description="Decision-skeleton extractor self-test.")
+    parser = argparse.ArgumentParser(description="Behaviour-skeleton extractor self-test.")
     parser.add_argument("--self-test", action="store_true", required=True, help="Run the non-vacuity self-test.")
     parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     if not run_self_test():
-        logger.error("DECISION-SKELETON SELF-TEST FAILED.")
+        logger.error("BEHAVIOUR-SKELETON SELF-TEST FAILED.")
         return EXIT_SELF_TEST_FAILED
-    logger.info("decision-skeleton self-test: PASS")
+    logger.info("behaviour-skeleton self-test: PASS")
     return EXIT_OK
 
 

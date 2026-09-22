@@ -694,34 +694,41 @@ On success, the gate prints every registered language's full stance table (one r
 
 ---
 
-### `test\decision-parity-gate.ps1`
+### `test\behaviour-parity-gate.ps1`
 
 **Replaces the retired name-keyed drift report on the language axis.** AST-walks every
 registered target package's `src/` tree and groups functions into **roles** — a *signature
 role* (shared-typed parameter/return annotations from `datrix_common`/`datrix_codegen_common`)
 or, for functions with no shared-typed parameter, a *normalized-name role* (bare name with each
 language's own declared `name_tokens` stripped) — so a language token inside a name can never
-hide a parallel implementation. Each role's members are compared by **decision skeleton**
+hide a parallel implementation. Each role's members are compared by **behaviour skeleton**
 (`if`/`for`/`while`/comprehension/`return`/`raise` structure, `try`/`except`/`with` structure,
 and parameter arity, model-rooted predicates and calls preserved, every other literal collapsed)
-rather than by verbatim text, and classified `identical`, `same-decisions` (skeletons and arity
-equal, bodies differ), or `decision-divergence`. **Arity is role-level:** a parameter name ANY
-member of a role drops as language-private plumbing is dropped for every member sharing that
-name, so a language whose own file-scope subclass happens to live inside the shared layer does
-not count a parameter its sibling languages drop.
+rather than by verbatim text, and classified `identical`, `same-behaviour` (skeletons and arity
+equal, bodies differ), or `divergent`. A per-target difference in behaviour is a defect with N
+copies, never a choice; only rendering differs per target. **Arity is role-level:** a parameter
+name ANY member of a role drops as language-private plumbing is dropped for every member sharing
+that name, so a language whose own file-scope subclass happens to live inside the shared layer
+does not count a parameter its sibling languages drop.
 
-**Two hard-zero buckets, one shape-exempt, one declared-exception:**
-- `identical` / `same-decisions` fail unless every member is a **pre-binding adapter** (a single
+**Two hard-zero buckets, one shape-exempt, one declared-hole:**
+- `identical` / `same-behaviour` fail unless every member is a **pre-binding adapter** (a single
   `return` of a call into `datrix_codegen_common`, recognized by AST shape only — no written
   exemption list).
-- `decision-divergence` fails unless every member package other than the ones agreeing with
-  Python declares the construct unsupported on one of three surfaces: its
+- `divergent` is judged **without a reference language**: the role's member packages are
+  partitioned into **skeleton groups** (packages whose contributed skeleton sets are equal share
+  a group); every package that declares the construct unsupported on one of three surfaces — its
   `DomainDeclaration.status == "unsupported"` for the role's resolved domain, the domain in its
-  `on_demand_domains`, or (for an `@emit_adapter`-marked member) its emit-table row's builtin
-  group having an `unsupported` `builtin_group_stances` entry. An `undomained` role admits only
-  the builtin-group surface. A role the gate cannot classify (unparseable member, unresolvable
-  annotation) is reported as a **failure naming the member** — never skipped.
-- The `identical`/`same-decisions` shape exemption also covers a **rendering leaf**: a body with
+  `on_demand_domains`, or (for `@emit_adapter`-marked members) every emit-table row's builtin
+  group having an `unsupported` `builtin_group_stances` entry — is set aside; the role passes
+  iff at most one group remains, and otherwise fails with one reason naming every remaining
+  group (e.g. `members split into 2 skeleton groups: {java, python} vs {dotnet}; no member
+  declares the construct unsupported`) — the gate cannot know which group is right, so it names
+  all of them. A role every member of which declares the construct unsupported passes and is
+  still reported. An `undomained` role admits only the builtin-group surface. A role the gate
+  cannot classify (unparseable member, unresolvable annotation) is reported as a **failure naming
+  the member** — never skipped.
+- The `identical`/`same-behaviour` shape exemption also covers a **rendering leaf**: a body with
   no branch/loop/`try`/`with`/comprehension/`raise`, no attribute chain rooted at `self`, a
   shared-typed or unannotated parameter, or a derived root sourced from one of those (a chain
   rooted at a language-private parameter, or at a derived root sourced only from such reads, is
@@ -729,7 +736,7 @@ not count a parameter its sibling languages drop.
   call resolving to the shared codegen layer or the standard library — reported
   `rendering-leaf-exempt` beside `adapter-exempt`.
 
-**Scope is migration-only.** While `datrix/scripts/config/decision-parity-scope.json` exists,
+**Scope is migration-only.** While `datrix/scripts/config/behaviour-parity-scope.json` exists,
 only the domains it lists (plus the literal `undomained` if listed) can fail the gate; every
 other role is reported but never fails. `-Scope` overrides the file for one run. When the file
 is absent, every domain is in scope (hard zero). The file only grows, never shrinks, and is
@@ -741,21 +748,23 @@ unrelated `domains` list, and vice versa. `-Buckets` overrides the file's `bucke
 one run the same way `-Scope` overrides `domains`.
 
 **Non-vacuity is enforced on every run.** A synthetic five-bucket tree (one identical role, one
-same-decisions role, one divergent role, one role split only by a language token, one role
-unified only by shared-typed signature) must land in exactly its bucket, and a single-target
-tree must be refused.
+same-behaviour role, one divergent role, one role split only by a language token, one role
+unified only by shared-typed signature) must land in exactly its bucket, a single-target tree
+must be refused, a two-group divergent role must fail naming both groups and pass once the odd
+group's package declares the construct unsupported, and the bucket labels printed must be
+exactly `identical` / `same-behaviour` / `divergent`.
 
 **The platform axis (`-Axis platforms`) is report-only and never fails** — the platform packages
 realize different infrastructure by design.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the gate** | `.\test\decision-parity-gate.ps1` | Language axis, default (empty or file) scope |
-| **Scoped** | `.\test\decision-parity-gate.ps1 -Scope queue,cache` | Fail only roles in these domains |
-| **Bucket-gated** | `.\test\decision-parity-gate.ps1 -Buckets identical` | Fail every role in these verdict buckets (identical, same-decisions, decision-divergence) across every domain, regardless of -Scope |
-| **Platform axis** | `.\test\decision-parity-gate.ps1 -Axis platforms` | Report only, always exits 0 |
-| **Debug** | `.\test\decision-parity-gate.ps1 -Dbg` | Debug logging |
-| **Self-test only** | `.\test\decision-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test |
+| **Run the gate** | `.\test\behaviour-parity-gate.ps1` | Language axis, default (empty or file) scope |
+| **Scoped** | `.\test\behaviour-parity-gate.ps1 -Scope queue,cache` | Fail only roles in these domains |
+| **Bucket-gated** | `.\test\behaviour-parity-gate.ps1 -Buckets identical` | Fail every role in these verdict buckets (identical, same-behaviour, divergent) across every domain, regardless of -Scope |
+| **Platform axis** | `.\test\behaviour-parity-gate.ps1 -Axis platforms` | Report only, always exits 0 |
+| **Debug** | `.\test\behaviour-parity-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\behaviour-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test |
 
 **Parameters:** `-Axis <languages|platforms>` (default: languages), `-Scope <id,...>`, `-Buckets <id,...>`, `-Dbg`, `-SelfTest`
 

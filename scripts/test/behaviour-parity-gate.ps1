@@ -1,17 +1,19 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Language-axis (and platform-axis, report-only) decision-parity gate.
+ Language-axis (and platform-axis, report-only) behaviour-parity gate.
 
 .DESCRIPTION
- Wraps datrix/scripts/library/test/decision_parity.py. Groups functions
+ Wraps datrix/scripts/library/test/behaviour_parity.py. Groups functions
  across registered target packages into roles (by shared-typed signature or
- normalized name), classifies each into identical / same-decisions /
- decision-divergence by comparing decision skeletons rather than bodies,
- and fails on any role in scope that is not adapter-exempt (identical /
- same-decisions) or declared-unsupported by every lagging language
- (decision-divergence). The platform axis (-Axis platforms) is report-only
- and never fails.
+ normalized name), classifies each into identical / same-behaviour /
+ divergent by comparing behaviour skeletons rather than bodies, and fails on
+ any role in scope that is not adapter-exempt (identical / same-behaviour)
+ or whose members, once every package declaring the construct unsupported
+ is set aside, still split into more than one skeleton group (divergent).
+ No language is the reference: a divergent role names every skeleton group
+ it splits into. The platform axis (-Axis platforms) is report-only and
+ never fails.
 
  Runs a five-bucket non-vacuity self-test on every invocation. Exits 2 if
  fewer than two targets are registered on the chosen axis, or on a
@@ -23,15 +25,15 @@
 .PARAMETER Scope
  Comma-separated or repeated domain ids (plus the literal "undomained") to
  restrict failure to. Overrides
- datrix/scripts/config/decision-parity-scope.json when given; when absent,
+ datrix/scripts/config/behaviour-parity-scope.json when given; when absent,
  the scope file's list applies if it exists, else every domain is in scope.
 
 .PARAMETER Buckets
- Comma-separated or repeated verdict-bucket ids (identical, same-decisions,
- decision-divergence) to fail across every domain, regardless of -Scope.
- Overrides datrix/scripts/config/decision-parity-scope.json's "buckets" list
- when given; when absent, the scope file's "buckets" list applies if it
- exists, else no bucket is gated.
+ Comma-separated or repeated verdict-bucket ids (identical, same-behaviour,
+ divergent) to fail across every domain, regardless of -Scope. Overrides
+ datrix/scripts/config/behaviour-parity-scope.json's "buckets" list when
+ given; when absent, the scope file's "buckets" list applies if it exists,
+ else no bucket is gated.
 
 .PARAMETER Dbg
  Enable debug logging.
@@ -40,16 +42,16 @@
  Run only the non-vacuity self-test and skip the real scan.
 
 .EXAMPLE
- .\decision-parity-gate.ps1 -Axis languages
+ .\behaviour-parity-gate.ps1 -Axis languages
 
 .EXAMPLE
- .\decision-parity-gate.ps1 -Axis languages -Scope queue,cache
+ .\behaviour-parity-gate.ps1 -Axis languages -Scope queue,cache
 
 .EXAMPLE
- .\decision-parity-gate.ps1 -Axis languages -Buckets identical
+ .\behaviour-parity-gate.ps1 -Axis languages -Buckets identical
 
 .EXAMPLE
- .\decision-parity-gate.ps1 -Axis platforms -Dbg
+ .\behaviour-parity-gate.ps1 -Axis platforms -Dbg
 #>
 
 [CmdletBinding()]
@@ -75,14 +77,14 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\library"
-$runnerScript = Join-Path $libraryDir "test\decision_parity.py"
+$runnerScript = Join-Path $libraryDir "test\behaviour_parity.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
 if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: decision_parity.py not found at: $runnerScript"
+    Write-Error "Error: behaviour_parity.py not found at: $runnerScript"
     exit 1
 }
 
@@ -106,12 +108,12 @@ try {
     if ($Dbg) { $pythonArgs += "--debug" }
     if ($SelfTest) { $pythonArgs += "--self-test" }
 
-    Write-Host "Running decision-parity gate on the $Axis axis" -ForegroundColor Cyan
+    Write-Host "Running behaviour-parity gate on the $Axis axis" -ForegroundColor Cyan
     python @pythonArgs
     $exitCode = $LASTEXITCODE
 
     if ($exitCode -ne 0) {
-        Write-Host "Decision-parity gate failed (exit code $exitCode)" -ForegroundColor Red
+        Write-Host "Behaviour-parity gate failed (exit code $exitCode)" -ForegroundColor Red
         exit $exitCode
     }
     exit 0

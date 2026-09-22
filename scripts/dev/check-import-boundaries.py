@@ -97,7 +97,7 @@ per-language literal set) as an identifier segment. This is the mirror image
 of G2: G2 holds the ONE shared-layer package to zero symbols carrying ANY
 registered language's name; I4 holds EVERY language package to zero
 functions carrying ITS OWN name -- the token that hides a parallel
-implementation from a name-keyed decision-parity scan (a function inside
+implementation from a name-keyed behaviour-parity scan (a function inside
 datrix_codegen_java does not need "java" in its name; the package already
 says it). Scope is FUNCTION/METHOD DEFINITION names only -- never a class
 name, dataclass field, or type reference (a language package legitimately
@@ -3054,7 +3054,7 @@ def check_shared_target_name_ratchet(
 # (datrix_codegen_common) to zero symbols carrying ANY registered language's
 # name; I4 holds EVERY registered LANGUAGE package to zero function/method
 # DEFINITIONS carrying THAT SAME package's own registered language id or
-# declared alias -- the token that defeats a name-keyed decision-parity
+# declared alias -- the token that defeats a name-keyed behaviour-parity
 # scan's grouping of members across packages (a `build_python_thing` inside
 # `datrix_codegen_python` does not need "python" in its name; the package
 # already says it). Scope is function/method
@@ -6384,7 +6384,7 @@ def main() -> int:
             "datrix.languages package carries THAT SAME package's own "
             "registered language id or declared alias "
             "(declaration_for_language(lang).name_tokens) as an identifier "
-            "segment -- a name-keyed decision-parity scan cannot see a "
+            "segment -- a name-keyed behaviour-parity scan cannot see a "
             "parallel implementation hiding behind its own language's name "
             "in the function name."
         ),
