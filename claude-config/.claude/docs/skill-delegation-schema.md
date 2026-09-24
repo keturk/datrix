@@ -218,7 +218,7 @@ For each task, capture the test baseline before implementation.
 
 1. Read the task file at the given path
 2. Extract the `## Targeted Tests` section
-3. If no targeted tests section exists, determine package name and run full suite
+3. If no targeted tests section exists, record `no_targeted_tests: true` and run no suite — the quality gate's single `affected-gate.ps1` run covers the package
 4. Run each test command listed:
    ```
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package} -Specific "{test-path}"
@@ -321,7 +321,7 @@ delegation-strategy:
     - name: "quality_gate"
       model: "opus"
       parallelizable: false
-      description: "Run full suite for final validation"
+      description: "Run affected-gate.ps1 once over the affected set for final validation"
 ---
 
 # Execute Tasks
@@ -368,7 +368,7 @@ Run targeted tests and compare to baseline.
 <!-- PHASE: quality_gate -->
 ## Quality Gate
 
-Run full suite for final validation.
+Run `affected-gate.ps1` once over the affected set for final validation (main session, ticket first).
 
 [Self-contained instructions...]
 <!-- END_PHASE: quality_gate -->

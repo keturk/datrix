@@ -7,6 +7,12 @@ per-project GREEN/RED verdict plus an overall verdict. Reuses the discovery
 and index parsing from ``test/status_tests.py`` (find_latest_log_file,
 parse_pytest_summary, get_datrix_projects).
 
+A caller that decided NOT to run a package because its recorded green full
+run still matches its suite-input fingerprint (the concurrent affected gate)
+passes it through ``evaluate_projects(carried=...)``; its row is CARRIED --
+green for the overall verdict, but always rendered and serialized as its own
+verdict, naming the run, its age and the fingerprint that stood in.
+
 Usage:
   python scripts/library/test/gate_verdict.py --projects datrix-common,datrix-language
   python scripts/library/test/gate_verdict.py --all
@@ -50,15 +56,29 @@ from test.status_tests import (  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_VERSION = 1
+#: 2: rows carry ``carried`` and ``fingerprint``, and ``verdict`` may be CARRIED.
+_SCHEMA_VERSION = 2
 _OUTPUT_FILENAME = "gate-verdict.json"
 _OUTPUT_SUBDIRS = ("test",)
 _INDEX_JSON_NAME = "index.json"
 _FAILING_CAP = 50
 _GREEN = "GREEN"
 _RED = "RED"
+#: A package whose recorded green full run stood in for a fresh one: counts as
+#: green for OVERALL, but is never rendered or serialized as GREEN.
+_CARRIED = "CARRIED"
 _REASON_NO_RESULTS = "NO_RESULTS"
+_REASON_CARRY_REJECTED = "CARRY_REJECTED"
 _STATUS_PASSED = "PASSED"
+_SELECTION_KEY = "selection"
+_SELECTION_KIND_KEY = "kind"
+_SELECTION_FULL = "full"
+_INPUTS_KEY = "inputs"
+_FINGERPRINT_KEY = "fingerprint"
+_RESULT_KEY = "result"
+_COUNTS_KEY = "counts"
+_ZERO_COUNT_KEYS = ("failed", "error")
+_FINGERPRINT_DISPLAY_CHARS = 16
 _EXIT_GREEN = 0
 _EXIT_RED = 1
 _EXIT_USAGE = 2
@@ -70,7 +90,13 @@ class UsageError(Exception):
 
 @dataclass(frozen=True)
 class ProjectVerdict:
-    """Gate verdict for one project's newest test-results run."""
+    """Gate verdict for one project's judged test-results run.
+
+    ``carried`` is True only on a CARRIED row: the run it names was not
+    launched by the caller -- it is a recorded green full run whose suite-input
+    ``fingerprint`` (the one computed now, equal to the one it recorded) still
+    holds, standing in for a fresh run.
+    """
 
     project: str
     run_dir: str | None
@@ -81,6 +107,8 @@ class ProjectVerdict:
     failing: list[dict[str, str]]
     failing_total: int
     age_minutes: float | None
+    carried: bool = False
+    fingerprint: str | None = None
 
     def to_json(self) -> dict[str, object]:
         """Serialize for the output payload."""
@@ -94,6 +122,8 @@ class ProjectVerdict:
             "failing": self.failing,
             "failing_total": self.failing_total,
             "age_minutes": self.age_minutes,
+            "carried": self.carried,
+            "fingerprint": self.fingerprint,
         }
 
 
@@ -255,12 +285,140 @@ def _evaluate_project(
     )
 
 
+def _read_index_object(index_path: Path) -> dict[str, object]:
+    """The parsed ``index.json`` object of one run.
+
+    Raises:
+        ValueError: if it cannot be read, is not JSON, or is not an object.
+    """
+    try:
+        raw = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{index_path} is unreadable ({exc})") from exc
+    if not isinstance(raw, dict):
+        raise ValueError(f"{index_path} is not a JSON object")
+    return {str(key): value for key, value in raw.items()}
+
+
+def _is_zero_count(counts: object, key: str) -> bool:
+    if not isinstance(counts, dict) or key not in counts:
+        return False
+    value = counts[key]
+    return isinstance(value, int) and not isinstance(value, bool) and value == 0
+
+
+def _carry_claim_problems(index: dict[str, object], fingerprint: str) -> list[str]:
+    """Why the named run cannot stand in for a fresh one; empty when it can.
+
+    A carry is judged here on the run's own record, never on the caller's
+    word: the run must be a FULL run (a targeted run can never stand in for
+    one), recorded green with zero failures and errors, and stamped with
+    exactly the fingerprint the caller computed now.
+    """
+    problems: list[str] = []
+    selection = index[_SELECTION_KEY] if _SELECTION_KEY in index else None
+    is_full = (
+        isinstance(selection, dict)
+        and _SELECTION_KIND_KEY in selection
+        and selection[_SELECTION_KIND_KEY] == _SELECTION_FULL
+    )
+    if not is_full:
+        problems.append(f"run is not a full run (selection={selection!r})")
+    result = index[_RESULT_KEY] if _RESULT_KEY in index else None
+    if result != _STATUS_PASSED:
+        problems.append(f"run result is {result!r}, not {_STATUS_PASSED}")
+    counts = index[_COUNTS_KEY] if _COUNTS_KEY in index else None
+    for key in _ZERO_COUNT_KEYS:
+        if not _is_zero_count(counts, key):
+            problems.append(f"run counts.{key} is not 0")
+    inputs = index[_INPUTS_KEY] if _INPUTS_KEY in index else None
+    recorded = inputs[_FINGERPRINT_KEY] if isinstance(inputs, dict) and _FINGERPRINT_KEY in inputs else None
+    if recorded != fingerprint:
+        problems.append("run's recorded suite-input fingerprint does not equal the one computed now")
+    return problems
+
+
+def _carry_rejected_verdict(project: str, run_dir: Path, fingerprint: str, problems: list[str]) -> ProjectVerdict:
+    """RED for a carry claim the named run does not support."""
+    return ProjectVerdict(
+        project=project,
+        run_dir=str(run_dir),
+        result=None,
+        counts=None,
+        verdict=_RED,
+        reason=f"{_REASON_CARRY_REJECTED}: {'; '.join(problems)}",
+        failing=[],
+        failing_total=0,
+        age_minutes=_age_minutes(run_dir.name),
+        carried=False,
+        fingerprint=fingerprint,
+    )
+
+
+def _carried_verdict(workspace: Path, project: str, run_dir_name: str, fingerprint: str) -> ProjectVerdict:
+    """Verdict row for a package whose green full run stands in for a fresh one.
+
+    Reads exactly the named run -- the same pinned-run discipline as
+    ``_evaluate_project`` -- so a CARRIED row reports the real counts of the
+    run it stands in for, its directory, its age, and the fingerprint that
+    matched. The claim itself is re-checked against that run's own
+    ``index.json`` (a full run, green, stamped with *fingerprint*); a claim
+    the record does not support is RED, never CARRIED and never a
+    fall-through to another run.
+
+    Args:
+        workspace: Monorepo root.
+        project: The package name.
+        run_dir_name: The ``test-results-*`` directory the carry decision judged.
+        fingerprint: The fingerprint computed now that matched this run's
+            recorded one.
+    """
+    run_dir = workspace / project / ".test_results" / run_dir_name
+    index_path = run_dir / _INDEX_JSON_NAME
+    try:
+        index = _read_index_object(index_path)
+    except ValueError as exc:
+        return _carry_rejected_verdict(project, run_dir, fingerprint, [str(exc)])
+    problems = _carry_claim_problems(index, fingerprint)
+    if problems:
+        return _carry_rejected_verdict(project, run_dir, fingerprint, problems)
+    parsed = parse_pytest_summary(index_path)
+    failing, failing_total = _collect_failing(index_path, parsed.total_failed + parsed.total_errors)
+    return ProjectVerdict(
+        project=project,
+        run_dir=str(run_dir),
+        result=parsed.status,
+        counts={
+            "passed": parsed.total_passed,
+            "failed": parsed.total_failed,
+            "error": parsed.total_errors,
+            "skipped": parsed.total_skipped,
+        },
+        verdict=_CARRIED,
+        reason=None,
+        failing=failing,
+        failing_total=failing_total,
+        age_minutes=_age_minutes(run_dir.name),
+        carried=True,
+        fingerprint=fingerprint,
+    )
+
+
+def _carried_line(row: ProjectVerdict, passed: int) -> str:
+    run_name = Path(row.run_dir).name if row.run_dir is not None else "?"
+    age = f"{row.age_minutes:.1f}m" if row.age_minutes is not None else "unknown"
+    fingerprint = row.fingerprint[:_FINGERPRINT_DISPLAY_CHARS] if row.fingerprint is not None else "?"
+    return f"{row.project}: {_CARRIED} {passed} passed (run {run_name}, age {age}, fingerprint {fingerprint})"
+
+
 def _format_project_line(row: ProjectVerdict) -> str:
     """One console line per project."""
-    if row.reason == _REASON_NO_RESULTS:
-        return f"{row.project}: {_RED} {_REASON_NO_RESULTS}"
+    if row.counts is None and row.reason is not None:
+        return f"{row.project}: {_RED} {row.reason}"
     counts = row.counts if row.counts is not None else {}
     passed = counts["passed"] if "passed" in counts else 0
+    if row.verdict == _CARRIED:
+        return _carried_line(row, passed)
     if row.verdict == _GREEN:
         return f"{row.project}: {_GREEN} {passed} passed"
     failed = counts["failed"] if "failed" in counts else 0
@@ -310,18 +468,41 @@ def _forced_red_verdict(project: str, reason: str) -> ProjectVerdict:
     )
 
 
+def _validate_carried(
+    projects: Sequence[str],
+    forced: Mapping[str, str],
+    pinned: Mapping[str, str],
+    carried: Mapping[str, str],
+) -> None:
+    """Reject a ``carried`` map that contradicts the rest of the request."""
+    not_evaluated = sorted(set(carried) - set(projects))
+    also_forced = sorted(set(carried) & set(forced))
+    unpinned = sorted(set(carried) - set(pinned))
+    if not_evaluated or also_forced or unpinned:
+        raise UsageError(
+            f"Inconsistent carry request: carried but not evaluated {not_evaluated}, "
+            f"carried and forced RED {also_forced}, carried without a pinned run {unpinned}. "
+            f"A carried package must be one of the evaluated projects, must not be forced "
+            f"RED, and must be pinned (pinned_runs) to the run whose fingerprint it matched."
+        )
+
+
 def evaluate_projects(
     workspace: Path,
     projects: Sequence[str],
     *,
     forced_red: Mapping[str, str] | None = None,
     pinned_runs: Mapping[str, str] | None = None,
+    carried: Mapping[str, str] | None = None,
 ) -> GateVerdictResult:
     """Evaluate each project's run and return the aggregate verdict.
 
     A project is judged on its NEWEST run unless ``pinned_runs`` names the
     ``test-results-*`` directory to judge instead (see ``_evaluate_project``
-    for why a scheduler must pin). ``forced_red`` wins over both.
+    for why a scheduler must pin). ``forced_red`` wins over both. A project
+    in ``carried`` is judged as a CARRIED row on its pinned run: CARRIED counts
+    as green for the overall verdict but stays a distinct verdict string in
+    every rendered line and serialized row.
 
     This is the module's public entry point for reuse by other tooling
     (e.g. a concurrent scheduler that must aggregate a final verdict without
@@ -340,23 +521,36 @@ def evaluate_projects(
             map. A package listed here is judged on exactly that run; a pinned
             run with no results file is RED, never a fall-through to the
             newest run.
+        carried: Optional package -> fingerprint map. A package listed here
+            was not run: its pinned run (it MUST also be in ``pinned_runs``)
+            is a recorded green full run whose suite-input fingerprint equals
+            the one the caller computed now. The row is CARRIED only when
+            that run's own ``index.json`` confirms all of it; otherwise it is
+            RED with reason ``CARRY_REJECTED``.
 
     Returns:
         The aggregate result: per-project rows, the overall verdict, the
         serializable payload, the formatted per-project report lines, and
         the process exit code.
+
+    Raises:
+        UsageError: if ``carried`` names a project that is not evaluated, is
+            also forced RED, or has no pinned run.
     """
     forced = forced_red or {}
     pinned = pinned_runs or {}
-    rows = [
-        _forced_red_verdict(project, forced[project])
-        if project in forced
-        else _evaluate_project(
-            workspace, project, pinned[project] if project in pinned else None
-        )
-        for project in projects
-    ]
-    overall = _GREEN if all(row.verdict == _GREEN for row in rows) else _RED
+    carried_map = carried or {}
+    _validate_carried(projects, forced, pinned, carried_map)
+
+    def _row_for(project: str) -> ProjectVerdict:
+        if project in forced:
+            return _forced_red_verdict(project, forced[project])
+        if project in carried_map:
+            return _carried_verdict(workspace, project, pinned[project], carried_map[project])
+        return _evaluate_project(workspace, project, pinned[project] if project in pinned else None)
+
+    rows = [_row_for(project) for project in projects]
+    overall = _GREEN if all(row.verdict in (_GREEN, _CARRIED) for row in rows) else _RED
     payload: dict[str, object] = {
         "schema_version": _SCHEMA_VERSION,
         "generated_at": datetime.now().isoformat(timespec="seconds"),

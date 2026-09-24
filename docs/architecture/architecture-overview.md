@@ -1725,7 +1725,14 @@ expression-visitor helpers and call validation, entity generator skeletons, serv
 entrypoints, the gateway generator, persistence and infrastructure singles, and API scaffolding /
 genDSL declaration singles — are each reconciled to the best behaviour on every D3 axis, ported,
 proven on the emitted surface, and hoisted into `datrix-codegen-common`, with every surviving
-per-language name renamed token-free.
+per-language name renamed token-free. The second step-5 slice has also landed: webhook signature
+verification and mTLS, tenant resolution and query scoping, transpiler identifier-type and
+builtin-category resolution, serverless container entrypoints, the API gateway and identity
+write-back, dev scripts, entity generators, computed-field test leaves and spec test names, jobs
+render leaves, pub/sub operator bodies, persistence and infrastructure singles, endpoint-API
+decorator and nested-route handling, and service miscellany are each reconciled to the best
+behaviour on every D3 axis, ported, proven on the emitted surface, and hoisted into
+`datrix-codegen-common`, with every surviving per-language name renamed token-free.
 
 ---
 

@@ -25,12 +25,15 @@ from .structured_log_writer import (
     _DOUBLE_QUOTED,
     _HEX_ADDRESS,
     _MAX_FILENAME_BODY_LENGTH,
-    _SCHEMA_VERSION,
     _SINGLE_QUOTED,
     _STANDALONE_NUMBER,
 )
 
 logger = logging.getLogger(__name__)
+
+#: Version of the deploy-test ``index.json`` schema. Its own artifact, versioned
+#: on its own: a change to the package-run index schema is not a change to this.
+_SCHEMA_VERSION = 1
 
 
 #: Count buckets every per-service totals mapping carries.

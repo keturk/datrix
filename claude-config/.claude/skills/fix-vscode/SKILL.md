@@ -38,7 +38,7 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 | **Step 7** (verify) | `powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-vscode -Specific "src/test/<name>.test.ts"` — selection is by FILE (the source-side `.ts` name is accepted for the compiled `.js`; a name matching nothing is an error, not a smaller run). `-Keyword <expr>` narrows further, but it is Node's `--test-name-pattern`, a **regex**, not pytest's `-k` boolean expression. |
 | **Step 8** (warnings) | A Node run emits no pytest warnings section: `warnings_section_present` is false and `extract-warnings.ps1` yields an empty `warnings.json`. Skip the step; do not report it as a gap. |
 
-Step 9's regression check (`test.ps1 datrix-vscode -Fast`) is correct as written — a Node suite marks no tests slow, so `-Fast` runs the whole suite and says so on stdout.
+Step 9's regression check applies unchanged, roles included: the main session writes the ticket and runs the gate, `powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects datrix-vscode`, never `-Fast` directly (`-Fast` is never a verdict); a dispatched subagent reports `datrix-vscode` as changed and runs neither. A Node suite marks no tests slow, so the gate's child runs the whole suite regardless.
 
 ### Reading a Node failure — the artifacts are thin by construction
 

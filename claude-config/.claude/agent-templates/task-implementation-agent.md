@@ -89,7 +89,7 @@ The runner prints its saved run folder (`…/.test_results/test-results-…/`). 
 
 - If the task has NO `## Targeted Tests` section → report `no_targeted_tests: true`
 - If targeted tests fail → attempt to fix (max 3 attempts)
-- Do NOT run the full test suite — the orchestrator handles that after the wave/batch
+- Do NOT run a whole suite or `affected-gate.ps1` (`guard-full-suite-runs.py` blocks both for a subagent) — report the packages you changed (`files_created`/`files_modified`/`scope_expansion`), and the orchestrator runs the gate once over the union at the quality gate / phase boundary
 
 ### 5. RETURN RESULTS
 
@@ -195,6 +195,8 @@ BLOCKED is a *failure*, because it burns a whole agent turn and produces nothing
 ### Found it, you fix it
 
 Any defect you discover on a surface you touched is yours. **Fix it**, or **file a real tracked task file** via the task scripts. Mentioning it in prose and moving on is **not an outcome** — it is the failure mode this protocol exists to prevent.
+
+This is for **small** defects found while doing the task. If the fix would need its own design (a new capability, or new behaviour across languages or subsystems that your task's design doc does not cover), do not fix it and do not file it. Put it in your report as a `finding` with evidence (file:line, what is wrong, what it affects). The orchestrator takes it to Jon.
 
 ### Still forbidden (these are worse than a proven blocker)
 

@@ -15,7 +15,7 @@ delegation-strategy:
     - name: "verify_and_gate"
       model: "sonnet"
       parallelizable: false
-      description: "Run full suite once per package, attribute failures, fix loop, final validation"
+      description: "Run affected-gate.ps1 once over the affected set, attribute failures, fix loop, final validation"
 ---
 
 # Execute Tasks in Parallel
@@ -178,13 +178,15 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    ```
    You are executing a SINGLE task from a parallel batch. Your scope is LIMITED to this one task only.
 
-   IMPORTANT: You implement code AND run ONLY targeted tests for your task.
-   Do NOT run the full test suite — the orchestrator runs it once after ALL agents
-   complete, to avoid N parallel full-suite executions.
+   IMPORTANT: You implement code AND run ONLY targeted tests for your task, then
+   report every package you changed (files_created / files_modified / scope_expansion).
+   Do NOT run a whole suite or affected-gate.ps1 — the orchestrator runs the gate once
+   over the union of changed packages after ALL agents complete, to avoid N parallel
+   full-suite executions (and the guard blocks a subagent from running either).
 
    TEST-INVOKE RULES (a PreToolUse hook hard-blocks violations):
-   - Never pass -NoSave or -VerboseOutput to test.ps1 (they hide saved progress / burn tokens).
-   - Never call pytest (or python -m pytest) directly — use test.ps1 / test-single.ps1.
+   - Never pass -NoSave or -VerboseOutput to the test runner (they hide saved progress / burn tokens).
+   - Never call pytest (or python -m pytest) directly — run targeted tests through test.ps1 -Specific or test-single.ps1.
    - Never run mypy or any standalone type-checker — write typed code, but don't run a type-check command.
 
    Do NOT spawn subagents. Do this task's work yourself, sequentially. Fanning out
@@ -262,7 +264,7 @@ If a poll finds an agent with questions (NEEDS_CONTEXT), climb the ladder — do
 <!-- PHASE: verify_and_gate -->
 ## Phase 3: Centralized Verification & Quality Gate
 
-The orchestrator runs the full test suite **once** per affected package — not per task. This avoids N parallel full-suite executions that waste resources and risk conflicts.
+The orchestrator (main session) runs the full test suite **once** per affected package, through one `affected-gate.ps1` call over the union of changed packages — not per task. This avoids N parallel full-suite executions that waste resources and risk conflicts.
 
 ### Why Centralized
 
@@ -286,24 +288,20 @@ Implementation results from all agents + task metadata from pre_check.
 
 ### Steps
 
-#### Step 1: Identify Full Suite Test Commands
+#### Step 1: Run the Full-Suite Gate Over the Affected Set
 
 1. **Determine affected packages:**
    - Group tasks by `package` field
    - **Add each changed package's reverse-dependency closure** per `d:\datrix\.claude\skills\_shared\verification-strategy.md` (a change to `datrix-common`, `datrix-codegen-common`, `datrix-language`, or any shared contract pulls in every consuming package; a leaf codegen change is usually just itself). Do NOT default to `-All`, and do not skip a consumer the closure names. There is no stored-baseline output gate to plan; an output-preservation claim is proven by tests in the owning package.
    - Skip documentation-only packages (no tests to run)
-   - For each package with code tasks, identify the full suite command
 
-2. **Identify full test suite commands:**
-   ```
-   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
-   ```
+2. **Write the full-suite ticket** (main-session role — the dispatched task agents never run the gate; they ran their targeted tests and reported the packages they changed). `guard-full-suite-runs.py` blocks `affected-gate.ps1` unless `D:\datrix\.tmp\full-suite-ticket.json` covers every package you pass to `-Projects`. Write it with the Write tool: `{"packages": [<every affected package>], "reason": "quality-gate phase sweep", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}` (the reason must be at least 10 characters).
 
 3. **Run the sweep set concurrently and read the verdict in one call:**
    ```
    powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {pkg1},{pkg2}
    ```
-   Do NOT stop and ask the user to run anything — this skill runs every test itself. `affected-gate.ps1` schedules `test.ps1 <pkg>` for every requested package concurrently under a worker budget (each package writes its own `.test_results/` folder so parallel runs do not collide) and aggregates one GREEN/RED verdict by reusing `gate-verdict.ps1`'s own per-project evaluation — this replaces firing `test.ps1` per package and separately calling `gate-verdict.ps1`. One GREEN/RED line per package + `OVERALL`; counts and failing-test lists in its `Details:` JSON (sanity-check each `run_dir` against the run you just fired). GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — a pytest error is red, exactly like a failure (the script applies this; UNKNOWN/missing results are RED).
+   Do NOT stop and ask the user to run anything — this skill runs every test itself. `affected-gate.ps1` re-derives the reverse-dependency closure, carries each package whose newest green full run still matches its suite-input fingerprint (verdict `CARRIED`, no child launched, pinned to that run), launches one `test.ps1` child per remaining package concurrently under a worker budget (each package writes its own `.test_results/` folder so parallel runs do not collide), and aggregates one GREEN/RED verdict by reusing `gate-verdict.ps1`'s own per-project evaluation — this replaces firing `test.ps1` per package and separately calling `gate-verdict.ps1`. One line per package + `OVERALL`; counts and failing-test lists in its `Details:` JSON (sanity-check each `run_dir`: a ran package's is the run its own child produced, a `CARRIED` package's is the earlier green run that stood in); one completion row (`ran`, `carried`, `overall`) appended to `D:\datrix\.tmp\full-suite-audit.jsonl`. GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — a pytest error is red, exactly like a failure (the script applies this; UNKNOWN/missing results are RED); `CARRIED` counts as green.
 
 #### Step 2: Attribute Failures to Tasks
 
@@ -347,8 +345,8 @@ For each NEW failure (not already known from agent targeted tests):
 
 After the fix loop (skip entirely if Step 1 found zero failures):
 
-1. **Re-run the full suite yourself for each package that had failures** (fired concurrently, one Bash call per package) — packages that were green in Step 1 and untouched by fixes stand on their Step-1 result
-2. **Read each run's `index.json` and compare against Step 1 results** — better, same, or worse? If a fix touched a package outside the failing set, run that package's full suite too
+1. **Update the ticket and re-run `affected-gate.ps1 -Projects {packages that had failures}`** (one call covering every package that had failures) — packages that were green in Step 1 and untouched by fixes stand on their Step-1 result, and the gate carries any package in the re-derived closure whose inputs still match its last green full run
+2. **Read the gate's `Details:` JSON and compare against Step 1 results** — better, same, or worse? If a fix touched a package outside the failing set, add it to the `-Projects` list (and the ticket) and re-run the gate once more over the union
 
 #### Step 5: Mark Tasks Complete / Failed
 

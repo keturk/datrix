@@ -454,7 +454,7 @@ Quality gate tasks should:
 - Include `**Category:** Quality Gate` in the header metadata
 - Carry the embedded verification checklist below (static scans + coverage sanity + anti-gap), in addition to the full-suite run
 
-> **Note for orchestrated runs:** `/task-orchestrator`, `/execute-tasks`, and `/execute-tasks-parallel` run the package's full suite themselves as the authoritative gate and **suppress the gate task's own `test.ps1` run** to avoid a duplicate. `/task-orchestrator` additionally **suppresses the design-conformance scan (2b)** — its phase-boundary conformance gate (3i Step A2) owns those executions. In those runs the gate agent performs ONLY the static/coverage/How-Solved checklist (reading, not executing); the executor owns the pass/fail test verdict and the conformance executions, and must read and disposition the gate agent's findings.
+> **Note for orchestrated runs:** `/task-orchestrator`, `/execute-tasks`, and `/execute-tasks-parallel` run `affected-gate.ps1` over the affected set themselves as the authoritative gate and **suppress the gate task's own suite run** to avoid a duplicate. `/task-orchestrator` additionally **suppresses the design-conformance scan (2b)** — its phase-boundary conformance gate (3i Step A2) owns those executions. In those runs the gate agent performs ONLY the static/coverage/How-Solved checklist (reading, not executing); the executor owns the pass/fail test verdict and the conformance executions, and must read and disposition the gate agent's findings.
 
 Quality gate task template:
 
@@ -473,9 +473,9 @@ Final independent verification pass for {package-name}, run by a different agent
 
 ## Verification Steps
 
-1. Run full test suite (skip if the orchestrator/executor runs it as the authoritative gate — see note above):
+1. Write the full-suite ticket and run the gate (skip if the orchestrator/executor runs it as the authoritative gate — see note above). This is a main-session step: `guard-full-suite-runs.py` blocks the gate for a subagent, so a subagent executing this task runs no suite and reports the package instead. The ticket is `D:\datrix\.tmp\full-suite-ticket.json` = `{"packages": ["{package-name}"], "reason": "phase {NN} quality gate for {package-name}", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}`, written with the Write tool. For the `datrix` repo itself (no pytest suite), substitute the self-test/gate-invocation list per `repo-boundaries.md`'s "The datrix showcase repo hosts no test suite" instead of this command:
    ```
-   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
+   powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {package-name}
    ```
 
 2. **Non-trivial-implementation scan** of all files created/modified by this phase's tasks:
@@ -513,9 +513,9 @@ Final independent verification pass for {package-name}, run by a different agent
 **Package:** `{package-name}`
 **Test command:**
 ```
-powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
+powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {package-name}
 ```
-**Scope:** Full suite (quality gate)
+**Scope:** Full suite (quality gate), via the gate — even the ONE phase-boundary run this task is licensed to make goes through the guarded, carry-aware door (main session, ticket first; see Verification Step 1). For the `datrix` repo (no pytest suite), substitute the self-test/gate-invocation list this phase's tasks touched, per `repo-boundaries.md`.
 ```
 
 ### Documentation Folders

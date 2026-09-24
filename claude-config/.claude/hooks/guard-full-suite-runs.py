@@ -28,7 +28,13 @@ THE RULE
 A `test.ps1` invocation is TARGETED (always allowed) when it carries `-Specific`
 or `-Keyword`. Everything else is a whole-suite run: a bare package name, several
 package names, `-All`, `-Rerun`, or a tier sweep (`-Unit` / `-Integration` /
-`-Fast` / ...). Whole-suite runs are gated:
+`-Fast` / ...). `affected-gate.ps1` schedules `test.ps1 <pkg>` children
+concurrently under a worker budget, so an invocation of it is classified under
+the identical rule -- it is a second door onto the same phase-boundary act, and
+`-SelfTest` (which launches no suite child at all) is the one shape exempted,
+exactly like a targeted run. The classification itself lives in the sibling
+`_suite_invocation.py`, shared with the static census this same rule feeds.
+Whole-suite runs are gated:
 
   * SUBAGENTS  -- blocked unconditionally. There is no override, no marker, no
     ticket. Every violation in the incident above came from a subagent, and an
@@ -52,12 +58,11 @@ Exit codes:
 
 import json
 import os
-import re
 import sys
 import time
 from typing import Final
 
-from _command_shape import is_read_only, segments
+from _suite_invocation import invocation_tails, is_self_test, is_targeted, packages
 
 _SCRATCH_DIR: Final = "d:/datrix/.tmp"
 _TICKET_PATH: Final = f"{_SCRATCH_DIR}/full-suite-ticket.json"
@@ -65,64 +70,6 @@ _AUDIT_PATH: Final = f"{_SCRATCH_DIR}/full-suite-audit.jsonl"
 
 #: A permit that outlives the gate it was issued for is a standing exemption.
 _MAX_TICKET_SECONDS: Final = 6 * 60 * 60
-
-#: `test.ps1` as its own path segment (or bare, or right after a quote), so
-#: `test-single.ps1`, `test-specific-selection-gate.ps1` and friends never match.
-_TEST_SCRIPT_RE: Final = re.compile(r"""(?:^|[/\\"'\s])test\.ps1\b""", re.IGNORECASE)
-
-#: The only two flags that make a run genuinely targeted -- they select named
-#: files / node ids. `-Unit`, `-Fast`, `-Integration` narrow a suite to a TIER,
-#: which is still a sweep of everything in it, and are not accepted here.
-_NARROWING_FLAGS: Final = ("-specific", "-keyword")
-
-#: Stands in for the package list when `-All` was passed; only a `"*"` ticket
-#: can ever cover it.
-_ALL_SENTINEL: Final = "*ALL-PACKAGES*"
-
-_PACKAGE_RE: Final = re.compile(r"datrix(?:-[a-z0-9]+)*\Z")
-
-
-def _invocation_tails(command: str) -> list[str]:
-    """One argument tail per `test.ps1` INVOCATION in the command.
-
-    Segment-wise, so that `test.ps1 A; test.ps1 B -Specific x` cannot let B's
-    narrowing flag vouch for A's bare full-suite run — and so that occurrences
-    inside a read-only inspection are skipped. `grep -n "-Unit" .../test.ps1`
-    names the script and a tier flag but runs nothing; it was refused as a whole
-    suite, reporting `<unnamed>, <unnamed>` packages. A guard that stops an agent
-    reading the source of the thing it guards is pure over-block. The shared
-    helpers keep this identical to the same fix in validate-script-invocation.py.
-    """
-    tails: list[str] = []
-    for segment in segments(command):
-        matches = list(_TEST_SCRIPT_RE.finditer(segment))
-        if not matches or is_read_only(segment):
-            continue
-        starts = [m.end() for m in matches]
-        bounds = [m.start() for m in matches][1:] + [len(segment)]
-        tails.extend(segment[start:end] for start, end in zip(starts, bounds))
-    return tails
-
-
-def _is_targeted(tail: str) -> bool:
-    lowered = tail.lower()
-    return any(re.search(rf"(?:^|\s){re.escape(flag)}\b", lowered) for flag in _NARROWING_FLAGS)
-
-
-def _packages(tail: str) -> list[str]:
-    """Package names this invocation would run whole suites for."""
-    lowered = tail.lower()
-    if re.search(r"(?:^|\s)-all\b", lowered):
-        return [_ALL_SENTINEL]
-
-    found: list[str] = []
-    for raw in re.split(r"[\s,;|]+", tail):
-        token = raw.strip("\"'()").rstrip("\\/").lstrip(".").lstrip("\\/").lower()
-        if not token or "/" in token or "\\" in token:
-            continue
-        if _PACKAGE_RE.fullmatch(token):
-            found.append(token)
-    return found
 
 
 def _ticket_verdict(packages: list[str]) -> tuple[bool, str, dict[str, object]]:
@@ -244,10 +191,10 @@ def main() -> None:
         sys.exit(0)
 
     whole_suite_packages: list[str] = []
-    for tail in _invocation_tails(command):
-        if _is_targeted(tail):
+    for tail in invocation_tails(command):
+        if is_self_test(tail) or is_targeted(tail):
             continue
-        whole_suite_packages.extend(_packages(tail) or ["<unnamed>"])
+        whole_suite_packages.extend(packages(tail) or ["<unnamed>"])
 
     if not whole_suite_packages:
         sys.exit(0)

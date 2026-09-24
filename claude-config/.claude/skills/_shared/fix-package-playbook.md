@@ -95,11 +95,11 @@ Read `{PACKAGE_PATH}.project-structure.md`. Regenerate if missing: `powershell -
 ```bash
 # Single test:
 powershell -File "d:/datrix/datrix/scripts/test/test-single.ps1" "tests/path/to/test_file.py::TestClass::test_method" -Project {PACKAGE} -VerboseOutput
-# Full suite:
-powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE}
-# Fast suite (skip slow tests):
-powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} -Fast
+# Batched targeted set (the widest form a subagent ever runs):
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} -Specific "tests/unit/test_a.py,tests/unit/test_b.py"
 ```
+
+A whole-package run (no `-Specific`/`-Keyword`, or a tier switch such as `-Fast`) is a phase-boundary act, never a fix-loop regression check — see Step 9 for the main-session gate form.
 
 `failure-data.json` already carries a ready-to-run `test_command` per cluster representative — use it. If you must construct one by hand (e.g. for a non-representative member): dots→`/` for the module path, keep `::` — `tests.module.test_file.TestClass::test_method` → `tests/module/test_file.py::TestClass::test_method`.
 
@@ -155,9 +155,14 @@ After errors and failures: per unique warning in `warnings.json` (file + categor
 
 ### Step 9: Final Regression Check
 
-Once, after ALL fixes: `powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} -Fast`
+Once, after ALL fixes. Who runs it depends on the role:
 
-If any fix touched a shared layer (`datrix-common`, `datrix-codegen-common`, `datrix-language`, or a shared contract), widen this to every package in the change's reverse-dependency closure per `d:\datrix\.claude\skills\_shared\verification-strategy.md`.
+- **Dispatched-subagent role:** report the packages you changed; run no suite beyond your own targeted tests (Step 7) and never the gate — `guard-full-suite-runs.py` blocks both for a subagent. The dispatcher runs the gate once over the union.
+- **Main-session role (or the dispatcher, once, after ALL fixes across every dispatched subagent):** write the full-suite ticket with the Write tool — `D:\datrix\.tmp\full-suite-ticket.json` = `{"packages": [<every changed package>], "reason": "fix-{suffix} final regression check", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}` — then run the gate over the union of changed packages:
+  ```
+  powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {pkg1},{pkg2}
+  ```
+  The gate derives the reverse-dependency closure itself (per `d:\datrix\.claude\skills\_shared\verification-strategy.md`), so a shared-layer fix (`datrix-common`, `datrix-codegen-common`, `datrix-language`, or a shared contract) is verified against every consumer with no separate widening step; it carries every package whose inputs are unchanged since its last green full run. `-Fast` is never a verdict: it excludes the slow, pipeline-running tests that matter most.
 
 ### Step 10: Report
 
@@ -166,7 +171,7 @@ FIX-{PACKAGE} COMPLETE
 Test results: {index.json path}
 Original issues: {E} errors, {F} failures in {C} clusters, {W} warnings
 Fixed: {file:line} — {what changed} — {cluster #id / warning category}   (one line each)
-Verification: originally-failing tests {PASS/FAIL}; warnings resolved {N}/{total}; regression check {PASS/FAIL} ({pass}/{total})
+Verification: originally-failing tests {PASS/FAIL}; warnings resolved {N}/{total}; regression check {PASS/FAIL} ({pass}/{total}, {carried} carried) — or, in the subagent role, packages changed: {list}
 Unresolved (if any): {cluster/warning} — {reason}
 ```
 

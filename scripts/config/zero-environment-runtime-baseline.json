@@ -12,7 +12,7 @@
   ],
   "languages": {
     "dotnet": {
-      "pinned_count": 8
+      "pinned_count": 22
     },
     "java": {
       "pinned_count": 7
@@ -86,7 +86,7 @@
       ]
     },
     "typescript": {
-      "pinned_count": 66
+      "pinned_count": 67
     }
   }
 }

@@ -20,7 +20,7 @@ delegation-strategy:
     - name: "quality_gate"
       model: "sonnet"
       parallelizable: false
-      description: "Run full suite directly (one per affected package) for final validation"
+      description: "Run affected-gate.ps1 once over the affected set for final validation"
 ---
 
 # Execute Tasks
@@ -570,7 +570,7 @@ On abort, report what was completed, what failed, and what remains.
 <!-- PHASE: quality_gate -->
 ## Phase 4: Quality Gate
 
-Run the full test suite for the affected package(s) to catch cross-task integration issues.
+Run the full test suite for the affected package(s), through one `affected-gate.ps1` call, to catch cross-task integration issues.
 
 **Affected = changed packages + their reverse-dependency closure** per `d:\datrix\.claude\skills\_shared\verification-strategy.md` (a change to `datrix-common`, `datrix-codegen-common`, `datrix-language`, or any shared contract pulls in every consuming package's suite; a leaf codegen change is usually just that package). Do NOT default to `-All` — and do not skip a consumer the closure names. There is no stored-baseline output gate to run; an output-preservation claim is proven by tests in the owning package.
 
@@ -592,22 +592,17 @@ Verification results from all tasks:
 
 1. **Determine affected packages:**
    - Group tasks by `package` field
-   - For each unique package, prepare to run full suite
+   - Add each changed package's reverse-dependency closure per `d:\datrix\.claude\skills\_shared\verification-strategy.md` (the gate in step 3 re-derives the closure itself; listing it here is what lets you name the sweep set in the ticket and the checkpoint)
 
-2. **For each package, identify test command:**
-
-   **Full test suite:**
-   ```
-   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
-   ```
+2. **Main-session role — write the full-suite ticket.** `guard-full-suite-runs.py` blocks `affected-gate.ps1` unless `D:\datrix\.tmp\full-suite-ticket.json` covers every package you pass to `-Projects`. Write it with the Write tool: `{"packages": [<every affected package>], "reason": "quality-gate phase sweep", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}` (the reason must be at least 10 characters). Dispatched task agents never run the gate — they run their targeted tests and report the packages they changed; this step runs once, here.
 
 3. **Run the sweep set concurrently and read the verdict in one call:**
    ```
    powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {pkg1},{pkg2}
    ```
-   Do NOT stop and ask the user to run anything. This is the ONE full-suite run per package for the whole skill invocation — the quality-gate task's own listed suite command was already suppressed in Phase 3. `affected-gate.ps1` schedules `test.ps1 <pkg>` for every requested package concurrently under a worker budget (each package writes its own `.test_results/` folder so parallel runs do not collide) and aggregates one GREEN/RED verdict by reusing `gate-verdict.ps1`'s own per-project evaluation — this replaces firing `test.ps1` per package and separately calling `gate-verdict.ps1`. One GREEN/RED console line per package + `OVERALL`; per-package counts and failing-test lists in its `Details:` JSON. Sanity-check each package's `run_dir` in the JSON against the run you just fired. GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors are red, exactly like failures (the script applies this; UNKNOWN/missing results are RED).
+   Do NOT stop and ask the user to run anything. This is the ONE full-suite run per package for the whole skill invocation — the quality-gate task's own listed suite command was already suppressed in Phase 3. `affected-gate.ps1` re-derives the reverse-dependency closure, carries each package whose newest green full run still matches its suite-input fingerprint (verdict `CARRIED`, no child launched, pinned to that run), launches one `test.ps1` child per remaining package concurrently under a worker budget (each package writes its own `.test_results/` folder so parallel runs do not collide), and aggregates one GREEN/RED verdict by reusing `gate-verdict.ps1`'s own per-project evaluation — this replaces firing `test.ps1` per package and separately calling `gate-verdict.ps1`. One console line per package + `OVERALL`; per-package counts and failing-test lists in its `Details:` JSON; one completion row (`ran`, `carried`, `overall`) appended to `D:\datrix\.tmp\full-suite-audit.jsonl`. Sanity-check each package's `run_dir` in the JSON: a ran package's is the run its own child produced, a `CARRIED` package's is the earlier green run that stood in. GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors are red, exactly like failures (the script applies this; UNKNOWN/missing results are RED); `CARRIED` counts as green.
 
-5. **Attribute failures (if any):**
+4. **Attribute failures (if any):**
    - For each RED package, run `collect-failure-data.ps1` on its run dir (from the gate JSON) — the clusters give the failing test files and erroring modules
    - Cross-reference each cluster's files against each task's `## Targeted Tests` section
    - Report which task likely introduced the failure

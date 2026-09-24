@@ -20,17 +20,27 @@
  Treat every discovered package as changed.
 
 .PARAMETER MaxConcurrent
- Max concurrent package suites (default 4).
+ Optional cap on how many package suites run at once (default: no cap --
+ children are admitted longest-first while their worker allotments fit in
+ the logical core count). A cap, never a divisor of the cores.
 
 .PARAMETER WorkersPerChild
- Override PYTEST_XDIST_AUTO_NUM_WORKERS per child (default floor(logical
- cores / MaxConcurrent)).
+ Uniform PYTEST_XDIST_AUTO_NUM_WORKERS override for every child, between 1
+ and the logical core count (default: each package's share of the predicted
+ CPU work, ceil(c / (sum(c) / cores)) clamped to [2, cores], where c is the
+ package's newest full run's test_time_seconds).
 
 .PARAMETER Mypy
  Also run mypy.ps1 for the CHANGED packages only, inside the same budget.
 
 .PARAMETER Force
  Start even if a requested package's newest run looks in-progress.
+
+.PARAMETER NoCarry
+ Run every affected package, even one whose newest green full run's
+ suite-input fingerprint still matches (flakiness hunts, a scheduled full
+ sweep). Without it, such a package is CARRIED: its recorded run stands in and
+ no child is launched for it.
 
 .PARAMETER Output
  Output JSON path (default <workspace>\.tmp\test\affected-gate.json).
@@ -64,6 +74,8 @@ param(
     [switch]$Mypy,
 
     [switch]$Force,
+
+    [switch]$NoCarry,
 
     [string]$Output,
 
@@ -112,6 +124,7 @@ try {
     if ($WorkersPerChild) { $pythonArgs += @("--workers-per-child", $WorkersPerChild) }
     if ($Mypy) { $pythonArgs += "--mypy" }
     if ($Force) { $pythonArgs += "--force" }
+    if ($NoCarry) { $pythonArgs += "--no-carry" }
     if ($Output) { $pythonArgs += @("--output", $Output) }
     if ($SelfTest) { $pythonArgs += "--self-test" }
     if ($Dbg) { $pythonArgs += "--debug" }

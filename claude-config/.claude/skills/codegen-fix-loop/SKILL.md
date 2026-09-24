@@ -158,22 +158,25 @@ Recommendation: {what a human should investigate}
 
 Once tests pass:
 
-1. Run the FULL package test suite (not just the targeted test):
-   ```
-   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE}
-   ```
+1. Run the full suites of the affected set (not just the targeted test) — {PACKAGE} plus its reverse-dependency closure per `d:\datrix\.claude\skills\_shared\verification-strategy.md`, so a shared-layer fix verifies its consumers instead of only the package touched.
+   - **Main-session role:** write the full-suite ticket with the Write tool — `D:\datrix\.tmp\full-suite-ticket.json` = `{"packages": ["{PACKAGE}", <closure...>], "reason": "codegen-fix-loop final verification of {PACKAGE}", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}` (`guard-full-suite-runs.py` blocks the gate without it) — then run:
+     ```
+     powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {PACKAGE}
+     ```
+     The gate re-derives the closure itself, carries every package whose inputs still match its last green full run (`CARRIED`, no child launched), and runs the rest concurrently.
+   - **Dispatched-subagent role:** run no suite and not the gate (the guard blocks both for a subagent); report {PACKAGE} and every other package you changed, and the dispatcher runs the gate once over the union.
 
 2. Run debug artifact check:
    ```
    powershell -File "d:/datrix/datrix/scripts/dev/check-debug-artifacts.ps1" {PACKAGE}
    ```
 
-3. To judge the full-suite outcome against the pre-fix state, compare run directories with the delta script instead of eyeballing counts (read `datrix/scripts/test/quick-reference.md` first; a pre-tool hook enforces this):
+3. To judge each ran package's outcome against the pre-fix state, compare run directories with the delta script instead of eyeballing counts (read `datrix/scripts/test/quick-reference.md` first; a pre-tool hook enforces this):
    ```
    powershell -File "d:/datrix/datrix/scripts/test/classify-run-delta.ps1" -Previous "{pre-fix-run-dir}" -Current "{new-run-dir}"
    ```
-   `SUCCESS` → report success; `REGRESSION` → its `new_failures` list is the evidence for step 4.
-4. If full suite has NEW failures → **they are yours. Fix them.** Your targeted fix broke something else, which means your model of the root cause was incomplete — treat the regression as evidence, re-diagnose, and fix it at the root. Do not stop to ask permission to finish your own job, and never ship a known regression with a note attached (that is the workaround this repo bans). Escalate only if the regression reveals a genuine architectural fork you cannot defensibly decide.
+   `SUCCESS` → report success; `REGRESSION` → its `new_failures` list is the evidence for step 4. A `CARRIED` package needs no delta — its inputs, by construction, did not change since its last green run.
+4. If the gate has NEW failures in {PACKAGE} or any consumer → **they are yours. Fix them.** Your targeted fix broke something else, which means your model of the root cause was incomplete — treat the regression as evidence, re-diagnose, and fix it at the root. Do not stop to ask permission to finish your own job, and never ship a known regression with a note attached (that is the workaround this repo bans). Escalate only if the regression reveals a genuine architectural fork you cannot defensibly decide.
 
 ```
 FIX LOOP COMPLETE

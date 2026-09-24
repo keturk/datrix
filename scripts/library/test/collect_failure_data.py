@@ -111,7 +111,7 @@ def _require_field(data: dict[str, object], key: str, where: str) -> object:
     if key not in data:
         raise UsageError(
             f"Missing required key '{key}' in {where}. Expected the structured "
-            f"index.json schema (schema_version 1) produced by the test runner; "
+            f"index.json schema (schema_version 1 or 2) produced by the test runner; "
             f"re-run the test suite to regenerate the run directory."
         )
     return data[key]
@@ -479,7 +479,7 @@ def _resolve_member_keys(
     raise UsageError(
         f"A {kind} cluster in {where} carries none of the accepted member-id keys "
         f"({spellings}). Expected one of the structured index.json schemas "
-        f"(schema_version 1) produced by the test runner; re-run the test suite "
+        f"(schema_version 1 or 2) produced by the test runner; re-run the test suite "
         f"to regenerate the run directory."
     )
 

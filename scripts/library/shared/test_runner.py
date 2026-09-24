@@ -29,11 +29,234 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from shared.logging_utils import ColorCodes, LogConfig, TeeLogger, colorize
-from shared.venv import get_venv_python
+from shared.suite_stamp import (
+ RUNNER_PLUGIN_MODULE,
+ DeselectedEvidence,
+ FullRunStamp,
+ SuiteStampError,
+ inputs_or_report,
+ merge_run_records,
+ prepare_full_run_stamp,
+ read_distributed_deselected,
+ selection_for,
+ unstamped_recorder_environment,
+ write_merged_timings,
+)
+from shared.venv import get_datrix_root, get_venv_python
+
+#: The marker expression each ``test.ps1`` tier switch selects. One table, read
+#: both where the expression is built and where a run's selection is recorded,
+#: so a recorded tier is looked up, never inferred from an expression's text.
+TIER_MARKER_EXPRESSIONS: dict[str, str] = {
+ "unit": "unit",
+ "integration": "integration",
+ "e2e": "e2e",
+ "fast": "not slow and not comprehensive",
+ "slow": "slow or comprehensive",
+}
+
+#: pytest exit codes of a phase that ran to its end: all passed, some failed,
+#: or nothing was collected. Interrupted (2), internal error (3) and usage
+#: error (4) mean the phase did not complete, so the run is never stamped.
+_COMPLETED_PYTEST_EXIT_CODES = frozenset({0, 1, 5})
+
+#: Commas inside a parametrized node id ("test_x.py::test_y[1,2]") are literal.
+_TARGET_SEPARATOR = re.compile(r",(?![^\[]*\])")
+
+#: index.json ``phases.Serial`` when the serial phase was skipped because every
+#: parallel worker deselected nothing. A string, never a status dict: the phase
+#: did not run, so it has no pass/fail status to report.
+SERIAL_SKIPPED_NO_SERIAL_ITEMS = "skipped (0 serial items)"
+#: The exit code of a run whose runner met evidence it cannot trust (pytest's
+#: own INTERNAL_ERROR value), used only when no phase already failed.
+_RUNNER_ERROR_EXIT_CODE = 3
+#: Why the serial phase runs when the parallel phase recorded no evidence.
+_NO_RECORDER_REASON = (
+ "the parallel phase did not load the runner plugin (an unsaved run has no run "
+ "directory to record into), so nothing shows whether serial items exist"
+)
+
+
+def _split_test_targets(test_path: str | None) -> list[str]:
+ """The comma-separated targets of a ``-Specific`` selection, in given order."""
+ if not test_path:
+  return []
+ return [target.strip() for target in _TARGET_SEPARATOR.split(test_path) if target.strip()]
+
+
+def _classify_selection(
+ marker_expr: str | None, test_path: str | None, keyword_expr: str | None
+) -> dict[str, object]:
+ """The ``selection`` recorded in a run's index.json.
+
+ Full only when no marker expression, no test path and no keyword narrows
+ the run -- a bare ``test.ps1 <package>``. Any marker expression is targeted,
+ including one that is not a tier's: an unrecognized expression is recorded
+ as ``marker`` with ``tier`` None, never mistaken for a full run.
+ """
+ tiers = [tier for tier, expression in TIER_MARKER_EXPRESSIONS.items() if expression == marker_expr]
+ targets = _split_test_targets(test_path)
+ return selection_for(
+  specific=targets or None,
+  keyword=keyword_expr or None,
+  tier=tiers[0] if tiers else None,
+  marker=marker_expr or None,
+ )
+
+
+def _note_incomplete_phase(incomplete_phases: list[str], phase: str, returncode: int) -> None:
+ """Record *phase* as not completed when pytest exited without finishing it."""
+ if returncode not in _COMPLETED_PYTEST_EXIT_CODES and phase not in incomplete_phases:
+  incomplete_phases.append(phase)
+
+
+def _full_run_inputs(
+ stamp: FullRunStamp,
+ run_dir: Path,
+ *,
+ incomplete_phases: list[str],
+ distributed: bool,
+ standalone: bool,
+ report: Callable[[str], None],
+) -> dict[str, object] | None:
+ """The ``inputs`` of a full run, or None when the run cannot be stamped.
+
+ Stamped only when every executed phase completed AND every session the
+ phases ran left its runner records: the merged records are classified into
+ the fingerprint's observed components, and the merged ``timings.json`` is
+ written beside them. Every refusal is reported through *report*; None means
+ index.json records the selection and no ``inputs`` at all.
+ """
+ if incomplete_phases:
+  report(
+   f"This full run is recorded WITHOUT a suite-input stamp: phase(s) "
+   f"{', '.join(incomplete_phases)} did not complete (the pytest process could not "
+   f"start, or exited interrupted, with an internal error, or with a usage error). "
+   f"index.json records its selection but no inputs."
+  )
+  return None
+
+ def compute() -> dict[str, object]:
+  records = merge_run_records(run_dir, distributed=distributed, standalone=standalone)
+  write_merged_timings(run_dir, records)
+  return stamp.inputs_from_records(records)
+
+ return inputs_or_report(compute, report)
+
+
+class RunnerDeselectedRecordError(RuntimeError):
+ """The parallel phase's deselected records disagree or cannot be read.
+
+ Every worker collects the identical tree, so disagreeing counts are a runner
+ defect. Such evidence is never treated as zero: the serial phase runs and
+ the run is failed with this error's message.
+ """
+
+
+@dataclass(frozen=True)
+class SerialPhaseDecision:
+ """Whether the serial phase runs, and why.
+
+ ``skip_reason`` is the ``phases.Serial`` value index.json records when the
+ phase is skipped, and None when it runs. ``why`` is the sentence the run's
+ log carries either way.
+ """
+
+ skip_reason: str | None
+ why: str
+
+
+def _run_serial(why: str) -> SerialPhaseDecision:
+ return SerialPhaseDecision(skip_reason=None, why=why)
+
+
+def decide_serial_phase(
+ evidence: DeselectedEvidence, *, parallel_completed: bool, user_filter_active: bool
+) -> SerialPhaseDecision:
+ """Skip the serial phase only on complete, agreeing evidence that it has nothing to run.
+
+ The parallel phase selects ``not serial``, so a worker deselects every
+ serial-marked item it collected. When every worker deselected ZERO items,
+ the collected tree holds no serial item and the serial phase -- which
+ collects the same tree -- would select nothing: it is skipped. Every other
+ case runs it:
+
+ - the parallel phase did not complete (interrupted, internal or usage
+   error), so its records are not evidence;
+ - a record is missing (no worker list, or a listed worker wrote none);
+ - a marker (``-Unit``, ``-Fast``, ...) or keyword filter is active, so a
+   non-zero count may be items the filter removed rather than serial ones.
+   A ``-Specific`` selection is not such a filter: it narrows what is
+   collected and deselects nothing, so the count stays exactly the number of
+   serial items among the files it names;
+ - some worker deselected items: those are the serial tests.
+
+ Args:
+  evidence: What the parallel phase's workers recorded.
+  parallel_completed: The parallel phase's pytest ran to its end.
+  user_filter_active: A marker expression or keyword narrowed the run.
+
+ Raises:
+  RunnerDeselectedRecordError: complete evidence in which workers disagree
+   on the count -- a runner defect, never a reason to skip.
+ """
+ if not parallel_completed:
+  return _run_serial("the parallel phase did not complete, so its deselected counts are not evidence")
+ if evidence.absent is not None:
+  return _run_serial(f"no complete deselected evidence: {evidence.absent}")
+ if not evidence.counts:
+  return _run_serial("no parallel worker recorded a deselected count")
+ distinct = set(evidence.counts.values())
+ if len(distinct) > 1:
+  raise RunnerDeselectedRecordError(
+   f"The parallel phase's workers disagree on how many items they deselected: "
+   f"{dict(sorted(evidence.counts.items()))}. Every worker collects the identical tree, so "
+   f"the counts must be equal; this is a runner defect and is never read as zero. The "
+   f"serial phase runs anyway and this run is failed. Re-run the package; if it recurs, "
+   f"inspect the deselected-<worker>.json records in the run directory."
+  )
+ if user_filter_active:
+  return _run_serial(
+   "a marker or keyword filter is active, so the deselected count cannot show whether serial items exist"
+  )
+ count = distinct.pop()
+ if count == 0:
+  return SerialPhaseDecision(
+   skip_reason=SERIAL_SKIPPED_NO_SERIAL_ITEMS,
+   why=f"every parallel worker ({len(evidence.counts)}) deselected 0 items, so no collected test is serial",
+  )
+ return _run_serial(f"every parallel worker deselected {count} serial-marked item(s)")
+
+
+def _serial_phase_decision_for_run(
+ run_dir: Path | None,
+ *,
+ recorded: bool,
+ parallel_completed: bool,
+ user_filter_active: bool,
+) -> tuple[SerialPhaseDecision, list[str]]:
+ """The serial-phase decision for a run, and the runner errors it met.
+
+ Unreadable or disagreeing records are a runner error: the serial phase
+ runs, and the error is returned so the caller fails the run with it.
+ """
+ try:
+  evidence = (
+   read_distributed_deselected(run_dir)
+   if recorded and run_dir is not None
+   else DeselectedEvidence(counts={}, absent=_NO_RECORDER_REASON)
+  )
+  decision = decide_serial_phase(
+   evidence, parallel_completed=parallel_completed, user_filter_active=user_filter_active
+  )
+ except (RunnerDeselectedRecordError, SuiteStampError) as exc:
+  return _run_serial(f"the deselected records cannot be trusted: {exc}"), [str(exc)]
+ return decision, []
 
 
 def _target_depth_sort_key(target: str) -> tuple[int, str]:
@@ -220,15 +443,21 @@ class TestRunner:
   keyword_expr: str = None,
   ignore_paths: list[str] | None = None,
   junit_xml_path: Path | None = None,
+  enable_runner_plugin: bool = False,
  ) -> list[str]:
-  """Build pytest command arguments."""
+  """Build pytest command arguments.
+
+  ``enable_runner_plugin`` loads the runner plugin with its own ``-p`` argv
+  element -- never inside a ``-o addopts=...`` override, where it would be
+  one token of a single string and register nothing.
+  """
   # Use test_path if provided, otherwise use default test_dir.
   # test_path may carry SEVERAL comma-separated files/node-IDs so one pytest
   # session (one collection, one run directory) covers a whole targeted set
   # instead of one runner startup per file. Commas inside parametrized
   # node IDs (e.g. "test_foo.py::test_bar[1,2]") are literal, not separators.
-  if test_path:
-   test_targets = [t.strip() for t in re.split(r",(?![^\[]*\])", test_path) if t.strip()]
+  test_targets = _split_test_targets(test_path)
+  if test_targets:
    # Depth-descending order avoids a real pytest collection-tree defect when
    # several explicit file targets are batched into one session -- see
    # _target_depth_sort_key's docstring for the full mechanism.
@@ -236,6 +465,8 @@ class TestRunner:
   else:
    test_targets = [self.config.test_dir]
   args = [python_exe, "-m", "pytest", *test_targets]
+  if enable_runner_plugin:
+   args.extend(["-p", RUNNER_PLUGIN_MODULE])
 
   # Add --ignore for paths that should be excluded from this run
   if ignore_paths:
@@ -310,6 +541,71 @@ class TestRunner:
    args.extend(["--junit-xml", str(junit_xml_path)])
 
   return args
+
+ def _run_serial_phase(
+  self,
+  python_exe: str,
+  coverage: bool,
+  verbose: bool,
+  marker_expr: str | None,
+  test_path: str | None,
+  keyword_expr: str | None,
+  *,
+  junit_xml_path: Path | None,
+  enable_runner_plugin: bool,
+  env: dict[str, str],
+  logger: TeeLogger,
+  phase_num: int,
+  incomplete_phases: list[str],
+ ) -> int:
+  """Run the ``serial``-marked tests in one process; return pytest's exit code.
+
+  A phase whose pytest could not start, or did not run to its end, is noted
+  in *incomplete_phases*.
+  """
+  # Temporarily disable xdist and exclude_markers to build args
+  # without parallel flags and without conflicting -m flags.
+  # Pass marker_expr=None so _build_pytest_args does NOT add a CLI
+  # -m flag; the serial marker (which already incorporates the
+  # original marker_expr) will be set via -o addopts below.
+  original_has_xdist = self.has_xdist
+  original_exclude_markers = self.config.exclude_markers
+  self.has_xdist = False
+  self.config.exclude_markers = None
+  test_args_serial = self._build_pytest_args(
+   python_exe, coverage, verbose, None, test_path,
+   keyword_expr, ignore_paths=None,
+   junit_xml_path=junit_xml_path,
+   enable_runner_plugin=enable_runner_plugin,
+  )
+  self.has_xdist = original_has_xdist
+  self.config.exclude_markers = original_exclude_markers
+
+  # Add serial marker filter and override addopts
+  serial_marker = "serial"
+  if marker_expr:
+   serial_marker = marker_expr if "serial" in marker_expr.lower() else f"({marker_expr}) and serial"
+
+  test_args_serial.extend(["-o", f'addopts=-v --strict-markers --tb=short -p no:benchmark --no-cov -m "{serial_marker}"'])
+
+  logger.write(f"\nPhase {phase_num}: Running serial tests (sequential execution)...")
+  try:
+   process = subprocess.Popen(
+    test_args_serial,
+    cwd=self.config.project_root,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    bufsize=1,
+    env=env,
+   )
+   returncode_serial, _ = logger.stream_process(process)
+  except Exception as e:
+   logger.write_error(f"Error running serial tests: {e}")
+   incomplete_phases.append("Serial")
+   return 1
+  _note_incomplete_phase(incomplete_phases, "Serial", returncode_serial)
+  return returncode_serial
 
  def run(
   self,
@@ -421,7 +717,8 @@ class TestRunner:
    env["PYTHONUNBUFFERED"] = "1"
 
    # Phase execution depends on xdist availability:
-   # With xdist: Phase 1 (parallel) → Phase 2 (serial)
+   # With xdist: Phase 1 (parallel) → Phase 2 (serial), the latter skipped when
+   #   the parallel phase's records prove no collected item is serial
    # No xdist: Single phase (all tests)
 
    phase_results = {} # {phase_name: returncode}
@@ -440,6 +737,29 @@ class TestRunner:
    junit_serial_path = run_dir / "junit-serial.xml" if run_dir else None
    junit_path = run_dir / "junit.xml" if run_dir else None
 
+   # A full run that saves its results loads the runner plugin in every phase
+   # and is stamped with its suite inputs. Any other saved run loads it in the
+   # parallel phase only, for the deselected counts that decide whether the
+   # serial phase has anything to run; it is never stamped, so it pays no cone
+   # derivation. An unsaved run has no run directory to record into.
+   selection = _classify_selection(marker_expr, test_path, keyword_expr)
+   workspace_root = get_datrix_root()
+   stamp = prepare_full_run_stamp(
+    selection, run_dir, workspace_root, self.config.project_name, logger.write_warning,
+   )
+   enable_runner_plugin = stamp is not None and run_dir is not None
+   record_parallel_phase = run_dir is not None
+   if stamp is not None and run_dir is not None:
+    env.update(stamp.plugin_environment(run_dir))
+   elif run_dir is not None:
+    env.update(unstamped_recorder_environment(run_dir, workspace_root, self.config.project_root))
+   # Phases whose pytest process did not run to its end; any one refuses the stamp.
+   incomplete_phases: list[str] = []
+   # Phases deliberately not run, with the reason index.json records for each.
+   skipped_phases: dict[str, str] = {}
+   # Evidence the runner could not trust; any one fails the run.
+   runner_errors: list[str] = []
+
    if self.has_xdist and not coverage:
     # ── Phase 1: Parallel tests (excluding serial) ─────────────────
     phase_num = 1
@@ -451,6 +771,7 @@ class TestRunner:
      python_exe, coverage, verbose, marker_expr, test_path,
      keyword_expr, ignore_paths=None,
      junit_xml_path=junit_parallel_path,
+     enable_runner_plugin=record_parallel_phase,
     )
 
     try:
@@ -467,6 +788,8 @@ class TestRunner:
     except Exception as e:
      logger.write_error(f"Error running parallel tests: {e}")
      returncode_parallel = 1
+     incomplete_phases.append("Parallel")
+    _note_incomplete_phase(incomplete_phases, "Parallel", returncode_parallel)
 
     # Exit code 5 = no tests collected (not an error for this phase alone)
     executed_phases.append("Parallel")
@@ -476,66 +799,40 @@ class TestRunner:
     phase_results["Parallel"] = returncode_parallel
 
     # ── Phase 2: Serial tests ────────────────────────────────────
+    # The parallel phase's own records say whether any collected item is
+    # serial -- no second collection is spent to find out. The decision
+    # skips the phase only on complete evidence that every worker
+    # deselected nothing; anything else runs it.
     phase_num_serial = phase_num + 1
-    # Temporarily disable xdist and exclude_markers to build args
-    # without parallel flags and without conflicting -m flags.
-    # Pass marker_expr=None so _build_pytest_args does NOT add a CLI
-    # -m flag; the serial marker (which already incorporates the
-    # original marker_expr) will be set via -o addopts below.
-    original_has_xdist = self.has_xdist
-    original_exclude_markers = self.config.exclude_markers
-    self.has_xdist = False
-    self.config.exclude_markers = None
-    test_args_serial = self._build_pytest_args(
-     python_exe, coverage, verbose, None, test_path,
-     keyword_expr, ignore_paths=None,
-     junit_xml_path=junit_serial_path,
+    serial_decision, decision_errors = _serial_phase_decision_for_run(
+     run_dir,
+     recorded=record_parallel_phase,
+     parallel_completed="Parallel" not in incomplete_phases,
+     user_filter_active=bool(marker_expr or keyword_expr),
     )
-    self.has_xdist = original_has_xdist
-    self.config.exclude_markers = original_exclude_markers
-
-    # Add serial marker filter and override addopts
-    serial_marker = "serial"
-    if marker_expr:
-     if "serial" not in marker_expr.lower():
-      serial_marker = f"({marker_expr}) and serial"
-     else:
-      serial_marker = marker_expr
-
-    test_args_serial.extend(["-o", f'addopts=-v --strict-markers --tb=short -p no:benchmark --no-cov -m "{serial_marker}"'])
-
-    # There is no separate "are there any serial tests?" probe, because pytest's
-    # own exit code answers that for free: a run whose every item is deselected
-    # collects zero and exits NO_TESTS_COLLECTED (5), which is mapped to success
-    # immediately below. A --collect-only probe instead pays the project's FULL
-    # collection cost a second time -- 167s for datrix-codegen-python's 8803
-    # items -- to learn the same fact, and it carried a fixed 30s timeout that no
-    # large project can meet. Its except-branch then guessed has_serial_tests =
-    # True, so a timeout printed a hang-shaped warning and ran the phase anyway:
-    # pure overhead in exactly the case the probe existed to skip, and 3 minutes
-    # of a 45-minute run spent proving nothing.
-    executed_phases.append("Serial")
-    logger.write(f"\nPhase {phase_num_serial}: Running serial tests (sequential execution)...")
-    try:
-     process = subprocess.Popen(
-      test_args_serial,
-      cwd=self.config.project_root,
-      stdout=subprocess.PIPE,
-      stderr=subprocess.STDOUT,
-      text=True,
-      bufsize=1,
+    for error in decision_errors:
+     logger.write_error(f"Runner error: {error}")
+    runner_errors.extend(decision_errors)
+    if serial_decision.skip_reason is not None:
+     skipped_phases["Serial"] = serial_decision.skip_reason
+     logger.write(f"\nPhase {phase_num_serial}: serial tests SKIPPED -- {serial_decision.why}")
+    else:
+     logger.write(f"\nPhase {phase_num_serial}: serial phase needed -- {serial_decision.why}")
+     returncode_serial = self._run_serial_phase(
+      python_exe, coverage, verbose, marker_expr, test_path, keyword_expr,
+      junit_xml_path=junit_serial_path,
+      enable_runner_plugin=enable_runner_plugin,
       env=env,
+      logger=logger,
+      phase_num=phase_num_serial,
+      incomplete_phases=incomplete_phases,
      )
-     returncode_serial, _ = logger.stream_process(process)
-    except Exception as e:
-     logger.write_error(f"Error running serial tests: {e}")
-     returncode_serial = 1
-
-    # Exit code 5 = no tests collected (not an error for this phase alone)
-    if returncode_serial == 5:
-     zero_collection_phases.append("Serial")
-     returncode_serial = 0
-    phase_results["Serial"] = returncode_serial
+     executed_phases.append("Serial")
+     # Exit code 5 = no tests collected (not an error for this phase alone)
+     if returncode_serial == 5:
+      zero_collection_phases.append("Serial")
+      returncode_serial = 0
+     phase_results["Serial"] = returncode_serial
    else:
     # No xdist: run all tests in a single phase
     phase_num = 1
@@ -547,6 +844,7 @@ class TestRunner:
      python_exe, coverage, verbose, marker_expr, test_path,
      keyword_expr, ignore_paths=None,
      junit_xml_path=junit_path,
+     enable_runner_plugin=enable_runner_plugin,
     )
 
     try:
@@ -563,6 +861,8 @@ class TestRunner:
     except Exception as e:
      logger.write_error(f"Error running tests: {e}")
      rc_remaining = 1
+     incomplete_phases.append("Tests")
+    _note_incomplete_phase(incomplete_phases, "Tests", rc_remaining)
 
     # Exit code 5 = no tests collected (not an error for this phase alone)
     executed_phases.append("Tests")
@@ -597,6 +897,17 @@ class TestRunner:
       if junit_path and "Tests" in executed_phases:
        xml_paths.append(junit_path)
 
+     inputs = None
+     if stamp is not None:
+      inputs = _full_run_inputs(
+       stamp,
+       run_dir,
+       incomplete_phases=incomplete_phases,
+       distributed="Parallel" in executed_phases,
+       standalone="Serial" in executed_phases or "Tests" in executed_phases,
+       report=logger.write_warning,
+      )
+
      writer = StructuredLogWriter(
       project_name=self.config.project_name,
       run_dir=run_dir,
@@ -607,15 +918,22 @@ class TestRunner:
      # Parallel/Serial/Tests columns. Handing it the bare return codes made
      # every non-dict read as status 0, so a failed phase still rendered OK
      # -- the failure showed only in the row's overall symbol and counts.
+     # A skipped phase records its reason string instead: it did not run,
+     # so it has no status, and status_tests.py renders it as "-".
+     phases_index: dict[str, dict[str, object] | str] = {
+      name: {
+       "status": PHASE_STATUS_PASSED if rc == 0 else PHASE_STATUS_FAILED,
+      }
+      for name, rc in phase_results.items()
+     }
+     phases_index.update(skipped_phases)
      writer.write(
       xml_paths=xml_paths,
       timestamp=datetime.now(),
-      phase_results={
-       name: {
-        "status": PHASE_STATUS_PASSED if rc == 0 else PHASE_STATUS_FAILED,
-       }
-       for name, rc in phase_results.items()
-      },
+      phase_results=phases_index,
+      selection=selection,
+      inputs=inputs,
+      runner_errors=runner_errors,
      )
      index_json_path = run_dir / 'index.json'
      logger.write(f"Structured test results: {index_json_path}")
@@ -623,26 +941,31 @@ class TestRunner:
      logger.write_warning(f"Warning: Failed to generate structured test results: {e}")
 
    # ── Combined summary ─────────────────────────────────────────────
-   if len(phase_results) > 1:
+   if len(phase_results) + len(skipped_phases) > 1:
     logger.write("\n" + "=" * 80)
     logger.write("COMBINED TEST SUMMARY")
     logger.write("=" * 80)
     for phase_name, rc in phase_results.items():
      status = "PASSED" if rc == 0 else "FAILED"
      logger.write(f" {phase_name:12s}: {status}")
-    any_failed = any(rc != 0 for rc in phase_results.values())
+    for phase_name, reason in skipped_phases.items():
+     logger.write(f" {phase_name:12s}: SKIPPED ({reason})")
+    any_failed = any(rc != 0 for rc in phase_results.values()) or bool(runner_errors)
     logger.write(f" {'Overall':12s}: {'FAILED' if any_failed else 'PASSED'}")
     logger.write("=" * 80)
     logger.write("")
     logger.write("Note: For detailed test counts from each phase, see the pytest summaries above.")
     logger.write("The test status checker will combine counts from all phases automatically.")
 
-   # Determine overall return code: first non-zero, or 0
+   # Determine overall return code: first non-zero, or 0. A runner error
+   # fails a run whose phases all passed: its evidence could not be trusted.
    returncode = 0
    for rc in phase_results.values():
     if rc != 0:
      returncode = rc
      break
+   if runner_errors and returncode == 0:
+    returncode = _RUNNER_ERROR_EXIT_CODE
 
    # A run in which EVERY executed phase collected zero tests selected nothing
    # at all. Reporting that as PASSED is a false green: the caller believes a
@@ -655,10 +978,10 @@ class TestRunner:
     and all(phase in zero_collection_phases for phase in executed_phases)
    )
    if selected_nothing:
-    selection = test_path or "(whole project)"
+    selection_text = test_path or "(whole project)"
     logger.write_error(
      f"No tests were collected for {self.config.project_name} (selection: "
-     f"{selection}). Expected at least one test to run; pytest collected zero, "
+     f"{selection_text}). Expected at least one test to run; pytest collected zero, "
      f"so this run proves nothing and is NOT a pass. Valid selections: a test "
      f"file, a directory, or a pytest node id under the project's tests/ tree "
      f"-- exactly ONE path (a space-separated list of paths is read by pytest "

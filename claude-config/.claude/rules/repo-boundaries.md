@@ -108,19 +108,25 @@ computed instead of guessed.
 ## Whole test suites are a phase-boundary act
 
 Inside a task, run exactly the tests named in its `## Targeted Tests` —
-`test.ps1 <pkg> -Specific "a.py,b.py"`, batched into one invocation. A bare
-`test.ps1 <pkg>`, `-All`, `-Rerun`, or a tier sweep (`-Unit`/`-Fast`/…) is a full run,
-reserved for the phase-boundary / quality gate where it happens **once** over the affected
-set. Using a full suite to *discover* further work mid-task is the same anti-pattern wearing
-a better excuse.
+`test.ps1 <pkg> -Specific "a.py,b.py"`, batched into one invocation. A `test.ps1` run
+naming a package with no `-Specific`/`-Keyword`, `-All`, `-Rerun`, or a tier sweep
+(`-Unit`/`-Fast`/…) is a full run, reserved for the phase-boundary / quality gate where it
+happens **once** over the affected set — and it goes through one door,
+`affected-gate.ps1 -Projects <changed packages>`, which derives the closure and carries
+every package whose inputs are unchanged since its last green full run. The main session
+runs the gate; a dispatched subagent runs its targeted tests, reports the packages it
+changed, and never runs the gate. Using a full suite to *discover* further work mid-task
+is the same anti-pattern wearing a better excuse.
 
 To prove a change generalises, write a test in the owning package — a test proves the
 invariant forever; a sweep proves it once and evaporates. If a task file's
 `## Targeted Tests` names a bare full suite, the task file is defective: run the specific
 files covering the code you changed and say so.
 
-Enforced by `guard-full-suite-runs.py`. **For subagents the block is unconditional.** The
-main session may authorize one by writing `D:\datrix\.tmp\full-suite-ticket.json` (explicit
-package list or `"*"`, a written reason, `expires_epoch` capped at 6h). Every decision,
-allowed and blocked, is appended to `D:\datrix\.tmp\full-suite-audit.jsonl`.
+Enforced by `guard-full-suite-runs.py`, which applies the same rule to `affected-gate.ps1`
+as to a bare `test.ps1` (only its `-SelfTest` form, which launches no suite, is exempt).
+**For subagents the block is unconditional.** The main session may authorize one by
+writing `D:\datrix\.tmp\full-suite-ticket.json` (explicit package list or `"*"`, a written reason, `expires_epoch` capped at 6h). Every decision,
+allowed and blocked, is appended to `D:\datrix\.tmp\full-suite-audit.jsonl`, and every
+gate run appends its own completion row there (`ran`, `carried`, `overall`).
 `test-single.ps1` and targeted `-Specific`/`-Keyword` runs are never touched.

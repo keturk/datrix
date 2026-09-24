@@ -32,6 +32,13 @@ to file a real tracked task" is **not** authorization to open a new phase. A new
 silently seeds the next orchestration run with work nobody scheduled, and it is what
 `latest-phase.ps1` reports.
 
+**Design-sized findings are not phase tasks.** When an agent reports, or files, a defect whose
+fix would need its own design (a new capability, or new behaviour across languages or
+subsystems, beyond the phase's design doc), the orchestrator does not add it to the phase and
+does not dispatch it. It records the finding with evidence and asks Jon before any work
+starts. If an agent already filed such a task, remove it from the phase and keep its text as a
+finding. Only small, contained defects are filed into the running phase (execution-contract §5).
+
 **A task you must file goes in the phase you are executing.** Number it the next free
 `{TT}` in that phase (`validate-dependencies.ps1 -Phase {NN} -NextTaskNumber`) and put it
 in the owning package's existing `.tasks\phase-{NN}\`. Never file forward into a fresh

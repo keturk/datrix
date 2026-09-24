@@ -123,11 +123,17 @@ Result: PASS ✓ / FAIL ✗
 
 #### Checkpoint D: Regression Check
 
-After every 3 fixes (or after a fix that touches shared code), run the full suite of the **affected set** — every changed package plus its reverse-dependency closure per `d:\datrix\.claude\skills\_shared\verification-strategy.md` (for a leaf-package fix that is just the package itself; for a shared-layer fix it is every consumer). Never `-All` by reflex:
+After every 3 fixes (or after a fix that touches shared code), run the gate over the **affected set** — every changed package plus its reverse-dependency closure per `d:\datrix\.claude\skills\_shared\verification-strategy.md` (for a leaf-package fix that is just the package itself; for a shared-layer fix it is every consumer). Never `-All` by reflex. Carry makes repeated checkpoints cheap: a package whose inputs are unchanged since its last green full run comes back `CARRIED` with no child launched.
+
+- **Main-session role:** write the full-suite ticket with the Write tool — `D:\datrix\.tmp\full-suite-ticket.json` = `{"packages": [<every changed package>], "reason": "checkpoint-debug regression check after issues #{X}-#{Y}", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}` (`guard-full-suite-runs.py` blocks the gate without it) — then run:
+  ```
+  powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {pkg1},{pkg2}
+  ```
+- **Dispatched-subagent role:** run no suite and not the gate (the guard blocks both for a subagent); report the packages you changed, and the dispatcher runs the gate over the union.
 
 ```
 CHECKPOINT D — Regression Check (after issues #{X}-#{Y})
-Full test results: {pass}/{total}
+Gate results: {pass}/{total} ({carried} carried)
 New failures: {none / list}
 ```
 

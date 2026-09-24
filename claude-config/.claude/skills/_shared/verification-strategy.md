@@ -21,13 +21,23 @@ Wall time is also load-sensitive: datrix-codegen-azure produced 26 s / 105 s / 1
 2026-07-29 at an identical test count, purely from machine load. A hardcoded cost table
 here went stale by up to 10× in both directions within one day of being written.
 
-Snapshot for orientation only (2026-07-29, idle machine, full suites):
-typescript **533 s** · python 97 s · java 95 s · dotnet 75 s · common 68 s · azure 26 s ·
-language 25 s · cli 25 s · docker 15 s · codegen-common 12 s · aws 11 s · component 10 s ·
-sql 8 s · extensions 5 s. Full 14-package sweep ≈ **17 min sequential**, of which
-datrix-codegen-typescript alone is **53%** (its cost is subprocess-heavy `npm install` +
-`tsc --noEmit` integration tests, not test count). Test *count* predicts wall time poorly:
-datrix-common runs 9,433 tests in 68 s; typescript runs 5,033 in 533 s.
+Snapshot for orientation only (2026-09-23, median over every full run recorded
+2026-09-11 → 09-23, 12 logical cores): python **1,185 s** · codegen-common 518 s (one full
+run) · typescript 464 s · dotnet 377 s · azure 325 s · java 232 s · aws 230 s · common 205 s · cli 152 s ·
+docker 131 s · language 104 s · angular 87 s · component 71 s · sql 69 s · vscode 27 s ·
+extensions 6 s. Sum of medians ≈ **70 min sequential**; the concurrent `affected-gate.ps1`
+run of 2026-09-18 over 14 packages took ≈ 35 min, with datrix-codegen-python its tail.
+The CPU the tests themselves consume is ≈ 12,000–13,000 CPU-s once xdist contention is
+deflated (datrix-codegen-python used 4,478 CPU-s at 4 workers and 7,589 CPU-s at 12 for the
+same suite), a lower bound of ≈ 17–18 min on 12 cores. The same suite ranged 680 s–2,150 s
+wall across runs at one test count, so load, not code, sets most of the spread. Test *count*
+still predicts wall time poorly: datrix-common runs 11,634 tests in 139 s.
+
+**A worker's first test carries one-time per-process costs.** In the 2026-09-23 runs of
+datrix-codegen-{sql,component,docker,angular,dotnet,java}, each xdist worker's first test took
+43–72 s while the median of every other test on that worker was under 0.5 s — the lazy
+first-use cost of plugin discovery inside the first generation, paid once per worker. Read
+per-test timings with that in mind: a slow *first* test says nothing about that test.
 
 **Reading run durations:** in a package run's `index.json`, `duration_seconds` is
 wall clock; `test_time_seconds` is the per-test sum across xdist workers (≈ workers ×
@@ -49,14 +59,35 @@ sequential sum even though concurrent runs of *different* packages are safe (see
    not part of regular verification, and the harness refuses the switch.
 3. **Phase boundary / pre-commit:** `affected-gate.ps1 -Projects <all changes
    so far>` + the repo-level gates whose surface was touched (see "Repo
-   gates"). NOT an unconditional `-All`.
+   gates"). NOT an unconditional `-All`. Re-verification after a follow-up edit
+   is the gate over the SAME set — never a second full sweep; an unchanged cone
+   comes back `CARRIED` at near-zero cost, so repeating the gate is cheap by
+   construction, not merely permitted.
 4. **Full `-All` sweep:** `affected-gate.ps1 -All` — only when explicitly
    requested, or as a scheduled background/nightly run. Never as a reflex, and
    **never as the way to re-verify after a follow-up edit** — re-run only the
    packages whose suites can actually observe that edit. A change touching a
    `datrix-common` *surface* is NOT grounds for `-All`: scope by surface (next
    section), not by package name. Two full sweeps to verify one fix is a defect
-   in method.
+   in method. Even a scheduled `-All` sweep benefits from carry: a package whose
+   fingerprint has not moved since its last green full run comes back `CARRIED`
+   with no child launched, so a nightly `-All` costs only what actually changed
+   (`-NoCarry` runs every package regardless, for a flakiness hunt).
+
+**One door, two roles.** `affected-gate.ps1` is the only whole-suite entry point:
+tiers 2–4 never name a bare `test.ps1` package run, a tier switch such as `-Fast`,
+or one `test.ps1` per package fired by hand. The gate derives the closure, carries
+each package whose newest green full run (under 24 h old) still matches its
+suite-input fingerprint (verdict `CARRIED`, no child launched, pinned to that
+run), runs the rest concurrently under a worker budget, and appends one
+completion row (`ran`, `carried`, `overall`) to `D:\datrix\.tmp\full-suite-audit.jsonl`.
+Tiers 2–4 are **main-session** acts: write `D:\datrix\.tmp\full-suite-ticket.json`
+first (`{"packages": [...every package passed to -Projects, or "*" for -All],
+"reason": "<at least 10 characters>", "granted_by": "orchestrator" | "jon",
+"expires_epoch": <now + at most 6h>}`), because `guard-full-suite-runs.py` blocks
+the gate without it. A **dispatched subagent** runs tier 1 only, reports the
+packages it changed, and never runs the gate — the guard blocks it
+unconditionally; the dispatcher runs the gate once over the union.
 
 ## The affected set
 
@@ -152,9 +183,19 @@ Package granularity is the floor; per-area or per-module selection inside
   testkit runs the analyzer (`datrix_common/testing/parsing.py:16`).
 - datrix-codegen-common has the same shape (9-subtree cycle, 70% of its LOC; 99% of its
   196 commits need the full 11-package closure under sound selection).
+- **Execution-based selection fails the same way (measured 2026-09-23).** Recording every
+  code object entered (`sys.monitoring` `PY_START`) during real pipeline runs: one
+  generation executes 38–48% of datrix-common's 615 source files (`01-foundation` →
+  python 237, → typescript 232; `cqrs` → python 294, → java 280) and 22–42% of
+  datrix-codegen-common's 423. Of the 150 commits to `datrix-common/src` since 2026-07-01,
+  **121 (81%) touched a file every pipeline-running test executes** — and those tests are
+  where the suite time is (datrix-codegen-python `tests/integration/{generators,service}`
+  alone is 1,492 of 7,589 CPU-s). Per-test selection would leave the first sweep after a
+  shared change essentially intact. The recording itself costs ≈ 3%, which makes it useful
+  for fingerprinting a whole suite's inputs, not for selecting inside one.
 
-The lever is making the sweep cheap (concurrency + fixing the dominant suite), not making
-the closure smaller.
+The lever is making the sweep cheap (concurrency, removing waste inside each suite, and never
+buying the same suite twice for unchanged inputs), not making the closure smaller.
 
 ## Repo gates (cheap, broad nets — use them instead of over-sweeping)
 
@@ -192,14 +233,16 @@ Execution contract §12.5 holds the surface→check table.
   consumer list, computed instead of guessed. Affected-only never means "skip a
   consumer".
 - Orchestrated runs (task-orchestrator, execute-tasks[-parallel]): per-task agents run
-  targeted tests only; the orchestrator's gate runs the affected set once per
-  wave/phase. A multi-phase run's first boundary sweeps the affected set of all
-  changes so far — not unconditionally ALL packages.
+  targeted tests only and report the packages they changed; the orchestrator's
+  gate runs the affected set once, at the quality gate / phase boundary. Every boundary of a
+  multi-phase run passes the affected set of all changes so far to the gate,
+  which carries whatever did not change — not unconditionally ALL packages.
 - A failure in any affected-set suite is yours to fix regardless of which package it
   appears in (execution contract §2).
 - Different packages' suites may run concurrently (each writes its own
-  `.test_results/`; orchestrator gates fire them in one message and read the verdict
-  via `gate-verdict.ps1`). Never launch overlapping runs of the SAME package.
+  `.test_results/`; `affected-gate.ps1` launches them under one worker budget and
+  reads the verdict through `gate-verdict.ps1`'s own evaluation). Never launch
+  overlapping runs of the SAME package.
 - **A suite is not the first rung — it is the fifth** (execution contract §12.1). Reading the source,
   parsing the emitted artifact, and running one targeted test each settle a question faster and
   earlier than any suite, and a generation or a deploy settles it slowest of all. Pick the highest

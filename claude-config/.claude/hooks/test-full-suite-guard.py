@@ -33,6 +33,7 @@ _AUDIT = Path("D:/datrix/.tmp/full-suite-audit.jsonl")
 
 _TEST = 'powershell -File "d:/datrix/datrix/scripts/test/test.ps1"'
 _SINGLE = 'powershell -File "d:/datrix/datrix/scripts/test/test-single.ps1"'
+_AFFECTED_GATE = 'powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1"'
 
 _AGENT = "a188ff1324c21f55e"
 
@@ -264,6 +265,91 @@ _CASES: tuple[tuple[str, str, dict | None, bool, str], ...] = (
         None,
         True,
         "piping a real run's output to a read tool still blocks",
+    ),
+    # ---- affected-gate.ps1 is the second door onto the same act ----
+    (
+        f"{_AFFECTED_GATE} -Projects datrix-common",
+        _AGENT,
+        None,
+        True,
+        "subagent, affected-gate.ps1 bare -Projects run",
+    ),
+    (
+        f"{_AFFECTED_GATE} -Projects datrix-common",
+        _AGENT,
+        _ticket(["*"]),
+        True,
+        "subagent, affected-gate.ps1, even under a wildcard ticket",
+    ),
+    (
+        f"{_AFFECTED_GATE} -Projects datrix-common",
+        "",
+        None,
+        True,
+        "main session, affected-gate.ps1, no ticket",
+    ),
+    (
+        f"{_AFFECTED_GATE} -Projects datrix-common",
+        "",
+        _ticket(["datrix-common"]),
+        False,
+        "main session, affected-gate.ps1, ticket covers the named package",
+    ),
+    (
+        f"{_AFFECTED_GATE} -Projects datrix-common,datrix-codegen-aws",
+        "",
+        _ticket(["datrix-common"]),
+        True,
+        "main session, affected-gate.ps1 -Projects with two packages, ticket covers only one",
+    ),
+    (
+        f"{_AFFECTED_GATE} -All",
+        "",
+        _ticket(["datrix-common"]),
+        True,
+        "affected-gate.ps1 -All needs a wildcard ticket",
+    ),
+    (
+        f"{_AFFECTED_GATE} -All",
+        "",
+        _ticket(["*"]),
+        False,
+        "affected-gate.ps1 -All under a wildcard ticket",
+    ),
+    (
+        f"{_AFFECTED_GATE} -SelfTest",
+        _AGENT,
+        None,
+        False,
+        "affected-gate.ps1 -SelfTest runs no suite child at all",
+    ),
+    (
+        f"{_AFFECTED_GATE} -SelfTest",
+        "",
+        None,
+        False,
+        "affected-gate.ps1 -SelfTest, main session, still no ticket needed",
+    ),
+    (
+        f"{_AFFECTED_GATE} -Projects datrix-common,datrix-codegen-aws -SelfTest",
+        _AGENT,
+        None,
+        False,
+        "-Projects alongside -SelfTest must not override the self-test exemption",
+    ),
+    (
+        'grep -n "affected-gate.ps1" d:/datrix/datrix/scripts/test/quick-reference.md',
+        _AGENT,
+        None,
+        False,
+        "grep OVER affected-gate.ps1 is a read, not a run",
+    ),
+    (
+        f'{_TEST} datrix-common -Specific "tests/unit/a.py"; {_AFFECTED_GATE} -Projects datrix-language',
+        _AGENT,
+        None,
+        True,
+        "a targeted test.ps1 invocation must not vouch for a bare affected-gate.ps1 run chained after it",
     ),
 )
 

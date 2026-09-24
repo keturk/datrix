@@ -52,6 +52,10 @@ code and run it); why it failed; and the B1–B4 code.
 
 **Found it, you fix it.** Any defect you discover on a surface you touched is yours: fix it,
 or file a real tracked task. Mentioning it in prose and moving on is not an outcome.
+This covers **small** defects found while doing the task. Anything that would need its own
+design (a new capability, or new behaviour across languages or subsystems) is reported as a
+finding with evidence and goes to Jon. It is never fixed in place and never filed into the
+running phase. Full text: execution-contract §5.
 
 **Exactly two things end a turn: the task is FINISHED, or Jon tells you to stop.** Running
 long, getting tired of the loop, and reaching a natural-feeling pause are not exits.
@@ -108,7 +112,7 @@ doing the wrong thing.
 | `Stop` | `gate-stop-exhaustion.py` | ending ANY turn on a context-exhaustion claim, a "remaining / still to fix / next up" handover section, a reported security downgrade (§13), or a reported expedient fix (§14) — inert when Jon asked you to stop or asked a question |
 | `SubagentStop` | `check-agent-report.py` | a subagent report ending on a dodge without a B1–B4 proof or filed task, or reporting a security downgrade / expedient fix (neither is lifted by a proof; §13's one exception is B3) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-predeploy-analysis.py` | a deploy with no fresh seam census in `.tmp/predeploy/` (dry-run/`--what-if` forms are always allowed) |
-| `PreToolUse(Bash\|PowerShell)` | `guard-full-suite-runs.py` | whole-suite `test.ps1` runs (unconditional for subagents) |
+| `PreToolUse(Bash\|PowerShell)` | `guard-full-suite-runs.py` | whole-suite `test.ps1` runs and every `affected-gate.ps1` sweep under the same rule (`-SelfTest` runs no suite and is exempt) — unconditional for subagents, ticketed for the main session |
 | `PreToolUse(Bash\|PowerShell)` | `guard-untargeted-scans.py` | whole-package `semgrep.ps1`/`libcst.ps1`/`ast-grep.ps1` runs with no `-Rule` and no `SCAN_QUESTION:` in the description; `-All` and subagent runs unconditionally |
 | `PreToolUse(Bash\|PowerShell)` | `validate-script-invocation.py` | `generate.ps1` with `-All`/`-Domains`/`-TestSet` (no override) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-forbidden-commands.py` | git reverts, standalone type-checkers (`mypy` and equivalents, wrappers included), and other prohibited commands |
@@ -243,7 +247,8 @@ editable mode. There is no per-package venv.
 
 | To do this | Use this |
 |---|---|
-| Run a package's tests | `datrix/scripts/test/test.ps1 <package>` — suites only |
+| Run a package's tests (targeted, inner loop) | `datrix/scripts/test/test.ps1 <package> -Specific "a.py,b.py"` |
+| Run whole suites (phase boundary / quality gate ONLY; main session, ticket first) | `datrix/scripts/test/affected-gate.ps1 -Projects <changed packages>` |
 | Run a one-off script | `D:\datrix\.venv\Scripts\python.exe <script>` |
 
 **Never invoke `pytest` directly**, and never reverse-engineer `test.ps1` to discover its

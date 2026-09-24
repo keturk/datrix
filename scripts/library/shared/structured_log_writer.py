@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +18,9 @@ from urllib.parse import unquote, urlparse
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_VERSION = 1
+#: 2 adds ``selection`` (every run) and ``inputs`` (a stamped full run). A
+#: reader tells a run that predates both apart by its version, not by guessing.
+_SCHEMA_VERSION = 2
 _MAX_FILENAME_BODY_LENGTH = 120
 
 # index.json's ``phases`` map carries one dict per phase, whose ``status`` uses
@@ -156,7 +159,10 @@ class StructuredLogWriter:
         self,
         xml_paths: list[Path],
         timestamp: datetime,
-        phase_results: dict[str, dict[str, object]] | None = None,
+        phase_results: Mapping[str, dict[str, object] | str] | None = None,
+        selection: dict[str, object] | None = None,
+        inputs: dict[str, object] | None = None,
+        runner_errors: Sequence[str] = (),
     ) -> Path:
         """Write all structured output files.
 
@@ -166,8 +172,18 @@ class StructuredLogWriter:
         Args:
             xml_paths: List of JUnit XML file paths to process.
             timestamp: Timestamp of the test run.
-            phase_results: Optional per-phase result dicts with keys like
-                ``result``, ``worker_count``, ``items``.
+            phase_results: Optional per-phase entries: a result dict (keys like
+                ``status``, ``result``, ``worker_count``, ``items``) for a phase
+                that ran, or the reason string for a phase that was skipped.
+            selection: What the run selected -- ``{"kind": "full"}`` or the
+                targeted selection that was applied. Written as given.
+            inputs: The suite-input stamp of a full run whose every phase
+                completed, or None. Never written for a run whose results are
+                incomplete: a run that produced no results vouches for nothing.
+            runner_errors: Evidence the runner met and could not trust (for
+                example, parallel workers disagreeing on what they deselected).
+                Any one makes the run FAILED whatever its tests did, and each is
+                recorded under ``runner_errors``.
 
         Returns:
             Path to the written index.json file.
@@ -184,6 +200,7 @@ class StructuredLogWriter:
                 timestamp,
                 "No JUnit XML produced — test run may have been "
                 "interrupted. See full.log for raw output.",
+                selection=selection,
             )
             return self._run_dir / "index.json"
 
@@ -228,8 +245,9 @@ class StructuredLogWriter:
             "skipped": skipped_count,
         }
 
-        # Determine overall result
-        if len(failures) > 0 or len(errors) > 0:
+        # Determine overall result. A runner error fails the run even when
+        # every test passed: the runner could not vouch for what it ran.
+        if len(failures) > 0 or len(errors) > 0 or runner_errors:
             result = "FAILED"
         else:
             result = "PASSED"
@@ -256,6 +274,9 @@ class StructuredLogWriter:
             failure_file_map=failure_file_map,
             error_file_map=error_file_map,
             phase_results=phase_results,
+            selection=selection,
+            inputs=inputs,
+            runner_errors=runner_errors,
         )
 
         # Write summary.txt
@@ -268,6 +289,7 @@ class StructuredLogWriter:
             error_details=error_details,
             failure_clusters=failure_clusters,
             error_clusters=error_clusters,
+            runner_errors=runner_errors,
         )
 
         logger.info(
@@ -1007,7 +1029,11 @@ class StructuredLogWriter:
         error_clusters: list[Cluster],
         failure_file_map: dict[int, str],
         error_file_map: dict[int, str],
-        phase_results: dict[str, dict[str, object]] | None,
+        phase_results: Mapping[str, dict[str, object] | str] | None,
+        *,
+        selection: dict[str, object] | None = None,
+        inputs: dict[str, object] | None = None,
+        runner_errors: Sequence[str] = (),
     ) -> None:
         """Write the index.json file.
 
@@ -1024,7 +1050,13 @@ class StructuredLogWriter:
             error_clusters: Error clusters.
             failure_file_map: Mapping from failure ID to relative file path.
             error_file_map: Mapping from error ID to relative file path.
-            phase_results: Optional per-phase result dicts.
+            phase_results: Optional per-phase result dicts, or a skipped
+                phase's reason string.
+            selection: The run's selection, or None when the caller records none.
+            inputs: The run's suite-input stamp, or None -- then no ``inputs``
+                key is written at all.
+            runner_errors: The run's runner errors; a ``runner_errors`` key is
+                written only when there is at least one.
         """
         # Build failures array
         failures_json: list[dict[str, object]] = []
@@ -1099,7 +1131,13 @@ class StructuredLogWriter:
         }
 
         if phase_results is not None:
-            index["phases"] = phase_results
+            index["phases"] = dict(phase_results)
+        if selection is not None:
+            index["selection"] = selection
+        if inputs is not None:
+            index["inputs"] = inputs
+        if runner_errors:
+            index["runner_errors"] = list(runner_errors)
 
         index_path = self._run_dir / "index.json"
         index_path.write_text(
@@ -1117,6 +1155,7 @@ class StructuredLogWriter:
         error_details: list[FailureDetail],
         failure_clusters: list[Cluster],
         error_clusters: list[Cluster],
+        runner_errors: Sequence[str] = (),
     ) -> None:
         """Write the summary.txt file (human-readable, under 50 lines).
 
@@ -1129,6 +1168,8 @@ class StructuredLogWriter:
             error_details: Enriched error details.
             failure_clusters: Failure clusters.
             error_clusters: Error clusters.
+            runner_errors: Evidence the runner could not trust, listed after
+                the result line.
         """
         lines: list[str] = []
         lines.append(f"{self._project_name} test results")
@@ -1151,6 +1192,11 @@ class StructuredLogWriter:
                 f"RESULT: {result} ({counts['passed']} passed)"
             )
         lines.append("")
+
+        if runner_errors:
+            lines.append("RUNNER ERRORS:")
+            lines.extend(f"  {error}" for error in runner_errors)
+            lines.append("")
 
         # Failure clusters
         if failure_clusters:
@@ -1226,13 +1272,21 @@ class StructuredLogWriter:
         return None
 
     def _write_incomplete_index(
-        self, timestamp: datetime, note: str
+        self,
+        timestamp: datetime,
+        note: str,
+        *,
+        selection: dict[str, object] | None = None,
     ) -> None:
         """Write a minimal index.json for incomplete/missing results.
+
+        Records what the run selected, but never ``inputs``: a run without
+        results did not complete, so it vouches for no input state.
 
         Args:
             timestamp: Run timestamp.
             note: Explanatory note about why data is unavailable.
+            selection: The run's selection, or None when the caller records none.
         """
         index: dict[str, object] = {
             "schema_version": _SCHEMA_VERSION,
@@ -1246,6 +1300,8 @@ class StructuredLogWriter:
             "failure_clusters": [],
             "error_clusters": [],
         }
+        if selection is not None:
+            index["selection"] = selection
 
         index_path = self._run_dir / "index.json"
         index_path.parent.mkdir(parents=True, exist_ok=True)

@@ -37,7 +37,7 @@ if library_dir.exists() and str(library_dir) not in sys.path:
 # Import shared modules
 from shared.node_test_runner import run_node_suite  # noqa: E402
 from shared.package_suites import SuiteKind, detect_suite_kind  # noqa: E402
-from shared.test_runner import TestConfig, TestRunner  # noqa: E402
+from shared.test_runner import TIER_MARKER_EXPRESSIONS, TestConfig, TestRunner  # noqa: E402
 from shared.venv import get_datrix_root, get_venv_python, is_venv_active  # noqa: E402
 
 # Marker filters that SELECT a marked subset of tests. A suite with no marker
@@ -572,6 +572,8 @@ def run_node_project(args: argparse.Namespace, project_root: Path) -> int:
    f"suite runs without coverage instrumentation."
   )
 
+ # -Fast runs the whole Node suite, but it was still requested as a tier: the
+ # run is recorded as that targeted selection, never as a full one.
  return run_node_suite(
   project_root,
   args.project_name,
@@ -579,6 +581,7 @@ def run_node_project(args: argparse.Namespace, project_root: Path) -> int:
   save_log=not args.no_save,
   specific=args.specific,
   name_pattern=args.keyword,
+  tier="fast" if args.fast else None,
  )
 
 
@@ -787,18 +790,10 @@ Note: This script should be called from test.ps1, which handles virtual environm
  # with incremental (real-time) output streaming
  exclude_markers = ["benchmark"]
 
- # Build marker expression based on test type filters
- marker_expr = None
- if args.unit:
-  marker_expr = "unit"
- elif args.integration:
-  marker_expr = "integration"
- elif args.e2e:
-  marker_expr = "e2e"
- elif args.fast:
-  marker_expr = "not slow and not comprehensive"
- elif args.slow:
-  marker_expr = "slow or comprehensive"
+ # Build marker expression based on test type filters (the flags are mutually
+ # exclusive, so at most one tier is set)
+ selected_tiers = [tier for tier in TIER_MARKER_EXPRESSIONS if getattr(args, tier)]
+ marker_expr = TIER_MARKER_EXPRESSIONS[selected_tiers[0]] if selected_tiers else None
 
  config = TestConfig(
  project_root=project_root,

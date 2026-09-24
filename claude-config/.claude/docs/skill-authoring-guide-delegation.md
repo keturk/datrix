@@ -214,9 +214,10 @@ Phase prompts should include:
 ```markdown
 ### Steps
 
-1. Run the full test suite:
+1. Write the full-suite ticket, then run the gate (main session only — a dispatched
+   subagent reports the packages it changed instead, and never runs the gate):
    ```
-   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
+   powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {package-name}
    ```
 
 2. Record results:
@@ -495,7 +496,7 @@ delegation-strategy:
     - name: "quality_gate"
       model: "opus"
       parallelizable: false
-      description: "Run full suite"
+      description: "Run affected-gate.ps1 once over the affected set"
 ---
 
 # Execute Tasks

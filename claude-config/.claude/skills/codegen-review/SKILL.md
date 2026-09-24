@@ -15,7 +15,7 @@ Most checklist items below have a deterministic scanner — run the scanners on 
 | No placeholders/TODOs, no debug scatter | `dev\check-debug-artifacts.ps1 {package}`; `dev\ast-grep.ps1 {package}` |
 | No silent fallbacks | `dev\libcst.ps1 {package}`; `dev\semgrep.ps1 {package}` |
 | No `except: pass` | covered by `dev\semgrep.ps1` / `dev\ast-grep.ps1` rules |
-| All tests pass | `test\test.ps1 {package}` |
+| All tests pass | `test\affected-gate.ps1 -Projects {package}` (main session only, after writing the full-suite ticket — `guard-full-suite-runs.py` blocks it otherwise) |
 | No cross-package / matrix tests | `dev\check-import-boundaries.ps1` |
 | Cognitive complexity ≤15 | `metrics\complexity.ps1 {package}` |
 | No redundant code | `metrics\duplicate.ps1 {package}`; dead code: `metrics\vulture.ps1 {package}` |

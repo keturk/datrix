@@ -15,7 +15,12 @@ fixtures and real file I/O -- following the same shape as
 
 Modules covered (7 full files + 3 classes of an 8th):
     shared.structured_log_writer      (StructuredLogWriter, SourceLocation, TestCaseResult)
-    shared.test_runner                (TestConfig, TestRunner._build_pytest_args -- READ ONLY)
+    shared.test_runner                (TestConfig, TestRunner._build_pytest_args, the selection
+                                       classifier, the full-run stamp decision and the serial-phase
+                                       decision -- READ ONLY)
+    shared.suite_stamp                (FullRunStamp, merge_run_records -- over real git repositories;
+                                       read_distributed_deselected, unstamped_recorder_environment)
+    shared.node_test_runner           (node_selection, node_suite_inputs -- the Node run's stamp)
     shared.codegen_hint_mapper        (get_codegen_hint, CodegenHint)
     shared.deploy_test_aggregate_writer (DeployTestAggregateWriter)
     shared.generated_test_log_writer  (GeneratedTestLogWriter, normalize_error_message, _extract_import_chain)
@@ -52,6 +57,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import subprocess
 import sys
 from collections.abc import Callable
 from datetime import datetime
@@ -94,7 +102,35 @@ from shared.structured_log_writer import (  # noqa: E402
 from shared.structured_log_writer import (  # noqa: E402
     TestCaseResult as _SlwTestCaseResult,  # noqa: E402
 )
-from shared.test_runner import TestConfig, TestRunner  # noqa: E402
+from shared.node_test_runner import node_selection, node_suite_inputs  # noqa: E402
+from shared.suite_stamp import (  # noqa: E402
+    ENV_RUN_DIR,
+    ENV_SUITE_CONE,
+    ENV_WORKSPACE_ROOT,
+    MERGED_TIMINGS_NAME,
+    RUNNER_PLUGIN_MODULE,
+    DeselectedEvidence,
+    FullRunStamp,
+    SuiteStampError,
+    merge_run_records,
+    read_distributed_deselected,
+    unstamped_recorder_environment,
+)
+from shared.test_runner import (  # noqa: E402
+    SERIAL_SKIPPED_NO_SERIAL_ITEMS,
+    TIER_MARKER_EXPRESSIONS,
+    RunnerDeselectedRecordError,
+    TestConfig,
+    TestRunner,
+    _classify_selection,
+    _full_run_inputs,
+    _note_incomplete_phase,
+    _serial_phase_decision_for_run,
+    decide_serial_phase,
+)
+from shared.venv import get_datrix_root  # noqa: E402
+from test import suite_inputs  # noqa: E402
+from test.status_tests import _phase_status_from_index  # noqa: E402
 
 CheckFunc = Callable[[], None]
 
@@ -369,7 +405,7 @@ line 2 of stderr</system-err>
 
 
 def check_structured_log_writer_index_schema() -> None:
-    """index.json: schema_version=1, counts dict, failures/errors lists with all
+    """index.json: schema_version=2, counts dict, failures/errors lists with all
     required fields, failure_clusters/error_clusters present; summary.txt and
     failures/errors detail files are written alongside."""
     with TemporaryDirectory(prefix="slw-schema-") as tmp:
@@ -384,7 +420,7 @@ def check_structured_log_writer_index_schema() -> None:
             f"write() returned {result_path}, expected {run_dir / 'index.json'}"
         )
         index = json.loads(result_path.read_text(encoding="utf-8"))
-        assert index["schema_version"] == 1, f"schema_version={index.get('schema_version')!r}, expected 1"
+        assert index["schema_version"] == 2, f"schema_version={index.get('schema_version')!r}, expected 2"
         assert index["project"] == "test-project"
         assert index["timestamp"] == "2026-05-03T19:10:02"
         assert index["result"] == "FAILED"
@@ -533,7 +569,7 @@ def check_structured_log_writer_incomplete_on_bad_xml() -> None:
         StructuredLogWriter("p", run_truncated).write([truncated_path], _TIMESTAMP)
         index_truncated = json.loads((run_truncated / "index.json").read_text(encoding="utf-8"))
         assert index_truncated["result"] == "INCOMPLETE"
-        assert index_truncated["schema_version"] == 1
+        assert index_truncated["schema_version"] == 2
 
         empty_path = root / "empty.xml"
         empty_path.write_text("", encoding="utf-8")
@@ -937,6 +973,698 @@ def check_test_runner_parallel_phase_uses_loadgroup_distribution() -> None:
     )
     assert "-n" not in serial and "--dist" not in serial, (
         f"the serial phase emitted parallel flags: {serial}"
+    )
+
+
+def check_test_runner_enables_runner_plugin_flag_only_when_requested() -> None:
+    """The runner plugin is loaded by a standalone ``-p <module>`` argv pair,
+    in the parallel and the serial phase alike, only when the caller asks for
+    it -- and never folded into the ``-o addopts=...`` override string, where
+    it would be one token of a single argument and register nothing."""
+    for has_xdist in (True, False):
+        runner = _make_test_runner(has_xdist=has_xdist)
+        enabled = runner._build_pytest_args(
+            python_exe="python", coverage=False, verbose=False, enable_runner_plugin=True
+        )
+        assert enabled.count("-p") >= 1 and RUNNER_PLUGIN_MODULE in enabled, enabled
+        assert enabled[enabled.index(RUNNER_PLUGIN_MODULE) - 1] == "-p", (
+            f"the runner plugin is not the argument of its own -p flag: {enabled}"
+        )
+        overrides = [enabled[i + 1] for i, arg in enumerate(enabled[:-1]) if arg == "-o"]
+        assert not any(RUNNER_PLUGIN_MODULE in value for value in overrides), (
+            f"the runner plugin leaked into an -o override: {overrides}"
+        )
+
+        disabled = runner._build_pytest_args(
+            python_exe="python", coverage=False, verbose=False, enable_runner_plugin=False
+        )
+        omitted = runner._build_pytest_args(python_exe="python", coverage=False, verbose=False)
+        for args in (disabled, omitted):
+            assert RUNNER_PLUGIN_MODULE not in " ".join(args), (
+                f"the runner plugin was loaded although not requested: {args}"
+            )
+
+
+def check_test_runner_selection_classifier_distinguishes_full_from_targeted() -> None:
+    """Only an unnarrowed run is full. A -Specific batch is split exactly as
+    _build_pytest_args splits it (a parametrized id's comma is literal), a
+    keyword or any marker expression is targeted, and a tier is looked up from
+    the same table test_project builds its marker expression from."""
+    assert _classify_selection(None, None, None) == {"kind": "full"}
+
+    specific = _classify_selection(
+        None, "tests/unit/test_a.py::test_x[1,2], tests/unit/test_b.py", None
+    )
+    assert specific == {
+        "kind": "targeted",
+        "specific": ["tests/unit/test_a.py::test_x[1,2]", "tests/unit/test_b.py"],
+        "keyword": None,
+        "tier": None,
+        "marker": None,
+    }, specific
+
+    keyword = _classify_selection(None, None, "test_basic")
+    assert keyword == {
+        "kind": "targeted",
+        "specific": None,
+        "keyword": "test_basic",
+        "tier": None,
+        "marker": None,
+    }, keyword
+
+    assert set(TIER_MARKER_EXPRESSIONS) == {"unit", "integration", "e2e", "fast", "slow"}
+    for tier, expression in TIER_MARKER_EXPRESSIONS.items():
+        tiered = _classify_selection(expression, None, None)
+        assert tiered["kind"] == "targeted" and tiered["tier"] == tier, tiered
+        assert tiered["marker"] == expression, tiered
+
+    unknown = _classify_selection("not network", None, None)
+    assert unknown["kind"] == "targeted" and unknown["tier"] is None, unknown
+    assert unknown["marker"] == "not network", unknown
+
+
+def check_structured_log_writer_records_selection_and_inputs() -> None:
+    """index.json v2: ``selection`` and ``inputs`` are written as given; a run
+    given no inputs carries no ``inputs`` key at all (not null, not empty); an
+    INCOMPLETE run records its selection and never inputs, even when a caller
+    hands it some."""
+    inputs = {"algorithm": "a", "fingerprint": "f", "components": {"trees": {"p": "git-state:0"}}}
+    targeted = {"kind": "targeted", "specific": ["tests/unit/test_foo.py"], "keyword": None}
+    with TemporaryDirectory(prefix="slw-stamp-") as tmp:
+        root = Path(tmp)
+        xml_path = root / "junit.xml"
+        xml_path.write_text(_SLW_JUNIT_PARALLEL, encoding="utf-8")
+
+        stamped = root / "stamped"
+        stamped.mkdir()
+        StructuredLogWriter("p", stamped).write(
+            [xml_path], _TIMESTAMP, selection={"kind": "full"}, inputs=inputs
+        )
+        index = json.loads((stamped / "index.json").read_text(encoding="utf-8"))
+        assert index["schema_version"] == 2
+        assert index["selection"] == {"kind": "full"}
+        assert index["inputs"] == inputs
+
+        unstamped = root / "unstamped"
+        unstamped.mkdir()
+        StructuredLogWriter("p", unstamped).write([xml_path], _TIMESTAMP, selection=targeted)
+        index = json.loads((unstamped / "index.json").read_text(encoding="utf-8"))
+        assert index["selection"] == targeted
+        assert "inputs" not in index, f"a run given no inputs wrote {index['inputs']!r}"
+
+        incomplete = root / "incomplete"
+        incomplete.mkdir()
+        StructuredLogWriter("p", incomplete).write(
+            [root / "absent.xml"], _TIMESTAMP, selection={"kind": "full"}, inputs=inputs
+        )
+        index = json.loads((incomplete / "index.json").read_text(encoding="utf-8"))
+        assert index["result"] == "INCOMPLETE" and index["schema_version"] == 2
+        assert index["selection"] == {"kind": "full"}
+        assert "inputs" not in index, "an INCOMPLETE run was stamped with inputs"
+
+
+# ===========================================================================
+# shared.suite_stamp -- record merge and full-run stamps over real git repos
+# ===========================================================================
+
+_GIT_IDENTITY = (
+    "-c", "user.email=shared-library-gate@example.invalid",
+    "-c", "user.name=shared-library-gate",
+    "-c", "core.autocrlf=false",
+)
+_STAMP_WORKERS = ("gw0", "gw1")
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", *_GIT_IDENTITY, "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def _make_repo(path: Path, files: dict[str, str], ignored: tuple[str, ...] = ()) -> Path:
+    path.mkdir(parents=True)
+    _git(path, "init", "-q")
+    for relative, text in files.items():
+        (path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (path / relative).write_text(text, encoding="utf-8")
+    (path / ".gitignore").write_text("".join(f"{name}\n" for name in (".test_results/", *ignored)), encoding="utf-8")
+    _git(path, "add", "-A")
+    _git(path, "commit", "-q", "-m", "fixture")
+    return path
+
+
+class _StampWorkspace:
+    """A workspace of real git repositories: package ``alpha`` (with an
+    ignored file), its cone member ``beta``, and a foreign repository
+    ``other`` outside the cone."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root.resolve()
+        self.alpha = _make_repo(self.root / "alpha", {"src/alpha.py": "A = 1\n"}, ignored=("ignored.txt",))
+        (self.alpha / "ignored.txt").write_text("not tracked\n", encoding="utf-8")
+        self.beta = _make_repo(self.root / "beta", {"src/beta.py": "B = 1\n"})
+        self.other = _make_repo(self.root / "other", {"data/x.txt": "x\n"})
+        self.cone = (str(self.alpha), str(self.beta))
+        self._runs = 0
+
+    def stamp(self) -> FullRunStamp:
+        return FullRunStamp.for_cone(self.root, "alpha", self.cone)
+
+    def new_run_dir(self) -> Path:
+        self._runs += 1
+        run_dir = self.alpha / ".test_results" / f"test-results-{self._runs}"
+        run_dir.mkdir(parents=True)
+        return run_dir
+
+
+def _write_record(run_dir: Path, kind: str, worker: str, body: dict[str, object]) -> None:
+    payload = {"schema": 1, "worker": worker, **body}
+    (run_dir / f"{kind}-{worker}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _observed(**buckets: list[str]) -> dict[str, object]:
+    return {bucket: buckets[bucket] if bucket in buckets else [] for bucket in ("opened", "listed", "dlopened", "executables")}
+
+
+def _write_complete_records(workspace: _StampWorkspace, run_dir: Path) -> None:
+    """The records one distributed phase (two workers) plus one standalone
+    phase leave, shaped exactly as the runner plugin writes them."""
+    python = os.path.realpath(sys.executable)
+    observations = {
+        "gw0": _observed(
+            opened=[str(workspace.alpha / "src" / "alpha.py"), str(workspace.other / "data" / "x.txt")],
+            executables=[python],
+        ),
+        "gw1": _observed(opened=[str(workspace.alpha / "ignored.txt")]),
+        "main": _observed(listed=[str(workspace.beta / "src")]),
+        "controller": _observed(executables=[python]),
+    }
+    for worker, observed in observations.items():
+        _write_record(run_dir, "observed", worker, observed)
+    _write_record(run_dir, "workers", "controller", {"workers": list(_STAMP_WORKERS)})
+    for worker in (*_STAMP_WORKERS, "main"):
+        _write_record(run_dir, "deselected", worker, {"deselected": 0})
+        _write_record(
+            run_dir,
+            "timings",
+            worker,
+            {
+                "calls": [{"nodeid": f"tests/test_{worker}.py::test_it", "seconds": 1.5}],
+                "fixtures": [{"fixture": f"tests::{worker}_fixture", "scope": "module", "seconds": 0.5}],
+            },
+        )
+
+
+def _expect_stamp_error(action: Callable[[], object], fragment: str) -> None:
+    try:
+        action()
+    except SuiteStampError as exc:
+        assert fragment in str(exc), f"refusal does not name {fragment!r}: {exc}"
+    else:
+        raise AssertionError(f"expected a SuiteStampError naming {fragment!r}; none was raised")
+
+
+def check_suite_stamp_record_names_match_the_runner_plugin() -> None:
+    """The seam between the plugin that writes the records and the merge that
+    reads them: file names, session ids, buckets, schema and environment
+    variables are compared in code, so neither side can drift alone."""
+    from datrix_common.testing import runner_plugin
+    from shared import suite_stamp
+
+    assert RUNNER_PLUGIN_MODULE == runner_plugin.__name__
+    assert (ENV_RUN_DIR, ENV_SUITE_CONE, ENV_WORKSPACE_ROOT) == (
+        runner_plugin._ENV_RUN_DIR,
+        runner_plugin._ENV_SUITE_CONE,
+        runner_plugin._ENV_WORKSPACE_ROOT,
+    )
+    assert suite_stamp._RECORD_SCHEMA == runner_plugin._RECORD_SCHEMA
+    assert suite_stamp._STANDALONE_SESSION == runner_plugin._STANDALONE_WORKER_ID
+    assert suite_stamp._CONTROLLER_SESSION == runner_plugin._CONTROLLER_WORKER_ID
+    assert suite_stamp._WORKER_ID.pattern == runner_plugin._WORKER_ID_PATTERN.pattern
+    assert set(suite_stamp._OBSERVED_BUCKETS) == set(runner_plugin._BUCKETS)
+    plugin_kinds = (
+        runner_plugin._OBSERVED_KIND,
+        runner_plugin._DESELECTED_KIND,
+        runner_plugin._TIMINGS_KIND,
+        runner_plugin._WORKERS_KIND,
+    )
+    stamp_kinds = (
+        suite_stamp._OBSERVED_KIND,
+        suite_stamp._DESELECTED_KIND,
+        suite_stamp._TIMINGS_KIND,
+        suite_stamp._WORKERS_KIND,
+    )
+    for plugin_kind, stamp_kind in zip(plugin_kinds, stamp_kinds, strict=True):
+        assert runner_plugin._record_file(plugin_kind, "gw3") == suite_stamp._record_name(stamp_kind, "gw3")
+        assert suite_stamp._RECORD_FILE.match(suite_stamp._record_name(stamp_kind, "gw3"))
+    assert suite_stamp._RECORD_FILE.match(MERGED_TIMINGS_NAME) is None, (
+        "the merged timings file would be read back as a session record"
+    )
+
+
+def check_suite_stamp_merges_a_complete_record_set_into_inputs() -> None:
+    """A full run whose sessions all left their records is stamped: the cone's
+    trees are exactly its members, a tracked in-cone read is covered by its
+    tree, an ignored in-cone read and a foreign read are their own components,
+    the executables are the ones started, and timings.json merges every
+    session's timings tagged by worker."""
+    with TemporaryDirectory(prefix="suite-stamp-") as tmp:
+        workspace = _StampWorkspace(Path(tmp))
+        stamp = workspace.stamp()
+        run_dir = workspace.new_run_dir()
+
+        environment = stamp.plugin_environment(run_dir)
+        assert environment == {
+            ENV_RUN_DIR: str(run_dir.resolve()),
+            ENV_SUITE_CONE: os.pathsep.join(workspace.cone),
+            ENV_WORKSPACE_ROOT: str(workspace.root),
+        }, environment
+
+        _write_complete_records(workspace, run_dir)
+        reports: list[str] = []
+        inputs = _full_run_inputs(
+            stamp, run_dir, incomplete_phases=[], distributed=True, standalone=True, report=reports.append
+        )
+        assert inputs is not None and not reports, reports
+        assert inputs["algorithm"] == suite_inputs.ALGORITHM
+        components = inputs["components"]
+        assert isinstance(components, dict)
+        assert set(components["trees"]) == {"alpha", "beta"}, components["trees"]
+        assert set(components["foreign"]) == {"other/data"}, components["foreign"]
+        assert set(components["in_cone_ignored"]) == {str(workspace.alpha / "ignored.txt")}, components
+        assert set(components["executables"]) == {os.path.realpath(sys.executable)}, components
+
+        timings = json.loads((run_dir / MERGED_TIMINGS_NAME).read_text(encoding="utf-8"))
+        assert sorted(call["worker"] for call in timings["calls"]) == ["gw0", "gw1", "main"], timings
+        assert all(call["seconds"] == 1.5 for call in timings["calls"]), timings
+        assert sorted(fixture["worker"] for fixture in timings["fixtures"]) == ["gw0", "gw1", "main"]
+
+        again = merge_run_records(run_dir, distributed=True, standalone=True)
+        assert again.observed["executables"] == [os.path.realpath(sys.executable)]
+
+
+def check_suite_stamp_refuses_an_incomplete_or_unaccounted_record_set() -> None:
+    """A missing record (a crashed or refusing session), a missing controller
+    worker list, a record no session accounts for, a record naming the wrong
+    session, and an unreadable record each refuse the stamp -- and the runner
+    then records no inputs rather than a partial set."""
+
+    def run_with(mutate: Callable[[Path], None]) -> Path:
+        run_dir = workspace.new_run_dir()
+        _write_complete_records(workspace, run_dir)
+        mutate(run_dir)
+        return run_dir
+
+    with TemporaryDirectory(prefix="suite-stamp-") as tmp:
+        workspace = _StampWorkspace(Path(tmp))
+        cases: list[tuple[Callable[[Path], None], str]] = [
+            (lambda run: (run / "observed-gw1.json").unlink(), "observed-gw1.json"),
+            (lambda run: (run / "workers-controller.json").unlink(), "workers-controller.json"),
+            (lambda run: _write_record(run, "observed", "gw2", _observed()), "observed-gw2.json"),
+            (lambda run: _write_record(run, "observed", "main", {**_observed(), "worker": "gw0"}), "observed-main.json"),
+            (lambda run: (run / "timings-main.json").write_text("{not json", encoding="utf-8"), "timings-main.json"),
+        ]
+        for mutate, fragment in cases:
+            run_dir = run_with(mutate)
+            _expect_stamp_error(
+                lambda run_dir=run_dir: merge_run_records(run_dir, distributed=True, standalone=True), fragment
+            )
+
+        complete = run_with(lambda run: None)
+        _expect_stamp_error(
+            lambda: merge_run_records(complete, distributed=False, standalone=False), "No phase"
+        )
+        (complete / "observed-main.json").unlink()
+        reports: list[str] = []
+        inputs = _full_run_inputs(
+            workspace.stamp(), complete, incomplete_phases=[], distributed=True, standalone=True,
+            report=reports.append,
+        )
+        assert inputs is None, "a run with a missing session record was stamped"
+        assert len(reports) == 1 and "WITHOUT a suite-input stamp" in reports[0], reports
+        assert not (complete / MERGED_TIMINGS_NAME).exists(), "timings merged from an incomplete record set"
+
+
+def check_test_runner_crashed_phase_records_selection_without_inputs() -> None:
+    """A full run with a phase that did not complete -- its process could not
+    start, or pytest exited interrupted / with an internal or usage error --
+    is written with its selection and no inputs, even though every record is
+    present. A phase that passed, failed tests, or collected nothing completed."""
+    incomplete: list[str] = []
+    for code in (0, 1, 5):
+        _note_incomplete_phase(incomplete, f"phase-{code}", code)
+    assert incomplete == [], incomplete
+    for code in (2, 3, 4):
+        _note_incomplete_phase(incomplete, f"phase-{code}", code)
+    _note_incomplete_phase(incomplete, "phase-3", 3)
+    assert incomplete == ["phase-2", "phase-3", "phase-4"], incomplete
+
+    with TemporaryDirectory(prefix="suite-stamp-") as tmp:
+        workspace = _StampWorkspace(Path(tmp))
+        run_dir = workspace.new_run_dir()
+        _write_complete_records(workspace, run_dir)
+        reports: list[str] = []
+        inputs = _full_run_inputs(
+            workspace.stamp(), run_dir, incomplete_phases=["Parallel"], distributed=True, standalone=True,
+            report=reports.append,
+        )
+        assert inputs is None, "a run whose Parallel phase crashed was stamped"
+        assert len(reports) == 1 and "Parallel" in reports[0], reports
+
+        xml_path = Path(tmp) / "junit.xml"
+        xml_path.write_text(_SLW_JUNIT_PARALLEL, encoding="utf-8")
+        StructuredLogWriter("alpha", run_dir).write(
+            [xml_path], _TIMESTAMP, selection=_classify_selection(None, None, None), inputs=inputs
+        )
+        index = json.loads((run_dir / "index.json").read_text(encoding="utf-8"))
+        assert index["selection"] == {"kind": "full"}
+        assert "inputs" not in index, "the crashed full run's index.json carries inputs"
+
+
+# ---------------------------------------------------------------------------
+# The serial-phase decision: the parallel phase's deselected records, read the
+# way the runner reads them, decide whether the serial phase has anything to run.
+# ---------------------------------------------------------------------------
+
+_DECISION_WORKERS = ("gw0", "gw1")
+
+
+def _parallel_phase_records(run_dir: Path, deselected: dict[str, int], listed: tuple[str, ...] = _DECISION_WORKERS) -> None:
+    """The records one distributed phase leaves before the serial phase runs:
+    the controller's worker list and each named worker's deselected count."""
+    run_dir.mkdir(parents=True)
+    _write_record(run_dir, "workers", "controller", {"workers": list(listed)})
+    _write_record(run_dir, "observed", "controller", _observed())
+    for worker, count in deselected.items():
+        _write_record(run_dir, "deselected", worker, {"deselected": count})
+
+
+def _decide(run_dir: Path, *, user_filter_active: bool = False) -> str | None:
+    """The phases.Serial skip reason the runner would record, or None when it runs the phase."""
+    evidence = read_distributed_deselected(run_dir)
+    return decide_serial_phase(evidence, parallel_completed=True, user_filter_active=user_filter_active).skip_reason
+
+
+def check_serial_phase_runs_when_workers_deselected_serial_items() -> None:
+    """Every worker deselecting 3 items (the serial-marked ones) runs the
+    serial phase -- with no filter and under a marker/keyword filter alike."""
+    with TemporaryDirectory(prefix="serial-decision-") as tmp:
+        run_dir = Path(tmp) / "test-results-20260924-000000"
+        _parallel_phase_records(run_dir, {"gw0": 3, "gw1": 3})
+        evidence = read_distributed_deselected(run_dir)
+        assert evidence.absent is None and dict(evidence.counts) == {"gw0": 3, "gw1": 3}, evidence
+        for user_filter_active in (False, True):
+            decision = _decide(run_dir, user_filter_active=user_filter_active)
+            assert decision is None, f"3 deselected serial items must run the serial phase, got skip={decision!r}"
+
+
+def check_serial_phase_skipped_when_every_worker_deselected_zero() -> None:
+    """Every worker reporting 0 deselected skips the serial phase and records
+    ``phases.Serial`` as the skip string. A -Specific selection is not a
+    filter (it deselects nothing); a marker or keyword filter keeps the phase."""
+    with TemporaryDirectory(prefix="serial-decision-") as tmp:
+        run_dir = Path(tmp) / "test-results-20260924-000001"
+        _parallel_phase_records(run_dir, {"gw0": 0, "gw1": 0})
+        assert _decide(run_dir) == SERIAL_SKIPPED_NO_SERIAL_ITEMS == "skipped (0 serial items)"
+        assert _decide(run_dir, user_filter_active=True) is None, (
+            "under a marker or keyword filter the serial phase must keep running"
+        )
+        decision, errors = _serial_phase_decision_for_run(
+            run_dir, recorded=True, parallel_completed=True, user_filter_active=False
+        )
+        assert decision.skip_reason == SERIAL_SKIPPED_NO_SERIAL_ITEMS and errors == [], (decision, errors)
+
+
+def check_serial_phase_runs_when_evidence_is_missing() -> None:
+    """Fail closed: no records at all, a controller-listed worker with no
+    record, a run that loaded no recorder, and a parallel phase that did not
+    complete each RUN the serial phase -- none is read as zero -- and none is
+    a runner error."""
+    with TemporaryDirectory(prefix="serial-decision-") as tmp:
+        root = Path(tmp)
+        empty = root / "test-results-20260924-000002"
+        empty.mkdir()
+        evidence = read_distributed_deselected(empty)
+        assert evidence.absent is not None and "workers-controller.json" in evidence.absent, evidence
+        assert _decide(empty) is None, "a run directory with no records must run the serial phase"
+
+        crashed_worker = root / "test-results-20260924-000003"
+        _parallel_phase_records(crashed_worker, {"gw0": 0})
+        evidence = read_distributed_deselected(crashed_worker)
+        assert evidence.absent is not None and "deselected-gw1.json" in evidence.absent, evidence
+        assert _decide(crashed_worker) is None, "a listed worker with no record must run the serial phase"
+
+        complete = root / "test-results-20260924-000004"
+        _parallel_phase_records(complete, {"gw0": 0, "gw1": 0})
+        for recorded, run_dir, completed in ((False, complete, True), (True, None, True), (True, complete, False)):
+            decision, errors = _serial_phase_decision_for_run(
+                run_dir, recorded=recorded, parallel_completed=completed, user_filter_active=False
+            )
+            assert decision.skip_reason is None and errors == [], (recorded, run_dir, completed, decision, errors)
+
+        no_counts = DeselectedEvidence(counts={}, absent=None)
+        assert decide_serial_phase(no_counts, parallel_completed=True, user_filter_active=False).skip_reason is None
+
+
+def check_serial_phase_disagreeing_or_unreadable_records_are_a_runner_error() -> None:
+    """Workers disagreeing on the count raise RunnerDeselectedRecordError and
+    are never read as zero; through the runner's own entry point the serial
+    phase then runs and the error is returned to fail the run. A malformed
+    count and a record the controller did not list are runner errors too."""
+    with TemporaryDirectory(prefix="serial-decision-") as tmp:
+        root = Path(tmp)
+        disagreeing = root / "test-results-20260924-000005"
+        _parallel_phase_records(disagreeing, {"gw0": 0, "gw1": 3})
+        try:
+            _decide(disagreeing)
+        except RunnerDeselectedRecordError as exc:
+            assert "disagree" in str(exc), exc
+        else:
+            raise AssertionError("disagreeing worker counts must raise, never be silently treated as zero")
+
+        malformed = root / "test-results-20260924-000006"
+        _parallel_phase_records(malformed, {"gw0": 0})
+        _write_record(malformed, "deselected", "gw1", {"deselected": "0"})
+        unlisted = root / "test-results-20260924-000007"
+        _parallel_phase_records(unlisted, {"gw0": 0, "gw1": 0, "main": 0})
+        for run_dir, fragment in ((disagreeing, "disagree"), (malformed, "deselected-gw1.json"), (unlisted, "deselected-main.json")):
+            decision, errors = _serial_phase_decision_for_run(
+                run_dir, recorded=True, parallel_completed=True, user_filter_active=False
+            )
+            assert decision.skip_reason is None, f"{run_dir.name}: untrusted records skipped the serial phase"
+            assert len(errors) == 1 and fragment in errors[0], (run_dir.name, errors)
+
+
+_SLW_JUNIT_ALL_PASSING = """\
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="parallel" tests="2" errors="0" failures="0" skipped="0" time="1.5">
+    <testcase classname="tests.test_foo.TestBar" name="test_one" time="0.5"/>
+    <testcase classname="tests.test_foo.TestBar" name="test_two" time="1.0"/>
+  </testsuite>
+</testsuites>
+"""
+
+
+def check_structured_log_writer_records_a_skipped_phase_and_runner_errors() -> None:
+    """index.json records a skipped phase as its reason string beside the
+    executed phase's status dict, and status_tests renders it as no status
+    (never OK); a runner error makes an otherwise-green run FAILED and is
+    listed under ``runner_errors``, which a clean run does not carry."""
+    phases: dict[str, dict[str, object] | str] = {"Parallel": {"status": 1}, "Serial": SERIAL_SKIPPED_NO_SERIAL_ITEMS}
+    with TemporaryDirectory(prefix="slw-phases-") as tmp:
+        root = Path(tmp)
+        xml_path = root / "junit.xml"
+        xml_path.write_text(_SLW_JUNIT_ALL_PASSING, encoding="utf-8")
+        clean = root / "clean"
+        clean.mkdir()
+        StructuredLogWriter("p", clean).write([xml_path], _TIMESTAMP, phase_results=phases, selection={"kind": "full"})
+        index = json.loads((clean / "index.json").read_text(encoding="utf-8"))
+        assert index["phases"] == {"Parallel": {"status": 1}, "Serial": "skipped (0 serial items)"}, index["phases"]
+        assert index["result"] == "PASSED" and "runner_errors" not in index, index
+        assert _phase_status_from_index(index["phases"]["Serial"]) is None
+        assert _phase_status_from_index(index["phases"]["Parallel"]) == "PASSED"
+
+        errored = root / "errored"
+        errored.mkdir()
+        StructuredLogWriter("p", errored).write(
+            [xml_path], _TIMESTAMP, phase_results=phases, selection={"kind": "full"}, runner_errors=["workers disagree"]
+        )
+        index = json.loads((errored / "index.json").read_text(encoding="utf-8"))
+        assert index["counts"]["failed"] == 0 and index["counts"]["error"] == 0, index["counts"]
+        assert index["result"] == "FAILED" and index["runner_errors"] == ["workers disagree"], index
+        assert "RUNNER ERRORS:" in (errored / "summary.txt").read_text(encoding="utf-8")
+
+
+def check_full_run_with_a_skipped_serial_phase_is_stamped_from_the_workers_alone() -> None:
+    """A full run whose serial phase was skipped left no ``main`` session:
+    the runner stamps it with ``standalone=False`` (no executed single-process
+    phase), and the merge accepts the workers' and controller's records
+    alone. Claiming a standalone phase for the same record set is refused --
+    the flag, not the files present, decides what must exist."""
+    with TemporaryDirectory(prefix="suite-stamp-") as tmp:
+        workspace = _StampWorkspace(Path(tmp))
+        run_dir = workspace.new_run_dir()
+        _write_complete_records(workspace, run_dir)
+        for kind in ("observed", "deselected", "timings"):
+            (run_dir / f"{kind}-main.json").unlink()
+        reports: list[str] = []
+        inputs = _full_run_inputs(
+            workspace.stamp(), run_dir, incomplete_phases=[], distributed=True, standalone=False, report=reports.append
+        )
+        assert inputs is not None and not reports, reports
+        timings = json.loads((run_dir / MERGED_TIMINGS_NAME).read_text(encoding="utf-8"))
+        assert sorted(call["worker"] for call in timings["calls"]) == list(_STAMP_WORKERS), timings
+        _expect_stamp_error(lambda: merge_run_records(run_dir, distributed=True, standalone=True), "main")
+
+
+def check_unstamped_recorder_environment_passes_the_runner_plugins_validation() -> None:
+    """A targeted saved run loads the runner plugin for its deselected counts
+    with an environment naming only the package's own tree as its cone. The
+    plugin's own settings validation must accept it -- a refusal would fail
+    every targeted run with a usage error."""
+    from datrix_common.testing import runner_plugin
+
+    workspace = get_datrix_root()
+    with TemporaryDirectory(prefix="recorder-env-") as tmp:
+        run_dir = Path(tmp)
+        environment = unstamped_recorder_environment(run_dir, workspace, workspace / "datrix-language")
+        assert environment == {
+            ENV_RUN_DIR: str(run_dir.resolve()),
+            ENV_SUITE_CONE: str((workspace / "datrix-language").resolve()),
+            ENV_WORKSPACE_ROOT: str(workspace.resolve()),
+        }, environment
+        saved = {name: os.environ.get(name) for name in environment}
+        try:
+            os.environ.update(environment)
+            settings = runner_plugin._read_settings()
+        finally:
+            for name, value in saved.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+        assert settings.run_dir == run_dir.resolve() and settings.workspace_root == workspace.resolve(), settings
+
+
+def check_suite_stamp_refuses_a_tree_changed_during_the_run() -> None:
+    """A cone tree edited after the run started -- a tracked file modified, or
+    a file git does not ignore added -- refuses the stamp and names the tree;
+    an untouched cone is stamped."""
+    empty = suite_inputs.ObservedInputs(in_cone_ignored=frozenset(), foreign=frozenset(), executables=frozenset())
+    with TemporaryDirectory(prefix="suite-stamp-") as tmp:
+        workspace = _StampWorkspace(Path(tmp))
+        stamp = workspace.stamp()
+        components = stamp.inputs_for(empty)["components"]
+        assert isinstance(components, dict)
+        assert components["trees"] == dict(stamp.trees_at_start), components
+
+        (workspace.alpha / "src" / "alpha.py").write_text("A = 2\n", encoding="utf-8")
+        _expect_stamp_error(lambda: stamp.inputs_for(empty), "alpha")
+
+        restamped = workspace.stamp()
+        (workspace.beta / "new_module.py").write_text("C = 3\n", encoding="utf-8")
+        _expect_stamp_error(lambda: restamped.inputs_for(empty), "beta")
+
+
+def check_node_runner_stamp_names_executables_and_cross_ecosystem_cone_member() -> None:
+    """The Node runner records a full run only when no file, name pattern or
+    tier narrowed it, and its stamp names exactly the executables it launched
+    over the real cone of the Node package -- which holds the Python package it
+    reaches only through a declared cross-ecosystem edge. Stand-in executables
+    keep the check independent of a Node installation: what is proven is that
+    the stamp names what the runner resolved, never a fixed list."""
+    assert node_selection(None, None, None) == {"kind": "full"}
+    assert node_selection("a.test.ts, b.test.ts", None, None)["specific"] == ["a.test.ts", "b.test.ts"]
+    assert node_selection(None, "^resolves", None)["kind"] == "targeted"
+    fast = node_selection(None, None, "fast")
+    assert fast["kind"] == "targeted" and fast["tier"] == "fast", fast
+
+    workspace = get_datrix_root()
+    cone = suite_inputs.package_cone(workspace, "datrix-vscode")
+    members = {Path(root).name for root in cone}
+    assert {"datrix-vscode", "datrix-language"} <= members, (
+        f"datrix-vscode's cone {sorted(members)} lacks its cross-ecosystem dependency datrix-language"
+    )
+    git = shutil.which("git")
+    assert git is not None, "git is required to fingerprint trees; put it on PATH"
+    launched = [sys.executable, git]
+    reports: list[str] = []
+    inputs = node_suite_inputs(FullRunStamp.for_cone(workspace, "datrix-vscode", cone), launched, reports.append)
+    assert inputs is not None, reports
+    components = inputs["components"]
+    assert isinstance(components, dict)
+    assert set(components["trees"]) == members, components["trees"]
+    assert set(components["executables"]) == {os.path.realpath(path) for path in launched}, components
+    assert components["foreign"] == {} and components["in_cone_ignored"] == {}, components
+    assert components["installed"] != suite_inputs.installed_digest(()), (
+        "datrix-vscode's stamp does not cover its installed Node dependencies: its installed "
+        "component equals the Python distributions' digest alone"
+    )
+
+
+#: Every library module on the suite-stamp path. Each is imported FIRST, in an
+#: interpreter of its own: an import cycle surfaces only when the module that
+#: enters it is the first one imported, so importing them in sequence in one
+#: process (as this gate's own header does) hides every cycle but the first.
+_FIRST_IMPORT_MODULES = (
+    "test.suite_inputs",
+    "test.affected_set",
+    "test.affected_gate",
+    "test.gate_verdict",
+    "shared.suite_stamp",
+    "shared.test_runner",
+    "shared.node_test_runner",
+    "shared.structured_log_writer",
+)
+_FIRST_IMPORT_TIMEOUT_SECONDS = 120
+#: Imports one module with the library directory first on sys.path -- exactly
+#: what each entry script does before its own imports. ``-P`` keeps the working
+#: directory off sys.path, so nothing but the library directory can satisfy
+#: an import the entry script would not.
+_FIRST_IMPORT_PROGRAM = "import importlib, sys; sys.path.insert(0, sys.argv[1]); importlib.import_module(sys.argv[2])"
+
+
+def _first_import_failure(library_dir: Path, module: str) -> str | None:
+    """None when *module* imports first in a fresh interpreter, else why not."""
+    completed = subprocess.run(
+        [sys.executable, "-P", "-c", _FIRST_IMPORT_PROGRAM, str(library_dir), module],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=_FIRST_IMPORT_TIMEOUT_SECONDS,
+    )
+    if completed.returncode == 0:
+        return None
+    stderr_lines = completed.stderr.strip().splitlines()
+    return f"{module} (exit {completed.returncode}): {stderr_lines[-1] if stderr_lines else 'no stderr'}"
+
+
+def check_stamp_library_modules_import_first_in_a_fresh_interpreter() -> None:
+    """Each suite-stamp library module imports cleanly as the FIRST import of a
+    fresh interpreter. A planted two-module cycle proves the probe sees an
+    order-dependent cycle: it fails from the module that enters it and passes
+    from the other."""
+    with TemporaryDirectory(prefix="first-import-") as tmp:
+        planted = Path(tmp)
+        (planted / "cycle_entry.py").write_text("import cycle_exit\nVALUE = 1\n", encoding="utf-8")
+        (planted / "cycle_exit.py").write_text("from cycle_entry import VALUE\n", encoding="utf-8")
+        entry_failure = _first_import_failure(planted, "cycle_entry")
+        assert entry_failure is not None and "ImportError" in entry_failure, (
+            f"the planted cycle entered first was not reported: {entry_failure!r}"
+        )
+        assert _first_import_failure(planted, "cycle_exit") is None, (
+            "the planted cycle entered from its other side must import"
+        )
+    failures = [
+        failure
+        for failure in (_first_import_failure(_LIBRARY_DIR, module) for module in _FIRST_IMPORT_MODULES)
+        if failure is not None
+    ]
+    assert not failures, (
+        "library modules that fail when imported first (an import cycle, or a module that "
+        f"only imports after another has): {failures}. Break the cycle at its root -- a "
+        "package initializer must not import the modules that depend on its leaves."
     )
 
 
@@ -3197,6 +3925,24 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_test_runner_junit_xml_coexists_with_addopts_override,
     check_test_runner_junit_xml_with_coverage_and_verbose_marker,
     check_test_runner_parallel_phase_uses_loadgroup_distribution,
+    check_test_runner_enables_runner_plugin_flag_only_when_requested,
+    check_test_runner_selection_classifier_distinguishes_full_from_targeted,
+    check_structured_log_writer_records_selection_and_inputs,
+    # shared.suite_stamp + the runners' stamp paths (real git repositories)
+    check_suite_stamp_record_names_match_the_runner_plugin,
+    check_suite_stamp_merges_a_complete_record_set_into_inputs,
+    check_suite_stamp_refuses_an_incomplete_or_unaccounted_record_set,
+    check_test_runner_crashed_phase_records_selection_without_inputs,
+    check_serial_phase_runs_when_workers_deselected_serial_items,
+    check_serial_phase_skipped_when_every_worker_deselected_zero,
+    check_serial_phase_runs_when_evidence_is_missing,
+    check_serial_phase_disagreeing_or_unreadable_records_are_a_runner_error,
+    check_structured_log_writer_records_a_skipped_phase_and_runner_errors,
+    check_full_run_with_a_skipped_serial_phase_is_stamped_from_the_workers_alone,
+    check_unstamped_recorder_environment_passes_the_runner_plugins_validation,
+    check_suite_stamp_refuses_a_tree_changed_during_the_run,
+    check_node_runner_stamp_names_executables_and_cross_ecosystem_cone_member,
+    check_stamp_library_modules_import_first_in_a_fresh_interpreter,
     # shared.codegen_hint_mapper
     check_codegen_hint_python_patterns,
     check_codegen_hint_typescript_patterns,

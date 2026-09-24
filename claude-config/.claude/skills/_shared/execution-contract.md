@@ -36,7 +36,9 @@ Every one of these has been used to dodge. Each is now explicitly work:
   *claim*. Prove it with the verbatim error text, or fix it. An unproven dismissal is a dodge.
 - **"There's no test covering this."** → Write one.
 - **"This requires a design decision."** → If you can defend a choice, make it and state your
-  reasoning. B2 is for genuine ties, not for the mild discomfort of deciding.
+  reasoning. B2 is for genuine ties, not for the mild discomfort of deciding. This covers
+  decisions *inside the task you were given*. A discovered defect whose fix would need its own
+  design is a different case; see §5.
 - **"This should be tracked separately / handed to a follow-up / owned by another task."** →
   **There is no other agent.** There is no follow-up fairy. If it genuinely is a separate root
   cause, you file a real tracked task file — see §5. Prose in a report is not filing.
@@ -148,6 +150,16 @@ exact reason the rule exists — filing forward is deferral wearing the costume 
 
 The legitimate reason to file rather than fix is that the fix is a **genuinely separate root cause
 or a decision that is not yours** (a product/security call, a B2). Say which, in the task file.
+
+**"Found it, you fix it" is sized for small defects.** It covers issues found while doing the
+task that a contained change can fix: a stale caller, a wrong path, a missed branch, a helper
+another change broke. **It is never licence to start work that would need its own design**:
+new behaviour across several languages or subsystems, a new capability, or a surface the task's
+design doc does not cover. A discovery of that size is **neither fixed in place nor filed into the
+running phase**. Report it as a *finding*, with evidence (file:line, what is wrong, what it
+affects), and stop there. The orchestrator hands it to Jon, who decides whether it becomes a
+design, a later phase, or nothing. Doing that work unasked, or filing it into the phase so that
+it becomes mandatory, is scope creep, however real the defect is.
 
 ## 6. Escalate before you stop — never instead of fixing
 

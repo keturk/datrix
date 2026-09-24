@@ -1,83 +1,9 @@
-"""Shared utilities for Datrix scripts."""
+"""Shared utilities for Datrix scripts.
 
-from .logging_utils import (
- ColorCodes,
- LogConfig,
- TeeLogger,
- cleanup_old_logs,
- colorize,
- tee_output,
-)
-from .ollama_utils import (
- OLLAMA_DEFAULT_MODEL,
- OLLAMA_DEFAULT_NUM_PREDICT,
- OLLAMA_DEFAULT_URL,
- OLLAMA_MAX_FIX_RETRIES,
- OLLAMA_TIMEOUT_SECONDS,
- apply_and_verify_on_disk,
- build_retry_feedback,
- call_ollama,
- detect_indent,
- extract_file_context,
- normalize_indentation,
- parse_ollama_response,
- run_pytest,
- run_ruff_check,
-)
-from .test_projects import (
- build_output_path,
- get_default_output_path,
- get_project_by_name,
- get_test_projects,
- list_projects,
- list_test_sets,
-)
-from .test_runner import (
- TestConfig,
- TestRunner,
-)
-from .venv import (
- ensure_datrix_venv,
- get_datrix_root,
- get_venv_path,
- get_venv_python,
- is_venv_active,
- is_venv_exists,
-)
-
-__all__ = [
- "get_datrix_root",
- "get_venv_path",
- "is_venv_exists",
- "is_venv_active",
- "get_venv_python",
- "ensure_datrix_venv",
- "LogConfig",
- "TeeLogger",
- "ColorCodes",
- "colorize",
- "tee_output",
- "cleanup_old_logs",
- "TestConfig",
- "TestRunner",
- "get_test_projects",
- "get_project_by_name",
- "list_test_sets",
- "list_projects",
- "build_output_path",
- "get_default_output_path",
- "OLLAMA_DEFAULT_MODEL",
- "OLLAMA_DEFAULT_URL",
- "OLLAMA_MAX_FIX_RETRIES",
- "OLLAMA_TIMEOUT_SECONDS",
- "OLLAMA_DEFAULT_NUM_PREDICT",
- "call_ollama",
- "parse_ollama_response",
- "extract_file_context",
- "normalize_indentation",
- "detect_indent",
- "apply_and_verify_on_disk",
- "run_ruff_check",
- "run_pytest",
- "build_retry_feedback",
-]
+Import each utility from its own module (``from shared.venv import
+get_datrix_root``). This package initializer deliberately imports nothing:
+``shared.venv`` is a leaf that almost every script and library module needs,
+and an initializer that pulled in the test-runner stack on every such import
+would put each module that stack depends on into an import cycle with every
+module that only wanted the leaf.
+"""

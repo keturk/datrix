@@ -26,8 +26,9 @@ With a test command (will produce structured output):
 ```
 /fix-tests
 
-COMMAND: powershell -File d:/datrix/datrix/scripts/test/test.ps1 datrix-codegen-python
+COMMAND: powershell -File d:/datrix/datrix/scripts/test/test.ps1 datrix-codegen-python -Specific "tests/unit/test_a.py,tests/unit/test_b.py"
 ```
+A whole-package COMMAND is a phase-boundary act, not a `/fix-tests` trigger — pass a targeted `-Specific`/`-Keyword` form, or point `/fix-tests` at a `RUN:` directory the phase-boundary gate already produced. The final regression check is `affected-gate.ps1` (Step E), never a bare whole-package COMMAND re-invocation.
 
 With a legacy log file (falls back to manual triage):
 ```
@@ -135,13 +136,17 @@ For each root cause, follow this strict sequence:
 
 #### Step E: Regression Check (scripted)
 
-1. After re-running the suite, compare the previous and new run directories with the delta script:
+1. Re-run, by role:
+   - **Main-session role:** write the full-suite ticket with the Write tool — `D:\datrix\.tmp\full-suite-ticket.json` = `{"packages": [<every package you changed>], "reason": "fix-tests regression check for {package}", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}` (`guard-full-suite-runs.py` blocks the gate without it) — then run `powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {package}`. The gate re-derives the closure, carries any package whose inputs are unchanged since its last green full run, and names each ran package's new run in its `Details:` JSON (`run_dir`).
+   - **Dispatched-subagent role:** run no suite and not the gate (the guard blocks both for a subagent); re-run the fixed clusters' tests batched in one `-Specific` invocation, report the packages you changed, and the dispatcher runs the gate over the union.
+
+   Then compare the previous and new run directories with the delta script:
    ```bash
    powershell -File "d:/datrix/datrix/scripts/test/classify-run-delta.ps1" -Previous "{previous-run-dir}" -Current "{new-run-dir}"
    ```
 2. Read its verdict line (and `run-delta.json` in the new run dir for detail): `SUCCESS` = all previously-failing fixed, none new; `PARTIAL` = progress, none new; `NO_CHANGE`; `REGRESSION` = new failures appeared (exit code 0 only for SUCCESS).
 3. Confirm the cluster you fixed appears in `resolved_clusters`.
-4. **If `new_failures` is non-empty (REGRESSION):** STOP immediately — see `d:\datrix\.claude\skills\_shared\fix-conventions.md` ("Fix Introduced a New Failure") for the report template and options. **WAIT for user decision.** (Legacy fallback: run the full test suite and triage the log with `triage-failures.ps1`, then compare by hand.)
+4. **If `new_failures` is non-empty (REGRESSION):** STOP immediately — see `d:\datrix\.claude\skills\_shared\fix-conventions.md` ("Fix Introduced a New Failure") for the report template and options. **WAIT for user decision.** (Legacy fallback: triage the new run's `full.log` with `triage-failures.ps1`, then compare by hand.)
 
 ### Phase 3: Final Report
 

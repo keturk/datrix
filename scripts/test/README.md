@@ -125,12 +125,80 @@ Test results are saved to structured directories under `<project>/.test_results/
 - Per-failure details with error type, message, and source location
 - Failure clusters grouped by root cause (normalized error + source location)
 - Error clusters for import/fixture/collection errors
+- `phases` — one `{"status": 1|2}` (passed/failed) per phase that ran, or the reason string
+  for a phase that was skipped (`"Serial": "skipped (0 serial items)"`)
+- `runner_errors` (only when present) — evidence the runner could not trust, such as parallel
+  workers disagreeing on what they deselected; any one makes `result` `FAILED`
 
 **`summary.txt`** provides a human-readable overview with cluster summaries.
 
 **`full.log`** contains the complete pytest output (same content as the legacy flat log file).
 
 Individual failure files in `failures/` contain the full traceback, captured stdout/stderr, and cluster assignment for a single test failure.
+
+### Package-run `index.json` (schema version 2)
+
+A package run's `index.json` carries `schema_version: 2`. Version 2 adds two fields; a
+version-1 file predates both, and a reader treats it as a run whose selection is unknown.
+
+- **`selection`** (every saved run) — what the run selected, recorded rather than inferred
+  from a log. `{"kind": "full"}` for a bare `test.ps1 <package>`; otherwise
+  `{"kind": "targeted", "specific": [...] | null, "keyword": str | null, "tier": str | null,
+  "marker": str | null}`. Any of `-Specific`, `-Keyword`, `-Unit`, `-Integration`, `-E2E`,
+  `-Fast` or `-Slow` makes a run targeted — including `-Fast` on a Node suite, which has no
+  markers and so runs whole. An INCOMPLETE run records its selection too.
+- **`inputs`** (a full run only, and only when every phase completed) — the suite-input
+  stamp: `{"algorithm": ..., "fingerprint": <blake2b hex>, "components": {...}}`, where
+  `components` holds `trees` (one git-state digest per package in the run's cone — the
+  package plus everything its suite reaches, cross-ecosystem edges included),
+  `installed` (the installed Python distributions, plus — for every cone package carrying a
+  `package.json` — its installed Node dependency state: npm's hidden lockfile
+  `node_modules/.package-lock.json`, digested as `absent` when missing, and its own
+  `package-lock.json` when git does not track it), `interpreter`, `foreign` (observed paths
+  outside the cone), `in_cone_ignored` (observed cone paths git does not track) and
+  `executables` (every executable started, content-digested). A directory is a repository
+  only when git itself confirms it as a work-tree top level; a path under a `.git` git
+  rejects is digested as a path in no repository. A bytecode cache read — in `__pycache__` or
+  under `PYTHONPYCACHEPREFIX` — is recorded as the source it caches, never as the cache. A targeted run never has an `inputs` key: its inputs are not the
+  package's full suite, so a stamp would let a narrow run stand in for a full one. A full
+  run is written **without** `inputs` — never with an empty or partial one — when a phase
+  did not complete (its process could not start, or pytest exited interrupted, with an
+  internal error or with a usage error), when any session's records are missing or
+  unaccounted for, or when a cone tree or the installed set changed while the suite ran;
+  `full.log` states the reason.
+
+A full pytest run loads `datrix_common.testing.runner_plugin` with `-p` in every phase; any
+other saved run loads it in its parallel phase only, for the serial-phase decision below, and is
+never stamped. The plugin writes its records into the run directory:
+
+```
+    observed-<worker>.json      # paths opened/listed/loaded and executables started
+    deselected-<worker>.json    # how many collected items the session deselected
+    timings-<worker>.json       # call-phase durations and module/package/session fixture setups
+    workers-controller.json     # the xdist controller's list of the workers it ran
+    timings.json                # the runner's merge of every timings-<worker>.json, each entry tagged "worker"
+```
+
+`<worker>` is the xdist worker id (`gw0`, `gw1`, ...) in the parallel phase, `main` in a
+phase that runs in one process, and `controller` for the xdist controller, which writes
+only `observed-controller.json` and `workers-controller.json`. The runner merges the records
+only when the set is exactly the one the phases must have left — every listed worker's three
+records, the controller's two, and `main`'s three for a single-process phase. A Node run has
+no records: its stamp's observed inputs are the `node` (and, when a build ran, `npm`)
+executables the runner itself launched.
+
+**The serial phase runs only when it has something to run.** The parallel phase selects
+`not serial`, so each worker's `deselected-<worker>.json` counts its serial-marked items. When
+every worker the controller lists recorded 0, no collected test is serial: the serial phase is
+skipped — no second collection — `full.log` says `Phase 2: serial tests SKIPPED -- …`, there is
+no `junit-serial.xml`, and `index.json` records `"phases": {"Parallel": {"status": 1}, "Serial":
+"skipped (0 serial items)"}`. Everything else runs it: no records (`-NoSave`), a listed worker
+with no record, a parallel phase that did not complete, a marker or keyword filter (`-Unit`,
+`-Fast`, `-Keyword`, …, whose own deselections hide whether serial items exist — `-Specific`
+narrows collection and is not such a filter), or any worker that deselected items. Workers
+disagreeing on the count, an unreadable record, or a record the controller did not list is a
+runner error: the serial phase still runs, the run exits non-zero, and `index.json` is `FAILED`
+with the reason under `runner_errors`.
 
 The test summary shows:
 - Pass/fail status per project

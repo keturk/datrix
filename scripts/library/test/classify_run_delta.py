@@ -70,7 +70,7 @@ def _require_field(data: dict[str, object], key: str, where: str) -> object:
     if key not in data:
         raise UsageError(
             f"Missing required key '{key}' in {where}. Expected the structured "
-            f"index.json schema (schema_version 1); re-run the test suite."
+            f"index.json schema (schema_version 1 or 2); re-run the test suite."
         )
     return data[key]
 

@@ -39,6 +39,12 @@ X by following source edges in reverse (transitively), plus every package
 with a direct DEFERRED or TEST edge into that set (one hop, not traversed
 further).
 
+The same three graphs also answer the FORWARD question -- which packages
+X's own suite needs in order to run (its cone; see forward_closure). The
+cone is the exact dual of the closure: Y is in X's cone if and only if X is
+in Y's closure, so a suite-input fingerprint pinned to the cone changes
+whenever the reverse gate would have scheduled X because of Y.
+
 Usage:
   python scripts/library/test/affected_set.py --projects datrix-language
   python scripts/library/test/affected_set.py --all
@@ -61,8 +67,11 @@ import sys
 import tempfile
 import tomllib
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import datetime
+from itertools import product
 from pathlib import Path
+from random import Random
 
 # Configure UTF-8 encoding for stdout/stderr on Windows
 if sys.platform == "win32" and __name__ == "__main__":
@@ -576,6 +585,56 @@ def build_source_test_and_deferred_graphs(
     return source_graph, test_graph, deferred_graph
 
 
+@dataclass(frozen=True)
+class WorkspaceGraphs:
+    """Every discovered package plus the three forward dependency graphs.
+
+    Produced by :func:`build_workspace_graphs` so that the reverse closure and
+    the forward cone are always derived from ONE scan of ONE package set --
+    never from two scans that could disagree.
+    """
+
+    packages: dict[str, Path]
+    cross_ecosystem: dict[str, set[str]]
+    source_graph: dict[str, set[str]]
+    test_graph: dict[str, set[str]]
+    deferred_graph: dict[str, set[str]]
+
+
+def build_workspace_graphs(root: Path) -> WorkspaceGraphs:
+    """Discover every package under *root* and build its three forward graphs.
+
+    This is the production derivation: root-level conftest.py files are
+    scanned and the monorepo's cross-ecosystem map is folded into the SOURCE
+    tier, exactly as the CLI and the concurrent gate require.
+
+    Args:
+        root: The Datrix monorepo root (or a synthetic tree shaped like it).
+
+    Returns:
+        The discovered packages, the cross-ecosystem edges, and the SOURCE,
+        TEST and DEFERRED graphs.
+
+    Raises:
+        UsageError: from discovery, the cross-ecosystem map, or the scan --
+            see :func:`discover_packages`, :func:`load_cross_ecosystem_deps`
+            and :func:`build_source_test_and_deferred_graphs`.
+    """
+    packages = discover_packages(root)
+    import_names = {name: discover_import_name(d) for name, d in packages.items()}
+    cross_ecosystem = load_cross_ecosystem_deps(root, packages)
+    source_graph, test_graph, deferred_graph = build_source_test_and_deferred_graphs(
+        packages, import_names, include_root_conftest=True, cross_ecosystem=cross_ecosystem
+    )
+    return WorkspaceGraphs(
+        packages=packages,
+        cross_ecosystem=cross_ecosystem,
+        source_graph=source_graph,
+        test_graph=test_graph,
+        deferred_graph=deferred_graph,
+    )
+
+
 def build_declared_source_only_graph(
     packages: dict[str, Path],
     cross_ecosystem: dict[str, set[str]] | None = None,
@@ -634,6 +693,66 @@ def transitive_reverse_closure(graph: dict[str, set[str]]) -> dict[str, set[str]
     return closures
 
 
+def _require_closed_graph(graph: dict[str, set[str]], nodes: set[str], label: str) -> None:
+    """Raise when *graph* has a node or an edge target outside *nodes*.
+
+    The builders only ever emit discovered package names, so a dangling name
+    means the graphs were assembled from two different package sets. Walking
+    it would silently drop (or crash on) the unknown package instead of
+    naming it.
+    """
+    unknown_nodes = set(graph) - nodes
+    dangling = sorted(
+        f"{consumer} -> {target}"
+        for consumer, targets in graph.items()
+        for target in targets
+        if target not in nodes
+    )
+    if unknown_nodes or dangling:
+        raise UsageError(
+            f"The {label} graph is not closed over the SOURCE graph's packages "
+            f"{sorted(nodes)}: unknown nodes {sorted(unknown_nodes)}, dangling "
+            f"edges {dangling}. Expected all three graphs to come from one "
+            f"build_source_test_and_deferred_graphs call over one package set. "
+            f"Fix by building every graph from the same discover_packages result."
+        )
+
+
+def transitive_forward_closure(graph: dict[str, set[str]]) -> dict[str, set[str]]:
+    """For each package, every package it (transitively) depends on in *graph*.
+
+    The forward mirror of :func:`transitive_reverse_closure`: it follows a
+    package's own dependency edges instead of its dependents'. Cycle-safe for
+    the same reason -- visited-set membership, not edge presence, ends each
+    traversal.
+
+    Args:
+        graph: A forward dependency graph (package -> packages it depends on)
+            whose every edge target is itself a node of the graph.
+
+    Returns:
+        Mapping of package name -> the packages reachable from it through one
+        or more edges (includes the package itself only when a cycle loops
+        back to it).
+
+    Raises:
+        UsageError: if an edge targets a package that is not a graph node.
+    """
+    _require_closed_graph(graph, set(graph), "forward")
+    closures: dict[str, set[str]] = {}
+    for start in graph:
+        visited: set[str] = set()
+        frontier = list(graph[start])
+        while frontier:
+            node = frontier.pop()
+            if node in visited:
+                continue
+            visited.add(node)
+            frontier.extend(graph[node] - visited)
+        closures[start] = visited
+    return closures
+
+
 def compute_affected_closures(
     source_graph: dict[str, set[str]],
     test_graph: dict[str, set[str]],
@@ -676,6 +795,60 @@ def compute_affected_closures(
             terminal_additions |= terminal_reverse_direct.get(member, set())
         closures[target] = source_reachable | terminal_additions
     return closures
+
+
+def forward_closure(
+    source_graph: dict[str, set[str]],
+    test_graph: dict[str, set[str]],
+    deferred_graph: dict[str, set[str]],
+) -> dict[str, set[str]]:
+    """For each package P, its CONE: every package P's own suite needs to run.
+
+    The exact dual of :func:`compute_affected_closures` over the same three
+    graphs: Q is in P's cone if and only if P is in Q's closure. That closure
+    puts P in Q's closure when P source-reaches Q, or when P has a direct
+    TEST/DEFERRED edge into Q or into a package that source-reaches Q. Read
+    forward, the cone is therefore:
+
+    - P itself;
+    - every package P reaches through SOURCE edges, transitively (P's src
+      imports them at module scope, so importing P runs them);
+    - every direct TEST/DEFERRED target T of P -- one terminal hop, taken
+      from P only -- plus everything T reaches through SOURCE edges, because
+      importing T in P's tests (or in P's function bodies) runs T's own
+      module-scope imports too.
+
+    A terminal hop is never chained: a TEST/DEFERRED edge of T, or of any of
+    P's SOURCE dependencies, is not part of P's cone (P's suite never runs
+    another package's tests). This is the mirror of the closure's rule that a
+    TEST/DEFERRED consumer's own consumers are never pulled in.
+
+    Args:
+        source_graph: Forward SOURCE graph (propagates transitively).
+        test_graph: Forward TEST graph (terminal -- one hop, from P only).
+        deferred_graph: Forward DEFERRED graph (terminal -- one hop, from P
+            only, same treatment as test_graph).
+
+    Returns:
+        Mapping of package name -> its cone. Always includes the package
+        itself.
+
+    Raises:
+        UsageError: if the three graphs do not share one node set, or any edge
+            targets a package outside it.
+    """
+    nodes = set(source_graph)
+    for label, graph in (("SOURCE", source_graph), ("TEST", test_graph), ("DEFERRED", deferred_graph)):
+        _require_closed_graph(graph, nodes, label)
+    source_forward = transitive_forward_closure(source_graph)
+    cones: dict[str, set[str]] = {}
+    for package in source_graph:
+        cone = {package} | source_forward[package]
+        terminal_targets = test_graph.get(package, set()) | deferred_graph.get(package, set())
+        for target in terminal_targets:
+            cone |= {target} | source_forward[target]
+        cones[package] = cone
+    return cones
 
 
 def check_closure_not_smaller_than_declared(
@@ -749,6 +922,28 @@ _GREEN = "\033[92m"
 _RED = "\033[91m"
 _CYAN = "\033[96m"
 _RESET = "\033[0m"
+
+#: Edge kinds for the hand-built duality graphs (no edge, SOURCE, TEST, DEFERRED).
+_NO_EDGE = ""
+_SOURCE_EDGE = "S"
+_TEST_EDGE = "T"
+_DEFERRED_EDGE = "D"
+_EDGE_KINDS = (_NO_EDGE, _SOURCE_EDGE, _TEST_EDGE, _DEFERRED_EDGE)
+_DUALITY_SMALL_NODES = ("datrix-p", "datrix-q", "datrix-r")
+#: A fixed seed keeps the sampled larger graphs identical on every run.
+_DUALITY_RANDOM_SEED = 20260923
+_DUALITY_RANDOM_NODE_COUNT = 6
+_DUALITY_RANDOM_GRAPHS = 300
+#: Half of all ordered pairs carry no edge, so sampled graphs stay sparse
+#: enough to contain long chains rather than collapsing into one clique.
+_DUALITY_RANDOM_EDGE_WEIGHTS = (
+    _NO_EDGE,
+    _NO_EDGE,
+    _NO_EDGE,
+    _SOURCE_EDGE,
+    _TEST_EDGE,
+    _DEFERRED_EDGE,
+)
 
 
 def _ok(msg: str) -> None:
@@ -884,13 +1079,31 @@ def _write_cross_ecosystem_config(root: Path, dependencies: dict[str, list[str]]
 
 def _closures_for(root: Path) -> dict[str, set[str]]:
     """Derive closures over a synthetic tree (self-test helper)."""
-    packages = discover_packages(root)
-    import_names = {name: discover_import_name(d) for name, d in packages.items()}
-    cross_ecosystem = load_cross_ecosystem_deps(root, packages)
-    source_graph, test_graph, deferred_graph = build_source_test_and_deferred_graphs(
-        packages, import_names, include_root_conftest=True, cross_ecosystem=cross_ecosystem
-    )
-    return compute_affected_closures(source_graph, test_graph, deferred_graph)
+    graphs = build_workspace_graphs(root)
+    return compute_affected_closures(graphs.source_graph, graphs.test_graph, graphs.deferred_graph)
+
+
+def _cones_for(root: Path) -> dict[str, set[str]]:
+    """Derive forward cones over a synthetic tree (self-test helper)."""
+    graphs = build_workspace_graphs(root)
+    return forward_closure(graphs.source_graph, graphs.test_graph, graphs.deferred_graph)
+
+
+def _dual_mismatches(
+    closures: dict[str, set[str]], cones: dict[str, set[str]]
+) -> list[str]:
+    """Every (P, Q) pair where "Q in cone(P)" and "P in closure(Q)" disagree."""
+    mismatches: list[str] = []
+    for package, cone in cones.items():
+        for other in closures:
+            in_cone = other in cone
+            in_closure = package in closures[other]
+            if in_cone != in_closure:
+                mismatches.append(
+                    f"{other} {'in' if in_cone else 'not in'} cone({package}) but "
+                    f"{package} {'in' if in_closure else 'not in'} closure({other})"
+                )
+    return mismatches
 
 
 def _check_cross_ecosystem_edge_puts_consumer_in_closure() -> None:
@@ -1110,6 +1323,184 @@ def _check_source_edge_propagates_to_consumers() -> None:
         )
 
 
+def _check_forward_closure_source_edge_is_transitive() -> None:
+    """datrix-a's SRC imports datrix-b; datrix-c's SRC imports datrix-a.
+    datrix-c's CONE (what its suite needs to run) must include both datrix-a
+    and datrix-b -- the mirror of _check_source_edge_propagates_to_consumers."""
+    with tempfile.TemporaryDirectory(prefix="affected-set-selftest-") as tmp:
+        root = Path(tmp)
+        _make_pkg(root, "datrix-a", imports=["datrix_b"])
+        _make_pkg(root, "datrix-b")
+        _make_pkg(root, "datrix-c", imports=["datrix_a"])
+        cones = _cones_for(root)
+        assert cones["datrix-c"] == {"datrix-c", "datrix-a", "datrix-b"}, cones["datrix-c"]
+        assert cones["datrix-b"] == {"datrix-b"}, (
+            f"a package importing nothing has a self-only cone; got {cones['datrix-b']}"
+        )
+
+
+def _check_forward_closure_follows_source_edges_past_a_test_hop() -> None:
+    """datrix-a's TESTS import datrix-b; datrix-b's SRC imports datrix-c at
+    module scope. Importing datrix-b in datrix-a's tests runs datrix-c, and
+    the reverse gate already schedules datrix-a when datrix-c changes -- so
+    datrix-c must be in datrix-a's cone. A cone that stopped at datrix-b
+    would let a changed datrix-c carry datrix-a's old green verdict."""
+    with tempfile.TemporaryDirectory(prefix="affected-set-selftest-") as tmp:
+        root = Path(tmp)
+        _make_pkg(root, "datrix-a", test_imports=["datrix_b"])
+        _make_pkg(root, "datrix-b", imports=["datrix_c"])
+        _make_pkg(root, "datrix-c")
+        cones = _cones_for(root)
+        closures = _closures_for(root)
+        assert "datrix-a" in closures["datrix-c"], (
+            f"precondition: the reverse gate must schedule datrix-a when "
+            f"datrix-c changes; got {closures['datrix-c']}"
+        )
+        assert cones["datrix-a"] == {"datrix-a", "datrix-b", "datrix-c"}, (
+            f"the cone must follow SOURCE edges onward from a TEST target; got "
+            f"{cones['datrix-a']}"
+        )
+
+
+def _check_forward_closure_terminal_edges_are_one_hop() -> None:
+    """A TEST/DEFERRED hop is taken from the package itself only, never
+    chained: datrix-a's tests import datrix-b whose tests import datrix-c,
+    and datrix-a's src defers an import of datrix-d whose src defers one of
+    datrix-e -- datrix-a's cone holds datrix-b and datrix-d but neither
+    datrix-c nor datrix-e. And datrix-f, whose src imports datrix-a, does
+    not inherit datrix-a's own terminal targets (datrix-f's suite never runs
+    datrix-a's tests) -- the mirror of
+    _check_test_edge_does_not_propagate_to_consumers."""
+    with tempfile.TemporaryDirectory(prefix="affected-set-selftest-") as tmp:
+        root = Path(tmp)
+        _make_pkg(root, "datrix-a", test_imports=["datrix_b"], deferred_imports=["datrix_d"])
+        _make_pkg(root, "datrix-b", test_imports=["datrix_c"])
+        _make_pkg(root, "datrix-c")
+        _make_pkg(root, "datrix-d", deferred_imports=["datrix_e"])
+        _make_pkg(root, "datrix-e")
+        _make_pkg(root, "datrix-f", imports=["datrix_a"])
+        cones = _cones_for(root)
+        assert cones["datrix-a"] == {"datrix-a", "datrix-b", "datrix-d"}, (
+            f"terminal edges must be one hop from the package itself; got "
+            f"{cones['datrix-a']}"
+        )
+        assert cones["datrix-f"] == {"datrix-f", "datrix-a"}, (
+            f"a SOURCE dependency's own TEST/DEFERRED targets are not part of "
+            f"the consumer's cone; got {cones['datrix-f']}"
+        )
+
+
+def _check_forward_closure_node_consumer_cone_includes_cross_ecosystem_dependency() -> None:
+    """A Node package's cone must include its declared cross-ecosystem Python
+    dependency -- the same edge load_cross_ecosystem_deps folds into the
+    SOURCE graph for the reverse direction -- and that dependency's own
+    SOURCE dependencies."""
+    with tempfile.TemporaryDirectory(prefix="affected-set-selftest-") as tmp:
+        root = Path(tmp)
+        _make_pkg(root, "datrix-common")
+        _make_pkg(root, "datrix-language", imports=["datrix_common"])
+        _make_node_pkg(root, "datrix-client")
+        _write_cross_ecosystem_config(root, {"datrix-client": ["datrix-language"]})
+        cones = _cones_for(root)
+        assert cones["datrix-client"] == {"datrix-client", "datrix-language", "datrix-common"}, (
+            f"a Node consumer's cone must contain its declared Python dependency "
+            f"and what that dependency imports; got {cones['datrix-client']}"
+        )
+
+
+def _graphs_from_edges(
+    nodes: tuple[str, ...], edges: dict[tuple[str, str], str]
+) -> tuple[dict[str, set[str]], dict[str, set[str]], dict[str, set[str]]]:
+    """(source, test, deferred) graphs over *nodes* from {(consumer, target): kind}."""
+    graphs: dict[str, dict[str, set[str]]] = {
+        kind: {node: set() for node in nodes} for kind in _EDGE_KINDS if kind != _NO_EDGE
+    }
+    for (consumer, target), kind in edges.items():
+        if kind != _NO_EDGE:
+            graphs[kind][consumer].add(target)
+    return graphs[_SOURCE_EDGE], graphs[_TEST_EDGE], graphs[_DEFERRED_EDGE]
+
+
+def _dual_mismatches_for_edges(nodes: tuple[str, ...], edges: dict[tuple[str, str], str]) -> list[str]:
+    source_graph, test_graph, deferred_graph = _graphs_from_edges(nodes, edges)
+    closures = compute_affected_closures(source_graph, test_graph, deferred_graph)
+    cones = forward_closure(source_graph, test_graph, deferred_graph)
+    return _dual_mismatches(closures, cones)
+
+
+def _check_forward_closure_is_exact_dual_on_every_small_graph() -> None:
+    """Q is in cone(P) iff P is in closure(Q), for EVERY graph over three
+    packages (each ordered pair carries no edge, a SOURCE, a TEST or a
+    DEFERRED edge: 4^6 graphs, cycles included) and for a fixed-seed sample
+    of larger graphs, where chains longer than one SOURCE hop after a
+    terminal hop can occur."""
+    nodes = _DUALITY_SMALL_NODES
+    pairs = [(a, b) for a in nodes for b in nodes if a != b]
+    checked = 0
+    for kinds in product(_EDGE_KINDS, repeat=len(pairs)):
+        mismatches = _dual_mismatches_for_edges(nodes, dict(zip(pairs, kinds, strict=True)))
+        assert not mismatches, f"{dict(zip(pairs, kinds, strict=True))}: {mismatches}"
+        checked += 1
+    assert checked == len(_EDGE_KINDS) ** len(pairs), checked
+
+    rng = Random(_DUALITY_RANDOM_SEED)
+    large_nodes = tuple(f"datrix-n{index}" for index in range(_DUALITY_RANDOM_NODE_COUNT))
+    large_pairs = [(a, b) for a in large_nodes for b in large_nodes if a != b]
+    for _ in range(_DUALITY_RANDOM_GRAPHS):
+        edges = {pair: rng.choice(_DUALITY_RANDOM_EDGE_WEIGHTS) for pair in large_pairs}
+        mismatches = _dual_mismatches_for_edges(large_nodes, edges)
+        assert not mismatches, f"{edges}: {mismatches}"
+
+
+def _check_forward_closure_is_exact_dual_on_scanned_tree() -> None:
+    """The duality also holds end to end through the real scanner, on a tree
+    mixing every edge signal: module-scope, TYPE_CHECKING, deferred, tests/,
+    root conftest.py, a dev-extra declaration, a declared dependency, and a
+    cross-ecosystem Node consumer."""
+    with tempfile.TemporaryDirectory(prefix="affected-set-selftest-") as tmp:
+        root = Path(tmp)
+        _make_pkg(root, "datrix-common", conftest_imports=["datrix_cli"])
+        _make_pkg(root, "datrix-language", imports=["datrix_common"])
+        _make_pkg(root, "datrix-codegen-common", type_checking_imports=["datrix_common"])
+        _make_pkg(
+            root,
+            "datrix-cli",
+            imports=["datrix_codegen_common"],
+            deferred_imports=["datrix_language"],
+        )
+        _make_pkg(root, "datrix-codegen-python", deps=["datrix-codegen-common"], test_imports=["datrix_cli"])
+        _make_pkg(root, "datrix-extensions", dev_only_deps=["datrix-codegen-python"])
+        _make_node_pkg(root, "datrix-client")
+        _write_cross_ecosystem_config(root, {"datrix-client": ["datrix-language"]})
+        closures = _closures_for(root)
+        cones = _cones_for(root)
+        mismatches = _dual_mismatches(closures, cones)
+        assert not mismatches, mismatches
+        assert "datrix-codegen-common" in cones["datrix-common"], (
+            f"datrix-common's conftest imports datrix-cli, which imports "
+            f"datrix-codegen-common -- that package runs in datrix-common's suite; "
+            f"got {cones['datrix-common']}"
+        )
+
+
+def _check_forward_closure_rejects_dangling_edge() -> None:
+    """An edge naming a package that is not a graph node means the graphs came
+    from two different package sets; the walk must name it, not drop it."""
+    source_graph = {"datrix-a": {"datrix-ghost"}}
+    try:
+        forward_closure(source_graph, {"datrix-a": set()}, {"datrix-a": set()})
+    except UsageError as exc:
+        assert "datrix-a -> datrix-ghost" in str(exc), exc
+    else:
+        raise AssertionError("an edge to an unknown package must raise UsageError")
+    try:
+        forward_closure({"datrix-a": set()}, {"datrix-a": {"datrix-ghost"}}, {"datrix-a": set()})
+    except UsageError as exc:
+        assert "TEST" in str(exc), exc
+    else:
+        raise AssertionError("a TEST edge to an unknown package must raise UsageError")
+
+
 def _check_package_with_no_consumers_closure_is_self_only() -> None:
     """BUG 2 regression check: a package nobody depends on must still yield
     a closure of exactly itself, never `(none)` -- its own suite always
@@ -1304,6 +1695,25 @@ _SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
     ("unreadable_pyproject_raises_usage_error", _check_unreadable_pyproject_raises_usage_error),
     ("test_edge_does_not_propagate_to_consumers", _check_test_edge_does_not_propagate_to_consumers),
     ("source_edge_propagates_to_consumers", _check_source_edge_propagates_to_consumers),
+    ("forward_closure_source_edge_is_transitive", _check_forward_closure_source_edge_is_transitive),
+    (
+        "forward_closure_follows_source_edges_past_a_test_hop",
+        _check_forward_closure_follows_source_edges_past_a_test_hop,
+    ),
+    ("forward_closure_terminal_edges_are_one_hop", _check_forward_closure_terminal_edges_are_one_hop),
+    (
+        "forward_closure_node_consumer_cone_includes_cross_ecosystem_dependency",
+        _check_forward_closure_node_consumer_cone_includes_cross_ecosystem_dependency,
+    ),
+    (
+        "forward_closure_is_exact_dual_on_every_small_graph",
+        _check_forward_closure_is_exact_dual_on_every_small_graph,
+    ),
+    (
+        "forward_closure_is_exact_dual_on_scanned_tree",
+        _check_forward_closure_is_exact_dual_on_scanned_tree,
+    ),
+    ("forward_closure_rejects_dangling_edge", _check_forward_closure_rejects_dangling_edge),
     (
         "package_with_no_consumers_closure_is_self_only",
         _check_package_with_no_consumers_closure_is_self_only,
@@ -1377,15 +1787,11 @@ def _parse_args() -> argparse.Namespace:
 
 def _run(args: argparse.Namespace) -> int:
     workspace = get_datrix_root()
-    packages = discover_packages(workspace)
-    import_names = {name: discover_import_name(d) for name, d in packages.items()}
-    cross_ecosystem = load_cross_ecosystem_deps(workspace, packages)
-    source_graph, test_graph, deferred_graph = build_source_test_and_deferred_graphs(
-        packages, import_names, include_root_conftest=True, cross_ecosystem=cross_ecosystem
-    )
-    closures = compute_affected_closures(source_graph, test_graph, deferred_graph)
+    graphs = build_workspace_graphs(workspace)
+    packages = graphs.packages
+    closures = compute_affected_closures(graphs.source_graph, graphs.test_graph, graphs.deferred_graph)
 
-    declared_source_only_graph = build_declared_source_only_graph(packages, cross_ecosystem)
+    declared_source_only_graph = build_declared_source_only_graph(packages, graphs.cross_ecosystem)
     violations = check_closure_not_smaller_than_declared(declared_source_only_graph, closures)
     if violations:
         print(

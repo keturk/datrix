@@ -161,9 +161,17 @@ if (-not (Test-Path $testProjectScript)) {
  exit 1
 }
 
+# The caller's own value of DATRIX_PACKAGES_ENSURED, captured before this script
+# sets it. It is restored on exit: run in-process (`.\test.ps1` in an
+# interactive shell, or `&` from another script), this script's "1" would
+# otherwise outlive it and make every later direct run in that session skip its
+# install check against a venv nobody verified.
+$script:CallerPackagesEnsured = $env:DATRIX_PACKAGES_ENSURED
+
 # Function to handle cleanup on exit
 function Invoke-Cleanup {
  Disable-DatrixVenv
+ $env:DATRIX_PACKAGES_ENSURED = $script:CallerPackagesEnsured
 }
 
 # Helper: determine whether a project's latest test run reported failures.
@@ -223,7 +231,6 @@ function Test-ProjectLatestRunFailed {
 Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
 
 # Handle Ctrl-C with try-catch in the main execution
-$originalAction = $ErrorActionPreference
 
 # Main execution with proper error handling
 try {
@@ -335,6 +342,9 @@ try {
  }
 
  # Ensure all packages are installed once (before the project loop). Per-project Python must not reinstall.
+ # A caller that already ran this check for the one shared venv -- affected-gate.ps1 runs it once
+ # before launching any child -- says so with DATRIX_PACKAGES_ENSURED=1, and this run skips its own.
+ if ($env:DATRIX_PACKAGES_ENSURED -ne "1") {
  $packagesInstalled = Ensure-DatrixPackagesInstalled -SkipIfInstalled
  if (-not $packagesInstalled) {
  Write-Host ""
@@ -343,7 +353,10 @@ try {
  Write-Error "Failed to install or update packages"
  exit 1
  }
- # Signal to test_project.py that packages were ensured by caller; skip per-project pip install -e
+ } else {
+ Write-DatrixVenvInfo "Package install check skipped: the caller already ran it (DATRIX_PACKAGES_ENSURED=1)" -ForegroundColor Green
+ }
+ # Signal to test_project.py that packages were ensured; skip per-project pip install -e
  $env:DATRIX_PACKAGES_ENSURED = "1"
 
  # Validate mutually exclusive test type options

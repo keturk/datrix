@@ -82,13 +82,16 @@ Determine what to test **based on issue type**:
 - If the issue has **Log folder(s)**: re-run the tests that originally failed.
 - If the issue affects a codegen package: run that package's **targeted/affected tests** (not the full suite — see Phase 4 for the one-time full-suite gate).
 - If the issue affects generated code: regenerate the affected example(s), confirm the generated code now matches expectations, and run the example's targeted tests.
-- Test commands: `powershell -File "d:/datrix/datrix/scripts/test/test-single.ps1" "{test-path}" -Project {package-name} -VerboseOutput`, or `test.ps1 {package-name}` scoped to the affected tests.
+- Test commands: `powershell -File "d:/datrix/datrix/scripts/test/test-single.ps1" "{test-path}" -Project {package-name} -VerboseOutput`, or `test.ps1 {package-name} -Specific "{test-path-1},{test-path-2}"` batched over the affected tests.
 - **Fix introduced a new failure:** see `d:\datrix\.claude\skills\_shared\fix-conventions.md`.
 - If the original failure persists: fix was insufficient — report what's still wrong and ask for guidance.
 
 ### Phase 4: Final Gate and Report
 
-After all issues in this invocation are fixed and their targeted tests pass, run the affected package's **full test suite ONCE** as the final gate: `powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}`. This replaces per-issue full-suite runs (see Anti-Patterns). If any fix touched a shared layer (`datrix-common`, `datrix-codegen-common`, `datrix-language`, or a shared contract), the final gate is `powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {closure}` — it derives that same closure via `affected-set.ps1`'s own module (per `d:\datrix\.claude\skills\_shared\verification-strategy.md`), runs every member concurrently under a worker budget, and returns one verdict via `gate-verdict.ps1`'s own per-project evaluation.
+After all issues in this invocation are fixed and their targeted tests pass, run the gate **ONCE** as the final gate — one form for a leaf package and a shared-layer fix alike (a fix in `datrix-common`, `datrix-codegen-common`, `datrix-language`, or a shared contract is covered because the gate derives the closure itself). This replaces per-issue full-suite runs (see Anti-Patterns).
+
+- **Main-session role:** write the full-suite ticket with the Write tool — `D:\datrix\.tmp\full-suite-ticket.json` = `{"packages": [<every changed package>], "reason": "fix-issue final gate for {issue-id}", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}` (`guard-full-suite-runs.py` blocks the gate without it) — then run `powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {changed packages}`. It derives the reverse-dependency closure via `affected-set.ps1`'s own module (per `d:\datrix\.claude\skills\_shared\verification-strategy.md`), carries every member whose inputs are unchanged since its last green full run (`CARRIED`, no child launched), runs the rest concurrently under a worker budget, and returns one verdict via `gate-verdict.ps1`'s own per-project evaluation.
+- **Dispatched-subagent role:** run no suite and not the gate (the guard blocks both for a subagent); report the packages you changed, and the dispatcher runs the gate once over the union.
 
 ```
 FIX-ISSUE COMPLETE

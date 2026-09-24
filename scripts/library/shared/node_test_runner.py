@@ -30,10 +30,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import time
 import xml.etree.ElementTree as ET
+from collections.abc import Callable, Iterable
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
@@ -51,6 +53,14 @@ from shared.structured_log_writer import (
     PHASE_STATUS_PASSED,
     StructuredLogWriter,
 )
+from shared.suite_stamp import (
+    FullRunStamp,
+    inputs_or_report,
+    prepare_full_run_stamp,
+    selection_for,
+)
+from shared.venv import get_datrix_root
+from test.suite_inputs import ObservedInputs
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +203,13 @@ def discover_test_files(package_root: Path, declaration: NodeSuiteDeclaration) -
     return matches
 
 
+def _selection_entries(specific: str | None) -> list[str]:
+    """The non-empty entries of a comma-separated ``--specific`` selection."""
+    if specific is None:
+        return []
+    return [entry.strip() for entry in specific.split(",") if entry.strip()]
+
+
 def select_test_files(candidates: list[Path], specific: str | None) -> list[Path]:
     """Narrow the discovered test files to a ``--specific`` selection.
 
@@ -215,11 +232,7 @@ def select_test_files(candidates: list[Path], specific: str | None) -> list[Path
             so, and a run of the remaining files would report a pass that never
             covered what the caller asked for.
     """
-    if specific is None:
-        return candidates
-
-    entries = [entry.strip() for entry in specific.split(",")]
-    entries = [entry for entry in entries if entry]
+    entries = _selection_entries(specific)
     if not entries:
         return candidates
 
@@ -298,11 +311,12 @@ def _relative_to_package(path: Path, package_root: Path) -> str:
 
 
 def _run_build(
-    package_root: Path, script_name: str, tee: TeeLogger
+    npm: str, package_root: Path, script_name: str, tee: TeeLogger
 ) -> int:
     """Run the package's declared build script via npm.
 
     Args:
+        npm: Resolved ``npm`` executable.
         package_root: Package root, used as the working directory.
         script_name: npm script to run.
         tee: Logger receiving the build output.
@@ -310,7 +324,6 @@ def _run_build(
     Returns:
         The build's exit code.
     """
-    npm = _require_executable("npm")
     tee.write(f"Building {package_root.name} (npm run {script_name})...")
     completed = subprocess.run(  # noqa: S603 -- resolved executable, fixed argv
         [npm, "run", script_name],
@@ -482,6 +495,61 @@ def _format_summary(counts: dict[str, int], duration_seconds: float) -> str:
     return f"{', '.join(parts)} in {duration_seconds:.2f}s"
 
 
+def node_selection(
+    specific: str | None, name_pattern: str | None, tier: str | None
+) -> dict[str, object]:
+    """The ``selection`` a Node run records: full only when no ``--specific``
+    file, no name pattern, and no tier narrowed it. A Node suite has no marker
+    expressions, so ``marker`` is always None."""
+    return selection_for(
+        specific=_selection_entries(specific) or None,
+        keyword=name_pattern,
+        tier=tier,
+        marker=None,
+    )
+
+
+def _write_node_index(
+    writer: StructuredLogWriter,
+    merged_xml: Path,
+    *,
+    returncode: int,
+    total_cases: int,
+    selection: dict[str, object],
+    inputs: dict[str, object] | None,
+) -> None:
+    """Write the run's structured results: one ``Tests`` phase, the run's
+    selection, and its ``inputs`` when the run was stamped."""
+    phase_status = PHASE_STATUS_FAILED if returncode != 0 else PHASE_STATUS_PASSED
+    writer.write(
+        xml_paths=[merged_xml],
+        timestamp=datetime.now(),
+        phase_results={"Tests": {"status": phase_status, "items": total_cases}},
+        selection=selection,
+        inputs=inputs,
+    )
+
+
+def node_suite_inputs(
+    stamp: FullRunStamp, executables: Iterable[str], report: Callable[[str], None]
+) -> dict[str, object] | None:
+    """The ``inputs`` of a full Node run, or None when it cannot be stamped.
+
+    A Node suite runs under no Python audit hook, so the only observed inputs
+    are the executables the runner itself resolved and launched (``node``, and
+    ``npm`` when a build script ran). Every other input is a tree of the cone,
+    or -- for the git-ignored ``node_modules`` a Node package runs against --
+    its installed dependency state, which the stamp's ``installed`` component
+    digests. A refusal is reported through *report*.
+    """
+    observed = ObservedInputs(
+        in_cone_ignored=frozenset(),
+        foreign=frozenset(),
+        executables=frozenset(os.path.realpath(executable) for executable in executables),
+    )
+    return inputs_or_report(lambda: stamp.inputs_for(observed), report)
+
+
 def run_node_suite(
     package_root: Path,
     project_name: str,
@@ -490,6 +558,7 @@ def run_node_suite(
     save_log: bool = True,
     specific: str | None = None,
     name_pattern: str | None = None,
+    tier: str | None = None,
 ) -> int:
     """Run a package's Node test suite and write the standard run artifacts.
 
@@ -506,6 +575,10 @@ def run_node_suite(
             pytest expression gets a loud result either way -- an invalid regex
             fails the run, and a valid one that matches nothing selects zero
             tests, which is reported as a non-pass rather than a green run.
+        tier: The ``test.ps1`` tier switch the run was requested with, or
+            None. A Node suite has no markers, so a tier narrows nothing it
+            runs -- but the run is still recorded as that targeted selection,
+            never as a full one.
 
     Returns:
         Process exit code: 0 when every selected test passed, 1 on any failure,
@@ -515,10 +588,15 @@ def run_node_suite(
     try:
         declaration = read_suite_declaration(package_root)
         node_exe = _require_executable("node")
+        npm_exe = (
+            _require_executable("npm") if declaration.build_script is not None else None
+        )
         candidates = discover_test_files(package_root, declaration)
     except NodeSuiteError as exc:
         print(f"ERROR: {exc}")
         return 1
+
+    selection = node_selection(specific, name_pattern, tier)
 
     log_config = LogConfig(
         log_dir=".test_results",
@@ -530,10 +608,19 @@ def run_node_suite(
 
     with TeeLogger(log_config, package_root) as tee:
         run_dir = tee.get_run_dir()
+        # Prepared before the build, so a tree edited while the suite runs
+        # refuses the stamp. The build writes only ignored output.
+        stamp = prepare_full_run_stamp(
+            selection,
+            run_dir if save_log else None,
+            get_datrix_root(),
+            project_name,
+            tee.write_warning,
+        )
         start = time.monotonic()
 
-        if declaration.build_script is not None:
-            build_rc = _run_build(package_root, declaration.build_script, tee)
+        if declaration.build_script is not None and npm_exe is not None:
+            build_rc = _run_build(npm_exe, package_root, declaration.build_script, tee)
             if build_rc != 0:
                 tee.write_error(
                     f"Build step 'npm run {declaration.build_script}' failed with "
@@ -613,16 +700,18 @@ def run_node_suite(
             returncode = 1 if (failed or worst_rc != 0) else 0
 
             if run_dir is not None and save_log:
-                phase_status = (
-                    PHASE_STATUS_FAILED if returncode != 0 else PHASE_STATUS_PASSED
-                )
-                writer = StructuredLogWriter(project_name=project_name, run_dir=run_dir)
-                writer.write(
-                    xml_paths=[merged_xml],
-                    timestamp=datetime.now(),
-                    phase_results={
-                        "Tests": {"status": phase_status, "items": total_cases}
-                    },
+                launched = [node_exe] if npm_exe is None else [node_exe, npm_exe]
+                _write_node_index(
+                    StructuredLogWriter(project_name=project_name, run_dir=run_dir),
+                    merged_xml,
+                    returncode=returncode,
+                    total_cases=total_cases,
+                    selection=selection,
+                    inputs=(
+                        node_suite_inputs(stamp, launched, tee.write_warning)
+                        if stamp is not None
+                        else None
+                    ),
                 )
 
         summary = _format_summary(counts, duration)
