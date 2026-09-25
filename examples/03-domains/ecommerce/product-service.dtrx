@@ -301,7 +301,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         resource productDb.Product : auth(required, providers: [identity], roles: [admin]), only(update, delete);
 
         @path('/slug/:slug')
-        get(String slug) : auth(public) -> productDb.Product {
+        get productBySlug(String slug) : auth(public) -> productDb.Product {
             let JSON? cached = redis.ProductCache.get(#"slug:{slug}");
             if (cached != null) return cached;
 

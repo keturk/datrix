@@ -1,0 +1,224 @@
+from ecommerce.common import OrderLineInput;
+from ecommerce.OrderService import CreateOrderRequest, CancelOrderRequest;
+from ecommerce.ui import Brand, Panel, StatusBadge;
+
+/// Customer storefront: browse the catalog, place and track orders.
+app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
+    uses ecommerce.ProductService;
+    uses ecommerce.OrderService;
+    uses ecommerce.UserService;
+    uses ecommerce.NotificationService;
+
+    theme extends Brand { }
+
+    // Mobile receives order notifications. The device registry is injected into the one used
+    // service whose configuration declares integrations.push.
+    push : targets(flutter);
+
+    // Login is not declared: the app reaches authenticated endpoints and the used services
+    // expose exactly one human identity provider, so hosted login against it is derived.
+
+    // Survives restarts; never tokens or secrets.
+    state Array<OrderLineInput> cart = [] : persisted;
+
+    fn addToCart(UUID productId, Int quantity) {
+        foreach line in cart {
+            if (line.productId == productId) {
+                line.quantity = line.quantity + quantity;
+                Ui.toast(Msg.quantityUpdated);
+                return;
+            }
+        }
+        cart = cart.append(OrderLineInput { productId: productId, quantity: quantity });
+        Ui.toast(Msg.addedToCart);
+    }
+
+    fn cartCount() -> Int {
+        let Int total = 0;
+        foreach line in cart { total = total + line.quantity; }
+        return total;
+    }
+
+    // The only layout, so every page uses it. A link names a page: path, label and
+    // visibility come from the page. Web renders a top bar, mobile a bottom navigation bar.
+    layout Shell {
+        nav {
+            link ProductList;
+            link Cart : badge(cartCount());
+            link OrderList;
+        }
+    }
+
+    redirect '/shop' -> ProductList;
+
+    @path('/')
+    page Home() {
+        view {
+            Panel {
+                heading(Msg.welcome);
+                link(Msg.browseProducts, ProductList) : kind(primary);
+            }
+        }
+    }
+
+    // Public: the page reaches only the public resource list.
+    @path('/products')
+    page ProductList() {
+        view { table(Catalog); }
+    }
+
+    table Catalog : source(ProductService.ProductAPI.productDb.Product.list) {
+        columns(auto) except [description, productMetadata, images, tags];
+        rowAction open : onClick(Nav.to(ProductDetail, slug: row.slug));
+    }
+
+    @path('/products/:slug')
+    page ProductDetail(String slug) {
+        data { product = ProductService.ProductAPI.get.productBySlug(slug: slug); }
+        state Int quantity = 1;
+
+        fn increment() { if (quantity < 10) { quantity = quantity + 1; } }
+        fn decrement() { if (quantity > 1) { quantity = quantity - 1; } }
+
+        view {
+            heading(product.name);
+            markdown(product.description);
+            when (product.discountPercent > 0) {
+                callout(Msg.discount(percent: product.discountPercent)) : tone(success);
+            }
+            when (product.isAvailable) {
+                row {
+                    iconButton(remove, Msg.decrease) : onClick(decrement());
+                    text(Fmt.number(quantity));
+                    iconButton(add, Msg.increase) : onClick(increment());
+                }
+                button(Msg.addToCart) : onClick(addToCart(product.id, quantity)), kind(primary);
+            } otherwise {
+                callout(Msg.outOfStock) : tone(warning);
+            }
+            when (Share.isAvailable) {
+                button(Msg.share) : onClick(Share.page(ProductDetail, slug: slug)), kind(secondary);
+            }
+        }
+    }
+
+    // Public: reaches no endpoint. Checkout navigates to a page whose derived guard requires
+    // login, so an anonymous session is sent through hosted login first.
+    @path('/cart')
+    page Cart() {
+        fn remove(UUID productId) { cart = cart.filter(line => line.productId != productId); }
+        fn checkout() {
+            if (cart.isEmpty) { Ui.toast(Msg.cartEmpty); return; }
+            Nav.to(NewOrder);
+        }
+        view {
+            when (cart.isEmpty) { callout(Msg.cartEmpty); } otherwise {
+                foreach (line in cart) {
+                    row {
+                        text(Fmt.number(line.quantity));
+                        button(Msg.remove) : onClick(remove(line.productId)), kind(link);
+                    }
+                }
+                button(Msg.checkout) : onClick(checkout()), kind(primary);
+            }
+        }
+    }
+
+    // Login required: `get orders(...)` requires an identity-provider login.
+    // The response struct has exactly one Array member, so the table's rows are derived.
+    @path('/orders')
+    page OrderList() {
+        view { table(Orders); }
+    }
+
+    table Orders : source(OrderService.OrderAPI.get.orders), poll(30s) {
+        columns(auto) except [billingAddress, cancellationReason];
+        column status : render(StatusBadge);
+        rowAction open : onClick(Nav.to(OrderDetail, id: row.id));
+    }
+
+    @path('/orders/new')
+    page NewOrder() {
+        view { form(CreateOrder); }
+    }
+
+    // The bound struct is the submit endpoint's body type.
+    form CreateOrder : submit(OrderService.OrderAPI.post.createOrder) {
+        fn prefill(CreateOrderRequest d) { d.items = cart; }
+        fn placed(UUID id, String orderNumber) {
+            cart = [];
+            Ui.toast(Msg.orderPlaced(orderNumber: orderNumber));
+            Nav.to(OrderDetail, id: id);
+        }
+        onLoad(prefill(draft));
+        step items    { fields(auto) except [shippingAddress, billingAddress, idempotencyKey]; }
+        step shipping { field shippingAddress; field billingAddress; }
+        onSuccess(placed(result.id, result.orderNumber));
+        onError(Ui.toast(Msg.orderFailed));
+    }
+
+    @path('/orders/:id')
+    page OrderDetail(UUID id) {
+        data { order = OrderService.OrderAPI.get.orderById(id: id); }
+
+        fn cancel() {
+            if (!Ui.confirm(Msg.confirmCancel)) { return; }
+            try {
+                OrderService.OrderAPI.put.cancelOrder(id: id, request: CancelOrderRequest { reason: Msg.customerRequest.text });
+                order.refresh();
+                Ui.toast(Msg.orderCancelled);
+            } catch (ConflictError e) {
+                Ui.toast(Msg.cannotCancel);
+            }
+        }
+
+        view {
+            heading(Msg.orderTitle(number: order.orderNumber));
+            StatusBadge(order.status);
+            text(Fmt.money(order.total));
+            when (order.canCancel) {
+                button(Msg.cancelOrder) : onClick(cancel()), tone(danger);
+            }
+        }
+    }
+
+    page NotFound() : fallback {
+        view { callout(Msg.notFound) : tone(warning); link(Msg.home, Home); }
+    }
+
+    assets {
+        image logo = 'assets/logo.svg';
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    test("adding the same product twice increases its quantity") {
+        let UUID id = uuid();
+        addToCart(id, 1);
+        addToCart(id, 2);
+        assert cart.length == 1;
+        assert cart.first.quantity == 3;
+    }
+
+    test("checkout with an empty cart stays on the cart") {
+        let Screen screen = render(Cart);
+        screen.tap(button, Msg.checkout);
+        assert screen.shows(Msg.cartEmpty);
+        assert !navigated(NewOrder);
+    }
+
+    // The order page's guard requires a signed-in customer.
+    test("a conflicting cancellation tells the customer") {
+        let UUID id = uuid();
+        signIn([]);
+        respond(OrderService.OrderAPI.get.orderById(id: id), sample(orderDb.Order, id: id, canCancel: true));
+        respondError(
+            OrderService.OrderAPI.put.cancelOrder(id: id, request: CancelOrderRequest { reason: Msg.customerRequest.text }),
+            ConflictError('already shipped')
+        );
+        answerConfirm(true);
+        let Screen screen = render(OrderDetail, id: id);
+        screen.tap(button, Msg.cancelOrder);
+        assert screen.shows(Msg.cannotCancel);
+    }
+}

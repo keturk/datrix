@@ -23,6 +23,7 @@ config system library.System {
     }
     defaultTimeout = 30000;
     maxPageSize = 100;
+    defaultLocale = "en-US";
     gateway {
       auth {
         jwt {
@@ -30,11 +31,6 @@ config system library.System {
           issuer = "library";
           expiresIn = 86400;
         }
-      }
-      cors {
-        origins = ["http://localhost:3000"];
-        methods = ["GET", "POST", "PUT", "DELETE", "PATCH"];
-        headers = ["Content-Type", "Authorization"];
       }
     }
     observability {
@@ -60,11 +56,6 @@ config system library.System {
             Boolean debugMode : description("Enable debug mode.") = false;
           }
         }
-      }
-    }
-    clients {
-      angular {
-        baseUrlToken = "ECOMMERCE_API_BASE_URL";
       }
     }
   }
@@ -219,11 +210,6 @@ config system library.System {
     alias env = "PROD";
     alias resource = "prod";
 
-    gateway {
-      cors {
-        origins = ["https://library.example.com"];
-      }
-    }
     observability {
       tracing {
         endpoint = "http://jaeger:4317";
@@ -258,8 +244,28 @@ config system library.System {
           audience = "ecommerce-identity-app";
         }
       }
-      cors {
-        origins = ["https://library.example.com"];
+      domain {
+        name = "api.library.example.com";
+      }
+    }
+    // The storefront's mobile release signing material: the app's android { }
+    // block names these handles, the operator supplies their values.
+    secrets {
+      secret android_keystore {
+        required = true;
+        purpose = "Android upload keystore for the storefront mobile release.";
+      }
+      secret android_key_alias {
+        required = true;
+        purpose = "Alias of the upload key inside the Android keystore.";
+      }
+      secret android_store_password {
+        required = true;
+        purpose = "Password of the Android upload keystore.";
+      }
+      secret android_key_password {
+        required = true;
+        purpose = "Password of the Android upload key.";
       }
     }
     observability {
@@ -406,8 +412,34 @@ config system library.System {
           audience = "ecommerce-identity-app";
         }
       }
-      cors {
-        origins = ["https://library.example.com"];
+      domain {
+        name = "api.library.example.com";
+        certificate = "api_tls_certificate";
+      }
+    }
+    secrets {
+      secret api_tls_certificate {
+        required = true;
+        purpose = "TLS certificate for the API custom domain.";
+      }
+      // The storefront's mobile release signing material: the app's
+      // android { } block names these handles, the operator supplies their
+      // values.
+      secret android_keystore {
+        required = true;
+        purpose = "Android upload keystore for the storefront mobile release.";
+      }
+      secret android_key_alias {
+        required = true;
+        purpose = "Alias of the upload key inside the Android keystore.";
+      }
+      secret android_store_password {
+        required = true;
+        purpose = "Password of the Android upload keystore.";
+      }
+      secret android_key_password {
+        required = true;
+        purpose = "Password of the Android upload key.";
       }
     }
     observability {
@@ -559,8 +591,34 @@ config system library.System {
       provider = "azure-vm";
     }
     gateway {
-      cors {
-        origins = ["https://library.example.com"];
+      domain {
+        name = "api.library.example.com";
+        certificate = "api_tls_certificate";
+      }
+    }
+    secrets {
+      secret api_tls_certificate {
+        required = true;
+        purpose = "TLS certificate for the API custom domain.";
+      }
+      // The storefront's mobile release signing material: the app's
+      // android { } block names these handles, the operator supplies their
+      // values.
+      secret android_keystore {
+        required = true;
+        purpose = "Android upload keystore for the storefront mobile release.";
+      }
+      secret android_key_alias {
+        required = true;
+        purpose = "Alias of the upload key inside the Android keystore.";
+      }
+      secret android_store_password {
+        required = true;
+        purpose = "Password of the Android upload keystore.";
+      }
+      secret android_key_password {
+        required = true;
+        purpose = "Password of the Android upload key.";
       }
     }
     zitadelIdentity {

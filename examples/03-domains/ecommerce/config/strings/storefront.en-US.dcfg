@@ -1,0 +1,40 @@
+config strings ecommerce.Storefront locale "en-US" {
+  messages {
+    welcome         = "Welcome to the store";
+    browseProducts  = "Browse products";
+    quantityUpdated = "Quantity updated";
+    addedToCart     = "Added to cart";
+    discount        = "Save {percent}%";
+    outOfStock      = "Out of stock";
+    share           = "Share";
+    addToCart       = "Add to cart";
+    increase        = "Increase quantity";
+    decrease        = "Decrease quantity";
+    cartEmpty       = "Your cart is empty";
+    remove          = "Remove";
+    checkout        = "Checkout";
+    orderPlaced     = "Order {orderNumber} placed";
+    orderFailed     = "We could not place your order";
+    orderTitle      = "Order {number}";
+    cancelOrder     = "Cancel order";
+    confirmCancel   = "Cancel this order?";
+    cannotCancel    = "That change conflicts with the current state";
+    orderCancelled  = "Order cancelled";
+    notFound        = "Page not found";
+    home            = "Home";
+    customerRequest = "Cancelled by customer";
+  }
+  labels {
+    page.OrderList                          = "My orders";
+    field.CreateOrderRequest.billingAddress = "Billing address (optional)";
+    enum.OrderStatus.Pending                = "Pending";
+    enum.OrderStatus.PaymentPending         = "Awaiting payment";
+    enum.OrderStatus.Confirmed              = "Confirmed";
+    enum.OrderStatus.Processing             = "Processing";
+    enum.OrderStatus.Shipped                = "Shipped";
+    enum.OrderStatus.Delivered              = "Delivered";
+    enum.OrderStatus.Cancelled              = "Cancelled";
+    enum.OrderStatus.Refunded               = "Refunded";
+    error.ConflictError                     = "That change conflicts with the current state";
+  }
+}

@@ -6,7 +6,7 @@ Datrix is a multi-language, multi-platform generator. The set of target
 (aws, azure, docker, local, ...) is defined by which ``datrix-codegen-<x>``
 packages are installed, and is discovered at runtime from their entry-point
 groups -- never a hardcoded literal. Installing a new codegen package makes its
-target selectable everywhere with no edit here (design DI-6 / D4 open identity).
+target selectable everywhere with no edit here (open-world target identity).
 
 Every script that needs "which languages/platforms exist" -- argparse ``choices``,
 default sweep sets, gate target lists -- MUST source it here (Python) or via the
@@ -34,7 +34,13 @@ from typing import Final
 # The entry-point group names are owned by datrix-common's plugin registry;
 # import them so this module tracks the single source of truth rather than
 # re-spelling the group strings.
-from datrix_common.plugin.registry import LANGUAGES_GROUP, PLATFORM_GROUP, entry_points
+from datrix_common.plugin.registry import (
+    GENERATOR_GROUP,
+    LANGUAGES_GROUP,
+    PLATFORM_GROUP,
+    PluginRegistry,
+    entry_points,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +251,179 @@ def discover_target_package_src_dirs(axis: str, target_names: frozenset[str], mo
             sorted(folded),
         )
     return folded
+
+
+#: Process-wide registry used to resolve which `datrix.generators` native
+#: classes declare a `transpiler_profile`, when a caller supplies none.
+#: Discovery is idempotent and cached on the instance. This is discovery
+#: infrastructure, not a `(target -> policy)` table: it enumerates nothing
+#: and hardcodes no generator name.
+_GENERATOR_REGISTRY: Final[PluginRegistry] = PluginRegistry()
+
+
+def _native_generator_classes_with_transpiler_profile(
+    registry: PluginRegistry | None = None,
+) -> dict[str, type]:
+    """The ONE construction-free "native `datrix.generators` classes
+    declaring a `transpiler_profile`" scan both
+    `registered_client_target_generator_names` and
+    `client_target_generator_module_roots` call, so the two enumerations can
+    never silently diverge.
+
+    Reads `PluginRegistry.list_native_generator_classes()` -- excludes the
+    language generators folded in from `datrix.languages` (a folded
+    `LanguageGenerator` carries no `descriptor` and is never a client
+    target) -- and inspects each remaining class's `descriptor` attribute
+    directly. No plugin is instantiated: the same construction-free
+    discipline `datrix_common.plugin.capability_resolution.declaration_for_provider`
+    already uses for platform plugins, for the identical reason (aws/azure/
+    docker-shaped generators need constructor arguments that do not exist
+    yet at discovery time).
+
+    Args:
+        registry: Registry to resolve against; defaults to the module-level
+            shared registry. Tests pass a registry seeded with fixture
+            generator plugins.
+
+    Returns:
+        `{registered name: native generator class}`, restricted to classes
+        whose `descriptor.transpiler_profile` is not `None`.
+
+    Raises:
+        RuntimeError: If `datrix.generators` discovery itself fails (an
+            entry-point scan or a plugin-class import failure).
+    """
+    reg = registry if registry is not None else _GENERATOR_REGISTRY
+    try:
+        classes = reg.list_native_generator_classes()
+    except Exception as exc:  # noqa: BLE001 -- re-raised with actionable context
+        raise RuntimeError(
+            f"Failed to discover native '{GENERATOR_GROUP}' generator classes: {exc}. "
+            f"Expected every '{GENERATOR_GROUP}' entry point to be queryable via "
+            f"importlib.metadata.entry_points() and loadable. Fix: verify the "
+            f"datrix-codegen-<x> packages are installed into the active environment "
+            f"(D:\\datrix\\.venv)."
+        ) from exc
+    return {
+        name: cls
+        for name, cls in classes.items()
+        if getattr(cls, "descriptor", None) is not None and cls.descriptor.transpiler_profile is not None
+    }
+
+
+def registered_client_target_generator_names(registry: PluginRegistry | None = None) -> frozenset[str]:
+    """Every ``datrix.generators`` entry point whose NATIVE generator class
+    declares a non-``None`` ``transpiler_profile`` on its ``PluginDescriptor``.
+
+    Construction-free: reads ``PluginRegistry.list_native_generator_classes()``
+    (excludes the language generators folded in from ``datrix.languages`` --
+    those carry no ``descriptor`` and are never client targets) and inspects
+    each class's ``descriptor`` attribute directly, without instantiating a
+    plugin that needs generation-context constructor arguments that do not
+    exist yet at discovery time (the same construction-free discipline
+    ``declaration_for_provider`` already uses for platforms).
+
+    Args:
+        registry: Registry to resolve against; defaults to the module-level
+            shared registry. Tests pass a registry seeded with fixture
+            generator plugins.
+
+    Returns:
+        The frozenset of registered `datrix.generators` names whose descriptor
+        carries a `transpiler_profile` -- the frontend-client renderer set
+        the behaviour-parity language axis must include beside every
+        `datrix.languages` package.
+
+    Raises:
+        RuntimeError: If `datrix.generators` discovery itself fails.
+    """
+    return frozenset(_native_generator_classes_with_transpiler_profile(registry))
+
+
+def client_target_generator_module_roots(
+    names: frozenset[str], registry: PluginRegistry | None = None
+) -> dict[str, str]:
+    """The ``datrix.generators``-group sibling of ``entry_point_module_roots``,
+    restricted to *names* (normally
+    ``registered_client_target_generator_names()``'s result).
+
+    A separate function, never a branch inside ``entry_point_module_roots``:
+    that function's ``_AXIS_ENTRY_POINT_GROUPS`` lookup is keyed by
+    ``AXIS_LANGUAGES``/``AXIS_PLATFORMS`` only, and a client-target generator's
+    entry point lives under ``GENERATOR_GROUP``, a third group neither axis
+    constant names. Reads each class's own ``__module__`` -- the class is
+    already in hand from the same construction-free scan
+    ``registered_client_target_generator_names`` runs, so it is never
+    imported a second time here.
+
+    Args:
+        names: Registered `datrix.generators` names to resolve.
+        registry: Registry to resolve against; defaults to the module-level
+            shared registry. Tests pass a registry seeded with fixture
+            generator plugins.
+
+    Returns:
+        `{registered name: top-level module name}`, restricted to *names*.
+
+    Raises:
+        RuntimeError: If `datrix.generators` discovery itself fails.
+    """
+    classes = _native_generator_classes_with_transpiler_profile(registry)
+    return {name: cls.__module__.split(".")[0] for name, cls in classes.items() if name in names}
+
+
+def discover_client_target_generator_src_dirs(
+    names: frozenset[str], monorepo_root: Path, registry: PluginRegistry | None = None
+) -> dict[str, Path]:
+    """The ``datrix.generators``-group sibling of ``discover_target_package_src_dirs``,
+    for the client-target names *names* resolves.
+
+    Reuses ``discover_all_package_locations``/``fold_names_by_src_dir`` -- the
+    same on-disk resolution and same-package folding -- seeded from
+    ``client_target_generator_module_roots(names, registry)`` instead of
+    ``entry_point_module_roots(axis)``.
+
+    Args:
+        names: Registered `datrix.generators` names to resolve (normally
+            `registered_client_target_generator_names()`'s result).
+        monorepo_root: The workspace root containing every `datrix-*` checkout.
+        registry: Registry to resolve against; defaults to the module-level
+            shared registry. Tests pass a registry seeded with fixture
+            generator plugins.
+
+    Returns:
+        `{label: absolute src package directory}`.
+
+    Raises:
+        ValueError: A name resolves to no on-disk package (same failure shape
+            as `discover_target_package_src_dirs`).
+        RuntimeError: If `datrix.generators` discovery itself fails
+            (propagates from `client_target_generator_module_roots`).
+    """
+    all_locations = discover_all_package_locations(monorepo_root)
+    module_roots = client_target_generator_module_roots(names, registry)
+
+    names_by_src_dir: dict[Path, list[str]] = {}
+    for name in sorted(names):
+        import_name = module_roots.get(name)
+        if import_name is None:
+            raise ValueError(
+                f"Registered client-target generator {name!r} has no native "
+                f"'{GENERATOR_GROUP}' class declaring a 'transpiler_profile'. "
+                f"Client-target generators with a transpiler_profile: {sorted(module_roots)}."
+            )
+        src_dir = all_locations.get(import_name)
+        if src_dir is None:
+            raise ValueError(
+                f"Could not resolve an on-disk src/ directory for client-target "
+                f"generator {name!r} (its registered plugin class lives in module "
+                f"root {import_name!r}). Expected a 'datrix-*' directory under "
+                f"{monorepo_root} whose src/ tree contains a {import_name!r} "
+                f"package directory. Discovered package roots: {sorted(all_locations)}."
+            )
+        names_by_src_dir.setdefault(src_dir, []).append(name)
+
+    return fold_names_by_src_dir(names_by_src_dir)
 
 
 def discover_all_other_package_src_dirs(monorepo_root: Path, exclude_dirs: frozenset[Path]) -> list[Path]:

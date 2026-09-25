@@ -1,0 +1,145 @@
+config strings ecommerce.Storefront locale "tr-TR" {
+  messages {
+    welcome         = "Mağazaya hoş geldiniz";
+    browseProducts  = "Ürünlere göz atın";
+    quantityUpdated = "Miktar güncellendi";
+    addedToCart     = "Sepete eklendi";
+    discount        = "%{percent} indirim";
+    outOfStock      = "Stokta yok";
+    share           = "Paylaş";
+    addToCart       = "Sepete ekle";
+    increase        = "Miktarı artır";
+    decrease        = "Miktarı azalt";
+    cartEmpty       = "Sepetiniz boş";
+    remove          = "Kaldır";
+    checkout        = "Ödemeye geç";
+    orderPlaced     = "{orderNumber} numaralı sipariş oluşturuldu";
+    orderFailed     = "Siparişiniz oluşturulamadı";
+    orderTitle      = "Sipariş {number}";
+    cancelOrder     = "Siparişi iptal et";
+    confirmCancel   = "Bu sipariş iptal edilsin mi?";
+    cannotCancel    = "Bu değişiklik mevcut durumla çakışıyor";
+    orderCancelled  = "Sipariş iptal edildi";
+    notFound        = "Sayfa bulunamadı";
+    home            = "Ana sayfa";
+    customerRequest = "Müşteri tarafından iptal edildi";
+
+    // Datrix ships its framework text in en-US only; every other locale
+    // provides it.
+    framework.empty        = "Henüz bir şey yok";
+    framework.loading      = "Yükleniyor";
+    framework.retry        = "Tekrar dene";
+    framework.confirm      = "Onayla";
+    framework.cancel       = "Vazgeç";
+    framework.notFound     = "Bulunamadı";
+    framework.forbidden    = "Bu sayfaya erişiminiz yok";
+    framework.failed       = "Bir şeyler ters gitti";
+    framework.submit       = "Gönder";
+    framework.required     = "Bu alan zorunludur";
+    framework.tooShort     = "En az {min} karakter girin";
+    framework.tooLong      = "En fazla {max} karakter girin";
+    framework.invalid      = "Geçerli bir değer girin";
+    framework.next         = "Sonraki";
+    framework.previous     = "Önceki";
+    framework.add          = "Ekle";
+    framework.remove       = "Kaldır";
+    framework.dismiss      = "Kapat";
+    framework.menu         = "Menü";
+    framework.formatting   = "Biçimlendirme";
+    framework.bold         = "Kalın";
+    framework.italic       = "İtalik";
+    framework.link         = "Bağlantı";
+    framework.bulletedList = "Madde işaretli liste";
+    framework.preview      = "Önizleme";
+    framework.loadMore     = "Daha fazla yükle";
+    framework.today        = "Bugün";
+    framework.month        = "Ay";
+    framework.week         = "Hafta";
+    framework.day          = "Gün";
+  }
+  // The default locale falls back to humanized names; every other locale
+  // names every page, field, enum member, action, step, empty state and error
+  // the app shows.
+  labels {
+    page.Home                                = "Ana sayfa";
+    page.ProductList                         = "Ürünler";
+    page.ProductDetail                       = "Ürün";
+    page.Cart                                = "Sepet";
+    page.OrderList                           = "Siparişlerim";
+    page.NewOrder                            = "Yeni sipariş";
+    page.OrderDetail                         = "Sipariş";
+    page.NotFound                            = "Sayfa bulunamadı";
+
+    action.Catalog.open                      = "Aç";
+    action.Orders.open                       = "Aç";
+    empty.Catalog                            = "Henüz ürün yok";
+    empty.Orders                             = "Henüz siparişiniz yok";
+    step.CreateOrder.items                   = "Ürünler";
+    step.CreateOrder.shipping                = "Teslimat";
+
+    field.Product.id                         = "Kimlik";
+    field.Product.name                       = "Ad";
+    field.Product.slug                       = "Bağlantı adı";
+    field.Product.description                = "Açıklama";
+    field.Product.price                      = "Fiyat";
+    field.Product.compareAtPrice             = "Önceki fiyat";
+    field.Product.inventory                  = "Stok";
+    field.Product.status                     = "Durum";
+    field.Product.categoryId                 = "Kategori";
+    field.Product.productMetadata            = "Ek bilgiler";
+    field.Product.images                     = "Görseller";
+    field.Product.tags                       = "Etiketler";
+    field.Product.createdAt                  = "Oluşturulma";
+    field.Product.updatedAt                  = "Güncellenme";
+    enum.ProductStatus.Draft                 = "Taslak";
+    enum.ProductStatus.Active                = "Satışta";
+    enum.ProductStatus.Discontinued          = "Satıştan kaldırıldı";
+
+    field.Order.id                           = "Kimlik";
+    field.Order.orderNumber                  = "Sipariş numarası";
+    field.Order.customerId                   = "Müşteri";
+    field.Order.status                       = "Durum";
+    field.Order.subtotal                     = "Ara toplam";
+    field.Order.tax                          = "Vergi";
+    field.Order.shippingCost                 = "Kargo ücreti";
+    field.Order.discount                     = "İndirim";
+    field.Order.shippingAddress              = "Teslimat adresi";
+    field.Order.billingAddress               = "Fatura adresi";
+    field.Order.inventoryReservationId       = "Stok rezervasyonu";
+    field.Order.paymentId                    = "Ödeme";
+    field.Order.shipmentId                   = "Gönderi";
+    field.Order.cancellationReason           = "İptal nedeni";
+    field.Order.createdAt                    = "Oluşturulma";
+    field.Order.updatedAt                    = "Güncellenme";
+    enum.OrderStatus.Pending                 = "Beklemede";
+    enum.OrderStatus.PaymentPending          = "Ödeme bekleniyor";
+    enum.OrderStatus.Confirmed               = "Onaylandı";
+    enum.OrderStatus.Processing              = "Hazırlanıyor";
+    enum.OrderStatus.Shipped                 = "Kargoya verildi";
+    enum.OrderStatus.Delivered               = "Teslim edildi";
+    enum.OrderStatus.Cancelled               = "İptal edildi";
+    enum.OrderStatus.Refunded                = "İade edildi";
+
+    field.CreateOrderRequest.items           = "Ürünler";
+    field.CreateOrderRequest.shippingAddress = "Teslimat adresi";
+    field.CreateOrderRequest.billingAddress  = "Fatura adresi (isteğe bağlı)";
+    field.CreateOrderRequest.idempotencyKey  = "Tekrar koruma anahtarı";
+    field.OrderLineInput.productId           = "Ürün";
+    field.OrderLineInput.quantity            = "Adet";
+    field.Address.street                     = "Sokak";
+    field.Address.city                       = "Şehir";
+    field.Address.state                      = "İl";
+    field.Address.zipCode                    = "Posta kodu";
+    field.Address.country                    = "Ülke";
+    field.Address.phone                      = "Telefon";
+
+    error.ConflictError                      = "Bu değişiklik mevcut durumla çakışıyor";
+    error.ValidationError                    = "Girdiğiniz bilgiler geçerli değil";
+    error.NotFoundError                      = "Aradığınız kayıt bulunamadı";
+    error.EntityNotFoundError                = "Aradığınız kayıt bulunamadı";
+    error.UnauthorizedError                  = "Devam etmek için giriş yapın";
+    error.ForbiddenError                     = "Bu işlem için yetkiniz yok";
+    error.RateLimitError                     = "Çok fazla istek gönderildi, biraz sonra tekrar deneyin";
+    error.CascadeRestrictionError            = "Bu kayıt başka kayıtlarca kullanıldığı için değiştirilemez";
+  }
+}

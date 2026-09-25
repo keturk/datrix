@@ -23,15 +23,7 @@ config identity identity {
   profile aws as "aws" extends base {
   }
 
-  // Entra External ID registers a browser app for a human audience, so the
-  // storefront origin it redirects back to is declared here.
   profile azure as "azure" extends base {
-    publicClient {
-      baseUrls {
-        azure = "https://library.example.com";
-      }
-      flows = ["authorization_code"];
-    }
   }
 
   profile azureVm as "azvm" extends base {

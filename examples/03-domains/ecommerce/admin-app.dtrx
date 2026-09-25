@@ -1,0 +1,20 @@
+from ecommerce.ui import Brand;
+
+/// Staff console: browse and edit the product catalog.
+app ecommerce.Admin('config/admin-app.dcfg') : version('1.0.0') {
+    uses ecommerce.ProductService;
+    uses ecommerce.UserService;
+    theme extends Brand { }
+    layout Console { nav { link Products.list; } }
+
+    // Each minted page carries the guard derived from the operation it reaches: list/detail
+    // are public reads, edit reaches the admin-only update -- so the edit page is admin-only.
+    // `auth(...)` here tightens all of them to staff.
+    @path('/products')
+    workspace Products : over(ProductService.ProductAPI.productDb.Product),
+                         auth(required, providers: [identity], roles: [admin]), fallback {
+        list   { columns(auto) except [description]; }
+        detail { }
+        edit   { fields(auto) except [slug]; }
+    }
+}

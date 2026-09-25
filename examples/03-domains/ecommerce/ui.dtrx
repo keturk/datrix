@@ -1,0 +1,33 @@
+from ecommerce.OrderService import OrderStatus;
+
+// Shared UI module: the brand theme, a responsive card style and the
+// components every app of this system can import.
+module ecommerce.ui {
+    theme Brand {
+        color primary   = '#0f766e';
+        color onPrimary = '#ffffff';
+        color surface   = '#ffffff';
+        color onSurface = '#111827';
+        space md        = 16;
+        radius card     = 8;
+        font body       = font('Inter', 16, 400);
+        breakpoint wide = 900;
+        scheme dark { color surface = '#0b1220'; color onSurface = '#e5e7eb'; }
+    }
+
+    style cardList {
+        columns: 1;
+        gap: space.md;
+        at (wide) { columns: 3; }
+    }
+
+    // A component with one unnamed slot: callers put children inside it.
+    component Panel() {
+        view { card : style(cardList) { slot; } }
+    }
+
+    // The tone map comes from OrderStatus; nothing to declare.
+    component StatusBadge(OrderStatus status) {
+        view { badge(status); }
+    }
+}

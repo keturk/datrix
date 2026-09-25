@@ -41,7 +41,7 @@ Whole-suite modes (Jon only): a bare package (`.\test\test.ps1` + package names)
 Two consequences worth knowing before you parallelize anything:
 
 - **Concurrency here buys nothing and costs a lot.** The runs serialize on the lock whatever you do, and the loser fails outright rather than queueing. A sweep launched as N parallel invocations finishes later than the same sweep as one invocation, and reports failures that are pure contention.
-- **Contention also breaks `npm`-dependent suites in a way that looks like a real defect.** Integration tests that shell out to `npm install` (`datrix-codegen-typescript`, `datrix-codegen-angular`) run under a fixed subprocess timeout and contend for CPU and npm's own cache locks. Oversubscribe the machine and they hit that timeout and report as **errors on setup**, indistinguishable at a glance from a genuine failure. `datrix-codegen-typescript` and `datrix-codegen-angular` both bound this deliberately: a `pytest_collection_modifyitems` hook in each package's `tests/conftest.py` pools every `@pytest.mark.npm_tsc` item into one of `DATRIX_TS_NPM_TSC_POOLS` (default 4) `xdist_group`s keyed by the test's file, and the runner's parallel phase distributes with `--dist loadgroup`, so at most that many npm/tsc chains run at once per session (the runner iterates packages sequentially, so that is the bound in practice). Set `DATRIX_TS_NPM_TSC_POOLS=1` to serialize them completely on a busy machine. Other packages do not bound this at all. If a run shows `npm install ... timed out` or a package-lock error, re-run the affected files on a quiet machine before believing the result — and treat the counts, not the exit code, as the signal.
+- **Contention also breaks `npm`-dependent suites in a way that looks like a real defect.** Integration tests that shell out to `npm install` (`datrix-codegen-typescript`) run under a fixed subprocess timeout and contend for CPU and npm's own cache locks. Oversubscribe the machine and they hit that timeout and report as **errors on setup**, indistinguishable at a glance from a genuine failure. `datrix-codegen-typescript` bounds this deliberately: a `pytest_collection_modifyitems` hook in its `tests/conftest.py` pools every `@pytest.mark.npm_tsc` item into one of `DATRIX_TS_NPM_TSC_POOLS` (default 4) `xdist_group`s keyed by the test's file, and the runner's parallel phase distributes with `--dist loadgroup`, so at most that many npm/tsc chains run at once per session (the runner iterates packages sequentially, so that is the bound in practice). Set `DATRIX_TS_NPM_TSC_POOLS=1` to serialize them completely on a busy machine. Other packages do not bound this at all. If a run shows `npm install ... timed out` or a package-lock error, re-run the affected files on a quiet machine before believing the result — and treat the counts, not the exit code, as the signal.
 
 ### Node suites (`datrix-vscode`)
 
@@ -514,7 +514,7 @@ GenDSL 2 Invariant I5 ratchet: AST-counts direct `GeneratedFile(...)` constructo
 
 ### `test\check-docs-conformance.ps1`
 
-Docs-conformance Invariant I5 gate: extracts repo-relative path references and Python module references from the curated 38-file architecture-doc set (each package's `docs/architecture.md` and/or `docs/architecture/` tree — `datrix-extensions` has neither and contributes zero) and fails if any reference does not resolve to a real file/directory/module in the tree, unless it is recorded in the committed exceptions baseline at `scripts/config/docs-conformance-exceptions.json` (a "what was removed" migration-history claim, a "must never exist" prohibition claim, or another confirmed-intentional non-existence). This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same scan-and-baseline shape as `check-generated-file-ratchet.ps1`'s I5 ratchet, except the exceptions baseline is hand-edited and reviewed (no `-UpdateBaseline` flag — every entry needs a human-authored reason a script cannot synthesize).
+Docs-conformance Invariant I5 gate: extracts repo-relative path references and Python module references from the curated 39-file architecture-doc set (each package's `docs/architecture.md` and/or `docs/architecture/` tree — `datrix-extensions` has neither and contributes zero) and fails if any reference does not resolve to a real file/directory/module in the tree, unless it is recorded in the committed exceptions baseline at `scripts/config/docs-conformance-exceptions.json` (a "what was removed" migration-history claim, a "must never exist" prohibition claim, or another confirmed-intentional non-existence). This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same scan-and-baseline shape as `check-generated-file-ratchet.ps1`'s I5 ratchet, except the exceptions baseline is hand-edited and reviewed (no `-UpdateBaseline` flag — every entry needs a human-authored reason a script cannot synthesize).
 
 `ARCHITECTURE_DOC_FILES` is a literal, reviewable constant in the script (never a directory glob) — "architecture docs" is a curated concept, and a new architecture doc added later is a deliberate, reviewed one-line addition to that constant. This v1 only checks path-reference candidates that are fully package-qualified (start with a known package name or `D:\datrix\`) and module-reference candidates that are fully import-qualified (start with a known Python import name) — a bare, package-relative shorthand span with no anchor at all is never a candidate (deliberate scope boundary, not a gap).
 
@@ -522,7 +522,7 @@ Docs-conformance Invariant I5 gate: extracts repo-relative path references and P
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run gate** | `.\test\check-docs-conformance.ps1` | Scan all 38 architecture docs, fail on unresolved references |
+| **Run gate** | `.\test\check-docs-conformance.ps1` | Scan all 39 architecture docs, fail on unresolved references |
 | **Warning mode** | `.\test\check-docs-conformance.ps1 -Warn` | Report unresolved references but exit 0 |
 | **Show files** | `.\test\check-docs-conformance.ps1 -ShowFiles` | Print each architecture doc file being scanned |
 | **Self-test only** | `.\test\check-docs-conformance.ps1 -SelfTest` | Run only the scanner's own edge-case self-test suite; skip the real docs scan |
@@ -534,7 +534,7 @@ Docs-conformance Invariant I5 gate: extracts repo-relative path references and P
 **Self-test runs automatically, every invocation.** A plain-Python self-test suite (`--self-test` on the underlying `.py`; no pytest -- real `tempfile.TemporaryDirectory()` fixtures and `assert` statements, per the datrix showcase boundary) covers `extract_path_candidates`, `extract_module_candidates`, `resolve_path_candidate` (Tier 1 + Tier 2, including the adversarial ambiguous-Tier-2-match case, which must stay unresolved), `resolve_module_candidate`, `load_exceptions`, and `check_against_exceptions`. This suite runs, unconditionally, as step 1 of every invocation (self-test failure aborts before the real scan, exit 2); `-SelfTest` runs it in isolation and skips the real scan. `--harness-self-test` (no `.ps1` switch -- diagnostic only) registers one intentionally-failing dummy check to prove the `[OK]`/`[FAIL]` harness itself is not vacuous.
 
 **Assertions:**
-- Every single-backtick inline code span in each of the 38 architecture docs is extracted as a path-reference or module-reference candidate per the fixed extraction rules (package/drive-prefixed for paths, import-name-prefixed dotted chains for modules); a span containing `...`, `<`/`>`, or `*` is rejected outright.
+- Every single-backtick inline code span in each of the 39 architecture docs is extracted as a path-reference or module-reference candidate per the fixed extraction rules (package/drive-prefixed for paths, import-name-prefixed dotted chains for modules); a span containing `...`, `<`/`>`, or `*` is rejected outright.
 - A path candidate resolves via Tier 1 (exact path exists under the monorepo root; a trailing-slash candidate must be a directory) or Tier 2 (an unambiguous `src/`/`tests/`-relative suffix match — never attempted when the candidate already starts with `src`/`tests`, and never resolved when the suffix matches 2+ files).
 - A module candidate resolves when any decreasing-length prefix of its segments after the import name matches a real `.py` file or package `__init__.py` (tolerating a trailing symbol/attribute/function name).
 - A candidate unresolved by both tiers is checked against the exceptions baseline (span text -> reason); present spans never fail the gate, absent spans do.
@@ -785,6 +785,15 @@ exactly `identical` / `same-behaviour` / `divergent`.
 **The platform axis (`-Axis platforms`) is report-only and never fails** — the platform packages
 realize different infrastructure by design.
 
+**The language axis also covers every `transpiler_profile`-bearing frontend-client renderer.**
+Beside every `datrix.languages` package, the language axis compares every registered
+`datrix.generators` package whose native generator class declares a non-`None`
+`transpiler_profile` on its `PluginDescriptor` (angular/react/flutter once their own tasks land
+— none do yet, so today's scan is unaffected). Its name-token vocabulary comes from its
+`ClientTargetCapabilityDeclaration.name_tokens`, resolved only after no `datrix.languages`
+plugin answers to the same name — never guessed from the bare registered name alone. The
+`.ps1` wrapper and its flags are unchanged; only the underlying `--axis languages` scan widens.
+
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Run the gate** | `.\test\behaviour-parity-gate.ps1` | Language axis, default (empty or file) scope |
@@ -1007,6 +1016,28 @@ Framework header parity gate: every registered language spells the framework-min
 
 ---
 
+### `test\web-security-header-parity-gate.ps1`
+
+Web security header parity gate: every registered platform realizing `static_web_hosting` (docker/local's loopback nginx static site, AWS's CloudFront response-headers policy, Azure's Static Web Apps `staticwebapp.config.json`) emits the ONE declared security-header set from datrix-common's one builder (`datrix_common.generation.web_security_headers.build_web_security_headers` — Content-Security-Policy, Strict-Transport-Security, X-Content-Type-Options, Referrer-Policy, Permissions-Policy). None of the three platforms spells a header name literally in its own source — each threads the shared builder's `WebSecurityHeaderSet.as_header_dict()` straight into its own rendering primitive — so this gate DRIVES each platform's real generation composition for one shared fixture (app, web target, environment) rather than censusing source text, then parses the EMITTED artifact structurally (nginx `add_header` directives at server level, the CloudFront response-headers policy's CDK IR, the parsed `staticwebapp.config.json`). **Realization:** every header family the platform's own topology expects (read from `PlatformCapabilityDeclaration.static_web_hosting.origin` — a loopback platform correctly omits Strict-Transport-Security, never a per-platform declared hole) must be realized in the emitted artifact; there is no exemption path for this gate — a platform realizing `static_web_hosting` must realize its full topology-appropriate set, always. **CSP safety:** no emitted Content-Security-Policy value contains `unsafe-inline` or `unsafe-eval`, checked independently of family completeness. A platform whose registered name(s) all declare `static_web_hosting` unrealized is set aside with its reason, never counted as passing silently. Platform set from the installed `datrix.platforms` entry points; the declared header set read from datrix-common — never a table in the script. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\web-security-header-parity-gate.ps1` | Drive every realizing platform's real generation composition for the shared fixture; prints the family × platform realized/n-a/MISSING table |
+| **Debug** | `.\test\web-security-header-parity-gate.ps1 -Dbg` | Debug logging (per-platform census detail) |
+| **Self-test only** | `.\test\web-security-header-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real census |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Assertions:**
+- Realization, per realizing platform and family: every family in that platform's own topology-derived expected set (`_topology_families`, keyed by `static_web_hosting.origin`) is realized in the emitted artifact; a realized family outside the declared vocabulary is also a violation.
+- CSP safety: no censused `Content-Security-Policy` value contains `unsafe-inline` or `unsafe-eval`, regardless of family completeness.
+- Registry: every declared family is realized by at least one registered platform.
+- Non-vacuity self-test (every invocation): two fully realizing planted platforms report no problem; a platform missing an expected family is exactly one problem naming the platform and family; a loopback platform legitimately omitting Strict-Transport-Security is NOT a violation, and its verdict records the topology-narrowed expected set; a realized header outside the declared vocabulary is exactly one problem; a planted `unsafe-inline`/`unsafe-eval` CSP sample is exactly one problem independent of family completeness; a family nobody realizes anywhere is reported as a dead contract; platform-origin resolution is proven directly (every-name-unrealized, one realized name, two agreeing realized names, two disagreeing realized names raising); a single-platform set is refused; the **live** scan drives every real registered platform's generation composition, finds every declared family realized somewhere, and passes `evaluate()` with zero violations.
+
+**Exit codes:** 0 = every realizing platform passes both rules (or a successful `-SelfTest`), 1 = a violation was found, 2 = the self-test failed, fewer than two platforms are registered, or a realizing platform has no census driver.
+
+---
+
 ### `test\problem-type-parity-gate.ps1`
 
 Problem-type parity gate: every registered language answers errors with RFC 7807 `type` URNs from datrix-common's one registry (`datrix_common.generation.problem_types` — `urn:datrix:error:<slug>`; a declared DSL exception derives its slug from its class name through the shared exception-declaration algorithm, a framework error uses a registered family) and realizes every framework family or declares the hole with a reason on its `LanguageCapabilityDeclaration.unrealized_problem_types`. The gate censuses every `.py` and `.j2` source under each registered language package's `src/` tree for `urn:datrix:error:` literals. **Spelling:** every literal slug is a registered family; a private slug has no exemption path (register it or spell the registered one). The bare prefix, a composition site for runtime-built URNs, is not a spelling. **Realization:** a family is realized when its URN is spelled; otherwise it must be declared unrealized with a reason. Neither fails naming the language; both is a stale declaration and fails; a family no language spells is a dead registry entry and fails. Language set from the installed `datrix.languages` entry points; registry and declarations read from the packages — never a table in the script. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
@@ -1026,6 +1057,26 @@ Problem-type parity gate: every registered language answers errors with RFC 7807
 - Non-vacuity self-test (every invocation): a planted source tree yields exactly its two literal slugs (the bare prefix, a Markdown file and a `__pycache__` entry are not counted); the comparator reports exactly one problem for an unregistered slug, an undeclared hole, a reasonless hole, a stale declaration, an unknown declared family and a family nobody spells, and none for a clean pair or a declared hole; the **live** census finds the `internal` type on at least two languages; a single-language set is refused.
 
 **Exit codes:** 0 = every language passes both rules (or a successful `-SelfTest`), 1 = a violation was found, 2 = the self-test failed or fewer than two languages are registered.
+
+---
+
+### `test\field-error-path-parity-gate.ps1`
+
+Field-error-path parity gate: every registered language spells a `request-validation` problem body's `errors[].field` with the ONE shape `datrix_common.generation.problem_types.FIELD_ERROR_PATH_RULE` defines (a dot-separated wire-name path relative to the request body root, no leading `body` segment, `[n]` for array elements) or declares the hole with a reason on its `LanguageCapabilityDeclaration.unrealized_field_error_path`. Unlike the problem-type/framework-header registries this is not a family table — there is exactly one rule, so the declaration is a single optional reason string, not a mapping. Realization is a runtime BEHAVIOUR rather than a literal wire string, so there is no single cross-language regex: the gate censuses each registered language's own construction technique — python's real, callable `format_field_error_path` mapping function (found by definition, then EXECUTED against the rule's own canonical worked example so the produced string is real, not guessed), typescript's hand-written `buildValidationFieldErrors` recursive builder (found by its two required construction lines — bracket-indexed, dot-joined), and java's native `FieldError.getField()` / `ConstraintViolation.getPropertyPath()` accessors (already canonical by Spring/Jakarta's own contract). A language with no known technique censuses to zero sites. **Realization:** the language's census produces the canonical path for the shared fixture, or it declares the hole. Neither fails naming the language; both is a stale declaration and fails; a found but divergent construction (a literal `body` prefix, or an index not spelled `[n]`) fails naming the found and expected spelling. Language set from the installed `datrix.languages` entry points; declarations read from the packages — never a table in the script. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\field-error-path-parity-gate.ps1` | Census every registered language's construction technique against the canonical rule and its declaration; prints the language realized/declared/MISSING table |
+| **Debug** | `.\test\field-error-path-parity-gate.ps1 -Dbg` | Debug logging (per-language site counts and declaration state) |
+| **Self-test only** | `.\test\field-error-path-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real census |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Assertions:**
+- Realization, per language: exactly one of `realized (census produces the canonical path)` / `declared unrealized (non-empty reason)`.
+- Non-vacuity self-test (every invocation): a planted correct python formatter's real execution produces the canonical path, a planted divergent one surfaces its actual wrong output; a planted correct typescript builder censuses as canonical, one missing the `[n]`-index construction censuses as divergent; a planted Spring `FieldError.getField()` call site censuses as canonical; a language with no known detector censuses to zero sites; the comparator reports exactly one problem for a divergent spelling, an empty declared reason, a stale declaration (realizing and declaring at once) and an undeclared unrealized gap, and none for two languages spelling the canonical path or a declared hole with a real reason; the **live** census finds at least one registered language realizing or declaring the rule; a single-language set is refused.
+
+**Exit codes:** 0 = every language realizes or declares the rule (or a successful `-SelfTest`), 1 = a violation was found, 2 = the self-test failed or fewer than two languages are registered.
 
 ---
 
@@ -1801,9 +1852,9 @@ otherwise-green run FAILED under `runner_errors`; a full run whose serial phase 
 stamped from the workers' records alone; and the unstamped run's recorder environment passes the
 runner plugin's own validation. One of them pins the parallel phase's distribution mode to `-n auto --dist
 loadgroup` (and the serial phase to neither flag): `loadgroup` is the only xdist mode that honours
-an `xdist_group` mark, and both `datrix-codegen-typescript` and `datrix-codegen-angular` pool their
-`npm_tsc` tests through such marks — a downgrade to plain `--dist load` would silently un-bound
-both pools without failing anything else. Several checks are inherently adversarial
+an `xdist_group` mark, and `datrix-codegen-typescript` pools its `npm_tsc` tests through such
+marks — a downgrade to plain `--dist load` would silently un-bound that pool without failing
+anything else. Several checks are inherently adversarial
 (corrupt/truncated/empty JUnit XML →
 INCOMPLETE, missing/corrupt per-project `index.json` skipped without error, a
 Docker-unavailable-with-no-markers or fully empty deploy dir → FAILED never PASSED,
@@ -1931,7 +1982,7 @@ A self-test failure aborts before any real result is trusted (exit 1).
 
 **Roots are derived from disk, never hand-authored.** Every `datrix*` directory contributes its `src`, `tests`, `docs` and `scripts` subtrees (the `datrix` showcase repo contributes `scripts`, `docs`, `examples` instead — it has no `src`), so a new package is scanned the day it appears. The gitignored orchestration trees themselves (`.tasks/`, `.bugs/`, `design/`) plus build noise are skipped: design and task files referencing **each other** is allowed and expected.
 
-**Four reference shapes are matched, over all of `.py .ps1 .json .md .j2 .ts .mts .cts .js .mjs .cjs .cs .java .toml .yaml .yml .dtrx`** (spelled here with `N`/`M` placeholders so this page is not itself a hit): a task-file id (`task-NN-MM`, the prose `task NN-MM`, and the three-digit `task-NN-MMM`, case-insensitively), a design path (`design/NNN-slug`), a design number (`design NNN`, `design-NNN`, `design doc NNN` — the word `doc` is optional), and a phase directory (`.tasks/phase-NN`). A **bare** `Phase NN` is deliberately NOT matched: the committed architecture docs use it as product vocabulary for delivery waves, self-contained text rather than a pointer into a gitignored tree.
+**Four reference shapes are matched, over all of `.py .ps1 .json .md .j2 .ts .mts .cts .js .mjs .cjs .cs .java .toml .yaml .yml .dtrx`** (spelled here with `N`/`M` placeholders so this page is not itself a hit): a task-file id (`task-NN-MM`, the prose `task NN-MM`, and the three-digit `task-NN-MMM`, case-insensitively), a design path (`design/NNN-slug`), a design number (`design NNN`, `design-NNN`, `design doc NNN` — the word `doc` is optional), and a phase directory (`.tasks/phase-NN`). Each line is also matched joined to the next with that line's comment leader (`#`, `//`, ` * `, `--`) removed, because a wrapped comment splits a reference across the break (`(design` / `# NNN section …`) and a line-at-a-time match sees neither half; a hit is reported at the line it starts on. A **bare** `Phase NN` is deliberately NOT matched: the committed architecture docs use it as product vocabulary for delivery waves, self-contained text rather than a pointer into a gitignored tree.
 
 **The terminal state is zero.** There is no baseline and no count to ratchet down. `ALLOWLIST` in `scripts/library/test/design_task_references.py` is the only escape hatch and is for files that document the ID *format* itself (the task-ID parser, the review runner's usage examples, this gate's own patterns) — never for a file that merely happens to carry a reference.
 

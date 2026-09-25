@@ -120,6 +120,11 @@
     serviceCredentialOps {
       tokenExpirySkewSeconds = 30;
     }
+    integrations {
+      push {
+        provider = "fcm";
+      }
+    }
   }
 
   profile test as "test" extends base {

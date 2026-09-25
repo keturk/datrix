@@ -1,0 +1,23 @@
+config app ecommerce.Admin {
+  base {
+    targets = ["angular"];
+  }
+  profile development as "dev" extends base {
+    web { port = 4300; }
+  }
+  profile test as "test" extends base {
+    web { port = 4300; }
+  }
+  profile production as "prod" extends base {
+    web { port = 4300; }
+  }
+  profile aws extends base {
+    web { domain { name = "admin.library.example.com"; } }
+  }
+  profile azure extends base {
+    web { domain { name = "admin.library.example.com"; } }
+  }
+  profile azureVm extends base {
+    web { domain { name = "admin.library.example.com"; } }
+  }
+}

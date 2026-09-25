@@ -134,8 +134,28 @@ ALLOWLIST: dict[str, str] = {
 }
 
 
+# A wrapped comment or docstring splits a reference across a line break --
+# `(design` at the end of one line, `# 052 section 16.1)` at the start of the
+# next -- and a line-at-a-time match sees neither half. Every line is therefore
+# also matched joined to the next, with the next line's comment leader removed;
+# a hit counts for the line its match STARTS on, so a reference wholly inside
+# the next line is still reported once, at its own line.
+_CONTINUATION_LEADER = re.compile(r"^\s*(?:#:?|///?:?|\*|--|;)?\s*")
+
+
 def _norm(path: str) -> str:
     return path.replace("\\", "/").removeprefix("D:/datrix/").removeprefix("d:/datrix/")
+
+
+def _line_hit(line: str, next_line: str) -> str | None:
+    """The label of the reference starting on *line*, or None."""
+    joined = f"{line.rstrip()} {_CONTINUATION_LEADER.sub('', next_line, count=1)}"
+    boundary = len(line.rstrip())
+    for label, pattern in PATTERNS:
+        match = pattern.search(joined)
+        if match is not None and match.start() < boundary:
+            return label
+    return None
 
 
 def default_roots(workspace: str = WORKSPACE_ROOT) -> list[str]:
@@ -175,11 +195,12 @@ def scan(roots: list[str]) -> list[tuple[str, int, str, str]]:
                     text = open(path, encoding="utf-8", errors="replace").read()
                 except OSError:
                     continue
-                for lineno, line in enumerate(text.splitlines(), 1):
-                    for label, pattern in PATTERNS:
-                        if pattern.search(line):
-                            hits.append((rel, lineno, label, line.strip()[:160]))
-                            break
+                lines = text.splitlines()
+                for lineno, line in enumerate(lines, 1):
+                    next_line = lines[lineno] if lineno < len(lines) else ""
+                    label = _line_hit(line, next_line)
+                    if label is not None:
+                        hits.append((rel, lineno, label, line.strip()[:160]))
     return hits
 
 
@@ -220,6 +241,11 @@ def self_test() -> int:
             "wide_sep.py": "# Implements task  43-01 across the two emitters.\n",
             "underscore_sep.py": "# Mirrors Task_31-07's own base-image skip.\n",
             "no_sep.py": "# See task43-01 for the universe widening.\n",
+            # A wrapped comment splits the reference across a line break; each
+            # of these is one reference, reported once.
+            "split_hash.py": "# Serves only declared page paths (design\n# 052 section 16.1).\n",
+            "split_star.ts": " * Mirrors the shared table (design\n * doc 046, the host rule).\n",
+            "split_docstring.py": '"""Unit tests for the census (design\n052 sections 7.1-7.2)."""\n',
         }
         for filename, body in shapes.items():
             _write(os.path.join(tmp, filename), body)
@@ -236,11 +262,12 @@ def self_test() -> int:
             return 1
 
     print(
-        "INFO: Non-vacuity self-test passed: the detector flags all 14 planted "
+        f"INFO: Non-vacuity self-test passed: the detector flags all {len(shapes)} planted "
         "reference shapes (hyphenated, prose, three-digit, phase dir, .dtrx, "
         "bare 'design NNN', hyphenated 'design-NNN', 'design doc NNN', plural "
         "'tasks NN-NN', slashed plural, plural 'design docs NNN', "
-        "multi-space, underscore and zero separators), reports zero for a "
+        "multi-space, underscore and zero separators, and a reference split "
+        "across a line break under '#', ' * ' and no leader), reports zero for a "
         "clean file, and leaves a bare delivery-wave heading alone."
     )
     return 0

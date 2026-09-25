@@ -942,13 +942,12 @@ def check_test_runner_parallel_phase_uses_loadgroup_distribution() -> None:
 
     ``loadgroup`` is the ONLY xdist distribution mode that honours an
     ``xdist_group`` mark: it is what makes every item sharing a group name land
-    on one worker. Two mechanisms in the tree depend on that and are silently
-    inert without it -- ``datrix-codegen-typescript`` and
-    ``datrix-codegen-angular`` both pool their ``npm_tsc`` tests into
-    ``DATRIX_TS_NPM_TSC_POOLS`` groups from their ``tests/conftest.py``
-    collection hooks, so that at most that many real ``npm install`` + ``tsc``
+    on one worker. ``datrix-codegen-typescript`` depends on that and is
+    silently inert without it: it pools its ``npm_tsc`` tests into
+    ``DATRIX_TS_NPM_TSC_POOLS`` groups from its ``tests/conftest.py``
+    collection hook, so that at most that many real ``npm install`` + ``tsc``
     chains run at once. Downgrading this flag to plain ``--dist load`` would
-    turn both pools back into unbounded concurrency without failing anything.
+    turn that pool back into unbounded concurrency without failing anything.
 
     The serial phase is checked too: it must NOT carry the parallel flags,
     because ``serial`` means strictly one at a time.

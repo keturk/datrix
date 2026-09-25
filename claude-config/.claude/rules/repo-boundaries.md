@@ -25,10 +25,10 @@ and each registers as an artifact-phase `datrix.generators` plugin, so none appe
 `registered_language_names()` and `--language` never selects them. Each activates only
 when an application declares its own `clients { <target> { … } }` block, and each owns its
 own manifest target so its stale-file pruning is confined to `clients/<target>/`.
-`datrix-codegen-react` and `datrix-codegen-flutter` are cloned, not-yet-populated
-repositories: each joins the venv install set and the Python scans the moment it carries a
-`pyproject.toml`, and `test.ps1` the moment it carries a `tests/` directory — no script
-edit is needed then.
+`datrix-codegen-react` is a cloned, not-yet-populated repository: it joins the venv install
+set and the Python scans the moment it carries a `pyproject.toml`, and `test.ps1` the moment
+it carries a `tests/` directory — no script edit is needed then. `datrix-codegen-flutter`
+carries both.
 
 **`datrix-vscode` is not a Python package.** It is the TypeScript VS Code client: no
 `pyproject.toml`, so it is absent from the venv install set and from every Python scan, but

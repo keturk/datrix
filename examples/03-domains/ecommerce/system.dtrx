@@ -5,6 +5,9 @@ include 'order-service.dtrx';
 include 'payment-service.dtrx';
 include 'shipping-service.dtrx';
 include 'notification-service.dtrx';
+include 'ui.dtrx';
+include 'storefront-app.dtrx';
+include 'admin-app.dtrx';
 
 system ecommerce('config/system.dcfg') : version('1.0.0') {
 }

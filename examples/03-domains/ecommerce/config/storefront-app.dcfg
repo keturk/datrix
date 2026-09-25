@@ -1,0 +1,46 @@
+config app ecommerce.Storefront {
+  base {
+    targets = ["angular", "flutter"];
+    appId   = "com.example.store";
+    strings = ["config/strings/storefront.en-US.dcfg", "config/strings/storefront.tr-TR.dcfg"];
+    // Firebase client registration: public client identifiers, never secrets.
+    firebase {
+      projectId = "example-store";
+      apiKey = "AIzaSyD-example-public-client-key-00000";
+      messagingSenderId = "123456789012";
+      androidAppId = "1:123456789012:android:0a1b2c3d4e5f6a7b";
+      iosAppId = "1:123456789012:ios:0a1b2c3d4e5f6a7b";
+    }
+  }
+  profile development as "dev" extends base {
+    web { port = 4200; }
+  }
+  profile test as "test" extends base {
+    web { port = 4200; }
+  }
+  profile production as "prod" extends base {
+    web { port = 4200; }
+  }
+  // Every deployed profile also ships the mobile app, so it declares how the
+  // release is signed. Each Android value names a logical secret handle the
+  // operator supplies at build time -- never the secret itself. The iOS team
+  // id is a public Apple Developer identifier.
+  profile deployed as "deployed" extends base {
+    android {
+      keystore = "android_keystore";
+      keyAlias = "android_key_alias";
+      storePassword = "android_store_password";
+      keyPassword = "android_key_password";
+    }
+    ios { teamId = "ABCDE12345"; }
+  }
+  profile aws extends deployed {
+    web { domain { name = "shop.library.example.com"; } }
+  }
+  profile azure extends deployed {
+    web { domain { name = "shop.library.example.com"; } }
+  }
+  profile azureVm extends deployed {
+    web { domain { name = "shop.library.example.com"; } }
+  }
+}

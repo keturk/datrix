@@ -55,6 +55,33 @@ shipping, and order notifications — six services, one `system.dtrx`.
 - Event-driven notifications across services
 - Circuit breakers and retry policies for resilience
 
+## Apps
+
+Two frontend apps are written in the same `.dtrx` language as the services and generated in
+the same run, under the generated project's `clients/<target>/`. Both import the shared
+[`ui.dtrx`](ui.dtrx) module (the `Brand` theme, the `Panel` and `StatusBadge` components).
+
+| App | Audience | Targets | Pages | Config |
+|-----|----------|---------|-------|--------|
+| [Storefront](storefront-app.dtrx) | Customers | web (Angular), mobile (Flutter) | `/`, `/products`, `/products/:slug`, `/cart`, `/orders`, `/orders/new`, `/orders/:id`; `/shop` redirects to `/products` | [`config/storefront-app.dcfg`](config/storefront-app.dcfg) |
+| [Admin](admin-app.dtrx) | Staff | web (Angular) | `/products` (list, detail and edit of the product catalog) | [`config/admin-app.dcfg`](config/admin-app.dcfg) |
+
+- **Derived, not restated.** Neither app declares a route table, a login, a guard or a form
+  field list: routes come from `@path`, each page's guard and the hosted login from the auth
+  of the endpoints it reaches, and every form and table from the backend struct it binds.
+  The Admin `workspace` narrows every catalog page to the `admin` role with one `auth(...)`.
+- **Text lives in strings files.** Every user-visible string is a `Msg.<key>` or a derived
+  label resolved from [`config/strings/storefront.en-US.dcfg`](config/strings/storefront.en-US.dcfg)
+  (the system's `defaultLocale`) and [`storefront.tr-TR.dcfg`](config/strings/storefront.tr-TR.dcfg).
+- **Push.** The Storefront declares `push : targets(flutter)`; the device registry is
+  injected into `NotificationService`, the one used service that configures
+  `integrations.push`.
+- **Hosting.** The compose profiles serve the Storefront on port 4200 and Admin on 4300; the
+  `aws`, `azure` and `azureVm` profiles serve them at `shop.` and `admin.` custom domains and
+  sign the Storefront's mobile release with handles the operator supplies.
+- **Tests.** The Storefront's three `test(...)` blocks generate one Vitest spec on Angular and
+  one widget test on Flutter each.
+
 ## Usage
 
 The target language is a generation parameter; the deployment target is selected
@@ -136,6 +163,10 @@ To run one of them, regenerate into a scratch directory (that restores `secrets/
 - `config/payment-service.dcfg`
 - `config/shipping-service.dcfg`
 - `config/notification-service.dcfg`
+- `config/storefront-app.dcfg`, `config/admin-app.dcfg`
+- `config/strings/storefront.en-US.dcfg`, `config/strings/storefront.tr-TR.dcfg`
+
+`assets/` holds the Storefront's logo, launcher icon and splash image.
 
 ## Architecture
 

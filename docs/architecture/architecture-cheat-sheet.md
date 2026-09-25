@@ -15,11 +15,11 @@ semantic analysis -> stdlib placeholders + lazy module injection -> continuing p
 
 **Load order:** builtins → stdlib placeholder registration → user parse/transform → semantic analysis (lazy stdlib deserialization when a stdlib export is first resolved).
 
-No IR layer. Parser produces `Application` directly. `GenerationPipeline` lives in `datrix-cli` (`datrix-cli/src/datrix_cli/pipeline/generation.py`); `run()` walks an ordered registry of typed `Stage` values through one runner. The named stages, in order: `parse` → `discover_and_parse_seeds` → `resolve_service_configs` → `inject_identity_system_entities` → `analyze` → `apply_service_filter` (skipped without `--service`) → `validate_deployment` → `resolve_incremental` → `build_codegen_context` → `build_deployment_plan` → `resolve_config_surfaces` → `discover_generators` → `validate_type_completeness` → `validate_builtin_realization` → `discover_platforms` → `sort_generators` → `select_generation_targets` (skipped without `--only`) → `attach_runtime_bootstrap` → `generate:{name}` (one per generator) → `resolve_intra_group_conflicts` → `detect_file_conflicts` → `assert_deploy_binding_conformance` → `write:{target}` (one per target) → `migrations` → `discover_language_hooks` → `run_language_post_processing` → `format_json_files` → `update_append_only_hashes` → `snapshot` → `commit_migration_state`. Infrastructure-config resolution and service memory-limit normalization are **not** stages: they run inside `analyze` as `SemanticAnalyzer.analyze()` pre-seal hooks, because both depend on nodes analysis itself may synthesize. There is **no** `platform_validation` or `apply_cli_overrides` stage; `--language` is a required generation parameter resolved before the run, and cross-model and `(provider, DeploymentProvider)` realization checks run inside the pre-seal infrastructure-config hook, with deployment-presence checks in `validate_deployment`.
+No IR layer. Parser produces `Application` directly. `GenerationPipeline` lives in `datrix-cli` (`datrix-cli/src/datrix_cli/pipeline/generation.py`); `run()` walks an ordered registry of typed `Stage` values through one runner. The named stages, in order: `parse` → `discover_and_parse_seeds` → `resolve_service_configs` → `inject_identity_system_entities` → `inject_approval_system_entities` → `inject_push_device_registry` → `analyze` → `apply_service_filter` (skipped without `--service`) → `validate_deployment` → `resolve_incremental` → `build_codegen_context` → `build_deployment_plan` → `resolve_config_surfaces` → `discover_generators` → `validate_type_completeness` → `validate_builtin_realization` → `discover_platforms` → `sort_generators` → `select_generation_targets` (skipped without `--only`) → `attach_runtime_bootstrap` → `generate:{name}` (one per generator) → `resolve_intra_group_conflicts` → `detect_file_conflicts` → `assert_deploy_binding_conformance` → `write:{target}` (one per target) → `migrations` → `discover_language_hooks` → `run_language_post_processing` → `run_client_target_post_processing` → `format_json_files` → `update_append_only_hashes` → `snapshot` → `commit_migration_state`. Infrastructure-config resolution and service memory-limit normalization are **not** stages: they run inside `analyze` as `SemanticAnalyzer.analyze()` pre-seal hooks, because both depend on nodes analysis itself may synthesize. There is **no** `platform_validation` or `apply_cli_overrides` stage; `--language` is a required generation parameter resolved before the run, and cross-model and `(provider, DeploymentProvider)` realization checks run inside the pre-seal infrastructure-config hook, with deployment-presence checks in `validate_deployment`.
 
-## Packages (15)
+## Packages (16)
 
-Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) plus fourteen core packages below.
+Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) plus fifteen core packages below.
 
 | Package | Purpose |
 |---------|---------|
@@ -36,6 +36,7 @@ Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) 
 | datrix-codegen-aws | AWS infrastructure (CDK/CloudFormation): VPC, ECS, RDS, ElastiCache, SNS/SQS, MSK (Kafka), DynamoDB, S3 |
 | datrix-codegen-azure | Azure infrastructure (Bicep/ARM): App Service, Functions, Flexible Server, Cosmos DB, Service Bus, Event Hubs (Kafka), Redis, Blob, APIM, Front Door, AI Search |
 | datrix-codegen-angular | Frontend API client generation (Angular). Artifact-phase companion generator: TypeScript request/response types, enums, and injectable HTTP clients from the shared client contract. Activates only when the application declares a `clients { angular { ... } }` config block |
+| datrix-codegen-flutter | Flutter mobile client target (`client_target=True` artifact-phase plugin): the client API layer in Dart -- models, one client class per API, the exception vocabulary and route manifest -- from the same validated `Application` that emits the backend. Activates only when an app's `targets` (or the system `clients { flutter { } }` block) names it |
 | datrix-cli | CLI. Discovers generator plugins dynamically via entry points |
 | datrix-extensions | Optional domain extension packs (`datrix.extensions`). Depends on datrix-common |
 
@@ -338,6 +339,10 @@ encoded faithfully:** query keys carry the *backend* language's identifier casin
 camelCase in the same request — a genuine wart whose correction would break every deployed API, so the
 client derives it rather than hardcoding it, and the wart becomes invisible at every call site.
 
+Decision 48 extends this decision from the backend-access layer to complete generated applications; as it
+lands, the statement above that components, pages, forms, routing, guards and view-model state are NOT
+generated, and invariant 11's wording, are superseded by Decision 48.
+
 Full decision log: [Architecture Overview — Decision 43](./architecture-overview.md#decision-43-frontend-api-client-generation--browser-clients-emitted-from-the-same-dsl-as-the-backend-approved--implementation-in-progress).
 
 ## Parity by Construction — Closing the Hand-Written Feature Surface
@@ -410,6 +415,41 @@ language are python `{python, py, pydantic, sqlalchemy, sa, alembic, ruff, pip}`
 maven, jackson}`, dotnet `{dotnet, net, cs, csharp, efcore, fluentmigrator, nuget, quartz}`.
 
 Full decision log: [Architecture Overview — Decision 47](./architecture-overview.md#decision-47-language-axis-behaviour-parity--roles-behaviour-skeletons-and-the-best-realization-as-reference-approved--implementation-in-progress).
+
+## Complete Applications — Web and Mobile Frontends in the Same DSL
+
+An application's frontend — web and mobile — is generated from the same grammar and the same statement
+and expression language a service already uses, through a new top-level `app` container, rather than
+hand-written in another language on top of the Decision 43 backend-access layer. One shared,
+framework-neutral UI contract composes the client contract; one renderer package per client target (an
+artifact-phase generator plugin, not a language plugin) consumes it and the shared transpiler, with a
+transpiler profile of its own — so a UI-specific behaviour is a closed set of builtin capability groups a
+target declares a stance on, exactly the mechanism a backend language already uses, and a behaviour
+difference between two client targets over the same construct is a defect under the language-axis
+behaviour-parity decision above, never a rendering choice. Every fact the backend already holds — types,
+field constraints, endpoint identity and auth, which services the app may call — is derived into the
+client and never re-declared; a declaration that restates or loosens a derived fact is an error.
+**Approved — implementation in progress.**
+
+Text, styling, device capabilities, persisted client state, login, push, hosting, mobile packaging, and
+custom domains all follow the same rule: one declared home per fact, a closed and checked capability
+surface per target, and a failure at generation time — never at runtime — whenever a target cannot
+realize what an application declares.
+
+| # | Invariant | Check |
+|---|---|---|
+| 1 | Backend and frontend containers never share a source file | Positive and negative fixtures for the file-mixing validation rule |
+| 2 | Every UI endpoint reference resolves to a real client route | Set containment against the client contract's route set, enforced at build and caught earlier by semantic validation |
+| 3 | No sensitive or hidden field is ever derived, named, or persisted | Negative assertion over the built UI contract for a fixture exercising each kind |
+| 4 | No secret, URL, tenant id, or per-profile value in the client tree | Byte-identical-across-profiles manifest check over the whole generated client tree, every target |
+| 5 | No fact has two homes | A restatement-error fixture for every row of the single-home-of-every-fact table |
+| 6 | A block of UI code behaves identically on every client target | The language-axis behaviour-parity gate extended to every package that contributes a transpiler profile, including the client targets |
+| 7 | A surface a target cannot realize fails before any file is written | A fixture per stance kind — builtin group, element, style property, push, native redirect — proving the failure happens at generation, not at runtime |
+| 8 | A UI-only capability never reaches a backend body, and a server-only capability never reaches a client body | Pipeline tests planting each violation and asserting the failure names the capability group, the reason, and the location |
+| 9 | Emitted web security headers are one declared set on every platform | A dedicated cross-platform header parity gate, with the derived Content-Security-Policy asserted free of unsafe directives |
+| 10 | A declared custom domain is realized with a certificate on every platform that declares it realized, and rejected on every platform that declares it unrealized — never silently ignored | A per-platform test over a fixture declaring both the gateway and web custom domains, run over every registered platform and refusing to pass under two |
+
+Full decision log: [Architecture Overview — Decision 48](./architecture-overview.md#decision-48-complete-applications-in-datrix--web-and-mobile-frontends-from-the-same-dsl-as-the-backend-approved--implementation-in-progress).
 
 ## Zero-Environment Runtime — Declared Per Language
 

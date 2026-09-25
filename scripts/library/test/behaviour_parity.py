@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Behaviour-parity gate: discovers every registered language (or platform)
-package's module-level and class-method function definitions, groups them
-into ROLES -- never by raw name, so a language token in a name can never
-hide a parallel implementation -- classifies every role with two or more
+package's module-level and class-method function definitions -- on the
+language axis, also every registered `transpiler_profile`-bearing
+`datrix.generators` client-target package's -- groups them into ROLES --
+never by raw name, so a language token in a name can never hide a parallel
+implementation -- classifies every role with two or more
 member packages as ``identical``, ``same-behaviour``, or ``divergent``
 using the behaviour-skeleton extractor, resolves each role to its owning
 shared domain, reads the declared exemption surfaces, and fails exactly the
@@ -157,6 +159,7 @@ import textwrap
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from importlib.metadata import EntryPoint
 from pathlib import Path
 from types import CodeType, MappingProxyType
 from typing import Final, Literal, TypeVar
@@ -184,8 +187,20 @@ from datrix_codegen_common.transpiler.emit_dsl import (  # noqa: E402
     emit_adapter,
     emit_decl,
 )
+from datrix_common.errors.plugin import PluginNotFoundError  # noqa: E402
+from datrix_common.plugin import registry as registry_module  # noqa: E402
 from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
-from datrix_common.plugin.language_capability import BuiltinGroupStance  # noqa: E402
+from datrix_common.plugin.client_capability import (  # noqa: E402
+    ClientTargetCapabilityDeclaration,
+    PushCapabilityRealization,
+    WebBuildRealization,
+)
+from datrix_common.plugin.descriptor import PluginDescriptor  # noqa: E402
+from datrix_common.plugin.language_capability import (  # noqa: E402
+    BuiltinGroupStance,
+    LanguageCapabilityDeclaration,
+)
+from datrix_common.plugin.registry import GENERATOR_GROUP, PluginRegistry  # noqa: E402
 from shared.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
     AXIS_PLATFORMS,
@@ -193,7 +208,9 @@ from shared.registered_targets import (  # noqa: E402
     WORKSPACE_ROOT,
     discover_all_other_package_src_dirs,
     discover_all_package_locations,
+    discover_client_target_generator_src_dirs,
     discover_target_package_src_dirs,
+    registered_client_target_generator_names,
     registered_language_names,
     registered_platform_names,
 )
@@ -357,12 +374,140 @@ class RoleVerdict:
 # ---------------------------------------------------------------------------
 
 
+#: Shared registry the client-target token fallback resolves against; not
+#: ``Final`` -- the self-test temporarily substitutes a fixture registry
+#: (under a monkeypatched entry-point seam) and restores this exact instance
+#: afterward.
+_CLIENT_TARGET_REGISTRY: PluginRegistry = PluginRegistry()
+
+
+def _client_target_capability_declaration(
+    name: str, registry: PluginRegistry | None = None
+) -> ClientTargetCapabilityDeclaration:
+    """The ``ClientTargetCapabilityDeclaration`` of the ``datrix.generators``
+    native plugin registered as *name* -- construction-free (reads the
+    already-discovered class's own ``descriptor``; the plugin is never
+    instantiated), the client-target sibling of ``declaration_for_language``'s
+    "read the plugin's own declared facts, never guess" contract.
+
+    Args:
+        name: A registered `datrix.generators` entry-point name.
+        registry: Registry to resolve against; defaults to the module-level
+            shared registry. Tests pass a registry seeded with fixture
+            generator plugins.
+
+    Returns:
+        The plugin's declared `ClientTargetCapabilityDeclaration`.
+
+    Raises:
+        PluginNotFoundError: If *name* names no installed `datrix.generators`
+            plugin, or that plugin's descriptor carries no
+            `client_capabilities` -- naming the installed client-target
+            generators actually available.
+    """
+    reg = registry if registry is not None else _CLIENT_TARGET_REGISTRY
+    classes = reg.list_native_generator_classes()
+    descriptor = getattr(classes.get(name), "descriptor", None)
+    declaration = descriptor.client_capabilities if descriptor is not None else None
+    if declaration is not None:
+        return declaration
+    available = sorted(
+        candidate_name
+        for candidate_name, candidate_cls in classes.items()
+        if getattr(candidate_cls, "descriptor", None) is not None
+        and candidate_cls.descriptor.client_capabilities is not None
+    )
+    raise PluginNotFoundError(
+        f"No '{GENERATOR_GROUP}' plugin registered as {name!r} declares a "
+        f"'client_capabilities' ClientTargetCapabilityDeclaration. Installed "
+        f"client-target generator plugins with a capability declaration: "
+        f"{', '.join(available) if available else '(none)'}. Fix: register "
+        f"{name!r} under '{GENERATOR_GROUP}' with a PluginDescriptor carrying "
+        f"a non-None client_capabilities, or spell a registered client-target "
+        f"generator name."
+    )
+
+
+def _name_tokens_for_language_axis_member(name: str) -> frozenset[str]:
+    """One language-axis member's own declared name tokens: a
+    ``datrix.languages`` plugin's ``LanguageCapabilityDeclaration.name_tokens``,
+    tried first -- falling back to a ``datrix.generators`` client-target
+    plugin's ``ClientTargetCapabilityDeclaration.name_tokens`` when no
+    language plugin is registered under *name*. Never guessed from the bare
+    registered name alone -- ``tokens_for`` already unions that separately.
+
+    Args:
+        name: A single registered name folded into a `tokens_for` label.
+
+    Returns:
+        The member's own declared name-token vocabulary.
+
+    Raises:
+        PluginNotFoundError: If *name* resolves to neither a registered
+            language plugin nor a registered client-target generator plugin
+            with a capability declaration.
+    """
+    try:
+        return declaration_for_language(name).name_tokens
+    except PluginNotFoundError:
+        return _client_target_capability_declaration(name).name_tokens
+
+
+def _is_registered_language(name: str) -> bool:
+    """True when *name* resolves to a registered ``datrix.languages`` plugin.
+
+    Distinguishes a real language member of the language axis from a
+    client-target-only ``datrix.generators`` plugin (Angular/React/Flutter):
+    both share the axis's token and builtin-group-stance surfaces (a client
+    target contributes a transpiler profile), but domain stances and on-demand domains are a SERVER-axis
+    concept a client target has no analogue for -- it registers no
+    per-service domain sub-generator matching any shared backend domain.
+    """
+    try:
+        declaration_for_language(name)
+    except PluginNotFoundError:
+        return False
+    return True
+
+
+def _builtin_capability_for_language_axis_member(
+    name: str,
+) -> LanguageCapabilityDeclaration | ClientTargetCapabilityDeclaration:
+    """One language-axis member's own declared builtin-capability object.
+
+    A ``datrix.languages`` plugin's ``LanguageCapabilityDeclaration``, tried
+    first -- falling back to a ``datrix.generators`` client-target plugin's
+    ``ClientTargetCapabilityDeclaration`` when no language plugin is
+    registered under *name*, exactly the same fallback
+    ``_name_tokens_for_language_axis_member`` already applies for name
+    tokens. Both declaration types carry the identical
+    ``builtin_group_stances`` shape (``register_builtin_capability`` walks
+    either one the same way); only ``LanguageCapabilityDeclaration`` carries
+    ``on_demand_domains``, so a caller reading that field off the result
+    falls back itself (``getattr(..., "on_demand_domains", {})``).
+
+    Raises:
+        PluginNotFoundError: If *name* resolves to neither a registered
+            language plugin nor a registered client-target generator plugin
+            with a capability declaration.
+    """
+    try:
+        return declaration_for_language(name)
+    except PluginNotFoundError:
+        return _client_target_capability_declaration(name)
+
+
 def tokens_for(axis: str, label: str) -> frozenset[str]:
     """The name-token vocabulary for one registered target label.
 
-    On the language axis: ``declaration_for_language(name).name_tokens |
-    {name}`` for every registered name folded into *label*. On the platform
-    axis: the bare registered name(s) only -- platform declarations carry no
+    On the language axis: each name folded into *label* contributes its OWN
+    declared name tokens, unioned with the bare name itself --
+    ``LanguageCapabilityDeclaration.name_tokens`` for a ``datrix.languages``
+    plugin, tried first; a ``datrix.generators`` client-target plugin's
+    ``ClientTargetCapabilityDeclaration.name_tokens`` on fall-back, when no
+    language plugin resolves for that name (see
+    ``_name_tokens_for_language_axis_member``). On the platform axis: the
+    bare registered name(s) only -- platform declarations carry no
     ``name_tokens`` field.
 
     Args:
@@ -380,7 +525,7 @@ def tokens_for(axis: str, label: str) -> frozenset[str]:
         return frozenset(names)
     tokens: set[str] = set()
     for name in names:
-        tokens |= declaration_for_language(name).name_tokens | {name}
+        tokens |= _name_tokens_for_language_axis_member(name) | {name}
     return frozenset(tokens)
 
 
@@ -1550,10 +1695,20 @@ def live_exemption_surfaces(
     adapter_groups: dict[str, Mapping[AdapterIdentity, frozenset[str]]] = {}
     for label, src_dir in target_src_dirs.items():
         names = label.split(_LABEL_JOIN_SEPARATOR)
-        declarations = [declaration_for_language(name) for name in names]
-        stance_table[label] = _merge_declared(stance_table_by_language(names).values(), label, "domain stances")
+        declarations = [_builtin_capability_for_language_axis_member(name) for name in names]
+        # Domain stances and on-demand domains are a SERVER-axis-only
+        # concept: a client-target-only member (Angular/React/Flutter)
+        # contributes none of either, the same way `sql`/`component` (other
+        # artifacts-phase, non-language generators) never enter this table.
+        stance_table[label] = _merge_declared(
+            stance_table_by_language([n for n in names if _is_registered_language(n)]).values(),
+            label,
+            "domain stances",
+        )
         on_demand[label] = _merge_declared(
-            [declaration.on_demand_domains for declaration in declarations], label, "on_demand_domains"
+            [getattr(declaration, "on_demand_domains", {}) for declaration in declarations],
+            label,
+            "on_demand_domains",
         )
         group_stances[label] = _merge_declared(
             [declaration.builtin_group_stances for declaration in declarations], label, "builtin_group_stances"
@@ -2022,6 +2177,69 @@ _SELF_TEST_RAISING_SOURCE: Final[str] = (
     "def divergent_thing(command):\n    if not command.body:\n        raise ValueError('empty')\n    return command.name\n"
 )
 _SELF_TEST_DIVERGENT_ROLE: Final[str] = "divergent_thing"
+#: Names/tokens for the generator-axis merge self-test cases below -- never a
+#: real registered generator.
+_SELF_TEST_CLIENT_TARGET_NAME: Final[str] = "behaviour_parity_selftest_client_target"
+_SELF_TEST_NON_CLIENT_TARGET_NAME: Final[str] = "behaviour_parity_selftest_non_client_target"
+_SELF_TEST_CLIENT_TARGET_TOKENS: Final[frozenset[str]] = frozenset({"selftestclienttarget", "widget"})
+_SELF_TEST_SRCDIR_TARGET_NAME: Final[str] = "behaviour_parity_selftest_srcdir_target"
+#: Must start with "datrix" -- ``discover_all_package_locations`` only picks
+#: up ``src/`` subdirectories spelled that way.
+_SELF_TEST_SRCDIR_MODULE_ROOT: Final[str] = "datrix_behaviour_parity_selftest_srcdir_module"
+
+
+class _SelfTestClientTargetGenerator:
+    """A synthetic native ``datrix.generators`` plugin declaring a
+    ``transpiler_profile`` and a ``client_capabilities`` declaration -- the
+    fixture ``registered_client_target_generator_names``/``tokens_for``
+    fallback self-test cases register via a monkeypatched entry-point
+    provider. Never a real generator; never instantiated (the scan reads
+    only its class-level ``descriptor``)."""
+
+    descriptor = PluginDescriptor(
+        name=_SELF_TEST_CLIENT_TARGET_NAME,
+        phase="artifacts",
+        client_target=True,
+        transpiler_profile=object(),
+        client_capabilities=ClientTargetCapabilityDeclaration(
+            target_label="Self-Test Client",
+            name_tokens=_SELF_TEST_CLIENT_TARGET_TOKENS,
+            push=PushCapabilityRealization(supported=False, reason=_SELF_TEST_REASON),
+            native_redirect=False,
+            web_build=WebBuildRealization(realized=False, reason=_SELF_TEST_REASON),
+        ),
+    )
+
+
+class _SelfTestNonClientTargetGenerator:
+    """A synthetic native ``datrix.generators`` plugin with NO
+    ``transpiler_profile`` (mirrors ``sql``/``component``) -- must be
+    excluded by ``registered_client_target_generator_names``."""
+
+    descriptor = PluginDescriptor(name=_SELF_TEST_NON_CLIENT_TARGET_NAME, phase="artifacts")
+
+
+class _SelfTestSrcDirGenerator:
+    """A synthetic client-target generator class whose ``__module__`` is
+    overridden (below) to a planted on-disk package name, for the
+    src-dir-resolution self-test case."""
+
+    descriptor = PluginDescriptor(
+        name=_SELF_TEST_SRCDIR_TARGET_NAME,
+        phase="artifacts",
+        client_target=True,
+        transpiler_profile=object(),
+        client_capabilities=ClientTargetCapabilityDeclaration(
+            target_label="Self-Test SrcDir",
+            name_tokens=frozenset({"selftestsrcdir"}),
+            push=PushCapabilityRealization(supported=False, reason=_SELF_TEST_REASON),
+            native_redirect=False,
+            web_build=WebBuildRealization(realized=False, reason=_SELF_TEST_REASON),
+        ),
+    )
+
+
+_SelfTestSrcDirGenerator.__module__ = _SELF_TEST_SRCDIR_MODULE_ROOT
 
 
 @emit_adapter
@@ -3096,6 +3314,154 @@ def _self_test_case_rendering_leaf_private_parameter_exemption() -> bool:
         )
 
 
+def _self_test_case_client_target_generator_names() -> bool:
+    """(z1) A native ``datrix.generators`` class declaring a non-``None``
+    ``descriptor.transpiler_profile`` is included by
+    ``registered_client_target_generator_names`` when injected into a
+    fixture ``PluginRegistry``; a sibling declaring
+    ``transpiler_profile=None`` (mirroring ``sql``/``component``) is
+    excluded."""
+    fixture_entry_points = (
+        EntryPoint(
+            name=_SELF_TEST_CLIENT_TARGET_NAME,
+            value=f"{__name__}:_SelfTestClientTargetGenerator",
+            group=GENERATOR_GROUP,
+        ),
+        EntryPoint(
+            name=_SELF_TEST_NON_CLIENT_TARGET_NAME,
+            value=f"{__name__}:_SelfTestNonClientTargetGenerator",
+            group=GENERATOR_GROUP,
+        ),
+    )
+
+    def _fixture_entry_points(*, group: str) -> list[EntryPoint]:
+        return [ep for ep in fixture_entry_points if ep.group == group]
+
+    original_entry_points = registry_module.entry_points
+    try:
+        registry_module.entry_points = _fixture_entry_points
+        fixture_registry = PluginRegistry()
+        names = registered_client_target_generator_names(registry=fixture_registry)
+    finally:
+        registry_module.entry_points = original_entry_points
+    return _SELF_TEST_CLIENT_TARGET_NAME in names and _SELF_TEST_NON_CLIENT_TARGET_NAME not in names
+
+
+def _self_test_case_client_target_token_fallback() -> bool:
+    """(z2) ``tokens_for`` falls back to a synthetic
+    ``ClientTargetCapabilityDeclaration.name_tokens`` fixture when no
+    ``LanguageCapabilityDeclaration`` resolves for the label. The real
+    language registry is pre-warmed first (a real, unpatched name) so its
+    process-wide, never-reset discovery cache is not poisoned by the
+    patched entry-point seam below: ``PluginRegistry`` discovery is
+    idempotent and never re-scans once cached, so the pre-warm call locks
+    in the real language plugins before the patch takes effect."""
+    real_language = sorted(registered_language_names())[0]
+    declaration_for_language(real_language)  # pre-warm; never re-scanned below
+
+    def _fixture_entry_points(*, group: str) -> list[EntryPoint]:
+        if group != GENERATOR_GROUP:
+            return []
+        return [
+            EntryPoint(
+                name=_SELF_TEST_CLIENT_TARGET_NAME,
+                value=f"{__name__}:_SelfTestClientTargetGenerator",
+                group=group,
+            )
+        ]
+
+    global _CLIENT_TARGET_REGISTRY  # noqa: PLW0603 -- deliberate test-only substitution, restored in finally
+    previous_registry = _CLIENT_TARGET_REGISTRY
+    original_entry_points = registry_module.entry_points
+    try:
+        registry_module.entry_points = _fixture_entry_points
+        _CLIENT_TARGET_REGISTRY = PluginRegistry()
+        tokens = tokens_for(AXIS_LANGUAGES, _SELF_TEST_CLIENT_TARGET_NAME)
+    finally:
+        registry_module.entry_points = original_entry_points
+        _CLIENT_TARGET_REGISTRY = previous_registry
+    expected = _SELF_TEST_CLIENT_TARGET_TOKENS | {_SELF_TEST_CLIENT_TARGET_NAME}
+    return tokens == expected
+
+
+def _self_test_case_merged_axis_group_and_classify() -> bool:
+    """(z3) ``group_and_classify_roles`` -- already dependency-injected, no
+    registry call inside -- fed a merged ``target_src_dirs`` containing one
+    LANGUAGE fixture and one GENERATOR fixture produces a role spanning
+    both, with neither treated as an 'other package' exclusion of the
+    other: the generator-axis merge needs no special-casing at this layer."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-z3-") as tmp:
+        root = Path(tmp)
+        lang_label = "selftest_lang_fixture"
+        generator_label = "selftest_generator_fixture"
+        body = "def merged_axis_thing(value):\n    return value.strip()\n"
+        _write_module(root / lang_label, body)
+        _write_module(root / generator_label, body)
+        verdicts = _scan(root, (lang_label, generator_label))
+        matches = _name_roles(verdicts, "merged_axis_thing")
+        return _single_role_with_verdict(matches, _VERDICT_IDENTICAL) and _distinct_packages(
+            list(matches[0].members)
+        ) == 2
+
+
+def _self_test_case_merged_axis_min_packages_still_refused() -> bool:
+    """(z4) A merged (language + generator) set of size 1 is still refused
+    -- ``_require_min_packages`` is generic over a label's origin, so the
+    generator-axis merge in ``_run_scan`` does not weaken the floor."""
+    try:
+        _require_min_packages(AXIS_LANGUAGES, frozenset({"selftest_generator_fixture"}))
+    except ValueError:
+        return True
+    return False
+
+
+def _self_test_case_client_target_generator_src_dir_resolution() -> bool:
+    """(z5) ``discover_client_target_generator_src_dirs`` resolves a
+    planted fixture ``datrix.generators`` class to its on-disk ``src/``
+    directory, and raises -- naming the unresolved name and the discovered
+    roots -- when a requested name cannot be resolved to a
+    transpiler_profile-bearing class."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-z5-") as tmp:
+        root = Path(tmp)
+        package_src = root / "datrix-selftest-srcdir-fixture" / "src" / _SELF_TEST_SRCDIR_MODULE_ROOT
+        package_src.mkdir(parents=True)
+
+        def _fixture_entry_points(*, group: str) -> list[EntryPoint]:
+            if group != GENERATOR_GROUP:
+                return []
+            return [
+                EntryPoint(
+                    name=_SELF_TEST_SRCDIR_TARGET_NAME,
+                    value=f"{__name__}:_SelfTestSrcDirGenerator",
+                    group=group,
+                )
+            ]
+
+        original_entry_points = registry_module.entry_points
+        resolves_correctly = False
+        raised_naming_both = False
+        try:
+            registry_module.entry_points = _fixture_entry_points
+            resolved = discover_client_target_generator_src_dirs(
+                frozenset({_SELF_TEST_SRCDIR_TARGET_NAME}), root, registry=PluginRegistry()
+            )
+            resolves_correctly = resolved == {_SELF_TEST_SRCDIR_TARGET_NAME: package_src}
+
+            unresolvable_name = "bogus-unresolvable-name"
+            try:
+                discover_client_target_generator_src_dirs(
+                    frozenset({_SELF_TEST_SRCDIR_TARGET_NAME, unresolvable_name}),
+                    root,
+                    registry=PluginRegistry(),
+                )
+            except ValueError as exc:
+                message = str(exc)
+                raised_naming_both = unresolvable_name in message and _SELF_TEST_SRCDIR_TARGET_NAME in message
+        finally:
+            registry_module.entry_points = original_entry_points
+    return resolves_correctly and raised_naming_both
+
+
 def _forget_self_test_package() -> None:
     """Drop the synthetic package's modules from ``sys.modules`` so the case
     re-imports from disk and leaves nothing behind."""
@@ -3238,6 +3604,30 @@ def run_self_test() -> bool:
         "(z) a role reading only a language-private parameter's attributes (directly and through a derived "
         "root), beside a role with no such read, lands same-behaviour rendering-leaf-exempt",
     )
+    ok &= _assert(
+        _self_test_case_client_target_generator_names(),
+        "(z1) a transpiler_profile-bearing native generator class is included by "
+        "registered_client_target_generator_names; a transpiler_profile=None sibling is excluded",
+    )
+    ok &= _assert(
+        _self_test_case_client_target_token_fallback(),
+        "(z2) tokens_for falls back to a ClientTargetCapabilityDeclaration.name_tokens fixture when no "
+        "LanguageCapabilityDeclaration resolves for the label",
+    )
+    ok &= _assert(
+        _self_test_case_merged_axis_group_and_classify(),
+        "(z3) group_and_classify_roles fed a merged language+generator target_src_dirs produces a role "
+        "spanning both, neither excluded as an 'other package'",
+    )
+    ok &= _assert(
+        _self_test_case_merged_axis_min_packages_still_refused(),
+        "(z4) a merged language+generator set of size 1 is still refused -- the floor is not weakened",
+    )
+    ok &= _assert(
+        _self_test_case_client_target_generator_src_dir_resolution(),
+        "(z5) discover_client_target_generator_src_dirs resolves a planted fixture to its on-disk src/ "
+        "directory, and raises naming the unresolved name and the discovered roots when it cannot",
+    )
     return ok
 
 
@@ -3306,6 +3696,12 @@ def _run_scan(args: argparse.Namespace) -> int:
     axis: str = args.axis
     target_names = registered_language_names() if axis == AXIS_LANGUAGES else registered_platform_names()
     target_src_dirs = discover_target_package_src_dirs(axis, target_names, WORKSPACE_ROOT)
+    if axis == AXIS_LANGUAGES:
+        generator_names = registered_client_target_generator_names()
+        target_src_dirs = {
+            **target_src_dirs,
+            **discover_client_target_generator_src_dirs(generator_names, WORKSPACE_ROOT),
+        }
     if not axis_gates(axis, report_only=args.report_only):
         _refuse_gate_options_when_not_gating(args)
         render_report(discover_roles_for(axis, target_src_dirs, WORKSPACE_ROOT), WORKSPACE_ROOT, debug=args.debug)
