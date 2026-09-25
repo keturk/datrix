@@ -29,7 +29,7 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -59,6 +59,13 @@ TIER_MARKER_EXPRESSIONS: dict[str, str] = {
  "fast": "not slow and not comprehensive",
  "slow": "slow or comprehensive",
 }
+
+#: Options of ``datrix_common.testing.feature_tags``, the ``pytest11`` plugin every
+#: session in the shared venv loads. Every runner session requires a tag on every
+#: collected test; ``-Tag`` narrows a run to the tests carrying the named tags.
+REQUIRE_TAGS_OPTION = "--datrix-require-tags"
+TAGS_OPTION = "--datrix-tags"
+LIST_TAGS_OPTION = "--datrix-list-tags"
 
 #: pytest exit codes of a phase that ran to its end: all passed, some failed,
 #: or nothing was collected. Interrupted (2), internal error (3) and usage
@@ -90,14 +97,17 @@ def _split_test_targets(test_path: str | None) -> list[str]:
 
 
 def _classify_selection(
- marker_expr: str | None, test_path: str | None, keyword_expr: str | None
+ marker_expr: str | None,
+ test_path: str | None,
+ keyword_expr: str | None,
+ tags: Sequence[str] | None = None,
 ) -> dict[str, object]:
  """The ``selection`` recorded in a run's index.json.
 
- Full only when no marker expression, no test path and no keyword narrows
- the run -- a bare ``test.ps1 <package>``. Any marker expression is targeted,
- including one that is not a tier's: an unrecognized expression is recorded
- as ``marker`` with ``tier`` None, never mistaken for a full run.
+ Full only when no marker expression, no test path, no keyword and no feature
+ tag narrows the run -- a bare ``test.ps1 <package>``. Any marker expression is
+ targeted, including one that is not a tier's: an unrecognized expression is
+ recorded as ``marker`` with ``tier`` None, never mistaken for a full run.
  """
  tiers = [tier for tier, expression in TIER_MARKER_EXPRESSIONS.items() if expression == marker_expr]
  targets = _split_test_targets(test_path)
@@ -106,7 +116,15 @@ def _classify_selection(
   keyword=keyword_expr or None,
   tier=tiers[0] if tiers else None,
   marker=marker_expr or None,
+  tags=list(tags) if tags else None,
  )
+
+
+def split_tags(raw: str | None) -> list[str]:
+ """The feature tags of a comma-separated ``-Tag`` value, in given order."""
+ if not raw:
+  return []
+ return [tag.strip() for tag in raw.split(",") if tag.strip()]
 
 
 def _note_incomplete_phase(incomplete_phases: list[str], phase: str, returncode: int) -> None:
@@ -444,12 +462,15 @@ class TestRunner:
   ignore_paths: list[str] | None = None,
   junit_xml_path: Path | None = None,
   enable_runner_plugin: bool = False,
+  tags: Sequence[str] | None = None,
  ) -> list[str]:
   """Build pytest command arguments.
 
   ``enable_runner_plugin`` loads the runner plugin with its own ``-p`` argv
   element -- never inside a ``-o addopts=...`` override, where it would be
-  one token of a single string and register nothing.
+  one token of a single string and register nothing. The feature-tag options
+  are standalone argv elements for the same reason: every session requires a
+  tag on every test, and ``tags`` narrows it to the tests carrying one of them.
   """
   # Use test_path if provided, otherwise use default test_dir.
   # test_path may carry SEVERAL comma-separated files/node-IDs so one pytest
@@ -467,6 +488,9 @@ class TestRunner:
   args = [python_exe, "-m", "pytest", *test_targets]
   if enable_runner_plugin:
    args.extend(["-p", RUNNER_PLUGIN_MODULE])
+  args.append(REQUIRE_TAGS_OPTION)
+  if tags:
+   args.append(f"{TAGS_OPTION}={','.join(tags)}")
 
   # Add --ignore for paths that should be excluded from this run
   if ignore_paths:
@@ -553,6 +577,7 @@ class TestRunner:
   *,
   junit_xml_path: Path | None,
   enable_runner_plugin: bool,
+  tags: Sequence[str] | None,
   env: dict[str, str],
   logger: TeeLogger,
   phase_num: int,
@@ -577,6 +602,7 @@ class TestRunner:
    keyword_expr, ignore_paths=None,
    junit_xml_path=junit_xml_path,
    enable_runner_plugin=enable_runner_plugin,
+   tags=tags,
   )
   self.has_xdist = original_has_xdist
   self.config.exclude_markers = original_exclude_markers
@@ -615,6 +641,7 @@ class TestRunner:
   marker_expr: str = None,
   test_path: str = None,
   keyword_expr: str = None,
+  tags: Sequence[str] | None = None,
  ) -> int:
   """
   Run tests with the specified options.
@@ -627,6 +654,7 @@ class TestRunner:
    test_path: Specific test file(s) or directory to run; several files/node-IDs
     may be given comma-separated and run in ONE pytest session
    keyword_expr: Pytest keyword expression (-k option)
+   tags: Feature tags; the run keeps only tests carrying at least one of them
 
   Returns:
    Exit code (0 = success, non-zero = failure)
@@ -742,7 +770,7 @@ class TestRunner:
    # parallel phase only, for the deselected counts that decide whether the
    # serial phase has anything to run; it is never stamped, so it pays no cone
    # derivation. An unsaved run has no run directory to record into.
-   selection = _classify_selection(marker_expr, test_path, keyword_expr)
+   selection = _classify_selection(marker_expr, test_path, keyword_expr, tags)
    workspace_root = get_datrix_root()
    stamp = prepare_full_run_stamp(
     selection, run_dir, workspace_root, self.config.project_name, logger.write_warning,
@@ -772,6 +800,7 @@ class TestRunner:
      keyword_expr, ignore_paths=None,
      junit_xml_path=junit_parallel_path,
      enable_runner_plugin=record_parallel_phase,
+     tags=tags,
     )
 
     try:
@@ -808,7 +837,7 @@ class TestRunner:
      run_dir,
      recorded=record_parallel_phase,
      parallel_completed="Parallel" not in incomplete_phases,
-     user_filter_active=bool(marker_expr or keyword_expr),
+     user_filter_active=bool(marker_expr or keyword_expr or tags),
     )
     for error in decision_errors:
      logger.write_error(f"Runner error: {error}")
@@ -822,6 +851,7 @@ class TestRunner:
       python_exe, coverage, verbose, marker_expr, test_path, keyword_expr,
       junit_xml_path=junit_serial_path,
       enable_runner_plugin=enable_runner_plugin,
+      tags=tags,
       env=env,
       logger=logger,
       phase_num=phase_num_serial,
@@ -845,6 +875,7 @@ class TestRunner:
      keyword_expr, ignore_paths=None,
      junit_xml_path=junit_path,
      enable_runner_plugin=enable_runner_plugin,
+     tags=tags,
     )
 
     try:
@@ -979,6 +1010,8 @@ class TestRunner:
    )
    if selected_nothing:
     selection_text = test_path or "(whole project)"
+    if tags:
+     selection_text = f"{selection_text}, tags {','.join(tags)}"
     logger.write_error(
      f"No tests were collected for {self.config.project_name} (selection: "
      f"{selection_text}). Expected at least one test to run; pytest collected zero, "
@@ -1027,3 +1060,37 @@ class TestRunner:
      logger.write_console(f"  Log: {logger.get_log_path()}")
 
   return returncode
+
+ def list_tags(self, test_path: str | None = None) -> int:
+  """Print every feature tag in the package with its test count; run no test.
+
+  A collection-only session with the feature-tag plugin's listing option. It
+  writes no run directory: nothing ran, so there is no result to record.
+
+  Args:
+   test_path: Comma-separated files/directories to list instead of the whole
+    test tree (``-ListTags -Specific "tests/unit/api"``).
+
+  Returns:
+   0 when every collected test carries a tag; 1 when any does not or a module
+   failed to collect; pytest's own code for a usage error.
+  """
+  python_exe = self._get_python_executable(verbose=False)
+  targets = _split_test_targets(test_path) or [self.config.test_dir]
+  argv = [
+   python_exe, "-m", "pytest", *targets,
+   "--collect-only", "-q", "-p", "no:cacheprovider", LIST_TAGS_OPTION,
+  ]
+  completed = subprocess.run(  # noqa: S603 -- venv interpreter, fixed argv
+   argv,
+   cwd=self.config.project_root,
+   capture_output=True,
+   text=True,
+   encoding="utf-8",
+   errors="replace",
+   check=False,
+  )
+  print(completed.stdout.rstrip("\n"))
+  if completed.stderr.strip():
+   print(completed.stderr.rstrip("\n"))
+  return completed.returncode

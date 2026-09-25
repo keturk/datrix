@@ -33,7 +33,7 @@ Delegation is not abdication, but reviewing a result is not re-running it — se
 4. **Dispatch independent packets in parallel** — multiple Agent calls in a single message. Sequence only genuine dependencies.
 5. **Review each result's reported evidence** per the rule above. Read the diff, not just the summary. Two passes, per the delegate skill: spec compliance first, code quality second.
 6. **Integrate and decide.** Resolve conflicts between packets, make the trade-off calls, redirect work that drifted from the goal.
-7. **Final gate.** Delegate the affected packages' test suites and any design-acceptance checks to a subagent; roll its reported evidence into your report per the rule above.
+7. **Final gate.** Delegate the targeted tests of what changed (files and feature tags, in every package the change reaches — never a whole suite) and any design-acceptance checks to a subagent; roll its reported evidence into your report per the rule above.
 
 ## Model Tiers
 

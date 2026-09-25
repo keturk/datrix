@@ -144,8 +144,8 @@ version-1 file predates both, and a reader treats it as a run whose selection is
 - **`selection`** (every saved run) — what the run selected, recorded rather than inferred
   from a log. `{"kind": "full"}` for a bare `test.ps1 <package>`; otherwise
   `{"kind": "targeted", "specific": [...] | null, "keyword": str | null, "tier": str | null,
-  "marker": str | null}`. Any of `-Specific`, `-Keyword`, `-Unit`, `-Integration`, `-E2E`,
-  `-Fast` or `-Slow` makes a run targeted — including `-Fast` on a Node suite, which has no
+  "marker": str | null, "tags": [...] | null}`. Any of `-Specific`, `-Keyword`, `-Tag`, `-Unit`,
+  `-Integration`, `-E2E`, `-Fast` or `-Slow` makes a run targeted — including `-Fast` on a Node suite, which has no
   markers and so runs whole. An INCOMPLETE run records its selection too.
 - **`inputs`** (a full run only, and only when every phase completed) — the suite-input
   stamp: `{"algorithm": ..., "fingerprint": <blake2b hex>, "components": {...}}`, where

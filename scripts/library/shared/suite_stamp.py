@@ -101,18 +101,20 @@ def selection_for(
     keyword: str | None,
     tier: str | None,
     marker: str | None,
+    tags: Sequence[str] | None = None,
 ) -> dict[str, object]:
     """The ``selection`` object of a run's ``index.json``.
 
     A run is FULL only when nothing narrows it: no specific targets, no
-    keyword, no tier, and no marker expression. Anything else is targeted and
-    names every narrowing that was applied.
+    keyword, no tier, no marker expression, and no feature tag. Anything else
+    is targeted and names every narrowing that was applied.
 
     Args:
         specific: The explicit test targets (files or node ids), or None.
         keyword: The keyword / name-pattern filter, or None.
         tier: The ``test.ps1`` tier switch name, or None.
         marker: The marker expression applied, or None.
+        tags: The feature tags the run was narrowed to (``test.ps1 -Tag``), or None.
 
     Raises:
         ValueError: if *tier* is not one of :data:`TIERS`, or *specific* is
@@ -128,7 +130,12 @@ def selection_for(
             "A specific selection was given but names no target. Pass None for an "
             "unnarrowed run, or at least one test file or node id."
         )
-    if specific is None and keyword is None and tier is None and marker is None:
+    if tags is not None and not tags:
+        raise ValueError(
+            "A tag selection was given but names no tag. Pass None for no tag narrowing, "
+            "or at least one feature tag."
+        )
+    if specific is None and keyword is None and tier is None and marker is None and tags is None:
         return {SELECTION_KIND: SELECTION_FULL}
     return {
         SELECTION_KIND: SELECTION_TARGETED,
@@ -136,6 +143,7 @@ def selection_for(
         "keyword": keyword,
         "tier": tier,
         "marker": marker,
+        "tags": sorted(tags) if tags is not None else None,
     }
 
 

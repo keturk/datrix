@@ -9,7 +9,7 @@ disable-model-invocation: true
 
 Given a design document and the tasks implemented from it, code-review the **actual code on disk** to confirm it satisfies the design — every invariant, every acceptance property, every affected surface. Where the implementation is wrong, incomplete, or missing, trace to root cause and fix it. This is a conformance gate, not a status check: a green test suite and a task's own "How Solved" note are inputs to your judgment, never proof.
 
-**This skill does not run test suites.** The tasks reached COMPLETED through their own test gate — the suites already ran and passed, and re-running them proves nothing about design conformance. Your evidence is the code on disk plus targeted, read-only checks (grep sweeps over a surface set, a generation run, a validator invocation). The ONLY test execution in scope is running the **specific tests covering a fix you made** in Phase 3, to confirm that fix works and broke nothing near it.
+**This skill does not run test suites** — no agent ever does. The tasks reached COMPLETED through their own targeted-test gates, and re-running tests proves nothing about design conformance. Your evidence is the code on disk plus targeted, read-only checks (grep sweeps over a surface set, a generation run, a validator invocation). The ONLY test execution in scope is running the **specific tests covering a fix you made** in Phase 3, to confirm that fix works and broke nothing near it.
 
 ## When to Use
 
@@ -54,7 +54,7 @@ FIX: false          # review only — report findings, do not modify code
 ## Governing rules (from CLAUDE.md — these bite in every phase)
 
 - **Conformance over throughput.** "It generates", "0 warnings", "suite green", and a task's `## How Solved` self-report are NECESSARY but NEVER sufficient. Done = the design acceptance property is **proven by a check you run yourself** — a NEGATIVE check (the old/forbidden state is gone everywhere on the affected surface) AND a POSITIVE check (the new path exists and is exercised) — pasted as command + output. These checks are code reads, grep sweeps over the surface set, generation runs, and validator invocations — never suite runs.
-- **The suites are not your evidence.** They already passed before this skill was invoked; that is its precondition, not its output. Do not re-run a package suite to "confirm" conformance, and never report a green suite as proof the design was met.
+- **Tests are not your evidence.** The tasks' targeted tests passed before this skill was invoked; that is its precondition, not its output. Never run a package suite (no agent does), and never report green tests as proof the design was met.
 - **Invariant-surface coverage.** When the design states an invariant over a SET of surfaces, verify EVERY surface. A guard on the easy surface with the rest silently dropped is a conformance failure even under a green suite.
 - **Never assume/fabricate — look it up.** Read the actual code. Do not trust a `## How Solved` claim, an agent's prior self-report, or a passing test as evidence that the design was met — verify against the code and by execution.
 - **BLOCKED is terminal.** A task whose `## How Solved` contains `BLOCKED`/`partial`/`out of scope`/`workaround`/`dual path`/`not yet wired` — or any unmet-criterion statement — did NOT satisfy the design, regardless of suite color. Treat it as a finding.
@@ -104,7 +104,7 @@ Unowned requirements: {N}; BLOCKED/partial markers: {N}
 
 **Goal:** For every checklist item, decide CONFORMS / VIOLATES / MISSING on **evidence from the actual code** — never on a self-report, and never on the suite that already passed.
 
-This phase is a **read-only review**. Do not run any package test suite here: the tasks' suites passed before this skill was invoked, so a green run tells you nothing you did not already know, and it cannot distinguish a design that was implemented from one that was quietly dropped.
+This phase is a **read-only review**. Run no tests here: the tasks' targeted tests passed before this skill was invoked, so a green run tells you nothing you did not already know, and it cannot distinguish a design that was implemented from one that was quietly dropped.
 
 **Evidence-baseline rule (avoid triple-running acceptance checks).** When the tasks came out of an orchestrated run whose phase-boundary conformance gate already EXECUTED an invariant's acceptance check (the command + output is pasted in the tasks' How-Solved / the phase record, and the tree has not changed since), treat that evidence as the baseline: verify it (the command is real, the output is consistent with the code you read), spot re-execute a sample, and re-execute in full **only** where evidence is missing, stale, contradicted by the code, or under-scoped (a surface the design names that the pasted check never swept — the most common gap, and always re-checked). Where no such evidence exists — or the user asked for a fully independent pass — execute every check yourself as written below. Independence is preserved by the verification-of-evidence + the sweep of surfaces the earlier gate missed, not by mechanically re-running commands whose output is already on file.
 
@@ -117,7 +117,7 @@ For each design requirement:
      powershell -File "d:/datrix/datrix/scripts/dev/conformance-gate.ps1" -Spec "D:\datrix\.tmp\verify-{design}-{req}.spec.json"
      ```
      `must_not_contain` is the NEGATIVE half (point `negative_control` at a tree where the forbidden token legitimately appears — the gate fails a vacuous grep); `must_contain` / `file_exists` / `count_equals` cover the POSITIVE half. The ledger JSON + exit code are your pasted evidence, and the spec is re-runnable at Phase 4.
-   - **For "output-neutral" / "byte-identical to pre-change" requirements**, point at the test in the owning package that renders the affected construct for a fixture and asserts its output (it must exist and cover the construct), and at the affected closure's green suites. Never a hand-rolled hash comparison and never a stored snapshot — the repo keeps none (`datrix/docs/architecture/generated-output-stability.md`).
+   - **For "output-neutral" / "byte-identical to pre-change" requirements**, point at the test in the owning package that renders the affected construct for a fixture and asserts its output (it must exist and cover the construct), and at the construct's tagged tests in every package it reaches. Never a hand-rolled hash comparison and never a stored snapshot — the repo keeps none (`datrix/docs/architecture/generated-output-stability.md`).
    - **NEGATIVE:** prove the old / forbidden construct is gone **everywhere on the requirement's surface set** (sweep the whole set, not one file). Paste the command + output.
    - **POSITIVE:** prove the new path exists and is reachable — read the call chain that reaches it, point at the test that covers it (its existence and content, not a fresh run of it), show generation emitting it, or show the validator rejecting the bad input. Paste the command + output.
    - Put any scratch runners under `D:\datrix\.scripts\`, spec files under `D:\datrix\.tmp\`, output under `D:\datrix\.test-output\`.
@@ -167,8 +167,9 @@ For each finding, in dependency order (fix an enforcement/guard gap before the c
 2. **Run the targeted tests for what you changed** — the specific tests covering the fixed behavior (the test you wrote for it, plus the existing tests over the code path you touched), in the fixed package and in each consuming package for a shared-layer fix. Run these because YOUR edit could have broken them — not to re-confirm a suite that already passed. Select them narrowly (see `datrix/scripts/test/quick-reference.md` for the authoritative parameter list):
    - `test\test.ps1 <package> -Specific "tests/unit/test_foo.py"` — the test file covering the fix
    - `test\test.ps1 <package> -Keyword "<name>"` — pytest `-k` match when the fix spans a few named tests
+   - `test\test.ps1 <package> <consumer-package> -Tag <tag>` — the feature tags of the behaviour you changed, in every package the fix reaches (`test\test.ps1 <package> -ListTags` lists a package's tags and runs nothing)
    - `test\test-single.ps1 "tests/unit/test_foo.py" -Project <package>` — one file, full output
-   Paste command + output. Do NOT run a whole package suite, and never `-All`.
+   Paste command + output. Never run a whole package suite, `-All`, or `affected-gate.ps1` — `guard-full-suite-runs.py` refuses every form. A test you write for a fix carries a feature tag.
 3. **Re-sweep set-invariants** across all surfaces — confirm no surface was left behind.
 4. If any check still fails → return to Phase 3 (root cause, not another patch). If it cannot be closed without out-of-scope work → STOP and report the blocker.
 
@@ -198,7 +199,7 @@ If any requirement remains unproven, say so plainly — do NOT report success on
 
 ## Anti-Patterns
 
-- **NO running package test suites to verify conformance** — they already passed; that is this skill's precondition. The only tests you run are the specific ones covering a fix YOU made in Phase 3.
+- **NO running package test suites** — no agent ever does, and tests do not prove conformance. The only tests you run are the specific ones covering a fix YOU made in Phase 3.
 - **NO trusting `## How Solved`, a prior agent's report, or a passing suite as proof** — verify against the code on disk and by running the acceptance check yourself.
 - **NO "it generates" / "suite green" as done** — a requirement is met only when its negative+positive acceptance check passes with pasted output.
 - **NO checking one surface of a set-invariant** — sweep every surface; a straggler is a finding.

@@ -71,11 +71,14 @@ If YES → the task is NOT complete, and **that is a signal to go finish it**, n
 
 ### 4. RUN TARGETED TESTS
 
-Run ONLY the tests listed in the task's `## Targeted Tests` section — **batched into ONE invocation** (comma-separated `-Specific` runs the whole set in a single pytest session; never one invocation per file):
+Run ONLY the tests listed in the task's `## Targeted Tests` section — files **batched into ONE invocation** per package (comma-separated `-Specific` runs the whole set in a single pytest session; never one invocation per file), and the listed feature tags in one invocation across their packages:
 
 ```bash
 powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path-1},{test-path-2}"
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} {consumer-package} -Tag {tag-1},{tag-2}
 ```
+
+Every test you add carries a feature tag (`pytestmark = pytest.mark.tag("…")`; rules and vocabulary in `datrix-common/docs/contributing/test-guidelines/feature-tags.md`) — an untagged test fails at setup.
 
 The runner prints its saved run folder (`…/.test_results/test-results-…/`). **Record that exact path** — your JSON report's `targeted_tests.run_folder` field carries it, and the orchestrator verifies your run from that folder's `index.json`/JUnit instead of re-executing your tests. A report without it forces a redundant re-run at your task's expense.
 
@@ -85,15 +88,15 @@ The runner prints its saved run folder (`…/.test_results/test-results-…/`). 
 - **NEVER pass `-NoSave`.** It suppresses the saved timestamped `.test_results/` folder that Jon and the orchestrator read for progress. Always let results save.
 - **NEVER pass `-VerboseOutput`.** It floods the transcript and burns tokens for no benefit. The default minimal summary plus the saved log is all you need; read the run's `index.json` / `full.log` for detail.
 - **NEVER call `pytest` (or `python -m pytest`) directly.** All tests run through `test.ps1` / `test-single.ps1`, which activate the shared venv and save results.
-- **NEVER run `mypy` (or any standalone type-check command).** Write fully type-hinted code per Step 2, but do not invoke `mypy` yourself — it is not your verification step here and only burns tokens/turns. Type correctness is enforced by the orchestrator's suite gate.
+- **NEVER run `mypy` (or any standalone type-check command).** Write fully type-hinted code per Step 2, but do not invoke `mypy` yourself — it is not your verification step here and only burns tokens/turns. Type correctness is enforced by the targeted tests.
 
-- If the task has NO `## Targeted Tests` section → report `no_targeted_tests: true`
+- If the task has NO `## Targeted Tests` section → run the test files covering the code you changed and the feature tags of the behaviour you changed, and report `no_targeted_tests: true` with what you ran
 - If targeted tests fail → attempt to fix (max 3 attempts)
-- Do NOT run a whole suite or `affected-gate.ps1` (`guard-full-suite-runs.py` blocks both for a subagent) — report the packages you changed (`files_created`/`files_modified`/`scope_expansion`), and the orchestrator runs the gate once over the union at the quality gate / phase boundary
+- NEVER run a whole suite or `affected-gate.ps1` (`guard-full-suite-runs.py` blocks both for every agent) — report the packages you changed (`files_created`/`files_modified`/`scope_expansion`), the surface you changed (the modules and public names whose behaviour, signature or emitted output changed) and the feature tags of that behaviour, so the orchestrator can re-run them in every package the change reaches
 
 ### 5. RETURN RESULTS
 
-Do NOT update the task file title (the orchestrator marks completion after full-suite verification).
+Do NOT update the task file title (the orchestrator marks completion after its targeted-test and conformance gates).
 
 Add a `## Implementation Notes` section at the end of the task file with:
 - Files created/modified with summaries

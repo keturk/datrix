@@ -95,38 +95,41 @@ directory, file, or claim, treat it as a defect to remove.
 
 ## Cross-surface impact
 
-Shared layers (`datrix-common`, `datrix-codegen-common`, any shared contract) are consumed by
+Shared layers (`datrix-common`, `datrix-codegen-common`, any shared contract) are imported by
 EVERY generator. A fix for one language/platform must never break another: when touching a
-shared layer, identify all consuming packages and pass each one's test suite — not just the
-package you were fixing. A cross-language parity gate is a backstop, not a substitute.
+shared layer, identify every package the change *reaches* and run, in each of them, the
+tests of the behaviour you changed — by feature tag (`test.ps1 <pkg-a> <pkg-b> -Tag <tag>`).
+A package is reached when its code consumes the changed surface — it references a changed
+module or name (or an unchanged caller of one), or it runs a changed generator through the
+pipeline. Importing the changed *package* is not enough, and "just in case" is not a reason.
+A cross-language parity gate is a backstop, not a substitute. Procedure:
+`.claude/skills/_shared/verification-strategy.md`.
 
-**Affected-only verification:** gates run the changed packages + their reverse-dependency
-closure, never a reflexive `-All`. Closure table, derivation commands, and tier rules:
-`.claude/skills/_shared/verification-strategy.md`. The closure IS the consumer list above,
-computed instead of guessed.
+## Agents never run a whole test suite
 
-## Whole test suites are a phase-boundary act
+Run only the tests related to the code you changed:
 
-Inside a task, run exactly the tests named in its `## Targeted Tests` —
-`test.ps1 <pkg> -Specific "a.py,b.py"`, batched into one invocation. A `test.ps1` run
-naming a package with no `-Specific`/`-Keyword`, `-All`, `-Rerun`, or a tier sweep
-(`-Unit`/`-Fast`/…) is a full run, reserved for the phase-boundary / quality gate where it
-happens **once** over the affected set — and it goes through one door,
-`affected-gate.ps1 -Projects <changed packages>`, which derives the closure and carries
-every package whose inputs are unchanged since its last green full run. The main session
-runs the gate; a dispatched subagent runs its targeted tests, reports the packages it
-changed, and never runs the gate. Using a full suite to *discover* further work mid-task
-is the same anti-pattern wearing a better excuse.
+- the test files you added or edited, and the tests beside the code you edited —
+  `test.ps1 <pkg> -Specific "a.py,b.py"`, batched into one invocation;
+- the tests of the behaviour you changed, in every package it reaches —
+  `test.ps1 <pkg-a> <pkg-b> -Tag <tag>[,<tag>]`. `test.ps1 <pkg> -ListTags` shows a
+  package's tags and runs nothing.
 
-To prove a change generalises, write a test in the owning package — a test proves the
-invariant forever; a sweep proves it once and evaporates. If a task file's
-`## Targeted Tests` names a bare full suite, the task file is defective: run the specific
-files covering the code you changed and say so.
+A `test.ps1` run naming a package with none of `-Specific`/`-Keyword`/`-Tag`, any `-All` or
+`-Rerun`, a tier sweep (`-Unit`/`-Fast`/…), and every `affected-gate.ps1` sweep are
+whole-suite runs. **No agent runs one** — not inside a task, not at a wave or phase boundary,
+not as a quality gate, not to "check for regressions", not to discover further work. Jon runs
+full suites himself.
 
-Enforced by `guard-full-suite-runs.py`, which applies the same rule to `affected-gate.ps1`
-as to a bare `test.ps1` (only its `-SelfTest` form, which launches no suite, is exempt).
-**For subagents the block is unconditional.** The main session may authorize one by
-writing `D:\datrix\.tmp\full-suite-ticket.json` (explicit package list or `"*"`, a written reason, `expires_epoch` capped at 6h). Every decision,
-allowed and blocked, is appended to `D:\datrix\.tmp\full-suite-audit.jsonl`, and every
-gate run appends its own completion row there (`ran`, `carried`, `overall`).
-`test-single.ps1` and targeted `-Specific`/`-Keyword` runs are never touched.
+Every test carries at least one feature tag, and a test you add carries one too
+(`datrix-common/docs/contributing/test-guidelines/feature-tags.md`). A behaviour no tagged
+test covers is untested: write the test in the owning package and tag it — a test proves the
+invariant forever; a sweep proves it once and evaporates. If a task file's `## Targeted Tests`
+names a bare full suite, the task file is defective: run the tests of the code you changed and
+say so.
+
+Enforced by `guard-full-suite-runs.py`, for every agent including the main session, with no
+override and no ticket. Every blocked attempt is appended to
+`D:\datrix\.tmp\full-suite-audit.jsonl`. `test-single.ps1`, targeted
+`-Specific`/`-Keyword`/`-Tag` runs, `-ListTags`, and `affected-gate.ps1 -SelfTest` are never
+touched.

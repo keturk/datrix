@@ -167,12 +167,12 @@ End-to-end design document pipeline: audit → resolve decisions → update docs
 
 ### `/task-orchestrator`
 
-Fully automated multi-wave task orchestrator. Accepts a set of tasks (individual files, multiple files, or entire phase directories), analyzes dependencies, groups tasks into execution waves via topological sort, and executes each wave with parallel agents. Runs test suites automatically between waves — no human intervention except on task failure.
+Fully automated multi-wave task orchestrator. Accepts a set of tasks (individual files, multiple files, or entire phase directories), analyzes dependencies, groups tasks into execution waves via topological sort, and executes each wave with parallel agents. Runs each wave's targeted tests (files and feature tags) automatically between waves — never a whole suite — with no human intervention except on task failure.
 
 **Workflow:**
 1. Read all tasks, build dependency DAG, detect cycles
 2. Topological sort into waves (phase-sequential: all tasks in phase N complete before phase N+1)
-3. For each wave: implement (max 3 parallel agents) → targeted tests → full suite → fix loop → mark complete
+3. For each wave: implement (max 3 parallel agents) → targeted tests (files + feature tags) → fix loop → mark complete; at each phase boundary, one re-run of the phase's targeted tests + the design-conformance gate
 4. Checkpoint after each wave, advance automatically
 5. Pause and ask user on task failure (after 3 fix attempts)
 

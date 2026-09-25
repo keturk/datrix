@@ -122,7 +122,10 @@ def _check_path(raw_path: str) -> None:
         return
 
     repo, tail = match.group(1), match.group(2)
-    hit = temp_dir_segment(tail.split("/"))
+    # The last segment of a Write/Edit target is the FILE, not a directory: only its
+    # parent directories can be a temp tree. Checking the file name too refused real
+    # sources named like a temp-dir prefix (`tests/unit/test_output_paths.py`).
+    hit = temp_dir_segment(tail.split("/")[:-1])
     if hit:
         _block(
             f"refusing to write `{raw_path}` -- `{hit}` is a temp/scratch "

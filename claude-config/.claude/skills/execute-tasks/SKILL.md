@@ -20,7 +20,7 @@ delegation-strategy:
     - name: "quality_gate"
       model: "sonnet"
       parallelizable: false
-      description: "Run affected-gate.ps1 once over the affected set for final validation"
+      description: "Re-run the union of the tasks' targeted tests (files + feature tags) once — never a whole suite"
 ---
 
 # Execute Tasks
@@ -29,7 +29,7 @@ Systematic workflow for implementing tasks from `.tasks/` phase files. Reads eac
 
 **Assumes all tests are passing before starting.** Does not capture baselines.
 
-**Task model.** Current task sets (from `/generate-tasks` and `/operationalize-design`) are lean: each **implementation task carries its own tests** (its `## Tests` / `## Targeted Tests`), so the verify phase's targeted run already exercises the new tests — there are no separate `-tests` tasks. Independent verification lives in the **one per-package quality gate** (run as the `quality_gate` phase here). Standalone `-verify` tasks are legacy; the verification-task handling below remains so older phases that still contain them execute correctly. This skill already runs targeted tests per task and the full suite **once** in the quality gate phase — keep that split; do not add per-task full-suite runs.
+**Task model.** Current task sets (from `/generate-tasks` and `/operationalize-design`) are lean: each **implementation task carries its own tests** (its `## Tests` / `## Targeted Tests`), so the verify phase's targeted run already exercises the new tests — there are no separate `-tests` tasks. Independent verification lives in the **one per-package quality gate** (run as the `quality_gate` phase here). Standalone `-verify` tasks are legacy; the verification-task handling below remains so older phases that still contain them execute correctly. This skill runs targeted tests per task and re-runs their union **once** in the quality gate phase — keep that split. It never runs a whole suite.
 
 ## When to Use
 
@@ -94,7 +94,7 @@ When phases are delegated to sub-agents (per the delegation-strategy metadata):
 - **Question relay (surfaced at poll time):** If a poll's genuine check finds a delegated agent with **NEEDS_CONTEXT**, first try to answer it yourself from the design docs, the architecture docs, and the code — most such questions are missing information, not genuine ties. Relay via `AskUserQuestion` **with your recommendation** ONLY for the protocol's §7 closed list (a credential/account absent from the repo · an irreversible outward-facing action needing authorization · a genuine product/business call · a prohibition to be lifted), then re-dispatch the agent (background) with the answer. A **technical or design** ambiguity is never a user question — resolve it yourself, or send it to Fable. Do NOT guess answers or silently skip the agent.
 - **Stalled agents:** A delegated agent whose assigned files have not changed across two consecutive polls (~10 min), or that the poll shows is hung, is investigated — `TaskStop` it and **re-dispatch** with corrective context. A hung or turn-exhausted agent is an *agent* failure, not a *task* blocker; never record it as BLOCKED. Never leave a stalled agent counted as in-flight.
 - **Progress reporting:** Emit the one-line poll heartbeat each cycle, and a brief status update after each phase (or each task within a phase). Do NOT run through all phases silently and dump a wall of text at the end.
-- **Test execution split:** Delegated agents run ONLY targeted tests (from each task's `## Targeted Tests` section). The orchestrator runs the full test suite once in the quality gate phase. This prevents redundant full-suite runs when multiple tasks are being processed. If a task has no targeted tests section, the agent skips test execution and reports `no_targeted_tests: true`.
+- **Test execution split:** Delegated agents run ONLY targeted tests (from each task's `## Targeted Tests` section: files and feature tags). The orchestrator re-runs their union once in the quality gate phase. No one runs a whole suite. If a task has no targeted tests section, the agent runs the test files covering the code it changed and the feature tags of the behaviour it changed, and reports `no_targeted_tests: true` with what it ran.
 
 <!-- PHASE: pre_check -->
 ## Phase 1: Pre-Execution Check (scripted)
@@ -323,16 +323,17 @@ For tasks that modified code:
 1. **Determine test scope:**
    - Read task file's `## Targeted Tests` section
    - Targeted tests exist AND task is NOT quality gate → run the targeted tests (below)
-   - NO targeted tests → run NO per-task tests; record `no_targeted_tests: true`. Do NOT substitute a per-task full suite — the Phase-4 quality gate's single full-suite run per package is the covering gate.
-   - Task IS quality gate (`**Category:** Quality Gate`) → run NO tests for it. The full suite it lists is owned by Phase 4 (one run per package — running it here too is the double-suite defect); perform only the task's **static** checklist (non-trivial-implementation scan, coverage/test-quality sanity by reading the tests, How-Solved self-contradiction scan) and carry the findings into Phase 4.
+   - NO targeted tests → the task file is defective: run the test files covering the code the task changed and the feature tags of the behaviour it changed, and record `no_targeted_tests: true` with what you ran. Never substitute a whole suite — no agent runs one.
+   - Task IS quality gate (`**Category:** Quality Gate`) → run NO tests for it. Its re-run of the phase's targeted tests is owned by Phase 4 (once — running it here too is the double-run defect); perform only the task's **static** checklist (non-trivial-implementation scan, coverage/test-quality sanity by reading the tests, How-Solved self-contradiction scan) and carry the findings into Phase 4.
 
 2. **Execute the targeted tests yourself:**
 
-   Batch the task's targeted files into ONE invocation — comma-separated `-Specific` runs the whole set in a single pytest session; never one invocation per file:
+   Batch the task's targeted files into ONE invocation — comma-separated `-Specific` runs the whole set in a single pytest session; never one invocation per file — and run its feature tags in one invocation across the packages the task lists:
    ```
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path-1},{test-path-2}"
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} {consumer-package} -Tag {tag-1},{tag-2}
    ```
-   Read the run's saved `index.json` (the runner prints its path) for the canonical result — do NOT eyeball-parse stdout. Do NOT stop to ask the user to run any test — this skill runs every test itself, targeted and full-suite alike.
+   Read the run's saved `index.json` (the runner prints its path) for the canonical result — do NOT eyeball-parse stdout. Do NOT stop to ask the user to run any test — this skill runs every test it needs itself.
 
    **Test-invocation rules (a PreToolUse hook hard-blocks violations):**
    - **Never pass `-NoSave`** — it hides the saved progress Jon reads. Always let results save.
@@ -369,7 +370,7 @@ If any test failures exist:
    - Identify root cause of failure
    - Fix the issue (modify code, update test, or both)
 
-2. **After each fix attempt, re-run the relevant tests yourself** — the specific failing tests (batched `-Specific`), and read the run's `index.json`. Never stop to ask the user to run a test, targeted or full-suite.
+2. **After each fix attempt, re-run the relevant tests yourself** — the specific failing tests (batched `-Specific`), and read the run's `index.json`. Never stop to ask the user to run a test.
 
 3. **Track each attempt:**
 
@@ -432,7 +433,7 @@ If verification PASSED:
    - Tests must NOT only test shallow/happy paths while leaving the core behavior untested
    - If the task requires "X replaces Y", tests must prove X works AND Y is gone — not just that the code doesn't crash
 
-3. **Design-acceptance verification + self-contradiction check (MANDATORY — suite-green is not enough):**
+3. **Design-acceptance verification + self-contradiction check (MANDATORY — green tests are not enough):**
    **Any follow-up task you file goes in the phase you are executing — never a new one.** You may not create a `.tasks\phase-NN\` directory that does not already exist (CLAUDE.md "Task Orchestration", execution-contract §5); a task filed mid-run joins this phase's completion bar and is finished before the phase is reported done.
 
    Apply conditions 3 and 4 of the shared checklist `d:\datrix\.claude\skills\_shared\completion-eligibility.md`: prove the task's `**Design acceptance property:**` with an executable negative + positive check (command + output pasted into "How Solved"; for "X replaces Y", Y is gone everywhere on the surface), and scan your "How Solved" narrative for the BLOCKED/partial/workaround/dual-path red-flag phrases. Any unproven property or red-flag phrase → the task is **not complete** and must not be marked COMPLETED. It is also **not automatically BLOCKED**: run the **Decision Adjudication Protocol** (`_shared/decision-adjudication-protocol.md`) on the underlying obstacle — investigate it, and if it survives, let the **Fable** adjudicator decide what happens instead. A task is only recorded as blocked after that adjudication, with the confirmed B-code and Fable's decision attached.
@@ -474,7 +475,7 @@ Do NOT paste raw full pytest output — it duplicates the saved run folder and b
 
 The proof-of-work section is **mandatory**. A task without its run-folder path + `index.json` counts in its "How Solved" section is NOT considered properly completed. This evidence allows independent verification without re-running the tools.
 
-**Quality gate tasks:** mark complete via `complete.ps1` as above, then add a "How Solved" whose Proof of Work is the Phase-4 full-suite run folder + `index.json` counts per package, plus the static-checklist findings (no files created/modified).
+**Quality gate tasks:** mark complete via `complete.ps1` as above, then add a "How Solved" whose Proof of Work is the Phase-4 targeted re-run folders + `index.json` counts per package (files and tags), plus the static-checklist findings (no files created/modified).
 
 **Verification tasks:**
 
@@ -570,9 +571,9 @@ On abort, report what was completed, what failed, and what remains.
 <!-- PHASE: quality_gate -->
 ## Phase 4: Quality Gate
 
-Run the full test suite for the affected package(s), through one `affected-gate.ps1` call, to catch cross-task integration issues.
+Re-run the union of every task's targeted tests once — files and feature tags — to catch cross-task integration issues. **Never a whole suite:** no agent runs one, and `guard-full-suite-runs.py` refuses every form (bare package, `-All`, `-Rerun`, tier sweeps, `affected-gate.ps1`).
 
-**Affected = changed packages + their reverse-dependency closure** per `d:\datrix\.claude\skills\_shared\verification-strategy.md` (a change to `datrix-common`, `datrix-codegen-common`, `datrix-language`, or any shared contract pulls in every consuming package's suite; a leaf codegen change is usually just that package). Do NOT default to `-All` — and do not skip a consumer the closure names. There is no stored-baseline output gate to run; an output-preservation claim is proven by tests in the owning package.
+**Tags run in every package the changes reach**, established per "Which packages a change reaches" in `d:\datrix\.claude\skills\_shared\verification-strategy.md` (packages whose code or tests reference the changed surface or an unchanged caller of it, plus the pipeline-running packages when a generator's behaviour changed). There is no stored-baseline output gate to run; an output-preservation claim is proven by tests in the owning package.
 
 ### Input
 
@@ -590,20 +591,19 @@ Verification results from all tasks:
 
 ### Steps
 
-1. **Determine affected packages:**
-   - Group tasks by `package` field
-   - Add each changed package's reverse-dependency closure per `d:\datrix\.claude\skills\_shared\verification-strategy.md` (the gate in step 3 re-derives the closure itself; listing it here is what lets you name the sweep set in the ticket and the checkpoint)
+1. **Assemble the targeted set:**
+   - Group tasks by `package` field; per package, the union of every task's `## Targeted Tests` files plus the test files covering any code a fix changed
+   - Collect every task's feature tags, and establish every package those behaviours reach — the tag run names exactly those packages (only packages that carry the tag; `test.ps1 <pkg> -ListTags` lists them and runs nothing)
 
-2. **Main-session role — write the full-suite ticket.** `guard-full-suite-runs.py` blocks `affected-gate.ps1` unless `D:\datrix\.tmp\full-suite-ticket.json` covers every package you pass to `-Projects`. Write it with the Write tool: `{"packages": [<every affected package>], "reason": "quality-gate phase sweep", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}` (the reason must be at least 10 characters). Dispatched task agents never run the gate — they run their targeted tests and report the packages they changed; this step runs once, here.
-
-3. **Run the sweep set concurrently and read the verdict in one call:**
+2. **Run it once, sequentially (concurrent `test.ps1` invocations contend for the shared venv's package lock):**
    ```
-   powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {pkg1},{pkg2}
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {pkg1} -Specific "{path-1},{path-2}"
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {pkg1} {pkg2} {consumer1} -Tag {tag-1},{tag-2}
    ```
-   Do NOT stop and ask the user to run anything. This is the ONE full-suite run per package for the whole skill invocation — the quality-gate task's own listed suite command was already suppressed in Phase 3. `affected-gate.ps1` re-derives the reverse-dependency closure, carries each package whose newest green full run still matches its suite-input fingerprint (verdict `CARRIED`, no child launched, pinned to that run), launches one `test.ps1` child per remaining package concurrently under a worker budget (each package writes its own `.test_results/` folder so parallel runs do not collide), and aggregates one GREEN/RED verdict by reusing `gate-verdict.ps1`'s own per-project evaluation — this replaces firing `test.ps1` per package and separately calling `gate-verdict.ps1`. One console line per package + `OVERALL`; per-package counts and failing-test lists in its `Details:` JSON; one completion row (`ran`, `carried`, `overall`) appended to `D:\datrix\.tmp\full-suite-audit.jsonl`. Sanity-check each package's `run_dir` in the JSON: a ran package's is the run its own child produced, a `CARRIED` package's is the earlier green run that stood in. GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors are red, exactly like failures (the script applies this; UNKNOWN/missing results are RED); `CARRIED` counts as green.
+   Do NOT stop and ask the user to run anything. The quality-gate task's own listed re-run was suppressed in Phase 3; this is the one run. Read each run's `index.json` (the runner prints its path). GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors are red, exactly like failures.
 
-4. **Attribute failures (if any):**
-   - For each RED package, run `collect-failure-data.ps1` on its run dir (from the gate JSON) — the clusters give the failing test files and erroring modules
+3. **Attribute failures (if any):**
+   - For each RED run, run `collect-failure-data.ps1` on its printed run folder — the clusters give the failing test files and erroring modules
    - Cross-reference each cluster's files against each task's `## Targeted Tests` section
    - Report which task likely introduced the failure
 
@@ -663,7 +663,8 @@ Recommendation: Re-run task-40-03 with /fix-tests, then re-run quality gate.
 ### Notes
 
 - Quality gate runs AFTER all individual task verifications
-- It catches integration issues that might not appear in targeted tests
+- It catches integration issues between tasks: one task's change breaking another task's targeted tests
+- It never runs a whole suite
 - If quality gate fails, report which tasks likely introduced the failures
 <!-- END_PHASE: quality_gate -->
 

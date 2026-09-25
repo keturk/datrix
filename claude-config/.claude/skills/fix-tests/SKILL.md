@@ -28,7 +28,7 @@ With a test command (will produce structured output):
 
 COMMAND: powershell -File d:/datrix/datrix/scripts/test/test.ps1 datrix-codegen-python -Specific "tests/unit/test_a.py,tests/unit/test_b.py"
 ```
-A whole-package COMMAND is a phase-boundary act, not a `/fix-tests` trigger — pass a targeted `-Specific`/`-Keyword` form, or point `/fix-tests` at a `RUN:` directory the phase-boundary gate already produced. The final regression check is `affected-gate.ps1` (Step E), never a bare whole-package COMMAND re-invocation.
+A whole-package COMMAND is never run by an agent (`guard-full-suite-runs.py` refuses it) — pass a targeted `-Specific`/`-Keyword`/`-Tag` form, or point `/fix-tests` at a `RUN:` directory Jon's full run already produced. The final regression check (Step E) is a targeted re-run plus the tags of the changed behaviour, never a whole-package COMMAND re-invocation.
 
 With a legacy log file (falls back to manual triage):
 ```
@@ -136,11 +136,12 @@ For each root cause, follow this strict sequence:
 
 #### Step E: Regression Check (scripted)
 
-1. Re-run, by role:
-   - **Main-session role:** write the full-suite ticket with the Write tool — `D:\datrix\.tmp\full-suite-ticket.json` = `{"packages": [<every package you changed>], "reason": "fix-tests regression check for {package}", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}` (`guard-full-suite-runs.py` blocks the gate without it) — then run `powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {package}`. The gate re-derives the closure, carries any package whose inputs are unchanged since its last green full run, and names each ran package's new run in its `Details:` JSON (`run_dir`).
-   - **Dispatched-subagent role:** run no suite and not the gate (the guard blocks both for a subagent); re-run the fixed clusters' tests batched in one `-Specific` invocation, report the packages you changed, and the dispatcher runs the gate over the union.
+1. Re-run — never a whole suite (`guard-full-suite-runs.py` refuses every form, for every agent):
+   - every originally-failing test and every test file you edited, batched in one `-Specific` invocation per package — the same selection as the previous run when it was targeted;
+   - the feature tags of the behaviour your fixes changed, in `{package}` and every package the fixes reach (per "Which packages a change reaches" in `.claude/skills/_shared/verification-strategy.md`; none when a fix touched only test code): `powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package} {consumer1} -Tag {tag-1},{tag-2}`.
+   A dispatched subagent reports the packages, surface and tags it changed, and the dispatcher runs the tag run once over the union.
 
-   Then compare the previous and new run directories with the delta script:
+   Then compare the previous and new run directories of the same selection with the delta script:
    ```bash
    powershell -File "d:/datrix/datrix/scripts/test/classify-run-delta.ps1" -Previous "{previous-run-dir}" -Current "{new-run-dir}"
    ```

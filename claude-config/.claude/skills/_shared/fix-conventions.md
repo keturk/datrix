@@ -59,7 +59,7 @@ The owning package's fix skill carries the package-specific context, so route th
 
 - **In an interactive session:** invoke the owning package's fix skill and **see the fix through to green**. You are still the one accountable for the outcome.
 - **In an orchestrated run:** follow the root cause into the owning package and fix it there (per the contract's scope-expansion rule), or — if a `PARALLEL_WAVE` lock prevents it — return `EXPANSION_REQUIRED` naming the files. Never return BLOCKED for "wrong package."
-- **Mind the cross-surface impact rule** (CLAUDE.md): a shared-layer fix must pass **every** consuming package's suite, not just the one you started in.
+- **Mind the cross-surface impact rule** (CLAUDE.md): a shared-layer fix must pass the tagged tests of the changed behaviour in **every** package it reaches (`test.ps1 <pkg-a> <pkg-b> -Tag <tag>`), not just the one you started in. Never a whole suite.
 
 Reporting a cross-package finding and stopping there is **not** an outcome.
 

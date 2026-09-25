@@ -1,15 +1,16 @@
 #!/usr/bin/env python
 """Instruction-surface gate: no agent-facing document may prescribe a
-whole-suite `test.ps1` form; `affected-gate.ps1` is the only door.
+whole-suite test run -- a whole-suite `test.ps1` form or any `affected-gate.ps1`
+sweep.
 
 WHY THIS EXISTS
 ---------------
 `guard-full-suite-runs.py` blocks an agent from EXECUTING a whole-suite run,
-but nothing made the PRESCRIPTION visible: several skills and the top-level
-CLAUDE.md told an agent, in prose and command examples, to run a bare
-`test.ps1 {package}` inside a fix loop or a phase-boundary check -- the guard
-then blocked the subagent that obeyed, but the instruction itself never showed
-up anywhere Jon could read and drive to zero. This gate is that census.
+but nothing made the PRESCRIPTION visible: skills and the top-level CLAUDE.md
+told an agent, in prose and command examples, to run a bare `test.ps1 {package}`
+or an `affected-gate.ps1` sweep inside a fix loop or at a phase boundary -- the
+guard then blocked the agent that obeyed, but the instruction itself never
+showed up anywhere Jon could read and drive to zero. This gate is that census.
 
 WHAT IT SCANS AND HOW
 ----------------------
@@ -28,8 +29,9 @@ module `guard-full-suite-runs.py` loads as a sibling) -- loaded here by path via
 for exactly this situation: `ignored_source.py`'s `load_temp_dir_segment`
 loads `_repo_temp_dir_names.py` from the hooks directory so the gate and the
 hook it audits share one definition. A fragment classified whole-suite (bare
-package, several packages, `-All`, `-Rerun`, or a tier switch with neither
-`-Specific` nor `-Keyword`) is a hit UNLESS an HTML comment
+package, several packages, `-All`, `-Rerun`, a tier switch with none of
+`-Specific`/`-Keyword`/`-Tag`, or any `affected-gate.ps1` invocation other than
+`-SelfTest`) is a hit UNLESS an HTML comment
 `<!-- forbidden-example -->` sits on the same line, or the line immediately
 before (for a fenced block: the line before the OPENING fence) -- the
 orchestrator's own "this is FORBIDDEN here" illustrative blocks are the
@@ -255,11 +257,6 @@ def extract_fragments(markdown_text: str) -> list[CodeFragment]:
 # ---------------------------------------------------------------------------
 
 
-#: Substring that identifies an `affected-gate.ps1` match out of `TEST_SCRIPT_RE`'s two
-#: alternatives (`test` vs `affected-gate`) -- naming the shared regex's own alternative,
-#: not a second copy of it.
-_AFFECTED_GATE_MARKER = "affected-gate"
-
 #: Characters that may legitimately open a tail immediately after the script name --
 #: whitespace (the ordinary argument separator) or the closing quote of a quoted script
 #: path (`"...test.ps1" {PACKAGE}`). Anything else immediately adjacent (a colon, a
@@ -276,55 +273,29 @@ def _looks_like_invocation_boundary(tail: str) -> bool:
     return first.isspace() or first in _TAIL_LEAD_QUOTES
 
 
-def _invocations_with_script(command: str, suite_invocation: ModuleType) -> list[tuple[str, str]]:
-    """`(tail, script)` for every `test.ps1`/`affected-gate.ps1` invocation in `command`.
-
-    Reuses `_suite_invocation`'s own `TEST_SCRIPT_RE`, `segments` and `is_read_only` --
-    the SAME objects `invocation_tails` walks -- so the tail boundaries can never drift
-    from the hook's. It only adds the one fact `invocation_tails` does not expose: which
-    of the pattern's two alternatives matched, which this gate needs because naming
-    `affected-gate.ps1` (the guarded door) is the correct instruction, never a violation,
-    while a bare `test.ps1` form is exactly the prescription this gate exists to catch.
-    """
-    pairs: list[tuple[str, str]] = []
-    for segment in suite_invocation.segments(command):
-        matches = list(suite_invocation.TEST_SCRIPT_RE.finditer(segment))
-        if not matches or suite_invocation.is_read_only(segment):
-            continue
-        starts = [m.end() for m in matches]
-        bounds = [m.start() for m in matches][1:] + [len(segment)]
-        for match, start, end in zip(matches, starts, bounds):
-            script = "affected-gate.ps1" if _AFFECTED_GATE_MARKER in match.group(0).lower() else "test.ps1"
-            pairs.append((segment[start:end], script))
-    return pairs
-
-
 def classify_fragment(text: str, suite_invocation: ModuleType) -> list[str]:
-    """Every whole-suite `test.ps1` invocation TAIL found inside one code fragment's text.
+    """Every whole-suite `test.ps1`/`affected-gate.ps1` invocation TAIL in one fragment.
 
-    Whole-suite-ness is delegated entirely to `_suite_invocation`'s `is_self_test`/
-    `is_targeted` -- never a private regex here, so this gate and
-    `guard-full-suite-runs.py` share one notion of "whole-suite". An `affected-gate.ps1`
-    invocation is never a hit, on any tail shape: it is the guarded door itself, and
-    naming it correctly is the fix this gate drives an agent-facing document toward.
+    Tails come from `_suite_invocation.invocation_tails` and whole-suite-ness from its
+    `runs_no_test`/`is_targeted` -- never a private regex here, so this gate and
+    `guard-full-suite-runs.py` share one notion of "whole-suite": whatever the hook
+    blocks, this gate flags when a document prescribes it.
 
     A VACUOUS tail (nothing but whitespace after the script name -- the entire fragment
-    is just the bare word `test.ps1`) is never a hit either. A prescription to run a
-    whole suite must name enough to actually run -- at least a package, `-All`, or a
-    tier switch; a prose reference to the script's own NAME, with nothing after it
-    (e.g. "the `test.ps1` script", "never invoke `test.ps1` mid-wave"), is not an
-    invocation at all, and treating it as one is indistinguishable from flagging every
-    mention of the tool's name in running text.
+    is just the bare word `test.ps1`) is never a hit. A prescription to run a whole
+    suite must name enough to actually run -- at least a package, `-All`, or a tier
+    switch; a prose reference to the script's own NAME, with nothing after it (e.g.
+    "the `test.ps1` script", "never invoke `affected-gate.ps1`"), is not an invocation
+    at all, and treating it as one is indistinguishable from flagging every mention of
+    the tool's name in running text.
     """
     hits: list[str] = []
-    for tail, script in _invocations_with_script(text, suite_invocation):
-        if script != "test.ps1":
-            continue
+    for tail in suite_invocation.invocation_tails(text):
         if not tail.strip():
             continue
         if not _looks_like_invocation_boundary(tail):
             continue
-        if suite_invocation.is_self_test(tail) or suite_invocation.is_targeted(tail):
+        if suite_invocation.runs_no_test(tail) or suite_invocation.is_targeted(tail):
             continue
         hits.append(tail)
     return hits
@@ -363,7 +334,7 @@ def discover_documents(datrix_root: Path) -> list[Path]:
 
 def run_scan(datrix_root: Path, suite_invocation: ModuleType) -> int:
     documents = discover_documents(datrix_root)
-    print(f"Scanning {len(documents)} instruction document(s) for a whole-suite test.ps1 form")
+    print(f"Scanning {len(documents)} instruction document(s) for a prescribed whole-suite run")
     all_hits: list[Hit] = []
     total_exempted = 0
     for path in documents:
@@ -397,6 +368,11 @@ _PLANT_SPECIFIC = (
 _PLANT_AFFECTED_GATE = (
     'powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects datrix-common\n'
 )
+_PLANT_TAG = (
+    'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-codegen-python '
+    "datrix-codegen-java -Tag gateway\n"
+)
+_PLANT_LIST_TAGS = 'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" -All -ListTags\n'
 
 
 def _write_fixture(directory: Path, name: str, body: str) -> Path:
@@ -439,10 +415,23 @@ def _check_exempted_form(root: Path, suite_invocation: ModuleType) -> str | None
 def _check_affected_gate_form(root: Path, suite_invocation: ModuleType) -> str | None:
     doc = _write_fixture(root, "gate.md", f"# Example\n\n```\n{_PLANT_AFFECTED_GATE}```\n")
     result = scan_file(doc, suite_invocation)
+    if len(result.hits) != 1:
+        return (
+            f"self-test: affected-gate.ps1 -Projects form is a whole-suite sweep and "
+            f"expected 1 hit, got {len(result.hits)}"
+        )
+    return None
+
+
+def _check_tag_and_list_tags_forms(root: Path, suite_invocation: ModuleType) -> str | None:
+    doc = _write_fixture(
+        root, "tags.md", f"# Example\n\n```\n{_PLANT_TAG}```\n\n```\n{_PLANT_LIST_TAGS}```\n"
+    )
+    result = scan_file(doc, suite_invocation)
     if result.hits:
         return (
-            f"self-test: affected-gate.ps1 -Projects form expected 0 hits (naming the "
-            f"guarded door is the FIX, not the violation), got {len(result.hits)}"
+            f"self-test: a -Tag run and a -ListTags listing are targeted / run nothing and "
+            f"expected 0 hits, got {len(result.hits)}"
         )
     return None
 
@@ -500,6 +489,7 @@ _SELF_TEST_CHECKS = (
     _check_specific_form,
     _check_exempted_form,
     _check_affected_gate_form,
+    _check_tag_and_list_tags_forms,
     _check_inline_span_form,
     _check_bare_word_form,
     _check_line_citation_form,
@@ -507,7 +497,7 @@ _SELF_TEST_CHECKS = (
 
 
 def self_test(suite_invocation: ModuleType) -> list[str]:
-    """Plant seven fixtures and prove the gate finds exactly what each demands."""
+    """Plant eight fixtures and prove the gate finds exactly what each demands."""
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="instruction-surface-selftest-") as tmp:
         root = Path(tmp)

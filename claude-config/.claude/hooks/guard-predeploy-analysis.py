@@ -9,7 +9,7 @@ failure. They were, until this hook, PROSE ONLY.
 
 Meanwhile the rule pointing the other way — §11 Cost Consciousness, "don't
 re-read", "ask the cheapest question", "don't re-run a passing check" — has
-`guard-full-suite-runs.py` behind it, blocking subagents unconditionally.
+`guard-full-suite-runs.py` behind it, blocking every whole-suite run unconditionally.
 
 When two rules conflict, the one that returns exit code 2 wins every time. The
 agent was getting a hard block from the economy rule and a polite suggestion from

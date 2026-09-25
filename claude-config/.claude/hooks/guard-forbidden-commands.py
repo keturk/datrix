@@ -19,7 +19,7 @@ Allowed (these create, they do not discard):
 FAMILY 2 -- standalone type-checkers.
 CLAUDE.md, "Running Python": "Never run a standalone type-checker -- no agent,
 skill, or gate invokes `mypy` or any equivalent. Write fully type-hinted code;
-the package suites are the gate."
+the tests of the code you changed are the gate."
 
 That rule was written in five documents and enforced by none of them. On
 2026-09-03 an agent asked for a workspace type-check ran `.venv/Scripts/mypy.exe`
@@ -116,9 +116,9 @@ _MYPY_SWITCH_RE = re.compile(r"(?<![\w.-])-{1,2}mypy\b", re.IGNORECASE)
 _TYPE_CHECKER_TAIL = (
     "\n\nCLAUDE.md, 'Running Python': 'Never run a standalone type-checker — no "
     "agent, skill, or gate invokes `mypy` or any equivalent. Write fully "
-    "type-hinted code; the package suites are the gate.'\n\n"
+    "type-hinted code; the tests of the code you changed are the gate.'\n\n"
     "Two reasons, both load-bearing:\n"
-    "  * Type correctness is already gated by the package suites. A separate "
+    "  * Type correctness is already gated by the tests of the code you changed. A separate "
     "type-check is not your verification step and only burns tokens and turns.\n"
     "  * mypy writes `.mypy_cache/` into its WORKING DIRECTORY. Run from a package "
     "root it drops the cache inside that git repository — 15 such runs once left "

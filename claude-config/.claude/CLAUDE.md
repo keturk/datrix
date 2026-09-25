@@ -112,7 +112,7 @@ doing the wrong thing.
 | `Stop` | `gate-stop-exhaustion.py` | ending ANY turn on a context-exhaustion claim, a "remaining / still to fix / next up" handover section, a reported security downgrade (§13), or a reported expedient fix (§14) — inert when Jon asked you to stop or asked a question |
 | `SubagentStop` | `check-agent-report.py` | a subagent report ending on a dodge without a B1–B4 proof or filed task, or reporting a security downgrade / expedient fix (neither is lifted by a proof; §13's one exception is B3) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-predeploy-analysis.py` | a deploy with no fresh seam census in `.tmp/predeploy/` (dry-run/`--what-if` forms are always allowed) |
-| `PreToolUse(Bash\|PowerShell)` | `guard-full-suite-runs.py` | whole-suite `test.ps1` runs and every `affected-gate.ps1` sweep under the same rule (`-SelfTest` runs no suite and is exempt) — unconditional for subagents, ticketed for the main session |
+| `PreToolUse(Bash\|PowerShell)` | `guard-full-suite-runs.py` | every whole-suite run — bare/multi-package `test.ps1`, `-All`, `-Rerun`, tier sweeps, every `affected-gate.ps1` sweep — for every agent, main session included; no override, no ticket (`-ListTags` and `-SelfTest` run no test and are allowed) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-untargeted-scans.py` | whole-package `semgrep.ps1`/`libcst.ps1`/`ast-grep.ps1` runs with no `-Rule` and no `SCAN_QUESTION:` in the description; `-All` and subagent runs unconditionally |
 | `PreToolUse(Bash\|PowerShell)` | `validate-script-invocation.py` | `generate.ps1` with `-All`/`-Domains`/`-TestSet` (no override) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-forbidden-commands.py` | git reverts, standalone type-checkers (`mypy` and equivalents, wrappers included), and other prohibited commands |
@@ -145,7 +145,8 @@ re-arms: re-read before acting.
   under PowerShell `2>$null`.)
 - **Static analysis first.** A deploy or runtime run is the most expensive, latest-arriving
   evidence available. Climb the ladder from the top: read source/template → parse the emitted
-  artifact → targeted unit test → repo static gate → affected suites → generate → deploy.
+  artifact → targeted test → repo static gate → the tagged tests of the behaviour across the
+  packages it reaches → generate → deploy.
   *"I'll just deploy and see"* is the most expensive sentence available to you. **The ladder
   is a menu ordered by cost, not a sequence to execute** — each rung is taken only for a
   question that rung answers and a cheaper one cannot; a rung run because it is on the list
@@ -201,7 +202,12 @@ Full text: execution-contract §10–§11.
 
 - **Do it yourself unless delegation pays.** Have the root cause at `file:line` and a small
   change? Make the edit. A dispatch costs 100k–800k tokens.
-- **Verify centrally, once.** Never paste "also re-run these other suites" into every dispatch.
+- **Never run a whole test suite — no agent, no phase, no gate.** Run only the tests related
+  to the code you changed: the files you touched (`-Specific`) and the feature tags of the
+  behaviour you changed (`-Tag`), in every package that behaviour reaches. There is no
+  quality gate, wave gate, or phase-boundary gate that sweeps suites; Jon runs full suites
+  himself. `guard-full-suite-runs.py` blocks every whole-suite form, with no override.
+- **Verify centrally, once.** Never paste "also re-run these other tests" into every dispatch.
 - **Never sweep the corpus.** To prove a fix generalises, write a test — paid for once, proves
   it forever.
 - **Economical means read NARROWLY, never read LESS.** The test is *"is this question
@@ -247,13 +253,20 @@ editable mode. There is no per-package venv.
 
 | To do this | Use this |
 |---|---|
-| Run a package's tests (targeted, inner loop) | `datrix/scripts/test/test.ps1 <package> -Specific "a.py,b.py"` |
-| Run whole suites (phase boundary / quality gate ONLY; main session, ticket first) | `datrix/scripts/test/affected-gate.ps1 -Projects <changed packages>` |
+| Run the tests of the files you changed | `datrix/scripts/test/test.ps1 <package> -Specific "a.py,b.py"` |
+| Run the tests of the behaviour you changed, in every package it reaches | `datrix/scripts/test/test.ps1 <pkg-a> <pkg-b> -Tag <tag>[,<tag>]` |
+| Find the feature tags a package carries (runs nothing) | `datrix/scripts/test/test.ps1 <package> -ListTags` |
 | Run a one-off script | `D:\datrix\.venv\Scripts\python.exe <script>` |
+
+**Never run a whole test suite** — no `test.ps1` package run without `-Specific`/`-Keyword`/`-Tag`,
+no `-All`/`-Rerun`/tier sweep, no `affected-gate.ps1`. Every test carries feature tags (pytest `tag` marker, Node
+`#tag` in the name); a test you add carries one too. Tag rules and vocabulary:
+`datrix-common/docs/contributing/test-guidelines/feature-tags.md`.
 
 **Never invoke `pytest` directly**, and never reverse-engineer `test.ps1` to discover its
 interpreter. **Never run a standalone type-checker** — no agent, skill, or gate invokes
-`mypy` or any equivalent. Write fully type-hinted code; the package suites are the gate.
+`mypy` or any equivalent. Write fully type-hinted code; the tests of the code you changed
+are the gate.
 
 **Prefer a test over a scratch script.** A scratch script proves it once and evaporates; a
 test proves it forever and fails the next person who breaks it. Reserve `D:\datrix\.scripts\`

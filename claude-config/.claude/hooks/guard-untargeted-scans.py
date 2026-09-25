@@ -2,7 +2,7 @@
 
 THE INCIDENT
 ------------
-On 2026-09-20, after a builtin had been added and proven -- targeted suites green in
+On 2026-09-20, after a builtin had been added and proven -- targeted tests green in
 all three touched packages, every language plugin loading, the builtin-claims parity
 gate and the customer-domain isolation gate passing -- the agent ran
 
@@ -23,7 +23,7 @@ itself says what it is for:
 
   * `-Rule <name>` (or `-Pattern` / `-Id`) -- a targeted scan for a named rule, or
   * `SCAN_QUESTION: <text>` in the command description, naming the defect class the
-    scan targets and why the targeted suites cannot answer it.
+    scan targets and why the targeted tests cannot answer it.
 
 Neither marker lifts an `-All` run: sweeping every package is never a per-fix act.
 Subagents get no marker path at all -- a scan a subagent wants is a scan the main
@@ -60,13 +60,13 @@ _EXECUTORS = frozenset({"powershell", "pwsh", "cmd", "bash", "sh", "zsh", "start
 
 _WHY = (
     "\n\nCLAUDE.md, Budget: 'A check is bought for a question, never for a rung.' "
-    "A repo-wide anti-pattern scan inside a fix answers nothing the targeted suites "
+    "A repo-wide anti-pattern scan inside a fix answers nothing the targeted tests "
     "and the registration/parity gates have not already answered, and it costs "
     "minutes of Jon's time. It belongs at the phase boundary / quality gate, run "
-    "once over the affected set.\n\n"
+    "once over the changed packages.\n\n"
     "If you can name the rule this scan would trip, run that rule: "
     "`semgrep.ps1 <package> -Rule <name>`. If you can name the question it answers "
-    "and why the suites cannot, re-issue with `SCAN_QUESTION: <the question>` in the "
+    "and why the targeted tests cannot, re-issue with `SCAN_QUESTION: <the question>` in the "
     "command description. If you can do neither, the scan is punctuation -- skip it "
     "and report the verification you already have."
 )

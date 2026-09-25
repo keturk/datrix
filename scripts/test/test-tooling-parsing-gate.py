@@ -50,7 +50,13 @@ from test.compare_tests import (  # noqa: E402
     find_runs,
     parse_unit_run,
 )
-from shared.node_test_runner import _format_summary, merge_junit_xml  # noqa: E402
+from shared.node_test_runner import (  # noqa: E402
+    NodeSuiteError,
+    _format_summary,
+    merge_junit_xml,
+    tags_name_pattern,
+    untagged_cases,
+)
 from shared.package_suites import testable_package_names  # noqa: E402
 from shared.structured_log_writer import StructuredLogWriter  # noqa: E402
 from shared.venv import get_datrix_root  # noqa: E402
@@ -1017,6 +1023,79 @@ def _check_node_junit_merge_counts_and_attributes_every_case() -> None:
             assert case.get("failure") is None, "redundant failure attribute not stripped"
 
 
+_NODE_JUNIT_WITH_PLACEHOLDER = """\
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+\t<testcase name="a.test.js" time="0.08" classname="test" file="C:\\\\pkg\\\\out\\\\test\\\\a.test.js"/>
+</testsuites>
+"""
+
+_NODE_JUNIT_FAILING_PLACEHOLDER = """\
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+\t<testcase name="a.test.js" time="0.08" classname="test" file="C:\\\\pkg\\\\out\\\\test\\\\a.test.js">
+\t\t<failure type="testCodeFailure" message="SyntaxError">stack text</failure>
+\t</testcase>
+</testsuites>
+"""
+
+_NODE_JUNIT_TAGGED = """\
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+\t<testcase name="resolves the server #lsp-client" time="0.1" classname="test" file="C:\\\\pkg\\\\out\\\\test\\\\a.test.js"/>
+\t<testcase name="an untagged test" time="0.1" classname="test" file="C:\\\\pkg\\\\out\\\\test\\\\a.test.js"/>
+\t<testcase name="only a tier token #slow" time="0.1" classname="test" file="C:\\\\pkg\\\\out\\\\test\\\\a.test.js"/>
+\t<testsuite name="grammar suite #grammar" tests="1">
+\t\t<testcase name="inherits the suite tag" time="0.1" classname="test" file="C:\\\\pkg\\\\out\\\\test\\\\a.test.js"/>
+\t</testsuite>
+</testsuites>
+"""
+
+
+def _check_node_file_placeholder_is_not_counted_as_a_test() -> None:
+    """A file where no test ran reports one passing case named after the file.
+
+    Counting it turned a name pattern that selected nothing into a green run.
+    A FAILING placeholder is a file that could not load, and stays a failure.
+    """
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-nodeplaceholder-") as tmp:
+        root = Path(tmp)
+        passing = root / "junit-node-001.xml"
+        passing.write_text(_NODE_JUNIT_WITH_PLACEHOLDER, encoding="utf-8")
+        counts = merge_junit_xml([("src/test/a.test.ts", passing)], root / "merged-1.xml", 0.1)
+        assert counts == {"passed": 0, "failed": 0, "error": 0, "skipped": 0}, counts
+
+        failing = root / "junit-node-002.xml"
+        failing.write_text(_NODE_JUNIT_FAILING_PLACEHOLDER, encoding="utf-8")
+        counts = merge_junit_xml([("src/test/a.test.ts", failing)], root / "merged-2.xml", 0.1)
+        assert counts == {"passed": 0, "failed": 1, "error": 0, "skipped": 0}, counts
+
+
+def _check_node_untagged_cases_and_tag_pattern() -> None:
+    """A Node test is tagged by a `#tag` token in its own or an ancestor suite's
+    name; a tier token is not a tag; the tag pattern selects exactly the tags."""
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-nodetags-") as tmp:
+        raw = Path(tmp) / "junit-node-001.xml"
+        raw.write_text(_NODE_JUNIT_TAGGED, encoding="utf-8")
+        untagged = untagged_cases([("src/test/a.test.ts", raw)])
+        assert untagged == [
+            "src/test/a.test.ts: an untagged test",
+            "src/test/a.test.ts: only a tier token #slow",
+        ], untagged
+
+    pattern = re.compile(tags_name_pattern(["lsp-client", "grammar"]))
+    assert pattern.search("resolves the server #lsp-client")
+    assert pattern.search("grammar suite #grammar")
+    assert not pattern.search("resolves #lsp-client-extra"), "a longer tag must not match a prefix"
+    assert not pattern.search("an untagged test")
+    for invalid in ("Grammar", "slow", "gram_mar"):
+        try:
+            tags_name_pattern([invalid])
+        except NodeSuiteError:
+            continue
+        raise AssertionError(f"tags_name_pattern accepted invalid tag {invalid!r}")
+
+
 def _check_node_summary_line_matches_the_shape_test_ps1_parses() -> None:
     """test.ps1 scans the runner's stdout for a pytest-shaped summary line.
 
@@ -1146,6 +1225,8 @@ _CHECKS: list[tuple[str, Callable[[], None]]] = [
     ("pytest_classname_still_becomes_a_python_path", _check_pytest_classname_still_becomes_a_python_path),
     ("declared_file_attribute_wins_over_classname", _check_declared_file_attribute_wins_over_classname),
     ("node_junit_merge_counts_and_attributes_every_case", _check_node_junit_merge_counts_and_attributes_every_case),
+    ("node_file_placeholder_is_not_counted_as_a_test", _check_node_file_placeholder_is_not_counted_as_a_test),
+    ("node_untagged_cases_and_tag_pattern", _check_node_untagged_cases_and_tag_pattern),
     ("node_summary_line_matches_the_shape_test_ps1_parses", _check_node_summary_line_matches_the_shape_test_ps1_parses),
     ("powershell_and_python_agree_on_testable_packages", _check_powershell_and_python_agree_on_testable_packages),
     ("node_suite_marker_is_load_bearing", _check_node_suite_marker_is_load_bearing),

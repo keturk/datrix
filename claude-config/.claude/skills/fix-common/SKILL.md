@@ -25,4 +25,4 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 ## Package Specifics
 
 - **Scope:** shared framework library — fix source code or test code.
-- **CAUTION:** Changes to datrix-common can affect ALL downstream packages (every generator consumes it). Be especially careful with API changes; per CLAUDE.md's cross-surface impact rule, flag any public-contract change so consuming packages' suites can be run.
+- **CAUTION:** Changes to datrix-common can affect ALL downstream packages (every generator consumes it). Be especially careful with API changes; per CLAUDE.md's cross-surface impact rule, flag any public-contract change and run the changed behaviour's feature tags in every consuming package it reaches (never a whole suite).

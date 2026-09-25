@@ -117,7 +117,9 @@ from shared.suite_stamp import (  # noqa: E402
     unstamped_recorder_environment,
 )
 from shared.test_runner import (  # noqa: E402
+    REQUIRE_TAGS_OPTION,
     SERIAL_SKIPPED_NO_SERIAL_ITEMS,
+    TAGS_OPTION,
     TIER_MARKER_EXPRESSIONS,
     RunnerDeselectedRecordError,
     TestConfig,
@@ -127,6 +129,7 @@ from shared.test_runner import (  # noqa: E402
     _note_incomplete_phase,
     _serial_phase_decision_for_run,
     decide_serial_phase,
+    split_tags,
 )
 from shared.venv import get_datrix_root  # noqa: E402
 from test import suite_inputs  # noqa: E402
@@ -1005,6 +1008,33 @@ def check_test_runner_enables_runner_plugin_flag_only_when_requested() -> None:
             )
 
 
+def check_test_runner_passes_feature_tag_options_as_standalone_argv() -> None:
+    """Every session requires a tag on every test; ``tags`` narrows the run.
+
+    Both options are their own argv elements, in the parallel and serial phase
+    alike -- never folded into the ``-o addopts=...`` override, where they would
+    be one token of a single string and do nothing.
+    """
+    for has_xdist in (True, False):
+        runner = _make_test_runner(has_xdist=has_xdist)
+        plain = runner._build_pytest_args(python_exe="python", coverage=False, verbose=False)
+        assert REQUIRE_TAGS_OPTION in plain, f"a session did not require tags: {plain}"
+        assert not any(arg.startswith(TAGS_OPTION + "=") for arg in plain), plain
+
+        tagged = runner._build_pytest_args(
+            python_exe="python", coverage=False, verbose=False, tags=["gateway", "identity"]
+        )
+        assert f"{TAGS_OPTION}=gateway,identity" in tagged, tagged
+        assert REQUIRE_TAGS_OPTION in tagged, tagged
+        overrides = [tagged[i + 1] for i, arg in enumerate(tagged[:-1]) if arg == "-o"]
+        assert not any(TAGS_OPTION in value for value in overrides), (
+            f"a feature-tag option leaked into an -o override: {overrides}"
+        )
+
+    assert split_tags(None) == [] and split_tags("") == []
+    assert split_tags(" gateway , ,identity ") == ["gateway", "identity"]
+
+
 def check_test_runner_selection_classifier_distinguishes_full_from_targeted() -> None:
     """Only an unnarrowed run is full. A -Specific batch is split exactly as
     _build_pytest_args splits it (a parametrized id's comma is literal), a
@@ -1021,6 +1051,7 @@ def check_test_runner_selection_classifier_distinguishes_full_from_targeted() ->
         "keyword": None,
         "tier": None,
         "marker": None,
+        "tags": None,
     }, specific
 
     keyword = _classify_selection(None, None, "test_basic")
@@ -1030,7 +1061,21 @@ def check_test_runner_selection_classifier_distinguishes_full_from_targeted() ->
         "keyword": "test_basic",
         "tier": None,
         "marker": None,
+        "tags": None,
     }, keyword
+
+    tagged = _classify_selection(None, None, None, ["identity", "gateway"])
+    assert tagged == {
+        "kind": "targeted",
+        "specific": None,
+        "keyword": None,
+        "tier": None,
+        "marker": None,
+        "tags": ["gateway", "identity"],
+    }, tagged
+    assert _classify_selection(None, None, None, []) == {"kind": "full"}, (
+        "an empty tag list narrows nothing and must not read as a targeted run"
+    )
 
     assert set(TIER_MARKER_EXPRESSIONS) == {"unit", "integration", "e2e", "fast", "slow"}
     for tier, expression in TIER_MARKER_EXPRESSIONS.items():
@@ -1575,6 +1620,8 @@ def check_node_runner_stamp_names_executables_and_cross_ecosystem_cone_member() 
     assert node_selection(None, None, None) == {"kind": "full"}
     assert node_selection("a.test.ts, b.test.ts", None, None)["specific"] == ["a.test.ts", "b.test.ts"]
     assert node_selection(None, "^resolves", None)["kind"] == "targeted"
+    tagged = node_selection(None, None, None, ["lsp-client"])
+    assert tagged["kind"] == "targeted" and tagged["tags"] == ["lsp-client"], tagged
     fast = node_selection(None, None, "fast")
     assert fast["kind"] == "targeted" and fast["tier"] == "fast", fast
 
@@ -3926,6 +3973,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_test_runner_junit_xml_with_coverage_and_verbose_marker,
     check_test_runner_parallel_phase_uses_loadgroup_distribution,
     check_test_runner_enables_runner_plugin_flag_only_when_requested,
+    check_test_runner_passes_feature_tag_options_as_standalone_argv,
     check_test_runner_selection_classifier_distinguishes_full_from_targeted,
     check_structured_log_writer_records_selection_and_inputs,
     # shared.suite_stamp + the runners' stamp paths (real git repositories)

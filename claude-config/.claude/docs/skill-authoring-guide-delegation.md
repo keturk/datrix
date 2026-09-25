@@ -214,11 +214,13 @@ Phase prompts should include:
 ```markdown
 ### Steps
 
-1. Write the full-suite ticket, then run the gate (main session only — a dispatched
-   subagent reports the packages it changed instead, and never runs the gate):
+1. Run the tests of the behaviour you changed, by feature tag, in every package the
+   change reaches (never a whole suite — no agent runs one):
    ```
-   powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {package-name}
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} {consumer-package} -Tag {tag}
    ```
+   (`{consumer-package}` = the packages the change reaches, per "Which packages a change
+   reaches" in `.claude/skills/_shared/verification-strategy.md`.)
 
 2. Record results:
    - Total tests
@@ -496,7 +498,7 @@ delegation-strategy:
     - name: "quality_gate"
       model: "opus"
       parallelizable: false
-      description: "Run affected-gate.ps1 once over the affected set"
+      description: "Re-run the union of the tasks' targeted tests once (never a whole suite)"
 ---
 
 # Execute Tasks

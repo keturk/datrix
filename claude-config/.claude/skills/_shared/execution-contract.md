@@ -295,14 +295,14 @@ correct documentation, or run a command and read its output.
 ### 10.2 Size the dispatch to the defect
 
 Scale the ask to what is actually unknown. A three-error fix with a known root cause is a small,
-tightly-scoped dispatch, not a request for exhaustive investigation, full-suite runs, and
-multi-example verification. Every extra acceptance criterion you write is budget the agent will
+tightly-scoped dispatch, not a request for exhaustive investigation, broad test runs, and
+multi-example verification (no agent ever runs a whole suite — §12.1). Every extra acceptance criterion you write is budget the agent will
 spend. Ask for the smallest evidence that actually proves the fix.
 
 ### 10.3 Verify centrally, once — never N times in parallel
 
-**Do not put a "regenerate these other examples / re-run these other suites" list in every dispatch.**
-If the orchestrator verifies the shared set after the wave lands — and it should — then every
+**Do not put a "regenerate these other examples / re-run these other tests" list in every dispatch.**
+If the orchestrator verifies the wave's targeted tests after the wave lands — and it should — then every
 per-agent copy of that verification is pure duplication, multiplied by the number of agents. One
 central verification catches the same regressions as N scattered ones, at 1/N the cost.
 
@@ -328,9 +328,10 @@ feel busy.
 
 ### 10.6 Never sweep — not across examples, not across languages
 
-Regenerating unrelated examples, running `-All` suites reflexively, or re-verifying already-green
-work "to be safe" is the single easiest way to burn budget for no information. Generation granularity
-and affected-only verification are cost rules as much as correctness rules. To prove a fix
+Regenerating unrelated examples, running whole test suites, or re-verifying already-green work "to
+be safe" is the single easiest way to burn budget for no information. No agent runs a whole suite —
+`guard-full-suite-runs.py` refuses every form, for every agent, with no override. Generation
+granularity and targeted-only verification are cost rules as much as correctness rules. To prove a fix
 generalises, **write a test** — it proves the invariant permanently and costs once, where a corpus
 sweep proves it once and evaporates.
 
@@ -379,16 +380,16 @@ can do, and it feels like compliance the entire time it is happening.
 So the test is never "is this call cheap?" — it is **"is this question load-bearing?"** If the
 answer changes what you do next, buy it, at whatever it costs. If it does not, skip it, however
 cheap it looks. Narrow the *form* of every check to the least it can be (a `grep` over a read, one
-targeted test over a suite, a parse over a regeneration) — but never narrow the *set* of questions
+targeted test over a tag run, a parse over a regeneration) — but never narrow the *set* of questions
 you must answer to be correct.
 
 **A check is bought for a question, never for a rung.** The static-analysis ladder and the
 verification tiers are menus ordered by cost, not sequences to execute. Before running any scan,
-gate, or suite, write down (to yourself) the defect class it targets and the failure it would
+gate, or test run, write down (to yourself) the defect class it targets and the failure it would
 show that the evidence you already hold cannot. If you cannot name both, the check is punctuation:
 it can only return "clean" on code you have already read, and its cost — minutes of wall-clock,
 Jon's attention, and a background task to babysit — is paid for nothing. The concrete case: a
-three-package `semgrep.ps1` run after the targeted suites, the plugin-load proof, and both repo
+three-package `semgrep.ps1` run after the targeted tests, the plugin-load proof, and both repo
 gates were already green, launched because "repo static gate" was the next rung. Whole-package
 anti-pattern scans are phase-boundary acts; `guard-untargeted-scans.py` refuses them inside a fix
 without a named `-Rule` or a stated `SCAN_QUESTION:`, and refuses `-All` and subagent runs outright.
@@ -418,7 +419,7 @@ queue), and then match the interval to how fast that state actually changes.
 - **Do not re-read a file you just wrote.** `Edit`/`Write` fail loudly if they did not apply; a
   confirming read buys nothing and costs the whole file.
 - **Do not re-run a passing check to feel better.** Green does not decay because you changed an
-  unrelated file. Re-run a suite when your change could plausibly affect it — not as punctuation.
+  unrelated file. Re-run a test when your change could plausibly affect it — not as punctuation.
 - **Do not regenerate a project to verify a change you can verify at the source.** Regeneration is
   minutes and a large output; reading the emitted template or running its unit test is seconds.
   Regenerate when the artifact is the deliverable, or when nothing cheaper can prove the point.
@@ -429,7 +430,7 @@ queue), and then match the interval to how fast that state actually changes.
 
 Before running anything, know what each outcome would change. If both outcomes lead to the same next
 action, the command is not worth running. Prefer the narrowest form that settles it: one targeted
-test over a suite, one `grep` over a full read, one `--query` over a full JSON dump, `head` over
+test over a tag run, one `grep` over a full read, one `--query` over a full JSON dump, `head` over
 the whole file. **Then actually read what came back** — an unread result is the most expensive kind,
 because you paid for it and learned nothing.
 
@@ -464,9 +465,11 @@ Each rung costs roughly an order of magnitude more than the one above it, and re
 
 1. **Read the source / template / config** that produces the artifact.
 2. **Parse the emitted artifact** and compute over it (set difference, key census, structural query).
-3. **Targeted unit test** in the owning package (`test.ps1 <pkg> -Specific "…"`).
+3. **Targeted test** in the owning package (`test.ps1 <pkg> -Specific "…"`).
 4. **A repo static gate** — the scans and parity gates listed in 12.5.
-5. **The affected package suites** (`affected-gate.ps1 -Projects …`).
+5. **The tagged tests of the changed behaviour** in every package the change reaches
+   (`test.ps1 <pkg-a> <pkg-b> -Tag <tag>`; `_shared/verification-strategy.md`). There is no
+   whole-suite rung: no agent runs a whole package suite, ever.
 6. **Generate the affected project** and inspect the output.
 7. **Deploy / run it.**
 

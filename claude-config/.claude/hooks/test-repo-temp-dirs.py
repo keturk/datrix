@@ -60,6 +60,10 @@ check(".test_results (test.ps1 writes it by design)",
 check("vendored tmp", write(r"d:\datrix\datrix-codegen-typescript\node_modules\tmp\index.js"), ALLOW)
 check("session scratchpad", write(r"C:\Users\x\AppData\Local\Temp\claude\s\scratchpad\a.py"), ALLOW)
 check("a file merely named temp_utils.py", write(r"d:\datrix\datrix-common\src\temp_utils.py"), ALLOW)
+check("a test FILE named like a temp-dir prefix",
+      write(r"d:\datrix\datrix-common\tests\unit\generation\test_output_paths.py"), ALLOW)
+check("a file inside a test_output DIRECTORY still blocks",
+      write(r"d:\datrix\datrix-common\tests\test_output\paths.py"), BLOCK)
 
 print("== Commands: creating or writing a temp dir in a repo ==")
 check("mkdir", cmd(r"mkdir d:\datrix\datrix\.test-output"), BLOCK)

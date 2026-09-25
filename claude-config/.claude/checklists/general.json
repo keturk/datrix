@@ -7,7 +7,7 @@
       "id": "tests-claimed-but-never-run",
       "type": "command_ran",
       "only_if_reply": "(?i)\\b(tests?|suite|pytest)\\b[^.\\n]{0,40}\\b(pass(ed|ing)?|green|clean|succeed(ed)?)\\b",
-      "pattern": "(?i)test(-single)?\\.ps1|affected-gate\\.ps1|pytest|run-tests|test-[\\w-]+\\.py",
+      "pattern": "(?i)test(-single)?\\.ps1|pytest|run-tests|test-[\\w-]+\\.py",
       "fix": "You reported tests passing but no test command ran in this session. Run the targeted tests and quote the real output, or delete the claim."
     },
     {

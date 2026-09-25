@@ -283,7 +283,7 @@ Results: {success_count}/{total_count} successful
 
 **Quality gate:**
 ```
-Full suite: 185/185 tests passing
+Targeted re-run (files + tags gateway,identity): 185/185 tests passing
 No new failures detected.
 ```
 

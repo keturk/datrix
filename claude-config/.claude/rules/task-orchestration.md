@@ -10,10 +10,12 @@ the validation hook `complete.ps1` enforces. Read `datrix/scripts/tasks/quick-re
 for the exact invocation before calling any task script.
 
 **Timing.** In `/task-orchestrator` and `/execute-tasks-parallel` runs, mark a task
-COMPLETED only after the **wave's test gate passes** (targeted per-package tests for that
-wave; full suites run once at the quality gate / phase boundary, never per wave). Agent
-success is necessary but not sufficient — do not mark tasks COMPLETED as individual
-agents return.
+COMPLETED only after the **wave's test gate passes**: the orchestrator runs, once, the union
+of the wave's tasks' targeted tests — their `## Targeted Tests` files (`-Specific`) and
+feature tags (`-Tag`), batched per package. The phase boundary re-runs the union of the whole
+phase's targeted tests once. **No gate, at a wave, a phase boundary, or a quality-gate step,
+ever runs a whole suite** (`guard-full-suite-runs.py` blocks it); Jon runs full suites himself. Agent success is necessary but not sufficient — do
+not mark tasks COMPLETED as individual agents return.
 
 **Never run `complete.ps1`** on a task whose agent returned BLOCKED, whose `## How Solved`
 contains `BLOCKED` / `partial` / `out of scope` / `workaround` / `dual path` /
@@ -75,7 +77,7 @@ green suite. That is how a validation gap once slipped through — a config-driv
 hatch bypassed a fail-loud check that only covered the more obvious code path.
 
 Run an explicit design-conformance gate at each phase boundary, including single-phase
-runs, in addition to the test gate.
+runs, in addition to the targeted-test gates. The phase boundary runs no whole suite.
 
 ## BLOCKED must be VALID before it is terminal
 

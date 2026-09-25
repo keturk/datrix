@@ -55,6 +55,19 @@
 .PARAMETER Keyword
  Run tests matching keyword expression (-k option).
 
+.PARAMETER Tag
+ Run only the tests carrying at least one of these feature tags (comma-separated,
+ e.g. "gateway,identity"). A pytest test carries tags through the `tag` marker; a
+ Node test through '#tag' tokens in its name. Every named tag must be carried by at
+ least one test in each named package, and a tag selecting a package's whole test
+ tree is refused. This is how an agent runs exactly the tests related to the code it
+ changed, across every package that has them.
+
+.PARAMETER ListTags
+ Print every feature tag in each named package with its test count, and the tests
+ carrying no tag. Runs no test. Exits non-zero when any test is untagged or a test
+ module fails to collect. With -Specific, lists only the named files/directories.
+
 .PARAMETER Rerun
  Re-run tests only for projects whose latest timestamped test log reports a failure.
  Scans all projects, reads each project's .test_results directory, and runs tests
@@ -108,6 +121,14 @@
  .\test.ps1 datrix-language -Keyword "test_basic"
  Run tests matching keyword expression.
 
+.EXAMPLE
+ .\test.ps1 datrix-codegen-python datrix-codegen-java -Tag gateway
+ Run every test tagged 'gateway' in both packages.
+
+.EXAMPLE
+ .\test.ps1 datrix-codegen-python -ListTags
+ List the feature tags in a package; run nothing.
+
 #>
 
 [CmdletBinding()]
@@ -132,6 +153,8 @@ param(
  # Test selection
  [string]$Specific,
  [string]$Keyword,
+ [string]$Tag,
+ [switch]$ListTags,
 
  [Parameter()]
  [switch]$Dbg
@@ -309,6 +332,8 @@ try {
  Write-Host " .\test.ps1 -All -Fast" -ForegroundColor Cyan
  Write-Host " .\test.ps1 datrix-common -Specific `"tests/unit/test_parser.py`"" -ForegroundColor Cyan
  Write-Host " .\test.ps1 datrix-language -Keyword `"test_basic`"" -ForegroundColor Cyan
+ Write-Host " .\test.ps1 datrix-codegen-python datrix-codegen-java -Tag gateway" -ForegroundColor Cyan
+ Write-Host " .\test.ps1 datrix-codegen-python -ListTags" -ForegroundColor Cyan
  Write-Host ""
  $availableProjects = Get-DatrixTestablePackageNames -WorkspaceRoot $datrixWorkspaceRoot
  if ($availableProjects.Count -gt 0) {
@@ -392,8 +417,31 @@ try {
  $baseArgs += "-k"
  $baseArgs += $Keyword
  }
+ if ($Tag) {
+ $baseArgs += "--tags"
+ $baseArgs += $Tag
+ }
  if ($Dbg) {
  $baseArgs += "--debug"
+ }
+
+ # -ListTags runs no test: one collection-only listing per package, no run
+ # directory, no summary table. The exit code is the worst package's.
+ if ($ListTags) {
+ $listExit = 0
+ foreach ($project in $projectsToTest) {
+  Write-Host ""
+  Write-Host "=== $project ===" -ForegroundColor Cyan
+  $ErrorActionPreference_Saved = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  $listArgs = @($testProjectScript, "--list-tags")
+  if ($Specific) { $listArgs += @("--specific", $Specific) }
+  & python @listArgs $project 2>&1 | Write-Host
+  $projectExit = $LASTEXITCODE
+  $ErrorActionPreference = $ErrorActionPreference_Saved
+  if ($projectExit -ne 0 -and $listExit -eq 0) { $listExit = $projectExit }
+ }
+ exit $listExit
  }
 
  # Function to parse test counts from pytest output

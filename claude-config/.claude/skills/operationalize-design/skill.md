@@ -379,7 +379,7 @@ If you deviated: STOP and explain the deviation to the user.
 
    **c) Quality gate tasks (one per package — also the independent-verification gate):**
    - For each package that has 2+ implementation tasks in this phase, generate exactly ONE quality gate task
-   - It runs the full test suite AND carries the anti-stub / coverage-sanity / anti-gap checklist that standalone `-verify` tasks used to provide — no implementation code
+   - It re-runs the union of the phase's targeted tests for the package once (files and feature tags — never a whole suite; no agent runs one) AND carries the anti-stub / coverage-sanity / anti-gap checklist that standalone `-verify` tasks used to provide — no implementation code
    - **Run by a different agent/session than the implementers** — this is what preserves independent verification
    - Depends on ALL other tasks targeting the same package; numbered AFTER all other tasks for the phase
    - Use the enhanced quality gate template from `/generate-tasks` (no "Files to Create" section; includes the embedded verification checklist)
@@ -542,8 +542,8 @@ Design: preserved at {path}
 - **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
 - **NO bloated dependencies.md** — the dependencies document is for AI agent consumption only; it is the Step-7 JSON document (tasks + dependencies + provenance stamp), nothing else. No markdown headers, tables, task inventories, dependency text blocks, or prose around it, and never the legacy "Group N" text format. See generate-tasks Step 7 for the exact schema.
 - **YES design document references in task files** — Phase 5 preserves the design doc, so every task carries `**Design reference:**` + `**Design acceptance property:**` pointing at it AND inlines the relevant content. (Reference for traceability, inline for self-sufficiency.) Do NOT strip the reference.
-- **NO marking a task/phase done on "generates clean" or "suite green" alone** — a task is done only when its `**Design acceptance property:**` is PROVEN by an executable check (negative + positive) whose output is pasted. A green suite over a half-enforced invariant is a false pass (this is exactly how a config-driven escape hatch once slipped past a validator that only covered the more obvious code path).
-- **NO tasks without targeted tests** — every implementation and test task must have a `## Targeted Tests` section specifying which tests to run for focused verification
+- **NO marking a task/phase done on "generates clean" or "tests green" alone** — a task is done only when its `**Design acceptance property:**` is PROVEN by an executable check (negative + positive) whose output is pasted. Green tests over a half-enforced invariant are a false pass (this is exactly how a config-driven escape hatch once slipped past a validator that only covered the more obvious code path).
+- **NO tasks without targeted tests** — every implementation and test task must have a `## Targeted Tests` section with ready-to-run `-Specific` (files) and `-Tag` (feature tags, across every package the change reaches) commands — never a whole-suite form; every test a task adds carries a feature tag
 - **NO missing quality gates** — every package with 2+ code tasks must have a quality gate task as the final dependency
 - **NO partial task generation** — generate ALL tasks in Phase 4, not a subset with a "roadmap"
 - **NO asking mid-phase** — complete each phase fully before asking user questions (unless blocked)

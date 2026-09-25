@@ -26,4 +26,4 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 
 - **Scope:** `datrix-codegen-common` — shared codegen library.
 - **Fix target:** Source code or test code — never generated output.
-- **CAUTION:** Shared by every codegen package (per CLAUDE.md's cross-surface impact rule). Flag any public-contract change so consuming packages' suites can be run.
+- **CAUTION:** Shared by every codegen package (per CLAUDE.md's cross-surface impact rule). Flag any public-contract change and run the changed behaviour's feature tags in every consuming package it reaches (never a whole suite).

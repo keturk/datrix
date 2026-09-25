@@ -29,12 +29,13 @@ WHAT THIS ANSWERS, AND WHAT IT DOES NOT
 -----------------------------------------
 This module answers only "what does this command's test-runner invocation DO":
 which script it names, what its argument tail looks like, whether that tail is
-narrowed to named tests, whether it runs no suite child at all (a self-test),
-and which packages a whole-suite tail would run. It never decides whether that
-is ALLOWED -- the ticket/audit/block policy stays in `guard-full-suite-runs.py`,
-and the census/report policy stays in `instruction_surface.py`. Splitting it
-this way is what lets two very different enforcement points (a live PreToolUse
-block; a static markdown census) share one fact without sharing a policy.
+narrowed to named tests or feature tags, whether it runs no test at all (a
+self-test or a tag listing), and which packages a whole-suite tail would run. It
+never decides whether that is ALLOWED -- the block/audit policy stays in
+`guard-full-suite-runs.py`, and the census/report policy stays in
+`instruction_surface.py`. Splitting it this way is what lets two very different
+enforcement points (a live PreToolUse block; a static markdown census) share one
+fact without sharing a policy.
 """
 
 from __future__ import annotations
@@ -47,34 +48,30 @@ from _command_shape import is_read_only, segments
 #: `test.ps1` OR `affected-gate.ps1`, as their own path segment (or bare, or
 #: right after a quote), so `test-single.ps1`, `test-specific-selection-gate.ps1`,
 #: `affected-set.ps1` and any other `*.ps1` merely CONTAINING "test" never match.
-#: `affected-gate.ps1` schedules `test.ps1 <pkg>` children concurrently under a
-#: worker budget and derives its own reverse-dependency closure -- it is a
-#: second door onto the same phase-boundary act as a bare `test.ps1` run:
-#: before this module, the guard's pattern was `test\.ps1\b` alone, so every
-#: affected-gate sweep ran with no ticket, no audit row, and no subagent block.
+#: `affected-gate.ps1` schedules whole-suite `test.ps1 <pkg>` children
+#: concurrently -- a second door onto the same whole-suite act as a bare
+#: `test.ps1` run, and blocked under the identical rule.
 TEST_SCRIPT_RE: Final = re.compile(
     r"""(?:^|[/\\"'\s])(?:test|affected-gate)\.ps1\b""", re.IGNORECASE
 )
 
-#: The only two flags that make a `test.ps1` tail genuinely targeted -- they
-#: select named files/node-IDs. `affected-gate.ps1`'s own argument grammar
-#: (`affected_gate.py:_parse_args` -- `--projects`, `--all`, `--max-concurrent`,
-#: `--workers-per-child`, `--mypy`, `--force`, `--no-carry`, `--output`,
-#: `--self-test`, `--debug`) carries neither flag under any spelling, so an affected-gate tail
-#: is correctly classified whole-suite by this check alone -- it can never look
-#: targeted by accident, and no affected-gate-specific carve-out is needed here.
-NARROWING_FLAGS: Final = ("-specific", "-keyword")
+#: The flags that make a `test.ps1` tail genuinely targeted: named files/node-IDs
+#: (`-Specific`), a keyword expression (`-Keyword`), or feature tags (`-Tag`).
+#: `affected-gate.ps1`'s own argument grammar carries none of them under any
+#: spelling, so an affected-gate tail can never look targeted by accident.
+NARROWING_FLAGS: Final = ("-specific", "-keyword", "-tag")
 
-#: `affected-gate.ps1 -SelfTest` (`--self-test` on `affected_gate.py`) runs the
-#: scheduler's own pure-function self-test suite and launches no `test.ps1`
-#: child at all. Checked before targeting/package extraction so a self-test
-#: invocation is never even classified as whole-suite -- the same treatment a
-#: read-only inspection gets, and required so the guard does not demand a
-#: ticket for a command that runs no suite.
-SELF_TEST_FLAG_RE: Final = re.compile(r"(?:^|\s)-selftest\b", re.IGNORECASE)
+#: Flags that widen a run back to whole package suites whatever else narrows it:
+#: `-All` names every package, `-Rerun` re-runs whole failing packages.
+WIDENING_FLAGS: Final = ("-all", "-rerun")
 
-#: Stands in for the package list when `-All` was passed; only a `"*"` ticket
-#: can ever cover it.
+#: Flags under which the runner starts no test at all: `affected-gate.ps1
+#: -SelfTest` runs the scheduler's own pure-function self-test, and `test.ps1
+#: -ListTags` only collects and prints feature tags. Checked before targeting and
+#: package extraction, so such an invocation is never classified whole-suite.
+NO_TEST_FLAG_RE: Final = re.compile(r"(?:^|\s)-(?:selftest|listtags)\b", re.IGNORECASE)
+
+#: Stands in for the package list when `-All` was passed.
 ALL_SENTINEL: Final = "*ALL-PACKAGES*"
 
 _PACKAGE_RE: Final = re.compile(r"datrix(?:-[a-z0-9]+)*\Z")
@@ -101,15 +98,25 @@ def invocation_tails(command: str) -> list[str]:
     return tails
 
 
-def is_self_test(tail: str) -> bool:
-    """True when this invocation runs only a self-test -- no suite child at all."""
-    return bool(SELF_TEST_FLAG_RE.search(tail))
+def runs_no_test(tail: str) -> bool:
+    """True when this invocation starts no test at all (`-SelfTest`, `-ListTags`)."""
+    return bool(NO_TEST_FLAG_RE.search(tail))
+
+
+def _has_flag(lowered_tail: str, flag: str) -> bool:
+    return re.search(rf"(?:^|\s){re.escape(flag)}\b", lowered_tail) is not None
 
 
 def is_targeted(tail: str) -> bool:
-    """True when `tail` narrows to named tests (`-Specific`/`-Keyword`)."""
+    """True when `tail` narrows to named tests or tags and nothing widens it back.
+
+    `-Specific`, `-Keyword` or `-Tag` narrows; `-All` or `-Rerun` alongside any
+    of them still sweeps whole packages, so it is never targeted.
+    """
     lowered = tail.lower()
-    return any(re.search(rf"(?:^|\s){re.escape(flag)}\b", lowered) for flag in NARROWING_FLAGS)
+    if any(_has_flag(lowered, flag) for flag in WIDENING_FLAGS):
+        return False
+    return any(_has_flag(lowered, flag) for flag in NARROWING_FLAGS)
 
 
 def packages(tail: str) -> list[str]:

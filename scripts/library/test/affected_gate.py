@@ -222,7 +222,8 @@ def select_affected(
     """The packages to run and the closure members excluded from the run.
 
     A package is affected when its suite reaches the changed SURFACE, which
-    the caller establishes (verification-strategy.md, "The affected set") and
+    the caller establishes (verification-strategy.md, "Which packages a change
+    reaches") and
     states here. The import closure is where most consumers sit, but it is
     not an upper bound: a suite that runs the generation pipeline reaches every
     installed generator through entry-point discovery, an edge no import scan
@@ -263,7 +264,7 @@ def select_affected(
             f"tests or conftest reference a changed module or symbol (by import or dotted-path "
             f"string), directly or through an unchanged caller inside the changed package, or when "
             f"its suite runs a changed generator through the generation pipeline (procedure: "
-            f".claude/skills/_shared/verification-strategy.md, 'The affected set'). Pass "
+            f".claude/skills/_shared/verification-strategy.md, 'Which packages a change reaches'). Pass "
             f"-Consumers <those packages>, or -NoConsumers if there are none."
         )
     changed_named = sorted(set(named) & set(changed))
@@ -1217,6 +1218,8 @@ def _aggregate_verdict(
     produced_runs: dict[str, str],
     carry_decisions: Mapping[str, CarryDecision],
     output_path: Path,
+    *,
+    excluded: Sequence[str],
 ) -> int:
     """Aggregate the final verdict via ``gate_verdict.evaluate_projects``.
 
@@ -1243,6 +1246,10 @@ def _aggregate_verdict(
     fingerprint); every row in ``affected-gate.json`` also records
     ``carry_reason`` and ``diff_components`` -- why a package ran instead of
     carrying, component by component.
+
+    `excluded` names the packages that import a changed package but that the
+    caller established the change does not reach; the payload records them so
+    a narrowed run is never mistaken for a closure-wide one.
 
     Raises:
         UsageError: if an affected package has no carry decision, or a
@@ -1279,7 +1286,7 @@ def _aggregate_verdict(
         }
         for row in result.rows
     ]
-    payload = {**result.payload, "projects": rows}
+    payload = {**result.payload, "projects": rows, "excluded": sorted(excluded)}
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
@@ -1518,7 +1525,9 @@ def _run(args: argparse.Namespace, workspace: Path, record: CompletionRecord) ->
             print("mypy: at least one changed package failed type-checking", file=sys.stderr)
 
     output_path = _resolve_output_path(args.output, workspace)
-    exit_code = _aggregate_verdict(workspace, affected, forced_red, produced_runs, carry_decisions, output_path)
+    exit_code = _aggregate_verdict(
+        workspace, affected, forced_red, produced_runs, carry_decisions, output_path, excluded=record.excluded
+    )
     if args.mypy and not mypy_ok:
         return _EXIT_RED
     return exit_code
@@ -1839,6 +1848,7 @@ def _check_child_with_no_new_run_forces_red_never_stale_green() -> None:
             {},
             _not_carried(["datrix-crashed"]),
             output_path,
+            excluded=[],
         )
         assert exit_code == _EXIT_RED, f"forced_red package must make the overall verdict RED, got {exit_code}"
         payload = json.loads(output_path.read_text(encoding="utf-8"))
@@ -1880,6 +1890,7 @@ def _check_verdict_is_pinned_to_the_childs_run_never_a_newer_one() -> None:
         output_path = workspace / ".tmp" / "test" / "affected-gate.json"
         exit_code = _aggregate_verdict(
             workspace, ["datrix-raced"], {}, {"datrix-raced": child_run}, _not_carried(["datrix-raced"]), output_path,
+            excluded=[],
         )
         assert exit_code == _EXIT_RED, f"the pinned RED run must make the verdict RED, got {exit_code}"
         payload = json.loads(output_path.read_text(encoding="utf-8"))
@@ -1956,6 +1967,7 @@ def _check_pinned_run_without_results_is_red_never_a_fallthrough() -> None:
             {"datrix-empty": "test-results-20260101-000100"},
             _not_carried(["datrix-empty"]),
             output_path,
+            excluded=[],
         )
         assert exit_code == _EXIT_RED, f"an unreadable pinned run must be RED, got {exit_code}"
         row = json.loads(output_path.read_text(encoding="utf-8"))["projects"][0]
@@ -2420,10 +2432,13 @@ def _check_affected_gate_json_names_the_carried_run_and_the_changed_component() 
         fixture = _stamped_fixture(Path(tmp).resolve())
         output_path = Path(tmp) / "out" / "affected-gate.json"
         decisions = decide_carry(fixture.workspace, {_STAMPED_PACKAGE: fixture.package_dir}, enabled=True)
-        exit_code = _aggregate_verdict(fixture.workspace, [_STAMPED_PACKAGE], {}, {}, decisions, output_path)
+        exit_code = _aggregate_verdict(
+            fixture.workspace, [_STAMPED_PACKAGE], {}, {}, decisions, output_path, excluded=["datrix-unreached"]
+        )
         payload = json.loads(output_path.read_text(encoding="utf-8"))
         row = payload["projects"][0]
         assert exit_code == _EXIT_GREEN and payload["overall_verdict"] == _VERDICT_GREEN, payload
+        assert payload["excluded"] == ["datrix-unreached"], payload
         assert row["verdict"] == _VERDICT_CARRIED and row["carried"] is True, row
         assert Path(row["run_dir"]).name == fixture.run_name, row
         assert isinstance(row["age_minutes"], float) and row["age_minutes"] >= 0, row
@@ -2435,7 +2450,8 @@ def _check_affected_gate_json_names_the_carried_run_and_the_changed_component() 
         produced = _run_dir_name(timedelta(minutes=1))
         _write_run(fixture.package_dir, produced, _run_index(inputs=None))
         exit_code = _aggregate_verdict(
-            fixture.workspace, [_STAMPED_PACKAGE], {}, {_STAMPED_PACKAGE: produced}, decisions, output_path
+            fixture.workspace, [_STAMPED_PACKAGE], {}, {_STAMPED_PACKAGE: produced}, decisions, output_path,
+            excluded=[],
         )
         row = json.loads(output_path.read_text(encoding="utf-8"))["projects"][0]
         expected_diff = [f"{_STAMPED_PACKAGE} tree changed"]

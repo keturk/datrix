@@ -218,10 +218,11 @@ For each task, capture the test baseline before implementation.
 
 1. Read the task file at the given path
 2. Extract the `## Targeted Tests` section
-3. If no targeted tests section exists, record `no_targeted_tests: true` and run no suite — the quality gate's single `affected-gate.ps1` run covers the package
-4. Run each test command listed:
+3. If no targeted tests section exists, record `no_targeted_tests: true` and run nothing — the task file is defective: its implementer derives the files and feature tags covering the code it changes. Never fall back to a whole suite
+4. Run each test command listed (every one is `-Specific` or `-Tag`):
    ```
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package} -Specific "{test-path}"
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package} {consumer-package} -Tag {tag}
    ```
 5. Record: total tests, pass count, fail count, names of pre-existing failures
 
@@ -321,7 +322,7 @@ delegation-strategy:
     - name: "quality_gate"
       model: "opus"
       parallelizable: false
-      description: "Run affected-gate.ps1 once over the affected set for final validation"
+      description: "Re-run the union of the tasks' targeted tests once and run the design-conformance scan (never a whole suite)"
 ---
 
 # Execute Tasks
@@ -368,7 +369,7 @@ Run targeted tests and compare to baseline.
 <!-- PHASE: quality_gate -->
 ## Quality Gate
 
-Run `affected-gate.ps1` once over the affected set for final validation (main session, ticket first).
+Re-run the union of the tasks' targeted tests (files and feature tags, per package) once, and run the design-conformance scan. Never a whole suite — no agent runs one.
 
 [Self-contained instructions...]
 <!-- END_PHASE: quality_gate -->

@@ -123,17 +123,18 @@ Result: PASS ✓ / FAIL ✗
 
 #### Checkpoint D: Regression Check
 
-After every 3 fixes (or after a fix that touches shared code), run the gate over the **affected set** — every changed package plus its reverse-dependency closure per `d:\datrix\.claude\skills\_shared\verification-strategy.md` (for a leaf-package fix that is just the package itself; for a shared-layer fix it is every consumer). Never `-All` by reflex. Carry makes repeated checkpoints cheap: a package whose inputs are unchanged since its last green full run comes back `CARRIED` with no child launched.
+After every 3 fixes (or after a fix that touches shared code), run the tests of what the fixes changed — the test files added or edited, and the feature tags of every changed behaviour in every package the fixes reach, established per "Which packages a change reaches" in `d:\datrix\.claude\skills\_shared\verification-strategy.md` (packages whose code or tests reference the changed surface or an unchanged caller of it, plus the pipeline-running packages when a generator's behaviour changed). Never a whole suite — `guard-full-suite-runs.py` refuses every form, for every agent.
 
-- **Main-session role:** write the full-suite ticket with the Write tool — `D:\datrix\.tmp\full-suite-ticket.json` = `{"packages": [<every changed package>], "reason": "checkpoint-debug regression check after issues #{X}-#{Y}", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}` (`guard-full-suite-runs.py` blocks the gate without it) — then run:
-  ```
-  powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {pkg1},{pkg2}
-  ```
-- **Dispatched-subagent role:** run no suite and not the gate (the guard blocks both for a subagent); report the packages you changed, and the dispatcher runs the gate over the union.
+```
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {pkg1} -Specific "{test-file-1},{test-file-2}"
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {pkg1} {consumer1} {consumer2} -Tag {tag-1},{tag-2}
+```
+
+A dispatched subagent reports the packages, surface and tags it changed, and the dispatcher runs the tag run once over the union.
 
 ```
 CHECKPOINT D — Regression Check (after issues #{X}-#{Y})
-Gate results: {pass}/{total} ({carried} carried)
+Targeted results: {pass}/{total} (tags {tags} over {packages})
 New failures: {none / list}
 ```
 

@@ -541,8 +541,8 @@ Follow the canonical task template in `d:\datrix\.claude\skills\generate-tasks\S
 - **Files to Review Before Starting:** add the evaluation report path -- `{path-to-evaluation-report}` -- read the relevant sections for detailed issue analysis.
 - **Issues from Evaluation Report** (replaces "Files to Create"): for each issue, include the evaluation report section reference, problem description, DSL source snippet, generated code snippet, expected/correct code, and root cause.
 - **Files to Modify** (replaces "Files to Create" framing since these are fixes to existing generators/templates): current implementation, corrected implementation, and implementation notes per file.
-- **Success Criteria:** all listed issues resolved, no new issues introduced, regenerated service passes re-evaluation for the issues addressed; targeted tests pass (`powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path}"`) -- the full suite runs once at the phase quality gate, not per task; no TODO/pass/placeholder code.
-- **Targeted Tests:** same format as canonical -- package, test command(s) with `-Specific`, test files covered. Falls back to the full suite only if no specific tests exist for the modified generators.
+- **Success Criteria:** all listed issues resolved, no new issues introduced, regenerated service passes re-evaluation for the issues addressed; targeted tests pass (`powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path}"` and `... {package-name} {consumer-package} -Tag {tag}`) -- no agent ever runs a whole suite; no TODO/pass/placeholder code.
+- **Targeted Tests:** same format as canonical -- package, test command(s) with `-Specific` and `-Tag`, test files and feature tags covered. If no test covers a modified generator, the task writes one (tagged) — it never falls back to a whole suite.
 
 #### 5.5d: Update Evaluation Report with Tasks Section
 

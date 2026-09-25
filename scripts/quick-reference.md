@@ -47,6 +47,8 @@ Read the category-specific file for the script you need:
 | **Tasks** | [tasks/quick-reference.md](tasks/quick-reference.md) | todo.ps1, complete.ps1, completed.ps1, cleanup.ps1, latest-phase.ps1, phase-status.ps1, plan-waves.ps1, plan-waves-multi.ps1, validate-dependencies.ps1 |
 | **Review** | [review/quick-reference.md](review/quick-reference.md) | review.py (Tier 1 + Tier 2 task file reviewer), apply-reviews-prep.ps1 |
 
+**Agents never run a whole test suite.** They run `test.ps1 <pkg> -Specific "…"` (files) and `test.ps1 <pkgs> -Tag <tags>` (feature tags), and list tags with `-ListTags`. Every whole-suite form — a bare package, `-All`, `-Rerun`, a tier switch, `affected-gate.ps1` — is Jon's alone and refused by `guard-full-suite-runs.py`.
+
 ---
 
 ## Generation Categories

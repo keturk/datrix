@@ -37,7 +37,7 @@ if library_dir.exists() and str(library_dir) not in sys.path:
 # Import shared modules
 from shared.node_test_runner import run_node_suite  # noqa: E402
 from shared.package_suites import SuiteKind, detect_suite_kind  # noqa: E402
-from shared.test_runner import TIER_MARKER_EXPRESSIONS, TestConfig, TestRunner  # noqa: E402
+from shared.test_runner import TIER_MARKER_EXPRESSIONS, TestConfig, TestRunner, split_tags  # noqa: E402
 from shared.venv import get_datrix_root, get_venv_python, is_venv_active  # noqa: E402
 
 # Marker filters that SELECT a marked subset of tests. A suite with no marker
@@ -551,6 +551,15 @@ def run_node_project(args: argparse.Namespace, project_root: Path) -> int:
   Process exit code from the Node suite, or 0 when a marker filter selects a
   subset this package cannot have (pytest's own no-collection convention).
  """
+ if args.list_tags:
+  print(
+   f"[SKIP] {args.project_name}: a Node suite cannot enumerate its tests without "
+   f"running them, so --list-tags lists nothing here. Its feature tags are the "
+   f"'#<tag>' tokens in the test() and describe() names under the package's test "
+   f"sources; read those names to pick a tag. Nothing was run."
+  )
+  return 0
+
  selecting_markers = [flag for flag in _SUBSET_MARKER_FLAGS if getattr(args, flag)]
  if selecting_markers:
   print(
@@ -582,6 +591,7 @@ def run_node_project(args: argparse.Namespace, project_root: Path) -> int:
   specific=args.specific,
   name_pattern=args.keyword,
   tier="fast" if args.fast else None,
+  tags=split_tags(args.tags) or None,
  )
 
 
@@ -630,6 +640,19 @@ Note: This script should be called from test.ps1, which handles virtual environm
   ),
  )
  parser.add_argument("-k", "--keyword", type=str, help="Run tests matching keyword expression")
+ parser.add_argument(
+  "--tags",
+  type=str,
+  help=(
+   "Comma-separated feature tags; run only the tests carrying at least one of them. "
+   "Every named tag must be carried by at least one test in the package."
+  ),
+ )
+ parser.add_argument(
+  "--list-tags",
+  action="store_true",
+  help="Print every feature tag in the package with its test count, and run no test.",
+ )
  parser.add_argument("--debug", action="store_true", help="Enable debug logging (DEBUG level instead of INFO)")
  parser.add_argument(
   "--rerun",
@@ -802,10 +825,13 @@ Note: This script should be called from test.ps1, which handles virtual environm
  exclude_markers=exclude_markers,
  )
 
+ runner = TestRunner(config)
+ if args.list_tags:
+  return runner.list_tags(args.specific)
+
  # Determine test path: --specific sets it to a custom path
  test_path = args.specific
 
- runner = TestRunner(config)
  return runner.run(
  coverage=args.coverage,
  verbose=args.verbose,
@@ -813,6 +839,7 @@ Note: This script should be called from test.ps1, which handles virtual environm
  marker_expr=marker_expr,
  test_path=test_path,
  keyword_expr=args.keyword,
+ tags=split_tags(args.tags) or None,
  )
 
 

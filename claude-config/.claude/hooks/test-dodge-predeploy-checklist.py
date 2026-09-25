@@ -359,9 +359,9 @@ check(
 
 live_cases = [
     ("ran tests then reported pass", [("cmd", "test.ps1 datrix-common -Specific a.py"), ("text", "All tests pass.")], ALLOW),
-    # A gate-only verification session: affected-gate.ps1 is the one whole-suite door,
-    # so a session whose only test evidence is the gate must not false-trip the claim check.
-    ("ran only the gate then reported pass", [("cmd", 'powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects datrix-common'), ("text", "All tests pass.")], ALLOW),
+    # A tag-only verification session: a `-Tag` run is real test evidence, so a session
+    # whose only test run selected by feature tag must not false-trip the claim check.
+    ("ran only a tag run then reported pass", [("cmd", 'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common datrix-cli -Tag config-resolution'), ("text", "All tests pass.")], ALLOW),
     ("ran a hook test file then reported pass", [("cmd", "python .claude/hooks/test-stop-gates.py"), ("text", "All checks pass.")], ALLOW),
     ("ordinary reply with no claim", [("text", "Changed the seam at compose.py:88.")], ALLOW),
     ("the word test used innocently", [("text", "I updated the test guidelines doc.")], ALLOW),

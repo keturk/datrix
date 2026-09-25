@@ -183,7 +183,7 @@ Every task file MUST follow this template:
 
 **Package:** `{package-name}` (`d:\datrix\{repo}\`)
 **Design reference:** `{design-doc-path}` -- Section(s) {X.Y}; implements design decision(s)/invariant(s) {D#/G#/numbered-decision}
-**Design acceptance property:** {the observable end-state that proves this task satisfies the design — e.g. "no `env(...)` survives on any secret position in the migrated tree AND each resolves via `get_secret(<handle>)`". This is what "done" means, verified by an executable check — NOT "it generates" / "suite green".}
+**Design acceptance property:** {the observable end-state that proves this task satisfies the design — e.g. "no `env(...)` survives on any secret position in the migrated tree AND each resolves via `get_secret(<handle>)`". This is what "done" means, verified by an executable check — NOT "it generates" / "tests green".}
 **Depends on:** {List of prerequisite tasks or "None"}
 
 ## Codebase Context
@@ -235,9 +235,10 @@ All prohibited patterns and code-quality standards live in `d:\datrix\datrix-com
 1. {Concrete, testable outcome}
 2. {Measurable quality threshold}
 {... 5-10 specific criteria — each one testable; no padding}
-- **Design conformance (MANDATORY):** the design invariant(s) this task implements (the `**Design acceptance property:**` above) hold, proven by an **executable check whose command + output are pasted** — typically a NEGATIVE check (the old construct / forbidden state is gone everywhere on the affected surface) AND a POSITIVE check (the new path is actually exercised). "It generates", "0 warnings", and "suite green" are necessary but NOT sufficient and never substitute for this.
+- **Design conformance (MANDATORY):** the design invariant(s) this task implements (the `**Design acceptance property:**` above) hold, proven by an **executable check whose command + output are pasted** — typically a NEGATIVE check (the old construct / forbidden state is gone everywhere on the affected surface) AND a POSITIVE check (the new path is actually exercised). "It generates", "0 warnings", and "tests green" are necessary but NOT sufficient and never substitute for this.
 - For any "X replaces Y" scope: a check **FAILS if Y still exists anywhere** in the affected surface (not just "X works").
-- Targeted tests pass (the commands in `## Targeted Tests`). Do NOT require a full-suite run in this task's criteria — the per-package quality gate owns the one full-suite verdict for the phase; per-task full-suite runs are redundant cost.
+- Targeted tests pass (the commands in `## Targeted Tests`). Never require a whole-suite run in any criterion — no agent ever runs one (`guard-full-suite-runs.py` refuses every form).
+- Every test this task adds carries a feature tag (`pytestmark = pytest.mark.tag("…")` — `datrix-common/docs/contributing/test-guidelines/feature-tags.md`)
 - New code is covered by this task's own tests (success + error cases) — no per-task coverage-percentage run
 - No TODO/pass/placeholder code
 
@@ -250,25 +251,29 @@ All prohibited patterns and code-quality standards live in `d:\datrix\datrix-com
 
 ## Targeted Tests
 
-> **Used by the executors to run focused verification instead of the full test suite.**
-> Each task runs only its targeted tests (which cover the code AND the tests this task created) to avoid redundant full-suite runs.
-> The per-package quality gate runs the full suite once to catch cross-task integration issues; intra-phase orchestrator waves run targeted tests only.
+> **The only tests the executors run for this task.** No agent ever runs a whole suite — not per task, not at a wave or phase boundary, not in a quality gate.
+> Files: the tests this task creates and the tests covering the code it modifies. Tags: the feature tags of the behaviour it changes, run in every package that behaviour reaches.
+> The orchestrator re-runs the union of a wave's (and, at the phase boundary, the phase's) targeted tests once.
 
 **Package:** `{package-name}`
-**Test command** (ONE batched invocation — comma-separated `-Specific` runs all files in a single pytest session; never emit one command per file):
+**Test commands** (files: ONE batched invocation per package — comma-separated `-Specific` runs all files in a single pytest session; tags: ONE invocation across the packages the behaviour reaches):
 ```
 powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path-1},{test-path-2}"
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} {consumer-package} -Tag {tag-1},{tag-2}
 ```
 
 **Test files:**
 - `{test-path-1}` -- {what it covers}
 - `{test-path-2}` -- {what it covers}
 
+**Feature tags:** `{tag-1}`, `{tag-2}` -- {the behaviour each names}; packages: `{package-name}`, `{consumer-package}` -- {why the change reaches each}
+
 When generating this section:
 - List the test files that the task creates or that cover the code being modified
 - For tasks that create new test files, list those paths (they will exist after Step 2: Implement)
 - For tasks that modify existing code without creating tests, identify existing test files that exercise the modified code
-- If no targeted tests can be identified, use: `**Scope:** No targeted tests -- covered by the per-package quality gate / phase-boundary full suite.` (Executors run NO per-task full suite for such a task.)
+- Pick the tags from the tests beside the code being modified (`test.ps1 <package> -ListTags` lists them and runs nothing); for a shared-layer change, name every package the change reaches (`_shared/verification-strategy.md`, "Which packages a change reaches") and only packages that carry the tag
+- A task always has targeted tests. If no existing test covers the code it modifies, the task writes one (tagged) and lists it here — never "covered by a later suite run"
 
 ## Tests
 
@@ -439,9 +444,9 @@ Migration tasks should:
 **Dual-path guard:** Every migration task must include a check that the migrated artifact actually goes through the NEW code path. For example: "Parse this `.dcfg` file and verify the canonical dict matches the expected output" — not just "file exists."
 
 #### Quality Gate Tasks
-The single per-package gate that both runs the full suite AND carries the independent verification checklist (the role standalone `-verify` tasks used to play). Generate **exactly one** per package that has 2+ code tasks in the phase. Generate these when:
+The single per-package gate that carries the independent verification checklist (the role standalone `-verify` tasks used to play) and re-runs the union of the phase's targeted tests for the package once. **It never runs a whole suite** — no agent does. Generate **exactly one** per package that has 2+ code tasks in the phase. Generate these when:
 - A phase includes 2+ implementation tasks targeting the same package
-- The full test suite is needed to catch cross-task integration issues across those tasks
+- Cross-task integration across those tasks needs one re-run of their combined targeted tests (files and feature tags)
 
 **When NOT to generate a quality gate task:**
 - When a package has only 1 code task in the phase (that task's own targeted tests + the executor's gate are sufficient)
@@ -452,9 +457,9 @@ Quality gate tasks should:
 - Have a title like `Task {NN}-{TT}: Quality Gate -- {package-name}` and a slug like `quality-gate-{package-name}`
 - NOT contain any implementation code, new tests, or "Files to Create" section
 - Include `**Category:** Quality Gate` in the header metadata
-- Carry the embedded verification checklist below (static scans + coverage sanity + anti-gap), in addition to the full-suite run
+- Carry the embedded verification checklist below (static scans + coverage sanity + anti-gap), in addition to the one targeted re-run
 
-> **Note for orchestrated runs:** `/task-orchestrator`, `/execute-tasks`, and `/execute-tasks-parallel` run `affected-gate.ps1` over the affected set themselves as the authoritative gate and **suppress the gate task's own suite run** to avoid a duplicate. `/task-orchestrator` additionally **suppresses the design-conformance scan (2b)** — its phase-boundary conformance gate (3i Step A2) owns those executions. In those runs the gate agent performs ONLY the static/coverage/How-Solved checklist (reading, not executing); the executor owns the pass/fail test verdict and the conformance executions, and must read and disposition the gate agent's findings.
+> **Note for orchestrated runs:** `/task-orchestrator`, `/execute-tasks`, and `/execute-tasks-parallel` re-run the phase's targeted tests themselves and **suppress the gate task's own re-run** to avoid a duplicate. `/task-orchestrator` additionally **suppresses the design-conformance scan (2b)** — its phase-boundary conformance gate (3i Step A2) owns those executions. In those runs the gate agent performs ONLY the static/coverage/How-Solved checklist (reading, not executing); the executor owns the pass/fail test verdict and the conformance executions, and must read and disposition the gate agent's findings.
 
 Quality gate task template:
 
@@ -465,7 +470,7 @@ Quality gate task template:
 
 ## Overview
 
-Final independent verification pass for {package-name}, run by a different agent than the implementers. Runs the full test suite and the anti-stub / coverage / anti-gap checklist to ensure all implementation tasks in this phase integrate correctly and contain real, tested implementation.
+Final independent verification pass for {package-name}, run by a different agent than the implementers. Re-runs the union of this phase's targeted tests for the package once (files and feature tags — never a whole suite) and the anti-stub / coverage / anti-gap checklist to ensure all implementation tasks in this phase integrate correctly and contain real, tested implementation.
 
 **Package:** `{package-name}` (`d:\datrix\{repo}\`)
 **Depends on:** {comma-separated list of ALL tasks targeting this package}
@@ -473,9 +478,10 @@ Final independent verification pass for {package-name}, run by a different agent
 
 ## Verification Steps
 
-1. Write the full-suite ticket and run the gate (skip if the orchestrator/executor runs it as the authoritative gate — see note above). This is a main-session step: `guard-full-suite-runs.py` blocks the gate for a subagent, so a subagent executing this task runs no suite and reports the package instead. The ticket is `D:\datrix\.tmp\full-suite-ticket.json` = `{"packages": ["{package-name}"], "reason": "phase {NN} quality gate for {package-name}", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}`, written with the Write tool. For the `datrix` repo itself (no pytest suite), substitute the self-test/gate-invocation list per `repo-boundaries.md`'s "The datrix showcase repo hosts no test suite" instead of this command:
+1. Re-run the union of this phase's targeted tests for `{package-name}` once (skip if the orchestrator/executor runs it — see note above): every task's `## Targeted Tests` files, batched into one `-Specific` invocation, and every task's feature tags in `{package-name}` and every package the phase's changes reach (per "Which packages a change reaches" in `.claude/skills/_shared/verification-strategy.md`). Never a whole suite — `guard-full-suite-runs.py` refuses every form, for every agent. For the `datrix` repo itself (no pytest suite), substitute the self-test/gate-invocation list per `repo-boundaries.md`'s "The datrix showcase repo hosts no test suite" instead of these commands:
    ```
-   powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {package-name}
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{every task's test files, comma-separated}"
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} {consumer-package} -Tag {every task's tags, comma-separated}
    ```
 
 2. **Non-trivial-implementation scan** of all files created/modified by this phase's tasks:
@@ -486,11 +492,12 @@ Final independent verification pass for {package-name}, run by a different agent
 
 2b. **Design-conformance scan (per the phase's design reference) — the gate that catches half-implemented invariants:**
    - For EACH design invariant/decision (D#/G#/numbered) the phase implements, verify the generator ENFORCES it on **every surface the design names** — not just the easiest one. (A design that says "fail-loud on integration/CDN/auth positions" is NOT satisfied by guarding integration only.) Enumerate the surfaces from the design, check each, list any unguarded.
-   - Run the design's **acceptance check** (negative + positive) against REAL generated output / migrated source, and paste the command + output. A surface the design lists but no code guards is an **unmet criterion even if the full suite is green**.
-   - Confirm each task's `**Design acceptance property:**` was actually proven (not asserted). A task whose acceptance property is unproven is NOT complete regardless of suite status.
+   - Run the design's **acceptance check** (negative + positive) against REAL generated output / migrated source, and paste the command + output. A surface the design lists but no code guards is an **unmet criterion even if every test is green**.
+   - Confirm each task's `**Design acceptance property:**` was actually proven (not asserted). A task whose acceptance property is unproven is NOT complete regardless of test status.
 
 3. **Coverage & test-quality sanity** for this phase's changes:
    - At least one test per new public class/function; both success and error cases; real objects (no mocks/fakes)
+   - Every test this phase added carries a feature tag, and every behaviour this phase changed has a tagged test
    - No test asserts `NotImplementedError` / `NotImplemented` on a production path (gap-codification)
    - For any "X replaces Y" task: a test proves X works AND no test relies on Y still existing
    - For any validator/checker: at least one test fails when the check is removed
@@ -501,21 +508,22 @@ Final independent verification pass for {package-name}, run by a different agent
 
 ## Success Criteria
 
-1. Full test suite passes (or only pre-existing failures remain)
+1. The phase's targeted tests for the package pass (files and feature tags; or only pre-existing failures remain)
 2. No stub/placeholder/`NotImplementedError`/`pass`/TODO in production code introduced by this phase
 3. No always-true checks, legacy paths, or dual paths where a task required replacement
 4. Tests exercise real behavior (no gap-codification); "X replaces Y" tasks prove Y is gone
 5. No self-contradictory "How Solved" sections in completed tasks
-6. **Every design invariant/decision named in the phase's design reference is enforced on every surface the design lists**, proven by an executable acceptance check (negative + positive) against real output — NOT by suite-green or clean generation. Any design-named surface left unguarded is a phase-level failure to report, even with a green suite.
+6. **Every design invariant/decision named in the phase's design reference is enforced on every surface the design lists**, proven by an executable acceptance check (negative + positive) against real output — NOT by green tests or clean generation. Any design-named surface left unguarded is a phase-level failure to report, even with green tests.
 
 ## Targeted Tests
 
 **Package:** `{package-name}`
-**Test command:**
+**Test commands:**
 ```
-powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {package-name}
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{every task's test files, comma-separated}"
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} {consumer-package} -Tag {every task's tags, comma-separated}
 ```
-**Scope:** Full suite (quality gate), via the gate — even the ONE phase-boundary run this task is licensed to make goes through the guarded, carry-aware door (main session, ticket first; see Verification Step 1). For the `datrix` repo (no pytest suite), substitute the self-test/gate-invocation list this phase's tasks touched, per `repo-boundaries.md`.
+**Scope:** The union of this phase's targeted tests for `{package-name}` — files, and feature tags across every package the changes reach. Never a whole suite. For the `datrix` repo (no pytest suite), substitute the self-test/gate-invocation list this phase's tasks touched, per `repo-boundaries.md`.
 ```
 
 ### Documentation Folders

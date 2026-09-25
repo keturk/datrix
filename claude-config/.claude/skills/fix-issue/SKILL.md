@@ -80,7 +80,7 @@ Follow the Understand → Fix → Verify discipline from `/fix` (`d:\datrix\.cla
 
 Determine what to test **based on issue type**:
 - If the issue has **Log folder(s)**: re-run the tests that originally failed.
-- If the issue affects a codegen package: run that package's **targeted/affected tests** (not the full suite — see Phase 4 for the one-time full-suite gate).
+- If the issue affects a codegen package: run the tests covering the code you changed (`-Specific`) and the feature tags of the changed behaviour (`-Tag`) — never a whole suite (Phase 4 widens the tags to every package the fixes reach, once).
 - If the issue affects generated code: regenerate the affected example(s), confirm the generated code now matches expectations, and run the example's targeted tests.
 - Test commands: `powershell -File "d:/datrix/datrix/scripts/test/test-single.ps1" "{test-path}" -Project {package-name} -VerboseOutput`, or `test.ps1 {package-name} -Specific "{test-path-1},{test-path-2}"` batched over the affected tests.
 - **Fix introduced a new failure:** see `d:\datrix\.claude\skills\_shared\fix-conventions.md`.
@@ -88,10 +88,13 @@ Determine what to test **based on issue type**:
 
 ### Phase 4: Final Gate and Report
 
-After all issues in this invocation are fixed and their targeted tests pass, run the gate **ONCE** as the final gate — one form for a leaf package and a shared-layer fix alike (a fix in `datrix-common`, `datrix-codegen-common`, `datrix-language`, or a shared contract is covered because the gate derives the closure itself). This replaces per-issue full-suite runs (see Anti-Patterns).
+After all issues in this invocation are fixed and their targeted tests pass, run the final check **ONCE**: the feature tags of every behaviour the fixes changed, in the changed packages and every package the fixes reach — established per "Which packages a change reaches" in `d:\datrix\.claude\skills\_shared\verification-strategy.md` (for a fix in `datrix-common`, `datrix-codegen-common`, `datrix-language`, or a shared contract: the packages whose code or tests reference the changed surface or an unchanged caller of it, plus the pipeline-running packages when a generator's behaviour changed):
 
-- **Main-session role:** write the full-suite ticket with the Write tool — `D:\datrix\.tmp\full-suite-ticket.json` = `{"packages": [<every changed package>], "reason": "fix-issue final gate for {issue-id}", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}` (`guard-full-suite-runs.py` blocks the gate without it) — then run `powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {changed packages}`. It derives the reverse-dependency closure via `affected-set.ps1`'s own module (per `d:\datrix\.claude\skills\_shared\verification-strategy.md`), carries every member whose inputs are unchanged since its last green full run (`CARRIED`, no child launched), runs the rest concurrently under a worker budget, and returns one verdict via `gate-verdict.ps1`'s own per-project evaluation.
-- **Dispatched-subagent role:** run no suite and not the gate (the guard blocks both for a subagent); report the packages you changed, and the dispatcher runs the gate once over the union.
+```
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {changed-package} {consumer1} {consumer2} -Tag {tag-1},{tag-2}
+```
+
+Never a whole suite — `guard-full-suite-runs.py` refuses every form, for every agent. A changed behaviour no tagged test covers gets a new, tagged test. A dispatched subagent reports the packages, surface and tags it changed, and the dispatcher runs this once over the union.
 
 ```
 FIX-ISSUE COMPLETE
@@ -174,7 +177,7 @@ See `d:\datrix\.claude\skills\_shared\fix-conventions.md` (also applies per-issu
 - **NO fixing generated code directly** — always fix the generator/template
 - **NO debug scatter** — zero temporary logging statements
 - **NO modifying unrelated code** — stay focused on the issue
-- **NO running full test suites for each issue** — verify only affected tests
+- **NO whole test suites, ever** — verify only the tests of what you changed (files and tags)
 - **NO committing changes** — user decides when to commit
 - **NO fabricating file locations** — if Root Cause Analysis says "exact file TBD", search for it first
 - **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).

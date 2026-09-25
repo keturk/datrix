@@ -19,6 +19,18 @@ Two facts about Node's ``--test-reporter=junit`` output shape this module:
   and rewrites the merged XML with the real owning file on each case.
 * Counts are emitted as XML *comments*, which every conforming parser discards.
   They are never read here; the ``<testcase>`` elements are the only source.
+* A file in which no test ran -- a name pattern matched none of its tests, or
+  it registers none -- is reported as ONE passing ``<testcase>`` named after
+  the file itself. That placeholder is not a test: counting it turned a
+  selection that ran nothing into a green run. It is dropped when it passed;
+  a failing one (the file could not load) is kept, since it is a real failure.
+
+Feature tags: every Node test carries one or more ``#tag`` tokens in its own
+name or in an enclosing ``describe`` name (``test("resolves the server #lsp-client",
+...)``), the Node spelling of the ``tag`` marker every pytest test carries.
+``--tags`` narrows a run to the tests carrying a named tag, through Node's
+``--test-name-pattern``, which matches a test's own name and its ancestors'
+names. A test that ran without any tag fails the run.
 
 The file a case is attributed to is the **source** file, recovered from the
 compiled file's source map, and stack frames are resolved the same way via
@@ -31,6 +43,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -62,7 +75,12 @@ from shared.suite_stamp import (
 from shared.venv import get_datrix_root
 from test.suite_inputs import ObservedInputs
 
+from datrix_common.testing.feature_tags import RESERVED_TAG_NAMES, TAG_PATTERN
+
 logger = logging.getLogger(__name__)
+
+#: A ``#tag`` token inside a Node test or suite name.
+TAG_TOKEN_PATTERN = re.compile(rf"#({TAG_PATTERN.pattern})(?![\w-])")
 
 #: Key naming the glob that selects a package's compiled test files, relative to
 #: the package root, e.g. ``"out/test/*.test.js"``.
@@ -431,7 +449,10 @@ def merge_junit_xml(
             )
             continue
 
-        for testcase in tree.getroot().iter("testcase"):
+        root = tree.getroot()
+        for testcase in root.iter("testcase"):
+            if _is_file_placeholder(testcase, root):
+                continue
             testcase.set("classname", source_file)
             # JUnit's optional `file` attribute: the owning file stated outright
             # rather than left to be inferred from the classname's shape.
@@ -452,6 +473,72 @@ def merge_junit_xml(
     root.append(suite)
     ET.ElementTree(root).write(destination, encoding="utf-8", xml_declaration=True)
     return counts
+
+
+def _is_file_placeholder(testcase: ET.Element, root: ET.Element) -> bool:
+    """True for the passing case Node reports for a file in which no test ran.
+
+    It sits directly under ``<testsuites>`` and is named after the file its own
+    ``file`` attribute names. A failing one is a file that could not load, and
+    is never treated as a placeholder.
+    """
+    file_attribute = testcase.get("file")
+    if file_attribute is None or testcase not in list(root):
+        return False
+    is_named_after_its_file = Path(file_attribute).name == testcase.get("name")
+    return is_named_after_its_file and _outcome_of(testcase) == "passed"
+
+
+def tags_name_pattern(tags: Iterable[str]) -> str:
+    """The ``--test-name-pattern`` regex selecting tests that carry any of *tags*.
+
+    Raises:
+        NodeSuiteError: a tag is not kebab-case or names a test tier.
+    """
+    names = sorted(set(tags))
+    for name in names:
+        if TAG_PATTERN.fullmatch(name) is None or name in RESERVED_TAG_NAMES:
+            raise NodeSuiteError(
+                f"Feature tag {name!r} is not a valid tag. Expected a lower-case kebab-case "
+                f"feature name that is not a test tier ({sorted(RESERVED_TAG_NAMES)}), "
+                f"e.g. 'lsp-client'."
+            )
+    return rf"#(?:{'|'.join(re.escape(name) for name in names)})(?![\w-])"
+
+
+def _tags_in(name: str | None) -> set[str]:
+    return set(TAG_TOKEN_PATTERN.findall(name or "")) - RESERVED_TAG_NAMES
+
+
+def untagged_cases(per_file_xml: list[tuple[str, Path]]) -> list[str]:
+    """Every test that ran carrying no ``#tag`` in its own or an ancestor's name.
+
+    Returns:
+        ``"<source file>: <test name>"`` for each untagged case, in run order.
+    """
+    untagged: list[str] = []
+    for source_file, xml_path in per_file_xml:
+        if not xml_path.is_file() or xml_path.stat().st_size == 0:
+            continue
+        try:
+            root = ET.parse(xml_path).getroot()  # noqa: S314 -- runner-produced, local file
+        except ET.ParseError:
+            continue
+        untagged.extend(
+            f"{source_file}: {name}" for name in _untagged_under(root, root, frozenset())
+        )
+    return untagged
+
+
+def _untagged_under(element: ET.Element, root: ET.Element, inherited: frozenset[str]) -> list[str]:
+    found: list[str] = []
+    for child in element:
+        if child.tag == "testsuite":
+            found.extend(_untagged_under(child, root, inherited | _tags_in(child.get("name"))))
+        elif child.tag == "testcase" and not _is_file_placeholder(child, root):
+            if not inherited | _tags_in(child.get("name")):
+                found.append(child.get("name") or "<unnamed>")
+    return found
 
 
 def _outcome_of(testcase: ET.Element) -> str:
@@ -496,16 +583,20 @@ def _format_summary(counts: dict[str, int], duration_seconds: float) -> str:
 
 
 def node_selection(
-    specific: str | None, name_pattern: str | None, tier: str | None
+    specific: str | None,
+    name_pattern: str | None,
+    tier: str | None,
+    tags: list[str] | None = None,
 ) -> dict[str, object]:
     """The ``selection`` a Node run records: full only when no ``--specific``
-    file, no name pattern, and no tier narrowed it. A Node suite has no marker
-    expressions, so ``marker`` is always None."""
+    file, no name pattern, no tier and no feature tag narrowed it. A Node suite
+    has no marker expressions, so ``marker`` is always None."""
     return selection_for(
         specific=_selection_entries(specific) or None,
         keyword=name_pattern,
         tier=tier,
         marker=None,
+        tags=tags or None,
     )
 
 
@@ -559,6 +650,7 @@ def run_node_suite(
     specific: str | None = None,
     name_pattern: str | None = None,
     tier: str | None = None,
+    tags: list[str] | None = None,
 ) -> int:
     """Run a package's Node test suite and write the standard run artifacts.
 
@@ -579,13 +671,24 @@ def run_node_suite(
             None. A Node suite has no markers, so a tier narrows nothing it
             runs -- but the run is still recorded as that targeted selection,
             never as a full one.
+        tags: Feature tags; only tests carrying a ``#tag`` token for one of
+            them (in their own or an ancestor's name) run. Cannot be combined
+            with *name_pattern*: Node ORs several name patterns, so the two
+            filters could not both apply.
 
     Returns:
         Process exit code: 0 when every selected test passed, 1 on any failure,
-        error, build failure, or declaration problem, and 5 when the selection
-        matched no test file at all.
+        error, untagged test, build failure, or declaration problem, and 5 when
+        the selection matched no test at all.
     """
     try:
+        if tags and name_pattern is not None:
+            raise NodeSuiteError(
+                f"{project_name}: -Tag and -Keyword cannot be combined on a Node suite. Node "
+                f"ORs its name patterns, so a run could not keep only tests matching both. "
+                f"Pass one of them."
+            )
+        effective_pattern = tags_name_pattern(tags) if tags else name_pattern
         declaration = read_suite_declaration(package_root)
         node_exe = _require_executable("node")
         npm_exe = (
@@ -596,7 +699,7 @@ def run_node_suite(
         print(f"ERROR: {exc}")
         return 1
 
-    selection = node_selection(specific, name_pattern, tier)
+    selection = node_selection(specific, name_pattern, tier, tags)
 
     log_config = LogConfig(
         log_dir=".test_results",
@@ -668,7 +771,7 @@ def run_node_suite(
                 tee.write(f"[{index}/{len(selected)}] {source_file}")
                 file_xml = xml_dir / f"junit-node-{index:03d}.xml"
                 rc = _run_one_file(
-                    node_exe, package_root, test_file, file_xml, tee, name_pattern
+                    node_exe, package_root, test_file, file_xml, tee, effective_pattern
                 )
                 if rc != 0 and worst_rc == 0:
                     worst_rc = rc
@@ -683,12 +786,12 @@ def run_node_suite(
                 tee.write_error(
                     f"{project_name}: {len(selected)} test file(s) ran but produced "
                     f"zero test cases"
-                    + (f" for name pattern {name_pattern!r}" if name_pattern else "")
+                    + (f" for name pattern {effective_pattern!r}" if effective_pattern else "")
                     + ". Expected at least one; a run that executes no test case "
                     "is NOT a pass. Fix: "
                     + (
-                        "widen or correct the name pattern"
-                        if name_pattern
+                        "correct the tag or name pattern, or drop this package from the run"
+                        if effective_pattern
                         else f"check the compiled files under "
                         f"{declaration.test_files_glob} actually register tests"
                     )
@@ -696,8 +799,18 @@ def run_node_suite(
                 )
                 return 5
 
+            untagged = untagged_cases(per_file_xml)
+            if untagged:
+                tee.write_error(
+                    f"{project_name}: {len(untagged)} test(s) carry no feature tag: "
+                    f"{untagged}. Every Datrix test carries at least one, so agents can run "
+                    f"exactly the tests related to the code they changed. Fix: add a "
+                    f"'#<feature>' token (kebab-case) to the test's name or to an enclosing "
+                    f"describe() name."
+                )
+
             failed = counts["failed"] + counts["error"] > 0
-            returncode = 1 if (failed or worst_rc != 0) else 0
+            returncode = 1 if (failed or worst_rc != 0 or untagged) else 0
 
             if run_dir is not None and save_log:
                 launched = [node_exe] if npm_exe is None else [node_exe, npm_exe]

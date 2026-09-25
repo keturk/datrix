@@ -158,25 +158,24 @@ Recommendation: {what a human should investigate}
 
 Once tests pass:
 
-1. Run the full suites of the affected set (not just the targeted test) — {PACKAGE} plus its reverse-dependency closure per `d:\datrix\.claude\skills\_shared\verification-strategy.md`, so a shared-layer fix verifies its consumers instead of only the package touched.
-   - **Main-session role:** write the full-suite ticket with the Write tool — `D:\datrix\.tmp\full-suite-ticket.json` = `{"packages": ["{PACKAGE}", <closure...>], "reason": "codegen-fix-loop final verification of {PACKAGE}", "granted_by": "orchestrator", "expires_epoch": <now + at most 6h, integer epoch seconds>}` (`guard-full-suite-runs.py` blocks the gate without it) — then run:
-     ```
-     powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {PACKAGE}
-     ```
-     The gate re-derives the closure itself, carries every package whose inputs still match its last green full run (`CARRIED`, no child launched), and runs the rest concurrently.
-   - **Dispatched-subagent role:** run no suite and not the gate (the guard blocks both for a subagent); report {PACKAGE} and every other package you changed, and the dispatcher runs the gate once over the union.
+1. Run the tests of what the fix changed — never a whole suite (`guard-full-suite-runs.py` refuses it for every agent). The test files you added or edited, and the feature tags of the behaviour the fix changed in {PACKAGE} and in every package the fix reaches (established per "Which packages a change reaches" in `d:\datrix\.claude\skills\_shared\verification-strategy.md`, so a shared-layer fix verifies the packages it reaches, not only the package touched):
+   ```
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} -Specific "{test-file-1},{test-file-2}"
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} {consumer1} {consumer2} -Tag {tag-1},{tag-2}
+   ```
+   A changed behaviour with no tagged test gets a new, tagged test first. A dispatched subagent reports {PACKAGE}, every other package it changed, the surface it changed and its tags, and the dispatcher runs the tag run once over the union.
 
 2. Run debug artifact check:
    ```
    powershell -File "d:/datrix/datrix/scripts/dev/check-debug-artifacts.ps1" {PACKAGE}
    ```
 
-3. To judge each ran package's outcome against the pre-fix state, compare run directories with the delta script instead of eyeballing counts (read `datrix/scripts/test/quick-reference.md` first; a pre-tool hook enforces this):
+3. To judge each package's outcome against the pre-fix state, compare run directories of the same selection with the delta script instead of eyeballing counts (read `datrix/scripts/test/quick-reference.md` first; a pre-tool hook enforces this):
    ```
    powershell -File "d:/datrix/datrix/scripts/test/classify-run-delta.ps1" -Previous "{pre-fix-run-dir}" -Current "{new-run-dir}"
    ```
-   `SUCCESS` → report success; `REGRESSION` → its `new_failures` list is the evidence for step 4. A `CARRIED` package needs no delta — its inputs, by construction, did not change since its last green run.
-4. If the gate has NEW failures in {PACKAGE} or any consumer → **they are yours. Fix them.** Your targeted fix broke something else, which means your model of the root cause was incomplete — treat the regression as evidence, re-diagnose, and fix it at the root. Do not stop to ask permission to finish your own job, and never ship a known regression with a note attached (that is the workaround this repo bans). Escalate only if the regression reveals a genuine architectural fork you cannot defensibly decide.
+   `SUCCESS` → report success; `REGRESSION` → its `new_failures` list is the evidence for step 4.
+4. If the tag run has NEW failures in {PACKAGE} or any consumer → **they are yours. Fix them.** Your targeted fix broke something else, which means your model of the root cause was incomplete — treat the regression as evidence, re-diagnose, and fix it at the root. Do not stop to ask permission to finish your own job, and never ship a known regression with a note attached (that is the workaround this repo bans). Escalate only if the regression reveals a genuine architectural fork you cannot defensibly decide.
 
 ```
 FIX LOOP COMPLETE
@@ -184,7 +183,7 @@ FIX LOOP COMPLETE
 Bug: {description}
 Fixed in: {N} iterations
 Change: {file:line} — {what was changed}
-Full test suite: {pass}/{total} PASS
+Targeted tests (files + tags {tags} over {packages}): {pass}/{total} PASS
 Debug artifacts: CLEAN
 ```
 
