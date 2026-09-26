@@ -1,4 +1,4 @@
-"""Cross-language builtin-claims parity gate (D2), reading per-group stances.
+"""Cross-language builtin-claims parity gate, reading per-group stances.
 
 Two things are checked over every registered `datrix.languages` plugin's
 `LanguageCapabilityDeclaration.builtin_group_stances`:
@@ -279,7 +279,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Prove every registered datrix.languages plugin's builtin_group_stances "
-            "are complete and that every 'supported' group is fully mapped (D2)."
+            "are complete and that every 'supported' group is fully mapped."
         ),
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")

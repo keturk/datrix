@@ -583,7 +583,7 @@ entity User extends BaseEntity {
 | Behavioral (DSL) | Environmental (YAML) |
 |---|---|
 | Cache TTL (`@cache(ttl: 300)`) | Connection strings (`${DB_URL}`) |
-| Rate limits (`@rateLimit(limit: 100, window: 60)`) | Service port (`port: 8000`) |
+| Rate limits (`@rateLimit(requests: 100, window: 60)`) | Service port (`port: 8000`) |
 | Service version (`version('1.0.0')`) | CPU/memory limits, replica count |
 | Entity lifecycle hooks, validation rules | CORS origins, JWT secrets |
 | Service topology (`discovery { }`) | Job schedules, retry/timeout defaults |

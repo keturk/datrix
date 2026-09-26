@@ -56,6 +56,8 @@ Exit codes: 0 = every check passed, 1 = at least one check failed, 2 = usage err
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -1032,6 +1034,54 @@ def check_test_runner_passes_feature_tag_options_as_standalone_argv() -> None:
 
     assert split_tags(None) == [] and split_tags("") == []
     assert split_tags(" gateway , ,identity ") == ["gateway", "identity"]
+
+
+def _make_tagged_package(root: Path) -> TestRunner:
+    """A real two-module package: ``test_alpha.py`` tagged alpha, ``test_beta.py`` beta."""
+    tests_dir = root / "tests"
+    tests_dir.mkdir()
+    for tag in ("alpha", "beta"):
+        (tests_dir / f"test_{tag}.py").write_text(
+            "import pytest\n"
+            f"pytestmark = pytest.mark.tag({tag!r})\n"
+            f"def test_{tag}_holds() -> None:\n"
+            "    assert True\n",
+            encoding="utf-8",
+        )
+    return TestRunner(TestConfig(project_root=root, project_name="tagged-fixture"))
+
+
+def check_test_runner_preflight_refuses_an_unknown_tag_before_any_phase() -> None:
+    """A tag no collected test carries is refused by ONE collection-only session,
+    before any phase starts -- never discovered inside every xdist worker after
+    each has collected the whole tree. The refusal carries the plugin's own
+    message and pytest's usage-error code, and ``run`` writes no run directory."""
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        runner = _make_tagged_package(root)
+        python_exe = runner._get_python_executable()
+
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            refused = runner._preflight_tag_selection(python_exe, None, ["nosuch"])
+        assert refused == 4, f"an unknown tag was not refused (got {refused!r})"
+        assert "carries tag(s) ['nosuch']" in printed.getvalue(), printed.getvalue()
+
+        assert runner._preflight_tag_selection(python_exe, None, ["alpha"]) is None, (
+            "a tag that selects part of the tree was refused"
+        )
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert runner._preflight_tag_selection(python_exe, None, ["alpha", "beta"]) == 4, (
+                "a tag set selecting the whole test tree (the full suite) was not refused"
+            )
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = runner.run(tags=["nosuch"])
+        assert code == 4, f"run() with an unknown tag returned {code!r}, not the refusal"
+        assert not (root / ".test_results").exists(), (
+            "run() with an unknown tag wrote a run directory: a phase started"
+        )
 
 
 def check_test_runner_selection_classifier_distinguishes_full_from_targeted() -> None:
@@ -3973,6 +4023,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_test_runner_parallel_phase_uses_loadgroup_distribution,
     check_test_runner_enables_runner_plugin_flag_only_when_requested,
     check_test_runner_passes_feature_tag_options_as_standalone_argv,
+    check_test_runner_preflight_refuses_an_unknown_tag_before_any_phase,
     check_test_runner_selection_classifier_distinguishes_full_from_targeted,
     check_structured_log_writer_records_selection_and_inputs,
     # shared.suite_stamp + the runners' stamp paths (real git repositories)

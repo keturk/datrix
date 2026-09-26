@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Standing conformance-spec corpus gate (D10).
+ Standing conformance-spec corpus gate.
 
 .DESCRIPTION
  Runs every committed conformance_gate.py spec under

@@ -1736,8 +1736,6 @@ decorator and nested-route handling, and service miscellany are each reconciled 
 behaviour on every D3 axis, ported, proven on the emitted surface, and hoisted into
 `datrix-codegen-common`, with every surviving per-language name renamed token-free.
 
----
-
 ### Decision 48: Complete Applications in Datrix — Web and Mobile Frontends from the Same DSL as the Backend (Approved — Implementation In Progress)
 
 **Rationale:**
@@ -1795,6 +1793,131 @@ behaviour on every D3 axis, ported, proven on the emitted surface, and hoisted i
 **Security posture:** Login is hosted Authorization Code with PKCE only, through maintained OIDC libraries and the system browser — no password grant, no implicit flow, no embedded web view — with tokens held in memory on the web targets and in the platform keychain or keystore on the mobile target, and exactly one public client per (provider, application, kind). Route guards and navigation visibility are UX metadata only; the server enforces every request, and a guard that cannot evaluate denies and redirects to login. Sensitive and hidden fields are never derived, named, or persisted, and a client-side error surface shows only the localized exception label, never a problem body, a stack trace, or a URL. Navigation targets are page references with percent-encoded arguments, text is rendered as text nodes, the one markup-from-data path is sanitized before insertion, and styles compile from validated tokens into static stylesheets — there is no string-built markup or styling surface. Every custom domain carries a certificate by its platform's declared rule, and certificate references are logical handles, never inline material. Transport is HTTPS with HSTS off loopback, the derived Content-Security-Policy carries no unsafe directive, and the derived permission policy grants only the device capabilities the application actually uses. Runtime configuration fails closed and never carries a secret — public client identifiers are the only values it emits. Persisted client-side state is never a token or a sensitive type, is validated on load, and is cleared on logout when it depends on the session. Mobile signing material is resolved only through logical secret handles, never written into the generated tree. Every third-party dependency each target pulls in is pinned in that target's own dependency catalog.
 
 **Status:** Approved — Implementation In Progress. Nothing has landed yet; the decision moves to Adopted when every invariant above is held by the executable check it names.
+
+---
+
+### Decision 49: Declared Cross-Tenant Bodies and Tenant Parameters on Service Routes (Approved — Implementation In Progress)
+
+**Rationale:**
+
+Tenant scoping gives every body that reaches a `Tenantable` entity exactly one tenant, or fails
+generation (`datrix-codegen-common/src/datrix_codegen_common/algorithms/tenant_resolution.py`).
+That default is right, but on 2026-09-24 it could not express three things real systems need,
+and it had one latent defect.
+
+- **Service GETs had no tenant source.** An `auth(service)` route read its tenant only from a
+  request-body struct field. A GET cannot declare a struct parameter (API004), and a
+  path/query parameter was never a tenant source, so `GET /service/usage/:orgId` failed
+  generation.
+- **Deliberately cross-tenant work had no expression.** Four kinds of body need to reach
+  every tenant's rows:
+  - consumers of events that carry no tenant, which sweep rows;
+  - jobs whose first query finds work across tenants;
+  - trusted lookups by a globally unique id;
+  - staff console routes.
+
+  These either failed generation or were silently re-scoped to the caller's tenant. A census
+  of one real system found 5 service routes, 16 consumers and 6 jobs failing, and its
+  workforce console routes re-scoped.
+- **Most sweeps live in service `fn`s**, so a declaration on handlers alone is not enough.
+- **The latent defect was in the job rule.** Its "innermost `foreach` row" pushed every
+  non-map loop variable in all four languages, including JSON arrays, so a query inside such a
+  loop scoped to a field the row does not have.
+
+**Result:**
+
+- **D1 — `@crossTenant` is a per-callable declaration.** It is a decorator on endpoints,
+  service and `rest_api` `fn`s, `on` handlers, `enqueue` consumers and `job`s. The grammar gains
+  a decorator prefix on `event_handler`, `enqueue_declaration` and `job_declaration`, and those
+  slots accept only `@crossTenant`. The transformer consumes it into a `cross_tenant: bool`
+  model fact, so it never reaches `decorators` or the closed endpoint-decorator set.
+- **D2 — Legal only where the caller is trusted** (`TenancyValidator`, TEN003–TEN008).
+  - Legal: `auth(service)` routes; role-gated `auth(required)` routes whose every provider has
+    `audience = "workforce"`; `fn`s; pub/sub and queue consumers; jobs.
+  - Rejected:
+    - public, optional, webhook and serverless HTTP endpoints;
+    - CQRS projections and agent tools;
+    - any route that also accepts a `customer` provider;
+    - a call to a cross-tenant `fn` from an undeclared body;
+    - a declaration whose body reaches nothing tenant-scoped;
+    - a body with two tenant sources.
+
+  Roles are never trusted to mark staff routes. The provider's `audience`, a closed framework
+  fact, is.
+- **D3 — A service route may name its tenant with a declared path or query parameter**
+  (`tenantId`/`organizationId`, required UUID). The caller is authenticated and chooses a path
+  value exactly as it chooses the body field already trusted.
+- **D4 — `CROSS_TENANT` resolution, with reads and writes separated.**
+  - Top-level reads are unscoped.
+  - Mutating a loaded row (`row.save()`/`row.delete()`) is allowed; the row carries its own
+    tenant.
+  - Top-level static writes (`create`, `update(id, …)`, `delete(id)`, batch, upsert) fail
+    generation. So do calls to tenant-scoped `fn`s at top level.
+  - Inside a `foreach` over tenant-bearing rows, everything is scoped to the row.
+  - Query emitters pass `QueryAccess.READ`/`WRITE` to `resolve_query_tenant`.
+- **D5 — Cross-tenant `fn`s carry no synthesized tenant parameter** and are excluded from the
+  tenant-scoped call-graph fixpoint.
+- **D6 — A `foreach` row carries a tenant only when its element is an entity declaring
+  `tenantId`.** That covers a Tenantable entity or a tenant registry. Each language classifies
+  the row from the element type it already resolves. Scalar, JSON, struct and map rows are
+  skipped. A row of unknown element type fails generation when a tenant must be read through it.
+- **D7 — Every cross-tenant body logs `cross_tenant_access handler=<label> kind=<kind>` on
+  entry.** The line carries nothing else.
+- **D8 — The declaration reaches the service hash** (`serialize_service`), so a
+  decorator-only edit regenerates.
+- **D9 — An author-supplied `tenantId` in create/insert/upsert data is rejected on every
+  language.** Python already rejected it. The rule moves to the shared layer.
+- **D10 — The pure tenancy reach predicates live in `datrix-common`**
+  (`datrix_model/tenancy_reach.py`), so the semantic validators and codegen share one home.
+- **D11 — A cross-tenant route keeps the tenant middleware.** No exemption is added. A
+  request with no tenant passes on with a `None` request tenant. A cross-tenant route never
+  reads that tenant. Every other route stays fail-closed for such a request: its reads match
+  no rows, because the tenant column is required, and its writes raise.
+- **D12 — `tenant(<expr>) { … }` scopes a region of a cross-tenant body to one named tenant.**
+  Migrating a real system left bodies that know the tenant they act for only as a value: a
+  staff route writing for a row it loaded across tenants, a staff create for an organisation
+  named in the request, a consumer or job looping over organisation ids. The block is a
+  statement (`TenantScopeStatement`); `tenant` is a contextual keyword, so a variable named
+  `tenant` stays an identifier.
+  - Legal only inside a body declared `@crossTenant` (TEN009), over an identifier or a
+    property-access chain rooted at one (TEN010): the value is one the trusted body already
+    holds, never a computed or literal tenant.
+  - Each language binds the expression once to a generator-owned local declared with its UUID
+    type (`_tenant_scope1` / `_tenantScope1`, depth-suffixed so a nested block never shadows)
+    and pushes a tenant frame on the same stack as `foreach` rows. The innermost row or frame
+    wins, so inside the block reads are filtered, creates stamped and tenant-scoped `fn` calls
+    passed the local.
+  - The block narrows scope and never widens it: it can appear only where every read was
+    already unscoped. It writes no second audit line; the body's D7 line already recorded the
+    unscoped surface.
+
+| # | Invariant | Check |
+|---|---|---|
+| I1 | No emitted query over a Tenantable entity lacks a tenant predicate unless its body declares `@crossTenant` and the query is a top-level read | per-language tenant-query-scoping coverage tests with a cross-tenant fixture |
+| I2 | `@crossTenant` appears only where D2 allows | TEN003–TEN008 tests, including a dual-realm route rejected |
+| I3 | A customer route cannot reach an unscoped sweep through a helper | TEN005 test over a `fn` call chain |
+| I4 | A loop over values that are not tenant-bearing entities never becomes a tenant row | per-language nested JSON-loop / unknown-row tests; the existing `Array<Store>` fixtures still scope to the row |
+| I5 | Every cross-tenant body logs `cross_tenant_access` first, with handler and kind only | per-language rendered-surface test |
+| I6 | A service route resolves its tenant from a declared path/query parameter | shared and per-language tests |
+| I7 | No language accepts an author `tenantId` in create data | per-language negative test |
+| I8 | A decorator-only edit changes `Service.hash()` | serialization test |
+| I9 | The tenant rule stays one shared fact | the tenant-resolution hoist test |
+| I10 | Every Tenantable access inside a `tenant(x)` block is scoped to `x` | per-language rendered-surface tests: in-block read filtered, create stamped, tenant-scoped `fn` passed the bound local; top-level read in the same body unscoped; nested block uses the next depth's local |
+| I11 | A `tenant(…)` block outside a `@crossTenant` body, or over a non-reference expression, fails analysis | TEN009 / TEN010 tests in `datrix-common` |
+| I12 | `tenant` stays an identifier outside statement-start position | `datrix-language` statement-transformer test |
+
+**Rejected:**
+
+- **Unscoped-by-default staff routes.** They make a fail-closed default fail-open.
+- **Trusting role names.**
+- **Inferring cross-tenancy from body shape.** It is implicit, and it turns a missing tenant
+  into an approval.
+- **Excluding cross-tenant routes from the tenant middleware.** It would let tenant-less
+  tokens reach a route.
+- **A per-system redesign** (per-tenant fan-out events, POST-only reads). It still leaves staff
+  routes inexpressible.
+
+**Status:** Approved — Implementation In Progress (approved 2026-09-24).
 
 ---
 

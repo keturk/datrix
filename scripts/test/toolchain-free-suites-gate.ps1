@@ -9,11 +9,22 @@
  in its target language belongs to the generated tier: the generated project's
  own unit tests, and the deploy tests.
 
- Two shapes fail this gate:
+ Four shapes fail this gate:
    1. A toolchain subprocess -- javac / java / mvnw / dotnet / tsc / npm / npx /
       node / docker / az / gradle driven against generated output.
    2. In-process execution -- exec(compile(...)), runpy, or importlib's
       spec_from_file_location/exec_module applied to a rendered template.
+   3. Suite-in-suite (pytest) -- a subprocess spawning a nested pytest session
+      against a repo test path (pytest/py.test as argv[0], or the
+      [sys.executable, "-m", "pytest", ...] module form).
+   4. Suite-in-suite (script) -- a subprocess naming any script under
+      datrix/scripts/ (directly, or via powershell -File), re-running a repo
+      gate or metrics script a sibling gate already pays for.
+
+ Both new shapes carve out pytester-based synthetic suites (a test function
+ taking a pytester fixture parameter, or a direct pytester.runpytest*(...)
+ attribute call) -- pytest's own plugin, which launches a nested run against a
+ SYNTHETIC tree in a tmp dir, never against this repo's own production tests.
 
  Two shapes stay allowed: linters over generated TEXT (ruff/black -- reading is
  not executing), and subprocess runs of datrix itself (sys.executable -m
@@ -27,16 +38,27 @@
  Comma-separated tests/ directories to scan. When omitted, scans every
  datrix-* package's suite.
 
+.PARAMETER Shapes
+ Comma-separated violation kinds to report (default: all four). Use this to
+ enforce the two new suite-in-suite shapes at hard zero independently of the
+ pre-existing, still-red in-process-execution/toolchain-subprocess counts --
+ e.g. -Shapes suite-in-suite-pytest,suite-in-suite-script. There is no
+ baseline/exemption file for either new shape: both are hard zero.
+
 .PARAMETER SelfTest
  Run only the non-vacuity self-test and skip the real scan.
 
 .EXAMPLE
  .\toolchain-free-suites-gate.ps1
- Scan every package suite.
+ Scan every package suite, every shape.
 
 .EXAMPLE
  .\toolchain-free-suites-gate.ps1 -Suites D:/datrix/datrix-codegen-java/tests
  Scan a single suite.
+
+.EXAMPLE
+ .\toolchain-free-suites-gate.ps1 -Shapes suite-in-suite-pytest,suite-in-suite-script
+ Enforce only the two new shapes at hard zero.
 
 .EXAMPLE
  .\toolchain-free-suites-gate.ps1 -SelfTest
@@ -47,6 +69,9 @@
 param(
     [Parameter()]
     [string]$Suites = "",
+
+    [Parameter()]
+    [string]$Shapes = "",
 
     [Parameter()]
     [switch]$SelfTest
@@ -94,9 +119,15 @@ try {
         }
     }
 
+    if (-not [string]::IsNullOrWhiteSpace($Shapes)) {
+        $pythonArgs += "--shapes"
+        $pythonArgs += $Shapes
+    }
+
     $targetLabel = if ($SelfTest) { "self-test only" }
                    elseif ([string]::IsNullOrWhiteSpace($Suites)) { "all package suites" }
                    else { $Suites }
+    $targetLabel = if ([string]::IsNullOrWhiteSpace($Shapes)) { $targetLabel } else { "$targetLabel (shapes: $Shapes)" }
     Write-Host "Running toolchain-free suite check for: $targetLabel" -ForegroundColor Cyan
 
     python @pythonArgs

@@ -265,8 +265,8 @@ _NAME_SEGMENT_SEPARATOR: Final[str] = "_"
 _MAX_REEXPORT_HOPS: Final[int] = 5
 
 _FunctionDefNode = ast.FunctionDef | ast.AsyncFunctionDef
-#: The three bucket labels, exactly as printed and accepted (invariant I12:
-#: these three spellings are the whole verdict vocabulary).
+#: The three bucket labels, exactly as printed and accepted -- these three
+#: spellings are the whole verdict vocabulary.
 Verdict = Literal["identical", "same-behaviour", "divergent"]
 _VERDICT_IDENTICAL: Final[Verdict] = "identical"
 _VERDICT_SAME_BEHAVIOUR: Final[Verdict] = "same-behaviour"

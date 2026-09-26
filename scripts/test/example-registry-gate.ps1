@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Example-universe consistency and layout gate (D9).
+ Example-universe consistency and layout gate.
 
 .DESCRIPTION
  Every system.dtrx under datrix/examples/ must appear in >= 1 named test set
@@ -80,7 +80,7 @@ try {
     if ($Dbg) { $pythonArgs += "--debug" }
     if ($SelfTest) { $pythonArgs += "--self-test" }
 
-    Write-Host "Running example-registry consistency gate (D9)" -ForegroundColor Cyan
+    Write-Host "Running example-registry consistency gate" -ForegroundColor Cyan
     python @pythonArgs
     $exitCode = $LASTEXITCODE
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Cross-language builtin-claims parity gate (D2).
+ Cross-language builtin-claims parity gate.
 
 .DESCRIPTION
  Proves every registered `datrix.languages` plugin's declared

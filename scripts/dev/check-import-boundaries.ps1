@@ -44,7 +44,7 @@
  baseline at scripts/config/provider-conditional-baseline.toml.
 
 .PARAMETER CheckFunctionLevelImports
- Run the function-level-import ratchet check (D4/I6)
+ Run the function-level-import ratchet check
  in addition to the import-boundary check. Compares current per-file
  function-level-import counts in datrix-common's src/ tree ONLY against the
  frozen baseline at scripts/config/function-level-import-baseline.toml.
@@ -90,6 +90,17 @@
  field, or type reference. Compares current per-package counts against the
  frozen baseline at scripts/config/own-target-name-baseline.toml.
 
+.PARAMETER CheckDesignLabels
+ Run the design-document label check in addition to the import-boundary
+ check. Fails when a docstring, comment, template comment, or runtime
+ string under a registered package's src/+tests/ trees (or the datrix
+ repo's own scripts/dev, scripts/library, scripts/test trees) carries a
+ parenthesized or colon-suffixed design/task/phase reference number --
+ those numbered files are gitignored and renumbered independently per
+ machine, so a surviving reference is a dangling pointer. Hard zero, no
+ baseline file: any hit fails, and -UpdateBaseline has no effect on this
+ check.
+
 .PARAMETER SelfTest
  Run only the self-test suite (rule-model, AST-scanner, and ratchet
  invariants, including a real mutation-based CLI non-vacuity proof) and
@@ -134,7 +145,7 @@
 
 .EXAMPLE
  .\check-import-boundaries.ps1 -CheckFunctionLevelImports
- Run the function-level-import ratchet check (D4/I6) against the frozen baseline
+ Run the function-level-import ratchet check against the frozen baseline
 
 .EXAMPLE
  .\check-import-boundaries.ps1 -CheckFunctionLevelImports -UpdateBaseline
@@ -171,6 +182,10 @@
 .EXAMPLE
  .\check-import-boundaries.ps1 -CheckOwnTargetNames -UpdateBaseline
  Recompute and overwrite the frozen own-target-name baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckDesignLabels
+ Run the design-document label check (hard zero, no baseline)
 
 .EXAMPLE
  .\check-import-boundaries.ps1 -SelfTest
@@ -211,6 +226,9 @@ param(
 
     [Parameter()]
     [switch]$CheckOwnTargetNames,
+
+    [Parameter()]
+    [switch]$CheckDesignLabels,
 
     [Parameter()]
     [switch]$SelfTest,
@@ -279,6 +297,7 @@ try {
     if ($CheckSharedTargetNames) { $pythonArgs += "--check-shared-target-names" }
     if ($CheckCrossPackageVocabulary) { $pythonArgs += "--check-cross-package-vocabulary" }
     if ($CheckOwnTargetNames) { $pythonArgs += "--check-own-target-names" }
+    if ($CheckDesignLabels) { $pythonArgs += "--check-design-labels" }
     if ($SelfTest) { $pythonArgs += "--self-test" }
 
     # Debug output if requested

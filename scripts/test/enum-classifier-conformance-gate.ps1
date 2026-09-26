@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Cross-target enum-classifier conformance gate (G10).
+ Cross-target enum-classifier conformance gate.
 
 .DESCRIPTION
  Proves every registered `datrix.languages` plugin that emits enum types realizes

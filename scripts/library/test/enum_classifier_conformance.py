@@ -83,7 +83,7 @@ _FIXTURE_KEYWORD_MISS: Final[str] = "ZULU-UNRECOGNIZED"
 
 #: Neutral e-commerce service name the fixture enum is rendered under. Never a real registered
 #: service -- purely a `ServicePaths` anchor so each language's `ErrorProfile.import_statement`
-#: (D9) can resolve a per-service import/using/package line for the declared exception.
+#: can resolve a per-service import/using/package line for the declared exception.
 _FIXTURE_SERVICE_NAME: Final[str] = "catalog"
 
 #: The GenDSL domain id every enum-emitting language plugin registers its `EnumGenerator`
@@ -309,7 +309,7 @@ def _facts_from_render(
             language's shape: group 1 is the raised exception's type name, group 2 is its message
             string-literal body.
         expected_exception: The exception type name this language's `LanguageProfile.errors`
-            declares (D9) -- every isolated raise must name exactly this type.
+            declares -- every isolated raise must name exactly this type.
         enum_name: The fixture enum's own name, to build the expected constant message.
 
     Returns:
@@ -676,7 +676,7 @@ def main() -> int:
     """CLI entry point. Runs the non-vacuity self-test first, always."""
     parser = argparse.ArgumentParser(
         description="Prove every registered enum-emitting datrix.languages plugin realizes "
-        "equalsKeyword/containsKeyword identically for a fixture enum (G10)."
+        "equalsKeyword/containsKeyword identically for a fixture enum."
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     parser.add_argument(

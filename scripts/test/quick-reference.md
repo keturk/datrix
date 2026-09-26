@@ -30,7 +30,7 @@ Whole-suite modes (Jon only): a bare package (`.\test\test.ps1` + package names)
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Rerun`, `-Coverage`, `-VerboseOutput`, `-NoSave`, `-NoAutoInstall`, `-Unit`, `-Integration`, `-E2E`, `-Fast`, `-Slow` (mutually exclusive), `-Specific <path[,path...]>` (comma-separated files/node-IDs run in one pytest session), `-Keyword <expr>`, `-Tag <tag[,tag...]>` (feature tags; a test runs when it carries any of them), `-ListTags` (list tags, run nothing; with `-Specific`, scoped), `-Dbg`
 
-**Feature tags.** Every test carries one or more feature tags (pytest `tag` marker; Node `#tag` token in a test or `describe()` name). They are declared by `datrix_common.testing.feature_tags`, a `pytest11` plugin every session in the venv loads; `test.ps1` runs every session with `--datrix-require-tags`, so an untagged test fails at setup (an untagged Node test fails the run). `-Tag` fails a package in which no test carries a named tag (a misspelling never shrinks a run silently), refuses a selection that keeps every test of a package's whole test tree (the full suite in disguise), and cannot be combined with `-Keyword` on a Node suite. A tier name (`unit`, `slow`, `serial`, …) is never a tag. Rules and vocabulary: `datrix-common/docs/contributing/test-guidelines/feature-tags.md`. A run's `index.json` records `selection.tags`.
+**Feature tags.** Every test carries one or more feature tags (pytest `tag` marker; Node `#tag` token in a test or `describe()` name). They are declared by `datrix_common.testing.feature_tags`, a `pytest11` plugin every session in the venv loads; `test.ps1` runs every session with `--datrix-require-tags`, so an untagged test fails at setup (an untagged Node test fails the run). `-Tag` fails a package in which no test carries a named tag (a misspelling never shrinks a run silently), refuses a selection that keeps every test of a package's whole test tree (the full suite in disguise), and cannot be combined with `-Keyword` on a Node suite. Both refusals are decided **before any test phase starts**: a pytest package's `-Tag` run first does one collection-only pass in a single process over the run's own targets, and a refused selection exits 4 with the plugin's message and no run directory — never discovered inside every xdist worker after each has collected the whole tree. A tier name (`unit`, `slow`, `serial`, …) is never a tag. Rules and vocabulary: `datrix-common/docs/contributing/test-guidelines/feature-tags.md`. A run's `index.json` records `selection.tags`.
 
 **Log output:** Unless `-NoSave` is used, `test.ps1` creates one timestamped log folder for each project it runs under that project's `.test_results` directory. AI agents do not need to capture full console output; read the final console lines to find the saved log folder, then inspect the files in that folder.
 
@@ -335,7 +335,7 @@ Two independent checks over the language type-mapping surfaces, both run on ever
    runtime from the installed entry points — never a hardcoded literal). **SQL is not covered by
    this leg** — it is not a `datrix.languages` plugin and its `type_mappings` module does not
    register with `global_registry`.
-2. **Extension-map completeness** (D3) — for every installed `datrix.extensions` pack, every
+2. **Extension-map completeness** — for every installed `datrix.extensions` pack, every
    registered language's `*_EXTENSION_MAPS` dict (`PYTHON_EXTENSION_MAPS`, `JAVA_EXTENSION_MAPS`,
    `TS_EXTENSION_MAPS`, `DOTNET_EXTENSION_MAPS`) **and SQL's** (`SQL_EXTENSION_MAPS`) must carry a
    key for that pack's name — an entry present but empty is correct for a pack contributing zero
@@ -1082,7 +1082,7 @@ Field-error-path parity gate: every registered language spells a `request-valida
 
 ### `test\artifact-role-parity-gate.ps1`
 
-Cross-language artifact-role parity gate (D7) -- the G-A closure: detects a language silently emitting nothing for a construct another language realizes, without generating anything and without storing anything. It reads the generation pipeline's own per-target manifests (`.datrix/manifests/<target>.json`: the files each target wrote, plus a `generated_at` stamp) from the example trees `generate.ps1` writes under `<workspace>/.generated/<language>/<runtime>/<provider>/<example>/`. **There is no committed baseline and no bless step** -- see `datrix/docs/architecture/generated-output-stability.md`. For every `(example, runtime, provider)` generated in >= 2 registered languages, classifies each language's paths by domain role via that language's own derived `DomainDeclaration.structural_pattern` set (the same fnmatch globs the domain self-consistency gate uses) and asserts the role set is identical across those languages, EXCLUDING two cases the gate resolves structurally rather than through the exemption file. First, any domain the "missing" language declares globally `unsupported` -- a declared absence explained once at the language level, read directly off the declaration, never a per-example fact. Second, any domain whose `structural_pattern` matches nothing anywhere in that language's ENTIRE generated footprint (corpus-vacuous): if no example exercises the construct, its absence from one example is not drift. Both rules are consulted BEFORE the exemption file, so neither needs an exemption entry -- but the second is no longer silent: every corpus-vacuous `(language, domain)` must carry a typed, counted record in `scripts/config/corpus-vacuity-records.json` saying why nothing exercises it, since a generator no example reaches has no end-to-end signal at all. Paths matching no pattern are reported in an "unclassified" bucket but never compared -- template-level naming legitimately differs by language; the role SET is the contract.
+Cross-language artifact-role parity gate -- the G-A closure: detects a language silently emitting nothing for a construct another language realizes, without generating anything and without storing anything. It reads the generation pipeline's own per-target manifests (`.datrix/manifests/<target>.json`: the files each target wrote, plus a `generated_at` stamp) from the example trees `generate.ps1` writes under `<workspace>/.generated/<language>/<runtime>/<provider>/<example>/`. **There is no committed baseline and no bless step** -- see `datrix/docs/architecture/generated-output-stability.md`. For every `(example, runtime, provider)` generated in >= 2 registered languages, classifies each language's paths by domain role via that language's own derived `DomainDeclaration.structural_pattern` set (the same fnmatch globs the domain self-consistency gate uses) and asserts the role set is identical across those languages, EXCLUDING two cases the gate resolves structurally rather than through the exemption file. First, any domain the "missing" language declares globally `unsupported` -- a declared absence explained once at the language level, read directly off the declaration, never a per-example fact. Second, any domain whose `structural_pattern` matches nothing anywhere in that language's ENTIRE generated footprint (corpus-vacuous): if no example exercises the construct, its absence from one example is not drift. Both rules are consulted BEFORE the exemption file, so neither needs an exemption entry -- but the second is no longer silent: every corpus-vacuous `(language, domain)` must carry a typed, counted record in `scripts/config/corpus-vacuity-records.json` saying why nothing exercises it, since a generator no example reaches has no end-to-end signal at all. Paths matching no pattern are reported in an "unclassified" bucket but never compared -- template-level naming legitimately differs by language; the role SET is the contract.
 
 **The gate is exactly as current as the local corpus, and refuses a partial one.** It prints every language's oldest and newest `generated_at` stamp, and exits 2 before comparing anything when any registered language has a registered example with no generated tree and no entry in `scripts/config/parity-known-nongenerating.json` -- naming every missing pair and the command that fills it (`generate.ps1 -All -L <language>`, once per registered language; Jon runs this, it is blocked for agents). A parked pair that DOES have a generated tree is a stale park entry and also fails: the recorded defect is fixed, delete the entry.
 
@@ -1110,7 +1110,7 @@ Cross-language artifact-role parity gate (D7) -- the G-A closure: detects a lang
 
 ### `test\example-registry-gate.ps1`
 
-Example-universe consistency **and layout** gate (D9): every `system.dtrx` under `datrix/examples/` must appear in >= 1 named test set of `scripts/config/test-projects.json`, or carry a reviewed entry in `scripts/config/test-set-exclusions.json`. An unregistered example is never built by `generate.ps1 -All`/`run-complete.ps1 -All`, which select their corpus FROM `test-projects.json`'s test sets -- this is exactly how the `config-store` and `replayable-ingestion` whole-example parked defects (tracked in `parity-known-nongenerating.json`) went unnoticed for a full generation cycle before this gate landed.
+Example-universe consistency **and layout** gate: every `system.dtrx` under `datrix/examples/` must appear in >= 1 named test set of `scripts/config/test-projects.json`, or carry a reviewed entry in `scripts/config/test-set-exclusions.json`. An unregistered example is never built by `generate.ps1 -All`/`run-complete.ps1 -All`, which select their corpus FROM `test-projects.json`'s test sets -- this is exactly how the `config-store` and `replayable-ingestion` whole-example parked defects (tracked in `parity-known-nongenerating.json`) went unnoticed for a full generation cycle before this gate landed.
 
 The gate also enforces the examples tree's layout contract, since an example's identity IS its directory (`example_id`, its parity-baseline key and its `test-projects.json` path are all derived from the path its `system.dtrx` sits under): no example may live inside another example, and no `.dtrx`/`.dcfg` may belong to two examples or to none.
 
@@ -1168,7 +1168,7 @@ configs are skipped) through `datrix_common.config.unified_loader.load_service_c
 
 ### `test\block-realization-parity-gate.ps1`
 
-Cross-platform capability-declaration parity gate (D1): the platform-axis counterpart of
+Cross-platform capability-declaration parity gate: the platform-axis counterpart of
 `supported-domain-parity-gate.ps1`. Every installed `datrix.platforms` plugin declares a
 `PlatformCapabilityDeclaration` — block realizations, secret backends, observability providers,
 deployment runtimes, identity providers/features, and roughly a dozen scalar/mapping capability
@@ -1364,7 +1364,7 @@ registered.
 
 ### `test\builtin-claims-parity-gate.ps1`
 
-Cross-language builtin-claims parity gate (D2). Reads every registered `datrix.languages`
+Cross-language builtin-claims parity gate. Reads every registered `datrix.languages`
 plugin's `LanguageCapabilityDeclaration.builtin_group_stances` and checks two surfaces, neither
 with a reviewed-gap path (a divergence is always a real defect):
 
@@ -1568,7 +1568,7 @@ registered.
 
 ### `test\enum-classifier-conformance-gate.ps1`
 
-Cross-target enum-classifier conformance gate (D11, G10). Proves every registered
+Cross-target enum-classifier conformance gate. Proves every registered
 `datrix.languages` plugin that emits enum types realizes `equalsKeyword`/`containsKeyword`
 identically for a fixture keyword-bearing enum: a hit returns the correct member, a miss without
 fallback raises the language's declared unrecognized-value exception (`LanguageProfile.errors`)
@@ -1652,30 +1652,90 @@ target failed to resolve or import.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run gate** | `.\test\toolchain-free-suites-gate.ps1` | Scan every `datrix-*` package suite |
+| **Run gate** | `.\test\toolchain-free-suites-gate.ps1` | Scan every `datrix-*` package suite, every shape |
 | **One suite** | `.\test\toolchain-free-suites-gate.ps1 -Suites D:/datrix/datrix-codegen-java/tests` | Scan one or more comma-separated `tests/` directories |
+| **New shapes only** | `.\test\toolchain-free-suites-gate.ps1 -Shapes suite-in-suite-pytest,suite-in-suite-script` | Enforce only the two suite-in-suite shapes at hard zero, independent of the pre-existing `in-process-execution`/`toolchain-subprocess` counts |
 | **Self-test** | `.\test\toolchain-free-suites-gate.ps1 -SelfTest` | Prove the detector is non-vacuous, skip the real scan |
 
-**Parameters:** `-Suites <path[,path...]>`, `-SelfTest`
+**Parameters:** `-Suites <path[,path...]>`, `-Shapes <kind[,kind...]>`, `-SelfTest`
 
 **Fails on:**
 - A toolchain subprocess: `javac`, `java`, `mvn`/`mvnw`, `gradle`, `dotnet`, `tsc`/`tsx`, `npm`/`npx`, `node`, `docker`, `az`, `aws`, `gcloud`, `kubectl`, `terraform`, `bicep` -- whether named as a literal or resolved through a helper.
 - In-process execution of generated source: `exec(compile(...))`, `runpy.run_path`/`run_module`, `importlib`'s `spec_from_file_location`/`exec_module`.
+- **`suite-in-suite-pytest`** -- a `subprocess` call spawning a nested pytest session against a repo test path: `pytest`/`py.test` as argv[0], or the `[sys.executable, "-m", "pytest", ...]` module form.
+- **`suite-in-suite-script`** -- a `subprocess` call naming any script under `datrix/scripts/` (directly, or via `powershell -File`), whether the path is one joined literal or assembled from separate `Path(...) / "datrix" / "scripts" / ... / "x.ps1"` segments (still Call-node-local -- no cross-statement variable tracing).
 
 **Never fails on:**
 - Linters over generated TEXT (`ruff`, `black`, `isort`, `mypy`) -- reading is not executing.
 - Subprocess runs of datrix itself (`sys.executable -m datrix_cli`, the import-boundary probes) -- that is framework functionality, not generated output.
 - Loading a sibling `test_*.py` for a shared harness -- that is this suite's own code.
+- A `pytester`-based synthetic suite (a test function taking a `pytester` fixture parameter, or a direct `pytester.runpytest*(...)` attribute call) -- pytest's own plugin, launching a nested run against a SYNTHETIC tree in a tmp dir, never against this repo's own production tests. E.g. `datrix-common/tests/unit/testing/test_xdist_pooling.py`'s `pytester.runpytest_subprocess(...)`.
 
-**Assertions:** the non-vacuity self-test runs before every real scan (a planted `javac` call and a planted `exec(compile(...))` must both be caught; an allowed `ruff` call and an allowed `sys.executable -m datrix_cli` must both pass), so a green result can never mean the detector was broken.
+**No baseline or exemption file for either new shape** -- unlike the slow-test ratchet, both `suite-in-suite-pytest` and `suite-in-suite-script` are hard zero; `-Shapes` scopes which kinds a run enforces, it does not exempt individual sites.
 
-**Exit codes:** 0 = no suite compiles or executes generated output, 1 = at least one violation, or the self-test failed.
+**Assertions:** the non-vacuity self-test runs before every real scan (a planted `javac` call, a planted `exec(compile(...))`, a planted nested-pytest subprocess, and a planted repo-script subprocess must all be caught; an allowed `ruff` call, an allowed `sys.executable -m datrix_cli`, a `pytester`-fixture test, and a `pytester.runpytest(...)` call must all pass), so a green result can never mean the detector was broken.
+
+**Exit codes:** 0 = no violation of the requested shape(s), 1 = at least one violation, or the self-test failed.
+
+---
+
+### `test\slow-test-ratchet-gate.ps1`
+
+**The repo's decrease-only ceiling on test wall time.** Reads the newest FULL run's merged
+`timings.json` (written by `datrix_common.testing.runner_plugin`, merged by the shared test
+runner) for every testable package -- discovered the same way `test.ps1`/`status-tests.ps1` do,
+never a hardcoded list -- and fails on:
+
+- **A call ceiling:** any test whose call-phase duration exceeds 30.0s (strict -- 30.0s itself is
+  not an offender, 30.1s is).
+- **A fixture-replication ceiling:** any session/package/module-scoped fixture set up on more than
+  one DISTINCT xdist worker (keyed by the recorded worker id, never by occurrence count -- a
+  module-scoped fixture set up twice on the SAME worker is not replication) with a setup duration
+  exceeding 5.0s on at least one of those workers (strict -- 5.0s itself is not an offender, 5.1s
+  is).
+
+...unless the offending id is listed in `datrix/scripts/config/slow-test-baseline.json` with a
+`class` (one of `matrix-in-one-test`, `session-fixture-per-worker`, `whole-corpus-scan`,
+`toolchain-compile`) and a written `reason`. A Node package (`datrix-vscode`) carries no
+runner_plugin/timings.json -- its merged JUnit XML's own per-`<testcase>` `time` attribute is the
+only call-duration signal, so it has no fixture dimension at all.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\slow-test-ratchet-gate.ps1` | Check every package's newest full run against the baseline |
+| **Self-test** | `.\test\slow-test-ratchet-gate.ps1 -SelfTest` | Prove the detector is non-vacuous, skip the real scan |
+| **Seed the baseline** | `.\test\slow-test-ratchet-gate.ps1 -Seed` | Write the baseline from the current offenders (placeholder `class`/`reason` -- hand-edit every entry before commit) |
+
+**Parameters:** `-SelfTest`, `-Seed`, `-Dbg`
+
+**Decrease-only, enforced in every mode against git, not just the working-tree file.** Both check
+mode and `-Seed` compare against the baseline **as committed at HEAD** in the `datrix` package's
+own git repository (`git -C <repo> show HEAD:scripts/config/slow-test-baseline.json`), never
+merely against the file on disk: a key may never be added and a `seconds` value may never
+increase relative to what HEAD carries. A path absent at HEAD reads as an empty baseline (first
+seed, allowed). Any other git failure fails closed (exit 2) -- decrease-only cannot be verified
+without a trustworthy committed reference.
+
+**A stale entry fails the gate.** A baseline entry that no longer measures as an offender must be
+REMOVED, never left as harmless cover -- except a `toolchain-compile` entry, which this gate never
+drives to zero and is permanently exempt from the staleness check. A baseline entry whose `class`
+or `reason` still carries the `-Seed` placeholder (`REPLACE-WITH-REAL-CLASS`/
+`REPLACE-WITH-REAL-REASON`) is rejected outright (exit 2) -- it was never hand-classified.
+
+**Fails closed on missing data.** A package with no v2 full run (`index.json` `schema_version >= 2`
+and `selection.kind == "full"`) recorded at all -- including a Node package whose `.test_results`
+exists but never produced a usable full run -- is reported under `missing_full_run` rather than
+silently passing.
+
+**Exit codes:** 0 = no un-baselined offender and no stale entry, 1 = an offender, a stale entry, a
+missing full run, or a working-tree baseline that grew relative to HEAD, 2 = an invalid baseline,
+an untrusted git read, or `-Seed` would grow the baseline committed at HEAD.
 
 ---
 
 ### `test\standing-conformance-gate.ps1`
 
-Standing conformance-spec corpus gate (D10): runs every committed `conformance_gate.py` spec under `scripts/config/conformance-specs/` (top-level `*.json` files only -- fixture subdirectories such as `_fixtures/` are never swept). Each spec's own self-test runs first, exactly as `conformance_gate.py`'s single-spec CLI already guarantees on every invocation.
+Standing conformance-spec corpus gate: runs every committed `conformance_gate.py` spec under `scripts/config/conformance-specs/` (top-level `*.json` files only -- fixture subdirectories such as `_fixtures/` are never swept). Each spec's own self-test runs first, exactly as `conformance_gate.py`'s single-spec CLI already guarantees on every invocation.
 
 **Policy this gate exists to serve:** a design-acceptance NEGATIVE check ("the old state is gone on every surface") that outlives its landing must either become a real test in the owning package (preferred, per the prefer-a-test-over-a-scratch-script rule), or a committed spec here -- never a one-off run nobody re-executes. When a change's acceptance proof is "the old construct no longer exists anywhere" and that proof cannot naturally live as a package test, add a spec JSON here.
 
@@ -1817,13 +1877,14 @@ suite (per the datrix showcase boundary).
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the gate** | `.\test\shared-library-gate.ps1` | Run all 69 checks |
+| **Run the gate** | `.\test\shared-library-gate.ps1` | Run all 71 checks |
 | **Harness self-test** | `.\test\shared-library-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
 | **Debug** | `.\test\shared-library-gate.ps1 -Dbg` | Print the python invocation before running |
 
 **Parameters:** `-HarnessSelfTest`, `-Dbg`
 
-**Assertions:** 69 named checks covering `structured_log_writer.py`, `test_runner.py`,
+**Assertions:** 71 named checks covering `structured_log_writer.py`, `test_runner.py` (including
+the `-Tag` pre-flight that refuses an unknown or whole-tree tag selection before any phase),
 `suite_stamp.py`, `node_test_runner.py`'s stamp, `codegen_hint_mapper.py`,
 `deploy_test_aggregate_writer.py`, `generated_test_log_writer.py`,
 `aggregate_test_writer.py`, `deploy_test_log_writer.py`, and `logging_utils.py`'s log-content and

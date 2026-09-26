@@ -1,4 +1,4 @@
-"""Example-universe consistency and layout gate (D9).
+"""Example-universe consistency and layout gate.
 
 The reference-example parity gate's example corpus and test-projects.json's
 test-set union are two independently-maintained registries of "the examples
@@ -508,7 +508,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(
         description=(
-            "Example-universe consistency and layout gate (D9): every system.dtrx "
+            "Example-universe consistency and layout gate: every system.dtrx "
             "under datrix/examples/ must appear in >= 1 test-projects.json test "
             "set, or carry a reviewed test-set-exclusions.json entry; and no "
             "example may sit inside another or share a .dtrx/.dcfg with one."

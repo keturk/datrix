@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Cross-language artifact-role parity gate (D7).
+ Cross-language artifact-role parity gate.
 
 .DESCRIPTION
  For every (example, runtime, provider) generated in >= 2 registered

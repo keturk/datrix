@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- GenDSL corpus reference-resolution gate (D1/I1).
+ GenDSL corpus reference-resolution gate.
 
 .DESCRIPTION
  Proves the real, shipped corpus of builder/call/context/appends references

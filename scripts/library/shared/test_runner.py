@@ -71,6 +71,10 @@ LIST_TAGS_OPTION = "--datrix-list-tags"
 #: or nothing was collected. Interrupted (2), internal error (3) and usage
 #: error (4) mean the phase did not complete, so the run is never stamped.
 _COMPLETED_PYTEST_EXIT_CODES = frozenset({0, 1, 5})
+#: pytest's USAGE_ERROR exit code: what the feature-tag plugin's refusal (a
+#: requested tag no collected test carries, or a tag set selecting the whole
+#: test tree) exits with.
+_PYTEST_USAGE_ERROR = 4
 
 #: Commas inside a parametrized node id ("test_x.py::test_y[1,2]") are literal.
 _TARGET_SEPARATOR = re.compile(r",(?![^\[]*\])")
@@ -662,6 +666,11 @@ class TestRunner:
   # Get Python executable
   python_exe = self._get_python_executable(verbose=verbose)
 
+  if tags:
+   refusal = self._preflight_tag_selection(python_exe, test_path, tags)
+   if refusal is not None:
+    return refusal
+
   # Setup logging with quiet mode (inverted from verbose)
   log_config = LogConfig(
    log_dir=".test_results",
@@ -1060,6 +1069,52 @@ class TestRunner:
      logger.write_console(f"  Log: {logger.get_log_path()}")
 
   return returncode
+
+ def _preflight_tag_selection(
+  self, python_exe: str, test_path: str | None, tags: Sequence[str],
+ ) -> int | None:
+  """Refuse a ``-Tag`` selection the feature-tag plugin would reject, before any phase runs.
+
+  The plugin's check (a requested tag no collected test carries; a tag set
+  that selects the package's whole test tree) fires after collection. In the
+  parallel phase that is inside every xdist worker, each of which first
+  collects the whole tree -- so a misspelled tag cost a full collection per
+  worker and surfaced as a worker crash instead of the plugin's message. One
+  collection-only session in a single process, over the run's own targets
+  and tags, asks the same question once and runs nothing. It writes no run
+  directory: nothing ran.
+
+  Returns:
+   pytest's usage-error code when the plugin refuses the selection (its
+   message is printed); ``None`` when the run may proceed. Any other outcome
+   of this collection -- a module that fails to import, say -- is left to
+   the run itself, which reports it with full results.
+  """
+  targets = _split_test_targets(test_path) or [self.config.test_dir]
+  argv = [
+   python_exe, "-m", "pytest", *targets,
+   "--collect-only", "-q", "-p", "no:cacheprovider",
+   f"{TAGS_OPTION}={','.join(tags)}",
+  ]
+  completed = subprocess.run(  # noqa: S603 -- venv interpreter, fixed argv
+   argv,
+   cwd=self.config.project_root,
+   capture_output=True,
+   text=True,
+   encoding="utf-8",
+   errors="replace",
+   check=False,
+  )
+  if completed.returncode != _PYTEST_USAGE_ERROR:
+   return None
+  print(
+   f"Refusing the -Tag selection for {self.config.project_name} before running any "
+   f"test ({','.join(tags)}):"
+  )
+  for stream in (completed.stdout, completed.stderr):
+   if stream.strip():
+    print(stream.rstrip("\n"))
+  return _PYTEST_USAGE_ERROR
 
  def list_tags(self, test_path: str | None = None) -> int:
   """Print every feature tag in the package with its test count; run no test.

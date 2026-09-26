@@ -451,6 +451,41 @@ realize what an application declares.
 
 Full decision log: [Architecture Overview — Decision 48](./architecture-overview.md#decision-48-complete-applications-in-datrix--web-and-mobile-frontends-from-the-same-dsl-as-the-backend-approved--implementation-in-progress).
 
+## Declared Cross-Tenant Bodies
+
+Tenant scoping stays fail-closed: every body that reaches a `Tenantable` entity has exactly
+one tenant, or generation fails. `@crossTenant` is the only way a body reaches rows across
+tenants, and it is declared on each callable. **Approved — implementation in progress.**
+
+- **Where it is legal:**
+  - endpoints: `auth(service)`, or role-gated `auth(required)` whose every provider has
+    `audience = "workforce"`;
+  - service and `rest_api` `fn`s;
+  - `on` handlers and `enqueue` consumers;
+  - `job`s.
+
+  Everything else is TEN003–TEN008, including any route that accepts a `customer` provider,
+  and an undeclared body calling a cross-tenant `fn`.
+- **What it grants:**
+  - top-level reads are unscoped;
+  - a loaded row may be mutated through `row.save()`/`row.delete()`;
+  - top-level static writes and calls to tenant-scoped `fn`s fail generation;
+  - inside a `foreach` over entity rows that declare `tenantId`, everything is scoped to the
+    row;
+  - inside a `tenant(<expr>) { … }` block, everything is scoped to that one tenant: reads are
+    filtered, creates stamped, tenant-scoped `fn`s passed it. The block is legal only in a
+    `@crossTenant` body (TEN009), over an identifier or property chain the body already holds
+    (TEN010), and each language binds the value once to a generator-owned local.
+- **Audit:** each cross-tenant body logs `cross_tenant_access handler=… kind=…` on entry.
+- **Service routes:** an `auth(service)` route may name its tenant with a declared
+  `tenantId`/`organizationId` path or query parameter (a required UUID), as well as with a
+  request-body field.
+- **The tenant middleware is unchanged.** Cross-tenant routes gain no exemption. A token with no
+  tenant reaches every route with a `None` tenant: a cross-tenant route ignores it, and every
+  other route stays fail-closed.
+
+Full decision log: [Architecture Overview — Decision 49](./architecture-overview.md#decision-49-declared-cross-tenant-bodies-and-tenant-parameters-on-service-routes-approved--implementation-in-progress).
+
 ## Zero-Environment Runtime — Declared Per Language
 
 Decision 14's contract (every deployment-static value baked at generation time; the running

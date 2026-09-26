@@ -1,4 +1,4 @@
-"""Cross-platform capability-declaration parity gate (D1).
+"""Cross-platform capability-declaration parity gate.
 
 Every installed ``datrix.platforms`` plugin declares a
 ``PlatformCapabilityDeclaration`` (``datrix_common.plugin.capability``) --
@@ -800,8 +800,7 @@ def main() -> int:
         description=(
             "Prove every installed datrix.platforms plugin's declared "
             "capability coordinates -- across all seven capability surfaces "
-            "-- are complete relative to the union all platforms declare "
-            "(D1)."
+            "-- are complete relative to the union all platforms declare."
         ),
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")

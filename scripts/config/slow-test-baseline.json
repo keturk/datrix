@@ -1,0 +1,66 @@
+[
+  {
+    "kind": "call",
+    "package": "datrix-codegen-azure",
+    "id": "tests/integration/test_azure_vm_bicep_compiles.py::TestAzureVmTopologyCompiles::test_main_bicep_compiles_zero_errors_zero_warnings",
+    "seconds": 41.08,
+    "class": "toolchain-compile",
+    "reason": "Runs the real bicep compiler over the generated VM topology template; the wall time is the toolchain's."
+  },
+  {
+    "kind": "call",
+    "package": "datrix-codegen-azure",
+    "id": "tests/integration/test_azure_vm_bicep_compiles.py::TestAzureVmTopologyCompiles::test_the_for_expression_form_is_still_rejected",
+    "seconds": 40.2,
+    "class": "toolchain-compile",
+    "reason": "Runs the real bicep compiler to prove the rejected for-expression form still fails compilation; the wall time is the toolchain's."
+  },
+  {
+    "kind": "call",
+    "package": "datrix-codegen-azure",
+    "id": "tests/integration/test_bicep_warning_free.py::TestBicepCompileGate::test_generated_main_bicep_compiles_zero_errors_zero_warnings[pooled-service-bus]",
+    "seconds": 47.6,
+    "class": "toolchain-compile",
+    "reason": "Runs the real bicep compiler over the generated main template with a pooled Service Bus namespace; the wall time is the toolchain's."
+  },
+  {
+    "kind": "call",
+    "package": "datrix-codegen-azure",
+    "id": "tests/integration/test_bicep_pooled_messaging_compile.py::TestPooledEventHubsCompileGate::test_pooled_main_bicep_compiles_zero_errors",
+    "seconds": 38.76,
+    "class": "toolchain-compile",
+    "reason": "Runs the real bicep compiler over the generated main template with pooled Event Hubs; the wall time is the toolchain's."
+  },
+  {
+    "kind": "call",
+    "package": "datrix-codegen-azure",
+    "id": "tests/integration/test_bicep_warning_free.py::TestBicepCompileGate::test_generated_main_bicep_compiles_zero_errors_zero_warnings[unpooled-event-hubs]",
+    "seconds": 45.35,
+    "class": "toolchain-compile",
+    "reason": "Runs the real bicep compiler over the generated main template with unpooled Event Hubs; the wall time is the toolchain's."
+  },
+  {
+    "kind": "call",
+    "package": "datrix-codegen-typescript",
+    "id": "tests/integration/test_stdlib_request_context_tsc.py::TestTheRequestContextCompiles::test_tsc_noemit_is_clean",
+    "seconds": 63.43,
+    "class": "toolchain-compile",
+    "reason": "Installs node modules and runs tsc over the generated request-context module; the wall time is the toolchain's."
+  },
+  {
+    "kind": "call",
+    "package": "datrix-codegen-typescript",
+    "id": "tests/integration/generators/entity/test_entity_input_semantics_tsc.py::TestInputSemanticsCompileAndRun::test_runtime_input_rule_holds",
+    "seconds": 67.32,
+    "class": "toolchain-compile",
+    "reason": "Installs node modules, compiles the generated entity input rules with tsc and runs them under node; the wall time is the toolchain's."
+  },
+  {
+    "kind": "call",
+    "package": "datrix-common",
+    "id": "tests/unit/testing/test_runner_plugin.py::test_the_plugin_costs_at_most_five_percent",
+    "seconds": 65.14,
+    "class": "matrix-in-one-test",
+    "reason": "The recorder-overhead proof: twelve sequential in-process suite sessions of about four seconds each (a warm-up pair plus five alternated with/without pairs, median ratio). The session length keeps the plugin's fixed per-session cost from reading as overhead, and the paired median absorbs load drift, so neither can shrink without weakening the bound the test proves."
+  }
+]

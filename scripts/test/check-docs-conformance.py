@@ -1406,7 +1406,7 @@ def main() -> int:
         2 = usage error / missing baseline / missing architecture doc).
     """
     parser = argparse.ArgumentParser(
-        description="Docs-conformance gate for Datrix architecture documentation (I5)",
+        description="Docs-conformance gate for Datrix architecture documentation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(

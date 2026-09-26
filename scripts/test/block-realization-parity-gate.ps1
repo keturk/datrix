@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Cross-platform capability-declaration parity gate (D1).
+ Cross-platform capability-declaration parity gate.
 
 .DESCRIPTION
  Proves every installed `datrix.platforms` plugin's declared

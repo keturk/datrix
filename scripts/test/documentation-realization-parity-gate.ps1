@@ -15,7 +15,7 @@
  lexer for TypeScript/Java; real XML parsing of C#'s `///` doc-comment
  blocks -- never a line-oriented regex over the whole file), that the
  published text reaches that target's declared published surface and the
- source text reaches its source surface and NEVER the published one (I2).
+ source text reaches its source surface and NEVER the published one.
 
  This gate asserts over GENERATED ARTIFACTS, not a running service: this
  sandbox has zero NuGet connectivity, so a generated .NET project can never

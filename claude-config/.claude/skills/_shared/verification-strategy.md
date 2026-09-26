@@ -93,6 +93,25 @@ because its tests run the real pipeline. A change in language, cli, component, d
 any generator its conftest selects can therefore break datrix-common tests. A scan of `src/`
 and `tests/` alone misses this edge: the file is a package-root `conftest.py`.
 
+### Do not chase finer-grained selection
+
+For a whole-suite verdict, the package is the selection floor. No mechanism selects tests
+inside a package by what they import or execute, and none should be built. Import-based
+selection is ruled out by the import cycle that holds most of `datrix-common`.
+
+Execution-based selection was measured and fails too. A `sys.monitoring` recorder was run
+around real `GenerationPipeline` runs:
+- One generation executes 38–48 % of `datrix-common`'s source files.
+- 76–81 % of real `datrix-common` source commits touch a file every pipeline-running test
+  executes.
+
+Those pipeline-running integration and e2e tests carry most of the suite time. Per-test
+selection would therefore leave the first sweep after a shared-layer change essentially
+intact, while adding a per-test dependency store and its invalidation rules. Recording
+cost only +3 %, which is why the runner's observed-inputs record exists. Its one use is the
+whole-suite fingerprint that lets an unchanged package's green full run be carried; it
+never selects tests.
+
 ## Repo gates (cheap static nets)
 
 Static scans (`dev/semgrep.ps1`, `dev/libcst.ps1`, `dev/check-import-boundaries.ps1`,

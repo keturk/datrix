@@ -1,4 +1,4 @@
-"""Cross-language artifact-role parity gate (D7): the G-A closure.
+"""Cross-language artifact-role parity gate: the G-A closure.
 
 Detects a language silently emitting nothing for a construct another
 language realizes, WITHOUT GENERATING ANYTHING -- it reads the generation
@@ -1737,7 +1737,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(
         description=(
-            "Cross-language artifact-role parity gate (D7): for every (example, "
+            "Cross-language artifact-role parity gate: for every (example, "
             "runtime, provider) generated in >= 2 languages, the set of domain "
             "roles with >= 1 matching file must be identical across languages. "
             "Reads the pipeline's own manifests from the generated trees -- "

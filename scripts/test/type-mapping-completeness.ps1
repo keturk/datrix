@@ -12,7 +12,7 @@
  leg only (e.g., "python,typescript"). When omitted, every registered
  datrix.languages target is checked (discovered at runtime -- never a
  hardcoded python/typescript list). Does NOT restrict the extension-map
- completeness leg (D3), which always runs unconditionally over every
+ completeness leg, which always runs unconditionally over every
  registered language plus sql, regardless of this parameter.
 
 .PARAMETER SelfTest

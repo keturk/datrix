@@ -351,7 +351,7 @@ def run_extension_map_self_test() -> None:
 
 
 def check_extension_map_completeness() -> int:
-    """Real-tree extension-map completeness check (D3).
+    """Real-tree extension-map completeness check.
 
     Returns:
         Exit code (0 = every installed pack has a key on every surface,
