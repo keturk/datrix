@@ -61,7 +61,8 @@ config strings ecommerce.Storefront locale "tr-TR" {
   // names every page, field, enum member, action, step, empty state and error
   // the app shows.
   labels {
-    page.Home                                = "Ana sayfa";
+    app.Storefront                           = "Mağaza";
+    page.Home                               = "Ana sayfa";
     page.ProductList                         = "Ürünler";
     page.ProductDetail                       = "Ürün";
     page.Cart                                = "Sepet";

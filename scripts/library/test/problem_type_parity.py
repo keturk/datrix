@@ -5,7 +5,7 @@ or declares the hole.
 A generated service's error body carries a ``type`` member naming the error
 class. A client keyed on it must see one vocabulary whichever language served
 the request, so the vocabulary has one home:
-``datrix_common.generation.problem_types`` (``urn:datrix:error:<slug>``; a
+``datrix_common.datrix_model.problem_types`` (``urn:datrix:error:<slug>``; a
 declared DSL exception derives its slug from its class name through the
 shared exception-declaration algorithm, a framework error uses a registered
 family). Before this gate, python and java spelled the URNs, typescript
@@ -49,7 +49,7 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from datrix_common.generation.problem_types import (  # noqa: E402
+from datrix_common.datrix_model.problem_types import (  # noqa: E402
     FRAMEWORK_PROBLEM_TYPES,
     PROBLEM_TYPE_URN_PREFIX,
     ProblemType,
@@ -146,7 +146,7 @@ def evaluate(
                     f"{census.package}: {spelling.relative_path}:{spelling.line}: spells "
                     f"{PROBLEM_TYPE_URN_PREFIX}{spelling.slug!s}, which is not a registered "
                     f"problem-type family. Fix: spell a registered family, or register it in "
-                    f"datrix_common.generation.problem_types so every target mints it."
+                    f"datrix_common.datrix_model.problem_types so every target mints it."
                 )
         holes = declared_holes.get(language, {})
         for family, reason in sorted(holes.items()):

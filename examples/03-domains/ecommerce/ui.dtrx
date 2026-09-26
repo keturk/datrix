@@ -8,6 +8,13 @@ module ecommerce.ui {
         color onPrimary = '#ffffff';
         color surface   = '#ffffff';
         color onSurface = '#111827';
+        // Tones: each colour with its text colour beside it.
+        color success   = '#166534';
+        color onSuccess = '#ffffff';
+        color warning   = '#854d0e';
+        color onWarning = '#ffffff';
+        color danger    = '#991b1b';
+        color onDanger  = '#ffffff';
         space md        = 16;
         radius card     = 8;
         font body       = font('Inter', 16, 400);

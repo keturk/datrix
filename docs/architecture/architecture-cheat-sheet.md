@@ -506,7 +506,7 @@ typescript test template still sending the retired `X-Internal-Token` became red
 of facts someone had to notice.
 
 The RFC 7807 `type` member has the same shape of contract and the same enforcement:
-`datrix_common.generation.problem_types` mints every problem type as `urn:datrix:error:<slug>`
+`datrix_common.datrix_model.problem_types` mints every problem type as `urn:datrix:error:<slug>`
 (`FRAMEWORK_PROBLEM_TYPES` for framework errors; a declared DSL exception derives its slug
 from its class name through the shared exception-declaration algorithm), each language
 declares its holes on `LanguageCapabilityDeclaration.unrealized_problem_types`, and

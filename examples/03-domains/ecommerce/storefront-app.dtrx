@@ -69,12 +69,13 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
 
     table Catalog : source(ProductService.ProductAPI.productDb.Product.list) {
         columns(auto) except [description, productMetadata, images, tags];
-        rowAction open : onClick(Nav.to(ProductDetail, slug: row.slug));
+        // A product's slug is optional, so the page is addressed by its id.
+        rowAction open : onClick(Nav.to(ProductDetail, id: row.id));
     }
 
-    @path('/products/:slug')
-    page ProductDetail(String slug) {
-        data { product = ProductService.ProductAPI.get.productBySlug(slug: slug); }
+    @path('/products/:id')
+    page ProductDetail(UUID id) {
+        data { product = ProductService.ProductAPI.productDb.Product.get(id: id); }
         state Int quantity = 1;
 
         fn increment() { if (quantity < 10) { quantity = quantity + 1; } }
@@ -97,7 +98,7 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
                 callout(Msg.outOfStock) : tone(warning);
             }
             when (Share.isAvailable) {
-                button(Msg.share) : onClick(Share.page(ProductDetail, slug: slug)), kind(secondary);
+                button(Msg.share) : onClick(Share.page(ProductDetail, id: id)), kind(secondary);
             }
         }
     }
@@ -132,7 +133,8 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
     }
 
     table Orders : source(OrderService.OrderAPI.get.orders), poll(30s) {
-        columns(auto) except [billingAddress, cancellationReason];
+        // An address is a struct with no text form of its own, so no cell shows it.
+        columns(auto) except [shippingAddress, billingAddress, cancellationReason];
         column status : render(StatusBadge);
         rowAction open : onClick(Nav.to(OrderDetail, id: row.id));
     }

@@ -165,6 +165,15 @@ config system library.System {
       adminUser = "admin";
       adminPassword = "identity_zitadel_admin_password";
       masterKey = "identity_zitadel_master_key";
+      // The Storefront and Admin apps sign in through the browser, so the
+      // origin a browser reaches Zitadel at is stated per profile: the
+      // host-published port locally, the public identity host on the VM.
+      publicOrigins {
+        test = "http://localhost:8085";
+        development = "http://localhost:8085";
+        production = "http://localhost:8085";
+        azureVm = "https://id.library.example.com";
+      }
       providers {
         identity {
           project = "library-identity";

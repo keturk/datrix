@@ -106,6 +106,11 @@ _UNSAFE_CSP_TOKENS: Final[tuple[str, ...]] = ("unsafe-inline", "unsafe-eval")
 _FIXTURE_API_ORIGIN: Final[str] = "https://api.fixture.example"
 _FIXTURE_IDENTITY_AUTHORITY: Final[str] = "https://auth.fixture.example"
 
+#: The fixture web app a platform's rendered static-site config serves.
+_FIXTURE_APP_KEY: Final[str] = "fixture-storefront"
+_FIXTURE_WEB_TARGET: Final[str] = "fixtureweb"
+_FIXTURE_ENVIRONMENT: Final[str] = "test"
+
 #: nginx `add_header <Name> "<Value>" always;` directive -- the exact
 #: grammar `web_static_site_nginx.conf.j2`'s header loop emits (see its own
 #: header block comment: "never a second, hand-written header list"). A
@@ -418,12 +423,27 @@ def _docker_driver(src_dir: Path, header_set: WebSecurityHeaderSet) -> dict[str,
     `add_header` directives -- the header names are Jinja variables in the
     template (`{{ name }}`/`{{ value }}`), never literal source text, so
     only the RENDERED artifact carries them."""
+    from datrix_common.generation.client_runtime_paths import client_resolved_runtime_config_path
+    from datrix_codegen_docker.generators.compose._client_runtime_resolver import (
+        STATIC_SITE_RUNTIME_CONFIG_MOUNT,
+    )
     from datrix_codegen_docker.generators.compose._web_static_site import (
         render_static_site_nginx_conf,
     )
 
     template_gen = TemplateGenerator(template_dir=src_dir / "templates", target_language="docker")
-    rendered = render_static_site_nginx_conf(template_gen, header_set, spa_fallback_paths=())
+    # The runtime-config location is built exactly as the wiring builds it,
+    # for the fixture's own app/target/environment; it does not bear on the
+    # headers this census reads.
+    runtime_config_name = client_resolved_runtime_config_path(
+        _FIXTURE_APP_KEY, _FIXTURE_WEB_TARGET, _FIXTURE_ENVIRONMENT
+    ).name
+    rendered = render_static_site_nginx_conf(
+        template_gen,
+        header_set,
+        spa_fallback_paths=(),
+        runtime_config_file=f"{STATIC_SITE_RUNTIME_CONFIG_MOUNT}/{runtime_config_name}",
+    )
     headers = _parse_server_level_add_headers(rendered)
     if not headers:
         raise ValueError(

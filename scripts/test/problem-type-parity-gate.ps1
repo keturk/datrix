@@ -9,7 +9,7 @@
  A generated service's error body carries a `type` member naming the error
  class; a client keyed on it must see one vocabulary whichever language
  served the request. The vocabulary has one home,
- datrix_common.generation.problem_types (urn:datrix:error:<slug>). This gate
+ datrix_common.datrix_model.problem_types (urn:datrix:error:<slug>). This gate
  censuses the .py and .j2 sources under every registered language package
  for urn:datrix:error: literals and holds each language to:
 

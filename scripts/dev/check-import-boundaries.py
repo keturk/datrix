@@ -345,6 +345,32 @@ SQL_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
     ]
 )
 
+# The datrix_codegen_typescript modules a web client target (a browser client
+# emitted in TypeScript) is permitted to import. A web client target is not a
+# language generator, but it renders through the TypeScript transpiler core and
+# the shared web-client mechanics, so the backend language package is a real
+# runtime dependency of it -- never its server-shaped generators, templates or
+# language-plugin surface. Each target's own import-allowlist test pins the
+# same set from inside the package.
+#   transpiler.core / .operators / .js_identifier / .visitor_statements
+#                              -- the transpiler core and its own statement facts
+#   syntax_emitters / type_mappings / profile
+#                              -- the language sub-profiles the target composes
+#   web_client                 -- escaping, local names, endpoint contexts,
+#                                 naming, override plumbing, shared builtin rows
+WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES: frozenset[str] = frozenset(
+    [
+        "datrix_codegen_typescript.transpiler.core",
+        "datrix_codegen_typescript.transpiler.operators",
+        "datrix_codegen_typescript.transpiler.js_identifier",
+        "datrix_codegen_typescript.transpiler.visitor_statements",
+        "datrix_codegen_typescript.syntax_emitters",
+        "datrix_codegen_typescript.type_mappings",
+        "datrix_codegen_typescript.profile",
+        "datrix_codegen_typescript.web_client",
+    ]
+)
+
 # ---------------------------------------------------------------------------
 # Generator taxonomy -- DISCOVERED from the manifests on disk, never declared.
 #
@@ -366,7 +392,8 @@ SQL_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
 # the list, silently unguarded" hole: a package registering BOTH groups is
 # rejected (rules are per class), and main() refuses to scan while any
 # discovered package has no rule at all -- a generator that registers neither
-# group (SQL, Component, Angular today) must carry an explicit entry.
+# group (SQL, Component, and the Angular, React and Flutter client targets
+# today) must carry an explicit entry.
 LANGUAGES_ENTRY_POINT_GROUP = "datrix.languages"
 PLATFORMS_ENTRY_POINT_GROUP = "datrix.platforms"
 
@@ -533,14 +560,31 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
         "datrix_codegen_component": BoundaryRule(
             forbidden_prefixes=(*language_packages, "datrix_cli"),
         ),
-        # Angular client-target generator: forbidden from every backend language generator and
-        # datrix_cli -- a frontend client target is not a language generator, but (like Component)
-        # legitimately imports datrix_codegen_common freely (the shared client contract builder,
-        # GenDSL registrations), so datrix_codegen_common is NOT on its forbidden list. Without
-        # this entry the scanner would have NO rule for this package at all, which main()
-        # now refuses to run with -- silently unguarded is not a state this gate allows.
+        # Client-target generators: forbidden from every backend language generator, from every
+        # other client target, and from datrix_cli -- a frontend client target is not a language
+        # generator, but (like Component) legitimately imports datrix_codegen_common freely (the
+        # shared client contract builder, GenDSL registrations), so datrix_codegen_common is NOT
+        # on its forbidden list. The web targets (Angular, React) render TypeScript through the
+        # backend TypeScript package's transpiler core and shared web-client modules, admitted by
+        # WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES and nothing wider. Without these entries the
+        # scanner would have NO rule for these packages at all, which main() refuses to run with
+        # -- silently unguarded is not a state this gate allows.
         "datrix_codegen_angular": BoundaryRule(
-            forbidden_prefixes=(*language_packages, "datrix_cli"),
+            forbidden_prefixes=(
+                *language_packages, "datrix_codegen_react", "datrix_codegen_flutter", "datrix_cli",
+            ),
+            allowed_subtrees=WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES,
+        ),
+        "datrix_codegen_react": BoundaryRule(
+            forbidden_prefixes=(
+                *language_packages, "datrix_codegen_angular", "datrix_codegen_flutter", "datrix_cli",
+            ),
+            allowed_subtrees=WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES,
+        ),
+        "datrix_codegen_flutter": BoundaryRule(
+            forbidden_prefixes=(
+                *language_packages, "datrix_codegen_angular", "datrix_codegen_react", "datrix_cli",
+            ),
         ),
         # Platform generators keep datrix_codegen_common on forbidden_prefixes but carry
         # PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES to admit the language-agnostic
@@ -4121,6 +4165,55 @@ def _self_test_sql_and_component_coverage(rules: dict[str, BoundaryRule]) -> boo
             not _rule_forbids(rules, "datrix_codegen_component", imported),
         )
 
+    ok &= _self_test_client_target_coverage(rules)
+    return ok
+
+
+def _self_test_client_target_coverage(rules: dict[str, BoundaryRule]) -> bool:
+    """The client targets each carry a rule: a web target admits exactly the
+    TypeScript transpiler core and shared web-client subtrees, never the
+    server-shaped rest of the package, and no client target imports another."""
+    ok = True
+    for web_target in ("datrix_codegen_angular", "datrix_codegen_react"):
+        ok &= _check(f"{web_target} has a boundary-rule entry", web_target in rules)
+        ok &= _check(
+            f"{web_target} carries WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES exactly",
+            rules[web_target].allowed_subtrees == WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES,
+        )
+        for imported in (
+            "datrix_codegen_typescript.transpiler.core",
+            "datrix_codegen_typescript.web_client.source_text",
+            "datrix_codegen_typescript.profile",
+        ):
+            ok &= _check(
+                f"{web_target} TypeScript web-client import NOT forbidden: {imported}",
+                not _rule_forbids(rules, web_target, imported),
+            )
+        for imported in (
+            "datrix_codegen_typescript.generators.entity",
+            "datrix_codegen_typescript.transpiler.builtins",
+            "datrix_codegen_typescript.language_plugin",
+            "datrix_codegen_python",
+            "datrix_cli",
+        ):
+            ok &= _check(
+                f"{web_target} server-shaped/sibling import forbidden: {imported}",
+                _rule_forbids(rules, web_target, imported),
+            )
+    ok &= _check("datrix_codegen_flutter has a boundary-rule entry", "datrix_codegen_flutter" in rules)
+    ok &= _check(
+        "datrix_codegen_flutter admits no TypeScript subtree",
+        _rule_forbids(rules, "datrix_codegen_flutter", "datrix_codegen_typescript.web_client.source_text"),
+    )
+    for source, imported in (
+        ("datrix_codegen_angular", "datrix_codegen_react.gendsl"),
+        ("datrix_codegen_react", "datrix_codegen_flutter.gendsl"),
+        ("datrix_codegen_flutter", "datrix_codegen_angular.gendsl"),
+    ):
+        ok &= _check(
+            f"client target {source} cannot import client target {imported}",
+            _rule_forbids(rules, source, imported),
+        )
     return ok
 
 
@@ -6474,7 +6567,7 @@ def main() -> int:
             f"is classified from its pyproject.toml entry points -- register "
             f"'{LANGUAGES_ENTRY_POINT_GROUP}' (language generator) or "
             f"'{PLATFORMS_ENTRY_POINT_GROUP}' (platform generator) -- or, for a "
-            f"generator that is neither (SQL, Component, Angular), add an explicit "
+            f"generator that is neither (SQL, Component, a client target), add an explicit "
             f"entry to build_boundary_rules(). Refusing to scan a package against no "
             f"rule: that would report it clean without checking anything.",
             file=sys.stderr,

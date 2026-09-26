@@ -5,6 +5,12 @@ config identity identity {
   base {
     audience = "customer";
     mode = "platformManaged";
+    // The Storefront and Admin apps sign in here with Authorization Code +
+    // PKCE; each gets its own registration, its redirect URIs derived from
+    // the app's web origin or appId.
+    publicClient {
+      flows = ["authorization_code"];
+    }
     jwksCacheTtlSeconds = 3600;
   }
 

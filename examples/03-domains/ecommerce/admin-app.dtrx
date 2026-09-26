@@ -13,8 +13,10 @@ app ecommerce.Admin('config/admin-app.dcfg') : version('1.0.0') {
     @path('/products')
     workspace Products : over(ProductService.ProductAPI.productDb.Product),
                          auth(required, providers: [identity], roles: [admin]), fallback {
-        list   { columns(auto) except [description]; }
-        detail { }
+        // The metadata, images and tags are JSON documents with no text form,
+        // so neither table shows them; the edit form still binds them.
+        list   { columns(auto) except [description, productMetadata, images, tags]; }
+        detail { columns(auto) except [productMetadata, images, tags]; }
         edit   { fields(auto) except [slug]; }
     }
 }

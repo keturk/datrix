@@ -63,7 +63,7 @@ the same run, under the generated project's `clients/<target>/`. Both import the
 
 | App | Audience | Targets | Pages | Config |
 |-----|----------|---------|-------|--------|
-| [Storefront](storefront-app.dtrx) | Customers | web (Angular), mobile (Flutter) | `/`, `/products`, `/products/:slug`, `/cart`, `/orders`, `/orders/new`, `/orders/:id`; `/shop` redirects to `/products` | [`config/storefront-app.dcfg`](config/storefront-app.dcfg) |
+| [Storefront](storefront-app.dtrx) | Customers | web (Angular), mobile (Flutter) | `/`, `/products`, `/products/:id`, `/cart`, `/orders`, `/orders/new`, `/orders/:id`; `/shop` redirects to `/products` | [`config/storefront-app.dcfg`](config/storefront-app.dcfg) |
 | [Admin](admin-app.dtrx) | Staff | web (Angular) | `/products` (list, detail and edit of the product catalog) | [`config/admin-app.dcfg`](config/admin-app.dcfg) |
 
 - **Derived, not restated.** Neither app declares a route table, a login, a guard or a form

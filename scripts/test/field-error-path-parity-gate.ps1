@@ -11,7 +11,7 @@
  `errors[].field` value the UI form layer maps onto a form control. A client
  keyed on it must see the same path shape whichever language served the
  request, so the shape has one home:
- datrix_common.generation.problem_types.FIELD_ERROR_PATH_RULE (a
+ datrix_common.datrix_model.problem_types.FIELD_ERROR_PATH_RULE (a
  dot-separated wire-name path relative to the request body root, no leading
  `body` segment, `[n]` for array elements). This gate censuses every
  registered language package's own construction technique for that shape and

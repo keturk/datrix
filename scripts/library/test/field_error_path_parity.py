@@ -1,7 +1,7 @@
 """Field-error-path parity gate -- every registered language spells
 `request-validation` problem-body `errors[].field` paths with ONE dot-separated,
 `body`-prefix-free, `[n]`-array-indexed rule
-(`datrix_common.generation.problem_types.FIELD_ERROR_PATH_RULE`) or declares the
+(`datrix_common.datrix_model.problem_types.FIELD_ERROR_PATH_RULE`) or declares the
 hole with a reason on `LanguageCapabilityDeclaration.unrealized_field_error_path`.
 
 Unlike the problem-type and framework-header registries, this is not a table of
@@ -56,7 +56,7 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from datrix_common.generation.problem_types import FIELD_ERROR_PATH_RULE  # noqa: E402
+from datrix_common.datrix_model.problem_types import FIELD_ERROR_PATH_RULE  # noqa: E402
 from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
 
 from shared.registered_targets import registered_language_names  # noqa: E402

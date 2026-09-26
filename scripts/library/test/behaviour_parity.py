@@ -169,6 +169,7 @@ if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
 from datrix_codegen_common.parity.domain_declaration import DomainDeclaration  # noqa: E402
+from datrix_codegen_common.testkit.fixtures.fixtureclient import fixture_client_target_descriptor  # noqa: E402
 from datrix_codegen_common.parity.domain_registry import (  # noqa: E402
     _RICH_CONTEXT_TYPES,
     SHARED_CONTEXT_TYPES,
@@ -2189,19 +2190,17 @@ _SELF_TEST_SRCDIR_MODULE_ROOT: Final[str] = "datrix_behaviour_parity_selftest_sr
 
 
 class _SelfTestClientTargetGenerator:
-    """A synthetic native ``datrix.generators`` plugin declaring a
-    ``transpiler_profile`` and a ``client_capabilities`` declaration -- the
+    """A synthetic native ``datrix.generators`` plugin carrying the complete
+    client-target bundle discovery requires (the testkit fixture renderer's
+    hooks and transpiler profile, this target's own capabilities) -- the
     fixture ``registered_client_target_generator_names``/``tokens_for``
     fallback self-test cases register via a monkeypatched entry-point
     provider. Never a real generator; never instantiated (the scan reads
     only its class-level ``descriptor``)."""
 
-    descriptor = PluginDescriptor(
-        name=_SELF_TEST_CLIENT_TARGET_NAME,
-        phase="artifacts",
-        client_target=True,
-        transpiler_profile=object(),
-        client_capabilities=ClientTargetCapabilityDeclaration(
+    descriptor = fixture_client_target_descriptor(
+        _SELF_TEST_CLIENT_TARGET_NAME,
+        ClientTargetCapabilityDeclaration(
             target_label="Self-Test Client",
             name_tokens=_SELF_TEST_CLIENT_TARGET_TOKENS,
             push=PushCapabilityRealization(supported=False, reason=_SELF_TEST_REASON),
@@ -2224,12 +2223,9 @@ class _SelfTestSrcDirGenerator:
     overridden (below) to a planted on-disk package name, for the
     src-dir-resolution self-test case."""
 
-    descriptor = PluginDescriptor(
-        name=_SELF_TEST_SRCDIR_TARGET_NAME,
-        phase="artifacts",
-        client_target=True,
-        transpiler_profile=object(),
-        client_capabilities=ClientTargetCapabilityDeclaration(
+    descriptor = fixture_client_target_descriptor(
+        _SELF_TEST_SRCDIR_TARGET_NAME,
+        ClientTargetCapabilityDeclaration(
             target_label="Self-Test SrcDir",
             name_tokens=frozenset({"selftestsrcdir"}),
             push=PushCapabilityRealization(supported=False, reason=_SELF_TEST_REASON),
