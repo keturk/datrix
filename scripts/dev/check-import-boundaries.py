@@ -319,6 +319,15 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         # guard. Every caller raises the same ``GenerationError``, so no
         # per-target exception type crosses this edge either.
         "datrix_codegen_common.generation.raise_site_guards",
+        # Per-queue override-over-default resolution of a queues block's
+        # settings (delay, visibility timeout, max receive count, retention,
+        # concurrency). THE SAME FACT crosses both axes: a platform provisions
+        # a queue's delay / redrive bound / retention, and the language
+        # emitters apply the same queue's delay and delivery-attempt bound -- a
+        # second resolver on either side is how the platforms came to ignore a
+        # per-queue override the emitters honoured. Pure config arithmetic over
+        # ``QueueConfig``, no language-shaped surface.
+        "datrix_codegen_common.algorithms.queue_overrides",
     ]
 )
 
@@ -4128,6 +4137,7 @@ def _self_test_allowed_denied_subtrees(rules: dict[str, BoundaryRule]) -> bool:
             "datrix_codegen_common.algorithms.servicebus_lock_renewal",
             "datrix_codegen_common.algorithms.cqrs_projection_receivers",
             "datrix_codegen_common.generation.raise_site_guards",
+            "datrix_codegen_common.algorithms.queue_overrides",
         ]
     )
     ok &= _check(
@@ -4151,6 +4161,7 @@ def _self_test_allowed_denied_subtrees(rules: dict[str, BoundaryRule]) -> bool:
         "datrix_codegen_common.algorithms.servicebus_lock_renewal",
         "datrix_codegen_common.algorithms.cqrs_projection_receivers",
         "datrix_codegen_common.generation.raise_site_guards",
+        "datrix_codegen_common.algorithms.queue_overrides",
     )
     for imported in allowed_cases:
         ok &= _check(

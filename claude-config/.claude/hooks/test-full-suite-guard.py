@@ -77,7 +77,33 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
         True,
         "read chained AFTER a real bare full-suite run still blocks",
     ),
+    # ---- sweeps assembled from targeting flags: blocked for everyone ----
+    (
+        f"{_TEST} datrix-codegen-python -Tag pubsub,outbox,storage,jobs",
+        True,
+        "more than three tags is a sweep",
+    ),
+    (
+        f'{_TEST} datrix-common datrix-codegen-java -Tag "constant,test-generation,audit,secrets"',
+        True,
+        "quoted tag list over the cap is a sweep",
+    ),
+    (
+        f'{_TEST} datrix-codegen-common datrix-codegen-java -Keyword "decorator"',
+        True,
+        "-Keyword across packages is a sweep",
+    ),
+    (
+        f'{_TEST} datrix-codegen-python -Tag gateway; {_TEST} datrix-common -Tag a,b,c,d',
+        True,
+        "a narrow first run must not vouch for a sweep chained after it",
+    ),
     # ---- targeted forms: allowed for everyone ----
+    (
+        f"{_TEST} datrix-codegen-python datrix-codegen-java -Tag gateway,identity,secrets",
+        False,
+        "three tags is at the cap",
+    ),
     (
         f'{_TEST} datrix-codegen-docker -Specific "tests/unit/infra/test_jaeger.py"',
         False,

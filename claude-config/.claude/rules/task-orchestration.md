@@ -17,6 +17,14 @@ phase's targeted tests once. **No gate, at a wave, a phase boundary, or a qualit
 ever runs a whole suite** (`guard-full-suite-runs.py` blocks it); Jon runs full suites himself. Agent success is necessary but not sufficient — do
 not mark tasks COMPLETED as individual agents return.
 
+**"Union" means the tags of the behaviours the wave/phase actually CHANGED — never every tag
+its task files mention.** A gate is a set of small runs (at most 3 tags each, `-Keyword` in one
+package only, never over 25% of a package's tests — the guard and the runner both refuse more),
+each bought for a named question. A tag whose behaviour no task in the wave touched is not in
+the union. A "union" assembled from every tag across a dozen tasks IS a full-suite run by
+instalments: it cost hours in a phase-49 gate and answered nothing the per-task runs had not.
+Drop a package from a tag run when its code does not reach the change.
+
 **Never run `complete.ps1`** on a task whose agent returned BLOCKED, whose `## How Solved`
 contains `BLOCKED` / `partial` / `out of scope` / `workaround` / `dual path` /
 `not yet wired` or any unmet-criterion statement, or whose design-acceptance property is

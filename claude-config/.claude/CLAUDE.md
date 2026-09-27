@@ -112,7 +112,8 @@ doing the wrong thing.
 | `Stop` | `gate-stop-exhaustion.py` | ending ANY turn on a context-exhaustion claim, a "remaining / still to fix / next up" handover section, a reported security downgrade (§13), or a reported expedient fix (§14) — inert when Jon asked you to stop or asked a question |
 | `SubagentStop` | `check-agent-report.py` | a subagent report ending on a dodge without a B1–B4 proof or filed task, or reporting a security downgrade / expedient fix (neither is lifted by a proof; §13's one exception is B3) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-predeploy-analysis.py` | a deploy with no fresh seam census in `.tmp/predeploy/` (dry-run/`--what-if` forms are always allowed) |
-| `PreToolUse(Bash\|PowerShell)` | `guard-full-suite-runs.py` | every whole-suite run — bare/multi-package `test.ps1`, `-All`, `-Rerun`, tier sweeps, every `affected-gate.ps1` sweep — for every agent, main session included; no override, no ticket (`-ListTags` and `-SelfTest` run no test and are allowed) |
+| `PreToolUse(Bash\|PowerShell)` | `guard-full-suite-runs.py` | every whole-suite run — bare/multi-package `test.ps1`, `-All`, `-Rerun`, tier sweeps, every `affected-gate.ps1` sweep — for every agent, main session included; no override, no ticket (`-ListTags` and `-SelfTest` run no test and are allowed). Also **sweeps assembled from targeting flags**: more than 3 `-Tag` values, or `-Keyword` across several packages |
+| pytest collection | `datrix_common.testing.feature_tags` | a `-Tag`/`-Keyword` selection keeping more than 25% of a package's test tree (above 300 tests) — a full suite by instalments |
 | `PreToolUse(Bash\|PowerShell)` | `guard-untargeted-scans.py` | whole-package `semgrep.ps1`/`libcst.ps1`/`ast-grep.ps1` runs with no `-Rule` and no `SCAN_QUESTION:` in the description; `-All` and subagent runs unconditionally |
 | `PreToolUse(Bash\|PowerShell)` | `validate-script-invocation.py` | `generate.ps1` with `-All`/`-Domains`/`-TestSet` (no override) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-forbidden-commands.py` | git reverts, standalone type-checkers (`mypy` and equivalents, wrappers included), and other prohibited commands |
@@ -207,6 +208,16 @@ Full text: execution-contract §10–§11.
   behaviour you changed (`-Tag`), in every package that behaviour reaches. There is no
   quality gate, wave gate, or phase-boundary gate that sweeps suites; Jon runs full suites
   himself. `guard-full-suite-runs.py` blocks every whole-suite form, with no override.
+- **A targeting flag is not permission to run broadly.** `-Tag`/`-Keyword`/`-Specific` name
+  the behaviour you changed — they are not a legal spelling for "most of the suite". Concretely:
+  at most **3 tags** per run, `-Keyword` in **one** package only, and no run whose selection
+  keeps more than **25%** of a package's tests (both the guard and the runner refuse these).
+  A phase or wave gate is the union of the *changed behaviours'* tags, never the union of every
+  tag the tasks mention; splitting one sweep into several smaller runs is the same violation.
+  **If the guard didn't fire, that is not the rule — this is.** Producing a blocked result
+  through an allowed flag is routing around a guard (see "Enforced by the Harness").
+- **Name the question before any test run.** Say what failure this run could show that your
+  evidence cannot. If a grep, a read, or an already-green targeted run answered it, run nothing.
 - **Verify centrally, once.** Never paste "also re-run these other tests" into every dispatch.
 - **Never sweep the corpus.** To prove a fix generalises, write a test — paid for once, proves
   it forever.
@@ -259,8 +270,11 @@ editable mode. There is no per-package venv.
 | Run a one-off script | `D:\datrix\.venv\Scripts\python.exe <script>` |
 
 **Never run a whole test suite** — no `test.ps1` package run without `-Specific`/`-Keyword`/`-Tag`,
-no `-All`/`-Rerun`/tier sweep, no `affected-gate.ps1`. Every test carries feature tags (pytest `tag` marker, Node
-`#tag` in the name); a test you add carries one too. Tag rules and vocabulary:
+no `-All`/`-Rerun`/tier sweep, no `affected-gate.ps1`. **And never a sweep wearing a targeting
+flag:** at most 3 tags per run, `-Keyword` in one package only, never a selection keeping over
+25% of a package's tests, and never several smaller runs adding up to the same sweep. Every test
+carries feature tags (pytest `tag` marker, Node `#tag` in the name); a test you add carries one
+too. Tag rules and vocabulary:
 `datrix-common/docs/contributing/test-guidelines/feature-tags.md`.
 
 **Never invoke `pytest` directly**, and never reverse-engineer `test.ps1` to discover its

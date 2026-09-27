@@ -571,7 +571,7 @@ On abort, report what was completed, what failed, and what remains.
 <!-- PHASE: quality_gate -->
 ## Phase 4: Quality Gate
 
-Re-run the union of every task's targeted tests once — files and feature tags — to catch cross-task integration issues. **Never a whole suite:** no agent runs one, and `guard-full-suite-runs.py` refuses every form (bare package, `-All`, `-Rerun`, tier sweeps, `affected-gate.ps1`).
+Re-run the tasks' targeted tests once — every task's test files, plus one small tag run per behaviour the tasks CHANGED — to catch cross-task integration issues. **Never a whole suite:** no agent runs one, and `guard-full-suite-runs.py` refuses every form (bare package, `-All`, `-Rerun`, tier sweeps, `affected-gate.ps1`). **Nor a sweep wearing a targeting flag:** at most 3 tags per invocation, `-Keyword` in one package, no selection keeping over 25% of a package's tests, and no set of smaller runs adding up to the same sweep.
 
 **Tags run in every package the changes reach**, established per "Which packages a change reaches" in `d:\datrix\.claude\skills\_shared\verification-strategy.md` (packages whose code or tests reference the changed surface or an unchanged caller of it, plus the pipeline-running packages when a generator's behaviour changed). There is no stored-baseline output gate to run; an output-preservation claim is proven by tests in the owning package.
 

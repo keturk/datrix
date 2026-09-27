@@ -295,10 +295,33 @@ def classify_fragment(text: str, suite_invocation: ModuleType) -> list[str]:
             continue
         if not _looks_like_invocation_boundary(tail):
             continue
-        if suite_invocation.runs_no_test(tail) or suite_invocation.is_targeted(tail):
+        if suite_invocation.runs_no_test(tail):
+            continue
+        if suite_invocation.is_targeted(tail):
+            # A targeted form can still prescribe a SWEEP: a wide `-Tag` list, or a
+            # `-Keyword` spanning packages. The hook blocks those commands, so a
+            # document must not put them in an agent's hands either -- the
+            # "{every task's tags, comma-separated}" template in a quality-gate
+            # skill is exactly how one phase gate grew into a multi-hour sweep.
+            if _sweep_tail_reason(tail, suite_invocation) is not None:
+                hits.append(tail)
             continue
         hits.append(tail)
     return hits
+
+
+def _sweep_tail_reason(tail: str, suite_invocation: ModuleType) -> str | None:
+    """Why a targeted-looking tail prescribes a sweep, or None. Ceilings come from
+    the hook module, so the gate cannot drift from what the hook enforces."""
+    tags = suite_invocation.tag_names(tail)
+    if len(tags) > suite_invocation.MAX_TAGS_PER_RUN:
+        return f"-Tag names {len(tags)} tags"
+    if (
+        suite_invocation.has_keyword(tail)
+        and len(suite_invocation.packages(tail)) > suite_invocation.MAX_PACKAGES_PER_KEYWORD_RUN
+    ):
+        return "-Keyword across several packages"
+    return None
 
 
 def scan_file(path: Path, suite_invocation: ModuleType) -> ScanResult:
@@ -373,6 +396,14 @@ _PLANT_TAG = (
     "datrix-codegen-java -Tag gateway\n"
 )
 _PLANT_LIST_TAGS = 'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" -All -ListTags\n'
+_PLANT_WIDE_TAG = (
+    'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-codegen-python '
+    "-Tag pubsub,outbox,storage,jobs,resilience\n"
+)
+_PLANT_CROSS_PACKAGE_KEYWORD = (
+    'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-codegen-common '
+    'datrix-codegen-java -Keyword "decorator"\n'
+)
 
 
 def _write_fixture(directory: Path, name: str, body: str) -> Path:
@@ -436,6 +467,24 @@ def _check_tag_and_list_tags_forms(root: Path, suite_invocation: ModuleType) -> 
     return None
 
 
+def _check_sweep_forms(root: Path, suite_invocation: ModuleType) -> str | None:
+    """A wide `-Tag` list and a cross-package `-Keyword` are sweeps wearing a
+    targeting flag: the hook blocks the commands, so a document must not
+    prescribe them either."""
+    doc = _write_fixture(
+        root,
+        "sweeps.md",
+        f"# Example\n\n```\n{_PLANT_WIDE_TAG}```\n\n```\n{_PLANT_CROSS_PACKAGE_KEYWORD}```\n",
+    )
+    result = scan_file(doc, suite_invocation)
+    if len(result.hits) != 2:
+        return (
+            f"self-test: a 5-tag run and a cross-package -Keyword run are sweeps and expected "
+            f"2 hits, got {len(result.hits)}"
+        )
+    return None
+
+
 def _check_inline_span_form(root: Path, suite_invocation: ModuleType) -> str | None:
     doc = _write_fixture(
         root,
@@ -490,6 +539,7 @@ _SELF_TEST_CHECKS = (
     _check_exempted_form,
     _check_affected_gate_form,
     _check_tag_and_list_tags_forms,
+    _check_sweep_forms,
     _check_inline_span_form,
     _check_bare_word_form,
     _check_line_citation_form,
@@ -497,7 +547,7 @@ _SELF_TEST_CHECKS = (
 
 
 def self_test(suite_invocation: ModuleType) -> list[str]:
-    """Plant eight fixtures and prove the gate finds exactly what each demands."""
+    """Plant nine fixtures and prove the gate finds exactly what each demands."""
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="instruction-surface-selftest-") as tmp:
         root = Path(tmp)

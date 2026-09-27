@@ -1,4 +1,4 @@
-# I4 Own-Target-Name Ratchet Baseline (Decision D5, Invariant I4)
+# Own-Target-Name Ratchet Baseline
 #
 # Frozen per-PACKAGE counts of function/method definitions whose name
 # carries that package's OWN registered language id or declared alias
@@ -18,7 +18,7 @@
 
 [[baseline]]
 package = "datrix_codegen_dotnet"
-count = 129
+count = 128
 
 [[baseline]]
 package = "datrix_codegen_java"
@@ -26,8 +26,8 @@ count = 113
 
 [[baseline]]
 package = "datrix_codegen_python"
-count = 175
+count = 174
 
 [[baseline]]
 package = "datrix_codegen_typescript"
-count = 218
+count = 215

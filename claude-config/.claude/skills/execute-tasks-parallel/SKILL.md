@@ -266,7 +266,7 @@ If a poll finds an agent with questions (NEEDS_CONTEXT), climb the ladder — do
 <!-- PHASE: verify_and_gate -->
 ## Phase 3: Centralized Verification & Quality Gate
 
-The orchestrator (main session) re-runs the **union of every task's targeted tests once** — files and feature tags, per package — not per task. **It never runs a whole suite:** no agent does, and `guard-full-suite-runs.py` refuses every form (bare package, `-All`, `-Rerun`, tier sweeps, `affected-gate.ps1`).
+The orchestrator (main session) re-runs the wave's targeted tests once — every task's test files batched per package, plus **one small tag run per behaviour the wave CHANGED** — not per task. **It never runs a whole suite:** no agent does, and `guard-full-suite-runs.py` refuses every form (bare package, `-All`, `-Rerun`, tier sweeps, `affected-gate.ps1`). **Nor a sweep wearing a targeting flag:** at most 3 tags per invocation, `-Keyword` in one package, no selection keeping over 25% of a package's tests, and no set of smaller runs adding up to the same sweep. A tag whose behaviour no task in the wave changed is not in the list.
 
 ### Why Centralized
 

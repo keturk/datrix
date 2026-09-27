@@ -193,11 +193,11 @@ Enums are first-class types used in fields, parameters, and event payloads.
 
 ```dtrx
 rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
-    resource Order;
-    resource OrderItem : only(list, get), access(admin);
+    resource Order : auth(required, providers: [identity]);
+    resource OrderItem : only(list, get), auth(required, providers: [identity], roles: [admin]);
 
     @path('/search')
-    fn search(String? query, OrderStatus? status) -> List<Order> {
+    get(String? query, OrderStatus? status) : auth(required, providers: [identity]) -> List<Order> {
         return Order.filter(
             title.contains(query) && status == status
         );
@@ -205,7 +205,7 @@ rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
 }
 ```
 
-`resource` generates standard CRUD endpoints. Use `: only(...)` to limit operations, `: access(...)` to restrict access. Custom endpoints are defined as functions.
+`resource` generates standard CRUD endpoints. Use `: only(...)` to limit operations. Every resource and endpoint declares its access with a mandatory `: auth(...)` modifier — `auth(public)`, `auth(optional, providers: [...])`, `auth(required, providers: [...])` (optionally with `roles: [...]`), `auth(service, providers: [...])`, or `auth(webhook)` paired with `verify(...)`. The only other endpoint modifiers are `hidden` and `idempotent`. Custom endpoints are declared with their HTTP method (`get`, `post`, `put`, `patch`, `delete`).
 
 ### API Storage Defaults
 
@@ -541,9 +541,13 @@ Modules provide reusable traits, abstract entities, enums, and structs that can 
 **Decorators** (`@name`) apply to DSL functions and to REST endpoints (for example `@retry`, `@rateLimit` on a `rest_api` operation). They are **not** used for server-managed entity fields — those use the **`server`** modifier on the field instead (see below).
 
 ```dtrx
-@authorize @cache(ttl: 60s)
-fn getUser(UUID id) -> User { ... }
+@rateLimit(requests: 100, window: 60)
+@cache(ttl: 60)
+@path('/:id')
+get(UUID id) : auth(required, providers: [identity]) -> Order { ... }
 ```
+
+Rate limiting (`@rateLimit(requests: N, window: S)`, `S` in whole seconds, at most one per endpoint), response caching (`@cache(ttl: S)`) and deprecation (`@deprecated`) are decorators; authorization is never a decorator.
 
 **Modifiers** (`: name, …`) apply to fields and declarations. **`server`** marks a field as server-managed (populate from server defaults / hooks, excluded from client create/update payloads):
 
@@ -552,7 +556,7 @@ String email : unique, index, trim;
 UUID id : primaryKey, server = uuid();
 DateTime createdAt : server = DateTime.now();
 UUID authorId -> db.Author : cascade(delete);
-resource db.Order : only(list, get), access(admin);
+resource db.Order : only(list, get), auth(required, providers: [identity], roles: [admin]);
 ```
 
 ---

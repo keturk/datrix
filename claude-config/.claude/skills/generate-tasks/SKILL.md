@@ -478,11 +478,12 @@ Final independent verification pass for {package-name}, run by a different agent
 
 ## Verification Steps
 
-1. Re-run the union of this phase's targeted tests for `{package-name}` once (skip if the orchestrator/executor runs it — see note above): every task's `## Targeted Tests` files, batched into one `-Specific` invocation, and every task's feature tags in `{package-name}` and every package the phase's changes reach (per "Which packages a change reaches" in `.claude/skills/_shared/verification-strategy.md`). Never a whole suite — `guard-full-suite-runs.py` refuses every form, for every agent. For the `datrix` repo itself (no pytest suite), substitute the self-test/gate-invocation list per `repo-boundaries.md`'s "The datrix showcase repo hosts no test suite" instead of these commands:
+1. Re-run this phase's targeted tests for `{package-name}` once (skip if the orchestrator/executor runs it — see note above): every task's `## Targeted Tests` files, batched into one `-Specific` invocation, plus **small tag runs for the behaviours this phase CHANGED** in `{package-name}` and every package the phase's changes reach (per "Which packages a change reaches" in `.claude/skills/_shared/verification-strategy.md`). Never a whole suite, and **never one wide tag list**: at most 3 tags per invocation, `-Keyword` in a single package, no selection keeping over 25% of a package's tests — `guard-full-suite-runs.py` and the runner's own collection check refuse more, and several smaller runs adding up to the same sweep are the same violation. A tag no task in this phase actually changed the behaviour of is NOT in the list. For the `datrix` repo itself (no pytest suite), substitute the self-test/gate-invocation list per `repo-boundaries.md`'s "The datrix showcase repo hosts no test suite" instead of these commands:
    ```
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{every task's test files, comma-separated}"
-   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} {consumer-package} -Tag {every task's tags, comma-separated}
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} {consumer-package} -Tag {up to 3 tags of one changed behaviour}
    ```
+   (one such tag invocation per changed behaviour — not one invocation naming every tag)
 
 2. **Non-trivial-implementation scan** of all files created/modified by this phase's tasks:
    - File has >10 lines of non-comment, non-import code where a real implementation is expected
@@ -521,9 +522,9 @@ Final independent verification pass for {package-name}, run by a different agent
 **Test commands:**
 ```
 powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{every task's test files, comma-separated}"
-powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} {consumer-package} -Tag {every task's tags, comma-separated}
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} {consumer-package} -Tag {up to 3 tags of one changed behaviour}
 ```
-**Scope:** The union of this phase's targeted tests for `{package-name}` — files, and feature tags across every package the changes reach. Never a whole suite. For the `datrix` repo (no pytest suite), substitute the self-test/gate-invocation list this phase's tasks touched, per `repo-boundaries.md`.
+**Scope:** This phase's targeted tests for `{package-name}` — its task files' test files, plus one small tag run per behaviour the phase CHANGED (at most 3 tags each, `-Keyword` in a single package, never over 25% of a package's tests; a tag no task changed is not listed). Never a whole suite, and never one wide tag list — a sweep split across several runs is the same violation. For the `datrix` repo (no pytest suite), substitute the self-test/gate-invocation list this phase's tasks touched, per `repo-boundaries.md`.
 ```
 
 ### Documentation Folders

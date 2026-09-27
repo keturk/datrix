@@ -335,6 +335,15 @@ granularity and targeted-only verification are cost rules as much as correctness
 generalises, **write a test** — it proves the invariant permanently and costs once, where a corpus
 sweep proves it once and evaporates.
 
+**A sweep wearing a targeting flag is still a sweep.** `-Tag`, `-Keyword` and `-Specific` exist to
+name the behaviour you changed; assembling a wide list of them, or splitting one sweep across
+several runs, is a whole-suite run by instalments. Hard ceilings, enforced by the guard and by the
+runner's own collection check: at most 3 tags per run, `-Keyword` in one package, and no selection
+keeping over 25% of a package's tests. **The guard staying silent is not a verdict** — producing a
+blocked result through an allowed flag is routing around a guard, which §14 and CLAUDE.md both ban.
+Before any run, name the failure it could reveal that your evidence cannot; if a grep, a read, or an
+already-green targeted run answered it, run nothing.
+
 **Scope is one example AND one language.** Fix the example for the language it actually failed under.
 Do **not** generate it for the other registered languages to discover whether they are affected too —
 that multiplies the cost of the task you were given by the number of targets, to answer a question

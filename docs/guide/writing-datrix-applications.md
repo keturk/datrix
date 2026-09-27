@@ -685,8 +685,8 @@ Datrix generates complete REST APIs with automatic CRUD operations.
 
 ```dtrx
 rest_api OrderAPI : basePath('/api/v1') {
-    resource db.Order;                          // Full CRUD
-    resource db.OrderItem : only(list, get);    // Read-only
+    resource db.Order : auth(required, providers: [identity]);                        // Full CRUD
+    resource db.OrderItem : only(list, get), auth(required, providers: [identity]);   // Read-only
 }
 ```
 
@@ -703,35 +703,37 @@ rest_api OrderAPI : basePath('/api/v1') {
 ### Limiting Operations
 
 ```dtrx
-resource db.Order : only(create, list, get);      // No update/delete
-resource db.OrderItem : only(list, get);          // Read-only
+resource db.Order : only(create, list, get), auth(required, providers: [identity]);   // No update/delete
+resource db.OrderItem : only(list, get), auth(required, providers: [identity]);       // Read-only
 ```
 
 ### Access Control
 
+Every resource and endpoint declares an `auth(...)` modifier; there is no default access level.
+
 ```dtrx
-resource db.Order : access(authenticated);        // Requires auth
-resource db.Admin : access(admin);                // Admin-only
-resource db.PublicPost : access(public);          // No auth required
+resource db.Order : auth(required, providers: [identity]);                       // Requires auth
+resource db.Warehouse : auth(required, providers: [identity], roles: [admin]);   // Admin-only
+resource db.Product : only(list, get), auth(public);                              // No auth required
 ```
+
+The full set of modes (`public`, `optional`, `required`, `service`, `webhook`) and their arguments is in the [access-levels reference](../../../datrix-language/docs/reference/access-levels.md).
 
 ### Custom Endpoints
 
 ```dtrx
 rest_api OrderAPI : basePath('/api/v1/orders') {
-    resource db.Order;
+    resource db.Order : auth(required, providers: [identity]);
 
     @path('/search')
-    @authorize
-    get search(String? query, OrderStatus? status) -> List<Order> {
+    get(String? query, OrderStatus? status) : auth(required, providers: [identity]) -> List<Order> {
         return db.Order.filter(
             title.contains(query) && status == status
         ).limit(50);
     }
 
     @path('/:id/cancel')
-    @authorize
-    post cancel(UUID id) -> Order {
+    post(UUID id) : auth(required, providers: [identity]) -> Order {
         let order = db.Order.findOrFail(id);
         if (order.status != OrderStatus.Pending) {
             throw ValidationError("Cannot cancel order with status: " + order.status);
@@ -747,7 +749,7 @@ rest_api OrderAPI : basePath('/api/v1/orders') {
 
 A Datrix service calls another service's REST endpoint as a **typed RPC** — never by building a path string. Two rules govern the surface:
 
-1. **Cross-service callability is bound to `access(Service)`.** A custom endpoint is callable from a peer if and only if it is marked `access(Service)`, and a service-facing custom endpoint **must** carry a name (placed right after the HTTP method, like a function name). External-facing endpoints (`public`, `access(authenticated)`, role-gated) carry no cross-service name and cannot be invoked as an RPC — so a peer can never reach a user-facing endpoint and bypass its end-user authorization. Resource (auto-CRUD) operations are cross-service-callable only when that operation is declared `access(Service)`.
+1. **Cross-service callability is bound to `auth(service, ...)`.** A custom endpoint is callable from a peer if and only if it declares `auth(service, providers: [...])`, and a service-facing custom endpoint **must** carry a name (placed right after the HTTP method, like a function name). External-facing endpoints (`auth(public)`, `auth(optional, ...)`, `auth(required, ...)` with or without roles, `auth(webhook)`) carry no cross-service name and cannot be invoked as an RPC — so a peer can never reach a user-facing endpoint and bypass its end-user authorization. Resource (auto-CRUD) operations are cross-service-callable only when the resource is declared `auth(service, ...)`.
 2. **You call by identity, not by route.** The cross-service identity is `(HTTP method, name)`. Endpoint names are noun/resource phrases (the verb is the method), and the route (`@path`) is a deployment detail callers never see.
 
 **Provider — name and expose a service-facing endpoint:**
@@ -757,16 +759,16 @@ rest_api ProductAPI : basePath('/api/v1'), rdbms(db) {
 
     // External, user-facing: no name, not cross-service-callable
     @path('/products/sku/:sku')
-    get(String sku) -> db.Product { ... }
+    get(String sku) : auth(required, providers: [identity]) -> db.Product { ... }
 
-    // Service-facing: access(Service) ⇒ a name is mandatory; callable as
+    // Service-facing: auth(service, ...) ⇒ a name is mandatory; callable as
     //   ProductService.ProductAPI.get.productBySku(sku)
     @path('/service/products/sku/:sku')
-    get productBySku(String sku) : access(Service), hidden -> db.Product { ... }
+    get productBySku(String sku) : auth(service, providers: [internal]), hidden -> db.Product { ... }
 
     // Idempotent read — opts the call into bounded, breaker-aware retry
     @path('/service/products/nearby')
-    get productsInWarehouse(UUID warehouseId) : access(Service), idempotent -> List<db.Product> { ... }
+    get productsInWarehouse(UUID warehouseId) : auth(service, providers: [internal]), idempotent -> List<db.Product> { ... }
 }
 ```
 
@@ -781,7 +783,7 @@ let Product one         = ProductService.ProductAPI.db.Product.get(id);
 let List<Product> all   = ProductService.ProductAPI.db.Product.list(limit: 20);
 ```
 
-The call requires a matching `uses ProductService;` / discovery dependency. Arguments are checked against the provider endpoint's declared parameters (positional first, named after) at generation time — a typo, an undeclared dependency, an unresolved endpoint, an argument type mismatch, or a target that is not `access(Service)` is a generation error, not a runtime 404/422/500. The call's static type is the provider's declared return type, decoded into a generated, validated response struct (only `-> JSON` endpoints stay untyped), so no defensive shape-checking is needed. The old string-path (`Service.Api.get('/route', ...)`), interpolated-path, and pathless positional call forms are removed.
+The call requires a matching `uses ProductService;` / discovery dependency. Arguments are checked against the provider endpoint's declared parameters (positional first, named after) at generation time — a typo, an undeclared dependency, an unresolved endpoint, an argument type mismatch, or a target that is not `auth(service, ...)` is a generation error, not a runtime 404/422/500. The call's static type is the provider's declared return type, decoded into a generated, validated response struct (only `-> JSON` endpoints stay untyped), so no defensive shape-checking is needed. The old string-path (`Service.Api.get('/route', ...)`), interpolated-path, and pathless positional call forms are removed.
 
 ### Query Parameters
 

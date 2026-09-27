@@ -119,6 +119,34 @@ def is_targeted(tail: str) -> bool:
     return any(_has_flag(lowered, flag) for flag in NARROWING_FLAGS)
 
 
+#: A change touches one or two behaviours; a run naming more tags than this is a
+#: sweep assembled from allowed flags. Lives here, not in the guard, so the
+#: instruction-surface census flags exactly the forms the guard blocks.
+MAX_TAGS_PER_RUN: Final = 3
+
+#: A keyword selects by name fragment inside one package's tests; the same
+#: fragment across packages selects whatever happens to match.
+MAX_PACKAGES_PER_KEYWORD_RUN: Final = 1
+
+_TAG_VALUE_RE: Final = re.compile(
+    r"""(?:^|\s)-tag\s+(?:"([^"]*)"|'([^']*)'|(\S+))""", re.IGNORECASE
+)
+
+
+def tag_names(tail: str) -> list[str]:
+    """The feature tags a `-Tag` argument names (comma-separated, quoted or bare)."""
+    names: list[str] = []
+    for match in _TAG_VALUE_RE.finditer(tail):
+        value = next(group for group in match.groups() if group is not None)
+        names.extend(name.strip() for name in value.split(",") if name.strip())
+    return names
+
+
+def has_keyword(tail: str) -> bool:
+    """True when the invocation selects by `-Keyword`."""
+    return _has_flag(tail.lower(), "-keyword")
+
+
 def packages(tail: str) -> list[str]:
     """Package names this invocation would run whole suites for.
 

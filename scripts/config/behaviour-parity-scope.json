@@ -12,6 +12,16 @@
     "divergent) across EVERY domain regardless of 'domains'; it also only grows, and",
     "-Buckets/--buckets overrides it for one run the same way -Scope/--scope overrides 'domains'."
   ],
-  "domains": [],
+  "domains": [
+    "agents", "api_function_test", "api_test", "arcgis", "cache", "cache_test", "cdn", "client",
+    "computed_field_test", "constants", "cqrs_test", "decorator_test", "dev_scripts", "discovery",
+    "entity_function_test", "entity_test", "enum", "enum_test", "error_response", "event",
+    "extern_client", "function", "gateway", "gateway_test", "graphql_test", "health", "helper",
+    "integration", "integration_test", "jobs_test", "lifecycle_hook_test", "migration",
+    "module_function_test", "nosql_connection", "nosql_test", "pubsub_connection", "rate_limit",
+    "rdbms_connection", "resilience", "resilience_test", "search", "secrets", "service_layer",
+    "soft_delete", "storage", "storage_test", "struct", "struct_test", "subscription_consumer",
+    "tenancy", "test_factory", "test_spec", "worker_entrypoints"
+  ],
   "buckets": ["identical"]
 }

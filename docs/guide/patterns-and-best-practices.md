@@ -249,11 +249,10 @@ rest_api OrderAPI : basePath('/api/v1') {
 
 ```dtrx
 rest_api OrderAPI : basePath('/api/v1/orders') {
-    resource db.Order;
+    resource db.Order : auth(required, providers: [identity]);
 
     @path('/:id/cancel')
-    @authorize
-    post cancel(UUID id, String? reason) -> Order {
+    post(UUID id, String? reason) : auth(required, providers: [identity]) -> Order {
         let order = db.Order.findOrFail(id);
 
         if (order.status == OrderStatus.Cancelled) {
@@ -272,8 +271,7 @@ rest_api OrderAPI : basePath('/api/v1/orders') {
     }
 
     @path('/:id/approve')
-    @authorize(admin)
-    post approve(UUID id) -> Order {
+    post(UUID id) : auth(required, providers: [identity], roles: [admin]) -> Order {
         let order = db.Order.findOrFail(id);
         order.status = OrderStatus.Confirmed;
         db.Order.save(order);

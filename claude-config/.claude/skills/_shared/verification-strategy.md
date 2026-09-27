@@ -151,6 +151,12 @@ need a `-Rule` or a stated question (`guard-untargeted-scans.py`).
   those and report the packages, surface and tags they touched. The orchestrator's wave test
   gate re-runs the union of the wave's targeted tests once, batched per package. No phase
   boundary and no quality-gate step runs a suite.
+- **That union is the tags of the behaviours the wave CHANGED, not every tag its task files
+  list.** Hard ceilings, enforced by `guard-full-suite-runs.py` and by the runner's own
+  collection check: at most 3 tags per run, `-Keyword` in a single package, and no selection
+  keeping over 25% of a package's tests. Several smaller runs adding up to the same sweep are
+  the same violation. A targeting flag is not permission to run broadly — if the guard did not
+  fire, the rule still binds.
 - A failure in any test you ran is yours to fix regardless of which package it appears in
   (execution contract §2).
 - **Reach for a test run only after cheaper rungs** (execution contract §12.1). Reading the
