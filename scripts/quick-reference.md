@@ -88,12 +88,12 @@ Project names are **discovered from disk** — any `datrix-*` directory in the w
 - `datrix-codegen-component`
 - `datrix-codegen-python`
 - `datrix-codegen-typescript`
-- `datrix-codegen-dotnet`
-- `datrix-codegen-java`
 - `datrix-codegen-sql`
 - `datrix-codegen-docker`
 - `datrix-codegen-aws`
 - `datrix-codegen-azure`
+- `datrix-codegen-angular` (frontend client target)
+- `datrix-codegen-flutter` (frontend client target)
 - `datrix-extensions`
 - `datrix-vscode` (VS Code client — TypeScript; its suite runs under Node, not pytest)
 

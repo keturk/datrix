@@ -17,7 +17,7 @@ Runs tests for one or more Datrix projects.
 | **Specific test file** | `.\test\test.ps1 datrix-common -Specific "tests/unit/test_foo.py"` | Run one test file |
 | **Several test files (one session)** | `.\test\test.ps1 datrix-common -Specific "tests/unit/test_foo.py,tests/unit/test_bar.py"` | Comma-separated files/node-IDs run in ONE pytest session — always batch a targeted set this way instead of one invocation per file (commas inside parametrized IDs `[1,2]` are literal) |
 | **Keyword filter** | `.\test\test.ps1 datrix-common -Keyword "test_parse"` | Match by keyword (-k) |
-| **Feature tag** | `.\test\test.ps1 datrix-codegen-python datrix-codegen-java -Tag gateway` | Only the tests carrying the tag, in every named package — how a change's behaviour is verified across the packages it reaches |
+| **Feature tag** | `.\test\test.ps1 datrix-codegen-python datrix-codegen-typescript -Tag gateway` | Only the tests carrying the tag, in every named package — how a change's behaviour is verified across the packages it reaches |
 | **Several tags** | `.\test\test.ps1 datrix-common -Tag config-resolution,secrets` | A test runs when it carries ANY named tag |
 | **List tags** | `.\test\test.ps1 datrix-codegen-python -ListTags` | Every tag with its test count, and the untagged tests; runs nothing; exit 1 while any test is untagged or a module fails to collect |
 | **List tags (scoped)** | `.\test\test.ps1 datrix-common -ListTags -Specific "tests/unit/config"` | Listing over the named files/directories only |
@@ -218,7 +218,7 @@ Reports deployment test results from `.generated/` tree.
 | Mode | Command |
 |------|---------|
 | **Show status** | `.\test\status-deploy-tests.ps1` |
-| **One language only** | `.\test\status-deploy-tests.ps1 -L java` |
+| **One language only** | `.\test\status-deploy-tests.ps1 -L typescript` |
 | **Markdown report** | `.\test\status-deploy-tests.ps1 -Report <path>` |
 | **With debug** | `.\test\status-deploy-tests.ps1 -Dbg` |
 
@@ -266,7 +266,7 @@ Builds `failure-data.json` inside a run directory: every error/failure cluster w
 inside `failure_clusters`, while `generated_test_log_writer` builds both of its cluster lists from
 one `ErrorCluster` shape and therefore spells them `error_ids`/`representative_error_id` there too.
 Test ids differ the same way: a pytest id carries a lowercase dotted module prefix that maps to a
-source path, an xUnit id (`Namespace.Class::Method`) carries none, so the representative's `file` is
+source path, a non-python id (`Class::method`) carries none, so the representative's `file` is
 null and the locator is its `generated_file`. `-SelfTest` parses one minimal fixture index per shape
 plus a deliberate unknown-spelling case that MUST be rejected (non-vacuity), so a writer that changes
 its spelling fails here rather than at an agent's first read of a real run.
@@ -336,8 +336,8 @@ Two independent checks over the language type-mapping surfaces, both run on ever
    this leg** — it is not a `datrix.languages` plugin and its `type_mappings` module does not
    register with `global_registry`.
 2. **Extension-map completeness** — for every installed `datrix.extensions` pack, every
-   registered language's `*_EXTENSION_MAPS` dict (`PYTHON_EXTENSION_MAPS`, `JAVA_EXTENSION_MAPS`,
-   `TS_EXTENSION_MAPS`, `DOTNET_EXTENSION_MAPS`) **and SQL's** (`SQL_EXTENSION_MAPS`) must carry a
+   registered language's `*_EXTENSION_MAPS` dict (`PYTHON_EXTENSION_MAPS`, `TS_EXTENSION_MAPS`,
+   ...) **and SQL's** (`SQL_EXTENSION_MAPS`) must carry a
    key for that pack's name — an entry present but empty is correct for a pack contributing zero
    scalars. This leg is unconditional: `-Languages` never narrows it. SQL is checked here via its
    `datrix.generators` registration (`list_available_generators()`), not via `datrix.languages`.
@@ -390,18 +390,18 @@ Whole-system **TypeScript** generation gate: proves the whole-system generate pa
 
 ---
 
-### `test\java-generation-determinism-gate.ps1`
+### `test\generation-determinism-gate.ps1`
 
-Java generation-pipeline determinism gate: the SAME source tree, generated N times in a row via the documented single-project `generate.ps1` path, must never produce two different outcomes (same failure mode every time, or a byte-identical success manifest every time). Each run is its own `generate.ps1` process (fresh `python.exe`, fresh `PYTHONHASHSEED`), so this also exercises hash-seed-driven set-iteration-order bugs a single long-lived process would never surface. Targets `examples/02-features/03-infrastructure-blocks/nosql/system.dtrx` — the example a java corpus generation sweep found producing three different outcomes (a struct-test planning failure, then two different `mvnw compile` failures) from the identical, unchanged-tree invocation. No before/after comparison of two code states can catch this class of bug, because it never runs the same code twice; this gate runs the SAME code N times and compares outcomes to each other. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+Generation-pipeline determinism gate for one registered language: the SAME source tree, generated N times in a row via the documented single-project `generate.ps1` path, must never produce two different outcomes (same failure mode every time, or a byte-identical success manifest every time). Each run is its own `generate.ps1` process (fresh `python.exe`, fresh `PYTHONHASHSEED`), so this also exercises hash-seed-driven set-iteration-order bugs a single long-lived process would never surface. Targets `examples/02-features/03-infrastructure-blocks/nosql/system.dtrx` — the example a corpus generation sweep once found producing three different outcomes (a struct-test planning failure, then two different compile failures) from the identical, unchanged-tree invocation. No before/after comparison of two code states can catch this class of bug, because it never runs the same code twice; this gate runs the SAME code N times and compares outcomes to each other. `-Language` is required — the gate never assumes which languages are installed. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run gate (5 runs)** | `.\test\java-generation-determinism-gate.ps1` | Generate 5 times, assert identical outcomes |
-| **Custom run count** | `.\test\java-generation-determinism-gate.ps1 -Runs 3` | Fewer/more repeated generations (must be >= 2) |
-| **Custom output root** | `.\test\java-generation-determinism-gate.ps1 -OutputRoot D:\datrix\.test-output\java-determinism-gate` | Override run1..runN location |
-| **Debug** | `.\test\java-generation-determinism-gate.ps1 -Dbg` | Forward `-Dbg` to generate.ps1 |
+| **Run gate (5 runs)** | `.\test\generation-determinism-gate.ps1 -Language python` | Generate 5 times for one language, assert identical outcomes |
+| **Custom run count** | `.\test\generation-determinism-gate.ps1 -Language typescript -Runs 3` | Fewer/more repeated generations (must be >= 2) |
+| **Custom output root** | `.\test\generation-determinism-gate.ps1 -Language python -OutputRoot D:\datrix\.test-output\generation-determinism-gate\python` | Override run1..runN location |
+| **Debug** | `.\test\generation-determinism-gate.ps1 -Language python -Dbg` | Forward `-Dbg` to generate.ps1 |
 
-**Parameters:** `-OutputRoot` (default: `d:/datrix/.test-output/java-determinism-gate`), `-Runs` (default: 5, must be >= 2), `-Dbg`/`-DebugLogging`
+**Parameters:** `-Language` (required; a registered `datrix.languages` name), `-OutputRoot` (default: `d:/datrix/.test-output/generation-determinism-gate/<Language>`), `-Runs` (default: 5, must be >= 2), `-Dbg`/`-DebugLogging`
 
 **Assertions:**
 - Every run's classification (SUCCESS vs FAILED) matches run 1's.
@@ -478,7 +478,7 @@ Declaration-driven service ingress migration conformance gate. Repo-level, indep
 
 **Parameters:** `-BaseDir`, `-SelfTest`, `-ShowFiles`, `-Dbg`
 
-**Self-test runs automatically, every invocation.** It plants each retired form (java's path-fold de-duplicator, java's nested-handler de-duplicator, .NET's nested-action de-duplicator whose function name says "method" rather than "handler" and is caught by the module path) and requires each to be detected, then plants each legitimate near-miss (serverless shadow avoidance, generated-test-method disambiguation, local-variable allocation) and requires each to be reported clean — so neither a scanner that can only return zero nor one that flags everything is believed. A run that discovers fewer than two `datrix-codegen-*` packages with a `src/` tree, or no Python source in them, fails rather than passing vacuously.
+**Self-test runs automatically, every invocation.** It plants each retired form (a path-fold de-duplicator, a nested-handler de-duplicator, and a nested-action de-duplicator whose function name says "method" rather than "handler" and is caught by the module path) and requires each to be detected, then plants each legitimate near-miss (serverless shadow avoidance, generated-test-method disambiguation, local-variable allocation) and requires each to be reported clean — so neither a scanner that can only return zero nor one that flags everything is believed. A run that discovers fewer than two `datrix-codegen-*` packages with a `src/` tree, or no Python source in them, fails rather than passing vacuously.
 
 **Exit codes:** 0 = clean (or a successful `-SelfTest`), 1 = a violation was found, 2 = usage error, too few packages discovered, or the self-test failed.
 
@@ -514,7 +514,7 @@ GenDSL 2 Invariant I5 ratchet: AST-counts direct `GeneratedFile(...)` constructo
 
 ### `test\check-docs-conformance.ps1`
 
-Docs-conformance Invariant I5 gate: extracts repo-relative path references and Python module references from the curated 39-file architecture-doc set (each package's `docs/architecture.md` and/or `docs/architecture/` tree — `datrix-extensions` has neither and contributes zero) and fails if any reference does not resolve to a real file/directory/module in the tree, unless it is recorded in the committed exceptions baseline at `scripts/config/docs-conformance-exceptions.json` (a "what was removed" migration-history claim, a "must never exist" prohibition claim, or another confirmed-intentional non-existence). This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same scan-and-baseline shape as `check-generated-file-ratchet.ps1`'s I5 ratchet, except the exceptions baseline is hand-edited and reviewed (no `-UpdateBaseline` flag — every entry needs a human-authored reason a script cannot synthesize).
+Docs-conformance Invariant I5 gate: extracts repo-relative path references and Python module references from the curated 38-file architecture-doc set (each package's `docs/architecture.md` and/or `docs/architecture/` tree — `datrix-extensions` has neither and contributes zero) and fails if any reference does not resolve to a real file/directory/module in the tree, unless it is recorded in the committed exceptions baseline at `scripts/config/docs-conformance-exceptions.json` (a "what was removed" migration-history claim, a "must never exist" prohibition claim, or another confirmed-intentional non-existence). This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same scan-and-baseline shape as `check-generated-file-ratchet.ps1`'s I5 ratchet, except the exceptions baseline is hand-edited and reviewed (no `-UpdateBaseline` flag — every entry needs a human-authored reason a script cannot synthesize).
 
 `ARCHITECTURE_DOC_FILES` is a literal, reviewable constant in the script (never a directory glob) — "architecture docs" is a curated concept, and a new architecture doc added later is a deliberate, reviewed one-line addition to that constant. This v1 only checks path-reference candidates that are fully package-qualified (start with a known package name or `D:\datrix\`) and module-reference candidates that are fully import-qualified (start with a known Python import name) — a bare, package-relative shorthand span with no anchor at all is never a candidate (deliberate scope boundary, not a gap).
 
@@ -522,7 +522,7 @@ Docs-conformance Invariant I5 gate: extracts repo-relative path references and P
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run gate** | `.\test\check-docs-conformance.ps1` | Scan all 39 architecture docs, fail on unresolved references |
+| **Run gate** | `.\test\check-docs-conformance.ps1` | Scan all 38 architecture docs, fail on unresolved references |
 | **Warning mode** | `.\test\check-docs-conformance.ps1 -Warn` | Report unresolved references but exit 0 |
 | **Show files** | `.\test\check-docs-conformance.ps1 -ShowFiles` | Print each architecture doc file being scanned |
 | **Self-test only** | `.\test\check-docs-conformance.ps1 -SelfTest` | Run only the scanner's own edge-case self-test suite; skip the real docs scan |
@@ -534,7 +534,7 @@ Docs-conformance Invariant I5 gate: extracts repo-relative path references and P
 **Self-test runs automatically, every invocation.** A plain-Python self-test suite (`--self-test` on the underlying `.py`; no pytest -- real `tempfile.TemporaryDirectory()` fixtures and `assert` statements, per the datrix showcase boundary) covers `extract_path_candidates`, `extract_module_candidates`, `resolve_path_candidate` (Tier 1 + Tier 2, including the adversarial ambiguous-Tier-2-match case, which must stay unresolved), `resolve_module_candidate`, `load_exceptions`, and `check_against_exceptions`. This suite runs, unconditionally, as step 1 of every invocation (self-test failure aborts before the real scan, exit 2); `-SelfTest` runs it in isolation and skips the real scan. `--harness-self-test` (no `.ps1` switch -- diagnostic only) registers one intentionally-failing dummy check to prove the `[OK]`/`[FAIL]` harness itself is not vacuous.
 
 **Assertions:**
-- Every single-backtick inline code span in each of the 39 architecture docs is extracted as a path-reference or module-reference candidate per the fixed extraction rules (package/drive-prefixed for paths, import-name-prefixed dotted chains for modules); a span containing `...`, `<`/`>`, or `*` is rejected outright.
+- Every single-backtick inline code span in each of the 38 architecture docs is extracted as a path-reference or module-reference candidate per the fixed extraction rules (package/drive-prefixed for paths, import-name-prefixed dotted chains for modules); a span containing `...`, `<`/`>`, or `*` is rejected outright.
 - A path candidate resolves via Tier 1 (exact path exists under the monorepo root; a trailing-slash candidate must be a directory) or Tier 2 (an unambiguous `src/`/`tests/`-relative suffix match — never attempted when the candidate already starts with `src`/`tests`, and never resolved when the suffix matches 2+ files).
 - A module candidate resolves when any decreasing-length prefix of its segments after the import name matches a real `.py` file or package `__init__.py` (tolerating a trailing symbol/attribute/function name).
 - A candidate unresolved by both tiers is checked against the exceptions baseline (span text -> reason); present spans never fail the gate, absent spans do.
@@ -750,7 +750,7 @@ does not count a parameter its sibling languages drop.
   `on_demand_domains`, or (for `@emit_adapter`-marked members) every emit-table row's builtin
   group having an `unsupported` `builtin_group_stances` entry — is set aside; the role passes
   iff at most one group remains, and otherwise fails with one reason naming every remaining
-  group (e.g. `members split into 2 skeleton groups: {java, python} vs {dotnet}; no member
+  group (e.g. `members split into 2 skeleton groups: {python} vs {typescript}; no member
   declares the construct unsupported`) — the gate cannot know which group is right, so it names
   all of them. A role every member of which declares the construct unsupported passes and is
   still reported. An `undomained` role admits only the builtin-group surface. A role the gate
@@ -788,7 +788,7 @@ realize different infrastructure by design.
 **The language axis also covers every `transpiler_profile`-bearing frontend-client renderer.**
 Beside every `datrix.languages` package, the language axis compares every registered
 `datrix.generators` package whose native generator class declares a non-`None`
-`transpiler_profile` on its `PluginDescriptor` (angular/react/flutter once their own tasks land
+`transpiler_profile` on its `PluginDescriptor` (angular/flutter once their own tasks land
 — none do yet, so today's scan is unaffected). Its name-token vocabulary comes from its
 `ClientTargetCapabilityDeclaration.name_tokens`, resolved only after no `datrix.languages`
 plugin answers to the same name — never guessed from the bare registered name alone. The
@@ -865,7 +865,7 @@ Shared-builder reachability gate: every module-level `build_*` function declared
 
 ### `test\migration-upgrade-op-family-gate.ps1`
 
-Migration upgrade-op family gate: the cross-package half of the upgrade-op duplication census. Six `_build_upgrade_op_for_*` symbols exist once per migration target (python's Alembic migration generator, dotnet's FluentMigrator ops); the census read both bodies of each and concluded they are genuinely divergent, so **both private copies must survive** — a later "cleanup" deleting one would be deleting a target's real behaviour. `_build_upgrade_op_for_field_added` additionally carried a behaviour gap that is now CLOSED (dotnet emitted no backfill default, so a non-nullable `FIELD_ADDED` the shared change policy classifies *safe* rendered a migration that failed at apply time on any populated table); the gate holds the default-bearing `FluentMigratorColumn` field that closes it. One genuinely shared fact WAS hoisted: both targets reassembled the `INDEX_ADDED` JSON detail into its `SnapshotIndex` with byte-identical semantics and error text, so that parse now lives once in `datrix_codegen_common.algorithms.migration_upgrade_op_index`, each target calls it the exact number of times its own paths need, and neither may redefine it. Structural resolution only, never a text match. The two languages are named (a fact about which targets carry this family, not a claim about which targets exist) but their packages resolve through the installed `datrix.languages` entry points, so a named language that is not installed fails loud instead of letting its half pass vacuously. Repo-level validation **script** — a unit test importing two generator packages to compare their bodies is the shape the repo boundary forbids outright; the shared parser's own input/output behaviour stays as a unit test in `datrix-codegen-common`, which owns the function.
+Migration upgrade-op family gate: the cross-package half of the upgrade-op duplication census. Six `_build_upgrade_op_for_*` symbols exist once per migration target that carries the family (today python's Alembic migration generator); the census read their bodies and concluded they are genuinely target-specific, so **every private copy must survive** — a later "cleanup" deleting one would be deleting a target's real behaviour. One genuinely shared fact WAS hoisted: the targets reassembled the `INDEX_ADDED` JSON detail into its `SnapshotIndex` with byte-identical semantics and error text, so that parse now lives once in `datrix_codegen_common.algorithms.migration_upgrade_op_index`, each target calls it the exact number of times its own paths need, and none may redefine it. Structural resolution only, never a text match. The languages are named (a fact about which targets carry this family, not a claim about which targets exist) but their packages resolve through the installed `datrix.languages` entry points, so a named language that is not installed fails loud instead of letting its part pass vacuously. Repo-level validation **script** — a unit test importing several generator packages to compare their bodies is the shape the repo boundary forbids outright; the shared parser's own input/output behaviour stays as a unit test in `datrix-codegen-common`, which owns the function.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -876,9 +876,8 @@ Migration upgrade-op family gate: the cross-package half of the upgrade-op dupli
 **Parameters:** `-Dbg`, `-SelfTest`
 
 **Assertions:**
-- Each of the six divergent symbols is still defined exactly once per target.
-- `FluentMigratorColumn` declares a default-bearing annotated field.
-- Each target has exactly the pinned number of resolved call sites for `parse_index_added_detail` (a count, not a `>= 1`: a path silently losing its call is the regression this pins), and neither target defines `parse_index_added_detail` or the retired `_index_from_index_added_detail`.
+- Each of the six target-specific symbols is still defined exactly once per target.
+- Each target has exactly the pinned number of resolved call sites for `parse_index_added_detail` (a count, not a `>= 1`: a path silently losing its call is the regression this pins), and no target defines `parse_index_added_detail` or the retired `_index_from_index_added_detail`.
 - Non-vacuity self-test (every invocation): the resolver finds a planted direct call, follows a `from … import … as …` alias, and finds a module-qualified `alias.symbol(...)` call; and it does NOT count a same-suffix private wrapper (`_parse_index_added_detail`) or a bare docstring/string mention — both false-positive shapes this chain has been bitten by. The definition scan is proven in both directions too: it finds a planted definition and invents none.
 
 **Exit codes:** 0 = every check holds (or a successful `-SelfTest`), 1 = at least one violation, 2 = the self-test failed, a named language is not registered/installable, or the classification file is missing/malformed.
@@ -1062,7 +1061,7 @@ Problem-type parity gate: every registered language answers errors with RFC 7807
 
 ### `test\field-error-path-parity-gate.ps1`
 
-Field-error-path parity gate: every registered language spells a `request-validation` problem body's `errors[].field` with the ONE shape `datrix_common.datrix_model.problem_types.FIELD_ERROR_PATH_RULE` defines (a dot-separated wire-name path relative to the request body root, no leading `body` segment, `[n]` for array elements) or declares the hole with a reason on its `LanguageCapabilityDeclaration.unrealized_field_error_path`. Unlike the problem-type/framework-header registries this is not a family table — there is exactly one rule, so the declaration is a single optional reason string, not a mapping. Realization is a runtime BEHAVIOUR rather than a literal wire string, so there is no single cross-language regex: the gate censuses each registered language's own construction technique — python's real, callable `format_field_error_path` mapping function (found by definition, then EXECUTED against the rule's own canonical worked example so the produced string is real, not guessed), typescript's hand-written `buildValidationFieldErrors` recursive builder (found by its two required construction lines — bracket-indexed, dot-joined), and java's native `FieldError.getField()` / `ConstraintViolation.getPropertyPath()` accessors (already canonical by Spring/Jakarta's own contract). A language with no known technique censuses to zero sites. **Realization:** the language's census produces the canonical path for the shared fixture, or it declares the hole. Neither fails naming the language; both is a stale declaration and fails; a found but divergent construction (a literal `body` prefix, or an index not spelled `[n]`) fails naming the found and expected spelling. Language set from the installed `datrix.languages` entry points; declarations read from the packages — never a table in the script. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+Field-error-path parity gate: every registered language spells a `request-validation` problem body's `errors[].field` with the ONE shape `datrix_common.datrix_model.problem_types.FIELD_ERROR_PATH_RULE` defines (a dot-separated wire-name path relative to the request body root, no leading `body` segment, `[n]` for array elements) or declares the hole with a reason on its `LanguageCapabilityDeclaration.unrealized_field_error_path`. Unlike the problem-type/framework-header registries this is not a family table — there is exactly one rule, so the declaration is a single optional reason string, not a mapping. Realization is a runtime BEHAVIOUR rather than a literal wire string, so there is no single cross-language regex: the gate censuses each registered language's own construction technique — python's real, callable `format_field_error_path` mapping function (found by definition, then EXECUTED against the rule's own canonical worked example so the produced string is real, not guessed), and typescript's hand-written `buildValidationFieldErrors` recursive builder (found by its two required construction lines — bracket-indexed, dot-joined). A language with no known technique censuses to zero sites. **Realization:** the language's census produces the canonical path for the shared fixture, or it declares the hole. Neither fails naming the language; both is a stale declaration and fails; a found but divergent construction (a literal `body` prefix, or an index not spelled `[n]`) fails naming the found and expected spelling. Language set from the installed `datrix.languages` entry points; declarations read from the packages — never a table in the script. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -1074,7 +1073,7 @@ Field-error-path parity gate: every registered language spells a `request-valida
 
 **Assertions:**
 - Realization, per language: exactly one of `realized (census produces the canonical path)` / `declared unrealized (non-empty reason)`.
-- Non-vacuity self-test (every invocation): a planted correct python formatter's real execution produces the canonical path, a planted divergent one surfaces its actual wrong output; a planted correct typescript builder censuses as canonical, one missing the `[n]`-index construction censuses as divergent; a planted Spring `FieldError.getField()` call site censuses as canonical; a language with no known detector censuses to zero sites; the comparator reports exactly one problem for a divergent spelling, an empty declared reason, a stale declaration (realizing and declaring at once) and an undeclared unrealized gap, and none for two languages spelling the canonical path or a declared hole with a real reason; the **live** census finds at least one registered language realizing or declaring the rule; a single-language set is refused.
+- Non-vacuity self-test (every invocation): a planted correct python formatter's real execution produces the canonical path, a planted divergent one surfaces its actual wrong output; a planted correct typescript builder censuses as canonical, one missing the `[n]`-index construction censuses as divergent; a language with no known detector censuses to zero sites; the comparator reports exactly one problem for a divergent spelling, an empty declared reason, a stale declaration (realizing and declaring at once) and an undeclared unrealized gap, and none for two languages spelling the canonical path or a declared hole with a real reason; the **live** census finds at least one registered language realizing or declaring the rule; a single-language set is refused.
 
 **Exit codes:** 0 = every language realizes or declares the rule (or a successful `-SelfTest`), 1 = a violation was found, 2 = the self-test failed or fewer than two languages are registered.
 
@@ -1099,7 +1098,7 @@ Cross-language artifact-role parity gate -- the G-A closure: detects a language 
 **Assertions:**
 - Every registered language's corpus is complete: each `system.dtrx` under `datrix/examples/` has a generated tree (a directory carrying `.datrix/manifests/*.json`) or a park entry; no parked pair has a tree.
 - Every `(example, runtime, provider)` generated in >= 2 registered languages is compared.
-- A domain role present (>= 1 matching path) in one language's generated tree for an example and absent from another language's tree for the SAME `(example, runtime, provider)` is a violation, UNLESS the missing language declares that domain globally `unsupported` (`_is_declared_unsupported`, skipped directly), OR declares it emitted on demand on its `LanguageCapabilityDeclaration.on_demand_domains` (it emits the domain only when the DSL invokes a triggering construct, where another language emits baseline scaffolding regardless -- dotnet's `Support/*.cs` helpers, python/java/dotnet's service-level `fn` file, python/typescript/java's `exceptions { }`-gated errors folder; skipped directly), OR the domain's pattern matches nothing across that language's entire generated footprint (`_is_corpus_vacuous_for_language`, skipped directly), OR a reviewed entry exists in `scripts/config/artifact-role-exemptions.json` -- the last being reserved for a genuinely example-specific hole; the file is absent when there is none, which is the normal state.
+- A domain role present (>= 1 matching path) in one language's generated tree for an example and absent from another language's tree for the SAME `(example, runtime, provider)` is a violation, UNLESS the missing language declares that domain globally `unsupported` (`_is_declared_unsupported`, skipped directly), OR declares it emitted on demand on its `LanguageCapabilityDeclaration.on_demand_domains` (it emits the domain only when the DSL invokes a triggering construct, where another language emits baseline scaffolding regardless -- e.g. a service-level `fn` file or an `exceptions { }`-gated errors folder; skipped directly), OR the domain's pattern matches nothing across that language's entire generated footprint (`_is_corpus_vacuous_for_language`, skipped directly), OR a reviewed entry exists in `scripts/config/artifact-role-exemptions.json` -- the last being reserved for a genuinely example-specific hole; the file is absent when there is none, which is the normal state.
 - `load_exemptions` refuses (raises `ValueError`, exit 2) an exemption entry naming a `(domain, language)` pair that language declares `unsupported` or on-demand -- such an entry would duplicate a declared absence the gate already reads directly; delete it instead of keeping it. A declared on-demand id that is not a shared universe domain is refused by name.
 - **Corpus vacuity is skipped but never silent.** `check_corpus_vacuity_records` censuses EVERY registered language against EVERY domain it declares `supported` (not just the pairs the multi-language groups happen to exercise) and holds each corpus-vacuous `(language, domain)` to a reviewed record in `scripts/config/corpus-vacuity-records.json`. The comparison runs in both directions: a censused pair with no record fails (exit 1), and a record whose pair is no longer vacuous fails as stale (exit 1). Each record carries one of three statuses, which are never interchangeable because each carries a different remedy -- `unreachable-by-design` (no example can produce a matching file at all, whatever it declares or targets), `cloud-platform-only` (only an example resolving `deployment.provider` to a cloud provider could, and the corpus has none), `unexercised` (an ordinary local/docker example could and none declares the construct). `load_corpus_vacuity_records` refuses (exit 2) a missing/malformed file, a status outside those three, or a duplicated `(language, domain)`.
 - Non-vacuity self-test (every invocation): a synthetic matching role-set pair reports zero divergence; a synthetic forced-mismatch pair reports exactly the planted gap; a synthetic manifest/declaration pair proves `classify_paths` buckets matched vs. unclassified paths correctly; `_is_declared_unsupported` correctly distinguishes a declared-unsupported domain, a declared-supported domain, and an undeclared domain id; `_is_corpus_vacuous_for_language` is proven against a synthetic footprint (never touching a real generated tree); the corpus reader is proven against a synthetic `.generated` layout under a PID-scoped scratch root (two targets' manifests union into one sorted path list with the newest stamp, a directory without pipeline manifests is not a tree, a single-language tree forms no comparison group, and the completeness check names a missing pair and a stale park entry); `_reject_exemptions_for_unsupported_domains` correctly rejects a synthetic entry duplicating a declared-unsupported domain; and `compare_vacuity_records` reports nothing for an agreeing census/record pair, reports a censused pair carrying no record, and reports a record whose pair is no longer censused -- with `_parse_vacuity_record` accepting each declared status and refusing an undeclared one.
@@ -1250,7 +1249,7 @@ realizing while its exemption is still present (a stale exemption) also fails.
 
 Derives its target sets from
 `importlib.metadata.entry_points(group="datrix.languages" | "datrix.platforms")` at runtime —
-never a hardcoded `python`/`typescript`/`java`/`dotnet` or `aws`/`azure`/`docker` literal — so a
+never a hardcoded language-name or `aws`/`azure`/`docker` literal — so a
 future `datrix-codegen-<x>` package is covered automatically with no edit here. Every registered
 entry-point name is checked independently (a platform name backed by a shared package, e.g.
 `local` with `docker` or `azure-vm` with `azure`, still gets its own exemption entry).
@@ -1286,42 +1285,37 @@ non-vacuity self-test failed or fewer than 2 targets are registered on an axis b
 Documentation-realization parity gate (Decision 39 I2/I6). For every registered `datrix.languages`
 target, generates one small fixture project — via the real
 `datrix_cli.pipeline.generation.GenerationPipeline` (the exact code path `datrix generate`/
-`generate.ps1` runs, `ValidationLevel.FAST` so post-generation `dotnet build`/`mvnw compile` are
+`generate.ps1` runs, `ValidationLevel.FAST` so each language's post-generation toolchain build is
 skipped — see below), never a hand-built test context — whose DSL documents an endpoint, an entity,
 a field, an enum value, a struct field and a function, each with a published (`///`) comment and an
 adjacent source-channel (`//`) comment. Asserts, by parsing the generated artifacts **structurally**
 (Python's real `ast` + `tokenize` — a call-keyword `summary`/`description` string constant, or a
 class/function/async-function docstring via `ast.get_docstring`, the landing site for a construct
-with no decorator surface; a hand-rolled bracket/string-literal-aware lexer for TypeScript/Java that
-either finds a decorator anchor outside any string/comment span and bracket-depth-tracks to its
-matching close, or reads a `/** ... */` JSDoc/Javadoc doc-comment block — the no-decorator-surface
-landing site, distinguished structurally from a plain `/* ... */` block comment by its `/**` opener,
-exactly as `///` is distinguished from `//`; real XML parsing — `xml.etree.ElementTree` — of C#'s
-grouped `///` doc-comment blocks, pulling `<summary>`/`<remarks>`/`<param>` element text — `<param>`'s
-`name` attribute attributes a struct field's doc to the right record component — never a
-line-oriented regex over a whole file), that the published text reaches that target's declared
-published surface and the source text reaches its source surface and never the published one.
+with no decorator surface; a hand-rolled bracket/string-literal-aware lexer for C-family targets such
+as TypeScript that either finds a decorator anchor outside any string/comment span and
+bracket-depth-tracks to its matching close, or reads a `/** ... */` JSDoc doc-comment block — the
+no-decorator-surface landing site, distinguished structurally from a plain `/* ... */` block comment
+by its `/**` opener — never a line-oriented regex over a whole file), that the published text reaches
+that target's declared published surface and the source text reaches its source surface and never
+the published one.
 
-**Asserts over generated artifacts, not a running/building service.** This sandbox has zero NuGet
-connectivity (dotnet) and an incompatible default JDK release (java `mvnw compile`), so generation
-runs with `ValidationLevel.FAST` — `fix_imports` + `format_files` run, but `validate_files` (where
-those two toolchains would otherwise be invoked) is skipped. **Two** language packages prove a real
-end-to-end document in their own suites: python against a real FastAPI router's `.openapi()`, and
-typescript against a real `tsc` + `SwaggerModule.createDocument()` run over an npm-installed
-dependency set. java and dotnet do **not** — their suites assert over the generated artifacts
-(springdoc reads the emitted annotations at request time, and no `.xml` doc file can be compiled
-here), the same rung of the ladder this gate stands on. So this gate is the repo-level cross-target
-census, and for java/dotnet the artifact assertion is the strongest proof this environment supports.
+**Asserts over generated artifacts, not a running/building service.** Generation runs with
+`ValidationLevel.FAST` — `fix_imports` + `format_files` run, but `validate_files` (where a language's
+toolchain build would otherwise be invoked) is skipped, because the property under test is where the
+text lands, not whether the toolchain builds. Each language package proves a real end-to-end
+document in its own suite: python against a real FastAPI router's `.openapi()`, and typescript
+against a real `tsc` + `SwaggerModule.createDocument()` run over an npm-installed dependency set.
+This gate is the repo-level cross-target census.
 
 Derives its target set from `importlib.metadata.entry_points(group="datrix.languages")` at
-runtime — never a hardcoded python/typescript/java/dotnet literal.
+runtime — never a hardcoded language-name literal.
 
 **Built-in non-vacuity self-test, every invocation.** Confirms every marker text is actually present
 in the fixture DSL itself, then proves each structural extractor (Python ast/tokenize including
 docstring detection, the C-family decorator-anchor lexer, the C-family `/** ... */` doc-block reader
-— including a negative proof that a plain `/* ... */` block comment is never mistaken for one — the
-dotnet XML-doc parser including `<param>`) finds a known-present published/source text in a synthetic
-snippet it has never seen and never leaks a source comment into the published set. Fails loud
+— including a negative proof that a plain `/* ... */` block comment is never mistaken for one) finds
+a known-present published/source text in a synthetic snippet it has never seen and never leaks a
+source comment into the published set. Fails loud
 (exit 2) if fewer than 2 languages are registered.
 
 | Mode | Command | Description |
@@ -1381,7 +1375,7 @@ not all" state left to catalogue as a reviewed exception — unlike the hand-typ
 set plus per-method reviewed-gap design this gate replaced, this one has no such config file.
 
 Derives its target language set from `importlib.metadata.entry_points(group="datrix.languages")`
-at runtime — never a hardcoded `python`/`typescript`/`dotnet`/`java` literal.
+at runtime — never a hardcoded language-name literal.
 
 **Built-in non-vacuity self-test, every invocation.** Feeds both comparators a synthetic matching
 pair (must report zero divergence) and a synthetic forced-mismatch pair (must report the planted
@@ -1542,7 +1536,7 @@ in `datrix/scripts/config/body-wire-naming-exemptions.json` (`{language, schema_
 reason}`).
 
 Derives its target language set from `importlib.metadata.entry_points(group="datrix.languages")`
-at runtime -- never a hardcoded `python`/`typescript`/`dotnet`/`java` literal.
+at runtime -- never a hardcoded language-name literal.
 
 **Built-in non-vacuity self-test, every invocation.** Proves the comparator flags a genuinely
 divergent field, does not flag a genuinely conformant one, does not flag a single-word field with
@@ -1579,7 +1573,7 @@ this gate is the coverage the closed registry would otherwise provide.
 
 Derives its target language set from `importlib.metadata.entry_points(group="datrix.languages")`
 at runtime, then narrows to enum-emitting languages from each plugin's own registered `"enum"`
-sub-generator domain — never a hardcoded `python`/`typescript`/`dotnet`/`java` literal.
+sub-generator domain — never a hardcoded language-name literal.
 
 **Built-in non-vacuity self-test, every invocation.** Feeds the comparator a synthetic
 fully-conformant pair (must report zero violations) and a synthetic partially-broken pair (must
@@ -1653,7 +1647,7 @@ target failed to resolve or import.
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Run gate** | `.\test\toolchain-free-suites-gate.ps1` | Scan every `datrix-*` package suite, every shape |
-| **One suite** | `.\test\toolchain-free-suites-gate.ps1 -Suites D:/datrix/datrix-codegen-java/tests` | Scan one or more comma-separated `tests/` directories |
+| **One suite** | `.\test\toolchain-free-suites-gate.ps1 -Suites D:/datrix/datrix-codegen-typescript/tests` | Scan one or more comma-separated `tests/` directories |
 | **New shapes only** | `.\test\toolchain-free-suites-gate.ps1 -Shapes suite-in-suite-pytest,suite-in-suite-script` | Enforce only the two suite-in-suite shapes at hard zero, independent of the pre-existing `in-process-execution`/`toolchain-subprocess` counts |
 | **Self-test** | `.\test\toolchain-free-suites-gate.ps1 -SelfTest` | Prove the detector is non-vacuous, skip the real scan |
 
@@ -1810,23 +1804,19 @@ populations), and `TestResult`/`_format_result_row`/`_read_index_json`/`find_lat
 `parse_pytest_summary`/`parse_timestamp_from_log_file` (structured `index.json` parsing including
 the INCOMPLETE-falls-back-to-`full.log` signal, `index.json`-preferred-over-`full.log` discovery,
 directory-name timestamp parsing, and the in-progress xdist `[ NN%]` progress-percent extraction
-case). It additionally covers `scripts/library/test/run_complete.py`'s Java generated-project
-handling — `_find_java_service_dirs`/`_is_java_project` service detection (Maven modules with
-`src/test/java`, with the project-level `deployment-tests` module excluded because deploy tests
-run in Step 4) and `_merge_surefire_reports`/`_count_junit_testcases`, including the adversarial
-cases where a build never reached surefire and so must NOT read as a clean run. Repo-level
-validation **script**, not a pytest suite (per the datrix showcase boundary).
+case). Repo-level validation **script**, not a pytest suite (per the datrix showcase boundary).
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the gate** | `.\test\test-tooling-parsing-gate.ps1` | Run all 45 absorbed checks |
+| **Run the gate** | `.\test\test-tooling-parsing-gate.ps1` | Run all 39 absorbed checks |
 | **Harness self-test** | `.\test\test-tooling-parsing-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
 | **Debug** | `.\test\test-tooling-parsing-gate.ps1 -Dbg` | Print the python invocation before running |
 
 **Parameters:** `-HarnessSelfTest`, `-Dbg`
 
-**Assertions:** 45 named checks covering `compare_tests.py`, `status_tests.py`, and
-`run_complete.py`'s Java project detection / surefire report merging. Several are
+**Assertions:** 39 named checks covering `compare_tests.py`, `status_tests.py`,
+`run_complete.py`'s generated-project metadata derivation, the structured-output writers, and the
+Node test runner. Several are
 inherently adversarial (nested/archived run dirs excluded from discovery, corrupt JSON → `None`,
 INCOMPLETE result → `None`/fallback, missing `counts` → `None`), which already demonstrates
 discriminating power; `-HarnessSelfTest` additionally proves the pass/fail harness itself is not
@@ -2124,7 +2114,7 @@ Runs the affected set of Datrix package suites concurrently and returns one GREE
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Changed + reached consumers** | `.\test\affected-gate.ps1 -Projects datrix-codegen-common -Consumers datrix-codegen-python,datrix-cli` | Run the changed package and the consumers the change reaches; every other importer is excluded |
-| **No consumers** | `.\test\affected-gate.ps1 -Projects datrix-codegen-java -NoConsumers` | Run only the changed package(s); every importer is excluded |
+| **No consumers** | `.\test\affected-gate.ps1 -Projects datrix-codegen-typescript -NoConsumers` | Run only the changed package(s); every importer is excluded |
 | **Everything** | `.\test\affected-gate.ps1 -All` | Run every discovered package concurrently |
 | **Cap concurrency** | `.\test\affected-gate.ps1 -Projects datrix-cli -NoConsumers -MaxConcurrent 2` | At most 2 children at once; each keeps its proportional worker allotment |
 | **Uniform workers** | `.\test\affected-gate.ps1 -Projects datrix-cli -NoConsumers -WorkersPerChild 4` | Every child gets 4 workers instead of its proportional share |

@@ -2,7 +2,7 @@
 r"""Docs-conformance gate for Datrix architecture documentation (Invariant I5).
 
 Extracts repo-relative path references and Python module references from
-every package's **architecture documentation** (the curated 39-file set in
+every package's **architecture documentation** (the curated 38-file set in
 ``ARCHITECTURE_DOC_FILES`` below) and fails if any reference does not resolve
 to a real file/directory/module in the tree, unless the reference is recorded
 in the committed exceptions baseline
@@ -71,7 +71,7 @@ from pathlib import Path
 from typing import Literal
 
 # ---------------------------------------------------------------------------
-# The curated 39-file architecture-doc set (see module docstring for why this
+# The curated 38-file architecture-doc set (see module docstring for why this
 # is a literal constant, never a directory glob). Verified against the live
 # tree: datrix-common and datrix-language each ship BOTH a top-level
 # docs/architecture.md AND a docs/architecture/ directory of further .md
@@ -94,7 +94,6 @@ ARCHITECTURE_DOC_FILES: tuple[str, ...] = (
     "datrix-codegen-common/docs/architecture.md",
     "datrix-codegen-component/docs/architecture.md",
     "datrix-codegen-docker/docs/architecture.md",
-    "datrix-codegen-dotnet/docs/architecture.md",
     "datrix-codegen-flutter/docs/architecture.md",
     "datrix-codegen-python/docs/architecture.md",
     "datrix-codegen-sql/docs/architecture.md",
@@ -1253,8 +1252,8 @@ def _check_heading_slug_matches_github_for_punctuated_headings() -> None:
             "decision-14-runtime-configuration--secrets--zero-environment-architecture"
         ),
         "Decision 2: `datrix-codegen-*` Naming": "decision-2-datrix-codegen--naming",
-        "Decision 25: .NET / ASP.NET Core Language Generator (Adopted)": (
-            "decision-25-net--aspnet-core-language-generator-adopted"
+        "Decision 99: .Web / ASP.Style Client Generator (Adopted)": (
+            "decision-99-web--aspstyle-client-generator-adopted"
         ),
     }
     for heading, expected in cases.items():

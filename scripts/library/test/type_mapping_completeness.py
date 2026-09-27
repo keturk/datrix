@@ -36,8 +36,7 @@ from datrix_common.plugin.registry import EXTENSION_GROUP  # noqa: E402
 
 #: Every language's type_mappings module exposes exactly one module-level
 #: dict whose name ends with this suffix (PYTHON_EXTENSION_MAPS,
-#: JAVA_EXTENSION_MAPS, SQL_EXTENSION_MAPS, TS_EXTENSION_MAPS,
-#: DOTNET_EXTENSION_MAPS -- verified by reading all five; the language-name
+#: SQL_EXTENSION_MAPS, TS_EXTENSION_MAPS, ...); the language-name
 #: PREFIX is not uniform, e.g. "TS" not "TYPESCRIPT", so this check locates
 #: the dict by suffix, never by guessing a per-language constant name).
 _EXTENSION_MAPS_SUFFIX: Final[str] = "_EXTENSION_MAPS"

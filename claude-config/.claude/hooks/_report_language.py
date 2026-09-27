@@ -44,8 +44,9 @@ costs more than the dodge did. Three suppressors, all applied before matching:
      not doing it. This module's own docstring would trip the gate otherwise.
   2. NEGATION — "no steps were skipped", "nothing left as-is" are the opposite
      of a dodge.
-  3. PROOF MARKERS — a B1-B4 blocker with proof, a filed task path, or
-     EXPANSION_REQUIRED is a legitimate exit and suppresses the whole check.
+  3. PROOF MARKERS — a B1-B4 blocker with proof, a filed task path, a
+     findings file path, or EXPANSION_REQUIRED is a legitimate exit and
+     suppresses the whole check.
 
 Callers add a fourth: scope. Neither gate runs this on every session.
 """
@@ -257,6 +258,7 @@ _PROOF_RE: Final = re.compile(
     r"|\bEXPANSION_REQUIRED\b"
     r"|\bMISSING_ACCESS\b|\bUNDECIDABLE\b|\bUSER_FORBADE\b|\bFENCED_SURFACE\b"
     r"|\.tasks[/\\][\w\-./\\]+\.md"  # a real filed task file path
+    r"|reports[/\\]finding[/\\][\w\-.]+\.md"  # a findings file (execution-contract §5A)
     r"|\bdisposition\b\s*[\"':]*\s*\"?FILED\"?"
     r")",
     re.IGNORECASE,
@@ -443,7 +445,10 @@ DODGE_REMEDY: Final = (
     "  1. DO IT. (This is the default and almost always the right answer.)\n"
     "  2. FILE IT - create a real tracked task file and cite its path, if it is "
     "genuinely an independent root cause.\n"
-    "  3. PROVE A BLOCKER - give all four: verbatim error text; the fix you "
+    "  3. WRITE A FINDING - if it is design-sized or on a surface you did not "
+    "touch, write d:\\datrix\\reports\\finding\\YYYYMMDD-HHMMSS-<slug>.md "
+    "(execution-contract §5A), cite its path, and finish your own task.\n"
+    "  4. PROVE A BLOCKER - give all four: verbatim error text; the fix you "
     "actually wrote and ran (file:line); why it failed; and the B1-B4 code. "
     "Analysis alone is not an attempt.\n\n"
     "Do not rephrase to slip past this check. The rule is the behavior, not the "

@@ -940,14 +940,11 @@ function Test-DatrixWorkspacePresent {
  "datrix-codegen-common",
  "datrix-codegen-python",
  "datrix-codegen-typescript",
- "datrix-codegen-dotnet",
- "datrix-codegen-java",
  "datrix-codegen-sql",
  "datrix-language",
  "datrix-codegen-aws",
  "datrix-codegen-azure",
  "datrix-codegen-angular",
- "datrix-codegen-react",
  "datrix-codegen-flutter",
  "datrix-codegen-docker"
  )

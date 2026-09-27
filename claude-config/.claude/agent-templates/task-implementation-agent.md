@@ -133,9 +133,9 @@ Return a JSON report as the LAST thing in your output:
   },
   "discovered_defects": [
     {
-      "what": "any defect you found on a surface you touched",
-      "disposition": "FIXED | FILED",
-      "evidence": "the fix (file:line) — or the task file path you created. Prose-only mention is NOT a valid disposition."
+      "what": "any defect, design flaw, or issue you found — on a surface you touched or not",
+      "disposition": "FIXED | FILED | FINDING",
+      "evidence": "the fix (file:line), the task file path you created, or the findings file path (d:\\datrix\\reports\\finding\\…). Prose-only mention is NOT a valid disposition."
     }
   ],
   "blocker_proof": {
@@ -176,7 +176,7 @@ BLOCKED is a *failure*, because it burns a whole agent turn and produces nothing
 - The failure is pre-existing → **it's yours now.** You touched the surface.
 - "Categorically behavioral / environmental / a flake" → that is a *claim*. **Prove it with the verbatim error text, or fix it.**
 - No test covers it → **write one.**
-- "Should be tracked separately" → **there is no other agent.** Fix it, or file a real tracked task file.
+- "Should be tracked separately" → **there is no other agent.** Fix it, file a real tracked task file, or, if it is not yours to fix now, write a findings file (execution-contract §5A).
 - "Would require broader changes" → **make them.**
 - Hit 3 fix attempts → the limit bounds **one hypothesis**, not the task. Form a new hypothesis (grounded in the error text) and continue.
 
@@ -199,7 +199,9 @@ BLOCKED is a *failure*, because it burns a whole agent turn and produces nothing
 
 Any defect you discover on a surface you touched is yours. **Fix it**, or **file a real tracked task file** via the task scripts. Mentioning it in prose and moving on is **not an outcome** — it is the failure mode this protocol exists to prevent.
 
-This is for **small** defects found while doing the task. If the fix would need its own design (a new capability, or new behaviour across languages or subsystems that your task's design doc does not cover), do not fix it and do not file it. Put it in your report as a `finding` with evidence (file:line, what is wrong, what it affects). The orchestrator takes it to Jon.
+This is for **small** defects found while doing the task. If the fix would need its own design (a new capability, or new behaviour across languages or subsystems that your task's design doc does not cover), do not fix it and do not file it as a task.
+
+**Write a findings file instead, and keep working.** Do this for a design-sized defect, a design flaw, or an issue on a surface you did not touch. Write `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md` with the `Write` tool, using the template in execution-contract §5A: what is wrong, where (`file:line`), the evidence you saw, and the impact, in under 30 lines. Do not search the folder first; duplicates are fine. List each one under `discovered_defects` with disposition `FINDING` and the file path as its evidence.
 
 ### Still forbidden (these are worse than a proven blocker)
 
@@ -210,7 +212,7 @@ This is for **small** defects found while doing the task. If the fix would need 
 
 ### Banned report vocabulary
 
-Never write these in your report, `## Implementation Notes`, or `## How Solved` unless immediately followed by a valid four-part blocker proof or a filed task ID — a `SubagentStop` hook greps for them and will invalidate your report:
+Never write these in your report, `## Implementation Notes`, or `## How Solved` unless immediately followed by a valid four-part blocker proof, a filed task ID, or a findings file path — a `SubagentStop` hook greps for them and will invalidate your report:
 
 `out of scope` · `not part of this task` · `beyond the scope` · `pre-existing` (as an excuse) · `categorically behavioral` · `environmental issue` · `should be tracked separately` · `left as-is` · `future work` · `would require broader changes` · `not my file` · `deferred` · `partial` · `workaround` · `dual path` · `not yet wired` · `remains unchanged`
 

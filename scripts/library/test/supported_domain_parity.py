@@ -32,8 +32,8 @@ no stance for an id outside it. A language silently missing a stance for a
 universe id, or declaring a stance for an id that is not (or no longer) part
 of the universe, is a fail-loud ``STANCE COMPLETENESS VIOLATION``. This is a
 COMPLETENESS check, never an agreement check: two languages are free to take
-opposite stances on the same domain id -- python may support ``graphql``
-while java declares it ``unsupported(reason=...)`` -- as long as each
+opposite stances on the same domain id -- one may support ``graphql``
+while another declares it ``unsupported(reason=...)`` -- as long as each
 language HAS declared one.
 
 **The stance report is diagnostic, not a gate.** ``print_stance_report``
@@ -99,7 +99,7 @@ from datrix_common.plugin.registry import LANGUAGES_GROUP
 _MIN_LANGUAGES_FOR_COMPARISON: Final[int] = 2
 
 #: Synthetic language names used only by the self-test below. Deliberately
-#: NOT real registered language names (`python`/`dotnet`/`java`/`typescript`)
+#: NOT real registered language names
 #: -- the self-test proves the COMPARATOR's discriminating power, it must
 #: never influence which real languages get compared.
 _SELF_TEST_LANGUAGE_A: Final[str] = "self_test_lang_a"

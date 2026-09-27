@@ -393,7 +393,7 @@ _PLANT_AFFECTED_GATE = (
 )
 _PLANT_TAG = (
     'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-codegen-python '
-    "datrix-codegen-java -Tag gateway\n"
+    "datrix-codegen-typescript -Tag gateway\n"
 )
 _PLANT_LIST_TAGS = 'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" -All -ListTags\n'
 _PLANT_WIDE_TAG = (
@@ -402,7 +402,7 @@ _PLANT_WIDE_TAG = (
 )
 _PLANT_CROSS_PACKAGE_KEYWORD = (
     'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-codegen-common '
-    'datrix-codegen-java -Keyword "decorator"\n'
+    'datrix-codegen-typescript -Keyword "decorator"\n'
 )
 
 

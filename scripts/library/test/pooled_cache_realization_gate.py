@@ -21,7 +21,7 @@ here the "declaration" is a real attribute read and the "consumption" is
 call-reachability, both settled by parsing structure (Python ``ast``) rather
 than a substring/regex scan.
 
-Two independent axes: LANGUAGES (python/typescript/java/dotnet/...) and
+Two independent axes: LANGUAGES (python/typescript/...) and
 PLATFORMS (aws/azure/docker/...), both discovered from
 ``importlib.metadata.entry_points()`` at runtime -- never a hardcoded name
 list, so a new ``datrix-codegen-<x>`` package is picked up automatically.

@@ -11,9 +11,8 @@
     "on both surfaces. The three entity/published entries this file used to",
     "carry claimed no target defined a published landing site for entity-level",
     "documentation; each target now does -- python a Pydantic model docstring,",
-    "typescript @ApiSchema, java a class-level @Schema, dotnet a class-level",
-    "/// <summary> -- each of which its own OpenAPI stack publishes as the",
-    "component's description."
+    "typescript @ApiSchema -- each of which its own OpenAPI stack publishes as",
+    "the component's description."
   ],
   "exemptions": []
 }

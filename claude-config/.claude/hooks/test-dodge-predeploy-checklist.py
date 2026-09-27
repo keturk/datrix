@@ -88,6 +88,10 @@ subagent_cases = [
     ("quoted dodge", 'The rule says never end on "out of scope" — I did not.', ALLOW),
     ("blocker proof", "B1 MISSING_ACCESS — no subscription credential. Tried fix at a.py:12.", ALLOW),
     ("filed task", "Filed .tasks/phase-40/03-fix-seam.md for the independent root cause.", ALLOW),
+    ("findings file", "The auth bug is out of scope; wrote "
+                      "d:/datrix/reports/finding/20260927-141503-auth-bug.md.", ALLOW),
+    ("findings folder alone is not a finding", "The auth bug is out of scope; see the reports "
+                                                "folder.", BLOCK),
     ("clean report", "Fixed the seam at compose.py:88; targeted tests pass, output quoted above.", ALLOW),
     # §13 — a security downgrade. Not lifted by a blocker proof: a proof answers
     # "whose work is this", which is not the question a weakened control raises.

@@ -3,32 +3,37 @@
 Read this before creating a directory, adding a test outside the package you are fixing, or
 writing anything into `D:\datrix\datrix`.
 
-## The 19 package repos
+## The 21 package repos
 
 Each of these is its own **git repository**. Anything dropped inside one gets committed and
 pushed unless a human notices:
 
 `datrix`, `datrix-cli`, `datrix-codegen-angular`, `datrix-codegen-aws`,
 `datrix-codegen-azure`, `datrix-codegen-common`, `datrix-codegen-component`,
-`datrix-codegen-docker`, `datrix-codegen-dotnet`, `datrix-codegen-flutter`,
-`datrix-codegen-java`, `datrix-codegen-python`, `datrix-codegen-react`,
-`datrix-codegen-sql`, `datrix-codegen-typescript`, `datrix-common`, `datrix-extensions`,
-`datrix-language`, `datrix-vscode`
+`datrix-codegen-docker`, `datrix-codegen-flutter`, `datrix-codegen-kernel`,
+`datrix-codegen-python`, `datrix-codegen-sql`, `datrix-codegen-typescript`,
+`datrix-codegen-typescript-core`, `datrix-common`, `datrix-extensions`, `datrix-language`,
+`datrix-migration`, `datrix-semantic`, `datrix-testing`, `datrix-vscode`
+
+`datrix-codegen-kernel`, `datrix-codegen-typescript-core`, `datrix-migration`,
+`datrix-semantic` and `datrix-testing` are cloned, not-yet-populated repositories (a
+README and a LICENSE only). They are git repos all the same, so the placement rules below
+bind them already.
 
 **The count is not a constant.** This list grows as targets are added — a new language, a
 new platform, or a new frontend target is a new repo. Update the list and the heading in
-the same edit; never leave a package out to preserve the number.
+the same edit; never leave a package out to preserve the number. A package moved out of the
+workspace (archived) leaves the list in the same way.
 
-**`datrix-codegen-angular`, `datrix-codegen-react` and `datrix-codegen-flutter` are
-frontend TARGETS, not languages.** Angular and React emit TypeScript, Flutter emits Dart,
-and each registers as an artifact-phase `datrix.generators` plugin, so none appears in
+**`datrix-codegen-angular` and `datrix-codegen-flutter` are frontend TARGETS, not
+languages.** Angular emits TypeScript, Flutter emits Dart, and each registers as an
+artifact-phase `datrix.generators` plugin, so neither appears in
 `registered_language_names()` and `--language` never selects them. Each activates only
 when an application declares its own `clients { <target> { … } }` block, and each owns its
-own manifest target so its stale-file pruning is confined to `clients/<target>/`.
-`datrix-codegen-react` is a cloned, not-yet-populated repository: it joins the venv install
-set and the Python scans the moment it carries a `pyproject.toml`, and `test.ps1` the moment
-it carries a `tests/` directory — no script edit is needed then. `datrix-codegen-flutter`
-carries both.
+own manifest target so its stale-file pruning is confined to `clients/<target>/`. Repo
+tooling keys off what is on disk: a new target repo joins the venv install set and the
+Python scans the moment it carries a `pyproject.toml`, and `test.ps1` the moment it carries
+a `tests/` directory — no script edit is needed.
 
 **`datrix-vscode` is not a Python package.** It is the TypeScript VS Code client: no
 `pyproject.toml`, so it is absent from the venv install set and from every Python scan, but

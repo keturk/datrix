@@ -84,12 +84,12 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
         "more than three tags is a sweep",
     ),
     (
-        f'{_TEST} datrix-common datrix-codegen-java -Tag "constant,test-generation,audit,secrets"',
+        f'{_TEST} datrix-common datrix-codegen-typescript -Tag "constant,test-generation,audit,secrets"',
         True,
         "quoted tag list over the cap is a sweep",
     ),
     (
-        f'{_TEST} datrix-codegen-common datrix-codegen-java -Keyword "decorator"',
+        f'{_TEST} datrix-codegen-common datrix-codegen-typescript -Keyword "decorator"',
         True,
         "-Keyword across packages is a sweep",
     ),
@@ -100,7 +100,7 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
     ),
     # ---- targeted forms: allowed for everyone ----
     (
-        f"{_TEST} datrix-codegen-python datrix-codegen-java -Tag gateway,identity,secrets",
+        f"{_TEST} datrix-codegen-python datrix-codegen-typescript -Tag gateway,identity,secrets",
         False,
         "three tags is at the cap",
     ),
@@ -117,7 +117,7 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
     ),
     (f"{_TEST} datrix-codegen-python -Tag gateway", False, "-Tag narrows to tagged tests"),
     (
-        f"{_TEST} datrix-codegen-python datrix-codegen-java -Tag gateway,identity",
+        f"{_TEST} datrix-codegen-python datrix-codegen-typescript -Tag gateway,identity",
         False,
         "-Tag across several packages",
     ),

@@ -122,7 +122,7 @@
  Run tests matching keyword expression.
 
 .EXAMPLE
- .\test.ps1 datrix-codegen-python datrix-codegen-java -Tag gateway
+ .\test.ps1 datrix-codegen-python datrix-codegen-typescript -Tag gateway
  Run every test tagged 'gateway' in both packages.
 
 .EXAMPLE
@@ -332,7 +332,7 @@ try {
  Write-Host " .\test.ps1 -All -Fast" -ForegroundColor Cyan
  Write-Host " .\test.ps1 datrix-common -Specific `"tests/unit/test_parser.py`"" -ForegroundColor Cyan
  Write-Host " .\test.ps1 datrix-language -Keyword `"test_basic`"" -ForegroundColor Cyan
- Write-Host " .\test.ps1 datrix-codegen-python datrix-codegen-java -Tag gateway" -ForegroundColor Cyan
+ Write-Host " .\test.ps1 datrix-codegen-python datrix-codegen-typescript -Tag gateway" -ForegroundColor Cyan
  Write-Host " .\test.ps1 datrix-codegen-python -ListTags" -ForegroundColor Cyan
  Write-Host ""
  $availableProjects = Get-DatrixTestablePackageNames -WorkspaceRoot $datrixWorkspaceRoot

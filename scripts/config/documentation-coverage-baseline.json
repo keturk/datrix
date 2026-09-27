@@ -11,8 +11,6 @@
     "the only writer; do not hand-guess the numbers."
   ],
   "holes": {
-    "dotnet": 0,
-    "java": 0,
     "python": 0,
     "typescript": 0
   }

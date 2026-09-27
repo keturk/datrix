@@ -90,8 +90,6 @@ After analysis completes, `analyze()` seals the `Application` tree by calling `a
 │ - datrix-codegen-python │
 │ - datrix-codegen-typescript │
 │ - datrix-codegen-sql │
-│ - datrix-codegen-dotnet │
-│ - datrix-codegen-java │
 │ (open set — one package per │
 │ target language; language-owned │
 │ maps merge core + declared │
@@ -287,7 +285,7 @@ integrations layerName {
 
 **Failure behavior:** ArcGIS response errors, missing object ID metadata, missing feature arrays, or repeated page cursors fail the ingestion run. Silent partial refresh is invalid.
 
-### Notification Infrastructure Provisioning
+### Notification Infrastructure Provisioning (Stable)
 
 Generated services call notification builtins (`Email.send`, `SMS.send`, `Push.send`) and the language generators emit provider-specific helpers; the cloud/runtime generators provision the backing provider resources from the same resolved `integrations` profile — no new application DSL syntax. Provisioning is keyed on the pair `(provider, DeploymentProvider)`, resolved through total frozen dispatch tables in `datrix_common.config.integrations.provisioning`. Each `(channel, provider, DeploymentProvider)` cell resolves to exactly one realization class: `PROVISION` (Datrix owns the resource — SES identity, SNS platform application, ACS, Notification Hub, Mailpit — plus scoped IAM/role and env wiring), `SECRET_REF` (Secrets Manager / Key Vault placeholder reference + env wiring, no provider resource), or `UNSUPPORTED` (generation fails loud with `GenerationError` in the `resolve_infrastructure_configs` stage, before any generator runs). The dispatch-table shape mirrors `PROVIDER_GENERATORS` (single deterministic value per key), not `*_ENGINES_BY_FLAVOR`. Coverage: AWS SES/SNS-SMS/SNS-push, Azure Communication Services (`acs` email/SMS) and Notification Hubs (`azure-notification-hubs` push), and local Mailpit SMTP capture for Docker (`LOCAL` + any `smtp` service). Credential hygiene is centralized on `datrix_common.config.secret_hygiene.looks_like_raw_secret` at config-validation time — raw secret literals are rejected; `env("...")` references and `credentialSecretName` are accepted; no generator emits a raw credential. Full reference: [notification-provisioning.md](../../../../datrix-common/docs/integrations/notification-provisioning.md).
 
@@ -407,7 +405,7 @@ service examples.OrderService('config/order-service.dcfg') {
 
 **Container realization (local/existing):** A `container`-platform serverless block is realized as dedicated long-running compose containers — a consumer-loop container for its subscriptions, a singleton scheduler container for its jobs, a queue-worker container for its enqueue consumers, and a small web container (with an explicit `port`) for its `@path` endpoints — all deep-copied clones of the finished service entry (`skip_build: True`) that run the same handler modules the cloud platforms package. Per-request timeout is enforced via `asyncio.wait_for` (HTTP 504 on expiry). `hosting = "inProcess"` is rejected fail-loud on the container platform until its own realization ships.
 
-**Single-realization invariant:** Every serverless-block handler is realized exactly once per profile, by the realization matching its resolved platform. Serverless-scope subscriptions stay out of every consumer-*binding* scope (they remain in schema/artifact scopes), so a service's in-process consumers never double-bind a topic already owned by the block's container/adapter. TypeScript has no serverless realization yet and fails loud (naming the offending blocks) rather than silently dropping jobs/endpoints/queue consumers. Dotnet has no serverless realization reachable from the pipeline: `DotnetRuntimeSpec.serverless_entrypoint_command` raises `GenerationError` (naming the unsupported kind rather than silently dropping it) for all four canonical kinds the compose generator actually dispatches — `consumer`, `scheduler`, `queue-worker`, `http` (`_SERVERLESS_TRIGGER_TO_KIND`, `datrix-codegen-docker/.../generators/compose/_serverless.py:49-59`). Its `kind == "job"` branch is dead code: `"job"` is not a canonical kind and is never passed by the sole production caller (`_serverless.py:248`), so the branch is exercised only by tests that call the method directly. Real realization of all four kinds is increment-10 scope.
+**Single-realization invariant:** Every serverless-block handler is realized exactly once per profile, by the realization matching its resolved platform. Serverless-scope subscriptions stay out of every consumer-*binding* scope (they remain in schema/artifact scopes), so a service's in-process consumers never double-bind a topic already owned by the block's container/adapter. Python and TypeScript each realize serverless handlers on Lambda, Azure Functions, and container entrypoints; the container runtime spec's `serverless_entrypoint_command` answers the four canonical kinds the compose generator dispatches — `consumer`, `scheduler`, `queue-worker`, `http`.
 
 **Semantic validation rules:**
 - SLS004: Handler identity uniqueness across executable handlers within a block
@@ -610,7 +608,7 @@ serverGroups {
 
 Applications declare managed identity providers in an `identity {}` block. The pipeline connects provider declarations to generated authentication middleware, per-surface authorization contracts, and platform-specific provisioning artifacts.
 
-### DSL Layer
+#### DSL Layer
 
 The parser and transformer produce an `IdentityBlock` AST node containing one `ProviderDecl` per named provider. Each `ProviderDecl` carries:
 
@@ -622,7 +620,7 @@ Every externally reachable surface carries an explicit `auth(...)` contract (mod
 
 **Semantic validators:** IDN001–IDN018 (identity block / surface rules), IDC001–IDC003 (config file rules). See [semantic-validators.md](../../../../datrix-common/docs/architecture/semantic-validators.md#identity-validation-idn001idn018).
 
-### Generator Layer
+#### Generator Layer
 
 **Provider plan (OR6):** All generators consume a versioned JSON artifact `config/generated/identity-providers.json` (the "provider plan") emitted by the component generator. The plan binds each provider name to its runtime parameters (issuer, JWKS URL, audience, client ID, algorithm allow-list, secret references). Runtime code resolves a provider by issuer, not by name — each surface validates against the provider whose issuer matches the incoming token.
 
@@ -643,7 +641,7 @@ Every externally reachable surface carries an explicit `auth(...)` contract (mod
 
 **Identity capability declarations (OR14):** Each platform plugin declares, on its own `PlatformCapabilityDeclaration`, which identity provider types it can realize and the capability set it supports for each (MFA, social providers, custom claims, machine audience, etc.). Generators gate feature emission through the one generic validator in `datrix_common/plugin/capability_resolution.py`, which asks the resolved platform's declaration — unsupported capabilities raise a codegen error carrying the platform's declared reason rather than silently omitting code. There is no central identity policy table.
 
-### Provider Type Routing (Azure, OR3)
+#### Provider Type Routing (Azure, OR3)
 
 Azure provider type is determined by `audience` in the provider config:
 
@@ -653,7 +651,7 @@ Azure provider type is determined by `audience` in the provider config:
 | `workforce` | Entra ID | Standard workforce / employee auth |
 | `machine` | User-assigned managed identity | No human login; service-to-service only |
 
-### Design Reference
+#### Design Reference
 
 Full design decisions (DN1–DN82) and operationalization resolutions (OR1–OR20) are distributed across:
 

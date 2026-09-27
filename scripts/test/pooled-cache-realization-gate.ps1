@@ -22,7 +22,7 @@
 
  Derives its target sets from
  `importlib.metadata.entry_points(group="datrix.languages" | "datrix.platforms")`
- at runtime -- never a hardcoded python/typescript/java/dotnet or
+ at runtime -- never a hardcoded language-name or
  aws/azure/docker literal -- so a future datrix-codegen-<x> package is
  covered automatically with no edit to this gate.
 

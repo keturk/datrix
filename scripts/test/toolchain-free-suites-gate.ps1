@@ -53,7 +53,7 @@
  Scan every package suite, every shape.
 
 .EXAMPLE
- .\toolchain-free-suites-gate.ps1 -Suites D:/datrix/datrix-codegen-java/tests
+ .\toolchain-free-suites-gate.ps1 -Suites D:/datrix/datrix-codegen-typescript/tests
  Scan a single suite.
 
 .EXAMPLE

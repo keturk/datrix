@@ -9,8 +9,9 @@ Usage: datrix generate [OPTIONS]
 │    --output                     -o      PATH  Output directory (default:    │
 │                                               ./generated)                  │
 │ *  --language                   -L      TEXT  Target generation language    │
-│                                               (e.g. python, typescript,     │
-│                                               dotnet, java). Required.      │
+│                                               (any installed language       │
+│                                               plugin, e.g. python,          │
+│                                               typescript). Required.        │
 │                                               [required]                    │
 │    --only                               TEXT  Generate only the named       │
 │                                               targets, leaving every other  │

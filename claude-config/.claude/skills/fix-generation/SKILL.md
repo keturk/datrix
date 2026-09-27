@@ -43,7 +43,7 @@ See `d:\datrix\.claude\skills\_shared\fix-conventions.md` for the mandatory docu
 ## Scope
 
 - **Fix target:** generator source, templates, transformers, config resolvers, OR the generated project's `.dtrx`/`.dcfg`/config — depending on classification. **Never** edit files under `.generated/` or `.projects/` (regenerating overwrites them).
-- **Language:** confirm the target language from the **Output** path segment in the log (`...\python\...`, `...\typescript\...`, `...\dotnet\...`, `...\java\...`, or any other registered `datrix.languages` target) — cross-check it against the `stage=generate:{generator}` token. Do NOT cross languages: a fix scoped to one language's generator must not touch another's. Datrix is a multi-language generator; the set of languages grows, so treat the language as whatever the Output segment/generator token says, not a fixed Python/TypeScript pair.
+- **Language:** confirm the target language from the **Output** path segment in the log (`...\python\...`, `...\typescript\...`, or any other registered `datrix.languages` target) — cross-check it against the `stage=generate:{generator}` token. Do NOT cross languages: a fix scoped to one language's generator must not touch another's. Datrix is a multi-language generator; the set of languages grows, so treat the language as whatever the Output segment/generator token says, not a fixed Python/TypeScript pair.
 - **Git:** each `datrix-*` package and `datrix` itself are independent git repositories. Commits/status are per-repo.
 - **No git reverts** and **no workarounds** (CLAUDE.md). Trace to root cause or STOP and report.
 
@@ -90,16 +90,16 @@ The `stage=generate:{generator}` token identifies the package that owns the fail
 |---|---|---|
 | `python` | `datrix-codegen-python` | `/fix-codegen-python` |
 | `typescript` | `datrix-codegen-typescript` | `/fix-codegen-typescript` |
-| `dotnet` | `datrix-codegen-dotnet` | `/fix-codegen-dotnet` |
-| `java` | `datrix-codegen-java` | `/fix-codegen-java` |
 | `docker` | `datrix-codegen-docker` | `/fix-codegen-docker` |
 | `sql` | `datrix-codegen-sql` | `/fix-codegen-sql` |
 | `aws` | `datrix-codegen-aws` | `/fix-codegen-aws` |
 | `azure` | `datrix-codegen-azure` | `/fix-codegen-azure` |
 | `component` | `datrix-codegen-component` | `/fix-codegen-component` |
+| `angular` | `datrix-codegen-angular` | `/fix-codegen-angular` |
+| `flutter` | `datrix-codegen-flutter` | `/fix-codegen-flutter` |
 | (shared codegen base) | `datrix-codegen-common` | `/fix-codegen-common` |
 
-Datrix is a multi-language, multi-platform generator — this table grows. A `{generator}` token with no row here means the table is stale, **not** that the generator is unowned: its package is `datrix-codegen-{generator}`, and its fix skill is `/fix-codegen-{generator}`.
+Datrix is a multi-language, multi-platform generator — this table grows. A `{generator}` token with no row here means the table is stale, **not** that the generator is unowned: its package is `datrix-codegen-{generator}`, and its fix skill is `/fix-codegen-{generator}`. If no `D:\datrix\datrix-codegen-{generator}` directory exists, the generator is not installed in this workspace (never built, or archived) and cannot be the fix target — the log came from a run against a target the current registry does not carry; say so with the evidence rather than recreating the package.
 
 Config resolution and `.dcfg` loading live in `datrix-common` / `datrix-cli` — failures in `Unable to resolve ... config` originate there or in the project's config tree (see Classification).
 
@@ -107,7 +107,7 @@ Config resolution and `.dcfg` loading live in `datrix-common` / `datrix-cli` —
 
 **ALWAYS verify parameters against `datrix/scripts/dev/quick-reference.md` before running** (a pre-tool hook blocks the call otherwise). Framework examples are generated with `generate.ps1` (run from bash with `powershell -File`):
 
-`{lang}` below is the target language taken from the failing project's **Output** segment / `stage=generate:{generator}` token — `python`, `typescript`, `dotnet`, `java`, or any other registered `datrix.languages` target. Always regenerate with the **same** `{lang}` the project failed under.
+`{lang}` below is the target language taken from the failing project's **Output** segment / `stage=generate:{generator}` token — `python`, `typescript`, or any other registered `datrix.languages` target. Always regenerate with the **same** `{lang}` the project failed under.
 
 | Target | Command |
 |---|---|
@@ -163,7 +163,7 @@ Six hard rules. They are not style preferences — they are the difference betwe
 1. **Never generate more than one example.** Every `generate.ps1` invocation you make names the `.dtrx` of the example you are currently fixing. Not a sibling, not a "related" example, not a representative of some other cluster.
 2. **Fix ALL of the current example's issues before moving on.** An example commonly fails in layers — each fix surfaces the next error. Regenerating that *same* example after each fix is the one repetition this skill sanctions; keep looping on it until it generates successfully.
 3. **The next example comes from the ORIGINAL log** — the one you were given. Do not re-run generation to produce a fresh log, and do not re-triage between examples. The queue was fixed at Step 1.
-4. **Fix only the language that failed.** If the log shows ecommerce failing on java, you fix java. **Do not generate that example for the other registered languages** to find out whether they are affected too. Widening from one language to four is Jon's budget decision — ask in one line and wait.
+4. **Fix only the language that failed.** If the log shows ecommerce failing on typescript, you fix typescript. **Do not generate that example for the other registered languages** to find out whether they are affected too. Widening from one language to several is Jon's budget decision — ask in one line and wait.
 5. **Never re-generate an example you already fixed.** No mid-run regression sweeps, no "let me just re-check the earlier ones", no final pass over the passing set. If a shared generation path changed and Jon wants a corpus-wide regression check, that is his call to make explicitly — it is not part of this skill.
 6. **Never run group generation** — `-All`, `-Domains`, `-TestSet` are hard-blocked by `PreToolUse` → `validate-script-invocation.py` and cannot be overridden.
 
@@ -229,7 +229,7 @@ This is the inner loop. It runs on **one** example and generates **only** that e
    - **Same error** → the fix is incomplete; investigate deeper and loop (max 3 attempts on the same error before aborting this example).
    - **A different error** → this is the next layer of the *same* example. Go back to Step 3 with the new error and keep looping. Layered failures are normal and do not mean the previous fix was wrong.
 
-**Never regenerate a different example inside this loop** — not to check whether the fix generalises, not as a regression check, not because the triage report says a sibling shares the signature. Never regenerate while the fix that unblocks the current error is still in flight: a regeneration run is expensive (`dotnet build`/formatters), and running it before the fix lands only re-proves a failure you already know about.
+**Never regenerate a different example inside this loop** — not to check whether the fix generalises, not as a regression check, not because the triage report says a sibling shares the signature. Never regenerate while the fix that unblocks the current error is still in flight: a regeneration run is expensive (compile validation/formatters), and running it before the fix lands only re-proves a failure you already know about.
 
 ### Step 7: Advance the Queue
 
@@ -271,7 +271,7 @@ Unresolved (if any):
 |---|---|---|
 | `Configuration file '...' not found` / `Unable to resolve ... config` | **Either** — investigate both sides | Project `config/` tree **or** config resolver (`datrix-common`/`datrix-cli`) |
 | Jinja2 `TemplateError` / `UndefinedError` / render traceback | Generator/framework | Template + the generator that builds its context |
-| Python exception inside a `datrix_codegen_*` frame (`AttributeError`, `KeyError`, `TypeError`) — every generator is Python regardless of the **target** language (dotnet/java/typescript/python/…) | Generator/framework | Generator/transformer source in the owning `datrix-codegen-{generator}` package |
+| Python exception inside a `datrix_codegen_*` frame (`AttributeError`, `KeyError`, `TypeError`) — every generator is Python regardless of the **target** language (typescript/python/…) | Generator/framework | Generator/transformer source in the owning `datrix-codegen-{generator}` package |
 | `Generator '{name}': {phase}` with no further detail | Generator/framework | The named generator's `{phase}` step |
 | Tree-sitter parse error / syntax error in `.dtrx` | App-definition | The project `.dtrx` |
 | Semantic validation error naming a user-defined entity/service/field | App-definition | The project `.dtrx` |

@@ -20,11 +20,9 @@ import signal
 import subprocess
 import sys
 import threading
-from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from xml.etree import ElementTree as ET
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +54,6 @@ from shared.test_projects import (  # noqa: E402
     get_default_output_path,
     get_test_projects,
 )
-from shared.trx_to_junit import write_junit_from_trx  # noqa: E402
 from shared.venv import get_datrix_root, get_venv_python  # noqa: E402
 
 # Global set to track all active subprocesses
@@ -200,7 +197,6 @@ def run_command(
     description: str = "",
     capture_output: bool = False,
     log_file: Path | None = None,
-    env_overrides: Mapping[str, str] | None = None,
 ) -> tuple[bool, str | None]:
     """
     Run a command and return True if successful
@@ -211,7 +207,6 @@ def run_command(
         description: Description of what the command does
         capture_output: If True, capture and return stdout/stderr while still displaying it
         log_file: If set, tee stdout/stderr to this file (plain text, no ANSI)
-        env_overrides: Extra environment variables for the child process
 
     Returns:
         Tuple of (success: bool, output: Optional[str])
@@ -227,13 +222,9 @@ def run_command(
         sha = get_datrix_repo_sha()
         if sha:
             env["DATRIX_REPO_SHA"] = sha
-        if env_overrides:
-            env.update(dict(env_overrides))
         return env
 
     if capture_output or log_file is not None:
-        env = _build_child_env()
-    elif env_overrides:
         env = _build_child_env()
     else:
         env = None
@@ -727,20 +718,6 @@ def parse_test_statistics(output: str) -> dict:
             if suites_failed > 0:
                 stats["errors"] = suites_failed
 
-    # If still no results, try the Microsoft Testing Platform (dotnet MTP) summary.
-    # Its block reads "Test run summary: ..." then indented "total:/failed:/
-    # succeeded:/skipped:" lines (note "succeeded", not "passed").
-    if stats["passed"] == 0 and stats["failed"] == 0 and "Test run summary:" in output:
-        m = re.search(r"^\s*succeeded:\s+(\d+)", output, re.MULTILINE)
-        if m:
-            stats["passed"] = int(m.group(1))
-        m = re.search(r"^\s*failed:\s+(\d+)", output, re.MULTILINE)
-        if m:
-            stats["failed"] = int(m.group(1))
-        m = re.search(r"^\s*skipped:\s+(\d+)", output, re.MULTILINE)
-        if m:
-            stats["skipped"] = int(m.group(1))
-
     return stats
 
 
@@ -1202,205 +1179,6 @@ def _find_ts_service_dirs(project: Path) -> list[Path]:
 def _is_typescript_project(project: Path) -> bool:
     """Check whether a generated project contains TypeScript services with tests."""
     return len(_find_ts_service_dirs(project)) > 0
-
-
-#: Suffix of a generated .NET MTP unit-test project directory
-#: ({service}/tests/{Project}.Tests/), the dotnet analogue of a python
-#: service's tests/unit_tests.py or a TS service's package.json test script.
-_DOTNET_TEST_PROJECT_SUFFIX = ".Tests"
-
-
-def _find_dotnet_service_test_projects(project: Path) -> list[tuple[str, Path]]:
-    """Return ``(service_name, test_project_dir)`` for each .NET unit-test project.
-
-    Generated .NET projects place each service's MTP test project at
-    ``{service}/tests/{Project}.Tests/`` with a sibling ``{Project}.Tests.csproj``
-    and a ``global.json`` selecting the MTP runner. The project-level
-    ``tests/DeployTests`` is deliberately NOT matched here (its parent is the
-    project root's ``tests/`` dir, not a service's, and its name lacks the
-    ``.Tests`` suffix) -- deploy tests run in Step 4, not Step 3.
-    """
-    out: list[tuple[str, Path]] = []
-    if not project.is_dir():
-        return out
-    for service_dir in sorted(project.iterdir()):
-        if not service_dir.is_dir():
-            continue
-        tests_dir = service_dir / "tests"
-        if not tests_dir.is_dir():
-            continue
-        for test_proj in sorted(tests_dir.iterdir()):
-            if not test_proj.is_dir() or not test_proj.name.endswith(_DOTNET_TEST_PROJECT_SUFFIX):
-                continue
-            if (test_proj / f"{test_proj.name}.csproj").exists():
-                out.append((service_dir.name, test_proj))
-    return out
-
-
-def _is_dotnet_project(project: Path) -> bool:
-    """Check whether a generated project contains .NET unit-test projects."""
-    return bool(_find_dotnet_service_test_projects(project))
-
-
-def _find_dotnet_deploy_test_dir(project: Path) -> Path | None:
-    """Return ``tests/DeployTests`` if it holds a ``DeployTests.csproj``, else None."""
-    deploy_dir = project / "tests" / "DeployTests"
-    if (deploy_dir / "DeployTests.csproj").exists():
-        return deploy_dir
-    return None
-
-
-def _newest_trx(trx_dir: Path) -> Path | None:
-    """Return the most recently modified ``*.trx`` under *trx_dir*, or None."""
-    if not trx_dir.is_dir():
-        return None
-    trx_files = sorted(
-        trx_dir.glob("*.trx"),
-        key=lambda p: p.stat().st_mtime if p.exists() else 0.0,
-        reverse=True,
-    )
-    return trx_files[0] if trx_files else None
-
-
-def _run_dotnet_test_with_trx(
-    test_dir: Path,
-    description: str,
-    env_overrides: Mapping[str, str] | None = None,
-) -> tuple[bool, str | None, Path | None]:
-    """Run ``dotnet test`` (MTP) in *test_dir*, emitting a TRX report.
-
-    ``dotnet test`` is invoked with the current working directory set to the
-    test project's own directory so the MTP runner finds that project's sibling
-    ``global.json`` (it walks UP from the CWD, not from a target-project path).
-    The TRX is written to ``{test_dir}/TestResults/results.trx`` -- the MTP
-    default results directory -- because .NET 10's ``dotnet test`` CLI rejects a
-    ``--results-directory`` passthrough as a mis-specified project directory.
-
-    Returns:
-        ``(success, captured_output, trx_path_or_None)``.
-    """
-    dotnet = shutil.which("dotnet")
-    if dotnet is None:
-        print_error(f" dotnet not found on PATH — cannot test {test_dir}")
-        return False, None, None
-
-    trx_dir = test_dir / "TestResults"
-    trx_path = trx_dir / "results.trx"
-    try:
-        if trx_path.exists():
-            trx_path.unlink()
-    except OSError:
-        pass
-
-    cmd = [dotnet, "test", "--", "--report-trx", "--report-trx-filename", "results.trx"]
-    success, output = run_command(
-        cmd,
-        cwd=test_dir,
-        description=description,
-        capture_output=True,
-        env_overrides=env_overrides,
-    )
-    found = trx_path if trx_path.exists() else _newest_trx(trx_dir)
-    return success, output, found
-
-
-_DOTNET_PORT_RE = re.compile(r"docker compose port (\S+) (\d+)")
-_DOTNET_ENV_RE = re.compile(r"\$env:(\w+_BASE_URL)")
-
-
-def _parse_dotnet_deploy_port_map(project: Path) -> list[tuple[str, str, str]]:
-    """Extract ``(compose_key, container_port, env_var)`` triples from run-tests.ps1.
-
-    The generated ``tests/run-tests.ps1`` encodes, per service, a
-    ``docker compose port <compose_key> <container_port>`` resolution followed
-    by a ``$env:<PREFIX>_BASE_URL`` assignment. Reusing that generated artifact
-    as data (rather than invoking the script) lets the Python deploy runner set
-    each service's real ephemeral-port base URL for the smoke suite, without
-    re-deriving the compose-key/env-prefix naming convention here.
-    """
-    script = project / "tests" / "run-tests.ps1"
-    if not script.exists():
-        return []
-    try:
-        lines = script.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return []
-    triples: list[tuple[str, str, str]] = []
-    pending: tuple[str, str] | None = None
-    for line in lines:
-        port_match = _DOTNET_PORT_RE.search(line)
-        if port_match:
-            pending = (port_match.group(1), port_match.group(2))
-            continue
-        if pending is not None:
-            env_match = _DOTNET_ENV_RE.search(line)
-            if env_match:
-                triples.append((pending[0], pending[1], env_match.group(1)))
-                pending = None
-    return triples
-
-
-def _resolve_dotnet_deploy_env(project: Path, compose_file: Path) -> dict[str, str]:
-    """Resolve each service's real host-published base URL into env-var overrides.
-
-    Runs ``docker compose port`` for each triple parsed from run-tests.ps1 and
-    maps its ``<PREFIX>_BASE_URL`` env var to ``http://localhost:<host_port>``,
-    matching ``DeploySmokeTests.cs``'s ``BaseUrlFor`` override lookup.
-    """
-    env: dict[str, str] = {}
-    for compose_key, container_port, env_var in _parse_dotnet_deploy_port_map(project):
-        try:
-            result = subprocess.run(
-                ["docker", "compose", "-f", str(compose_file), "port", compose_key, container_port],
-                cwd=project,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=30,
-                check=False,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            continue
-        out = (result.stdout or "").strip()
-        if result.returncode == 0 and out:
-            host_port = out.rsplit(":", 1)[-1].strip()
-            if host_port.isdigit():
-                env[env_var] = f"http://localhost:{host_port}"
-    return env
-
-
-def _dotnet_failures_from_junit(junit_path: Path, service: str) -> list[dict[str, object]]:
-    """Extract failed-testcase records from a converted dotnet JUnit file.
-
-    Produces the same ``{service, testFilePath, fullName, line, message}`` shape
-    ``_write_ts_failures_json`` / the deploy summary index consume.
-    """
-    if not junit_path.is_file():
-        return []
-    try:
-        root = ET.parse(str(junit_path)).getroot()  # noqa: S314 -- trusted local output
-    except ET.ParseError:
-        return []
-    failures: list[dict[str, object]] = []
-    for testcase in root.iter("testcase"):
-        failure_el = testcase.find("failure")
-        if failure_el is None:
-            continue
-        classname = testcase.get("classname", "")
-        name = testcase.get("name", "")
-        full_name = f"{classname}.{name}" if classname else name
-        message = (failure_el.get("message") or failure_el.text or "").split("\n")[0]
-        failures.append(
-            {
-                "service": service,
-                "testFilePath": classname,
-                "fullName": full_name,
-                "line": None,
-                "message": message,
-            }
-        )
-    return failures
 
 
 def _find_pnpm() -> str | None:
@@ -1913,172 +1691,6 @@ def _produce_structured_output(
         return None
 
 
-#: Project-level Maven module holding the generated deploy suite. It is a
-#: sibling of the service modules and carries its own pom.xml, so the unit-test
-#: finder must exclude it by name -- deploy tests run in Step 4, not Step 3
-#: (the same boundary _find_dotnet_service_test_projects draws around
-#: tests/DeployTests).
-_JAVA_DEPLOY_TESTS_DIR = "deployment-tests"
-
-#: Environment override for the local Maven repository used when building
-#: generated projects.
-_JAVA_MAVEN_REPO_ENV = "DATRIX_MAVEN_REPO_LOCAL"
-
-#: Default local Maven repository shared by every generated-project build.
-#: Generation's Java compile-validation step already resolves each service's
-#: dependency tree into this cache, so pointing the test run at the same path
-#: reuses those downloads instead of re-resolving per service per run.
-_JAVA_DEFAULT_MAVEN_REPO = Path.home() / ".datrix-tool-cache" / "m2-repo"
-
-
-def _find_java_service_dirs(project: Path) -> list[Path]:
-    """Return each generated Java service module that carries unit tests.
-
-    A generated Java service is a Maven module at ``{project}/{service}/`` with
-    a ``pom.xml`` and JUnit sources under ``src/test/java`` -- the Java analogue
-    of a Python service's ``tests/unit_tests.py``, a TS service's package.json
-    test script, or a .NET service's ``tests/{X}.Tests`` project.
-    """
-    out: list[Path] = []
-    if not project.is_dir():
-        return out
-    for child in sorted(project.iterdir()):
-        if not child.is_dir() or child.name == _JAVA_DEPLOY_TESTS_DIR:
-            continue
-        if (child / "pom.xml").is_file() and (child / "src" / "test" / "java").is_dir():
-            out.append(child)
-    return out
-
-
-def _is_java_project(project: Path) -> bool:
-    """Check whether a generated project contains Java services with tests."""
-    return bool(_find_java_service_dirs(project))
-
-
-def _java_maven_wrapper(service_dir: Path) -> Path | None:
-    """Resolve the platform-correct Maven wrapper in *service_dir*, or None.
-
-    Generated services ship both ``mvnw`` (POSIX) and ``mvnw.cmd`` (Windows);
-    Windows cannot execute the extensionless POSIX script directly.
-    """
-    candidates = (
-        [service_dir / "mvnw.cmd", service_dir / "mvnw"]
-        if os.name == "nt"
-        else [service_dir / "mvnw"]
-    )
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return None
-
-
-def _shared_maven_repo() -> Path:
-    """Return the local Maven repository path passed to every mvnw invocation."""
-    override = os.environ.get(_JAVA_MAVEN_REPO_ENV)
-    path = Path(override) if override else _JAVA_DEFAULT_MAVEN_REPO
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def _merge_surefire_reports(reports_dir: Path, junit_path: Path) -> bool:
-    """Merge surefire's per-class ``TEST-*.xml`` into one JUnit XML file.
-
-    Surefire emits one ``<testsuite>`` document per test class; the structured
-    output writer consumes a single JUnit file per service, so the per-class
-    documents are wrapped in one ``<testsuites>`` root.
-
-    Returns:
-        True if at least one suite was written to *junit_path*, else False.
-    """
-    if not reports_dir.is_dir():
-        return False
-    merged = ET.Element("testsuites")
-    for xml_file in sorted(reports_dir.glob("TEST-*.xml")):
-        try:
-            root = ET.parse(str(xml_file)).getroot()  # noqa: S314
-        except ET.ParseError as exc:
-            print_warning(f"  Unparseable surefire report {xml_file.name}: {exc}")
-            continue
-        if root.tag == "testsuite":
-            merged.append(root)
-        elif root.tag == "testsuites":
-            merged.extend(root.findall("testsuite"))
-    if len(merged) == 0:
-        return False
-    junit_path.parent.mkdir(parents=True, exist_ok=True)
-    ET.ElementTree(merged).write(str(junit_path), encoding="utf-8", xml_declaration=True)
-    return True
-
-
-def _count_junit_testcases(junit_path: Path) -> dict[str, int]:
-    """Count passed/failed/errors/skipped testcases in a JUnit XML file.
-
-    Raises:
-        ET.ParseError: If *junit_path* is not parseable XML.
-    """
-    root = ET.parse(str(junit_path)).getroot()  # noqa: S314
-    counts = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
-    for testcase in root.iter("testcase"):
-        if testcase.find("failure") is not None:
-            counts["failed"] += 1
-        elif testcase.find("error") is not None:
-            counts["errors"] += 1
-        elif testcase.find("skipped") is not None:
-            counts["skipped"] += 1
-        else:
-            counts["passed"] += 1
-    return counts
-
-
-def _run_java_service_tests(
-    svc_dir: Path,
-    svc_label: str,
-    svc_results: Path,
-    shared_repo: Path,
-    parallel: bool,
-) -> dict[str, int] | None:
-    """Run ``mvnw test`` for one generated Java service and record its results.
-
-    Writes ``service.log`` and the merged ``junit.xml`` into *svc_results*.
-
-    Returns:
-        Per-service counts, or None if the service produced no test report at
-        all (missing wrapper, or a build that failed before surefire ran).
-    """
-    mvnw = _java_maven_wrapper(svc_dir)
-    if mvnw is None:
-        print_error(
-            f" No mvnw/mvnw.cmd wrapper in {svc_dir} — the generated service cannot be built"
-        )
-        return None
-
-    # Surefire appends to its reports directory, so stale reports from an
-    # earlier run would be counted as this run's results.
-    reports_dir = svc_dir / "target" / "surefire-reports"
-    shutil.rmtree(reports_dir, ignore_errors=True)
-
-    cmd = [str(mvnw), "-B", f"-Dmaven.repo.local={shared_repo}", "test"]
-    _success, output = run_command(
-        cmd,
-        cwd=svc_dir,
-        description=f"Maven tests for {svc_label}" if not parallel else "",
-        capture_output=True,
-    )
-    (svc_results / "service.log").write_text(_strip_ansi(output or ""), encoding="utf-8")
-
-    junit_path = svc_results / "junit.xml"
-    if not _merge_surefire_reports(reports_dir, junit_path):
-        print_warning(
-            f"  No surefire reports produced for {svc_dir.name} — mvnw test did not run"
-        )
-        return None
-    try:
-        return _count_junit_testcases(junit_path)
-    except ET.ParseError as exc:
-        print_warning(f"  Merged JUnit XML unreadable for {svc_dir.name}: {exc}")
-        return None
-
-
 def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel: bool = False, test_type: str = "unit", verbose: bool = False) -> dict:
     """
     Helper function to run tests for a single project.
@@ -2131,87 +1743,6 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         if index_path is not None:
             result_dict["index_json_path"] = str(index_path)
         return result_dict
-
-    # --- .NET project: per-service MTP test projects ({svc}/tests/{X}.Tests) ---
-    dotnet_test_projects = _find_dotnet_service_test_projects(project)
-    if dotnet_test_projects:
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        results_dir = project / ".test_results" / f"{test_type}-tests-{timestamp}"
-        results_dir.mkdir(parents=True, exist_ok=True)
-
-        all_success = True
-        total_passed = 0
-        total_failed = 0
-        total_skipped = 0
-        dotnet_combined_output: list[str] = []
-
-        for service_name, test_dir in dotnet_test_projects:
-            svc_label = f"{project_name}/{service_name}"
-            success, output, trx_path = _run_dotnet_test_with_trx(
-                test_dir,
-                description=f"dotnet test for {svc_label}" if not parallel else "",
-            )
-            if not success:
-                all_success = False
-            if output:
-                dotnet_combined_output.append(output)
-
-            svc_results = results_dir / "services" / service_name
-            svc_results.mkdir(parents=True, exist_ok=True)
-            (svc_results / "service.log").write_text(
-                _strip_ansi(output or ""), encoding="utf-8",
-            )
-
-            if trx_path is None:
-                print_warning(
-                    f"  No TRX produced for {service_name} — dotnet test did not run",
-                )
-                all_success = False
-                continue
-            try:
-                counts = write_junit_from_trx(
-                    trx_path, svc_results / "junit.xml", service_name,
-                )
-            except (FileNotFoundError, ValueError) as exc:
-                print_warning(f"  TRX conversion failed for {service_name}: {exc}")
-                all_success = False
-                continue
-            total_passed += counts.passed
-            total_failed += counts.failed
-            total_skipped += counts.skipped
-            if counts.failed > 0:
-                all_success = False
-
-        _write_ts_unit_unit_tests_summary_log(
-            project,
-            results_dir,
-            total_passed=total_passed,
-            total_failed=total_failed,
-            total_errors=0,
-            total_skipped=total_skipped,
-            all_success=all_success,
-        )
-        if not parallel:
-            print_info(f" Results saved to: {results_dir.relative_to(project)}")
-
-        index_path = _produce_structured_output(
-            project, generated_base, "dotnet", "docker", results_dir, 0.0,
-        )
-        if index_path is not None:
-            _warn_on_verdict_mismatch(index_path, all_success)
-
-        result_dict_dotnet: dict[str, Any] = {
-            "name": str(project_name),
-            "success": all_success,
-            "passed": total_passed,
-            "failed": total_failed,
-            "errors": 0,
-            "skipped": total_skipped,
-            "output": "\n".join(dotnet_combined_output) if parallel else None,
-        }
-        if index_path is not None:
-            result_dict_dotnet["index_json_path"] = str(index_path)
-        return result_dict_dotnet
 
     # --- TypeScript project: prefer generated tests/unit-tests.js ---
     ts_unit_tests_js = project / "tests" / "unit-tests.js"
@@ -2380,78 +1911,6 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             result_dict_ts["index_json_path"] = str(index_path)
         return result_dict_ts
 
-    # --- Java project: per-service Maven modules ({svc}/pom.xml + src/test/java) ---
-    java_service_dirs = _find_java_service_dirs(project)
-    if java_service_dirs:
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        results_dir = project / ".test_results" / f"{test_type}-tests-{timestamp}"
-        results_dir.mkdir(parents=True, exist_ok=True)
-        shared_repo = _shared_maven_repo()
-
-        all_success = True
-        total_passed = 0
-        total_failed = 0
-        total_errors = 0
-        total_skipped = 0
-        java_combined_output: list[str] = []
-
-        for svc_dir in java_service_dirs:
-            svc_results = results_dir / "services" / svc_dir.name
-            svc_results.mkdir(parents=True, exist_ok=True)
-            counts = _run_java_service_tests(
-                svc_dir,
-                f"{project_name}/{svc_dir.name}",
-                svc_results,
-                shared_repo,
-                parallel,
-            )
-            service_log = svc_results / "service.log"
-            if service_log.exists():
-                java_combined_output.append(service_log.read_text(encoding="utf-8"))
-            if counts is None:
-                # No report at all: the service was never judged, which is a
-                # failure of the run, not a service with zero tests.
-                all_success = False
-                total_errors += 1
-                continue
-            total_passed += counts["passed"]
-            total_failed += counts["failed"]
-            total_errors += counts["errors"]
-            total_skipped += counts["skipped"]
-            if counts["failed"] > 0 or counts["errors"] > 0:
-                all_success = False
-
-        _write_ts_unit_unit_tests_summary_log(
-            project,
-            results_dir,
-            total_passed=total_passed,
-            total_failed=total_failed,
-            total_errors=total_errors,
-            total_skipped=total_skipped,
-            all_success=all_success,
-        )
-        if not parallel:
-            print_info(f" Results saved to: {results_dir.relative_to(project)}")
-
-        index_path = _produce_structured_output(
-            project, generated_base, "java", "docker", results_dir, 0.0,
-        )
-        if index_path is not None:
-            _warn_on_verdict_mismatch(index_path, all_success)
-
-        result_dict_java: dict[str, Any] = {
-            "name": str(project_name),
-            "success": all_success,
-            "passed": total_passed,
-            "failed": total_failed,
-            "errors": total_errors,
-            "skipped": total_skipped,
-            "output": "\n".join(java_combined_output) if parallel else None,
-        }
-        if index_path is not None:
-            result_dict_java["index_json_path"] = str(index_path)
-        return result_dict_java
-
     # --- No test runner found ---
     return {
         "name": str(project_name),
@@ -2484,22 +1943,6 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
                 service_dir = item.parent
                 project_dir = service_dir.parent
                 if project_dir.resolve() not in seen and _has_test_script(item):
-                    projects.append(project_dir)
-                    seen.add(project_dir.resolve())
-            # Scan for .NET projects (service test projects: {svc}/tests/{X}.Tests/*.csproj)
-            for item in generated_base.rglob("*.Tests.csproj"):
-                # item: {project}/{service}/tests/{X}.Tests/{X}.Tests.csproj
-                if item.parent.name.endswith(".Tests") and item.parent.parent.name == "tests":
-                    project_dir = item.parents[3]
-                    if project_dir.resolve() not in seen:
-                        projects.append(project_dir)
-                        seen.add(project_dir.resolve())
-            # Scan for Java projects (service Maven modules: {svc}/pom.xml + src/test/java)
-            for item in generated_base.rglob("pom.xml"):
-                # item: {project}/{service}/pom.xml
-                service_dir = item.parent
-                project_dir = service_dir.parent
-                if project_dir.resolve() not in seen and _is_java_project(project_dir):
                     projects.append(project_dir)
                     seen.add(project_dir.resolve())
 
@@ -2553,8 +1996,6 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
                     has_runner = (
                         (project / "tests" / "unit_tests.py").exists()
                         or _is_typescript_project(project)
-                        or _is_dotnet_project(project)
-                        or _is_java_project(project)
                     )
                     if not has_runner:
                         print_warning(f" [SKIP] No test runner found for {project_name}")
@@ -2731,8 +2172,6 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
         has_runner = (
             (project_path_abs / "tests" / "unit_tests.py").exists()
             or _is_typescript_project(project_path_abs)
-            or _is_dotnet_project(project_path_abs)
-            or _is_java_project(project_path_abs)
         )
         if not has_runner:
             print_warning(f"No test runner found for {project_name}")
@@ -2782,41 +2221,6 @@ def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
                     if project_dir.resolve() not in seen:
                         projects.append(project_dir)
                         seen.add(project_dir.resolve())
-            # Scan for .NET projects. A project with tests/DeployTests has
-            # host-reachable services (HTTP smoke suite); an all-internal .NET
-            # project has none, but is still deploy-verified by up --wait, so
-            # discover it via its per-service unit-test projects + a compose file.
-            for item in generated_base.rglob("DeployTests.csproj"):
-                if item.parent.name == "DeployTests" and item.parent.parent.name == "tests":
-                    project_dir = item.parents[2]
-                    if project_dir.resolve() not in seen:
-                        projects.append(project_dir)
-                        seen.add(project_dir.resolve())
-            for item in generated_base.rglob("*.Tests.csproj"):
-                if item.parent.name.endswith(".Tests") and item.parent.parent.name == "tests":
-                    project_dir = item.parents[3]
-                    has_compose = (project_dir / "docker-compose.yml").exists() or (
-                        project_dir / "docker-compose.yaml"
-                    ).exists()
-                    if has_compose and project_dir.resolve() not in seen:
-                        projects.append(project_dir)
-                        seen.add(project_dir.resolve())
-            # Scan for Java projects: a service module is {project}/{svc}/pom.xml
-            # carrying src/test/java. Their spec/integration-tagged tests are
-            # excluded from the unit phase by the generated pom, so the project
-            # MUST be discovered here or those tests would run nowhere at all.
-            for item in generated_base.rglob("pom.xml"):
-                project_dir = item.parent.parent
-                has_compose = (project_dir / "docker-compose.yml").exists() or (
-                    project_dir / "docker-compose.yaml"
-                ).exists()
-                if (
-                    has_compose
-                    and project_dir.resolve() not in seen
-                    and _is_java_project(project_dir)
-                ):
-                    projects.append(project_dir)
-                    seen.add(project_dir.resolve())
 
         if not projects:
             print_warning("No generated projects found to test")
@@ -3087,387 +2491,6 @@ def _write_deploy_structured_output(
             project_name,
         )
         return None
-
-
-def _ensure_deploy_env_file(project: Path) -> None:
-    """Ensure a ``.env`` exists for docker-compose ``${VAR}`` substitution.
-
-    Copies ``.env.example`` when present, else writes a placeholder -- the same
-    behaviour the TypeScript jest-deploy path already applies.
-    """
-    env_file = project / ".env"
-    if env_file.exists():
-        return
-    env_example = project / ".env.example"
-    if env_example.exists():
-        shutil.copy2(env_example, env_file)
-        print_info(" [compose] Copied .env.example -> .env")
-    else:
-        env_file.write_text("# Auto-created for deploy tests\n", encoding="utf-8")
-        print_info(" [compose] Created empty .env (no .env.example found)")
-
-
-def _run_dotnet_deploy_tests(
-    project: Path,
-    project_name: str,
-    deploy_test_project_dir: Path | None,
-    paths: dict[str, Path],
-    timestamp: str,
-    *,
-    verbose: bool = False,
-) -> dict[str, Any]:
-    """Run .NET deployment smoke tests (``tests/DeployTests``) against a live stack.
-
-    Owns the full compose lifecycle the generated ``DeploySmokeTests.cs`` needs
-    but does not manage itself (down -> build+up ``--wait`` for healthy ->
-    resolve each service's ephemeral host port -> ``dotnet test`` -> capture
-    docker logs -> teardown), mirroring python's ``deploy_test.py`` and java's
-    ``run-tests.ps1``. The TRX report is converted to the JUnit shape the deploy
-    structured-output pipeline consumes (``dotnet-integration-{slug}.xml``).
-    """
-    del verbose  # dotnet MTP has no per-test verbosity flag the runner threads
-    empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0, "suiteFailures": 0}
-    deploy_test_dir = project / ".test_results" / f"deploy-test-{timestamp}"
-    deploy_test_dir.mkdir(parents=True, exist_ok=True)
-    (deploy_test_dir / "docker-logs").mkdir(parents=True, exist_ok=True)
-    _write_deploy_environment_json(
-        deploy_test_dir, project, "run_complete.py (dotnet DeployTests)",
-    )
-
-    compose_file = project / "docker-compose.yml"
-    if not compose_file.exists():
-        compose_file = project / "docker-compose.yaml"
-
-    output_sections: list[str] = []
-    stats = dict(empty_stats)
-    success = False
-    slug = _sanitize_log_filename(project.name)
-
-    if not compose_file.exists():
-        print_error(f" No docker-compose file found for {project_name} — cannot run deploy tests")
-        stats["errors"] = 1
-        output_sections.append("No docker-compose.yml/.yaml found; deploy smoke tests skipped.")
-        return _finalize_dotnet_deploy(
-            project, project_name, deploy_test_dir, paths, timestamp,
-            success=False, stats=stats, output_sections=output_sections,
-        )
-
-    _ensure_deploy_env_file(project)
-    compose_started = False
-    try:
-        print_info(" [compose] Tearing down previous containers...")
-        # capture_output routes docker's stderr through Python's pipe instead of
-        # inheriting it. run-complete.ps1 sets $ErrorActionPreference="Stop", under
-        # which any native stderr write (e.g. docker's "Volume ... Removing"
-        # progress) becomes a terminating NativeCommandError that would abort the
-        # whole workflow — so every docker invocation here must be captured.
-        _down_ok, down_output = run_command(
-            ["docker", "compose", "-f", str(compose_file), "down", "-v", "--remove-orphans"],
-            cwd=project,
-            description="docker compose down (pre-clean)",
-            capture_output=True,
-        )
-        if down_output:
-            output_sections.append(down_output)
-
-        print_info(" [compose] Building images and starting services (waiting for healthy)...")
-        up_ok, up_output = run_command(
-            [
-                "docker", "compose", "-f", str(compose_file),
-                "up", "-d", "--build", "--wait", "--wait-timeout", "300",
-            ],
-            cwd=project,
-            description="docker compose up -d --build --wait",
-            capture_output=True,
-        )
-        if up_output:
-            output_sections.append(up_output)
-        if not up_ok:
-            print_error(f" [compose] Stack failed to reach healthy state for {project_name}")
-            stats["errors"] = 1
-            return _finalize_dotnet_deploy(
-                project, project_name, deploy_test_dir, paths, timestamp,
-                success=False, stats=stats, output_sections=output_sections,
-            )
-        compose_started = True
-
-        if deploy_test_project_dir is None:
-            # Every service is east-west-only (NONE ingress): there is no
-            # host-reachable HTTP surface to smoke-test, so no tests/DeployTests
-            # was generated. `up --wait` reaching healthy above (each container's
-            # /ready healthcheck) IS the deployment verification.
-            print_success(
-                " [deploy] All services are internal (no external ingress); "
-                "healthy compose stack is the deploy verification.",
-            )
-            output_sections.append(
-                "All services internal (NONE ingress); healthy stack (up --wait) "
-                "is the deploy verification. No host HTTP smoke test.",
-            )
-            success = True
-        else:
-            env_overrides = _resolve_dotnet_deploy_env(project, compose_file)
-            if not env_overrides:
-                print_warning(
-                    " [compose] No service base-URL overrides resolved from run-tests.ps1; "
-                    "smoke tests fall back to BASE_URL:port and may target the wrong host port.",
-                )
-
-            test_success, test_output, trx_path = _run_dotnet_test_with_trx(
-                deploy_test_project_dir,
-                description=f"dotnet deployment tests for {project_name}",
-                env_overrides=env_overrides,
-            )
-            if test_output:
-                output_sections.append(test_output)
-
-            if trx_path is None:
-                print_warning(f"  No TRX produced for {project_name} deploy tests")
-                stats["errors"] = 1
-                success = False
-            else:
-                junit_path = deploy_test_dir / f"dotnet-integration-{slug}.xml"
-                try:
-                    counts = write_junit_from_trx(trx_path, junit_path, slug)
-                    stats["passed"] = counts.passed
-                    stats["failed"] = counts.failed
-                    stats["skipped"] = counts.skipped
-                    success = test_success and counts.failed == 0
-                except (FileNotFoundError, ValueError) as exc:
-                    print_warning(f"  TRX conversion failed for {project_name}: {exc}")
-                    stats["errors"] = 1
-                    success = False
-
-                deploy_failures = _dotnet_failures_from_junit(junit_path, slug)
-                _write_ts_failures_json(deploy_test_dir, project, deploy_failures)
-    finally:
-        _save_docker_logs_for_project(project, deploy_test_dir, project_slug=slug)
-        if compose_started:
-            _ensure_docker_cleanup(project)
-
-    return _finalize_dotnet_deploy(
-        project, project_name, deploy_test_dir, paths, timestamp,
-        success=success, stats=stats, output_sections=output_sections,
-    )
-
-
-def _finalize_dotnet_deploy(
-    project: Path,
-    project_name: str,
-    deploy_test_dir: Path,
-    paths: dict[str, Path],
-    timestamp: str,
-    *,
-    success: bool,
-    stats: dict[str, int],
-    output_sections: list[str],
-) -> dict[str, Any]:
-    """Write deploy-test-output.log, summary, and structured output for a dotnet run."""
-    combined = "\n".join(_strip_ansi(section) for section in output_sections if section)
-    (deploy_test_dir / "deploy-test-output.log").write_text(combined, encoding="utf-8")
-
-    result: dict[str, Any] = {"name": project_name, "success": success, **stats}
-    save_test_summary_log(
-        step_num=5,
-        step_name=f"Deployment Tests for {project_name}",
-        paths=paths,
-        project_results=[result],
-        total_projects=1,
-        success_count=1 if success else 0,
-        fail_count=0 if success else 1,
-        total_passed_tests=stats["passed"],
-        total_failed_tests=stats["failed"],
-        total_error_tests=stats["errors"],
-        total_skipped_tests=stats["skipped"],
-        step5_output_dir=deploy_test_dir,
-    )
-    result["_index_path"] = _write_deploy_structured_output(
-        project, project_name, deploy_test_dir, paths, timestamp, "dotnet",
-    )
-    return result
-
-
-#: JUnit 5 tags marking a generated Java test that needs a reachable live
-#: component (database, broker, cache). The generated ``pom.xml`` excludes these
-#: from every plain ``mvnw test`` via ``datrix.surefire.excludedGroups``, so the
-#: unit phase stays hermetic and they run HERE, against the live compose stack --
-#: the same split python has (``unit_tests.py`` runs
-#: ``-m "not (spec or integration)"``; ``deploy_test.py`` runs the rest).
-_JAVA_LIVE_COMPONENT_GROUPS = "spec,integration"
-
-
-def _run_java_maven_test_phase(
-    module_dir: Path,
-    label: str,
-    extra_args: list[str],
-    junit_path: Path,
-) -> tuple[bool, str, dict[str, int] | None]:
-    """Run one ``mvnw test`` invocation and merge its surefire reports.
-
-    Returns:
-        ``(ok, output, counts)``. *counts* is ``None`` when the module produced
-        no surefire reports at all -- which is the normal, non-failing outcome
-        for a service that declares no live-component tests.
-    """
-    mvnw = _java_maven_wrapper(module_dir)
-    if mvnw is None:
-        return False, f"No mvnw/mvnw.cmd wrapper in {module_dir}", None
-    cmd = [
-        str(mvnw), "-B", f"-Dmaven.repo.local={_shared_maven_repo()}", "test", *extra_args,
-    ]
-    ok, output = run_command(cmd, cwd=module_dir, description=label, capture_output=True)
-    counts: dict[str, int] | None = None
-    if _merge_surefire_reports(module_dir / "target" / "surefire-reports", junit_path):
-        counts = _count_junit_testcases(junit_path)
-    return ok, output or "", counts
-
-
-def _run_java_deploy_tests(
-    project: Path,
-    project_name: str,
-    paths: dict[str, Path],
-    timestamp: str,
-    *,
-    verbose: bool = False,
-) -> dict:
-    """Run a generated Java project's deployment phase against a live stack.
-
-    Owns the compose lifecycle the generated Java tests do not manage
-    themselves (down -> build+up ``--wait`` for healthy -> ``DeploymentTest``
-    -> each service module's ``spec``/``integration``-tagged live-component
-    tests -> capture docker logs -> teardown), the same division of labour
-    ``_run_dotnet_deploy_tests`` already has here and python's
-    ``deploy_test.py`` has for its own target.
-
-    Without this branch the tagged tests would run NOWHERE: the generated pom
-    excludes them from the unit phase precisely because they need this stack.
-    """
-    del verbose  # surefire has no per-test verbosity flag this runner threads
-    empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0, "suiteFailures": 0}
-    deploy_test_dir = project / ".test_results" / f"deploy-test-{timestamp}"
-    deploy_test_dir.mkdir(parents=True, exist_ok=True)
-    (deploy_test_dir / "docker-logs").mkdir(parents=True, exist_ok=True)
-    _write_deploy_environment_json(deploy_test_dir, project, "run_complete.py (java deploy)")
-
-    compose_file = project / "docker-compose.yml"
-    if not compose_file.exists():
-        compose_file = project / "docker-compose.yaml"
-
-    output_sections: list[str] = []
-    stats = dict(empty_stats)
-    success = False
-
-    def _finalize(ok: bool) -> dict:
-        result = {"name": project_name, "success": ok, **stats}
-        combined = "\n\n".join(section for section in output_sections if section)
-        (deploy_test_dir / "deploy-test-output.log").write_text(
-            _strip_ansi(combined), encoding="utf-8",
-        )
-        save_test_summary_log(
-            step_num=5,
-            step_name=f"Deployment Tests for {project_name}",
-            paths=paths,
-            project_results=[result],
-            total_projects=1,
-            success_count=1 if ok else 0,
-            fail_count=0 if ok else 1,
-            total_passed_tests=stats["passed"],
-            total_failed_tests=stats["failed"],
-            total_error_tests=stats["errors"],
-            total_skipped_tests=stats["skipped"],
-            step5_output_dir=deploy_test_dir,
-        )
-        result["_index_path"] = _write_deploy_structured_output(
-            project, project_name, deploy_test_dir, paths, timestamp, "java",
-        )
-        return result
-
-    if not compose_file.exists():
-        print_error(f" No docker-compose file found for {project_name} — cannot run deploy tests")
-        stats["errors"] = 1
-        output_sections.append("No docker-compose.yml/.yaml found; java deploy tests skipped.")
-        return _finalize(False)
-
-    _ensure_deploy_env_file(project)
-    try:
-        print_info(" [compose] Tearing down previous containers...")
-        _down_ok, down_output = run_command(
-            ["docker", "compose", "-f", str(compose_file), "down", "-v", "--remove-orphans"],
-            cwd=project,
-            description="docker compose down (pre-clean)",
-            capture_output=True,
-        )
-        if down_output:
-            output_sections.append(down_output)
-
-        print_info(" [compose] Building images and starting services (waiting for healthy)...")
-        up_ok, up_output = run_command(
-            [
-                "docker", "compose", "-f", str(compose_file),
-                "up", "-d", "--build", "--wait", "--wait-timeout", "300",
-            ],
-            cwd=project,
-            description="docker compose up -d --build --wait",
-            capture_output=True,
-        )
-        if up_output:
-            output_sections.append(up_output)
-        if not up_ok:
-            print_error(f" [compose] Stack failed to reach healthy state for {project_name}")
-            stats["errors"] = 1
-            return _finalize(False)
-
-        phase_ok = True
-        ran_any = False
-
-        deploy_module = project / _JAVA_DEPLOY_TESTS_DIR
-        if (deploy_module / "pom.xml").is_file():
-            print_info(f" [java] Running DeploymentTest for {project_name}...")
-            ok, output, counts = _run_java_maven_test_phase(
-                deploy_module,
-                f"java deployment tests for {project_name}",
-                ["-Dtest=DeploymentTest"],
-                deploy_test_dir / "java-deployment.xml",
-            )
-            output_sections.append(output)
-            phase_ok = phase_ok and ok
-            if counts is not None:
-                ran_any = True
-                for key, value in counts.items():
-                    stats[key] += value
-
-        for svc_dir in _find_java_service_dirs(project):
-            print_info(f" [java] Running live-component tests for {svc_dir.name}...")
-            ok, output, counts = _run_java_maven_test_phase(
-                svc_dir,
-                f"java live-component tests for {project_name}/{svc_dir.name}",
-                [
-                    f"-Dgroups={_JAVA_LIVE_COMPONENT_GROUPS}",
-                    "-Ddatrix.surefire.excludedGroups=",
-                    "-DfailIfNoTests=false",
-                ],
-                deploy_test_dir / f"java-integration-{_sanitize_log_filename(svc_dir.name)}.xml",
-            )
-            output_sections.append(output)
-            phase_ok = phase_ok and ok
-            if counts is not None:
-                ran_any = True
-                for key, value in counts.items():
-                    stats[key] += value
-
-        if not ran_any and phase_ok:
-            # The stack reached healthy but no Java test module produced reports.
-            # Report it rather than passing silently on zero evidence.
-            print_warning(
-                f" [java] No surefire reports produced for {project_name} — "
-                "the healthy stack is the only verification"
-            )
-        success = phase_ok and stats["failed"] == 0 and stats["errors"] == 0
-    finally:
-        _save_docker_logs_for_project(project, deploy_test_dir)
-        _ensure_docker_cleanup(project)
-
-    return _finalize(success)
 
 
 def _run_single_project_deploy_tests(
@@ -3820,34 +2843,8 @@ def _run_single_project_deploy_tests(
         )
         return result
 
-    # --- .NET project: runner-managed compose lifecycle ---
-    # A dotnet project is deploy-verified by bringing its compose stack up with
-    # --wait (each container's /ready healthcheck gates readiness). If it has a
-    # tests/DeployTests project (i.e. ≥1 host-reachable service), the host HTTP
-    # smoke suite runs too; if every service is internal (NONE ingress), the
-    # healthy stack alone is the verification. Triggered for any dotnet project
-    # with a compose file, not only ones carrying DeployTests.
-    dotnet_deploy_dir = _find_dotnet_deploy_test_dir(project)
-    compose_present = (project / "docker-compose.yml").exists() or (
-        project / "docker-compose.yaml"
-    ).exists()
-    if compose_present and (dotnet_deploy_dir is not None or _is_dotnet_project(project)):
-        return _run_dotnet_deploy_tests(
-            project, project_name, dotnet_deploy_dir, paths, timestamp, verbose=verbose,
-        )
-
-    # --- Java project: runner-managed compose lifecycle ---
-    # A generated Java project's DB-backed spec/api tests carry the
-    # spec/integration JUnit tags and are excluded from the unit phase by the
-    # generated pom, so this is the only phase that runs them.
-    if compose_present and _is_java_project(project):
-        return _run_java_deploy_tests(
-            project, project_name, paths, timestamp, verbose=verbose,
-        )
-
     print_warning(
-        f" [SKIP] No deploy_test.py, jest-deploy.config.ts, tests/DeployTests, or "
-        f"Java service module found for {project_name}"
+        f" [SKIP] No deploy_test.py or jest-deploy.config.ts found for {project_name}"
     )
     return {"name": project_name, "success": False, **empty_stats}
 
@@ -3874,23 +2871,6 @@ def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
                 if item.parent.name == "tests":
                     project_dir = item.parent.parent
                     if project_dir.resolve() not in seen:
-                        projects.append(project_dir)
-                        seen.add(project_dir.resolve())
-            # Scan for .NET projects (DeployTests for reachable services; any
-            # dotnet project with a compose file is deploy-verified via up --wait).
-            for item in generated_base.rglob("DeployTests.csproj"):
-                if item.parent.name == "DeployTests" and item.parent.parent.name == "tests":
-                    project_dir = item.parents[2]
-                    if project_dir.resolve() not in seen:
-                        projects.append(project_dir)
-                        seen.add(project_dir.resolve())
-            for item in generated_base.rglob("*.Tests.csproj"):
-                if item.parent.name.endswith(".Tests") and item.parent.parent.name == "tests":
-                    project_dir = item.parents[3]
-                    has_compose = (project_dir / "docker-compose.yml").exists() or (
-                        project_dir / "docker-compose.yaml"
-                    ).exists()
-                    if has_compose and project_dir.resolve() not in seen:
                         projects.append(project_dir)
                         seen.add(project_dir.resolve())
 

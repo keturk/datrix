@@ -306,8 +306,8 @@ def discover_source_files(packages: list[Path]) -> list[Path]:
     return files
 
 
-#: The retired java form: derive from the raw path, then number the collision.
-_SELF_TEST_JAVA = '''
+#: A retired path-fold form: derive from the raw path, then number the collision.
+_SELF_TEST_PATH_FOLD = '''
 def _handler_name(endpoint, used):
     base = to_camel_case(f"{endpoint.method}_{endpoint.path}")
     name = base
@@ -319,8 +319,8 @@ def _handler_name(endpoint, used):
     return name
 '''
 
-#: The retired java nested form: the same loop applied to a name already built.
-_SELF_TEST_JAVA_NESTED = '''
+#: A retired nested form: the same loop applied to a name already built.
+_SELF_TEST_NESTED_HANDLER = '''
 def _handler_name_from_string(base, used):
     name = base
     suffix = 2
@@ -331,9 +331,9 @@ def _handler_name_from_string(base, used):
     return name
 '''
 
-#: The retired .NET form, whose function name says "method" rather than
+#: A retired nested-action form, whose function name says "method" rather than
 #: "handler" -- caught by the module path instead.
-_SELF_TEST_DOTNET_NESTED = '''
+_SELF_TEST_NESTED_METHOD = '''
 def _deduplicate_nested_method_name(base_name, claimed):
     name = base_name
     suffix = 2
@@ -374,7 +374,7 @@ def _unique_fact_method_name(description, seen):
     return name
 '''
 
-#: Legitimate: a local C# variable renamed away from an endpoint's own
+#: Legitimate: a generated local variable renamed away from an endpoint's own
 #: parameter names. The container IS accumulator-named (``taken``), so only
 #: the handler-token test clears it -- which is the point of pinning it here:
 #: the same loop moved onto a handler-name subject must be reported.
@@ -390,9 +390,9 @@ def _unique_local_name(preferred, taken):
 
 #: (source, path, must be detected) for every self-test case.
 _SELF_TEST_CASES: tuple[tuple[str, str, str, bool], ...] = (
-    ("retired java derivation", _SELF_TEST_JAVA, "api/_endpoint_session_context.py", True),
-    ("retired java nested dedup", _SELF_TEST_JAVA_NESTED, "api/_session_context.py", True),
-    ("retired .NET nested dedup", _SELF_TEST_DOTNET_NESTED, "api/_endpoint_nested.py", True),
+    ("retired path-fold derivation", _SELF_TEST_PATH_FOLD, "api/_endpoint_session_context.py", True),
+    ("retired nested-handler dedup", _SELF_TEST_NESTED_HANDLER, "api/_session_context.py", True),
+    ("retired nested-method dedup", _SELF_TEST_NESTED_METHOD, "api/_endpoint_nested.py", True),
     ("serverless shadow avoidance", _SELF_TEST_SERVERLESS, "serverless/_handler_naming.py", False),
     ("test-method disambiguation", _SELF_TEST_FACT_METHOD, "testing/test_spec_generator.py", False),
     ("local-variable allocation", _SELF_TEST_LOCAL_NAME, "extern/extern_client_generator.py", False),

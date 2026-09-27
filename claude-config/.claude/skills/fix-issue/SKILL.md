@@ -147,7 +147,7 @@ If investigation reveals the root cause is in a different project than expected:
    - `datrix-common` → `/fix-common`
    - `datrix-codegen-python` → `/fix-codegen-python`
    - `datrix-codegen-typescript` → `/fix-codegen-typescript`
-   - `datrix-codegen-dotnet` → `/fix-codegen-dotnet`, `datrix-codegen-java` → `/fix-codegen-java`, and so on for any codegen package
+   - `datrix-codegen-angular` → `/fix-codegen-angular`, `datrix-codegen-flutter` → `/fix-codegen-flutter`, and so on for any codegen package
 3. Otherwise, proceed with the fix in the current context
 
 ---
@@ -176,7 +176,7 @@ See `d:\datrix\.claude\skills\_shared\fix-conventions.md` (also applies per-issu
 - **NO ignoring Recommended Fix section** — that's the designed solution, use it
 - **NO fixing generated code directly** — always fix the generator/template
 - **NO debug scatter** — zero temporary logging statements
-- **NO modifying unrelated code** — stay focused on the issue
+- **NO modifying unrelated code** — stay focused on the issue; an unrelated defect you notice gets a findings file under `d:\datrix\reports\finding\` (execution-contract §5A), not a fix and not silence
 - **NO whole test suites, ever** — verify only the tests of what you changed (files and tags)
 - **NO committing changes** — user decides when to commit
 - **NO fabricating file locations** — if Root Cause Analysis says "exact file TBD", search for it first

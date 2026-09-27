@@ -291,7 +291,7 @@ Process fixes in the planned order from Phase 1 (app definition fixes first).
 6. **If the fix affects a codegen package with its own fix skill**, delegate. Every codegen package has one, and the name is derived — `datrix-codegen-<lang>` → `/fix-codegen-<lang>`:
    - `datrix-codegen-python` → use `/fix-codegen-python` patterns
    - `datrix-codegen-typescript` → use `/fix-codegen-typescript` patterns
-   - `datrix-codegen-dotnet` → `/fix-codegen-dotnet`, `datrix-codegen-java` → `/fix-codegen-java`, and so on for any codegen package
+   - `datrix-codegen-angular` → `/fix-codegen-angular`, `datrix-codegen-flutter` → `/fix-codegen-flutter`, and so on for any codegen package
 
 #### After Each Fix:
 

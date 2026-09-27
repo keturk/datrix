@@ -80,6 +80,15 @@ dead:
    ``None`` for an absent block is never classified as a delegation, whatever
    types it touches -- which is why this refinement rescues the sixteen wrappers
    without rescuing a single genuinely orphaned builder.
+4. **Same-module callers.** A builder called only by a sibling in its own
+   module has no caller outside that module, yet it runs on every generation
+   run whenever the sibling does -- e.g. ``build_consumer_sources_context``,
+   whose only call site is ``ContainerModuleHooks.emit_consumer`` in the same
+   module, with ``ContainerModuleHooks`` subclassed by the language packages.
+   So a builder with no external caller still counts as live when a chain of
+   same-module references reaches it from a module-level function or class
+   that some OTHER module references. A sibling nothing outside the module
+   references is no root, and a builder reached only from one is still dead.
 
 This is a hard-zero gate, not a decrease-only ratchet: no exemption file and no
 pinned baseline of known offenders. A baseline on a gate whose entire job is
@@ -105,7 +114,11 @@ and the delegation rule still discriminate:
   that matters most, since a delegation rule that rescued it would have quietly
   disabled the whole gate;
 * a thin wrapper whose delegate nothing outside the defining package binds is
-  an orphan with an extra hop, and is still dead.
+  an orphan with an extra hop, and is still dead;
+* a builder called only by a same-module function or class method that a
+  consuming package references is live, recorded against that root;
+* a builder called only by a same-module sibling nothing outside the module
+  references is still dead.
 
 Repo-level validation script (per the datrix showcase boundary -- no pytest
 suite lives in datrix).
@@ -185,11 +198,16 @@ class ReachabilityCensus:
         delegating: Qualname -> the delegation that keeps it live, for every
             definition with no direct external caller that is nonetheless a thin
             wrapper over a production-bound callee.
+        through_sibling: Qualname -> the externally-referenced same-module
+            root (``module.name``) whose reference chain reaches it, for every
+            definition with no external caller kept live that way (see
+            :func:`_live_through_siblings`).
     """
 
     dead: frozenset[str]
     callers: Mapping[str, frozenset[str]]
     delegating: Mapping[str, _ThinDelegation]
+    through_sibling: Mapping[str, str]
 
 
 @dataclass(frozen=True)
@@ -684,6 +702,99 @@ def _live_delegations(
     return live
 
 
+_ModuleLevelDefinition = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
+
+
+def _module_level_definitions(tree: ast.Module) -> dict[str, _ModuleLevelDefinition]:
+    """Every module-level function and class in *tree*, by name."""
+    return {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+
+
+def _same_module_references(
+    node: _ModuleLevelDefinition, sibling_names: frozenset[str]
+) -> frozenset[str]:
+    """The sibling names *node* loads by bare name anywhere in its body (every
+    method, for a class), itself excluded."""
+    return frozenset(
+        inner.id
+        for inner in ast.walk(node)
+        if isinstance(inner, ast.Name)
+        and isinstance(inner.ctx, ast.Load)
+        and inner.id in sibling_names
+        and inner.id != node.name
+    )
+
+
+def _reached_from_roots(
+    roots: list[str], edges: Mapping[str, frozenset[str]]
+) -> dict[str, str]:
+    """Every name reachable along *edges* from *roots*, mapped to the first root
+    that reaches it (roots map to themselves)."""
+    reached: dict[str, str] = {}
+    for root in roots:
+        frontier = [root]
+        while frontier:
+            name = frontier.pop()
+            if name in reached:
+                continue
+            reached[name] = root
+            frontier.extend(sorted(edges[name] - reached.keys()))
+    return reached
+
+
+def _live_through_siblings(
+    index: _RepositoryIndex,
+    definition_module_of: Mapping[str, str],
+    unresolved: frozenset[str],
+) -> dict[str, str]:
+    """The subset of *unresolved* definitions a same-module reference chain
+    reaches from an externally-referenced root.
+
+    A root is a module-level function or class of the defining module that some
+    OTHER scanned module references at all -- calls it, subclasses it, or passes
+    it as a value. The unresolved definitions themselves are never roots: their
+    external liveness is the call-based question the gate already answered.
+
+    Returns:
+        ``{qualname: root qualname}`` for every rescued definition.
+    """
+    modules = sorted({definition_module_of[qualname] for qualname in unresolved})
+    if not modules:
+        return {}
+    definitions_by_module = {
+        module: _module_level_definitions(index.trees[module]) for module in modules
+    }
+    candidate_roots = (
+        frozenset(
+            f"{module}.{name}"
+            for module, definitions in definitions_by_module.items()
+            for name in definitions
+        )
+        - unresolved
+    )
+    referencing = _modules_by_target(index, candidate_roots, _load_reference_chains)
+    live: dict[str, str] = {}
+    for module in modules:
+        definitions = definitions_by_module[module]
+        names = frozenset(definitions)
+        edges = {name: _same_module_references(node, names) for name, node in definitions.items()}
+        roots = sorted(
+            name
+            for name in names
+            if f"{module}.{name}" in candidate_roots
+            and referencing[f"{module}.{name}"] - {module}
+        )
+        for name, root in _reached_from_roots(roots, edges).items():
+            qualname = f"{module}.{name}"
+            if qualname in unresolved:
+                live[qualname] = f"{module}.{root}"
+    return live
+
+
 def find_functions_without_production_callers(
     package_src_roots: Mapping[str, Path],
     defining_package: str,
@@ -741,11 +852,15 @@ def _census_from_index(
     callers = _callers_by_definition(index, definition_module_of)
     uncalled = frozenset(q for q, mods in callers.items() if not mods)
     delegating = _live_delegations(index, definition_module_of, uncalled, defining_package)
+    through_sibling = _live_through_siblings(
+        index, definition_module_of, uncalled - frozenset(delegating)
+    )
     live_callers = {q: frozenset(mods) for q, mods in callers.items() if mods}
     return ReachabilityCensus(
-        dead=uncalled - frozenset(delegating),
+        dead=uncalled - frozenset(delegating) - frozenset(through_sibling),
         callers=live_callers,
         delegating=delegating,
+        through_sibling=through_sibling,
     )
 
 
@@ -782,31 +897,39 @@ _KNOWN_WIRED: Final[frozenset[str]] = frozenset(
 #: Correction 1 probe (cross-package callers). ``build_api_context`` was hoisted
 #: INTO datrix-codegen-common, so its only real callers live in the packages it
 #: was hoisted FROM. A scan looking only inside the defining package reports it
-#: dead; these three prove the resolver finds callers in several packages, not
-#: one by accident.
+#: dead; these prove the resolver finds callers in several packages, not one by
+#: accident.
 _CROSS_PACKAGE_PROBE: Final[str] = (
     "datrix_codegen_common.algorithms.extern_client_context.build_api_context"
 )
 _CROSS_PACKAGE_PROBE_CALLERS: Final[frozenset[str]] = frozenset(
-    {"datrix_codegen_python", "datrix_codegen_typescript", "datrix_codegen_java"}
+    {"datrix_codegen_python", "datrix_codegen_typescript"}
 )
 
 #: Correction 2 probe (aliased same-named private wrapper). ``extract_max_length``
-#: is never called under its own name in any language package: every call site
+#: is never called under its own name in any language package: its call site
 #: imports it aliased as ``_shared_extract_max_length`` and delegates through a
 #: private ``_extract_max_length``. It is not ``build_*``-prefixed, so it sits
 #: outside the main gate's own iteration, but it exercises exactly the
 #: resolution mechanism that gate depends on.
 _ALIAS_PROBE_NAME: Final[str] = "extract_max_length"
 _ALIAS_PROBE: Final[str] = "datrix_codegen_common.algorithms.scalar_defaults.extract_max_length"
-_ALIAS_PROBE_CALLERS: Final[frozenset[str]] = frozenset(
-    {"datrix_codegen_python", "datrix_codegen_dotnet"}
-)
+_ALIAS_PROBE_CALLERS: Final[frozenset[str]] = frozenset({"datrix_codegen_python"})
 
 #: Correction 3 probe (thin delegation). Every registered test-axis domain's
 #: ``build_<kind>_test_context`` lives in this module and has no caller anywhere.
 _DELEGATION_PROBE_MODULE_PREFIX: Final[str] = (
     "datrix_codegen_common.algorithms.test_plan_context."
+)
+
+#: Correction 4 probe (same-module callers). ``build_consumer_sources_context``
+#: has no caller outside its module; its one call site is a method of
+#: ``ContainerModuleHooks``, which the language packages subclass.
+_SIBLING_PROBE: Final[str] = (
+    "datrix_codegen_common.algorithms.serverless_realization.build_consumer_sources_context"
+)
+_SIBLING_PROBE_ROOT: Final[str] = (
+    "datrix_codegen_common.algorithms.serverless_realization.ContainerModuleHooks"
 )
 
 
@@ -880,6 +1003,15 @@ def check_correctness_floors(census: ReachabilityCensus, alias_census: Reachabil
         )
 
     problems.extend(_check_test_axis_delegations(census))
+
+    sibling_root = census.through_sibling.get(_SIBLING_PROBE)
+    if sibling_root != _SIBLING_PROBE_ROOT:
+        problems.append(
+            f"Expected {_SIBLING_PROBE.rsplit('.', 1)[1]} to be live through its "
+            f"same-module root {_SIBLING_PROBE_ROOT}; resolver recorded {sibling_root!r} "
+            f"-- same-module resolution (correction 4) has regressed, or the builder "
+            f"gained an external caller and this probe must name another."
+        )
     return problems
 
 
@@ -1190,6 +1322,94 @@ def _check_delegation_requires_production_to_supply_the_delegate(tmp_path: Path)
     return problems
 
 
+def _sibling_fixture_roots(tmp_path: Path, name: str, defining_source: str) -> dict[str, Path]:
+    """A two-package fixture tree whose language package calls
+    ``render_widget`` and subclasses ``WidgetHooks`` from the defining module
+    *defining_source*, and references nothing else there."""
+    common = f"fx_common_{name}"
+    lang = f"fx_lang_{name}"
+    defining_root = tmp_path / f"{name}_defining" / "src"
+    caller_root = tmp_path / f"{name}_caller" / "src"
+    _write_module(defining_root / common / "__init__.py", "")
+    _write_module(defining_root / common / "algorithms" / "__init__.py", "")
+    _write_module(defining_root / common / "algorithms" / "widget.py", defining_source)
+    _write_module(caller_root / lang / "__init__.py", "")
+    _write_module(
+        caller_root / lang / "generator.py",
+        f"from {common}.algorithms.widget import WidgetHooks, render_widget\n\n\n"
+        "class LangHooks(WidgetHooks):\n"
+        "    pass\n\n\n"
+        "def run(x):\n"
+        "    return render_widget(x)\n",
+    )
+    return {common: defining_root, lang: caller_root}
+
+
+def _check_builder_reached_through_live_sibling_is_live(tmp_path: Path) -> list[str]:
+    """Direction 4a: one builder is called only by a same-module function the
+    language package calls, another only by a method of a same-module class the
+    language package subclasses. Both run on every real generation, so both are
+    live, each recorded against its own root."""
+    problems: list[str] = []
+    common = "fx_common_sibling"
+    roots = _sibling_fixture_roots(
+        tmp_path,
+        "sibling",
+        "def build_rows(x):\n    return [x]\n\n\n"
+        "def build_sources(x):\n    return (x,)\n\n\n"
+        "def render_widget(x):\n    return build_rows(x)\n\n\n"
+        "class WidgetHooks:\n"
+        "    def emit(self, x):\n"
+        "        return build_sources(x)\n",
+    )
+    census = find_functions_without_production_callers(
+        roots, common, ("algorithms",), is_public_build_function
+    )
+    if census.dead:
+        problems.append(
+            f"self-test: a builder reached through an externally-referenced sibling was "
+            f"reported dead: {sorted(census.dead)}"
+        )
+    module = f"{common}.algorithms.widget"
+    expected = {
+        f"{module}.build_rows": f"{module}.render_widget",
+        f"{module}.build_sources": f"{module}.WidgetHooks",
+    }
+    if dict(census.through_sibling) != expected:
+        problems.append(
+            f"self-test: same-module root record mismatch -- expected {expected}, got "
+            f"{dict(census.through_sibling)}"
+        )
+    return problems
+
+
+def _check_builder_reached_only_through_dead_sibling_is_dead(tmp_path: Path) -> list[str]:
+    """Direction 4b: a builder called only by a same-module helper that nothing
+    outside the module references is an orphan with an extra hop -- still dead,
+    even though the module has other, genuinely live members."""
+    problems: list[str] = []
+    common = "fx_common_orphan"
+    roots = _sibling_fixture_roots(
+        tmp_path,
+        "orphan",
+        "def build_rows(x):\n    return [x]\n\n\n"
+        "def _orphan_helper(x):\n    return build_rows(x)\n\n\n"
+        "def render_widget(x):\n    return x\n\n\n"
+        "class WidgetHooks:\n"
+        "    pass\n",
+    )
+    census = find_functions_without_production_callers(
+        roots, common, ("algorithms",), is_public_build_function
+    )
+    qualname = f"{common}.algorithms.widget.build_rows"
+    if census.dead != frozenset({qualname}):
+        problems.append(
+            f"self-test: a builder reached only through an unreferenced sibling was "
+            f"treated as live -- expected dead {{{qualname}}}, got {sorted(census.dead)}"
+        )
+    return problems
+
+
 #: Every self-test check, in the order they run. Each receives a private
 #: temporary directory root and returns its problems.
 _SELF_TEST_CHECKS: Final[tuple[tuple[str, Callable[[Path], list[str]]], ...]] = (
@@ -1198,6 +1418,8 @@ _SELF_TEST_CHECKS: Final[tuple[tuple[str, Callable[[Path], list[str]]], ...]] = 
     ("thin wrapper over a production-bound plan is live", _check_thin_wrapper_over_production_bound_plan_is_live),
     ("multi-statement builder is STILL flagged dead", _check_multi_statement_builder_is_still_flagged),
     ("thin delegation requires production to supply the delegate", _check_delegation_requires_production_to_supply_the_delegate),
+    ("builder reached through a live same-module sibling is live", _check_builder_reached_through_live_sibling_is_live),
+    ("builder reached only through a dead same-module sibling is STILL dead", _check_builder_reached_only_through_dead_sibling_is_dead),
 )
 
 
@@ -1278,10 +1500,12 @@ def check_shared_builder_reachability() -> int:
         return EXIT_FAIL
     logger.info(
         "SHARED-BUILDER REACHABILITY GATE PASSED: %d build_* definition(s), %d with "
-        "resolved callers, %d live by thin delegation, 0 dead.",
-        len(census.callers) + len(census.delegating) + len(census.dead),
+        "resolved callers, %d live by thin delegation, %d live through a same-module "
+        "root, 0 dead.",
+        len(census.callers) + len(census.delegating) + len(census.through_sibling),
         len(census.callers),
         len(census.delegating),
+        len(census.through_sibling),
     )
     return EXIT_OK
 
@@ -1308,13 +1532,16 @@ def print_census() -> int:
             delegation.delegate,
             delegation.context_type,
         )
+    for qualname, root in sorted(census.through_sibling.items()):
+        logger.info("live_through_sibling qualname=%s root=%s", qualname, root)
     for qualname in sorted(census.dead):
         logger.info("dead qualname=%s", qualname)
     logger.info(
-        "reachability_census packages=%d reachable=%d delegating=%d dead=%d",
+        "reachability_census packages=%d reachable=%d delegating=%d through_sibling=%d dead=%d",
         len(package_src_roots),
         len(census.callers),
         len(census.delegating),
+        len(census.through_sibling),
         len(census.dead),
     )
     return EXIT_OK

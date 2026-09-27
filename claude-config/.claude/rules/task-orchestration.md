@@ -45,9 +45,11 @@ silently seeds the next orchestration run with work nobody scheduled, and it is 
 **Design-sized findings are not phase tasks.** When an agent reports, or files, a defect whose
 fix would need its own design (a new capability, or new behaviour across languages or
 subsystems, beyond the phase's design doc), the orchestrator does not add it to the phase and
-does not dispatch it. It records the finding with evidence and asks Jon before any work
-starts. If an agent already filed such a task, remove it from the phase and keep its text as a
-finding. Only small, contained defects are filed into the running phase (execution-contract §5).
+does not dispatch it. It makes sure the finding has a findings file under
+`d:\datrix\reports\finding\` (execution-contract §5A), writing one itself if the agent did not,
+and names it to Jon before any work starts. If an agent already filed such a task, remove it
+from the phase and move its text into a findings file. Only small, contained defects are filed
+into the running phase (execution-contract §5).
 
 **A task you must file goes in the phase you are executing.** Number it the next free
 `{TT}` in that phase (`validate-dependencies.ps1 -Phase {NN} -NextTaskNumber`) and put it
@@ -118,9 +120,10 @@ A log naming twenty failing examples is a queue, not a batch. Pick ONE example, 
 **for the language it actually failed under**, and stop there.
 
 - **Only the failing language.** Do not generate the example for other registered languages
-  to "see if they're affected". If ecommerce failed on java, you fix java.
-- **Ask permission before checking any other language.** Checking three more costs roughly
-  4× the budget of the one you were asked about. That is Jon's call — ask in one line and wait.
+  to "see if they're affected". If ecommerce failed on typescript, you fix typescript.
+- **Ask permission before checking any other language.** Each additional language costs
+  another full share of the budget of the one you were asked about. That is Jon's call —
+  ask in one line and wait.
 - **Never generate another example before the current one is fixed** — not to check whether
   it's related, not to see if a fix generalises, not as a mid-fix regression check.
 - **To prove a fix generalises, write a test** in the owning `datrix-codegen-*` package. A

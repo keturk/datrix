@@ -4,14 +4,14 @@
 # declarations whose normalized member set is declared -- with a
 # bare string literal -- identically in two or more datrix-*
 # packages (every package discover_packages() finds, not only the
-# four language packages). Any INCREASE in a file's count fails
+# language packages). Any INCREASE in a file's count fails
 # datrix/scripts/dev/check-import-boundaries.py
 # --check-cross-package-vocabulary. Decreases are always allowed
 # and should be captured by re-running with --update-baseline once
 # a later change deletes or hoists a redundant container.
 #
 # An entry carrying a `reason` is a KNOWN-LEGITIMATE duplicate that
-# a design requires (Decision 36 D9: per-platform capability
+# a design requires (Decision 36: per-platform capability
 # declarations and per-target realized-provider sets are declared
 # once per target because their governing decisions forbid a shared
 # table). Such an entry must never be driven to zero, and its reason
@@ -35,26 +35,16 @@ count = 1
 
 [[baseline]]
 file = "datrix-codegen-angular/src/datrix_codegen_angular/capabilities.py"
-count = 3
-reason = "Angular's own ClientTargetCapabilityDeclaration columns: _SUPPORTED_GROUPS (its supported builtin-group stance), _ANGULAR_UNSUPPORTED_UI_GROUPS (its unsupported stance, each with Angular's own reason) and _ANGULAR_VALUE_STRUCT_REALIZATIONS (how Angular holds each runtime value struct, keyed by CLIENT_RUNTIME_VALUE_STRUCTS). A client target states what it realizes on its own declaration, checked at plugin registration, never in a shared table; the key sets coincide with React's and Flutter's declarations because the targets realize the same groups and structs. The server-only groups are read from SERVER_ONLY_BUILTIN_GROUPS, not restated."
+count = 1
+reason = "Angular's own ClientTargetCapabilityDeclaration columns: _SUPPORTED_GROUPS (its supported builtin-group stance), _ANGULAR_UNSUPPORTED_UI_GROUPS (its unsupported stance, each with Angular's own reason) and _ANGULAR_VALUE_STRUCT_REALIZATIONS (how Angular holds each runtime value struct, keyed by CLIENT_RUNTIME_VALUE_STRUCTS). A client target states what it realizes on its own declaration, checked at plugin registration, never in a shared table; the key set coincides with Flutter's declaration because the targets realize the same groups and structs. The server-only groups are read from SERVER_ONLY_BUILTIN_GROUPS, not restated."
 
 [[baseline]]
 file = "datrix-codegen-angular/src/datrix_codegen_angular/gendsl/api.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-angular/src/datrix_codegen_angular/gendsl/element_library.py"
-count = 1
-reason = "_NATIVE_REALIZATIONS: Angular's own realizer per native element (tag, Angular-template attribute spellings such as tabindex, per-kind accessibility attributes, realized through Angular's shared view macro). Its key set is the shared web_client NATIVE_ELEMENTS family and coincides with React's realization table; the values are Angular's rendering and cannot be shared."
-
-[[baseline]]
 file = "datrix-codegen-angular/src/datrix_codegen_angular/gendsl/registrations.py"
 count = 1
-
-[[baseline]]
-file = "datrix-codegen-angular/src/datrix_codegen_angular/plugin.py"
-count = 1
-reason = "_APP_DOMAIN_NAMES: the names of Angular's own GenDSL domains that render once per app. A target's domain list is its own generator definition; React's list coincides because it names its domains the same way, but each set is checked against its own package's definition and may diverge with it."
 
 [[baseline]]
 file = "datrix-codegen-aws/src/datrix_codegen_aws/gendsl/registrations.py"
@@ -126,10 +116,6 @@ file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/resource_mappin
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/resource_mapping/_gateway_app_service.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/resource_mapping/_gateway_routing.py"
 count = 1
 
@@ -173,27 +159,11 @@ file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/cache_method_
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/entity_query_chain.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/graphql_ts_field.py"
 count = 3
 
 [[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/integration_elasticsearch_index.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/jobs.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/pubsub_render.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/queue_context.py"
 count = 1
 
 [[baseline]]
@@ -217,10 +187,6 @@ file = "datrix-codegen-common/src/datrix_codegen_common/orchestration/storage_or
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/orchestration/test_generator_plans.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-common/src/datrix_codegen_common/pooling/db_extensions.py"
 count = 1
 
@@ -234,7 +200,7 @@ count = 4
 
 [[baseline]]
 file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/skeleton/nosql_dispatch.py"
-count = 2
+count = 1
 
 [[baseline]]
 file = "datrix-codegen-component/src/datrix_codegen_component/gendsl/registrations.py"
@@ -274,7 +240,7 @@ count = 1
 
 [[baseline]]
 file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/infra/infrastructure.py"
-count = 3
+count = 2
 
 [[baseline]]
 file = "datrix-codegen-docker/src/datrix_codegen_docker/plugin/capability.py"
@@ -291,332 +257,22 @@ file = "datrix-codegen-docker/src/datrix_codegen_docker/plugin/search_realizatio
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/api/_endpoint_handler_params.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/api/_endpoint_handlers.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/api/_endpoint_multipart.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/cross_cutting/integration_generator.py"
-count = 6
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/cross_cutting/logging_generator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/entity/_dataannotations_field_constraints.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/entity/_entity_test_computed.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/entity/_scalar_factory_values.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/entity/efcore_configuration_generator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/messaging/_dispatch_wiring.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/messaging/_pubsub_emit_helper.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/messaging/_pubsub_engines.py"
-count = 6
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/persistence/_fluentmigrator_ops.py"
-count = 5
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/persistence/cache_connection_generator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/persistence/nosql_connection_generator.py"
-count = 7
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/persistence/search_generator.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/persistence/search_index_initializer_generator.py"
-count = 4
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/queue/_queue_engines.py"
-count = 5
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/serverless/hooks.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/service/_project_dependencies.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/service/dbcontext_generator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/service/project_generator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/testing/_event_spy_generator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/runtime_spec.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/_call_category_constants.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/_call_collections.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/_call_enum_classifier.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/_call_money_constants.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/_entity_query_chain.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/_nosql_query_dispatch.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/_stmt_variable_declaration.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/emit_tables.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/operators.py"
-count = 3
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/visitor_expressions.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/type_mappings.py"
-count = 3
-
-[[baseline]]
-file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/type_resolver.py"
-count = 2
-
-[[baseline]]
 file = "datrix-codegen-flutter/src/datrix_codegen_flutter/capabilities.py"
 count = 1
 reason = "VALUE_STRUCT_REALIZATIONS: how Flutter holds each runtime value struct (Dart classes and modules, UploadFile's own field spellings), keyed by CLIENT_RUNTIME_VALUE_STRUCTS. A client target declares its value-struct realization on its own ClientTargetCapabilityDeclaration; the key set coincides with every other client target's because they realize the same structs, while the values differ per target."
 
 [[baseline]]
-file = "datrix-codegen-flutter/src/datrix_codegen_flutter/transpiler/operators.py"
-count = 1
-reason = "_DART_UNARY_OVERRIDES: Dart's own spelling of the DSL's logical-not operators, merged onto the shared BASE_UNARY_OPS by build_ops. Every language states its own overrides of the base table (Python spells not as 'not '); Java's table coincides because both languages spell it '!'."
-
-[[baseline]]
 file = "datrix-codegen-flutter/src/datrix_codegen_flutter/type_mappings.py"
-count = 5
-reason = "Flutter's own scalar realization tables: DART_TYPE_MAP (the Dart type of every canonical scalar), _GEO_DART_TYPE_MAPPINGS and DART_EXTENSION_MAPS (the extension scalars and the per-extension map build_type_map requires every target to declare), DART_STRING_WIRE_TYPE_MAP (Decimal/Money as a double with a string codec) and _DART_PRIMITIVE_WIRE_TYPES (the Dart type of each non-string JSON wire kind). Every target registers its own type map in the shared type-mapping registry; the key sets are the canonical scalar, extension and wire-kind vocabularies, the values are Dart."
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/algorithms/enqueue_handler.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/domain_validation.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/api/_endpoint_handler_params.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/api/_graphql_type_resolution.py"
-count = 3
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/entity/_entity_constants.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/entity/_entity_lifecycle_flags.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/entity/_entity_test_values.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/entity/_validator_builder.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/entity/test_factory_generator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/messaging/_broker_dispatch.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/messaging/_pubsub_emit_helper.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/persistence/_cache_decorator_policy.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/persistence/_migration_schema.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/persistence/nosql_connection_generator.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/persistence/rdbms_connection_generator.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/persistence/search_generator.py"
-count = 6
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/persistence/storage_generator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/queue/_queue_emit_helper.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/serverless/hooks.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/hooks/cache_hooks.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/micro_generators/cache.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/migration.py"
-count = 3
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/observability_support.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/runtime_spec.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_cache_dispatch.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_dispatch_event_schema_extension.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_entity_query_where_chain.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_expr_builtin_mapper_calls.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_expr_json_array_push.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_expr_literals_identifiers.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_expr_property_access.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_expr_static_calls.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_nosql_query_dispatch.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/core.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/emit_tables.py"
-count = 3
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/operators.py"
-count = 1
-reason = "_JAVA_UNARY_OVERRIDES: Java's own spelling of the DSL's logical-not operators, merged onto the shared BASE_UNARY_OPS by build_ops. Every language states its own overrides of the base table (Python spells not as 'not '); Dart's table coincides because both languages spell it '!'."
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/visitor_statements.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/type_mappings.py"
 count = 4
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/algorithms/jobs_orchestration.py"
-count = 1
+reason = "Flutter's own scalar realization tables: DART_TYPE_MAP (the Dart type of every canonical scalar), _GEO_DART_TYPE_MAPPINGS and DART_EXTENSION_MAPS (the extension scalars and the per-extension map build_type_map requires every target to declare), DART_STRING_WIRE_TYPE_MAP (Decimal/Money as a double with a string codec) and _DART_PRIMITIVE_WIRE_TYPES (the Dart type of each non-string JSON wire kind). Every target registers its own type map in the shared type-mapping registry; the key sets are the canonical scalar, extension and wire-kind vocabularies, the values are Dart."
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/algorithms/struct_context.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/domain_validation.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generation/dependency_tables.py"
-count = 4
+count = 3
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/api/_endpoint_import_resolution.py"
@@ -627,16 +283,12 @@ file = "datrix-codegen-python/src/datrix_codegen_python/generators/api/_gateway_
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/cross_cutting/_health_checks.py"
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/_entity_constants.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/_entity_constants.py"
-count = 2
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/_entity_test_create_fields.py"
-count = 2
+count = 1
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/_entity_test_inference.py"
@@ -652,34 +304,18 @@ count = 1
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/messaging/_pubsub_emit_helper.py"
-count = 4
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/_cache_decorator_policy.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/_nosql_not_found_exceptions.py"
-count = 2
+count = 3
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/migration_generator.py"
-count = 6
+count = 2
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/storage_generator.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/serverless/_container_entrypoints.py"
-count = 2
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/_service_generator_ast.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/testing/test_spec_generator.py"
 count = 1
 
 [[baseline]]
@@ -688,15 +324,7 @@ count = 2
 reason = "Both hits are this language target's per-target realization tables (Decision 36 D9). PROVIDER_CLIENT_REALIZATIONS: the per-provider decide-client table (template, runtime, class per provider); AI agents (Decision 46 invariant 5) forbid any provider name in a shared layer, and which providers a platform realizes is that platform's own declaration (docker/aws/azure plugin capability), so the key sets coincide by design and can have no shared home. MANAGED_CREDENTIAL_REALIZATIONS: the per-kind managed-credential realization (class, scope keyword, parameter keywords), keyed by the ManagedCredentialKind vocabulary datrix-common declares (plugin/model_realization.py); the values are this package's own emitted classes, so the table has no shared home, and its key set is held equal to the declared kinds by tests/integration/generators/test_agents_managed_rendering.py."
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/orchestration/pubsub_consumer.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/runtime_spec.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_entity_query_chain.py"
 count = 1
 
 [[baseline]]
@@ -711,18 +339,6 @@ count = 1
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_expr_types.py"
 count = 2
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_nosql_query_dispatch.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_transpiler_variable_declaration.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/builtins.py"
-count = 1
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/emit_tables.py"
@@ -744,26 +360,6 @@ reason = "_SPEC_STATEMENT_METHODS: this language target's lowering table for the
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/type_mappings.py"
 count = 4
-
-[[baseline]]
-file = "datrix-codegen-react/src/datrix_codegen_react/capabilities.py"
-count = 3
-reason = "React's own ClientTargetCapabilityDeclaration columns: _SUPPORTED_GROUPS (its supported builtin-group stance), _REACT_UNSUPPORTED_UI_GROUPS (its unsupported stance, each with React's own reason) and _REACT_VALUE_STRUCT_REALIZATIONS (how React holds each runtime value struct, keyed by CLIENT_RUNTIME_VALUE_STRUCTS). A client target states what it realizes on its own declaration, checked at plugin registration, never in a shared table; the key sets coincide with Angular's and Flutter's declarations because the targets realize the same groups and structs. The server-only groups are read from SERVER_ONLY_BUILTIN_GROUPS, not restated."
-
-[[baseline]]
-file = "datrix-codegen-react/src/datrix_codegen_react/gendsl/element_library.py"
-count = 1
-reason = "_NATIVE_REALIZATIONS: React's own NativeElement per native element (tag and JSX attribute spellings such as tabIndex, per-kind accessibility attributes). Its key set is the shared web_client NATIVE_ELEMENTS family and coincides with Angular's realization table; the values are React's rendering and cannot be shared."
-
-[[baseline]]
-file = "datrix-codegen-react/src/datrix_codegen_react/gendsl/registrations.py"
-count = 1
-reason = "FILE_LANGUAGES: the emitted-file languages React's own GenDSL registrations declare. Every generator package registers its own; the value coincides with Angular's registration and the TypeScript backend's dependency fixture because all three emit TypeScript files."
-
-[[baseline]]
-file = "datrix-codegen-react/src/datrix_codegen_react/plugin.py"
-count = 1
-reason = "_APP_DOMAIN_NAMES: the names of React's own GenDSL domains that render once per app. A target's domain list is its own generator definition; Angular's list coincides because it names its domains the same way, but each set is checked against its own package's definition and may diverge with it."
 
 [[baseline]]
 file = "datrix-codegen-sql/src/datrix_codegen_sql/audit_table_sql.py"
@@ -799,11 +395,11 @@ count = 1
 
 [[baseline]]
 file = "datrix-codegen-sql/src/datrix_codegen_sql/type_mappings.py"
-count = 6
+count = 5
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generation/dependency_tables.py"
-count = 6
+count = 5
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/_helpers.py"
@@ -834,15 +430,7 @@ file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/cross
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/entity/_entity_lifecycle_flags.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/entity/_entity_test_values.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/entity/test_factory_generator.py"
 count = 1
 
 [[baseline]]
@@ -887,7 +475,7 @@ count = 1
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/builtins.py"
-count = 2
+count = 1
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/emit_tables.py"
@@ -895,7 +483,7 @@ count = 1
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/operators.py"
-count = 3
+count = 1
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/special_calls.py"
@@ -916,8 +504,8 @@ reason = "ROUTE_PARAM_TRANSFORMS: the web clients' own ui-core transform (routeN
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/web_client/type_mappings.py"
-count = 4
-reason = "The web client targets' one scalar realization table (hoisted here so Angular and React share it): WEB_CLIENT_TYPE_MAP (the TypeScript client type of every canonical scalar), _GEO_TYPE_MAPPINGS and WEB_CLIENT_EXTENSION_MAPS (the extension scalars and the per-extension map build_type_map requires every target to declare) and WEB_CLIENT_STRING_WIRE_TYPE_MAP (Decimal/Money as the branded DecimalString). Every target registers its own type map in the shared type-mapping registry; the key sets are the canonical scalar and extension vocabularies, the values are the browser client's wire types."
+count = 3
+reason = "The web client targets' one scalar realization table (hoisted here so every web client target shares it): WEB_CLIENT_TYPE_MAP (the TypeScript client type of every canonical scalar), _GEO_TYPE_MAPPINGS and WEB_CLIENT_EXTENSION_MAPS (the extension scalars and the per-extension map build_type_map requires every target to declare) and WEB_CLIENT_STRING_WIRE_TYPE_MAP (Decimal/Money as the branded DecimalString). Every target registers its own type map in the shared type-mapping registry; the key sets are the canonical scalar and extension vocabularies, the values are the browser client's wire types."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/builtins/value_struct_definitions.py"
@@ -941,10 +529,6 @@ file = "datrix-common/src/datrix_common/config/engine_defaults.py"
 count = 4
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/config/observability/models.py"
-count = 1
-
-[[baseline]]
 file = "datrix-common/src/datrix_common/config/platform/azure.py"
 count = 1
 
@@ -962,7 +546,7 @@ count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/constants.py"
-count = 7
+count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/deployment/azure_naming.py"
@@ -998,7 +582,7 @@ count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/infra/providers.py"
-count = 4
+count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/migration/canonicalize.py"
@@ -1028,11 +612,11 @@ count = 1
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/ui_derivation.py"
 count = 1
-reason = "TEMPORAL_INPUT_KIND_BY_SCALAR_NAME: the UI input kind (date/dateTime/time) each temporal scalar derives to, the one table the UI derivation and the UI validator both read. Its key set (Date, DateTime, Time) coincides with Java's temporal import table, Python's cross-field test inference set and the migration canonicalizer's timestamp category because every one enumerates the DSL's temporal scalars; each maps them to a different fact of its own subsystem."
+reason = "TEMPORAL_INPUT_KIND_BY_SCALAR_NAME: the UI input kind (date/dateTime/time) each temporal scalar derives to, the one table the UI derivation and the UI validator both read. Its key set (Date, DateTime, Time) coincides with Python's cross-field test inference set and the migration canonicalizer's timestamp category because every one enumerates the DSL's temporal scalars; each maps them to a different fact of its own subsystem."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/contract.py"
-count = 2
+count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/geo_validator.py"
@@ -1057,7 +641,7 @@ count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/transpiler/base.py"
-count = 4
+count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/transpiler/entity_query_models.py"

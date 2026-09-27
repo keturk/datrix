@@ -17,14 +17,6 @@
 #   reason = "free text, not read by the loader"
 
 [[baseline]]
-package = "datrix_codegen_dotnet"
-count = 124
-
-[[baseline]]
-package = "datrix_codegen_java"
-count = 110
-
-[[baseline]]
 package = "datrix_codegen_python"
 count = 161
 

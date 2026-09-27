@@ -17,9 +17,9 @@ semantic analysis -> stdlib placeholders + lazy module injection -> continuing p
 
 No IR layer. Parser produces `Application` directly. `GenerationPipeline` lives in `datrix-cli` (`datrix-cli/src/datrix_cli/pipeline/generation.py`); `run()` walks an ordered registry of typed `Stage` values through one runner. The named stages, in order: `parse` → `discover_and_parse_seeds` → `resolve_service_configs` → `inject_identity_system_entities` → `inject_approval_system_entities` → `inject_push_device_registry` → `analyze` → `apply_service_filter` (skipped without `--service`) → `validate_deployment` → `resolve_incremental` → `build_codegen_context` → `build_deployment_plan` → `resolve_config_surfaces` → `discover_generators` → `validate_type_completeness` → `validate_builtin_realization` → `discover_platforms` → `sort_generators` → `select_generation_targets` (skipped without `--only`) → `attach_runtime_bootstrap` → `generate:{name}` (one per generator) → `resolve_intra_group_conflicts` → `detect_file_conflicts` → `assert_deploy_binding_conformance` → `write:{target}` (one per target) → `migrations` → `discover_language_hooks` → `run_language_post_processing` → `run_client_target_post_processing` → `format_json_files` → `update_append_only_hashes` → `snapshot` → `commit_migration_state`. Infrastructure-config resolution and service memory-limit normalization are **not** stages: they run inside `analyze` as `SemanticAnalyzer.analyze()` pre-seal hooks, because both depend on nodes analysis itself may synthesize. There is **no** `platform_validation` or `apply_cli_overrides` stage; `--language` is a required generation parameter resolved before the run, and cross-model and `(provider, DeploymentProvider)` realization checks run inside the pre-seal infrastructure-config hook, with deployment-presence checks in `validate_deployment`.
 
-## Packages (16)
+## Packages (14)
 
-Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) plus fifteen core packages below.
+Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) plus thirteen core packages below.
 
 | Package | Purpose |
 |---------|---------|
@@ -29,8 +29,6 @@ Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) 
 | datrix-codegen-component | Platform-agnostic artifacts (docs, config, scripts) |
 | datrix-codegen-python | Python generation (FastAPI). Jinja2 + ruff format |
 | datrix-codegen-typescript | TypeScript generation (NestJS/Express). Jinja2 (pre-formatted templates, no separate formatter) + `tsc --noEmit` compile validation |
-| datrix-codegen-dotnet | .NET/ASP.NET Core generation (persistence, migrations, identity/auth, messaging, jobs, CQRS). Jinja2 + CSharpier |
-| datrix-codegen-java | Java generation (Spring Boot 4.1 / Java 25). Jinja2 + google-java-format |
 | datrix-codegen-sql | SQL DDL (PostgreSQL, MySQL) |
 | datrix-codegen-docker | Docker/Compose generation. YAML builders |
 | datrix-codegen-aws | AWS infrastructure (CDK/CloudFormation): VPC, ECS, RDS, ElastiCache, SNS/SQS, MSK (Kafka), DynamoDB, S3 |
@@ -40,7 +38,7 @@ Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) 
 | datrix-cli | CLI. Discovers generator plugins dynamically via entry points |
 | datrix-extensions | Optional domain extension packs (`datrix.extensions`). Depends on datrix-common |
 
-**datrix-codegen-dotnet is a real generator.** Increments 0-3 (conformance scaffold, transpiler core, entities/schemas, service scaffold & REST) landed first, producing a dotnet service that compiles and serves REST traffic. Increments 4-6 (persistence via EF Core, identity & auth with JWT/JWKS/gateway/trusted-caller/webhook/rate-limit/tenancy, messaging & workers covering pubsub/queue/CQRS/jobs) landed on top of that, full suite green (1347/0/0) with docker and cli generation unchanged and all G1-G8 conformance checks passing. dotnet now joins python, typescript, and java as a real generator, not a scaffold. **Migrations via FluentMigrator** shipped in two distinct steps, not one: the `DotnetFluentMigratorAdapter` itself landed first (renders real `[Migration(N)]` classes, all 8 `RdbmsMigrationAdapter` protocol members) but was unreachable from a real `datrix generate` run — no `migration` GenDSL domain, no registry wiring to `MigrationOrchestrator`, so `Migrations/*.cs` was never actually emitted in production; a follow-up closed that gap by declaring the `migration` domain and swapping `MigrationOrchestrator` into `datrix-codegen-dotnet`'s registry, mirroring python's/typescript's own wiring. Migration rendering is now both adapter-present AND pipeline-wired. Repo tooling keys off what is actually on disk — a package joins the venv install set and the import-boundary/dead-code scans as soon as it has a `pyproject.toml` / `src/`, and joins `test.ps1 -All` and `status-tests.ps1` as soon as it carries a **test suite**: a `tests/` directory (pytest) or a `package.json` declaring a `test` script (Node). Nothing needs to be re-listed by hand. Increment 7 (data & integrations — cache/nosql/storage/search/remote-config/secrets/email/sms/push/payment/crypto/discovery/resilience/CDN/extern + inter-service REST clients) and increment 8 (GraphQL/websockets/geo — dotnet's `CLAIMED_BUILTIN_GROUPS` now includes `GEO`, matching python/typescript/java) have **landed**. Increments 9-10 (test generation, package docs, serverless cloud wiring) have also **landed**: `TestSpecGenerator` renders xUnit specs from DSL `test(...)` blocks, `readme.md.j2` renders package docs, and the Lambda/Azure Functions/container serverless adapters wire cloud hosting. **Serverless handler realization is now complete on all three platforms** — job/subscription/endpoint/enqueue-consumer handlers each carry exactly one realization on LAMBDA, FUNCTIONS, and CONTAINER (a platform-agnostic handler class plus a thin per-platform adapter that translates the native trigger payload into it; CONTAINER alone emits no separate handler class, since its standalone entrypoints already carry the transpiled body inline). An unrecognized platform raises rather than silently emitting nothing. The **container-hosting platform** work (Azure Container Apps / ECS Fargate best-native targets) is separate and language-agnostic — it does not own dotnet's serverless authoring.
+Repo tooling keys off what is actually on disk — a package joins the venv install set and the import-boundary/dead-code scans as soon as it has a `pyproject.toml` / `src/`, and joins `test.ps1 -All` and `status-tests.ps1` as soon as it carries a **test suite**: a `tests/` directory (pytest) or a `package.json` declaring a `test` script (Node). Nothing needs to be re-listed by hand.
 
 **Language count is not a constant.** Datrix targets many languages and platforms. Never write a doc, test, or script that assumes the currently-shipped set is the whole set.
 
@@ -98,7 +96,7 @@ Full decision log: [Architecture Overview — Decision 22](./architecture-overvi
 
 ## Cross-Target Parity Program
 
-Establishes systematic parity enforcement across every registered language and platform generator, closing catalogued language-target and platform-target capability drift. **Decision 28 landed and passing:** `block-realization-parity-gate.ps1` (D1) is green across all 5 registered platforms with zero unexempted holes; `standing-conformance-gate.ps1` (D10) is green across all 8 committed specs. **Decision 30 landed:** the platform axis (aws/azure/docker) has a uniform pre-generation validation floor, zero catalogued capability holes, and its dead surfaces deleted and pinned by standing specs. **Decision 31 landed:** declared mini-DSL surfaces (EmitDSL typed predicate columns, shared test-generator plans, the closed seed pipeline, the emission-path gate, and queue/serverless block dispatch) replace the imperative bypasses that used to cause per-target drift, each held by a documented zero or a documented non-zero floor. Decision 29 remains approved, implementation in progress.
+Establishes systematic parity enforcement across every registered language and platform generator, closing catalogued language-target and platform-target capability drift. **Decision 28 landed and passing:** `block-realization-parity-gate.ps1` (D1) is green across all 5 registered platforms with zero unexempted holes; `standing-conformance-gate.ps1` (D10) is green across all 7 committed specs. **Decision 30 landed:** the platform axis (aws/azure/docker) has a uniform pre-generation validation floor, zero catalogued capability holes, and its dead surfaces deleted and pinned by standing specs. **Decision 31 landed:** declared mini-DSL surfaces (EmitDSL typed predicate columns, shared test-generator plans, the closed seed pipeline, the emission-path gate, and queue/serverless block dispatch) replace the imperative bypasses that used to cause per-target drift, each held by a documented zero or a documented non-zero floor. Decision 29 remains approved, implementation in progress.
 
 | # | Invariant | Enforcement mechanism |
 |---|---|---|
@@ -179,7 +177,7 @@ Decision 36 measures parallel implementations; this decision asks what would *re
 | 5 | A hoist removes every private copy, not just one | Per-symbol negative check beside each shared builder that no language package redefines the hoisted private name, plus an AST call-graph proof that every package that used to carry a copy reaches the shared one |
 | 6 | These are refactors, so their whole claim is that nothing changed | Behaviour preservation proven by **a test that renders the hoisted construct and asserts its output**, not a green suite alone; a deliberate behavioural change is declared and pinned by its own test, never landed silently. The repo keeps no stored snapshot of generated output — see [generated-output-stability.md](./generated-output-stability.md) |
 | 7 | A shared raise site is parameterized by the caller's own exception class, never forced onto a new declared-exception-type hook | `algorithms.declared_table_lookup`, `algorithms.entity_query_chain.transpile_where_comparison`, `transpiler.skeleton.nosql_dispatch.nosql_sort_direction`, `transpiler.skeleton.nosql_dispatch.validate_nosql_sort_positional_arity`, `generation.raise_site_guards.reject_unrealizable_gateway_fields` all take the exception class as a parameter — python's own `ValueError` on the entity-query path is load-bearing, caught by its own chain-step fallback. The arity guard is the pattern applied to a rule that had drifted into four per-language copies: every registered NoSQL-emitting target routes its positional `orderBy(...)` empty/odd check through it, passing its own `NoSqlFilterSyntax`, so the rule and its wording are one fact while each target keeps raising the class it declares |
-| 8 | A capability or emission gap is fixed against a named reference target, never labelled legitimate | The five entries this was ever true for were fixed against python as the reference surface (most recently: dotnet places native enum types in the block's declared schema) |
+| 8 | A capability or emission gap is fixed against a named reference target, never labelled legitimate | The five entries this was ever true for were fixed against python as the reference surface |
 
 **A mechanism label is a hypothesis about code, not a fact about it.** Roughly half the names once labelled collapsible-by-casing carried divergences beyond casing — an absent branch, a different return arity, a missing parameter — and reading the bodies before any hoist touched them is what kept the eventual casing pass from silently dropping behaviour. Read the implementations before collapsing on a label. `NamingProfile.structural_rule` is still populated as identity by every language, so a structural-rather-than-case-based convention (a leading-underscore private-field prefix, a directory's kebab-case convention) has no home in the profile as it stands, and inventing one needs a decision family to justify it, not a hoist.
 
@@ -214,7 +212,7 @@ Full decision log: [Architecture Overview — Decision 39](./architecture-overvi
 
 ## Enum Keyword Classification
 
-A `keywords('PU', 'IT')` attribute on an enum value, plus two generated static classifiers on the enum type — `equalsKeyword` / `containsKeyword` — replacing the hand-written `if`-ladders that map an external string to an enum. No grammar change. Realized per language (python, typescript, java, dotnet emit enum types today) rather than through `BUILTIN_REGISTRY`, which is keyed by fixed category names and cannot hold a user enum. **Adopted** — all eight invariants hold today as executable checks.
+A `keywords('PU', 'IT')` attribute on an enum value, plus two generated static classifiers on the enum type — `equalsKeyword` / `containsKeyword` — replacing the hand-written `if`-ladders that map an external string to an enum. No grammar change. Realized per enum-emitting language rather than through `BUILTIN_REGISTRY`, which is keyed by fixed category names and cannot hold a user enum. **Adopted** — all eight invariants hold today as executable checks.
 
 | # | Invariant | Enforcement mechanism |
 |---|---|---|
@@ -223,7 +221,7 @@ A `keywords('PU', 'IT')` attribute on an enum value, plus two generated static c
 | 3 | Every enum-emitting target realizes both classifiers identically, or declares the surface unsupported with a reason | Runtime-derived conformance gate under `datrix/scripts/test/` that enumerates its targets from the `datrix.languages` entry-point group, self-tests its own non-vacuity every run, and refuses to pass with fewer than two targets |
 | 4 | A no-match error discloses neither the received value nor the declared vocabulary | Negative assertion per target: the generated message contains no interpolation and no keyword literal |
 | 5 | The exception a classifier raises is declared per language and provably emitted | Required `LanguageProfile` sub-profile plus a fail-closed generation validator; each language's error-class emission predicate counts a keyword-bearing enum as a reference |
-| 6 | Author-supplied literals cannot break out of emitted source | One string escaper per language applied to `value()` and `keywords()` alike — java and dotnet have one today, python and typescript do not — with `ENUM005` rejecting empty and control-character keywords before emission |
+| 6 | Author-supplied literals cannot break out of emitted source | One string escaper per language applied to `value()` and `keywords()` alike (python routes both through the shared enum-context builder in `datrix_codegen_common.algorithms.enum_files` with its own escaper; typescript through the shared single-quoted escaper), with `ENUM005` rejecting empty and control-character keywords before emission |
 | 7 | Keywords never reach the storage or DDL layer | SQL and Docker output byte-identical for a keyword-bearing enum versus the same enum without keywords |
 | 8 | A classifier call routes ahead of enum-member access on every language | Per-language routing at each property-access seam, with a unit test per target proving the member-access path no longer claims `EnumName.equalsKeyword` |
 
@@ -323,7 +321,7 @@ package** — declared in its own GenDSL target contribution, with its own type 
 | 4 | Query-param names are derived from the backend's plugin, never hardcoded | Same shared wire-name helper the backend emitter uses, from the run's resolved backend language; proven for two casers so a hardcoded casing fails |
 | 5 | Client method names cannot drift from backend handler names | Both call the one shared handler-name helper (collision guard + resource case); each renderer applies only its own caser |
 | 6 | No secret, token, credential, tenant id, environment URL, or per-profile value in any generated client file | Base URL *injected* via a declared token, never emitted; pagination emits its two parameters optional, with no default, no bound, no value-bearing comment. Proven by regenerating against every declared profile and requiring byte-identical manifest hashes |
-| 6a | Pagination parameter NAMES are the backend's own, derived like every other wire key | Each language declares the pair its paginated handlers bind on its `LanguageCapabilityDeclaration` (`offset_pagination_param_names`); the contract reads it from the resolved backend plugin. This is not cosmetic: python/typescript/.NET bind row-offset `skip`/`limit` while Spring java binds page-number `page`/`size`, and the semantics travel with the names — a consumer sends what the declared pair means for that backend and never converts between them (converting needs the page size, a per-profile value). A shared `("skip","limit")` constant asserted universality over an enumeration that omitted java, so a client generated against a java backend sent two keys the server never reads and silently received the default first page. Gated by a runtime-derived check over the installed `datrix.languages` set that also refuses to pass with fewer than two targets or one distinct pair |
+| 6a | Pagination parameter NAMES are the backend's own, derived like every other wire key | Each language declares the pair its paginated handlers bind on its `LanguageCapabilityDeclaration` (`offset_pagination_param_names`); the contract reads it from the resolved backend plugin. This is not cosmetic: a backend may bind row-offset names (python and typescript declare `skip`/`limit`) or page-number names, and the semantics travel with the names — a consumer sends what the declared pair means for that backend and never converts between them (converting needs the page size, a per-profile value). A shared `("skip","limit")` constant once asserted universality over an enumeration that omitted a page-number backend, so a client generated against it sent two keys the server never reads and silently received the default first page. Gated in `datrix-common` by a check that enumerates the installed `datrix.languages` set at run time, refuses to pass with fewer than two targets, and requires every target to declare a caser-stable pair; the contract builder's own test in `datrix-codegen-common` proves a divergent pair is carried through, over two fixture backends declaring disjoint pairs |
 | 7 | A caller value never reaches a URL by concatenation | Every path parameter percent-encoded at the call site; gated with a parameter valued `a/b?c=d`, which must round-trip as one path segment |
 | 8 | Request-body encoding is decided, never assumed | A request struct with a file-upload field binds multipart, not JSON, by the same detection the backend uses; an undecidable encoding raises |
 | 9 | Every emitted type is mapped and every referenced type is emitted | Complete map over the canonical builtin scalars + every `CollectionKind` + the renderer's extension maps, with a generation-time completeness check naming the unmapped type — no default mapping, no `any`, no silent `string`. Models emitted over the transitive type closure reachable from the emitted routes, so a dangling type ref is a generation error |
@@ -347,7 +345,7 @@ Full decision log: [Architecture Overview — Decision 43](./architecture-overvi
 
 ## Parity by Construction — Closing the Hand-Written Feature Surface
 
-Parity **measurement** on the language axis is mature; **prevention** is not. A feature lands once in the shared model and then once by hand in every language package, and the gates report the drift after it exists. Two declaration universes are open on one side, so a target can silently opt out: the shared GenDSL domain registry was seeded from the python/typescript-era shared registration table and never re-derived from what the languages declare (the four languages declare 62 domain ids; 23 are outside the registry, twelve of them declared by all four — realized everywhere, compared nowhere), and 314 of 522 builtin registry rows are ungrouped ("optional everywhere"), so the resulting capability holes accumulate as 475 per-method reason strings in a JSON exemption file rather than as a stance on the plugin. **A feature is authored once as a shared plan and N times as a rendering, never N times as a decision.** **Adopted** — the two declaration universes are closed (A1, A2) and every single-step routing decision is a declared row (C); the shared-plan-module workstream (B) is adopted as its mechanism and as the rule for new work, not as a retroactive count target — see invariants 5 and 7.
+Parity **measurement** on the language axis is mature; **prevention** is not. A feature lands once in the shared model and then once by hand in every language package, and the gates report the drift after it exists. Two declaration universes are open on one side, so a target can silently opt out: the shared GenDSL domain registry was seeded from the python/typescript-era shared registration table and never re-derived from what the languages declare (when this was measured, the four languages then registered declared 62 domain ids; 23 were outside the registry, twelve of them declared by all four — realized everywhere, compared nowhere), and 314 of 522 builtin registry rows are ungrouped ("optional everywhere"), so the resulting capability holes accumulate as 475 per-method reason strings in a JSON exemption file rather than as a stance on the plugin. **A feature is authored once as a shared plan and N times as a rendering, never N times as a decision.** **Adopted** — the two declaration universes are closed (A1, A2) and every single-step routing decision is a declared row (C); the shared-plan-module workstream (B) is adopted as its mechanism and as the rule for new work, not as a retroactive count target — see invariants 5 and 7.
 
 | # | Invariant | Check |
 |---|---|---|
@@ -359,7 +357,7 @@ Parity **measurement** on the language axis is mature; **prevention** is not. A 
 | 6 | A per-language difference inside a shared builder is a **declared parameter**, never a branch | A `LanguageProfile` value, a typed parameter from the language's thin adapter, or a per-language render step — never a target-name conditional in the shared layer (the target-literal ratchet stays at its empty baseline) |
 | 7 | Every hoist is behaviour-preserving and removes every private copy | A test beside the shared builder renders the construct for a fixture and asserts its output for every affected language, plus a per-symbol test that no language package redefines the private name and every former copy's package reaches the shared one |
 | 8 | Every single-step routing decision is a declared row, and the declared table is the **first** dispatch stop | `emit_function_for` is consulted before any hand-written branch at every chain-step call site, and a branch duplicating a row's predicate is deleted in the same change — a declaration replaces a branch, never joins it |
-| 9 | Each language's visit floor equals the count of functions its floor documentation names, for **all four** languages | Floor-doc completeness gate extended to dotnet and java, ending the "tracked separately" carve-out |
+| 9 | Each language's visit floor equals the count of functions its floor documentation names, for **every** registered language | Floor-doc completeness gate over every registered language, with no "tracked separately" carve-out |
 | 10 | A routing row is stance-checked at registration and the check fails closed; the `@emit_adapter` marker and the rows are one fact | Emit-table validation resolves every row's builtin group against the language's declared stances and denies when it cannot (no group, no stance). An `unsupported` stance does not reject a row — a group is `unsupported` the moment one member is unrealized, so rows for realized members are required, and truthfulness is enforced where it belongs: a `supported` stance obligates full realization at registration. Every registered emit function must carry `@emit_adapter` and be referenced by a row, and the testkit's emit-adapter census proves no marked function in a package escapes registration |
 | 11 | Every new declaration surface **fails closed** | Absent group stance → construction/registration error; unregistered domain id → derivation error; row for an unsupported group → registration error. No fallback, no default stance |
 | 12 | A pre-generation diagnostic never discloses application source text | The new stage reports the builtin key, service and location only — never the surrounding expression or a literal argument, since DSL bodies can carry configuration references |
@@ -410,9 +408,9 @@ behaviour changed. **Approved — implementation in progress.**
 
 **A function in a language package never carries its own language's name** — the package
 already says it, and the token is what defeats the instrument; the declared `name_tokens` per
-language are python `{python, py, pydantic, sqlalchemy, sa, alembic, ruff, pip}`, typescript
-`{typescript, ts, js, nest, nestjs, mikroorm, mikro, jest, tsc, npm}`, java `{java, spring, jpa,
-maven, jackson}`, dotnet `{dotnet, net, cs, csharp, efcore, fluentmigrator, nuget, quartz}`.
+language are python `{python, py, pydantic, sqlalchemy, sa, alembic, ruff, pip}` and typescript
+`{typescript, ts, js, nest, nestjs, mikroorm, mikro, jest, tsc, npm}`; every further language
+declares its own set.
 
 Full decision log: [Architecture Overview — Decision 47](./architecture-overview.md#decision-47-language-axis-behaviour-parity--roles-behaviour-skeletons-and-the-best-realization-as-reference-approved--implementation-in-progress).
 
@@ -497,7 +495,7 @@ when unrealized. `powershell -File "d:/datrix/datrix/scripts/test/zero-environme
 censuses every registered language's templates against its own idioms: a realized language
 (python) fails on an unlisted or stale exemption in
 `datrix/scripts/config/zero-environment-runtime-baseline.json`; an unrealized language
-(typescript, java, dotnet today) carries a decrease-only pinned count; an undeclared language
+(typescript today) carries a decrease-only pinned count; an undeclared language
 fails by name. A missing value is never defaulted on any language — the MSK region raises when
 unset on python and typescript alike.
 
@@ -535,10 +533,9 @@ every registered language's `.py`/`.j2` sources: an unregistered framework-prefi
 needs a reviewed, counted entry in `datrix/scripts/config/framework-header-exemptions.json`, a
 retired spelling has no exemption path, a family neither realized nor declared fails by name, a
 declared-but-realized family is a stale declaration, and a family no language realizes is a dead
-registry entry. This is how java's private `X-Datrix-Trusted-Caller` (a shared secret, no
-outbound token — declared unrealized today, with the one reviewed spelling exemption) and a
-typescript test template still sending the retired `X-Internal-Token` became red checks instead
-of facts someone had to notice.
+registry entry. This is how a private `X-Datrix-Trusted-Caller` spelling (a shared secret, no
+outbound token) and a typescript test template still sending the retired `X-Internal-Token`
+became red checks instead of facts someone had to notice. The exemption file is empty today.
 
 The RFC 7807 `type` member has the same shape of contract and the same enforcement:
 `datrix_common.datrix_model.problem_types` mints every problem type as `urn:datrix:error:<slug>`
@@ -546,13 +543,13 @@ The RFC 7807 `type` member has the same shape of contract and the same enforceme
 from its class name through the shared exception-declaration algorithm), each language
 declares its holes on `LanguageCapabilityDeclaration.unrealized_problem_types`, and
 `powershell -File "d:/datrix/datrix/scripts/test/problem-type-parity-gate.ps1"` holds every
-literal slug to the registry and every family to realized-or-declared. Before it, python and
-java spelled the URNs, typescript composed an `https://api.example.com/…/errors/<slug>` URL and
-.NET answered everything with `https://httpstatuses.com/<status>`.
+literal slug to the registry and every family to realized-or-declared. Before it, targets
+disagreed: python spelled the URNs while typescript composed an
+`https://api.example.com/…/errors/<slug>` URL.
 
 ## Boot-Path Contracts (Reaching the Database)
 
-Generating a service that compiles is not generating a service that runs. Three of the four registered backend targets emit an application that builds its image and then fails during startup — a pool that never connects, a migration naming a type nothing creates, an unset environment variable — and none is visible to the owning package's suite, because each emitted artifact is internally consistent and disagrees only with an artifact emitted by a *different* package or with a dependency's runtime behaviour. That is the **seam** class, and each rule below lands as an executable comparison rather than prose. **Approved — implementation in progress.**
+Generating a service that compiles is not generating a service that runs. When this decision was taken, three of the four backend targets then registered emitted an application that built its image and then failed during startup — a pool that never connects, a migration naming a type nothing creates, an unset environment variable — and none is visible to the owning package's suite, because each emitted artifact is internally consistent and disagrees only with an artifact emitted by a *different* package or with a dependency's runtime behaviour. That is the **seam** class, and each rule below lands as an executable comparison rather than prose. **Approved — implementation in progress.**
 
 | # | Invariant | Enforcement |
 |---|---|---|
@@ -567,8 +564,6 @@ Generating a service that compiles is not generating a service that runs. Three 
 | 9 | An unrecognised migration operation kind raises | A dispatch chain with no final branch renders it as nothing — a silently dropped step in an append-only history. The fail-loud branch lands **before** any new kind is added |
 | 10 | No generated service resolves a connection fact or credential from the process environment | Decision 14 restated as a per-target obligation, not a property one target happens to have. Fails closed: no default host, port, database, or credential. Legitimate container-runtime keys are a typed, counted exemption |
 | 11 | The emitted service can read the secret backend its platform declares | A declared backend with no renderer raises naming it — never falls back to an environment reader, which is a fail-open credential path wearing a working service's appearance |
-
-**Two declared holes (invariants 3, 10, 11 are stated over every target and not yet enforced on all):** the .NET target has no migration-entrypoint readiness loop, and its emitted service still resolves several connection facts — and an identity token — from the process environment across cache, document-store, discovery and identity surfaces. Out of this decision's scope (it spans four unrelated infrastructure surfaces and needs its own decision), recorded as counted holes with coordinates rather than silence.
 
 **The timing change is intended:** dependents wait longer on a first start because they now wait for a condition that is actually true. And closing a boot-path seam reveals what that startup path was masking — it does not promise a clean boot.
 
@@ -645,7 +640,7 @@ Orchestration: `StagePipeline` in **datrix-common** runs Stages 1–2 and config
 - **Types:** `TypeRegistry.load_extensions(extensions)` when callers register pack scalars.
 - **Declared names in codegen:** `declared_extension_names(app)` → passed into `LanguageGenerator` / resolvers.
 - **Python maps:** `PYTHON_EXTENSION_MAPS` in `datrix_codegen_python.type_mappings`, merged by the shared `datrix_common.generation.type_mapping_registry.build_type_map` (raises `ExtensionNotSupportedError` if a declared extension has no Python map).
-- **Every language + SQL package:** same split-ownership pattern, already shipped — `TS_EXTENSION_MAPS` (`datrix_codegen_typescript.type_mappings`), `SQL_EXTENSION_MAPS` (`datrix_codegen_sql.type_mappings`), `DOTNET_EXTENSION_MAPS` (`datrix_codegen_dotnet.type_mappings`), `JAVA_EXTENSION_MAPS` (`datrix_codegen_java.type_mappings`) each merge into their core `*_TYPE_MAP` via `build_type_map()`, mirroring `PYTHON_EXTENSION_MAPS` above. A new language package is expected to ship its own `*_EXTENSION_MAPS` module the same way.
+- **Every language + SQL package:** same split-ownership pattern, already shipped — `TS_EXTENSION_MAPS` (`datrix_codegen_typescript.type_mappings`), `SQL_EXTENSION_MAPS` (`datrix_codegen_sql.type_mappings`) each merge into their core `*_TYPE_MAP` via `build_type_map()`, mirroring `PYTHON_EXTENSION_MAPS` above. A new language package is expected to ship its own `*_EXTENSION_MAPS` module the same way.
 
 Full guide: [extensions-guide.md](../../../datrix-extensions/docs/extensions-guide.md) · Core protocol: [datrix-common extensions](../../../datrix-common/docs/extensions.md).
 
@@ -737,7 +732,7 @@ High-level constructs the parser and transformers understand today. Full detail:
 
 ## Technology
 
-Python 3.11+, Tree-sitter, Pydantic v2, Jinja2, ruff/CSharpier/google-java-format, pytest.
+Python 3.11+, Tree-sitter, Pydantic v2, Jinja2, ruff, pytest.
 
 **AST dispatch:** `ExpressionVisitor[T]` / `StatementVisitor[T]` + `node.accept()` for expressions/statements (same pattern as `TypeVisitor[T]` for types); `CallTargetEmitter` + `dispatch_call()` for call targets — see [datrix-common-api — Transpiler modules](../../../datrix-common/docs/datrix-common-api.md#transpiler-modules).
 

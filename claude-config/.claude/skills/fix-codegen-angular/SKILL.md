@@ -24,7 +24,7 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 
 ## Package Specifics
 
-- **Scope:** Angular frontend-client codegen ONLY. Do NOT cross into the backend language codegen packages (`datrix-codegen-typescript`, `-python`, `-java`, `-dotnet`).
+- **Scope:** Angular frontend-client codegen ONLY. Do NOT cross into the backend language codegen packages (`datrix-codegen-typescript`, `-python`, or any other registered language) or into the sibling frontend target `datrix-codegen-flutter`.
 - **Package:** `datrix-codegen-angular` — frontend API client generation (models, enums, injectable HTTP clients, route/provider manifest).
 - **Fix target:** Generator source code, GenDSL definitions, Jinja2 templates, or test code — never generated output.
 

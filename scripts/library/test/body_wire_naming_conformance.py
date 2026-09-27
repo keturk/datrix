@@ -52,11 +52,6 @@ from datrix_cli.pipeline.generation import GenerationPipeline  # noqa: E402
 from datrix_common.generation.validation_level import ValidationLevel  # noqa: E402
 from datrix_common.generation.wire_naming import body_wire_name  # noqa: E402
 from datrix_common.plugin.identity import LanguageId  # noqa: E402
-# `to_camel_case` survives here for ONE purpose: modelling ASP.NET Core's own
-# `JsonNamingPolicy.CamelCase` inside the dotnet extractor, which reads what
-# that runtime does, not what Datrix's rule says. The rule itself is
-# `body_wire_name` and is never restated.
-from datrix_common.utils.text import to_camel_case  # noqa: E402
 from datrix_language.registration import register_all  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 from pydantic.fields import FieldInfo  # noqa: E402
@@ -129,7 +124,7 @@ class ResponseField:
         field_name: The field/attribute/property identifier as THIS
             language's own generated code spells it (its own case
             convention -- snake_case for python, camelCase for
-            typescript/java, PascalCase for dotnet).
+            typescript).
         effective_wire_name: The wire (JSON) key this language ACTUALLY
             emits for this field, read from the real generated artifact.
     """
@@ -195,7 +190,7 @@ def _looks_like_test_file(file_path: Path) -> bool:
     """
     name = file_path.name
     if name.startswith("test_") or name.endswith(
-        ("_test.py", ".spec.ts", "Test.java", "Tests.cs")
+        ("_test.py", ".spec.ts")
     ):
         return True
     test_dir_names = {"test", "tests"}
@@ -459,231 +454,6 @@ class TypeScriptResponseFieldExtractor:
         return fields
 
 
-# ---------------------------------------------------------------------------
-# Java extractor
-# ---------------------------------------------------------------------------
-
-_JAVA_RECORD_HEADER_RE = re.compile(r"public record (\w+)\(")
-_JAVA_FIELD_LINE_RE = re.compile(
-    r"^\s*(?:@[\w.]+(?:\([^()]*\))?\s+)*[\w.\[\]<>]+\s+([A-Za-z_]\w*)\s*,?\s*$"
-)
-
-
-def _classify_java_schema_kind(java_file: Path) -> str:
-    """Classify a generated Java file's schema kind from its output path.
-
-    Mirrors `_classify_python_schema_kind`: a CQRS view response lands
-    under `.../cqrs/schemas/...`, a dependency-response decoder under
-    `.../clients/<Dep>Responses.java`. Entity and struct responses share no
-    single distinguishing directory (both are plain `record` DTOs under
-    `.../dto/...`), so both fall to the generic "response_schema" bucket,
-    still fully checked for conformance.
-    """
-    parts = java_file.as_posix()
-    if "/clients/" in parts and java_file.stem.endswith("Responses"):
-        return "dependency_response"
-    if "/cqrs/" in parts and "/schemas/" in parts:
-        return "cqrs_view_response"
-    return "response_schema"
-
-
-def _java_record_field_list_span(source: str) -> tuple[int, int] | None:
-    """Return the `(start, end)` character offsets of the first Java
-    `record`'s parenthesized field-declaration list, or None if no record
-    header is found.
-
-    Tracks paren depth from the opening `(` so an annotation argument list
-    inside a field declaration (e.g. `@Size(min = 0, max = 100)`) never
-    terminates the scan before the record's own closing paren.
-    """
-    match = _JAVA_RECORD_HEADER_RE.search(source)
-    if match is None:
-        return None
-    start = match.end()
-    depth = 1
-    i = start
-    while i < len(source) and depth > 0:
-        if source[i] == "(":
-            depth += 1
-        elif source[i] == ")":
-            depth -= 1
-        i += 1
-    return start, i - 1
-
-
-class JavaResponseFieldExtractor:
-    """Reads effective wire names off generated Java record response DTOs.
-
-    Java response DTOs are Jackson-serialized records with no per-field
-    `@JsonProperty` rename anywhere in the entity/struct/CQRS response
-    templates, and no global `PropertyNamingStrategy` configured anywhere in
-    this codegen package (verified) -- Jackson's default record
-    serialization uses the record component name verbatim, and that name is
-    already camelCase (`safe_java_field_name()` -> `to_camel_case`,
-    `generators/entity/_entity_constants.py`). The effective wire name is
-    therefore the declared record-component name itself, read directly off
-    the generated source on every invocation -- never assumed.
-    """
-
-    def __init__(self) -> None:
-        self.excluded_by_scope: Counter[str] = Counter()
-
-    def extract(self, generated_root: Path) -> list[ResponseField]:
-        fields: list[ResponseField] = []
-        self.excluded_by_scope = Counter()
-        for java_file in sorted(generated_root.rglob("*.java")):
-            if _looks_like_test_file(java_file):
-                continue
-            source = java_file.read_text(encoding="utf-8")
-            span = _java_record_field_list_span(source)
-            if span is None:
-                continue
-            schema_kind = _classify_java_schema_kind(java_file)
-            if schema_kind in _OUT_OF_SCOPE_SCHEMA_KINDS:
-                self.excluded_by_scope[schema_kind] += 1
-                continue
-            field_list_text = source[span[0] : span[1]]
-            for line in field_list_text.splitlines():
-                match = _JAVA_FIELD_LINE_RE.match(line)
-                if match is None:
-                    continue
-                name = match.group(1)
-                fields.append(
-                    ResponseField(
-                        language="java",
-                        schema_kind=schema_kind,
-                        template="",
-                        file_path=java_file,
-                        field_name=name,
-                        effective_wire_name=name,
-                    )
-                )
-        return fields
-
-
-# ---------------------------------------------------------------------------
-# .NET extractor
-# ---------------------------------------------------------------------------
-
-_DOTNET_RECORD_HEADER_RE = re.compile(r"public sealed record \w+\s*\{")
-_DOTNET_PROPERTY_LINE_RE = re.compile(
-    r"^\s*public\s+(?:required\s+)?[\w<>\[\],.?]+\s+([A-Za-z_]\w*)\s*\{\s*get;\s*init;\s*\}\s*$"
-)
-_DOTNET_JSON_PROPERTY_NAME_RE = re.compile(r'^\s*\[JsonPropertyName\("([^"]+)"\)\]\s*$')
-_DOTNET_NAMING_POLICY_OVERRIDE_RE = re.compile(r"PropertyNamingPolicy\s*=")
-
-
-def _classify_dotnet_schema_kind(cs_file: Path) -> str:
-    """Classify a generated C# file's schema kind from its output path.
-
-    .NET's own directory constants are PascalCase (`Cqrs/Schemas`,
-    `Clients`, `Dtos` -- `directory_constants.py`), unlike every other
-    registered language's lowercase convention, so this classifier matches
-    case-insensitively. Entity and struct responses share no single
-    distinguishing directory (both are `record` DTOs under `.../Dtos/...`),
-    so both fall to the generic "response_schema" bucket, still fully
-    checked for conformance.
-    """
-    parts = cs_file.as_posix().lower()
-    if "/clients/" in parts and cs_file.stem.endswith("Responses"):
-        return "dependency_response"
-    if "/cqrs/" in parts and "/schemas/" in parts:
-        return "cqrs_view_response"
-    return "response_schema"
-
-
-def _dotnet_default_camel_case_policy_holds(generated_root: Path) -> bool:
-    """Return True iff no generated `.cs` file overrides the framework's
-    default camelCase JSON property-naming policy.
-
-    ASP.NET Core's `AddControllers()` configures `System.Text.Json` via
-    `JsonSerializerDefaults.Web` internally, whose default
-    `PropertyNamingPolicy` is `JsonNamingPolicy.CamelCase` -- so a plain C#
-    PascalCase property serializes to a camelCase wire key with no
-    per-field annotation needed (verified: every generated `Program.cs`
-    calls plain `AddControllers()` with no `AddJsonOptions` override). This
-    is re-verified against the REAL generated tree on every invocation,
-    never assumed from a one-time template review, so a future template
-    change that overrides the policy is caught rather than silently missed.
-    """
-    for cs_file in generated_root.rglob("*.cs"):
-        if _DOTNET_NAMING_POLICY_OVERRIDE_RE.search(cs_file.read_text(encoding="utf-8")):
-            return False
-    return True
-
-
-class DotnetResponseFieldExtractor:
-    """Reads effective wire names off generated C# response DTO records.
-
-    Unlike TypeScript/Java, .NET's declared property identifiers are
-    PascalCase (`to_pascal_case(field.name)` -- `DotnetSchemaMicroGen.
-    _build_dto_fields`, `CqrsMicroGen`), NOT camelCase: `identifier_caser=
-    to_camel_case` in dotnet's own `NamingProfile` governs locals/params
-    only (`profile.py`), never DTO property names. The effective wire name
-    instead comes from ASP.NET Core's own JSON serialization behavior (see
-    `_dotnet_default_camel_case_policy_holds`) -- a genuinely SEPARATE
-    mechanism from the property declaration, the same shape as Python's
-    `alias_generator`. A `[JsonPropertyName("...")]` attribute immediately
-    preceding a property is honored as an explicit override, this
-    language's equivalent of Python's `serialization_alias`.
-    """
-
-    def __init__(self) -> None:
-        self.excluded_by_scope: Counter[str] = Counter()
-
-    def extract(self, generated_root: Path) -> list[ResponseField]:
-        fields: list[ResponseField] = []
-        self.excluded_by_scope = Counter()
-        camel_case_by_default = _dotnet_default_camel_case_policy_holds(generated_root)
-        for cs_file in sorted(generated_root.rglob("*.cs")):
-            if _looks_like_test_file(cs_file):
-                continue
-            source = cs_file.read_text(encoding="utf-8")
-            if not _DOTNET_RECORD_HEADER_RE.search(source):
-                continue
-            schema_kind = _classify_dotnet_schema_kind(cs_file)
-            if schema_kind in _OUT_OF_SCOPE_SCHEMA_KINDS:
-                self.excluded_by_scope[schema_kind] += 1
-                continue
-            fields.extend(
-                self._fields_from_source(cs_file, source, schema_kind, camel_case_by_default)
-            )
-        return fields
-
-    def _fields_from_source(
-        self, cs_file: Path, source: str, schema_kind: str, camel_case_by_default: bool
-    ) -> list[ResponseField]:
-        fields: list[ResponseField] = []
-        pending_json_name: str | None = None
-        for line in source.splitlines():
-            override_match = _DOTNET_JSON_PROPERTY_NAME_RE.match(line)
-            if override_match is not None:
-                pending_json_name = override_match.group(1)
-                continue
-            prop_match = _DOTNET_PROPERTY_LINE_RE.match(line)
-            if prop_match is None:
-                continue
-            name = prop_match.group(1)
-            if pending_json_name is not None:
-                wire_name = pending_json_name
-            elif camel_case_by_default:
-                wire_name = to_camel_case(name)
-            else:
-                wire_name = name
-            pending_json_name = None
-            fields.append(
-                ResponseField(
-                    language="dotnet",
-                    schema_kind=schema_kind,
-                    template="",
-                    file_path=cs_file,
-                    field_name=name,
-                    effective_wire_name=wire_name,
-                )
-            )
-        return fields
-
-
 #: Registry of per-language extractors. A registered language with no
 #: extractor is reported as "unsupported, no extractor" (an unexempted gap,
 #: not a silent skip) -- see check_body_wire_naming_conformance()'s
@@ -691,8 +461,6 @@ class DotnetResponseFieldExtractor:
 _EXTRACTORS: Final[dict[str, ResponseFieldExtractor]] = {
     "python": PythonResponseFieldExtractor(),
     "typescript": TypeScriptResponseFieldExtractor(),
-    "java": JavaResponseFieldExtractor(),
-    "dotnet": DotnetResponseFieldExtractor(),
 }
 
 
@@ -947,8 +715,8 @@ def _generate_example_for_language(language: str) -> Path:
     """
     output_dir = _GATE_OUTPUT_ROOT / language
     # `ValidationLevel.FAST` still runs fix_imports/format_files but skips
-    # validate_files (e.g. java's own `mvnw compile`, dotnet's `dotnet
-    # build`) -- this gate reads generated SOURCE TEXT only, never compiled
+    # validate_files (a language's own toolchain compile step, e.g.
+    # typescript's `tsc`) -- this gate reads generated SOURCE TEXT only, never compiled
     # output, so a full compiler invocation is an unrelated, more expensive
     # dependency this naming check does not need.
     config = PipelineConfig(

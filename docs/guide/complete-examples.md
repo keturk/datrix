@@ -81,7 +81,7 @@ datrix generate --source examples/02-features/01-core-data-modeling/rest-api/sys
 datrix generate --source examples/03-domains/ecommerce/system.dtrx --output ./generated --profile test
 ```
 
-Optional **language override** for development (see [`datrix-cli/docs/commands.md`](../../datrix-cli/docs/commands.md)):
+Optional **language override** for development (see [`datrix-cli/docs/commands.md`](../../../datrix-cli/docs/commands.md)):
 
 ```bash
 datrix generate --source examples/03-domains/ecommerce/system.dtrx --output ./generated -L python
@@ -89,7 +89,7 @@ datrix generate --source examples/03-domains/ecommerce/system.dtrx --output ./ge
 
 **Note:** Deployment configuration (runtime and provider) is specified in the ConfigDSL files, not via CLI flags.
 
-The e-commerce domain also ships **pre-generated** trees for inspection — one per registered language on the docker-compose profile, under [`examples/03-domains/ecommerce/generated/`](../../examples/03-domains/ecommerce/generated/) (`python-docker/`, `typescript-docker/`, `dotnet-docker/`, `java-docker/`); regenerating is still the supported workflow.
+The e-commerce domain also ships **pre-generated** trees for inspection — one per registered language on the docker-compose profile, under [`examples/03-domains/ecommerce/generated/`](../../examples/03-domains/ecommerce/generated/) (`python-docker/`, `typescript-docker/`); regenerating is still the supported workflow.
 
 ---
 

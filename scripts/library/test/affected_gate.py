@@ -1566,7 +1566,8 @@ def _run_recorded(args: argparse.Namespace, workspace: Path, self_test_passed: b
 
 #: Per-package CPU seconds (``test_time_seconds``) measured over the full runs
 #: of 2026-09-23 on a 12-logical-core machine: a fixed table, so the
-#: scheduling checks judge the policy on real proportions, not a toy.
+#: scheduling checks judge the policy on real proportions, not a toy. Its keys
+#: are fixture labels for that measurement, not the current package set.
 _COST_TABLE_CPU_SECONDS: dict[str, float] = {
     "python": 7589.0, "typescript": 3181.0, "codegen-common": 3251.0, "dotnet": 2748.0,
     "java": 1690.0, "docker": 1234.0, "cli": 1138.0, "common": 1095.0, "azure": 953.0,
@@ -2526,8 +2527,8 @@ def _check_completion_row_shares_the_guards_ts_type_and_is_distinguishable() -> 
     the completion row is told apart by ``source``, and one call appends
     exactly one row naming what ran and what carried."""
     guard_keys, ts_expressions = _guard_row_keys_and_ts_expressions()
-    assert ts_expressions == [_GUARD_TS_EXPRESSION], (
-        f"the guard's audit rows must stamp ts as {_GUARD_TS_EXPRESSION}; found {ts_expressions}"
+    assert ts_expressions and all(expr == _GUARD_TS_EXPRESSION for expr in ts_expressions), (
+        f"every audit row the guard writes must stamp ts as {_GUARD_TS_EXPRESSION}; found {ts_expressions}"
     )
     with tempfile.TemporaryDirectory(prefix="affected-gate-selftest-") as tmp:
         audit_path = audit_log_path(Path(tmp))

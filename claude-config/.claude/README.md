@@ -376,11 +376,8 @@ Skills that support delegation:
     fix-codegen-common/SKILL.md
     fix-codegen-component/SKILL.md
     fix-codegen-docker/SKILL.md
-    fix-codegen-dotnet/SKILL.md
     fix-codegen-flutter/SKILL.md
-    fix-codegen-java/SKILL.md
     fix-codegen-python/SKILL.md
-    fix-codegen-react/SKILL.md
     fix-codegen-sql/SKILL.md
     fix-codegen-typescript/SKILL.md
     codegen-review/SKILL.md

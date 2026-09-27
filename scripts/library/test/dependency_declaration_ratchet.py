@@ -50,7 +50,7 @@ Two structural detection passes, neither a text regex over raw source:
    deliberately NOT scanned by containment: it degrades to a text search over
    a template's entire RENDERED OUTPUT, including plain generated code
    (``import stripe`` in a payment-client template) and even doc comments
-   (a Javadoc note explaining why a Maven coordinate is NOT yet used was
+   (a doc comment explaining why a package coordinate is NOT yet used was
    observed matching under the old approach) -- none of that is a
    dependency-set decision.
 
@@ -122,7 +122,7 @@ _DECLARED_TABLE_RELATIVE_PATH: Final[Path] = Path("generation") / "dependency_ta
 #: as, sitting directly at the package's own `src/datrix_codegen_<lang>/` root
 #: -- the same file `datrix_common.generation.generator.Generator
 #: .get_project_defaults()` loads via `importlib.resources`. A language with no
-#: such file (e.g. `datrix-codegen-dotnet` at authoring time) has declared no
+#: such file has declared no
 #: dependency catalog at all, which is a legitimate empty package universe --
 #: not an error -- so no literal can ever match for it.
 _DEFAULTS_YAML_NAME: Final[str] = "defaults.yaml"
@@ -159,15 +159,14 @@ _KNOWN_LIVE_INSTANCE: Final[tuple[str, str, int, str]] = (
 #: Whole snake_case tokens (an identifier split on `_`, never a substring
 #: search) that mark a function or module-level constant as a dependency-SET
 #: decision site. Empirically derived by investigating every real
-#: out-of-table site the earlier, over-broad matcher reported across all four
-#: registered language packages at authoring time: the
-#: `get_dependencies`/`get_npm_dependencies`/`get_nuget_dependencies`/
-#: `_collect_*_deps`-shaped functions this task's own correction names,
-#: PLUS their module-level table equivalents that investigation found
-#: necessary to include for the count to be non-vacuous across every
-#: language -- Java's Maven coordinate maps are named `*_COORDINATES` /
-#: `*_COORDINATE` (e.g. `EMAIL_COORDINATES`, `_VERSIONED_COORDINATES`), not
-#: `*_PACKAGE_NAMES`, and several genuine decision functions/constants in
+#: out-of-table site the earlier, over-broad matcher reported across the
+#: registered language packages: the
+#: `get_dependencies`/`get_npm_dependencies`/`_collect_*_deps`-shaped
+#: functions, PLUS their module-level table equivalents that investigation
+#: found necessary to include for the count to be non-vacuous across every
+#: language -- a package-registry coordinate map is conventionally named
+#: `*_COORDINATES` / `*_COORDINATE` rather than `*_PACKAGE_NAMES`, and several
+#: genuine decision functions/constants in
 #: Python/TypeScript use "package"/"deps" without a `get_`/`collect_` prefix
 #: (e.g. `_append_cache_helper_dependencies`, `deps_from_cache`,
 #: `_resolve_native_helper_packages`, `_BACKEND_PACKAGES_FOR_ENGINE`).
@@ -263,8 +262,7 @@ def _catalog_package_names(language_src_dir: Path, language: str) -> frozenset[s
     class the language's own generators resolve versions against.
 
     A missing `defaults.yaml`, or one with no `dependencies.<language>`
-    section, is a legitimate EMPTY package universe (e.g.
-    `datrix-codegen-dotnet` ships no `defaults.yaml` at authoring time) -- not
+    section, is a legitimate EMPTY package universe -- not
     an error, and not a silently-swallowed lookup failure, because no key was
     ever expected to resolve to a default.
 

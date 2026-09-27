@@ -23,10 +23,6 @@ reading its real source:
 * **typescript** realizes the rule with a hand-written recursive builder over
   class-validator's own `ValidationError` tree -- censused by confirming its
   two required construction lines (bracket-indexed, dot-joined) are present.
-* **java** realizes the rule NATIVELY: Spring's `FieldError.getField()` and
-  Jakarta Bean Validation's `ConstraintViolation.getPropertyPath()` already
-  spell nested request-body errors in exactly this form -- censused by finding
-  either accessor called on the framework's own validation-error object.
 * A language with no known construction technique censuses to zero sites,
   which `evaluate()` correctly reports as an undeclared gap unless the
   language declares the hole.
@@ -129,9 +125,6 @@ _PYTHON_FORMATTER_DEF_RE: Final[re.Pattern[str]] = re.compile(r"def\s+format_fie
 _TS_BUILDER_DEF_RE: Final[re.Pattern[str]] = re.compile(r"function\s+buildValidationFieldErrors\(")
 _TS_ARRAY_BRACKET_RE: Final[re.Pattern[str]] = re.compile(r"\$\{parentPath\}\[\$\{error\.property\}\]")
 _TS_DOT_JOIN_RE: Final[re.Pattern[str]] = re.compile(r"\$\{parentPath\}\.\$\{error\.property\}")
-_JAVA_FIELD_ERROR_RE: Final[re.Pattern[str]] = re.compile(
-    r"\bfe\.getField\(\)|\.getPropertyPath\(\)\.toString\(\)"
-)
 
 
 def _load_module_from_path(path: Path) -> ModuleType:
@@ -206,23 +199,6 @@ def _census_typescript(src_dir: Path, files: list[Path]) -> tuple[RealizationSit
     return tuple(sites)
 
 
-def _census_java(src_dir: Path, files: list[Path]) -> tuple[RealizationSite, ...]:
-    """Java realizes the rule NATIVELY: Spring's `FieldError.getField()` and
-    Jakarta Bean Validation's `ConstraintViolation.getPropertyPath()` already
-    spell nested request-body errors in exactly this dot/`[n]` form -- java IS
-    the reference behaviour `FIELD_ERROR_PATH_RULE` models -- so a call site
-    realizes the rule with no further construction to verify."""
-    sites: list[RealizationSite] = []
-    for path in files:
-        text = path.read_text(encoding="utf-8")
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            if _JAVA_FIELD_ERROR_RE.search(line):
-                sites.append(
-                    RealizationSite("java", path.relative_to(src_dir).as_posix(), line_number, _CANONICAL_PATH)
-                )
-    return tuple(sites)
-
-
 #: `{language: detector}` -- the plumbing that dispatches a discovered
 #: language's sources to its own construction-technique census. A language
 #: absent here (a future target, or one with no known technique yet) censuses
@@ -233,7 +209,6 @@ def _census_java(src_dir: Path, files: list[Path]) -> tuple[RealizationSite, ...
 _CENSUS_DISPATCH: Final[Mapping[str, Callable[[Path, list[Path]], tuple[RealizationSite, ...]]]] = {
     "python": _census_python,
     "typescript": _census_typescript,
-    "java": _census_java,
 }
 
 
@@ -472,21 +447,12 @@ def _self_test_census(tmp_root: Path) -> bool:
         f"a builder missing the `[n]`-index construction censuses as divergent (got {sites})",
     )
 
-    java_good = tmp_root / "java-good"
-    java_good.mkdir(parents=True)
-    (java_good / "ExceptionHandler.java.j2").write_text(
-        'errors.add(new FieldError(fe.getField(), message, "validation"));\n', encoding="utf-8",
+    unknown_empty = tmp_root / "unknown-language"
+    unknown_empty.mkdir(parents=True)
+    (unknown_empty / "nothing.py").write_text(
+        "def format_field_error_path(loc):\n    return 'never read'\n", encoding="utf-8",
     )
-    sites = census_source("java", java_good)
-    ok &= _assert(
-        len(sites) == 1 and sites[0].spelled_path == _CANONICAL_PATH,
-        f"a Spring FieldError.getField() call site censuses as canonical (got {sites})",
-    )
-
-    dotnet_empty = tmp_root / "dotnet-empty"
-    dotnet_empty.mkdir(parents=True)
-    (dotnet_empty / "Nothing.cs.j2").write_text("// no field-error construction here\n", encoding="utf-8")
-    sites = census_source("dotnet", dotnet_empty)
+    sites = census_source("self_test_unregistered_language", unknown_empty)
     ok &= _assert(sites == (), "a language with no known detector censuses to zero sites")
 
     return ok

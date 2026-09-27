@@ -270,7 +270,7 @@ function Get-DatrixInstalledLanguages {
  Enumerates the `datrix.languages` entry-point group at runtime (importlib.metadata) so the
  installed language set is discovered, never hardcoded. Installing a datrix-codegen-<lang>
  package makes its language name appear here with no script edit (DI-6 / D4 open
- identity). Never hardcodes python/typescript/dotnet/java.
+ identity). Never hardcodes a language name.
 
  Fails loud (throws) on a non-zero exit from the python invocation — a query failure must be
  distinguishable from the real, different state "zero languages installed".

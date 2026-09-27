@@ -1,18 +1,18 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-  Java generation-pipeline determinism gate: the SAME source tree, generated
-  N times in a row via the documented single-project generate.ps1 path, must
-  never produce two different outcomes.
+  Generation-pipeline determinism gate: the SAME source tree, generated N times
+  in a row for one registered language via the documented single-project
+  generate.ps1 path, must never produce two different outcomes.
 
 .DESCRIPTION
-  Background: a corpus generation sweep for java found that running the
-  IDENTICAL command against an UNCHANGED tree three times in a row produced
-  THREE DIFFERENT outcomes -- once failing inside the "generate:java"
-  pipeline stage itself (a struct-test planner unable to resolve a struct from
-  the Application it was planned against), twice failing later at `mvnw
-  compile` with a set of Java compiler errors. Same input, same invocation,
-  different output: no conclusion drawn from one java generation is
+  Background: a corpus generation sweep once found that running the IDENTICAL
+  command against an UNCHANGED tree three times in a row produced THREE
+  DIFFERENT outcomes -- once failing inside the language's own "generate:<lang>"
+  pipeline stage (a struct-test planner unable to resolve a struct from the
+  Application it was planned against), twice failing later at the generated
+  project's compile step with a set of compiler errors. Same input, same
+  invocation, different output: no conclusion drawn from one generation is
   trustworthy until this class of regression is caught automatically.
 
   Each run is its OWN `generate.ps1` process (a fresh `python.exe`
@@ -25,9 +25,9 @@
   same code, N runs, N outcomes compared to each other.
 
   The gate:
-    1. Generates the reference example N times (default 5, matching the
-       investigation's own repro loop), into N explicit --output directories,
-       via the documented generate.ps1 --source/--output single-project mode.
+    1. Generates the reference example N times (default 5) for -Language,
+       into N explicit --output directories, via the documented generate.ps1
+       --source/--output single-project mode.
     2. Each run is classified SUCCESS (generation + post-processing exited 0)
        or FAILED (non-zero exit), and a normalized fingerprint is computed:
          - SUCCESS: a per-relative-path sha256 manifest of the generated
@@ -48,17 +48,21 @@
   This gate does not require generation to currently SUCCEED for the
   reference example -- a consistent, reproducible FAILURE (same stage, same
   error, every run) is a passing outcome. The property under test is
-  determinism, not correctness of the generated Java; unrelated, already
+  determinism, not correctness of the generated code; unrelated, already
   tracked codegen defects are out of this gate's scope.
+
+.PARAMETER Language
+  Required. The registered `datrix.languages` name to generate for (passed to
+  generate.ps1 as -Language). There is no default: the gate never assumes
+  which languages are installed.
 
 .PARAMETER OutputRoot
   Root under which run1/ .. runN/ are written. Default:
-  d:/datrix/.test-output/java-determinism-gate (per the repo temp-output
-  policy).
+  d:/datrix/.test-output/generation-determinism-gate/<Language> (per the repo
+  temp-output policy).
 
 .PARAMETER Runs
-  Number of repeated generations to compare. Default 5 (the investigation's
-  own repro-loop size). Must be >= 2.
+  Number of repeated generations to compare. Default 5. Must be >= 2.
 
 .PARAMETER Dbg
   Forward -Dbg (debug logging) to generate.ps1.
@@ -66,8 +70,11 @@
 
 [CmdletBinding()]
 param(
+    [Parameter(Mandatory = $true)]
+    [string]$Language,
+
     [Parameter()]
-    [string]$OutputRoot = "d:/datrix/.test-output/java-determinism-gate",
+    [string]$OutputRoot,
 
     [Parameter()]
     [int]$Runs = 5,
@@ -81,6 +88,12 @@ $ErrorActionPreference = "Stop"
 if ($Runs -lt 2) {
     throw "Runs must be >= 2 (need at least two outcomes to compare); got $Runs."
 }
+if ([string]::IsNullOrWhiteSpace($Language)) {
+    throw "Language must name a registered datrix.languages entry (e.g. -Language python); got an empty value."
+}
+if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
+    $OutputRoot = "d:/datrix/.test-output/generation-determinism-gate/$Language"
+}
 
 # ---------------------------------------------------------------------------
 # Bootstrap (venv + paths), modeled on test/typescript-whole-system-gate.ps1.
@@ -93,7 +106,7 @@ Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 
 $venvActivated = Ensure-DatrixVenv
 if (-not $venvActivated) {
-    throw "Could not activate the Datrix Python venv; cannot run the java generation determinism gate."
+    throw "Could not activate the Datrix Python venv; cannot run the generation determinism gate."
 }
 
 $datrixRoot = Get-DatrixRoot
@@ -118,7 +131,7 @@ $ExcludedDirNames = @('.datrix')
 # Helpers
 # ---------------------------------------------------------------------------
 
-function Invoke-JavaGeneration {
+function Invoke-LanguageGeneration {
     param(
         [Parameter(Mandatory = $true)][string]$OutputDir
     )
@@ -128,7 +141,7 @@ function Invoke-JavaGeneration {
     $genArgs = @{
         Source   = $exampleSource
         Output   = $OutputDir
-        Language = "java"
+        Language = $Language
     }
     if ($DebugLogging) { $genArgs.Dbg = $true }
     $resultsDir = Join-Path $datrixRoot ".generated/.results"
@@ -235,7 +248,7 @@ function Get-FailureFingerprint {
 # ---------------------------------------------------------------------------
 # 1. Generate N times
 # ---------------------------------------------------------------------------
-Write-Host "=== Java generation determinism gate ($Runs runs) ===" -ForegroundColor Cyan
+Write-Host "=== Generation determinism gate: $Language ($Runs runs) ===" -ForegroundColor Cyan
 Write-Host "Example : $exampleSource"
 Write-Host ""
 
@@ -244,7 +257,7 @@ $outcomes = New-Object System.Collections.Generic.List[object]
 for ($i = 1; $i -le $Runs; $i++) {
     $runDir = Join-Path $OutputRoot "run$i"
     Write-Host "Generating run$i..." -ForegroundColor Cyan
-    $gen = Invoke-JavaGeneration -OutputDir $runDir
+    $gen = Invoke-LanguageGeneration -OutputDir $runDir
     if ($gen.ExitCode -eq 0) {
         $hash = Get-SuccessManifestHash -Root $runDir
         $outcomes.Add([PSCustomObject]@{

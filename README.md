@@ -79,7 +79,7 @@ For something more ambitious: **6 microservices, ~2,500 lines of `.dtrx`** gener
 
 Infrastructure included: PostgreSQL, MongoDB, Redis, Kafka, RabbitMQ, MinIO, Nginx reverse proxy, Zitadel identity, Prometheus, Grafana, Loki, Jaeger tracing — all wired together in `docker-compose.yml`.
 
-Browse the full example: [ecommerce/](examples/03-domains/ecommerce/), and the same system generated for each language: [Python](examples/03-domains/ecommerce/generated/python-docker/) · [TypeScript](examples/03-domains/ecommerce/generated/typescript-docker/) · [.NET](examples/03-domains/ecommerce/generated/dotnet-docker/) · [Java](examples/03-domains/ecommerce/generated/java-docker/)
+Browse the full example: [ecommerce/](examples/03-domains/ecommerce/), and the same system generated for each language: [Python](examples/03-domains/ecommerce/generated/python-docker/) · [TypeScript](examples/03-domains/ecommerce/generated/typescript-docker/)
 
 ---
 
@@ -123,7 +123,6 @@ Browse the full example: [ecommerce/](examples/03-domains/ecommerce/), and the s
        v
   +--------------------+
   | Code Generators    |  Python, TypeScript, SQL, Component
-  |                    |  (.NET, Java in progress)
   +--------------------+
        |
        v
@@ -143,8 +142,6 @@ Browse the full example: [ecommerce/](examples/03-domains/ecommerce/), and the s
 | TypeScript (NestJS) | AWS (CDK + CloudFormation) |
 | SQL (PostgreSQL, MySQL, MariaDB) | Azure (Bicep + ARM) |
 | Component (configs, schemas, docs) | |
-| .NET (ASP.NET Core) | |
-| Java (Spring Boot) | |
 
 The language list is open — each target language is an independent generator package.
 

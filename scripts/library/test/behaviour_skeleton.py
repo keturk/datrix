@@ -969,9 +969,9 @@ def behaviour_arity(fn: FunctionSource, *, extra_plumbing: frozenset[str] = froz
 
     Two functions reading a different number of real inputs behave
     differently even when their statement-level skeletons otherwise
-    match: the eight geo query builders take one MORE parameter in python
-    (``entity_name``, ``field_snake``, ``rest`` -- arity 3) than in
-    dotnet/java (``field_expr``/``field``, ``rest`` -- arity 2).
+    match: a geo query builder taking ``entity_name``, ``field_snake``,
+    ``rest`` (arity 3) in one language and ``field_expr``, ``rest`` (arity 2)
+    in another reads one MORE real input in the first.
 
     *extra_plumbing* exists because arity is measured PER ROLE, not per
     member: a parameter name any member of a role drops as language-private
@@ -2405,9 +2405,9 @@ def _run_arity_checks() -> bool:
     ok = True
     private_annotated = _function_source_from_code(
         """
-        from datrix_codegen_java.transpiler.scope import JavaFileScope
+        from datrix_codegen_typescript.transpiler.scope import TsFileScope
 
-        def emit_break_statement(scope: JavaFileScope):
+        def emit_break_statement(scope: TsFileScope):
             return scope
         """
     )
@@ -2447,9 +2447,9 @@ def _run_rendering_leaf_privacy_checks() -> bool:
     not."""
     private_leaf = _function_source_from_code(
         """
-        from datrix_codegen_java.transpiler.scope import JavaFileScope
+        from datrix_codegen_typescript.transpiler.scope import TsFileScope
 
-        def build_import_line(scope: JavaFileScope, helper: str) -> str:
+        def build_import_line(scope: TsFileScope, helper: str) -> str:
             module = scope.transpiler.module_name
             return f"import {module}.{helper}"
         """

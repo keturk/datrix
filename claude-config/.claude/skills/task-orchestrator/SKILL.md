@@ -859,11 +859,12 @@ BLOCKING RULE (execution-contract §1-§3 — read `.claude/skills/_shared/execu
 Your default outcome is THE PROBLEM IS FIXED. There are exactly four blockers: B1 MISSING_ACCESS, B2 UNDECIDABLE (two defensible designs), B3 USER_FORBADE, B4 FENCED_SURFACE. Everything else is work — unclear root cause (keep reading), root cause in another package (go fix it), bigger than estimated (do it), pre-existing (it's yours now), "behavioral/environmental" (prove it with the error text or fix it), no test (write one), "should be tracked separately" (there is no other agent).
 A BLOCKED return is ONLY valid with all four: (1) verbatim error text, (2) the fix you actually wrote and ran, as file:line, (3) why it failed, (4) the B1-B4 code. Missing any → I reject the report and re-dispatch this task to you with your own report quoted back.
 FOUND IT, YOU FIX IT: any defect you discover on a surface you touched is yours — fix it, or file a real tracked task. Prose-only mention is not an outcome.
+FINDINGS FILE: a design-sized defect, a design flaw, or an issue on a surface you did not touch → write d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md (template: execution-contract §5A — what, where file:line, evidence, impact; under 30 lines; no search of the folder first) and keep working.
 
-RETURN: files changed (with line counts), `scope_expansion`, the targeted-test result (command + pasted output), `discovered_defects` (each FIXED or FILED), and — only if BLOCKED — the four-part `blocker_proof`. Status: DONE / EXPANSION_REQUIRED / BLOCKED.
+RETURN: files changed (with line counts), `scope_expansion`, the targeted-test result (command + pasted output), `discovered_defects` (each FIXED, FILED, or FINDING with its findings file path), and — only if BLOCKED — the four-part `blocker_proof`. Status: DONE / EXPANSION_REQUIRED / BLOCKED.
 ```
 
-Note the removed status: **`DONE_WITH_CONCERNS` no longer exists.** It was a licensed way to hand back unfinished work with a shrug. A concern is either a defect you fix, a defect you file as a tracked task, or a proven B1–B4 blocker — there is no fourth bucket.
+Note the removed status: **`DONE_WITH_CONCERNS` no longer exists.** It was a licensed way to hand back unfinished work with a shrug. A concern is either a defect you fix, a defect you file as a tracked task, an issue that is not yours to fix now written up as a findings file (execution-contract §5A), or a proven B1–B4 blocker — there is no fifth bucket.
 
 **Step 3 — Verify yourself.** Run the acceptance check authoritatively (or delegate the run and read `index.json`), review the diff against your intended change and the no-workaround rules. The implementer's self-report is necessary, never sufficient.
 

@@ -41,7 +41,8 @@ Every one of these has been used to dodge. Each is now explicitly work:
   design is a different case; see §5.
 - **"This should be tracked separately / handed to a follow-up / owned by another task."** →
   **There is no other agent.** There is no follow-up fairy. If it genuinely is a separate root
-  cause, you file a real tracked task file — see §5. Prose in a report is not filing.
+  cause, you file a real tracked task file — see §5. If it is not yours to fix now, you write a
+  findings file — see §5A. Prose in a report is neither.
 - **"It would require broader changes."** → Then make broader changes.
 - **"I've reached my attempt limit."** → Attempt limits bound a *single hypothesis*, not the task.
   A new hypothesis gets fresh attempts. Escalate (§6) before you stop.
@@ -132,6 +133,9 @@ Any defect you discover on a surface you touched is **yours**. Three outcomes, a
    the failure mode this contract exists to prevent. If it was worth typing a sentence about, it
    was worth a fix or a task file.
 
+A defect that is not yours to fix now — design-sized, or on a surface you did not touch — is
+neither fixed nor ignored. It gets a findings file (§5A).
+
 **Filing is bounded — it is never authorization to open a new phase.** A filed task goes in the
 phase you are **currently executing**, in the owning package's existing `.tasks\phase-{NN}\`,
 numbered as that phase's next free `{TT}`
@@ -156,10 +160,58 @@ task that a contained change can fix: a stale caller, a wrong path, a missed bra
 another change broke. **It is never licence to start work that would need its own design**:
 new behaviour across several languages or subsystems, a new capability, or a surface the task's
 design doc does not cover. A discovery of that size is **neither fixed in place nor filed into the
-running phase**. Report it as a *finding*, with evidence (file:line, what is wrong, what it
-affects), and stop there. The orchestrator hands it to Jon, who decides whether it becomes a
-design, a later phase, or nothing. Doing that work unasked, or filing it into the phase so that
-it becomes mandatory, is scope creep, however real the defect is.
+running phase**. Write it up as a *findings file* (§5A) and stop there. Jon decides whether it
+becomes a design, a later phase, or nothing. Doing that work unasked, or filing it into the phase
+so that it becomes mandatory, is scope creep, however real the defect is.
+
+## 5A. Findings files — nothing you notice is dropped
+
+Some things you notice are not yours to fix now:
+
+- a defect whose fix would need its own design (§5 above);
+- a design flaw, a wrong or risky pattern, or a gap in a doc, test, or tool;
+- a defect on a surface you did **not** touch, noticed in passing.
+
+Each one gets a **findings file**. Ignoring it, or mentioning it only in your reply, is not an
+outcome. Write the file, then carry on with your own task. A findings file is never a reason to
+stop, and it never replaces fixing a small defect on a surface you touched. That is still §5
+outcome 1.
+
+**Where.** `d:\datrix\reports\finding\`, one file per issue, named
+`YYYYMMDD-HHMMSS-<short-kebab-slug>.md` from the current local time (e.g.
+`20260927-141503-compose-env-key-never-supplied.md`). Get the time from the shell
+(`Get-Date -Format yyyyMMdd-HHmmss`). Create the folder if it is missing. Write it with the
+`Write` tool.
+
+**No search first.** Do not read or search the folder for an existing entry. Duplicates are fine;
+they are merged later.
+
+**Content.** Brief: enough for someone with no context to understand and fix the issue, and no
+more. Aim for under 30 lines.
+
+```markdown
+# <one-line statement of the issue>
+
+- **Found:** <YYYY-MM-DD HH:MM> while <the task you were doing, one line>
+- **Where:** <repo/path/file.py:123> (every location you saw)
+- **Kind:** bug | design flaw | security | test gap | doc drift | tooling | other
+
+## Issue
+<2-5 sentences: what is wrong and the evidence you saw — a line you read, an error you captured.>
+
+## Impact
+<1-3 sentences: what breaks, for whom, and when.>
+
+## Suggested direction
+<Optional, 1-3 lines. Omit it if you do not know.>
+```
+
+State only what you saw. A guess is labelled as a guess. The file sits outside every repo, but
+treat it as shareable anyway: no secrets, credentials, or customer data.
+
+**Report it.** Cite the file path in your reply or report, e.g.
+`Finding: d:\datrix\reports\finding\20260927-141503-compose-env-key-never-supplied.md`. The stop
+gates accept that path as a disposition, the same as a filed task path.
 
 ## 6. Escalate before you stop — never instead of fixing
 
@@ -171,8 +223,8 @@ invalid report under §3.
 ## 7. Banned report vocabulary
 
 These phrases must **never** appear in an agent report, a `## How Solved`, or an
-`## Implementation Notes` section unless immediately followed by a valid §3 blocker proof or a §5
-filed task ID:
+`## Implementation Notes` section unless immediately followed by a valid §3 blocker proof, a §5
+filed task ID, or a §5A findings file path:
 
 ```
 out of scope · outside the scope · not part of this task · beyond the scope

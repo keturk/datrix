@@ -525,7 +525,7 @@ def language_domain_declarations(language: str) -> DomainDeclarations:
     Computed independently of whatever mechanism the plugin's OWN
     `.domain_declarations` attribute currently uses in production -- calling
     `derive_domain_declarations` directly guarantees one consistent
-    structural-pattern basis across all four languages for this gate, rather
+    structural-pattern basis across every registered language for this gate, rather
     than trusting each package's own wiring to already route through it.
 
     Args:

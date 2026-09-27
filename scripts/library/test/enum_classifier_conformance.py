@@ -16,10 +16,9 @@ entry points at runtime via `shared.registered_targets.registered_language_names
 sub-generator domain (`"enum"`), never from a language-name literal.
 
 `collect_conformance_facts` alone carries per-language rendering mechanics, keyed by language
-name -- this is the one place this deliberately sanctions that, because each of
-python/typescript/java/dotnet emits its classifier through a genuinely different
-template/context-builder shape (classmethods, a merged namespace, enum-hosted statics, a
-companion static class) with no shared render interface to call generically.
+name -- this is the one place this deliberately sanctions that, because each language emits
+its classifier through a genuinely different template/context-builder shape (classmethods on
+python, a merged namespace on typescript) with no shared render interface to call generically.
 The TARGET SET this gate evaluates never comes from that dispatch table's keys -- only from
 `enum_emitting_language_names(registered_language_names())` -- and a registered enum-emitting
 language absent from the dispatch table is a loud `RuntimeError`, never a silent skip.
@@ -87,17 +86,15 @@ _FIXTURE_KEYWORD_MISS: Final[str] = "ZULU-UNRECOGNIZED"
 _FIXTURE_SERVICE_NAME: Final[str] = "catalog"
 
 #: The GenDSL domain id every enum-emitting language plugin registers its `EnumGenerator`
-#: sub-generator under (`_declare_structural("enum", EnumGenerator)`, identical across
-#: python/typescript/java/dotnet's own gendsl definitions modules -- verified by reading all
-#: four). This is deliberately NOT `plugin.domain_declarations["enum"].status` -- java legitimately
-#: declares that "unsupported" for an unrelated reason (no committed structural glob pattern for
-#: the cross-language STRUCTURAL parity surface; `EnumGenerator` still emits real, compiling
-#: `.java` files regardless -- see that package's own `enum_generator.py` docstring). The
-#: SUB-GENERATOR REGISTRATION, not the structural-parity declaration, is the true capability
-#: signal "this language emits enum types."
+#: sub-generator under (`_declare_structural("enum", EnumGenerator)` in each language's own gendsl
+#: definitions module). This is deliberately NOT `plugin.domain_declarations["enum"].status` -- a
+#: language may declare that structural-parity stance "unsupported" for an unrelated reason (no
+#: committed structural glob pattern for the cross-language STRUCTURAL parity surface) while its
+#: `EnumGenerator` still emits real enum files. The SUB-GENERATOR REGISTRATION, not the
+#: structural-parity declaration, is the true capability signal "this language emits enum types."
 _ENUM_DOMAIN_NAME: Final[str] = "enum"
 
-#: The no-match throw's message shape every one of the four templates emits today (a compile-time
+#: The no-match throw's message shape every language's enum template emits (a compile-time
 #: constant naming only the enum type, by deliberate security decision). Interpolated with the fixture enum's
 #: own name at comparison time; used to prove `message_discloses_nothing` rather than merely
 #: "the keyword literal is absent from the whole file" (which would false-negative against the
@@ -117,8 +114,7 @@ class ClassifierConformanceFacts:
 
     Attributes:
         has_equals_keyword: The generated source declares an `equalsKeyword`-family classifier
-            (case/spelling per that language's own convention, e.g. `EqualsKeyword` for the
-            dotnet companion class).
+            (case/spelling per that language's own convention).
         has_contains_keyword: As above, for `containsKeyword`.
         declared_exception_referenced: The language's `LanguageProfile` exception sub-profile
             (41-05) names a type, and that type name appears in the generated classifier's
@@ -199,9 +195,8 @@ def _registered_domain_names(specs: list[SubGeneratorSpec]) -> frozenset[str]:
 def enum_emitting_language_names(languages: frozenset[str]) -> frozenset[str]:
     """Return the subset of *languages* whose plugin emits enum types.
 
-    Per the design's target table (§2), every CURRENTLY registered language emits enum types
-    (python/typescript/java/dotnet); sql/docker/aws/azure/common do not register under
-    `datrix.languages` as enum-emitting targets in the first place (they are not
+    Every currently registered language emits enum types; sql/docker/aws/azure/common do not
+    register under `datrix.languages` as enum-emitting targets in the first place (they are not
     `datrix.languages` entry points at all -- sql/docker are platform/db targets, not languages).
     This function exists so a future non-enum-emitting LANGUAGE plugin (if one is ever added)
     is excluded rather than silently required to conform.
@@ -237,8 +232,8 @@ def _template_generator_for(language: str, plugin_module_file: str) -> TemplateG
     Uses the SAME production resolution every language's own `plugin.py` uses elsewhere in that
     package (`template_dir_for(<package>.plugin.__file__)` -- verified against
     `datrix_codegen_python`'s own `http_contract_overlay_generator.py`/`runtime_requirements.py`
-    call sites; every one of the four packages keeps its `templates/` directory as a direct
-    sibling of its own `plugin.py`, so `levels_up=0` resolves correctly for all four).
+    call sites; every language package keeps its `templates/` directory as a direct sibling of
+    its own `plugin.py`, so `levels_up=0` resolves correctly for each).
 
     Args:
         language: The `datrix.languages` entry-point name (also the Jinja `target_language`).
@@ -339,13 +334,6 @@ def _facts_from_render(
 
 _PYTHON_RAISE_RE: Final[re.Pattern[str]] = re.compile(r'raise\s+(\w+)\(\[\s*"([^"]*)"\s*\]\)')
 _TS_THROW_RE: Final[re.Pattern[str]] = re.compile(r"throw new (\w+)\('([^']*)'\);")
-_JAVA_THROW_RE: Final[re.Pattern[str]] = re.compile(r'throw new (\w+)\(List\.of\("([^"]*)"\)\);')
-_DOTNET_THROW_RE: Final[re.Pattern[str]] = re.compile(r'throw new (\w+)\("([^"]*)"\);')
-
-_JAVA_EQUALS_SIG_RE: Final[re.Pattern[str]] = re.compile(r"\bstatic\s+\S+\s+equalsKeyword\s*\(")
-_JAVA_CONTAINS_SIG_RE: Final[re.Pattern[str]] = re.compile(r"\bstatic\s+\S+\s+containsKeyword\s*\(")
-_DOTNET_EQUALS_SIG_RE: Final[re.Pattern[str]] = re.compile(r"\bstatic\s+\S+\s+EqualsKeyword\s*\(")
-_DOTNET_CONTAINS_SIG_RE: Final[re.Pattern[str]] = re.compile(r"\bstatic\s+\S+\s+ContainsKeyword\s*\(")
 
 
 def _python_facts(fixture: Enum, paths: ServicePaths) -> ClassifierConformanceFacts:
@@ -370,21 +358,19 @@ def _python_facts(fixture: Enum, paths: ServicePaths) -> ClassifierConformanceFa
 def _typescript_facts(fixture: Enum, paths: ServicePaths) -> ClassifierConformanceFacts:
     """Render *fixture* through typescript's real context-builder + template render."""
     import datrix_codegen_typescript.plugin as _plugin_module
-    from datrix_codegen_typescript.file_helpers import render_ts_file
+    from datrix_codegen_typescript.file_helpers import render_ts_file_with_context
     from datrix_codegen_typescript.generators.entity.enum_generator import (
         build_enum_template_context,
     )
     from datrix_codegen_typescript.profile import TS_PROFILE
-    from datrix_codegen_typescript.validation import validate_typescript_syntax
 
     template_gen = _template_generator_for("typescript", _plugin_module.__file__)
     context = build_enum_template_context(fixture, paths)
-    generated = render_ts_file(
+    generated = render_ts_file_with_context(
         template_gen,
         "entity/enum.ts.j2",
         Path(f"{fixture.name}.enum.ts"),
-        format_fn=validate_typescript_syntax,
-        **context,
+        context,
     )
     content = generated.content
     return _facts_from_render(
@@ -397,44 +383,6 @@ def _typescript_facts(fixture: Enum, paths: ServicePaths) -> ClassifierConforman
     )
 
 
-def _java_facts(fixture: Enum, paths: ServicePaths) -> ClassifierConformanceFacts:
-    """Render *fixture* through java's real `EnumGenerator` and observe its classifier facts."""
-    import datrix_codegen_java.plugin as _plugin_module
-    from datrix_codegen_java.generators.entity.enum_generator import EnumGenerator
-    from datrix_codegen_java.profile import JAVA_PROFILE
-
-    template_gen = _template_generator_for("java", _plugin_module.__file__)
-    files = EnumGenerator(template_gen).generate_enums(paths, {str(fixture.name): fixture})
-    content = _single_rendered_content(files, "java")
-    return _facts_from_render(
-        content,
-        has_equals_keyword=bool(_JAVA_EQUALS_SIG_RE.search(content)),
-        has_contains_keyword=bool(_JAVA_CONTAINS_SIG_RE.search(content)),
-        raise_pattern=_JAVA_THROW_RE,
-        expected_exception=JAVA_PROFILE.errors.unrecognized_value_exception,
-        enum_name=str(fixture.name),
-    )
-
-
-def _dotnet_facts(fixture: Enum, paths: ServicePaths) -> ClassifierConformanceFacts:
-    """Render *fixture* through dotnet's real `EnumGenerator` and observe its classifier facts."""
-    import datrix_codegen_dotnet.plugin as _plugin_module
-    from datrix_codegen_dotnet.generators.entity.enum_generator import EnumGenerator
-    from datrix_codegen_dotnet.profile import DOTNET_PROFILE
-
-    template_gen = _template_generator_for("dotnet", _plugin_module.__file__)
-    files = EnumGenerator(template_gen).generate_enums(paths, {str(fixture.name): fixture})
-    content = _single_rendered_content(files, "dotnet")
-    return _facts_from_render(
-        content,
-        has_equals_keyword=bool(_DOTNET_EQUALS_SIG_RE.search(content)),
-        has_contains_keyword=bool(_DOTNET_CONTAINS_SIG_RE.search(content)),
-        raise_pattern=_DOTNET_THROW_RE,
-        expected_exception=DOTNET_PROFILE.errors.unrecognized_value_exception,
-        enum_name=str(fixture.name),
-    )
-
-
 #: Rendering mechanics for each language known to this gate today. NEVER the source of the target
 #: SET under comparison (that is always `enum_emitting_language_names(registered_language_names())`
 #: -- see this module's own docstring). A registered enum-emitting language absent from this table
@@ -442,8 +390,6 @@ def _dotnet_facts(fixture: Enum, paths: ServicePaths) -> ClassifierConformanceFa
 _LANGUAGE_COLLECTORS: Final[dict[str, Callable[[Enum, ServicePaths], ClassifierConformanceFacts]]] = {
     "python": _python_facts,
     "typescript": _typescript_facts,
-    "java": _java_facts,
-    "dotnet": _dotnet_facts,
 }
 
 
@@ -451,8 +397,8 @@ def collect_conformance_facts(language: str, fixture: Enum) -> ClassifierConform
     """Render *fixture*'s enum file for *language* and observe its classifier facts.
 
     Uses the SAME in-process context-builder + template-render call each language's own unit
-    tests use (see `enum_generator.py`'s `build_enum_template_context` for each of the four
-    packages, and the render helper each package exposes alongside it -- e.g.
+    tests use (see `enum_generator.py`'s `build_enum_template_context` in each language
+    package, and the render helper each package exposes alongside it -- e.g.
     `datrix_codegen_python.generators._helpers.render_python_file` for python). No `.dtrx` file is
     written to disk and no subprocess/CLI generation is invoked.
 
@@ -477,8 +423,8 @@ def collect_conformance_facts(language: str, fixture: Enum) -> ClassifierConform
             f"enum_emitting_language_names() derived {language!r} as enum-emitting from its own "
             f"plugin registration, but each language's classifier template/context-builder shape "
             f"differs enough per language that this gate cannot render it generically. Fix: "
-            f"add a _{language}_facts collector mirroring the existing four (see "
-            f"_python_facts/_typescript_facts/_java_facts/_dotnet_facts) and register it in "
+            f"add a _{language}_facts collector mirroring the existing ones (see "
+            f"{', '.join(f'_{name}_facts' for name in sorted(_LANGUAGE_COLLECTORS))}) and register it in "
             f"_LANGUAGE_COLLECTORS. This is a loud, fail-closed gap -- never a silent skip."
         )
     paths = ServicePaths(_FIXTURE_SERVICE_NAME)

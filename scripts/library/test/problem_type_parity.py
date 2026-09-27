@@ -8,9 +8,9 @@ the request, so the vocabulary has one home:
 ``datrix_common.datrix_model.problem_types`` (``urn:datrix:error:<slug>``; a
 declared DSL exception derives its slug from its class name through the
 shared exception-declaration algorithm, a framework error uses a registered
-family). Before this gate, python and java spelled the URNs, typescript
-composed ``https://api.example.com/<service>/errors/<slug>`` and .NET emitted
-``https://httpstatuses.com/<status>`` for everything.
+family). Before this gate, the languages disagreed: some spelled the URNs,
+typescript composed ``https://api.example.com/<service>/errors/<slug>``, and
+another emitted ``https://httpstatuses.com/<status>`` for everything.
 
 The gate censuses the ``.py`` and ``.j2`` sources under every registered
 language package for ``urn:datrix:error:`` literals and holds each language to:

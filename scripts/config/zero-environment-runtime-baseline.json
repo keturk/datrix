@@ -11,12 +11,6 @@
     "pinned_count values; do not hand-guess the numbers."
   ],
   "languages": {
-    "dotnet": {
-      "pinned_count": 22
-    },
-    "java": {
-      "pinned_count": 7
-    },
     "python": {
       "exemptions": [
         {

@@ -2,8 +2,8 @@
 
 Every registered ``datrix.languages`` target either emits an authored ``///``
 DSL comment onto its declared PUBLISHED documentation surface (an OpenAPI
-operation summary/description, a schema field description, a C# XML doc
-comment, ...) and a plain ``//`` comment onto its SOURCE-commentary surface
+operation summary/description, a schema field description, a doc-comment
+block, ...) and a plain ``//`` comment onto its SOURCE-commentary surface
 only -- or the target carries a typed, counted exemption in
 ``scripts/config/documentation-realization-exemptions.json`` explaining why
 it cannot.
@@ -16,8 +16,7 @@ WHAT THIS GATE CHECKS -- SIX CONSTRUCT KINDS, TWO SURFACES EACH
 must NEVER carry it on the published surface -- the I2 leak guard).
 
 Targets are discovered from the ``datrix.languages`` entry-point group at
-runtime -- never a hardcoded ``python``/``typescript``/``java``/``dotnet``
-literal -- so a future ``datrix-codegen-<lang>`` package is covered with no
+runtime -- never a hardcoded language-name literal -- so a future ``datrix-codegen-<lang>`` package is covered with no
 edit here. Fewer than two registered targets makes the comparison vacuous
 and fails loud (exit 2).
 
@@ -34,12 +33,12 @@ generators and the post-generation language hooks, and a previous repo gate
 built that way drifted until it could not generate at all. Calling the
 pipeline cannot drift.
 
-ASSERTING ON GENERATED ARTIFACTS, NOT A RUNNING SERVICE (task amendment)
----------------------------------------------------------------------------
-This environment has no NuGet connectivity, so a generated .NET project can
-never be restored/built/started here. Per the task's binding amendment, this
-gate asserts over the GENERATED SOURCE ARTIFACTS themselves, parsed
-structurally (never a line-oriented regex over the whole file):
+ASSERTING ON GENERATED ARTIFACTS, NOT A RUNNING SERVICE
+---------------------------------------------------------
+The property under test is where each target puts the author's text, so
+this gate asserts over the GENERATED SOURCE ARTIFACTS themselves -- no
+generated project is built or started -- parsed structurally (never a
+line-oriented regex over the whole file):
 
 - Python: the real ``ast`` module (keyword-argument string constants named
   ``summary``/``description`` on any call, plus a class/function/async-
@@ -48,36 +47,25 @@ structurally (never a line-oriented regex over the whole file):
   into the enclosing ``Enum`` class's own docstring, a service function's
   text becomes its own docstring) plus the real ``tokenize`` module
   (COMMENT tokens) -- never a substring search.
-- TypeScript / Java: a hand-rolled but genuinely structural lexer
-  (:func:`_classify_spans`) that separates STRING/LINE_COMMENT/XMLDOC/
-  DOC_BLOCK/BLOCK_COMMENT spans from code, so a marker sentence sitting
-  inside a string literal is never confused with the same text sitting
-  inside a comment. Published-surface values are extracted two ways:
-  finding a decorator anchor (``@ApiOperation(``, ``@Operation(``, ...)
-  OUTSIDE any string/comment span and then bracket-depth-tracking to the
-  matching close, collecting every string literal inside that span
-  (:func:`_bracketed_call_strings`); and reading ``/** ... */`` JSDoc/Javadoc
+- C-family targets (TypeScript): a hand-rolled but genuinely structural
+  lexer (:func:`_classify_spans`) that separates STRING/LINE_COMMENT/
+  TRIPLE_SLASH/DOC_BLOCK/BLOCK_COMMENT spans from code, so a marker sentence
+  sitting inside a string literal is never confused with the same text
+  sitting inside a comment. Published-surface values are extracted two ways:
+  finding a decorator anchor (``@ApiOperation(``, ...) OUTSIDE any
+  string/comment span and then bracket-depth-tracking to the matching close,
+  collecting every string literal inside that span
+  (:func:`_bracketed_call_strings`); and reading ``/** ... */`` JSDoc
   doc-comment blocks (:func:`_doc_block_published_texts`) -- the landing
   site for a construct with no decorator surface (an enum value, a service
   function, an entity's DTO class), distinguished structurally from a plain
-  ``/* ... */`` block comment by the lexer's own ``/**`` opener, exactly as
-  ``///`` is distinguished from ``//``.
-- C# (dotnet): consecutive ``///`` lines are grouped into one XML doc block
-  and parsed as real XML (``xml.etree.ElementTree``), pulling ``<summary>``/
-  ``<remarks>``/``<param>`` element text -- ``<param>``'s ``name`` attribute
-  attributes a struct field's doc to the right record component -- never a
-  regex over the XML shape.
+  ``/* ... */`` block comment by the lexer's own ``/**`` opener.
 
-Two targets' own packages prove a real end-to-end document for this feature:
-python asserts against a real FastAPI router's ``.openapi()``, and typescript
-against a real ``tsc`` + ``SwaggerModule.createDocument()`` run over an
-npm-installed dependency set. java and dotnet do NOT: their suites assert over
-the generated artifacts (springdoc reads the emitted annotations at request
-time, and there is no NuGet connectivity here to compile a ``.xml`` doc file),
-which is the same rung of the ladder this gate stands on. So this gate is the
-repo-level cross-target census, and for java/dotnet the artifact assertion is
-the strongest proof currently available in this environment -- stated plainly
-rather than implied to be a live-document check.
+Each registered target's own package proves a real end-to-end document for
+this feature: python asserts against a real FastAPI router's ``.openapi()``,
+and typescript against a real ``tsc`` + ``SwaggerModule.createDocument()`` run
+over an npm-installed dependency set. This gate is the repo-level
+cross-target census over the generated artifacts.
 
 Repo-level validation **script** (per the datrix showcase boundary -- no
 pytest suite lives in datrix), following the runtime-discovery +
@@ -95,7 +83,6 @@ import re
 import shutil
 import sys
 import tokenize
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
@@ -637,15 +624,12 @@ def generate_for_target(system_dtrx: Path, output_dir: Path, target: str) -> lis
     output_dir.mkdir(parents=True)
 
     # ValidationLevel.FAST runs fix_imports + format_files but SKIPS
-    # validate_files -- which is where dotnet's post-generation hook runs a
-    # real `dotnet build` and java's runs a real `mvnw compile`. Per this
-    # gate's binding task amendment, the property under test is "the target
-    # emits the right documentation into the right construct," not "the
-    # target's toolchain can restore/build/compile it" -- this sandbox has
-    # zero NuGet connectivity (dotnet) and an incompatible default JDK
-    # release (java), so STANDARD's build-validation step fails for reasons
-    # unrelated to documentation realization and would make this gate
-    # perpetually red for a property it does not test.
+    # validate_files -- which is where a language's post-generation hook runs
+    # its toolchain's build/compile step. The property under test is "the
+    # target emits the right documentation into the right construct," not
+    # "the target's toolchain can restore/build/compile it", so a toolchain
+    # failure unrelated to documentation realization must not make this gate
+    # red for a property it does not test.
     result = GenerationPipeline().run(
         system_dtrx,
         output_dir,
@@ -742,7 +726,7 @@ def _python_index(files: list[Path]) -> ArtifactTextIndex:
 
 
 #: Common backslash-escape decodings applied while lexing a C-family string
-#: literal (TS/Java/C#) -- an escaped quote/backslash must become the real
+#: literal -- an escaped quote/backslash must become the real
 #: character, or a marker text containing an apostrophe (e.g. "product's")
 #: fails containment against the raw ``\'``-escaped source text.
 _STRING_ESCAPES: Final[dict[str, str]] = {
@@ -753,14 +737,16 @@ _Span = tuple[int, int, str, str]  # (start, end, kind, value)
 
 
 def _classify_spans(text: str) -> list[_Span]:
-    """Real character-by-character lexing of a C-family (TS/Java/C#) source
-    file into typed spans: ``STRING``, ``LINE_COMMENT`` (``//``), ``XMLDOC``
-    (``///``), ``DOC_BLOCK`` (``/** ... */``, the JSDoc/Javadoc doc-comment
-    convention), ``BLOCK_COMMENT`` (``/* ... */``, never a doc surface),
-    ``OTHER`` (code). String/char/template-literal quoting respects
-    backslash escapes. ``DOC_BLOCK`` is distinguished from ``BLOCK_COMMENT``
-    by its literal ``/**`` opener, checked before the generic ``/*`` check,
-    exactly mirroring how ``XMLDOC`` (``///``) is distinguished from
+    """Real character-by-character lexing of a C-family source file into
+    typed spans: ``STRING``, ``LINE_COMMENT`` (``//``), ``TRIPLE_SLASH``
+    (``///`` -- a compiler directive line, never a plain source comment and
+    never a published surface for any registered target), ``DOC_BLOCK``
+    (``/** ... */``, the JSDoc doc-comment convention), ``BLOCK_COMMENT``
+    (``/* ... */``, never a doc surface), ``OTHER`` (code).
+    String/char/template-literal quoting respects backslash escapes.
+    ``DOC_BLOCK`` is distinguished from ``BLOCK_COMMENT`` by its literal
+    ``/**`` opener, checked before the generic ``/*`` check, exactly
+    mirroring how ``TRIPLE_SLASH`` (``///``) is distinguished from
     ``LINE_COMMENT`` (``//``) by checking the three-char prefix first. This
     is the structural foundation every extractor below builds on -- never a
     line-oriented regex over the raw file text.
@@ -783,7 +769,7 @@ def _classify_spans(text: str) -> list[_Span]:
             flush(i)
             j = text.find("\n", i)
             j = n if j == -1 else j
-            spans.append((i, j, "XMLDOC", text[i + 3:j]))
+            spans.append((i, j, "TRIPLE_SLASH", text[i + 3:j]))
             i = j
             start_other = i
             continue
@@ -844,10 +830,9 @@ def _classify_spans(text: str) -> list[_Span]:
 def _group_consecutive_spans(spans: list[_Span], kind: str) -> list[list[str]]:
     """Group consecutive spans of *kind* into blocks, bridged by whitespace-
     only OTHER spans between them (a multi-line ``//`` note word-wrapped by a
-    formatter, or a multi-line ``///`` XML doc, both land as several
-    adjacent same-kind spans separated only by the newline/indentation
-    between physical lines -- they belong to one logical comment, not
-    several unrelated ones)."""
+    formatter lands as several adjacent same-kind spans separated only by
+    the newline/indentation between physical lines -- they belong to one
+    logical comment, not several unrelated ones)."""
     blocks: list[list[str]] = []
     current: list[str] = []
     for (_, _, k, v) in spans:
@@ -923,54 +908,17 @@ def _bracketed_call_strings(text: str, spans: list[_Span], anchor_re: re.Pattern
     return strings
 
 
-def _xmldoc_published_texts(spans: list[_Span]) -> set[str]:
-    """Group consecutive ``///`` (XMLDOC) spans into blocks (see
-    :func:`_group_consecutive_spans`), then parse each block as real XML
-    (wrapped in a synthetic root) and pull ``<summary>``/``<remarks>``/
-    ``<param>`` element text. Never a regex over the XML shape.
-
-    A ``<param name="...">`` element's text is attributed to its ``name``
-    attribute (``"{name}: {text}"``) rather than added bare -- the
-    compiler-recognized landing site for a positional record component's
-    PUBLISHED comment when multiple documented components share one doc
-    block above the record declaration (see
-    ``datrix_codegen_dotnet.documentation.build_struct_field_param_tag``),
-    so a text this construct kind actually carries is distinguishable from
-    a sibling component's ``<param>`` text rather than merged into one
-    undifferentiated pool.
-    """
-    texts: set[str] = set()
-    for lines in _group_consecutive_spans(spans, "XMLDOC"):
-        joined = "\n".join(lines)
-        try:
-            root = ET.fromstring(f"<doc>{joined}</doc>")
-        except ET.ParseError:
-            continue
-        for tag in ("summary", "remarks"):
-            for el in root.findall(tag):
-                if el.text and el.text.strip():
-                    texts.add(el.text.strip())
-        for el in root.findall("param"):
-            if not (el.text and el.text.strip()):
-                continue
-            text = el.text.strip()
-            name = el.get("name")
-            texts.add(f"{name}: {text}" if name else text)
-    return texts
-
-
 _DOC_BLOCK_LINE_PREFIX_RE: Final[re.Pattern[str]] = re.compile(r"^[ \t]*\*[ \t]?")
 
 
 def _doc_block_published_texts(spans: list[_Span]) -> set[str]:
-    """Extract published text from ``/** ... */`` JSDoc/Javadoc doc-comment
-    blocks -- the TypeScript/Java landing site for a construct with no
-    decorator surface (an enum value, a service function, an entity's DTO
-    class), the C-family analogue of dotnet's ``/// <summary>``.
+    """Extract published text from ``/** ... */`` JSDoc doc-comment blocks --
+    the C-family landing site for a construct with no decorator surface (an
+    enum value, a service function, an entity's DTO class).
     :func:`_classify_spans` already distinguishes this convention
     structurally from a plain ``/* ... */`` block comment (never a doc
     surface) by its literal ``/**`` opener, mirroring the ``///`` vs ``//``
-    distinction it already draws for dotnet.
+    distinction it draws for line comments.
 
     Each ``DOC_BLOCK`` span's raw (stripped) content is kept as-is -- a
     single-line published text still matches by containment even with its
@@ -999,26 +947,22 @@ def _doc_block_published_texts(spans: list[_Span]) -> set[str]:
     return texts
 
 
-#: Per-target published-surface annotation anchors (TS/Java only -- dotnet's
-#: published surface is XML doc, handled separately). Anchor regex captures
+#: Per-target published-surface annotation anchors. Anchor regex captures
 #: through the opening ``(`` so `_bracketed_call_strings` can start counting
 #: bracket depth at 1 immediately after the match.
 _ANNOTATION_ANCHORS: Final[dict[str, tuple[str, ...]]] = {
     "typescript": (
         r"@ApiOperation\s*\(", r"@ApiProperty(?:Optional)?\s*\(", r"@ApiSchema\s*\(",
     ),
-    "java": (r"@Operation\s*\(", r"@Schema\s*\("),
 }
 
 _SOURCE_EXTENSION: Final[dict[str, str]] = {
     "typescript": ".ts",
-    "java": ".java",
-    "dotnet": ".cs",
 }
 
 
 def _c_family_index(files: list[Path], target: str) -> ArtifactTextIndex:
-    """Structural extraction for TS/Java/C#, dispatched by *target*.
+    """Structural extraction for a C-family target, dispatched by *target*.
 
     Raises:
         ValueError: *target* has no registered probe (see module docstring
@@ -1037,13 +981,6 @@ def _c_family_index(files: list[Path], target: str) -> ArtifactTextIndex:
             f"skipping it -- see _c_family_index / _python_index."
         )
     anchors = tuple(re.compile(p) for p in _ANNOTATION_ANCHORS.get(target, ()))
-    use_xmldoc = target == "dotnet"
-    #: Every c-family target other than dotnet uses the ``/** ... */``
-    #: JSDoc/Javadoc doc-block convention (dotnet's doc-block equivalent is
-    #: XML ``///``, read by ``use_xmldoc`` above) -- never a hardcoded
-    #: ``("typescript", "java")`` tuple, so a future c-family target is
-    #: covered with no edit here.
-    use_doc_block = not use_xmldoc
 
     published: set[str] = set()
     comments: set[str] = set()
@@ -1055,10 +992,7 @@ def _c_family_index(files: list[Path], target: str) -> ArtifactTextIndex:
         comments |= _line_comments(spans)
         for anchor_re in anchors:
             published |= _bracketed_call_strings(text, spans, anchor_re)
-        if use_xmldoc:
-            published |= _xmldoc_published_texts(spans)
-        if use_doc_block:
-            published |= _doc_block_published_texts(spans)
+        published |= _doc_block_published_texts(spans)
     return ArtifactTextIndex(frozenset(published), frozenset(comments))
 
 
@@ -1224,11 +1158,10 @@ def normalize_for_coverage(text: str) -> str:
     """Collapse *text* to marker-free, single-spaced form for containment.
 
     Every target reflows author prose on the way out: each physical line
-    picks up that language's comment marker, and a formatter
-    (google-java-format, ruff, CSharpier) rewraps the result at its own
-    column limit. A raw substring search therefore reports a genuinely
-    emitted run as missing the moment a formatter breaks it across lines --
-    which is exactly what java's own output does. Stripping one leading
+    picks up that language's comment marker, and a formatter (ruff, or any
+    target's own) rewraps the result at its own column limit. A raw
+    substring search therefore reports a genuinely emitted run as missing
+    the moment a formatter breaks it across lines. Stripping one leading
     comment opener per line and collapsing all whitespace makes the
     comparison invariant to both.
     """
@@ -1399,13 +1332,10 @@ def run_self_test() -> list[str]:
        snippet it has never seen, and does NOT leak the comment into the
        published set -- plus a known-present docstring on a plain
        (no-decorator) function.
-    3. The C-family (TS/Java) extractor does the same, via the real
+    3. The C-family extractor does the same, via the real
        bracket-depth-tracking annotation-argument scan, plus a known-present
        ``/** ... */`` doc block, and does NOT treat a sibling plain
        ``/* ... */`` block comment as published.
-    4. The dotnet XML-doc extractor finds known-present ``<summary>``/
-       ``<remarks>``/``<param>`` text (the ``<param>`` case attributed to
-       its ``name``) and a known-present plain ``//`` source comment.
 
     Returns:
         A list of failure descriptions -- empty means every extractor is sound.
@@ -1503,49 +1433,6 @@ def run_self_test() -> list[str]:
             "self-test: doc-block extractor treated a plain /* ... */ block "
             "comment (no doubled-star opener) as a published doc block"
         )
-
-    synth_cs = (
-        "    /// <summary>\n"
-        "    /// SELF_TEST_CS_SUMMARY\n"
-        "    /// </summary>\n"
-        "    /// <remarks>\n"
-        "    /// SELF_TEST_CS_REMARKS\n"
-        "    /// </remarks>\n"
-        "    /// <param name=\"selfTestWidgetCount\">\n"
-        "    /// SELF_TEST_CS_PARAM_TEXT\n"
-        "    /// </param>\n"
-        "    public IActionResult Handler() {\n"
-        "        // SELF_TEST_CS_SOURCE_NOTE\n"
-        "        return Ok();\n"
-        "    }\n"
-    )
-    cs_spans = _classify_spans(synth_cs)
-    cs_published = _xmldoc_published_texts(cs_spans)
-    cs_comments = _line_comments(cs_spans)
-    if not any("SELF_TEST_CS_SUMMARY" in t for t in cs_published) or not any(
-        "SELF_TEST_CS_REMARKS" in t for t in cs_published
-    ):
-        problems.append(
-            f"self-test: dotnet XML-doc extractor did not find known-present "
-            f"<summary>/<remarks> text (found: {sorted(cs_published)})"
-        )
-    if not any("SELF_TEST_CS_PARAM_TEXT" in t for t in cs_published):
-        problems.append(
-            f"self-test: dotnet XML-doc extractor did not find a known-present "
-            f"<param> text (found: {sorted(cs_published)})"
-        )
-    if not any("selfTestWidgetCount" in t for t in cs_published):
-        problems.append(
-            "self-test: dotnet XML-doc extractor did not attribute the "
-            "<param> text to its 'name' attribute"
-        )
-    if not any("SELF_TEST_CS_SOURCE_NOTE" in c for c in cs_comments):
-        problems.append(
-            f"self-test: dotnet extractor did not find a known-present plain "
-            f"// source comment (found: {sorted(cs_comments)})"
-        )
-    if any("SELF_TEST_CS_SOURCE_NOTE" in t for t in cs_published):
-        problems.append("self-test: dotnet extractor leaked a // source comment into the XML doc published set")
 
     problems.extend(_coverage_census_self_test())
 

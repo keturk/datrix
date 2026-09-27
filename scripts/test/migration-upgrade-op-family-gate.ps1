@@ -5,22 +5,18 @@
  duplication census.
 
 .DESCRIPTION
- The census behind this gate read both bodies of six _build_upgrade_op_for_*
- symbols across the two targets that define them (python's Alembic migration
- generator and dotnet's FluentMigrator ops) and pinned two conclusions:
+ The census behind this gate read the bodies of six _build_upgrade_op_for_*
+ symbols across every migration target that defined them and pinned two
+ conclusions:
 
-   * Five of the six are genuinely divergent, not collapsible, and BOTH
-     private copies must still exist -- a later "cleanup" deleting one would
-     be deleting a target's real behaviour. _build_upgrade_op_for_field_added
-     additionally carried a behaviour gap that is now CLOSED (dotnet emitted
-     no backfill default, so a safe non-nullable FIELD_ADDED rendered a
-     migration that failed at apply time on a populated table); the gate holds
-     the default-bearing FluentMigratorColumn field that closes it.
-   * One genuinely shared fact WAS hoisted: both targets reassembled the
+   * The six are genuinely target-specific, not collapsible, so each target
+     carrying the family must still define every one exactly once -- a later
+     "cleanup" deleting one would be deleting a target's real behaviour.
+   * One genuinely shared fact WAS hoisted: the targets reassembled the
      INDEX_ADDED JSON detail into its SnapshotIndex with byte-identical
      semantics and error text. That parse now lives once, in
      datrix_codegen_common.algorithms.migration_upgrade_op_index; each target
-     must call it the exact number of times its own paths need, and neither may
+     must call it the exact number of times its own paths need, and none may
      redefine it.
 
  Structural resolution only, never a text match: call sites come from each
@@ -29,13 +25,13 @@
  this chain before, and both are proven every run by the built-in six-check
  non-vacuity self-test.
 
- The two languages are named (a fact about which targets carry this family, not
- a claim about which targets exist) but their packages resolve through the
+ The languages are named (a fact about which targets carry this family, not a
+ claim about which targets exist) but their packages resolve through the
  installed datrix.languages entry points, so a named language that is not
- installed fails loud instead of letting its half pass vacuously.
+ installed fails loud instead of letting its part pass vacuously.
 
  Repo-level validation script (per the datrix showcase boundary -- no pytest
- suite lives in datrix, and a unit test importing two generator packages to
+ suite lives in datrix, and a unit test importing several generator packages to
  compare their bodies is the shape the import-boundary rule forbids outright).
  The shared parser's own input/output behaviour is a different question and
  stays as a unit test in datrix-codegen-common, which owns the function.

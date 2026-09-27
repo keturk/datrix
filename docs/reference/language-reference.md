@@ -41,7 +41,7 @@ Two comment forms, each with a plain and a doc-marked variant:
 
 **Every comment survives into the generated code.** A comment attaches to the construct
 beside it and reaches the generated artifact as an ordinary comment in the target language's
-own syntax — `#` in Python, `//` in TypeScript/Java/C#, `--` in SQL.
+own syntax — `#` in Python, `//` in TypeScript, `--` in SQL.
 
 **Only a doc-marked comment is published.** `///` and `/** */` additionally reach the
 documentation your API consumers see: the OpenAPI `summary`/`description`, a schema field's
@@ -362,7 +362,7 @@ Contracts are enforced at the publisher side — fail-fast at `dispatch`, before
 
 ### Serverless deployment boundary
 
-The **`serverless`** block groups **`subscribe`**, **`job`**, HTTP endpoints (`@path`, optional `@name('HandlerKey')`), and **`enqueue`** consumers so the service `.dcfg` profile can target AWS Lambda, Azure Functions, or the service container without changing handler syntax. See [Writing Datrix Applications — Serverless](../guide/writing-datrix-applications.md#serverless-blocks) and [Grammar Reference — Serverless](../../datrix-language/docs/reference/datrix-grammar.md#serverless-blocks).
+The **`serverless`** block groups **`subscribe`**, **`job`**, HTTP endpoints (`@path`, optional `@name('HandlerKey')`), and **`enqueue`** consumers so the service `.dcfg` profile can target AWS Lambda, Azure Functions, or the service container without changing handler syntax. See [Writing Datrix Applications — Serverless](../guide/writing-datrix-applications.md#serverless-blocks) and [Grammar Reference — Serverless](../../../datrix-language/docs/reference/datrix-grammar.md#serverless-blocks).
 
 ---
 

@@ -71,7 +71,7 @@
  addition to the import-boundary check. Fails when a module-level
  set/frozenset/dict/tuple literal's normalized member set is declared,
  with a bare string literal, identically in two or more datrix-* packages
- -- every package discover_packages() finds, not only the four language
+ -- every package discover_packages() finds, not only the language
  packages the G1 ratchet scans -- independent of whether either copy also
  duplicates a datrix_codegen_common.enums vocabulary. Compares current
  per-file counts against the frozen baseline at

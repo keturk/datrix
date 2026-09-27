@@ -56,9 +56,9 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
     ),
     (f"{_GEN} -Domains -L typescript", True, "sweeps every domain example"),
     (f"{_GEN} -All -L python", True, "sweeps the whole corpus"),
-    (f"{_GEN} -TestSet foundation -L java", True, "sweeps a named test set"),
-    (f"{_GEN} -All -L java -OutputBase .tmp/x", True, "group flag anywhere in the command"),
-    (f"{_GEN} {_EXAMPLE} -L java", False, "single project is the sanctioned form"),
+    (f"{_GEN} -TestSet foundation -L typescript", True, "sweeps a named test set"),
+    (f"{_GEN} -All -L python -OutputBase .tmp/x", True, "group flag anywhere in the command"),
+    (f"{_GEN} {_EXAMPLE} -L python", False, "single project is the sanctioned form"),
     (f"{_GEN} {_EXAMPLE} -L typescript -ConfigProfile production", False, "single project + profile"),
     (
         'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common -All',

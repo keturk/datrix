@@ -5,9 +5,9 @@
     {
       "id": "service-discovery-block-absent",
       "type": "must_not_contain",
-      "pattern": "\\bserviceDiscovery\\s*\\{",
+      "pattern": "(?m)^ {0,4}serviceDiscovery\\s*\\{",
       "glob": "**/system.dcfg",
-      "description": "The system-level 'serviceDiscovery {}' block has zero generator consumers on any platform and was deleted from the config model; no example may reintroduce it."
+      "description": "The system-level 'serviceDiscovery {}' block has zero generator consumers on any platform and was deleted from the config model; no example may reintroduce it. Anchored to system level -- a block directly inside the config, 'base' or a 'profile' (at most 4 spaces under the config-linter's 2-space layout) -- so a platform's own 'serviceDiscovery {}' setting (e.g. platforms.aws.serviceDiscovery, the Cloud Map DNS TTL, 8 spaces deep), which is live config, is not matched."
     }
   ]
 }

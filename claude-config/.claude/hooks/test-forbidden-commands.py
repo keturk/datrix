@@ -52,7 +52,7 @@ check("git status", cmd("git -C d:/datrix/datrix-common status --porcelain"), AL
 
 print("== type-checkers: the incident shape and its relatives ==")
 check("the incident: venv mypy.exe from a package root",
-      cmd("cd /d/datrix/datrix-codegen-java && /d/datrix/.venv/Scripts/mypy.exe src/datrix_codegen_java"),
+      cmd("cd /d/datrix/datrix-codegen-python && /d/datrix/.venv/Scripts/mypy.exe src/datrix_codegen_python"),
       BLOCK)
 check("bare mypy", cmd("mypy src"), BLOCK)
 check("python -m mypy", cmd("python -m mypy src/datrix_common"), BLOCK)

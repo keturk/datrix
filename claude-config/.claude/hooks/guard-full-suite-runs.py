@@ -113,7 +113,7 @@ def _block(packages_named: list[str]) -> None:
         "Run the tests related to the code you changed:\n"
         "  - by feature tag, across every package that carries it:\n"
         '      powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-codegen-python '
-        "datrix-codegen-java -Tag gateway\n"
+        "datrix-codegen-typescript -Tag gateway\n"
         '  - by file (comma-separated, one session):\n'
         '      powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package} '
         '-Specific "tests/unit/test_a.py,tests/unit/test_b.py"\n'

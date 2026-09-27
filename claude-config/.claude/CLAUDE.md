@@ -53,9 +53,15 @@ code and run it); why it failed; and the B1–B4 code.
 **Found it, you fix it.** Any defect you discover on a surface you touched is yours: fix it,
 or file a real tracked task. Mentioning it in prose and moving on is not an outcome.
 This covers **small** defects found while doing the task. Anything that would need its own
-design (a new capability, or new behaviour across languages or subsystems) is reported as a
-finding with evidence and goes to Jon. It is never fixed in place and never filed into the
-running phase. Full text: execution-contract §5.
+design (a new capability, or new behaviour across languages or subsystems) is never fixed in
+place and never filed into the running phase.
+
+**Nothing you notice is dropped.** A design-sized defect, a design flaw, or an issue on a
+surface you did not touch gets a **findings file**. Write it to
+`d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md`, cite its path in your reply, and carry
+on with your task. Keep it brief: what is wrong, where (`file:line`), the evidence, and the
+impact. Do not search the folder first; duplicates are fine. Full text: execution-contract
+§5 and §5A.
 
 **Exactly two things end a turn: the task is FINISHED, or Jon tells you to stop.** Running
 long, getting tired of the loop, and reaching a natural-feeling pause are not exits.
@@ -316,7 +322,7 @@ outcome — never submit it. An unproven BLOCKED is the second worst.**
 `/codegen-fix-loop`, `/operationalize-design`, `/task-orchestrator`, `/commit-and-push`,
 `/evaluate-generated`, `/evaluate-generated-service`, `/fix-cli`, `/fix-common`,
 `/fix-extensions`, `/fix-language`, `/fix-vscode`,
-`/fix-codegen-{angular,aws,azure,common,component,docker,dotnet,flutter,java,python,react,sql,typescript}`.
+`/fix-codegen-{angular,aws,azure,common,component,docker,flutter,python,sql,typescript}`.
 
 **Jon types these — you cannot:** `/opus-work`, `/fable-work`, `/delegate`, `/imports`,
 `/logic-map`, `/fix`, `/scope`, `/codegen-review`, `/execute-tasks`,

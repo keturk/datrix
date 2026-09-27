@@ -36,31 +36,14 @@ import sys
 
 from _repo_temp_dir_names import temp_dir_segment
 
-# Every git repository under the workspace root. The list grows with each new
-# language, platform or frontend target -- add the repo here in the same change
-# that clones it, or its temp directories go unguarded. Longest-first so the
-# alternation cannot match `datrix` where `datrix-codegen-aws` was meant.
-_REPOS = (
-    "datrix-codegen-typescript",
-    "datrix-codegen-component",
-    "datrix-codegen-angular",
-    "datrix-codegen-common",
-    "datrix-codegen-flutter",
-    "datrix-codegen-react",
-    "datrix-codegen-docker",
-    "datrix-codegen-dotnet",
-    "datrix-codegen-azure",
-    "datrix-codegen-python",
-    "datrix-extensions",
-    "datrix-codegen-java",
-    "datrix-codegen-aws",
-    "datrix-codegen-sql",
-    "datrix-language",
-    "datrix-common",
-    "datrix-vscode",
-    "datrix-cli",
-    "datrix",
-)
+# Every git repository under the workspace root is `datrix` (the showcase repo)
+# or a `datrix-*` package, and the set is open: a new language, platform or
+# frontend target is a new repo, and an archived one leaves the workspace. The
+# repo is therefore matched by that naming shape, never by a hand-kept list --
+# a list goes stale in both directions (a new repo unguarded, a moved one still
+# named). The segment pattern is greedy up to the `/`, so `datrix-codegen-aws`
+# is never read as `datrix`.
+_REPO_NAME_PATTERN = r"datrix(?:-[a-z0-9]+)*"
 
 # A repo-rooted path is either absolute under the workspace (`d:/datrix/<repo>/`)
 # or workspace-relative (`<repo>/...`, the shell's default cwd). The workspace
@@ -68,7 +51,7 @@ _REPOS = (
 # must not match after a separator -- otherwise `d:/datrix/.tmp/x` (the sanctioned
 # workspace temp dir) would read as repo `datrix` plus a banned `.tmp`.
 _REPO_PATH_RE = re.compile(
-    r"(?:[a-z]:/datrix/|(?<![\w./-]))(" + "|".join(_REPOS) + r")/([^\s\"'|;,)]*)",
+    r"(?:[a-z]:/datrix/|(?<![\w./-]))(" + _REPO_NAME_PATTERN + r")/([^\s\"'|;,)]*)",
     re.IGNORECASE,
 )
 

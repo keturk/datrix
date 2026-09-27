@@ -63,7 +63,7 @@ Persist substantial agent outputs under `d:/datrix/.agent_output/<date>-<task>/`
 - **BLOCKED — validate the proof FIRST.** A BLOCKED report is a *claim*, not an outcome. Accept it only with all four parts (verbatim error text; a fix the agent actually **wrote and ran**, as `file:line` — analysis alone is not an attempt; why it failed; a genuine B1–B4 code). **Missing any → reject and re-dispatch the packet, quoting the agent's own report back to it.** Beware the fake blocker classes: "missing dependency", "missing file", "unclear root cause", "pre-existing", "needs broader changes" are **work**, not blockers. Only a *proven* blocker is terminal — and then you investigate it yourself before it ever reaches Jon. Never mark it done, never work around it.
 - **EXPANSION_REQUIRED** → the agent knows the fix and needs a file lock. Re-dispatch it serially once the files are free. Not a failure; never shelve it.
 - **NEEDS_CONTEXT** → supply it, re-dispatch. A *technical* ambiguity is yours to decide (you are the Opus) — do not pass it to Jon.
-- **Discovered defects** → every one must end as FIXED or FILED before the packet integrates. Nothing an agent found may evaporate into a footnote.
+- **Discovered defects** → every one must end as FIXED, FILED, or FINDING (a findings file under `d:\datrix\reports\finding\`, execution-contract §5A) before the packet integrates. Nothing an agent found may evaporate into a footnote.
 
 ## Concurrency Limits
 

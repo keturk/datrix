@@ -6,11 +6,11 @@ A generated service exchanges a handful of headers Datrix itself defines: the
 trusted-caller token on an inter-service call, the delegated-user envelope,
 the three rate-limit response headers, the inbound webhook shared secret and
 the outbound webhook delivery headers. Each is a cross-language wire contract
-(a python caller and a java callee must spell the same name), and each has one
-home: ``datrix_common.generation.http_headers``. Two things went wrong before
-this gate existed. Java re-typed the caller header as a private
-``X-Datrix-Trusted-Caller`` with a different mechanism behind it, so a python
-caller and a java callee could never talk. And a typescript test template kept
+(a python caller and a typescript callee must spell the same name), and each
+has one home: ``datrix_common.generation.http_headers``. Two things went wrong
+before this gate existed. One language re-typed the caller header as a private
+``X-Datrix-Trusted-Caller`` with a different mechanism behind it, so its
+services and a python caller could never talk. And a typescript test template kept
 sending the retired ``X-Internal-Token`` long after every guard had moved on,
 so the generated test exercised a header nothing reads.
 

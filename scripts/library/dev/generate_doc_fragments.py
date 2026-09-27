@@ -4,8 +4,9 @@
 Extracts documentation from source-of-truth code locations and writes
 markdown fragment files. Two fragment types are supported:
 
-1. **semantic-pipeline** — Ordered list of semantic analyzer phases,
-   extracted from SemanticAnalyzer.analyze() via AST parsing.
+1. **semantic-pipeline** — Ordered list of semantic analyzer phases, in
+   the order derived from their declared requires/produces edges (the
+   order SemanticAnalyzer.analyze() runs them).
 2. **cli-help** — Full `datrix generate --help` output captured via
    subprocess invocation.
 
@@ -25,7 +26,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import ast
 import io
 import logging
 import signal
@@ -73,7 +73,8 @@ CLI_HELP_OUTPUT_FILENAME = "cli-generate-help.md"
 def _function_name_to_label(name: str) -> str:
     """Convert a snake_case function name to a human-readable label.
 
-    Replaces underscores with spaces and capitalizes the first letter.
+    Drops a private name's leading underscores, replaces the remaining
+    underscores with spaces and capitalizes the first letter.
 
     Args:
         name: Snake-case function name (e.g. ``register_stdlib_symbols``).
@@ -81,80 +82,39 @@ def _function_name_to_label(name: str) -> str:
     Returns:
         Human-readable label (e.g. ``Register stdlib symbols``).
     """
-    label = name.replace("_", " ")
+    label = name.lstrip("_").replace("_", " ")
     return label[0].upper() + label[1:]
 
 
-def _extract_phase_names(analyzer_source: str) -> list[str]:
-    """Extract ordered phase function names from SemanticAnalyzer.analyze().
+def _derive_phase_names() -> list[str]:
+    """Return the semantic analyzer's phase names in execution order.
 
-    Parses the Python source using the ``ast`` module, locates the
-    ``SemanticAnalyzer`` class and its ``analyze`` method, then collects
-    all top-level function-call statements in the method body. The last
-    statement (the ``return``) is excluded.
-
-    Args:
-        analyzer_source: Full source text of ``analyzer.py``.
+    ``SemanticAnalyzer.analyze()`` holds no call sequence to read: it builds
+    the declared phase list and walks the order derived from each phase's
+    ``requires``/``produces`` edges. This asks the same two functions
+    ``analyze()`` asks, so the fragment is the order the analyzer actually
+    runs, with the shipped stdlib enabled (the production setting).
 
     Returns:
-        Ordered list of function names called as phases.
+        Ordered list of phase names.
 
     Raises:
-        ValueError: If the expected class or method cannot be found, or
-            if no phase calls are detected.
+        ValueError: If the derived order is empty.
     """
-    tree = ast.parse(analyzer_source)
+    from datrix_common.semantic.analyzer import _build_phases
+    from datrix_common.semantic.pipeline.phase import topologically_sort_phases
 
-    analyzer_class: ast.ClassDef | None = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == "SemanticAnalyzer":
-            analyzer_class = node
-            break
-
-    if analyzer_class is None:
-        raise ValueError(
-            "Could not find class 'SemanticAnalyzer' in analyzer.py. "
-            "Has the class been renamed or moved?"
-        )
-
-    analyze_method: ast.FunctionDef | None = None
-    for item in analyzer_class.body:
-        if isinstance(item, ast.FunctionDef) and item.name == "analyze":
-            analyze_method = item
-            break
-
-    if analyze_method is None:
-        raise ValueError(
-            "Could not find method 'analyze' in SemanticAnalyzer. "
-            "Has the method been renamed?"
-        )
-
-    phase_names: list[str] = []
-    for stmt in analyze_method.body:
-        # Skip non-expression statements (assignments, returns, docstrings)
-        if not isinstance(stmt, ast.Expr):
-            continue
-        # Must be a function call
-        if not isinstance(stmt.value, ast.Call):
-            continue
-
-        call = stmt.value
-        func_name: str | None = None
-
-        if isinstance(call.func, ast.Name):
-            func_name = call.func.id
-        elif isinstance(call.func, ast.Attribute):
-            func_name = call.func.attr
-
-        if func_name is not None:
-            phase_names.append(func_name)
-
+    phase_names = [
+        phase.name
+        for phase in topologically_sort_phases(_build_phases(stdlib_enabled=True))
+    ]
     if not phase_names:
         raise ValueError(
-            "No phase function calls found in SemanticAnalyzer.analyze(). "
-            "The method body may have changed structure."
+            "The semantic analyzer declares no phases: "
+            "datrix_common.semantic.analyzer._build_phases returned an empty "
+            "order. Expected the declared phase list analyze() walks; check "
+            "that _build_phases still returns it."
         )
-
     return phase_names
 
 
@@ -208,7 +168,7 @@ def generate_semantic_pipeline_fragment(
 
     Raises:
         FileNotFoundError: If ``analyzer.py`` cannot be found.
-        ValueError: If parsing fails.
+        ValueError: If the analyzer declares no phases.
     """
     analyzer_path = datrix_root / ANALYZER_RELATIVE_PATH
     if not analyzer_path.is_file():
@@ -217,8 +177,7 @@ def generate_semantic_pipeline_fragment(
             f"Expected relative path: {ANALYZER_RELATIVE_PATH}"
         )
 
-    source_text = analyzer_path.read_text(encoding="utf-8")
-    phase_names = _extract_phase_names(source_text)
+    phase_names = _derive_phase_names()
 
     if verbose:
         print(f"  Found {len(phase_names)} semantic phases:")

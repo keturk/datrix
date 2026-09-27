@@ -524,8 +524,8 @@ class GeneratedTestLogWriter:
 
         A service directory the runner created, holding a log but no ``junit.xml`` /
         ``jest-results.json`` (or holding one that will not parse), means the build
-        died before the test framework wrote anything -- Maven ``testCompile``,
-        ``dotnet build``, ``tsc``. That service was never judged.
+        died before the test framework wrote anything -- a failed compile such
+        as ``tsc``. That service was never judged.
 
         Skipping such a service made :meth:`write` compute both the totals and the
         overall verdict over the SURVIVING services only, so a run in which a whole

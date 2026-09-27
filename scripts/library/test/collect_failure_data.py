@@ -620,19 +620,19 @@ _SELF_TEST_INDEXES: tuple[tuple[str, dict[str, object], int, str | None], ...] =
     ),
     (
         "generated-project unit (generated_test_log_writer): error_ids in "
-        "failure_clusters + all-capitalized xUnit test id",
+        "failure_clusters + a non-python test id",
         {
-            "project": "dotnet\\local\\example",
+            "project": "typescript\\local\\example",
             "result": "FAILED",
             "counts": {"passed": 1, "failed": 1, "errors": 0, "skipped": 0},
             "failures": [
                 {
                     "id": 1,
                     "service": "svc",
-                    "test_id": "Svc.Tests.ThingTests::Does_Thing",
+                    "test_id": "ThingService::does thing",
                     "error_type": "Failed",
-                    "error_message": "System.InvalidOperationException : boom",
-                    "generated_file": "src/Svc/Thing.cs",
+                    "error_message": "Error: boom",
+                    "generated_file": "src/svc/thing.service.ts",
                     "log_file": "failures/001.txt",
                 }
             ],
@@ -640,7 +640,7 @@ _SELF_TEST_INDEXES: tuple[tuple[str, dict[str, object], int, str | None], ...] =
             "failure_clusters": [
                 {
                     "cluster_id": 1,
-                    "pattern": "Failed: System.InvalidOperationException : *",
+                    "pattern": "Failed: Error: *",
                     "count": 1,
                     "services_affected": ["svc"],
                     "error_ids": [1],

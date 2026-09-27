@@ -174,7 +174,7 @@ Final test results: {pass count}/{total count} passing
 - **NO debug scatter** — no temporary logging, prints, or instrumentation left in code
 - **NO guessing** — read the failing code before proposing a fix
 - **NO cross-language fixes** — confirm Python vs TypeScript scope first
-- **NO scope creep** — don't fix unrelated issues discovered during investigation
+- **NO scope creep** — don't fix unrelated issues discovered during investigation; write each one up as a findings file under `d:\datrix\reports\finding\` (execution-contract §5A) and carry on
 - **NO mechanical grep-and-replace** — understand the root cause, don't just pattern-match symptoms
 - **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
 - **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.

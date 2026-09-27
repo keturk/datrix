@@ -2,7 +2,7 @@
 """Canonical enumeration of Datrix's registered generation targets.
 
 Datrix is a multi-language, multi-platform generator. The set of target
-*languages* (python, typescript, dotnet, java, ...) and *platforms*
+*languages* (python, typescript, ...) and *platforms*
 (aws, azure, docker, local, ...) is defined by which ``datrix-codegen-<x>``
 packages are installed, and is discovered at runtime from their entry-point
 groups -- never a hardcoded literal. Installing a new codegen package makes its

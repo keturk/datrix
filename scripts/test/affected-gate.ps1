@@ -73,7 +73,7 @@
  .\affected-gate.ps1 -Projects datrix-codegen-common -Consumers datrix-codegen-python,datrix-cli
 
 .EXAMPLE
- .\affected-gate.ps1 -Projects datrix-codegen-java -NoConsumers
+ .\affected-gate.ps1 -Projects datrix-codegen-typescript -NoConsumers
 
 .EXAMPLE
  .\affected-gate.ps1 -All -MaxConcurrent 4 -Mypy

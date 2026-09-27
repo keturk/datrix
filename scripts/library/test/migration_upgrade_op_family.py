@@ -2,43 +2,38 @@
 """Migration upgrade-op family gate: the cross-package half of the upgrade-op
 duplication census.
 
-The census that produced this gate read both bodies of six
-``_build_upgrade_op_for_*`` symbols across the two targets that define them
-(python's Alembic ``migration_generator.py`` and dotnet's FluentMigrator
-``_fluentmigrator_ops.py``) and reached two conclusions worth pinning:
+The census that produced this gate read the bodies of six
+``_build_upgrade_op_for_*`` symbols across every target that defined them and
+reached two conclusions worth pinning:
 
-* **Five of the six are genuinely divergent, not collapsible** -- judged
-  against the bodies rather than against the shared name -- and both private
-  copies must therefore still exist: a later "cleanup" that deleted one would
-  be deleting a target's real behaviour. ``_build_upgrade_op_for_field_added``
-  additionally carried a behaviour gap that has since been CLOSED: dotnet
-  emitted no default at all, so a non-nullable ``FIELD_ADDED`` the shared
-  change policy classifies *safe* rendered a migration that failed at apply
-  time on any populated table. ``FluentMigratorColumn`` now carries a
-  default-bearing field, and this gate holds it there.
-* **One genuinely shared fact was found and hoisted.** Both targets reassembled
+* **The six are genuinely target-specific, not collapsible** -- judged against
+  the bodies rather than against the shared name -- so each target that
+  carries the family must still define every one of them exactly once: a later
+  "cleanup" that deleted one would be deleting a target's real behaviour.
+* **One genuinely shared fact was found and hoisted.** The targets reassembled
   the ``INDEX_ADDED`` JSON detail payload into its ``SnapshotIndex`` with
   byte-identical semantics and byte-identical error text. That parse now lives
   once, in ``datrix_codegen_common.algorithms.migration_upgrade_op_index``, and
   this gate holds it there: each target must CALL the shared parser the exact
-  number of times its own paths need, and neither may redefine it.
+  number of times its own paths need, and none may redefine it.
 
-**Why this is a script and not a pytest module.** Every check above compares
-two generator packages' sources, from a check that would otherwise sit inside
-``datrix-codegen-common``. A unit test that imports two generator packages to
-compare their bodies is the exact shape the repo boundary forbids -- each
-``datrix-*`` package tests only its own surface -- and repo-level validation
-belongs as a script under ``datrix/scripts/test/``. The shared parser's own
-behaviour (input -> ``SnapshotIndex``) is a different question and stays where
-it belongs, as a unit test in ``datrix-codegen-common``, which owns the
-function; only the cross-package census moved here.
+**Why this is a script and not a pytest module.** Every check above reads a
+generator package's sources against a module that lives in
+``datrix-codegen-common``, and adding a target to the family makes it a
+comparison across generator packages. A unit test that imports several
+generator packages to compare their bodies is the exact shape the repo
+boundary forbids -- each ``datrix-*`` package tests only its own surface -- and
+repo-level validation belongs as a script under ``datrix/scripts/test/``. The
+shared parser's own behaviour (input -> ``SnapshotIndex``) is a different
+question and stays where it belongs, as a unit test in
+``datrix-codegen-common``, which owns the function.
 
-**Target packages are resolved through the registry.** The two languages this
+**Target packages are resolved through the registry.** The languages this
 family spans are named -- they are a fact about which targets carry this
-duplicate, not a claim about which targets exist -- but their packages are
+family, not a claim about which targets exist -- but their packages are
 resolved through the installed ``datrix.languages`` entry points, so a named
-language that is not installed fails loud by name instead of letting its half
-of the comparison pass vacuously.
+language that is not installed fails loud by name instead of letting its part
+of the check pass vacuously.
 
 Structural resolution only, never a text match: call sites are found by reading
 each module's import bindings and matching resolved callees, so an aliased
@@ -84,7 +79,7 @@ EXIT_FAIL: Final[int] = 1
 EXIT_USAGE: Final[int] = 2
 
 #: The six upgrade-op builders the census read in full and found genuinely
-#: divergent. Each must keep exactly one definition per target.
+#: target-specific. Each must keep exactly one definition per target.
 DIVERGENT_SYMBOLS: Final[tuple[str, ...]] = (
     "_build_upgrade_op_for_entity_added",
     "_build_upgrade_op_for_field_added",
@@ -98,25 +93,15 @@ DIVERGENT_SYMBOLS: Final[tuple[str, ...]] = (
 SHARED_MODULE: Final[str] = "datrix_codegen_common.algorithms.migration_upgrade_op_index"
 SHARED_SYMBOL: Final[str] = "parse_index_added_detail"
 
-#: The pre-hoist private name, which must not survive in either target.
+#: The pre-hoist private name, which must not survive in any target.
 RETIRED_PRIVATE_SYMBOL: Final[str] = "_index_from_index_added_detail"
 
-#: The two registered languages whose migration generators carry this family,
-#: and the exact number of resolved call sites each has for the shared parser.
+#: The registered languages whose migration generators carry this family, and
+#: the exact number of resolved call sites each has for the shared parser.
 #: python has two INDEX_ADDED detail call paths (the render path and the chain
-#: audit); dotnet has one, in `_build_upgrade_op_for_index_added`. A count, not
-#: a ">= 1": a path silently losing its call is the regression this pins.
-SHARED_PARSER_CALL_SITES: Final[dict[str, int]] = {"python": 2, "dotnet": 1}
-
-#: The language whose migration column model must carry the backfill default,
-#: and where that model lives inside its own package.
-_DEFAULT_BEARING_LANGUAGE: Final[str] = "dotnet"
-_MIGRATION_OPS_RELATIVE_PATH: Final[tuple[str, ...]] = (
-    "generators",
-    "persistence",
-    "_fluentmigrator_ops.py",
-)
-_MIGRATION_COLUMN_CLASS: Final[str] = "FluentMigratorColumn"
+#: audit). A count, not a ">= 1": a path silently losing its call is the
+#: regression this pins.
+SHARED_PARSER_CALL_SITES: Final[dict[str, int]] = {"python": 2}
 
 
 class GateConfigurationError(RuntimeError):
@@ -153,7 +138,8 @@ def language_source_root(language: str) -> Path:
             f"{sorted(registered)}. This gate compares the migration upgrade-op family "
             f"across {sorted(SHARED_PARSER_CALL_SITES)}, so a missing one cannot be "
             f"skipped. Fix: install the datrix-codegen-{language} package into "
-            f"D:\\datrix\\.venv, or retire this gate if the target is gone."
+            f"D:\\datrix\\.venv, or remove it from SHARED_PARSER_CALL_SITES if the "
+            f"target is gone."
         )
     module_roots = _language_module_roots()
     import_name = module_roots.get(language)
@@ -212,9 +198,9 @@ def _local_bindings(tree: ast.Module, module: str, symbol: str) -> tuple[set[str
     return direct, modules
 
 
-#: Parsed source of every scanned root, keyed by root. This gate asks ~18
-#: questions of the same two trees per invocation (six symbols x two targets,
-#: plus the call-site and redefinition scans); re-parsing per question is what
+#: Parsed source of every scanned root, keyed by root. This gate asks many
+#: questions of the same trees per invocation (six symbols per target, plus
+#: the call-site and redefinition scans); re-parsing per question is what
 #: made it take three times as long as the work it does.
 _PARSED_ROOTS: dict[Path, list[tuple[Path, ast.Module]]] = {}
 
@@ -282,53 +268,16 @@ def check_both_private_copies_survive(roots: dict[str, Path]) -> list[str]:
         total = sum(len(hits) for hits in per_language.values())
         if total != len(roots):
             problems.append(
-                f"{symbol} is genuinely divergent, not hoisted, so each of {sorted(roots)} must "
+                f"{symbol} is genuinely target-specific, not hoisted, so each of {sorted(roots)} must "
                 f"still define it exactly once -- found "
                 f"{ {language: [f'{path}:{line}' for path, line in hits] for language, hits in per_language.items()} }."
             )
     return problems
 
 
-def check_migration_column_carries_a_default(root: Path) -> list[str]:
-    """The migration column model declares a default-bearing field.
-
-    This is the positive replacement for the pin that recorded the gap: the
-    field is what lets an incremental ``add_column`` op backfill the rows a
-    populated table already holds.
-    """
-    ops_path = root.joinpath(*_MIGRATION_OPS_RELATIVE_PATH)
-    if not ops_path.exists():
-        return [
-            f"{_DEFAULT_BEARING_LANGUAGE}'s migration ops module is not at {ops_path}. "
-            f"Expected the module declaring {_MIGRATION_COLUMN_CLASS}. Fix: re-point this "
-            f"gate at its new location if the module moved."
-        ]
-    tree = ast.parse(ops_path.read_text(encoding="utf-8"), filename=str(ops_path))
-    column_fields: set[str] = set()
-    found_class = False
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef) or node.name != _MIGRATION_COLUMN_CLASS:
-            continue
-        found_class = True
-        for stmt in node.body:
-            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                column_fields.add(stmt.target.id)
-    if not found_class:
-        return [f"{ops_path} declares no {_MIGRATION_COLUMN_CLASS} class"]
-    if not column_fields:
-        return [f"{_MIGRATION_COLUMN_CLASS} must declare annotated fields; it declares none"]
-    if not {field for field in column_fields if "default" in field}:
-        return [
-            f"{_MIGRATION_COLUMN_CLASS} declares no default field, so an incremental ADD "
-            f"COLUMN cannot carry the database-side backfill default a NOT NULL add to a "
-            f"populated table requires. Declared fields: {sorted(column_fields)}."
-        ]
-    return []
-
-
 def check_shared_parser_reachability(roots: dict[str, Path]) -> list[str]:
     """Each target calls the shared parser the exact number of times its own
-    paths need, and neither redefines the parse."""
+    paths need, and none redefines the parse."""
     problems: list[str] = []
     for language, root in sorted(roots.items()):
         expected = SHARED_PARSER_CALL_SITES[language]
@@ -499,7 +448,6 @@ def check_migration_upgrade_op_family() -> int:
 
     problems: list[str] = []
     problems.extend(check_both_private_copies_survive(roots))
-    problems.extend(check_migration_column_carries_a_default(roots[_DEFAULT_BEARING_LANGUAGE]))
     problems.extend(check_shared_parser_reachability(roots))
 
     if problems:
@@ -507,7 +455,7 @@ def check_migration_upgrade_op_family() -> int:
             logger.error("MIGRATION UPGRADE-OP FAMILY: %s", problem)
         return EXIT_FAIL
     logger.info(
-        "MIGRATION UPGRADE-OP FAMILY GATE PASSED: %d divergent symbol(s) still defined "
+        "MIGRATION UPGRADE-OP FAMILY GATE PASSED: %d target-specific symbol(s) still defined "
         "once per target across %s, %s has one home with %s call site(s).",
         len(DIVERGENT_SYMBOLS),
         sorted(roots),
@@ -521,8 +469,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(
         description=(
-            "Migration upgrade-op family gate: the six reclassified upgrade-op builders "
-            "keep one definition per target with mechanism 'none', and the one hoisted "
+            "Migration upgrade-op family gate: the six target-specific upgrade-op builders "
+            "keep one definition per target, and the one hoisted "
             "INDEX_ADDED detail parse keeps exactly one home with the call sites each "
             "target's own paths need."
         ),

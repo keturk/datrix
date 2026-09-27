@@ -22,6 +22,7 @@ were policed and the agent talking to Jon was not.
 Legitimate exits are preserved. The block is skipped when the final message carries:
   - a blocker code (B1/B2/B3/B4) with proof, or
   - a filed task file path (a defect that was properly FILED), or
+  - a findings file path under reports/finding/ (execution-contract §5A), or
   - EXPANSION_REQUIRED (knows the fix, needs the file lock).
 
 Exit codes:

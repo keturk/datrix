@@ -98,7 +98,7 @@ of G2 -- G2 holds the ONE shared-layer package to zero symbols carrying ANY
 registered language's name; I4 holds EVERY language package to zero
 functions carrying ITS OWN name -- the token that hides a parallel
 implementation from a name-keyed behaviour-parity scan (a function inside
-datrix_codegen_java does not need "java" in its name; the package already
+datrix_codegen_python does not need "python" in its name; the package already
 says it). Scope is FUNCTION/METHOD DEFINITION names only -- never a class
 name, dataclass field, or type reference (a language package legitimately
 references its own types by name everywhere). Fails if any package's count
@@ -290,7 +290,7 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         # zero per-target variation, sibling in kind to the already-allowed
         # ``algorithms.serverless``. Consumed by azure src (the Service Bus
         # topic/subscription provisioning builder in
-        # ``resource_mapping/_pubsub.py``), plus the Python and .NET
+        # ``resource_mapping/_pubsub.py``), plus the language packages'
         # messaging-runtime emit helpers, so the name a subscriber binds at
         # runtime and the name Azure provisions can never drift out of sync.
         "datrix_codegen_common.algorithms.servicebus_naming",
@@ -416,7 +416,7 @@ WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES: frozenset[str] = frozenset(
 # the list, silently unguarded" hole: a package registering BOTH groups is
 # rejected (rules are per class), and main() refuses to scan while any
 # discovered package has no rule at all -- a generator that registers neither
-# group (SQL, Component, and the Angular, React and Flutter client targets
+# group (SQL, Component, and the Angular and Flutter client targets
 # today) must carry an explicit entry.
 LANGUAGES_ENTRY_POINT_GROUP = "datrix.languages"
 PLATFORMS_ENTRY_POINT_GROUP = "datrix.platforms"
@@ -588,26 +588,20 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
         # other client target, and from datrix_cli -- a frontend client target is not a language
         # generator, but (like Component) legitimately imports datrix_codegen_common freely (the
         # shared client contract builder, GenDSL registrations), so datrix_codegen_common is NOT
-        # on its forbidden list. The web targets (Angular, React) render TypeScript through the
+        # on its forbidden list. The web target (Angular) renders TypeScript through the
         # backend TypeScript package's transpiler core and shared web-client modules, admitted by
         # WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES and nothing wider. Without these entries the
         # scanner would have NO rule for these packages at all, which main() refuses to run with
         # -- silently unguarded is not a state this gate allows.
         "datrix_codegen_angular": BoundaryRule(
             forbidden_prefixes=(
-                *language_packages, "datrix_codegen_react", "datrix_codegen_flutter", "datrix_cli",
-            ),
-            allowed_subtrees=WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES,
-        ),
-        "datrix_codegen_react": BoundaryRule(
-            forbidden_prefixes=(
-                *language_packages, "datrix_codegen_angular", "datrix_codegen_flutter", "datrix_cli",
+                *language_packages, "datrix_codegen_flutter", "datrix_cli",
             ),
             allowed_subtrees=WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES,
         ),
         "datrix_codegen_flutter": BoundaryRule(
             forbidden_prefixes=(
-                *language_packages, "datrix_codegen_angular", "datrix_codegen_react", "datrix_cli",
+                *language_packages, "datrix_codegen_angular", "datrix_cli",
             ),
         ),
         # Platform generators keep datrix_codegen_common on forbidden_prefixes but carry
@@ -974,10 +968,9 @@ def _provider_literal_container_ids(
     Catches a closed-world provider-id collection literal wherever it is
     DEFINED -- ``frozenset({"azure"})``, ``{"aws", "azure"}``,
     ``("aws", "azure")`` -- not only when it sits directly inside a
-    ``Compare``/``in`` test. This is the shape the confirmed real site at
-    ``datrix-codegen-dotnet/.../generators/service/_infra_secret_handles.py:31``
-    needs: ``_ALWAYS_REQUIRES_CREDENTIALS = frozenset({"azure"})`` is a
-    collection-literal DEFINITION; the later ``backend in
+    ``Compare``/``in`` test. A module-level
+    ``_ALWAYS_REQUIRES_CREDENTIALS = frozenset({"azure"})`` is a
+    collection-literal DEFINITION; a later ``backend in
     _ALWAYS_REQUIRES_CREDENTIALS`` membership test (a different line) compares
     against a bare ``Name``, which a Compare-only scan would never resolve
     back to the literal. Scanning every qualifying collection literal as its
@@ -988,8 +981,8 @@ def _provider_literal_container_ids(
     registered provider id, not merely at-least-one. A collection that mixes
     a provider id with an OTHER axis's own literal -- e.g.
     ``SUPPORTED_STORAGE_PROVIDERS = frozenset({"s3", "minio", "azure_blob",
-    "local"})`` in ``datrix-codegen-dotnet/.../generators/persistence/
-    storage_generator.py`` -- is that StorageProvider axis's own closed
+    "local"})`` in a language package's storage generator -- is that
+    StorageProvider axis's own closed
     world (``s3``/``minio``/``azure_blob`` are never registered platform
     provider ids), not a platform-identity collection; "local" landing in it
     is coincidental token overlap, not a deployment-platform conditional, and
@@ -2905,7 +2898,7 @@ def _identifiers_in_type_expression(node: ast.AST) -> list[tuple[str, int]]:
     ``local_cache = {}`` inside a function body) out of scope entirely: it
     is never a type expression (see the module docstring for why this
     matters -- a bare local variable can coincidentally be named after a
-    registered language, e.g. ``java = fetch_stat()``).
+    registered language, e.g. ``python = fetch_stat()``).
     """
     results: list[tuple[str, int]] = []
     stack: list[ast.AST] = [node]
@@ -3867,7 +3860,7 @@ def write_cross_package_vocabulary_baseline(
         "# declarations whose normalized member set is declared -- with a\n"
         "# bare string literal -- identically in two or more datrix-*\n"
         "# packages (every package discover_packages() finds, not only the\n"
-        "# four language packages). Any INCREASE in a file's count fails\n"
+        "# language packages). Any INCREASE in a file's count fails\n"
         "# datrix/scripts/dev/check-import-boundaries.py\n"
         "# --check-cross-package-vocabulary. Decreases are always allowed\n"
         "# and should be captured by re-running with --update-baseline once\n"
@@ -4318,7 +4311,7 @@ def _self_test_client_target_coverage(rules: dict[str, BoundaryRule]) -> bool:
     TypeScript transpiler core and shared web-client subtrees, never the
     server-shaped rest of the package, and no client target imports another."""
     ok = True
-    for web_target in ("datrix_codegen_angular", "datrix_codegen_react"):
+    for web_target in ("datrix_codegen_angular",):
         ok &= _check(f"{web_target} has a boundary-rule entry", web_target in rules)
         ok &= _check(
             f"{web_target} carries WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES exactly",
@@ -4350,8 +4343,7 @@ def _self_test_client_target_coverage(rules: dict[str, BoundaryRule]) -> bool:
         _rule_forbids(rules, "datrix_codegen_flutter", "datrix_codegen_typescript.web_client.source_text"),
     )
     for source, imported in (
-        ("datrix_codegen_angular", "datrix_codegen_react.gendsl"),
-        ("datrix_codegen_react", "datrix_codegen_flutter.gendsl"),
+        ("datrix_codegen_angular", "datrix_codegen_flutter.gendsl"),
         ("datrix_codegen_flutter", "datrix_codegen_angular.gendsl"),
     ):
         ok &= _check(
@@ -5266,7 +5258,9 @@ def _self_test_shared_target_name_scanner() -> bool:
     _step("Self-test 14/19: shared-target-name scanner (segment matching + non-flood proof)")
     ok = True
 
-    target_names = frozenset({"python", "typescript", "java", "dotnet"})
+    # Synthetic vocabulary: "java" is kept only as the short name whose
+    # look-alike ("javascript") proves segment matching is not substring matching.
+    target_names = frozenset({"python", "typescript", "java"})
 
     ok &= _check(
         "PythonStructFieldRow carries the segment 'python'",
@@ -6650,7 +6644,7 @@ def main() -> int:
             "when a module-level set/frozenset/dict/tuple literal's "
             "normalized member set is declared, with a bare string "
             "literal, identically in two or more datrix-* packages -- "
-            "every discovered package, not only the four language "
+            "every discovered package, not only the language "
             "packages G1 scans -- independent of whether either copy "
             "also duplicates a datrix_codegen_common.enums vocabulary."
         ),

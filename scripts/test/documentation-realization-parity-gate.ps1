@@ -12,22 +12,16 @@
  (`///`) comment and an adjacent source-channel (`//`) comment. Asserts,
  by PARSING THE GENERATED ARTIFACTS STRUCTURALLY (Python's real `ast` +
  `tokenize`; a hand-rolled but genuinely structural bracket/string-aware
- lexer for TypeScript/Java; real XML parsing of C#'s `///` doc-comment
- blocks -- never a line-oriented regex over the whole file), that the
- published text reaches that target's declared published surface and the
- source text reaches its source surface and NEVER the published one.
+ lexer for C-family targets such as TypeScript -- never a line-oriented
+ regex over the whole file), that the published text reaches that target's
+ declared published surface and the source text reaches its source surface
+ and NEVER the published one.
 
- This gate asserts over GENERATED ARTIFACTS, not a running service: this
- sandbox has zero NuGet connectivity, so a generated .NET project can never
- be restored/built/started here. TWO language packages prove a real
- end-to-end document in their own suites -- python against a real FastAPI
- router's `.openapi()`, typescript against a real `tsc` + `SwaggerModule
- .createDocument()` run over an npm-installed dependency set. java and dotnet
- do NOT: their suites assert over the generated artifacts (springdoc reads
- the emitted annotations at request time, and no .xml doc file can be
- compiled here), which is the same rung of the ladder this gate stands on.
- So this gate is the repo-level cross-target census, and for java/dotnet the
- artifact assertion is the strongest proof this environment supports.
+ This gate asserts over GENERATED ARTIFACTS, not a running service. Each
+ language package proves a real end-to-end document in its own suite --
+ python against a real FastAPI router's `.openapi()`, typescript against a
+ real `tsc` + `SwaggerModule.createDocument()` run over an npm-installed
+ dependency set. This gate is the repo-level cross-target census.
 
  A target that does not yet realize a (construct_kind, surface) cell must
  carry a typed, reviewed exemption in
@@ -49,13 +43,13 @@
 
  Derives its target set from
  `importlib.metadata.entry_points(group="datrix.languages")` at runtime --
- never a hardcoded python/typescript/java/dotnet literal -- so a future
+ never a hardcoded language-name literal -- so a future
  datrix-codegen-<lang> package is covered automatically with no edit here.
 
  Runs a built-in non-vacuity self-test on every invocation, before trusting
  any real comparison: every marker text is confirmed present in the fixture
  DSL itself, and each structural extractor (Python ast/tokenize, the
- C-family bracket/string-aware lexer, the dotnet XML-doc parser) is proven
+ C-family bracket/string-aware lexer and its doc-block reader) is proven
  against a synthetic snippet to find a known-present published/source text
  and to never leak a source comment into the published set. Fails loud
  (exit 2) if fewer than 2 languages are registered.

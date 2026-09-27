@@ -72,7 +72,7 @@ Every completed agent must return evidence for each claimed check as the exact c
 | NEEDS_CONTEXT | Provide missing information, re-dispatch |
 | BLOCKED | **Validate the proof first** (execution-contract §3): verbatim error text + a fix actually written and run (`file:line`) + why it failed + a `B1`–`B4` code. **Missing any → reject and re-dispatch**, quoting the report back. Only a *proven* blocker is terminal. |
 
-**`DONE_WITH_CONCERNS` has been removed.** It was a licensed way to hand back unfinished work with a shrug. A concern is either a defect you fix, a defect you file as a tracked task, or a proven B1–B4 blocker — there is no fourth bucket.
+**`DONE_WITH_CONCERNS` has been removed.** It was a licensed way to hand back unfinished work with a shrug. A concern is either a defect you fix, a defect you file as a tracked task, an issue that is not yours to fix now written up as a findings file (execution-contract §5A), or a proven B1–B4 blocker — there is no fifth bucket.
 
 Never force retry without changing inputs.
 

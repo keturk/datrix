@@ -104,7 +104,7 @@ language package's ``src/<import root>`` is imported
 ``EmitTable`` instance is collected by ``isinstance``, deduplicated by
 identity. No per-language table variable name and no table-module path is
 assumed: the tables live in differently-named variables
-(``PYTHON_EMIT_TABLE``, ``DOTNET_EMIT_TABLE``, ...) and in more than one
+(``PYTHON_EMIT_TABLE``, ``TYPESCRIPT_EMIT_TABLE``, ...) and in more than one
 module per package (a language's instance-call table can live beside its
 expression visitor rather than in ``transpiler/emit_tables.py``). Each
 registered emit callable is matched to the AST-scanned member by
@@ -458,7 +458,7 @@ def _is_registered_language(name: str) -> bool:
     """True when *name* resolves to a registered ``datrix.languages`` plugin.
 
     Distinguishes a real language member of the language axis from a
-    client-target-only ``datrix.generators`` plugin (Angular/React/Flutter):
+    client-target-only ``datrix.generators`` plugin (Angular/Flutter):
     both share the axis's token and builtin-group-stance surfaces (a client
     target contributes a transpiler profile), but domain stances and on-demand domains are a SERVER-axis
     concept a client target has no analogue for -- it registers no
@@ -1698,7 +1698,7 @@ def live_exemption_surfaces(
         names = label.split(_LABEL_JOIN_SEPARATOR)
         declarations = [_builtin_capability_for_language_axis_member(name) for name in names]
         # Domain stances and on-demand domains are a SERVER-axis-only
-        # concept: a client-target-only member (Angular/React/Flutter)
+        # concept: a client-target-only member (Angular/Flutter)
         # contributes none of either, the same way `sql`/`component` (other
         # artifacts-phase, non-language generators) never enter this table.
         stance_table[label] = _merge_declared(

@@ -77,8 +77,8 @@ conftest, what its fixtures generate. Neither "include it to be safe" nor "it's 
 fine" is a decision.
 
 **Example** (a change to `SchemaField` and the entity create/update derivation in
-`datrix-codegen-common`): reached — the backends that render request schemas (python,
-typescript, dotnet, java), the Angular client that renders the contract's input models, and
+`datrix-codegen-common`): reached — every registered backend that renders request schemas (python and typescript
+today), the client targets that render the contract's input models (angular, flutter), and
 `datrix-common` + `datrix-cli`, whose tests generate python projects through the pipeline.
 Not reached: aws, azure, docker, sql, component. The run is the tags of that behaviour
 (`input-validation`, `rest-api`, `frontend-client`, …) across the reached packages.

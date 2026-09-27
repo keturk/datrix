@@ -208,4 +208,4 @@ curl -X POST "http://127.0.0.1:<port>/api/v1/books" \
 
 **Wrong language or deployment settings** — `--language`/`-L` is required on every `datrix generate` call and is the sole source for the language target; check the value passed. Deployment settings come from the active profile in `config/system.dcfg` and per-service configuration — check those for deployment issues.
 
-Full CLI options: [`datrix-cli/docs/commands.md`](../../datrix-cli/docs/commands.md).
+Full CLI options: [`datrix-cli/docs/commands.md`](../../../datrix-cli/docs/commands.md).

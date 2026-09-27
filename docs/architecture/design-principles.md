@@ -59,11 +59,11 @@ Datrix is built on proven software engineering principles that ensure:
 
 ### 2. Templates + Formatter for Code Generation
 
-**Principle:** Use Jinja2 templates; after rendering, each language's `LanguageHooks` applies that language's formatter where available (ruff for Python, CSharpier for dotnet, google-java-format for Java) or uses pre-formatted templates with language-specific validation (TypeScript with tsc --noEmit).
+**Principle:** Use Jinja2 templates; after rendering, each language's `LanguageHooks` applies that language's formatter where available (ruff for Python) or uses pre-formatted templates with language-specific validation (TypeScript with tsc --noEmit).
 
 **Why:**
 - Templates are readable and look like the output
-- After files are written, `GenerationPipeline` runs `LanguageHooks` post-processing (import fix, then language-specific formatting when `PipelineConfig.format_output` is true — ruff for Python, CSharpier for dotnet, google-java-format for Java, or validation-only for pre-formatted languages like TypeScript — then semantic checks such as ruff rules) so output stays consistent with project standards
+- After files are written, `GenerationPipeline` runs `LanguageHooks` post-processing (import fix, then language-specific formatting when `PipelineConfig.format_output` is true — ruff for Python, or validation-only for pre-formatted languages like TypeScript — then semantic checks such as ruff rules) so output stays consistent with project standards
 - Easy to maintain and modify
 - Reusable template macros
 
@@ -89,7 +89,7 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Benefits:**
 - ✅ Templates are readable and maintainable
-- ✅ Consistent formatting via language-specific tools (ruff, CSharpier, google-java-format) or pre-formatting with validation
+- ✅ Consistent formatting via language-specific tools (ruff for Python) or pre-formatting with validation
 - ✅ Validation during formatting
 - ✅ Reusable template macros
 
@@ -156,7 +156,7 @@ Datrix is built on proven software engineering principles that ensure:
 - `datrix-codegen-component`: Platform-agnostic component generation - ONE PURPOSE
 - `datrix-codegen-python`: Python code generation - ONE PURPOSE
 - `datrix-codegen-docker`: Docker generation - ONE PURPOSE
-- Each additional target language is one more package with the same one-purpose rule — e.g. `datrix-codegen-dotnet` and `datrix-codegen-java`, both real generators at parity with python/typescript. The list of language generators is open, never a closed set.
+- Each additional target language is one more `datrix-codegen-{lang}` package with the same one-purpose rule. The list of language generators is open, never a closed set.
 
 **Module Organization:** Each package keeps one concern per module (e.g. models, routes, services, tests). One generator class per concern; platform-specific generation (e.g. Docker) lives in a separate package, not mixed with metrics or other concerns.
 
@@ -172,7 +172,7 @@ Datrix is built on proven software engineering principles that ensure:
 - Loose coupling
 - Plugin architecture
 
-**Application:** Generators depend on abstractions (e.g. a formatter interface); concrete implementations (ruff for Python, CSharpier for dotnet, google-java-format for Java, or pre-formatted templates with language-specific validation) live in the codebase and can be swapped. See `datrix_common` and generator packages for the interfaces.
+**Application:** Generators depend on abstractions (e.g. a formatter interface); concrete implementations (ruff for Python, or pre-formatted templates with language-specific validation) live in the codebase and can be swapped. See `datrix_common` and generator packages for the interfaces.
 
 **Benefits:**
 - ✅ Easy to add new formatters
@@ -351,7 +351,7 @@ Adding a second storage block does not break the API:
 
 **Portability cuts both ways.** The rule is stated for the target that cannot realize a field as much as for the one that can: a portable contract is only portable if the targets that decline it say so out loud, so a reader of the config can tell "this target does not do that" from "nobody has checked."
 
-**Enforcement.** Per-package conformance checks that perturb a declared field, regenerate, and diff the emitted artifact against the unperturbed baseline are what make realization provable rather than reviewed-by-eye. The perturb/diff engine ships in the shared conformance kit (`datrix_codegen_common.testkit.gates.config_realization`); each consuming package (aws, azure, docker, python, typescript, java, dotnet, component) runs it in its own suite against its own pinned exemption baseline, and the kit proves its own non-vacuity every run — see [Architecture Overview — Decision 32](architecture-overview.md#decision-32-portable-telemetry-volume-and-platform-diagnostics-contracts-with-realization-conformance-adopted).
+**Enforcement.** Per-package conformance checks that perturb a declared field, regenerate, and diff the emitted artifact against the unperturbed baseline are what make realization provable rather than reviewed-by-eye. The perturb/diff engine ships in the shared conformance kit (`datrix_codegen_common.testkit.gates.config_realization`); each consuming package (aws, azure, docker, python, typescript, component) runs it in its own suite against its own pinned exemption baseline, and the kit proves its own non-vacuity every run — see [Architecture Overview — Decision 32](architecture-overview.md#decision-32-portable-telemetry-volume-and-platform-diagnostics-contracts-with-realization-conformance-adopted).
 
 **Benefits:**
 - ✅ A setting that silently does nothing is caught before an operator relies on it
@@ -611,7 +611,7 @@ entity User extends BaseEntity {
 | Concern | Owner |
 |---------|--------|
 | Scalar defs, builtin objects, `db_extensions()`, extra deps, templates | Extension pack implementing `DatrixExtension` |
-| Per-language type and ORM mappings | The owning language generator — `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, `datrix-codegen-dotnet`, `datrix-codegen-java`, and every language package added later |
+| Per-language type and ORM mappings | The owning language generator — `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, and every language package added later |
 
 Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhaustive mapping rules still apply: unknown extension keys or unmapped types **fail at generation time** with explicit errors (for example `ExtensionNotSupportedError` from the shared `build_type_map` when Python has no map for a declared extension).
 
@@ -682,7 +682,7 @@ Example mapping on Azure (`runtime: azure-app-service, provider: azure`):
 
 All async handlers for a service — service-level `subscribe`, `jobs()`, `enqueue` consumers, and `serverless` block handlers — are grouped into a single **Function App per service**. The per-service compute shape follows from what the service declares: an HTTP surface (`rest_api`/`graphql_api`) → Web App; any async handler → Function App; both declared → both; neither declared → generation error.
 
-The same construct-to-primitive mapping applies on other platforms (AWS: `rest_api`/`graphql_api` → App Runner or ECS Fargate; `subscribe`/`jobs()`/`enqueue` → Lambda; Docker Compose: services → containers). See [datrix-codegen-azure/docs/architecture.md](../../../../datrix-codegen-azure/docs/architecture.md) for the full Azure construct mapping and shape-derivation rules.
+The same construct-to-primitive mapping applies on other platforms (AWS: `rest_api`/`graphql_api` → App Runner or ECS Fargate; `subscribe`/`jobs()`/`enqueue` → Lambda; Docker Compose: services → containers). See [datrix-codegen-azure/docs/architecture.md](../../../datrix-codegen-azure/docs/architecture.md) for the full Azure construct mapping and shape-derivation rules.
 
 **No silent ignore:**
 
@@ -759,7 +759,7 @@ genDSL compiler intermediate structures stay in process memory and are rebuilt e
 
 **Principle:** Datrix's declarative layer is a family of small, single-concern surfaces, not one mega-DSL. genDSL, ConfigDSL, SeedDSL, RealizationDSL, and EmitDSL are siblings under one doctrine, each owning exactly one decision family.
 
-**F1 — Purposeful mini-DSLs, not one mega-DSL:** ConfigDSL owns deployment configuration, SeedDSL owns seed data, genDSL owns generator structure, RealizationDSL owns platform capability realization — typed `(block_type, flavor)` cells that drive provisioning dispatch, with the table cell (not text) as the authoring unit — EmitDSL owns per-language emit-table declarations — typed builtin/operator emit decisions validated against the closed builtin registry, with the table row (not text) as the authoring unit — and per-language dependency tables own which packages a feature requires, in a given language, at what scope, validated in `datrix_codegen_common.generation.dependency_dsl` and adopted by all four language packages. A new decision family that needs a declarative home gets its own purpose-scoped surface; nothing is folded into genDSL because it happens to be declarative; a surface that grows a second concern is split. Dependency selection earned its own surface rather than folding into an existing one because it is a distinct decision family with no declarative home before it, hand-written per language, and it had already shipped a reachable defect where a declared infrastructure engine selected no client package in the generated manifest. A row carries no version constraint: versions already have a declarative home in the dependency catalog, and a row carrying its own version would be the same two-sources-of-truth drift this family of surfaces exists to close.
+**F1 — Purposeful mini-DSLs, not one mega-DSL:** ConfigDSL owns deployment configuration, SeedDSL owns seed data, genDSL owns generator structure, RealizationDSL owns platform capability realization — typed `(block_type, flavor)` cells that drive provisioning dispatch, with the table cell (not text) as the authoring unit — EmitDSL owns per-language emit-table declarations — typed builtin/operator emit decisions validated against the closed builtin registry, with the table row (not text) as the authoring unit — and per-language dependency tables own which packages a feature requires, in a given language, at what scope, validated in `datrix_codegen_common.generation.dependency_dsl` and adopted by every language package. A new decision family that needs a declarative home gets its own purpose-scoped surface; nothing is folded into genDSL because it happens to be declarative; a surface that grows a second concern is split. Dependency selection earned its own surface rather than folding into an existing one because it is a distinct decision family with no declarative home before it, hand-written per language, and it had already shipped a reachable defect where a declared infrastructure engine selected no client package in the generated manifest. A row carries no version constraint: versions already have a declarative home in the dependency catalog, and a row carrying its own version would be the same two-sources-of-truth drift this family of surfaces exists to close.
 
 The rule has an inverse that is easier to get wrong, because a large duplicated family looks like evidence that a surface is missing when it is evidence that an existing one is under-used. **Identifier casing is the worked example.** Around a hundred parallel implementations differ, by their own written reasons, only in which casing convention each language's generated identifier space uses — and `LanguageProfile.naming` already declares `identifier_caser`, `type_name_caser`, and `constant_caser`, populated per language. A "CasingDSL" would therefore be a second home for a declaration that exists, which is the exact failure this family exists to prevent; the work is threading the declared caser into shared algorithms, not authoring a surface. Two cautions apply when doing so, both learned by reading implementations rather than the labels attached to them: a mechanism label is a hypothesis about code, and a name labelled collapsible-by-casing may in fact differ by an absent branch, a return arity, or a missing parameter, so hoisting it through the profile drops behaviour instead of preserving it; and `NamingProfile.structural_rule` is declared but populated as identity by every language, so a convention that is structural rather than case-based — a leading-underscore private-field prefix, a reserved-word escape — has no home in the profile as it stands and is lost if the casers alone are threaded past it.
 

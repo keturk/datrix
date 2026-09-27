@@ -159,7 +159,7 @@ Issues unresolved: {N} (see details above)
 - **NO exploring the project structure** — read `.project-structure.md` for the target package, don't rediscover it
 - **NO parallel fixing** — one issue at a time, verified before moving on
 - **NO debug scatter** — zero temporary logging or instrumentation
-- **NO scope creep** — if you discover a new issue during a fix, log it as a new item, don't chase it
+- **NO scope creep** — if you discover a new issue during a fix, log it as a new item, don't chase it; if it is unrelated to this debugging target, write it up as a findings file under `d:\datrix\reports\finding\` (execution-contract §5A)
 - **NO assumption-driven fixes** — read the code at every checkpoint
 - **NO skipping checkpoints** — every fix gets Understand → Fix → Verify
 - **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).

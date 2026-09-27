@@ -102,7 +102,7 @@ AI is at its best when the problem fits in a context window and the output is un
 
 ## Under the Hood
 
-Datrix is a serious engineering investment, not a weekend project that wraps a few Jinja templates. The full implementation spans **~1,000 source files** and **~108,000 lines of code** — organized around a clean separation between the language layer, the shared core, and each independent code and platform generator.
+Datrix is a serious engineering investment, not a weekend project that wraps a few Jinja templates. The full implementation spans **~2,500 Python source files** and **~680,000 lines of code** — organized around a clean separation between the language layer, the shared core, and each independent code and platform generator.
 
 ### The Architecture
 
@@ -112,14 +112,15 @@ datrix-common          — Shared AST, semantic analysis, validation engine
        |
        +-- datrix-codegen-python      — FastAPI application generator
        +-- datrix-codegen-typescript  — NestJS application generator
-       +-- datrix-codegen-dotnet      — .NET application generator
-       +-- datrix-codegen-java        — Java application generator
        +-- datrix-codegen-sql         — SQL schema and migration generator
        +-- datrix-codegen-component   — Config, docs, and schema generator
        |
        +-- datrix-codegen-docker      — Docker + Compose platform generator
        +-- datrix-codegen-aws         — AWS CDK + CloudFormation generator
        +-- datrix-codegen-azure       — Azure Bicep + ARM generator
+       |
+       +-- datrix-codegen-angular     — Angular frontend client generator
+       +-- datrix-codegen-flutter     — Flutter mobile client generator
        |
        +-- datrix-cli                 — CLI tooling and developer experience
 ```
