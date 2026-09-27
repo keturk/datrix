@@ -1002,6 +1002,40 @@ post createProject(String name) -> Project {
 
 ---
 
+### Pattern: Cross-Tenant Staff and Service Routes
+
+**Problem:** An internal admin console, a support-staff sweep, or a service-to-service route
+needs to read or act across every tenant's rows, not just one — but the default tenant rule
+gives every body that touches a Tenantable entity exactly one tenant, or fails generation.
+
+**Solution:** Declare the body `@crossTenant`. It is legal only on `auth(service)` endpoints,
+role-gated `auth(required)` endpoints whose every provider is workforce-only, service/`rest_api`
+functions, pub/sub and queue consumers, and jobs — never on a public, optional, or customer-
+facing route, and never reachable from one through a helper call.
+
+```dtrx
+@crossTenant
+post(UUID orgId) : auth(required, providers: [identity], roles: [SupportAgent]) -> Void {
+    let org = db.Organization.findOrFail(orgId);
+    tenant(org.id) {
+        applyEmergencyCredit(org.id, Money.of(50, "USD"));
+    }
+}
+```
+
+**Generated behavior:**
+- A top-level read is unscoped; a top-level write (`create`, `update(id, …)`, batch operations)
+  fails generation instead of silently guessing a tenant.
+- Inside `tenant(<expr>) { … }`, or inside a `foreach` over rows that already carry a tenant,
+  every read is filtered, every create is stamped, and every call to a tenant-scoped function
+  carries that tenant.
+- Every declared body logs `cross_tenant_access handler=… kind=…` once, on entry, so every
+  unscoped execution is auditable.
+- The `tenant(...)` expression must be an identifier or property chain the body already holds
+  (`org.id`, never a literal or a computed value) — it can only narrow scope, never widen it.
+
+---
+
 ## Caching Strategies
 
 ### Pattern: Cache-Aside (Read-Through)

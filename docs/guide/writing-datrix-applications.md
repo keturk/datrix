@@ -1876,7 +1876,61 @@ async listOrders(@TenantId() tenantId: string) {
 }
 ```
 
-> **📖 Reference:** See [Patterns and Best Practices § Multi-Tenancy](./patterns-and-best-practices.md#multi-tenancy) for implementation patterns.
+### Declaring a Body Deliberately Cross-Tenant
+
+Tenant scoping is fail-closed by default: every body that reaches a Tenantable entity gets
+exactly one tenant, or generation fails. A handful of trusted-caller bodies legitimately need to
+read across every tenant instead — a service-to-service route, a role-gated staff route, a
+consumer of an event with no tenant, a scheduled job. Write `@crossTenant` on one of these to
+declare it intentionally unscoped:
+
+```dtrx
+@crossTenant
+job SweepStaleOrders {
+    let Array<Order> stale = Order.where(status: Submitted).all();
+    foreach order in stale {
+        order.status = OrderStatus.Expired;
+        order.save();
+    }
+}
+```
+
+`@crossTenant` is legal only on `auth(service)` endpoints, role-gated `auth(required)` endpoints
+whose every provider is workforce-only, service/`rest_api` functions, pub/sub and queue
+consumers, and jobs — an ordinary customer-facing route can never declare it, and can never
+reach one through a helper call either.
+
+A top-level read in such a body is unscoped; a top-level write (`create`, `update(id, …)`,
+batch operations) fails generation. To write for one tenant inside a declared body, either loop
+over rows that already carry a tenant, or scope a region explicitly:
+
+```dtrx
+@crossTenant
+job GenerateMonthlyInvoices {
+    let Array<Customer> customers = db.Customer.all();
+    foreach customer in customers {
+        tenant(customer.id) {
+            generateInvoicesForPeriod(previousBillingPeriod());
+        }
+    }
+}
+```
+
+Everything inside `tenant(<expr>) { … }` is scoped to that one tenant: reads are filtered,
+creates are stamped, and calls to tenant-scoped functions carry it. The tenant expression must
+be an identifier or a property chain the body already holds — never a literal or a call.
+
+A trusted service route may also name its tenant with a declared path or query parameter instead
+of a request-body field:
+
+```dtrx
+@path('/usage/:orgId')
+get serviceUsage(UUID orgId) : auth(service, providers: [internal]) -> UsageReport {
+    return db.Organization.findOrFail(orgId).usageReport();
+}
+```
+
+> **📖 Reference:** See [Patterns and Best Practices § Multi-Tenancy](./patterns-and-best-practices.md#multi-tenancy) for implementation patterns, and the [Datrix Syntax Reference § Multi-Tenancy](../../../datrix-language/docs/reference/datrix-syntax-reference.md#multi-tenancy) for the full decorator, block and validator rules.
 
 ---
 
