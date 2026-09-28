@@ -144,7 +144,6 @@ EXCLUDED_ERROR_SITES: list[tuple[str, str]] = [
     ("datrix_common/generation/snapshot.py", "_validate_service_entities"),
     ("datrix_common/generation/snapshot.py", "_validate_snapshot_schema"),
     # ── testing — test-infrastructure assertions ─────────────────────────────────
-    ("datrix_codegen_python/testing.py", "_check_ruff_f821"),
     ("datrix_codegen_typescript/testing.py", "assert_all_ts_files_balanced"),
     ("datrix_common/testing/assertions.py", "assert_file_exists"),
     ("datrix_common/testing/assertions.py", "assert_json_valid"),

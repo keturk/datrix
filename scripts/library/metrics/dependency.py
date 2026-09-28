@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -29,63 +28,14 @@ try:
 except ImportError:
     tomllib = None # type: ignore[assignment]
 
-DATRIX_PREFIX = "datrix-"
+_library_dir = Path(__file__).resolve().parents[1]
+if str(_library_dir) not in sys.path:
+    sys.path.insert(0, str(_library_dir))
 
-
-def _parse_package_name(spec: str) -> str:
-    """Extract package name from a dependency spec (e.g. 'datrix-common>=1.0.0' -> 'datrix-common')."""
-    return re.split(r"\s*[\[\]<>!=~]", spec.strip(), maxsplit=1)[0].strip()
-
-
-def _get_project_dependencies(pyproject_path: Path) -> list[str]:
-    """Read [project].dependencies from pyproject.toml and return dependency spec strings."""
-    if not pyproject_path.is_file():
-        return []
-    try:
-        if tomllib is None:
-            return []
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
-    except (OSError, ValueError):
-        return []
-    deps = data.get("project", {}).get("dependencies", [])
-    if not isinstance(deps, list):
-        return []
-    return [s for s in deps if isinstance(s, str)]
-
-
-def discover_packages(workspace_root: Path) -> dict[str, Path]:
-    """Return dict of package name -> project root for each datrix-* dir with pyproject.toml."""
-    result: dict[str, Path] = {}
-    if not workspace_root.is_dir():
-        return result
-    for child in workspace_root.iterdir():
-        if not child.is_dir() or not child.name.startswith(DATRIX_PREFIX):
-            continue
-        pyproject = child / "pyproject.toml"
-        if pyproject.is_file():
-            result[child.name] = child
-    return dict(sorted(result.items()))
-
-
-def build_dependency_graph(
-    packages: dict[str, Path],
-) -> tuple[list[str], list[tuple[str, str]]]:
-    """
-    Build datrix-to-datrix dependency graph from pyproject.toml files.
-
-    Returns (list of package names, list of (package, dependency) edges).
-    """
-    package_names = list(packages.keys())
-    edges: list[tuple[str, str]] = []
-    for name, project_root in packages.items():
-        pyproject = project_root / "pyproject.toml"
-        for spec in _get_project_dependencies(pyproject):
-            dep_name = _parse_package_name(spec)
-            if dep_name.startswith(DATRIX_PREFIX) and dep_name in packages and dep_name != name:
-                edges.append((name, dep_name))
-    edges.sort(key=lambda e: (e[0], e[1]))
-    return package_names, edges
+from shared.pyproject_deps import (  # noqa: E402
+    build_dependency_graph,
+    discover_packages,
+)
 
 
 def run_tree(package_names: list[str], edges: list[tuple[str, str]], verbose: bool) -> None:
