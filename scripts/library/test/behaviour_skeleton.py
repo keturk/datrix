@@ -1666,6 +1666,102 @@ def _is_shared_or_stdlib(qualified: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Shape and model-attribute primitives
+# ---------------------------------------------------------------------------
+
+#: The first token of every skeleton line an emitter in this module writes --
+#: the statement "head". A line whose first token is not in this set is a
+#: bare model-reading expression statement and has the head ``EXPRESSION_LINE_HEAD``.
+SKELETON_LINE_HEADS: Final[frozenset[str]] = frozenset(
+    {
+        "if",
+        "else",
+        "endif",
+        "for",
+        "endfor",
+        "while",
+        "endwhile",
+        "match",
+        "case",
+        "endmatch",
+        "try",
+        "trystar",
+        "except",
+        "finally",
+        "endtry",
+        "endtrystar",
+        "with",
+        "endwith",
+        "return",
+        "raise",
+        "assert",
+        "break",
+        "continue",
+        "=",
+        "yield",
+    }
+)
+EXPRESSION_LINE_HEAD: Final[str] = "expr"
+_SKELETON_HEAD_SEPARATOR: Final[str] = " "
+
+
+def skeleton_shape(skeleton: str) -> tuple[str, ...]:
+    """The control shape of a skeleton this module rendered: the head of each
+    line, in order, with every predicate, chain and operand dropped.
+
+    Two functions that branch, loop, return and raise in the same order have
+    the same shape even when the questions they ask differ -- the "nearly
+    matches" half of a fingerprint.
+
+    Args:
+        skeleton: A value returned by ``behaviour_skeleton``.
+
+    Returns:
+        One head per skeleton line; ``()`` for an empty skeleton.
+    """
+    if not skeleton:
+        return ()
+    heads: list[str] = []
+    for line in skeleton.split("\n"):
+        token = line.split(_SKELETON_HEAD_SEPARATOR, 1)[0]
+        heads.append(token if token in SKELETON_LINE_HEADS else EXPRESSION_LINE_HEAD)
+    return tuple(heads)
+
+
+def model_attribute_names(fn: FunctionSource) -> frozenset[str]:
+    """Every attribute name *fn* reads through a model chain rooted at one of
+    its parameters or at a derived root -- never through ``self`` (package
+    state is language-private) and never through a plain local.
+
+    Uses ``RenderScope.for_function`` and ``_peel_attribute_chain`` exactly as
+    ``_model_chain_root`` classifies a chain, over every ``ast.Attribute`` in
+    *fn*'s body. The model attributes a function reads come from the shared
+    AST, so they are the same names in every language package.
+
+    Args:
+        fn: The function to inspect.
+
+    Returns:
+        The attribute names; empty when *fn* reads no model data.
+    """
+    scope = RenderScope.for_function(fn.node)
+    names: set[str] = set()
+    for stmt in fn.node.body:
+        for node in ast.walk(stmt):
+            if not isinstance(node, ast.Attribute):
+                continue
+            peeled = _peel_attribute_chain(node)
+            if peeled is None:
+                continue
+            root_id, parts = peeled
+            if root_id == _SELF_NAME:
+                continue
+            if root_id in scope.param_names or root_id in scope.derived_roots:
+                names.update(parts)
+    return frozenset(names)
+
+
+# ---------------------------------------------------------------------------
 # Self-test
 # ---------------------------------------------------------------------------
 
@@ -2471,6 +2567,81 @@ def _run_rendering_leaf_privacy_checks() -> bool:
     )
 
 
+def _sweep_function_source(name: str) -> FunctionSource:
+    """The already-swept function named *name* in ``_GRAMMAR_SWEEP_CODE``, as
+    a ``FunctionSource`` -- the same construction ``_sweep_function_renders``
+    uses, exposed so a shape check can reuse the one sweep the grammar
+    completeness check already proves exhaustive rather than authoring a
+    second one."""
+    module = ast.parse(textwrap.dedent(_GRAMMAR_SWEEP_CODE))
+    node = next(
+        candidate
+        for candidate in module.body
+        if isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef)) and candidate.name == name
+    )
+    return _function_source_from_code(ast.unparse(node))
+
+
+def _run_shape_checks() -> bool:
+    """``skeleton_shape`` (and the ``SKELETON_LINE_HEADS`` constant it reads)
+    proven against the grammar sweep rather than assumed: every head the
+    sweep's shape produces is a declared head or the expression fallback,
+    every declared head appears somewhere in the sweep's shape (so the
+    constant cannot go stale against the emitters), two functions with
+    different predicates and identical control flow share a shape while
+    their skeletons differ, and ``model_attribute_names`` collects
+    parameter- and derived-root-rooted attribute names while dropping a
+    ``self``-rooted read and a plain local's."""
+    ok = True
+    sweep_shape = skeleton_shape(behaviour_skeleton(_sweep_function_source("sweep")))
+    ok &= _assert(
+        set(sweep_shape) <= SKELETON_LINE_HEADS | {EXPRESSION_LINE_HEAD},
+        "(30) the grammar sweep's shape carries only declared heads or the expression fallback",
+    )
+    ok &= _assert(
+        SKELETON_LINE_HEADS <= set(sweep_shape),
+        "(31) every declared skeleton-line head appears in the grammar sweep's own shape",
+    )
+    predicate_a = _function_source_from_code(
+        """
+        def check_one(entity):
+            if entity.flag:
+                return entity.value
+            return None
+        """
+    )
+    predicate_b = _function_source_from_code(
+        """
+        def check_two(entity):
+            if entity.other_flag:
+                return entity.other_value
+            return None
+        """
+    )
+    ok &= _assert(
+        skeleton_shape(behaviour_skeleton(predicate_a)) == skeleton_shape(behaviour_skeleton(predicate_b))
+        and behaviour_skeleton(predicate_a) != behaviour_skeleton(predicate_b),
+        "(32) two functions with different predicates and equal control flow share a shape but not a skeleton",
+    )
+    attribute_fn = _function_source_from_code(
+        """
+        def resolve_widget_limits(entity):
+            for field in entity.fields:
+                if field.required:
+                    self.cache.size
+            local = 5
+            local.x
+            return entity.limits.maximum
+        """
+    )
+    ok &= _assert(
+        model_attribute_names(attribute_fn) == frozenset({"fields", "required", "limits", "maximum"}),
+        "(33) model_attribute_names collects parameter- and derived-root-rooted attribute names; a self-rooted "
+        "read and a plain local's contribute nothing",
+    )
+    return ok
+
+
 def run_self_test() -> bool:
     """Prove the properties this module's design acceptance rests on: equal
     skeletons for rendering-only variants, unequal skeletons for
@@ -2478,8 +2649,9 @@ def run_self_test() -> bool:
     resolution through TYPE_CHECKING and relative imports, fail-closed
     parsing, derived-root resolution, role-level arity, the rendering-leaf
     exemption for a language-private parameter (and a derived root sourced
-    only from it), and a whole-grammar sweep that raises on nothing
-    classifiable.
+    only from it), a whole-grammar sweep that raises on nothing classifiable,
+    and the control-shape/model-attribute primitives the fingerprint pass
+    consumes.
 
     Returns:
         True iff every assertion passed.
@@ -2498,6 +2670,7 @@ def run_self_test() -> bool:
     ok &= _run_derived_root_checks()
     ok &= _run_arity_checks()
     ok &= _run_rendering_leaf_privacy_checks()
+    ok &= _run_shape_checks()
     return ok
 
 
