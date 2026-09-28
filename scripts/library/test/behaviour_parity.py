@@ -136,11 +136,38 @@ Exit codes: 0 no in-scope failing role; 1 at least one in-scope failing
 role; 2 usage error, discovery/parse failure, or self-test failure.
 ``--axis platforms`` and ``--report-only`` render the report and exit 0.
 
+Fingerprint pass (report-only)
+-------------------------------
+``--fingerprint`` runs a second, independent pass after the role report: it
+takes every function in a role with fewer than ``_MIN_PACKAGES_FOR_COMPARISON``
+distinct member packages -- the set no name/signature role compares
+(``uncovered_functions``) -- and re-groups them across packages by a
+BEHAVIOUR FINGERPRINT: the function's control shape (``skeleton_shape``,
+every predicate/chain/operand dropped, only the ordered statement heads kept)
+paired with the set of model attribute names it reads
+(``model_attribute_names``). A pre-binding adapter, a rendering leaf, a
+skeleton under ``FINGERPRINT_MIN_SKELETON_LINES`` lines, or a function
+reading no model attribute is never a candidate -- too little behaviour to
+identify a job, or nothing to identify one BY. A bucket that spans fewer than
+two distinct packages is dropped the same way an under-covered role is.
+
+Each surviving cross-package group is judged by the SAME verdict rules a
+name/signature role uses (``_classify_role``): ``identical``,
+``same-behaviour``, or ``divergent`` -- no second classifier. A group is also
+labelled ``match`` when every member's exact behaviour skeleton is equal, or
+``near-match`` when the shape and the model attributes agree but at least one
+member's skeleton text differs (a divergent detail inside an otherwise
+shared job). The pass never reaches ``gate_exit_code``, the scope file, or
+``--buckets`` -- it is report-only, and the exit code is identical with and
+without ``--fingerprint``. It is gated only once its first measurement is
+worked down, which this pass does not do.
+
 Usage:
     python behaviour_parity.py --self-test
     python behaviour_parity.py --axis languages [--scope queue,cache] [--buckets identical] [--debug]
     python behaviour_parity.py --axis languages --report-only [--debug]
     python behaviour_parity.py --axis platforms [--debug]
+    python behaviour_parity.py --axis languages --fingerprint [--debug]
 """
 
 from __future__ import annotations
@@ -224,9 +251,11 @@ from test.behaviour_skeleton import (  # noqa: E402
     build_import_table,
     is_pre_binding_adapter,
     is_rendering_leaf,
+    model_attribute_names,
     normalized_source,
     parse_module_or_raise,
     plumbing_parameter_names,
+    skeleton_shape,
 )
 from test.supported_domain_parity import stance_table_by_language  # noqa: E402
 
@@ -1078,6 +1107,76 @@ def _is_excluded_name_role(key: RoleKey, members: list[FunctionSource], other_ba
     return any(_bare_name(member) in other_bare_names for member in members)
 
 
+def key_functions_by_role(
+    target_src_dirs: Mapping[str, Path],
+    tokens_by_label: Mapping[str, frozenset[str]],
+) -> dict[RoleKey, list[FunctionSource]]:
+    """Collect every target package's functions and key each into its role
+    (the two-key ladder of ``_role_key_for``) -- every role, including those
+    with a single member package.
+
+    Args:
+        target_src_dirs: ``{label: src_dir}`` for every package to compare.
+        tokens_by_label: ``{label: token vocabulary}`` for every label in
+            *target_src_dirs*.
+
+    Returns:
+        ``{role key: members}``, every qualifying and non-qualifying role
+        alike -- the caller decides what "qualifying" means.
+
+    Raises:
+        SkeletonError: An unparseable file or an unclassifiable annotation.
+    """
+    by_role: dict[RoleKey, list[FunctionSource]] = {}
+    for label, src_dir in target_src_dirs.items():
+        package_tokens = tokens_by_label[label]
+        for fn in collect_function_sources(src_dir, label):
+            by_role.setdefault(_role_key_for(fn, package_tokens), []).append(fn)
+    return by_role
+
+
+def classify_keyed_roles(
+    by_role: Mapping[RoleKey, list[FunctionSource]], other_src_dirs: list[Path]
+) -> list[RoleVerdict]:
+    """The rest of today's ``group_and_classify_roles``: keep roles with
+    >= 2 distinct packages, apply the other-package name exclusion, classify.
+
+    Args:
+        by_role: Every role's members, from ``key_functions_by_role``.
+        other_src_dirs: Every OTHER package's src dir -- a ``NameRole`` any
+            of whose member names is also bare-defined here is excluded.
+
+    Returns:
+        One ``RoleVerdict`` per qualifying role, ``domain=None``, sorted by
+        role label.
+
+    Raises:
+        SkeletonError: Propagates from an unparseable or unclassifiable
+            member.
+    """
+    other_bare_names = frozenset().union(*(collect_bare_names(src_dir) for src_dir in other_src_dirs))
+
+    verdicts: list[RoleVerdict] = []
+    for key, members in by_role.items():
+        if _distinct_packages(members) < _MIN_PACKAGES_FOR_COMPARISON:
+            continue
+        if _is_excluded_name_role(key, members, other_bare_names):
+            continue
+        members_tuple = tuple(members)
+        verdicts.append(
+            RoleVerdict(
+                role_key=key,
+                kind="signature" if isinstance(key, SignatureRole) else "name",
+                domain=None,
+                verdict=_classify_role(members_tuple),
+                members=members_tuple,
+                adapter_exempt=all(is_pre_binding_adapter(member) for member in members_tuple),
+                rendering_leaf_exempt=all(is_rendering_leaf(member) for member in members_tuple),
+            )
+        )
+    return sorted(verdicts, key=lambda verdict: role_label(verdict.role_key))
+
+
 def group_and_classify_roles(
     target_src_dirs: dict[str, Path],
     tokens_by_label: dict[str, frozenset[str]],
@@ -1107,40 +1206,48 @@ def group_and_classify_roles(
         SkeletonError: Propagates from an unparseable or unclassifiable
             member.
     """
-    other_bare_names = frozenset().union(*(collect_bare_names(src_dir) for src_dir in other_src_dirs))
+    return classify_keyed_roles(key_functions_by_role(target_src_dirs, tokens_by_label), other_src_dirs)
 
-    by_role: dict[RoleKey, list[FunctionSource]] = {}
-    for label, src_dir in target_src_dirs.items():
-        package_tokens = tokens_by_label[label]
-        for fn in collect_function_sources(src_dir, label):
-            by_role.setdefault(_role_key_for(fn, package_tokens), []).append(fn)
 
-    verdicts: list[RoleVerdict] = []
-    for key, members in by_role.items():
-        if _distinct_packages(members) < _MIN_PACKAGES_FOR_COMPARISON:
-            continue
-        if _is_excluded_name_role(key, members, other_bare_names):
-            continue
-        members_tuple = tuple(members)
-        verdicts.append(
-            RoleVerdict(
-                role_key=key,
-                kind="signature" if isinstance(key, SignatureRole) else "name",
-                domain=None,
-                verdict=_classify_role(members_tuple),
-                members=members_tuple,
-                adapter_exempt=all(is_pre_binding_adapter(member) for member in members_tuple),
-                rendering_leaf_exempt=all(is_rendering_leaf(member) for member in members_tuple),
-            )
-        )
-    return sorted(verdicts, key=lambda verdict: role_label(verdict.role_key))
+@dataclass(frozen=True)
+class RoleScan:
+    """One scan's classified roles plus the keyed map they were built from --
+    the fingerprint pass reads the roles no multi-package verdict covers."""
+
+    verdicts: list[RoleVerdict]
+    by_role: Mapping[RoleKey, tuple[FunctionSource, ...]]
+
+
+def discover_role_scan(axis: str, target_src_dirs: Mapping[str, Path], workspace_root: Path) -> RoleScan:
+    """``discover_roles_for`` returning the keyed map too: refuse a vacuous
+    comparison, collect every other package's bare names, build each label's
+    token vocabulary via the live registry, key every function into its
+    role, and classify.
+
+    Args:
+        axis: ``AXIS_LANGUAGES`` or ``AXIS_PLATFORMS``.
+        target_src_dirs: ``{label: src_dir}`` from
+            ``discover_target_package_src_dirs``.
+        workspace_root: The monorepo root.
+
+    Returns:
+        The classified roles and the keyed map they were built from.
+
+    Raises:
+        ValueError: Fewer than two distinct packages are being compared.
+        SkeletonError: An unparseable or unclassifiable member.
+    """
+    _require_min_packages(axis, frozenset(target_src_dirs))
+    other_src_dirs = discover_all_other_package_src_dirs(workspace_root, frozenset(target_src_dirs.values()))
+    tokens_by_label = {label: tokens_for(axis, label) for label in target_src_dirs}
+    by_role = key_functions_by_role(dict(target_src_dirs), tokens_by_label)
+    verdicts = classify_keyed_roles(by_role, other_src_dirs)
+    return RoleScan(verdicts=verdicts, by_role={key: tuple(members) for key, members in by_role.items()})
 
 
 def discover_roles_for(axis: str, target_src_dirs: Mapping[str, Path], workspace_root: Path) -> list[RoleVerdict]:
-    """Scan the already-resolved *target_src_dirs* on *axis*: refuse a
-    vacuous comparison, collect every other package's bare names, build each
-    label's token vocabulary via the live registry, and delegate to
-    ``group_and_classify_roles``.
+    """Scan the already-resolved *target_src_dirs* on *axis* and return only
+    the classified roles -- ``discover_role_scan(...).verdicts``.
 
     Args:
         axis: ``AXIS_LANGUAGES`` or ``AXIS_PLATFORMS``.
@@ -1155,10 +1262,7 @@ def discover_roles_for(axis: str, target_src_dirs: Mapping[str, Path], workspace
         ValueError: Fewer than two distinct packages are being compared.
         SkeletonError: An unparseable or unclassifiable member.
     """
-    _require_min_packages(axis, frozenset(target_src_dirs))
-    other_src_dirs = discover_all_other_package_src_dirs(workspace_root, frozenset(target_src_dirs.values()))
-    tokens_by_label = {label: tokens_for(axis, label) for label in target_src_dirs}
-    return group_and_classify_roles(dict(target_src_dirs), tokens_by_label, other_src_dirs)
+    return discover_role_scan(axis, target_src_dirs, workspace_root).verdicts
 
 
 def discover_roles(axis: str, target_names: frozenset[str], workspace_root: Path) -> list[RoleVerdict]:
@@ -1258,6 +1362,196 @@ def render_report(verdicts: Sequence[RoleVerdict], workspace_root: Path, *, debu
         else:
             logger.debug(line)
     _log_bucket_counts(verdicts)
+
+
+# ---------------------------------------------------------------------------
+# Fingerprint pass (report-only)
+# ---------------------------------------------------------------------------
+
+#: A skeleton shorter than this carries too little behaviour to identify a job
+#: across languages: six lines is one guarded raise inside one loop plus a
+#: return -- anything smaller (a single if/return, a lone loop) recurs across
+#: unrelated jobs in every package and would bury the report in coincidences.
+FINGERPRINT_MIN_SKELETON_LINES: Final[int] = 6
+
+FingerprintMatch = Literal["match", "near-match"]
+_FINGERPRINT_MATCH: Final[FingerprintMatch] = "match"
+_FINGERPRINT_NEAR_MATCH: Final[FingerprintMatch] = "near-match"
+
+
+@dataclass(frozen=True)
+class BehaviourFingerprint:
+    """What makes two uncovered functions candidates for one job: the same
+    control shape reading the same model attributes."""
+
+    shape: tuple[str, ...]
+    model_attributes: frozenset[str]
+
+
+@dataclass(frozen=True)
+class FingerprintGroup:
+    fingerprint: BehaviourFingerprint
+    members: tuple[FunctionSource, ...]
+    verdict: Verdict  # _classify_role(members) -- the existing verdict rules
+    match: FingerprintMatch  # "match": every member's skeleton string equal; else "near-match"
+
+
+def uncovered_functions(by_role: Mapping[RoleKey, Sequence[FunctionSource]]) -> list[FunctionSource]:
+    """Members of every role with fewer than ``_MIN_PACKAGES_FOR_COMPARISON``
+    distinct packages -- the functions no name/signature role compares.
+
+    A role with >= 2 packages counts as covered even if the other-package
+    name exclusion later drops it: that exclusion is a deliberate decision
+    about the role, and the pass must not re-open it under another key.
+
+    Args:
+        by_role: Every role's members, from ``key_functions_by_role`` (via
+            ``RoleScan.by_role``).
+
+    Returns:
+        Every member of an under-covered role, in role-then-source order.
+    """
+    functions: list[FunctionSource] = []
+    for members in by_role.values():
+        if len({member.package for member in members}) < _MIN_PACKAGES_FOR_COMPARISON:
+            functions.extend(members)
+    return functions
+
+
+def _fingerprint_from_skeleton(fn: FunctionSource, skeleton: str) -> BehaviourFingerprint | None:
+    """``fingerprint_of``'s classification given *fn*'s already-extracted
+    *skeleton* -- shared so ``fingerprint_groups`` never extracts a member's
+    skeleton twice."""
+    if is_pre_binding_adapter(fn) or is_rendering_leaf(fn):
+        return None
+    if len(skeleton.splitlines()) < FINGERPRINT_MIN_SKELETON_LINES:
+        return None
+    attributes = model_attribute_names(fn)
+    if not attributes:
+        return None
+    return BehaviourFingerprint(shape=skeleton_shape(skeleton), model_attributes=attributes)
+
+
+def fingerprint_of(fn: FunctionSource) -> BehaviourFingerprint | None:
+    """``None`` when *fn* is not a fingerprint candidate: a pre-binding
+    adapter, a rendering leaf, a skeleton under
+    ``FINGERPRINT_MIN_SKELETON_LINES`` lines, or no model attribute read.
+
+    Args:
+        fn: The candidate function.
+
+    Returns:
+        The fingerprint, or ``None``.
+
+    Raises:
+        SkeletonError: Propagated unmodified (fail closed, naming the member).
+    """
+    return _fingerprint_from_skeleton(fn, behaviour_skeleton(fn))
+
+
+def _fingerprint_cache_key(fn: FunctionSource) -> tuple[Path, int, str]:
+    """``FunctionSource`` is a frozen dataclass but holds an AST node and a
+    dict, so the skeleton cache is keyed on this instead of the instance."""
+    return (fn.file_path, fn.line_number, fn.qualified_name)
+
+
+def fingerprint_groups(functions: Sequence[FunctionSource]) -> list[FingerprintGroup]:
+    """Bucket *functions* by ``fingerprint_of``; keep buckets whose members
+    span >= ``_MIN_PACKAGES_FOR_COMPARISON`` distinct packages; classify
+    each with ``_classify_role``. Sorted by (verdict, match, first member
+    reference) so the report is stable.
+
+    Args:
+        functions: Candidate functions, typically ``uncovered_functions``'s
+            result.
+
+    Returns:
+        Every qualifying group.
+
+    Raises:
+        SkeletonError: Propagates from an unparseable or unclassifiable
+            member -- never caught here (fail closed).
+    """
+    skeleton_cache: dict[tuple[Path, int, str], str] = {}
+
+    def _skeleton(fn: FunctionSource) -> str:
+        key = _fingerprint_cache_key(fn)
+        cached = skeleton_cache.get(key)
+        if cached is None:
+            cached = behaviour_skeleton(fn)
+            skeleton_cache[key] = cached
+        return cached
+
+    buckets: dict[BehaviourFingerprint, list[FunctionSource]] = {}
+    for fn in functions:
+        fingerprint = _fingerprint_from_skeleton(fn, _skeleton(fn))
+        if fingerprint is not None:
+            buckets.setdefault(fingerprint, []).append(fn)
+
+    groups: list[FingerprintGroup] = []
+    for fingerprint, members in buckets.items():
+        if len({member.package for member in members}) < _MIN_PACKAGES_FOR_COMPARISON:
+            continue
+        members_tuple = tuple(members)
+        distinct_skeletons = {_skeleton(member) for member in members_tuple}
+        match: FingerprintMatch = _FINGERPRINT_MATCH if len(distinct_skeletons) == 1 else _FINGERPRINT_NEAR_MATCH
+        groups.append(
+            FingerprintGroup(
+                fingerprint=fingerprint,
+                members=members_tuple,
+                verdict=_classify_role(members_tuple),
+                match=match,
+            )
+        )
+    return sorted(
+        groups, key=lambda group: (group.verdict, group.match, member_reference(group.members[0], WORKSPACE_ROOT))
+    )
+
+
+def fingerprint_line(group: FingerprintGroup, workspace_root: Path) -> str:
+    """``FINGERPRINT verdict=<v> match=<match|near-match> lines=<n>
+    packages=[a, b] attributes=[...] members=[<member_reference>, ...]``."""
+    packages = sorted({member.package for member in group.members})
+    attributes = sorted(group.fingerprint.model_attributes)
+    members = ", ".join(member_reference(member, workspace_root) for member in group.members)
+    return (
+        f"FINGERPRINT verdict={group.verdict} match={group.match} lines={len(group.fingerprint.shape)} "
+        f"packages={packages} attributes={attributes} members=[{members}]"
+    )
+
+
+def render_fingerprint_report(
+    groups: Sequence[FingerprintGroup], uncovered_count: int, workspace_root: Path
+) -> None:
+    """Log one INFO line per group (never ERROR -- the pass is report-only)
+    and the summary:
+    ``BEHAVIOUR-PARITY FINGERPRINT (report-only): <g> group(s) -- <m> match,
+    <n> near-match; <d> divergent; <u> uncovered function(s) fingerprinted;
+    min skeleton lines=<FINGERPRINT_MIN_SKELETON_LINES>``.
+
+    Args:
+        groups: Every fingerprint group (``fingerprint_groups``'s result).
+        uncovered_count: The count of functions fed into the pass, for the
+            summary line.
+        workspace_root: Root that member paths are displayed relative to.
+    """
+    for group in groups:
+        logger.info(fingerprint_line(group, workspace_root))
+    verdict_counts = Counter(group.verdict for group in groups)
+    match_counts = Counter(group.match for group in groups)
+    logger.info(
+        "BEHAVIOUR-PARITY FINGERPRINT (report-only): %d group(s) -- %d %s, %d %s; %d %s; "
+        "%d uncovered function(s) fingerprinted; min skeleton lines=%d",
+        len(groups),
+        match_counts[_FINGERPRINT_MATCH],
+        _FINGERPRINT_MATCH,
+        match_counts[_FINGERPRINT_NEAR_MATCH],
+        _FINGERPRINT_NEAR_MATCH,
+        verdict_counts[_VERDICT_DIVERGENT],
+        _VERDICT_DIVERGENT,
+        uncovered_count,
+        FINGERPRINT_MIN_SKELETON_LINES,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2366,14 +2660,18 @@ def _adapter_member(package: str) -> FunctionSource:
 
 class _RecordingHandler(logging.Handler):
     """Collects the formatted messages the gate report logs, so a case can
-    assert a failure line names its role."""
+    assert a failure line names its role. ``levels`` parallels ``messages``
+    one entry per record, so a case can also prove nothing was logged at or
+    above a given severity (the fingerprint pass's report-only claim)."""
 
     def __init__(self) -> None:
         super().__init__(level=logging.DEBUG)
         self.messages: list[str] = []
+        self.levels: list[int] = []
 
     def emit(self, record: logging.LogRecord) -> None:
         self.messages.append(record.getMessage())
+        self.levels.append(record.levelno)
 
 
 def _recorded_gate_lines(evaluations: Sequence[RoleEvaluation], scope: GateScope) -> list[str]:
@@ -3467,6 +3765,209 @@ def _forget_self_test_package() -> None:
         del sys.modules[name]
 
 
+# ---------------------------------------------------------------------------
+# Fingerprint pass self-test fixtures (fp1-fp5)
+# ---------------------------------------------------------------------------
+
+_FINGERPRINT_ALPHA_SOURCE: Final[str] = (
+    "def resolve_widget_limits(entity):\n"
+    "    for field in entity.fields:\n"
+    "        if field.required:\n"
+    "            raise ValueError(field.name)\n"
+    "    if entity.limits:\n"
+    "        return entity.limits.maximum\n"
+    "    return None\n"
+)
+# Renamed function, renamed parameter/local, different message -- same job.
+_FINGERPRINT_BETA_RENAMED_SOURCE: Final[str] = (
+    "def compute_caps(ent):\n"
+    "    for f in ent.fields:\n"
+    "        if f.required:\n"
+    "            raise KeyError('missing ' + f.name)\n"
+    "    if ent.limits:\n"
+    "        return ent.limits.maximum\n"
+    "    return None\n"
+)
+# Same control shape and attributes, inverted predicate -- a near match that diverges.
+_FINGERPRINT_BETA_NEAR_SOURCE: Final[str] = _FINGERPRINT_BETA_RENAMED_SOURCE.replace(
+    "if f.required", "if not f.required"
+)
+# Under FINGERPRINT_MIN_SKELETON_LINES (4 lines): fails only the size gate.
+_FINGERPRINT_UNDERSIZE_ALPHA_SOURCE: Final[str] = (
+    "def resolve_widget_limits(entity):\n"
+    "    if entity.limits:\n"
+    "        return entity.limits.maximum\n"
+    "    return None\n"
+)
+_FINGERPRINT_UNDERSIZE_BETA_SOURCE: Final[str] = (
+    "def compute_caps(ent):\n"
+    "    if ent.limits:\n"
+    "        return ent.limits.maximum\n"
+    "    return None\n"
+)
+# Plenty of skeleton lines, but every model read is self-rooted: fails only the
+# no-model-attribute gate.
+_FINGERPRINT_NO_MODEL_ALPHA_SOURCE: Final[str] = (
+    "def resolve_widget_limits(self, values):\n"
+    "    total = 0\n"
+    "    for value in values:\n"
+    "        if self.cache.enabled:\n"
+    "            total += value\n"
+    "        else:\n"
+    "            total -= value\n"
+    "    if self.cache.limit and total > self.cache.limit:\n"
+    "        raise ValueError('too big')\n"
+    "    return total\n"
+)
+_FINGERPRINT_NO_MODEL_BETA_SOURCE: Final[str] = (
+    "def compute_caps(self, amounts):\n"
+    "    sum_ = 0\n"
+    "    for amount in amounts:\n"
+    "        if self.cache.enabled:\n"
+    "            sum_ += amount\n"
+    "        else:\n"
+    "            sum_ -= amount\n"
+    "    if self.cache.limit and sum_ > self.cache.limit:\n"
+    "        raise ValueError('too big')\n"
+    "    return sum_\n"
+)
+
+
+def _self_test_case_fingerprint_renamed_pair_reported() -> bool:
+    """(fp1) NON-VACUITY: a cross-language pair no name/signature role groups
+    (different names, no shared product) is reported as exactly one
+    FINGERPRINT group spanning both packages, match="match", verdict not
+    divergent -- and its rendered line names both members."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-fp1-") as tmp:
+        root = Path(tmp)
+        _write_module(root / _SELF_TEST_ALPHA, _FINGERPRINT_ALPHA_SOURCE)
+        _write_module(root / _SELF_TEST_BETA, _FINGERPRINT_BETA_RENAMED_SOURCE)
+        labels = (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
+        by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+        uncovered = uncovered_functions(by_role)
+        groups = fingerprint_groups(uncovered)
+        if len(groups) != 1:
+            return False
+        group = groups[0]
+        members_named = {member.qualified_name for member in group.members} == {
+            "resolve_widget_limits",
+            "compute_caps",
+        }
+        big_enough = len(behaviour_skeleton(group.members[0]).splitlines()) >= FINGERPRINT_MIN_SKELETON_LINES
+        line = fingerprint_line(group, root)
+        return (
+            members_named
+            and big_enough
+            and group.match == _FINGERPRINT_MATCH
+            and group.verdict != _VERDICT_DIVERGENT
+            and "resolve_widget_limits" in line
+            and "compute_caps" in line
+        )
+
+
+def _self_test_case_fingerprint_near_match_divergent() -> bool:
+    """(fp2) The inverted-predicate variant lands in one group with
+    match="near-match" and verdict="divergent"."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-fp2-") as tmp:
+        root = Path(tmp)
+        _write_module(root / _SELF_TEST_ALPHA, _FINGERPRINT_ALPHA_SOURCE)
+        _write_module(root / _SELF_TEST_BETA, _FINGERPRINT_BETA_NEAR_SOURCE)
+        labels = (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
+        by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+        groups = fingerprint_groups(uncovered_functions(by_role))
+        if len(groups) != 1:
+            return False
+        group = groups[0]
+        return group.match == _FINGERPRINT_NEAR_MATCH and group.verdict == _VERDICT_DIVERGENT
+
+
+def _self_test_case_fingerprint_covered_pair_absent() -> bool:
+    """(fp3) The same body under the SAME name in both packages forms a name
+    role (covered) and produces no fingerprint group."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-fp3-") as tmp:
+        root = Path(tmp)
+        _write_module(root / _SELF_TEST_ALPHA, _FINGERPRINT_ALPHA_SOURCE)
+        _write_module(root / _SELF_TEST_BETA, _FINGERPRINT_ALPHA_SOURCE)
+        labels = (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
+        by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+        uncovered = uncovered_functions(by_role)
+        not_reopened = all(fn.qualified_name != "resolve_widget_limits" for fn in uncovered)
+        return not_reopened and fingerprint_groups(uncovered) == []
+
+
+def _self_test_case_fingerprint_thresholds() -> bool:
+    """(fp4) A renamed pair whose skeleton is under
+    FINGERPRINT_MIN_SKELETON_LINES, a renamed pair that reads no model
+    attribute (self-only state), and two renamed copies inside ONE package
+    each produce no group."""
+    ok = True
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-fp4a-") as tmp:
+        root = Path(tmp)
+        _write_module(root / _SELF_TEST_ALPHA, _FINGERPRINT_UNDERSIZE_ALPHA_SOURCE)
+        _write_module(root / _SELF_TEST_BETA, _FINGERPRINT_UNDERSIZE_BETA_SOURCE)
+        labels = (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
+        by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+        ok = ok and fingerprint_groups(uncovered_functions(by_role)) == []
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-fp4b-") as tmp:
+        root = Path(tmp)
+        _write_module(root / _SELF_TEST_ALPHA, _FINGERPRINT_NO_MODEL_ALPHA_SOURCE)
+        _write_module(root / _SELF_TEST_BETA, _FINGERPRINT_NO_MODEL_BETA_SOURCE)
+        labels = (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
+        by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+        ok = ok and fingerprint_groups(uncovered_functions(by_role)) == []
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-fp4c-") as tmp:
+        root = Path(tmp)
+        _write_module(root / _SELF_TEST_ALPHA, f"{_FINGERPRINT_ALPHA_SOURCE}\n\n{_FINGERPRINT_BETA_RENAMED_SOURCE}")
+        labels = (_SELF_TEST_ALPHA,)
+        by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+        uncovered = uncovered_functions(by_role)
+        ok = ok and len(uncovered) == 2 and fingerprint_groups(uncovered) == []
+    return ok
+
+
+def _self_test_case_fingerprint_report_only() -> bool:
+    """(fp5) render_fingerprint_report over the fp1+fp2 groups logs every
+    line below ERROR, one line per group, and a summary naming the group
+    count and FINGERPRINT_MIN_SKELETON_LINES -- captured with
+    _RecordingHandler, nothing reaching the real handlers."""
+    groups: list[FingerprintGroup] = []
+    uncovered_total = 0
+    for beta_source in (_FINGERPRINT_BETA_RENAMED_SOURCE, _FINGERPRINT_BETA_NEAR_SOURCE):
+        with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-fp5-") as tmp:
+            root = Path(tmp)
+            _write_module(root / _SELF_TEST_ALPHA, _FINGERPRINT_ALPHA_SOURCE)
+            _write_module(root / _SELF_TEST_BETA, beta_source)
+            labels = (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
+            by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+            uncovered = uncovered_functions(by_role)
+            uncovered_total += len(uncovered)
+            scan_groups = fingerprint_groups(uncovered)
+            if len(scan_groups) != 1:
+                return False
+            groups.extend(scan_groups)
+    handler = _RecordingHandler()
+    previous_level, previous_propagate = logger.level, logger.propagate
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+    try:
+        render_fingerprint_report(groups, uncovered_total, _SELF_TEST_TREE)
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
+        logger.propagate = previous_propagate
+    below_error = bool(handler.levels) and all(level < logging.ERROR for level in handler.levels)
+    line_count_ok = len(handler.messages) == len(groups) + 1
+    summary = handler.messages[-1] if handler.messages else ""
+    summary_ok = (
+        "BEHAVIOUR-PARITY FINGERPRINT (report-only)" in summary
+        and f"{len(groups)} group" in summary
+        and f"{uncovered_total} uncovered" in summary
+        and f"min skeleton lines={FINGERPRINT_MIN_SKELETON_LINES}" in summary
+    )
+    return below_error and line_count_ok and summary_ok
+
+
 def run_self_test() -> bool:
     """Prove the gate's non-vacuity: each synthetic role lands in exactly its
     bucket, the refusal path refuses, a broken member fails closed, every
@@ -3624,6 +4125,29 @@ def run_self_test() -> bool:
         "(z5) discover_client_target_generator_src_dirs resolves a planted fixture to its on-disk src/ "
         "directory, and raises naming the unresolved name and the discovered roots when it cannot",
     )
+    ok &= _assert(
+        _self_test_case_fingerprint_renamed_pair_reported(),
+        "(fp1) NON-VACUITY: a renamed cross-language pair no name/signature role covers is reported as one "
+        "FINGERPRINT group naming both members",
+    )
+    ok &= _assert(
+        _self_test_case_fingerprint_near_match_divergent(),
+        "(fp2) an inverted-predicate variant lands in the same group as near-match/divergent",
+    )
+    ok &= _assert(
+        _self_test_case_fingerprint_covered_pair_absent(),
+        "(fp3) a pair sharing one name (covered by a name role) produces no fingerprint group",
+    )
+    ok &= _assert(
+        _self_test_case_fingerprint_thresholds(),
+        "(fp4) an under-size pair, a no-model-attribute pair, and two renamed copies in one package each "
+        "produce no fingerprint group",
+    )
+    ok &= _assert(
+        _self_test_case_fingerprint_report_only(),
+        "(fp5) render_fingerprint_report logs every line below ERROR, one per group plus a summary naming "
+        "the group count and FINGERPRINT_MIN_SKELETON_LINES",
+    )
     return ok
 
 
@@ -3662,6 +4186,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--report-only", action="store_true", help="Render the classification report only; exit 0 regardless."
     )
     parser.add_argument("--debug", action="store_true", help="Log every role, not just failing/divergent ones.")
+    parser.add_argument(
+        "--fingerprint",
+        action="store_true",
+        help=(
+            "Also run the report-only skeleton-fingerprint grouping pass over functions no name/signature "
+            "role covers; never affects the exit code."
+        ),
+    )
     return parser
 
 
@@ -3700,7 +4232,10 @@ def _run_scan(args: argparse.Namespace) -> int:
         }
     if not axis_gates(axis, report_only=args.report_only):
         _refuse_gate_options_when_not_gating(args)
-        render_report(discover_roles_for(axis, target_src_dirs, WORKSPACE_ROOT), WORKSPACE_ROOT, debug=args.debug)
+        scan = discover_role_scan(axis, target_src_dirs, WORKSPACE_ROOT)
+        render_report(scan.verdicts, WORKSPACE_ROOT, debug=args.debug)
+        if args.fingerprint:
+            _run_fingerprint_pass(scan, WORKSPACE_ROOT)
         return EXIT_OK
     scope = load_scope(
         parse_scope_argument(args.scope),
@@ -3709,11 +4244,20 @@ def _run_scan(args: argparse.Namespace) -> int:
         BEHAVIOUR_PARITY_SCOPE_PATH,
     )
     logger.info("behaviour-parity gate: packages=%s scope=%s", sorted(target_src_dirs), _scope_text(scope))
-    verdicts = discover_roles_for(axis, target_src_dirs, WORKSPACE_ROOT)
+    scan = discover_role_scan(axis, target_src_dirs, WORKSPACE_ROOT)
     surfaces = live_exemption_surfaces(target_src_dirs, BUILTIN_REGISTRY)
-    evaluations = evaluate_roles(verdicts, scope=scope, surfaces=surfaces)
+    evaluations = evaluate_roles(scan.verdicts, scope=scope, surfaces=surfaces)
     render_gate_report(evaluations, WORKSPACE_ROOT, scope=scope, debug=args.debug)
+    if args.fingerprint:
+        _run_fingerprint_pass(scan, WORKSPACE_ROOT)
     return gate_exit_code(evaluations)
+
+
+def _run_fingerprint_pass(scan: RoleScan, workspace_root: Path) -> None:
+    """The report-only fingerprint pass over *scan*'s uncovered roles --
+    never called on the exit-code path; its result is logged only."""
+    uncovered = uncovered_functions(scan.by_role)
+    render_fingerprint_report(fingerprint_groups(uncovered), len(uncovered), workspace_root)
 
 
 def main(argv: list[str] | None = None) -> int:
