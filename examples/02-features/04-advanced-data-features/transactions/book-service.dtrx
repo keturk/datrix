@@ -827,7 +827,8 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     }
 
     // GraphQL API block - defines a GraphQL schema alongside the REST API
-    graphql_api BookGraphQL : basePath("/graphql"), rdbms(catalog) {
+    // The subscriptions below authenticate their connection as a signed-in member.
+    graphql_api BookGraphQL : basePath("/graphql"), rdbms(catalog), auth(required, providers: [member]) {
 
         // 'type' defines a GraphQL object type for query responses
         type BookType {

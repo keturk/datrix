@@ -65,7 +65,9 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     }
 
     // GraphQL API with types, queries, mutations, subscriptions, and dataLoaders
-    graphql_api BookGraphQL : basePath("/graphql"), rdbms(bookDb) {
+    // This example declares no identity block, so its subscriptions are declared
+    // public explicitly: every graphql_api with a subscription names its contract.
+    graphql_api BookGraphQL : basePath("/graphql"), rdbms(bookDb), auth(public) {
 
         // 'type' defines GraphQL object types for responses
         type BookType {

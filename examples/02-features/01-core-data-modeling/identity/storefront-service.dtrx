@@ -10,6 +10,14 @@
 //   - auth(service, providers: [platformMachine], roles: [orderWriter]) — machine
 //   - auth(required, providers: [customer, workforce])    — multi-provider surface
 //   - verify(signature, ...)                              — inbound webhook surface
+//
+// It also hosts the two connection-scoped surfaces, which authenticate through
+// the same identity providers:
+//   - websocket_api StorefrontEvents — a real-time order channel whose handshake
+//     requires a signed-in premium customer, with one message that re-checks a
+//     stricter contract on every message
+//   - graphql_api StorefrontGraphQL — an order subscription whose connection is
+//     authenticated with auth(required, providers: [customer])
 service shop.StorefrontService('config/storefront-service.dcfg')
     : version('1.0.0'), description('storefront with first-class identity') {
 
@@ -50,6 +58,12 @@ service shop.StorefrontService('config/storefront-service.dcfg')
         String eventType;
         String reference;
     }
+
+    // Inbound payload of the real-time order channel.
+    struct WatchOrderRequest { UUID orderId; }
+
+    // Outbound payload of the real-time order channel.
+    struct OrderStatusView { UUID orderId; OrderStatus status; }
 
     rdbms storeDb {
 
@@ -146,6 +160,42 @@ service shop.StorefrontService('config/storefront-service.dcfg')
             : auth(webhook),
               verify(signature, provider: stripe, secretRef: payment_webhook_secret)
             -> Void {
+        }
+    }
+
+    // Real-time order channel. Handshake: signed-in customer holding premiumCustomer.
+    websocket_api StorefrontEvents : basePath("/ws/storefront"), rdbms(storeDb),
+        auth(required, providers: [customer], roles: [premiumCustomer]) {
+
+        // Outbound: server -> client.
+        event OrderStatusChanged(OrderStatusView payload);
+        event CancelAccepted(OrderStatusView payload);
+
+        // Inbound: client -> server. Inherits the handshake contract.
+        on WatchOrder(WatchOrderRequest payload) replies OrderStatusChanged {
+            let storeDb.Order order = storeDb.Order.findById(payload.orderId);
+            return OrderStatusView { orderId: order.id, status: order.status };
+        }
+
+        // Inbound with a stricter per-message contract (checked on every message).
+        on CancelOrder(WatchOrderRequest payload)
+            : auth(required, providers: [customer], roles: [premiumCustomer])
+            replies CancelAccepted {
+            return OrderStatusView { orderId: payload.orderId, status: OrderStatus.Cancelled };
+        }
+    }
+
+    // GraphQL surface whose subscription authenticates a signed-in customer.
+    graphql_api StorefrontGraphQL : basePath("/graphql"), rdbms(storeDb), auth(required, providers: [customer]) {
+        type OrderType {
+            UUID id;
+            String reference;
+        }
+
+        // Pushes the watched order to the subscribed customer.
+        subscription onOrderUpdated(UUID orderId) -> OrderType {
+            let storeDb.Order order = storeDb.Order.findById(orderId);
+            return order;
         }
     }
 }
