@@ -1,16 +1,22 @@
 #!/usr/bin/env python
-"""Generate per-repo Datrix commit messages and commit+push every dirty repo.
+"""Commit every dirty Datrix repo as themed change sets, then push each repo once.
 
-Commit messages come from one of two backends:
+WHY THEMED SETS RATHER THAN ONE COMMIT PER REPO
+    History is read to answer "when did this behavior change?" and "which commit broke
+    it?". Sweeping an unrelated fix into a large feature commit hides it, and a message
+    covering a dozen unrelated changes cannot fit a short subject. Each repo's dirty
+    paths are split by area (see ``theme_of``) -- a generator and its tests share one
+    commit, an unrelated docs edit gets another -- capped by ``--max-commits-per-repo``.
 
-* **Ollama** (preferred) -- a local model reached over HTTP. Used when the Ollama
-  endpoint is reachable.
-* **Claude Code CLI** -- the ``claude`` command. Used as the fallback when Ollama
-  is not reachable (or when ``--message-source claude`` is forced).
+MESSAGE SOURCE
+    * **Local hosts** (preferred) -- models on the local network, each host speaking
+      Ollama's API or the OpenAI-compatible API (vLLM) and running its own model. They
+      are tried in order; the first that answers and serves its model generates the
+      messages, and a host that fails hands over to the next.
+    * **Claude Code CLI** -- the ``claude`` command, run as a pure text call with no
+      tools. Used when no local host is usable (or ``--message-source claude``).
 
-The chosen backend produces one commit message per repository that has
-uncommitted changes; the script then stages, commits, and pushes each of those
-repositories directly. No intermediate ``commit-messages.json`` file is written.
+No intermediate ``commit-messages.json`` file is written.
 """
 
 from __future__ import annotations
@@ -86,12 +92,152 @@ GIT_USER_NAME = "Kamil Ercan Turkarslan"
 # commit yet. See diff_base().
 EMPTY_TREE_OBJECT = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
+# The HTTP APIs a local model host can speak. "ollama" is Ollama's native API, which can
+# list and load models. "openai" is the OpenAI-compatible chat API that vLLM (and most
+# other inference servers) expose; such a server has its model loaded already.
+LOCAL_API_OLLAMA = "ollama"
+LOCAL_API_OPENAI = "openai"
+LOCAL_APIS = (LOCAL_API_OLLAMA, LOCAL_API_OPENAI)
+
+# Separators in a --local-host spec: API:URL=MODEL.
+LOCAL_HOST_API_SEPARATOR = ":"
+LOCAL_HOST_MODEL_SEPARATOR = "="
+
+# Local model hosts, in preference order. Auto mode uses the first one that answers and
+# serves its model, fails over down the list, and only then falls back to the Claude
+# Code CLI. Each host names its own API and model because the machines differ.
+#
+# The GX10 is served through vLLM, not Ollama: a vLLM container on it already holds
+# Nemotron-3-Super resident with --gpu-memory-utilization 0.85 of its unified memory, so
+# an Ollama load there has nowhere to go -- it drove the box into the kernel OOM killer.
+DEFAULT_LOCAL_HOSTS = (
+    "ollama:http://10.94.0.100:11434=qwen3-coder:30b-ctx32k",  # Dell T5820, RTX 3090
+    "ollama:http://10.94.0.101:11434=qwen3-coder:30b-ctx32k",  # Dell T7920, RTX 3090
+    "openai:http://10.94.0.102:8000=nvidia/nemotron-3-super",  # ASUS GX10, vLLM
+)
+
+# Ollama resolves an untagged model name to this tag.
+OLLAMA_DEFAULT_TAG = "latest"
+
+# Ollama capability that means the model reasons before answering. Such a model is
+# asked not to (think=false): a commit message needs no visible reasoning, and a
+# thinking pass multiplies generate time. Sending think=false to a model WITHOUT this
+# capability is an error in Ollama, so it is sent only when the capability is listed.
+OLLAMA_THINKING_CAPABILITY = "thinking"
+
+# How long Ollama keeps a model loaded after a request. A run makes one request per
+# change set, possibly minutes apart while git runs, and a cold reload of a 20+ GB
+# model costs minutes on a slow disk -- so the model stays resident for the run.
+OLLAMA_KEEP_ALIVE = "30m"
+
+# Sampling temperature for local models: low, because a commit message should restate
+# the diff, not improvise on it.
+LOCAL_TEMPERATURE = 0.2
+
+MESSAGE_SOURCE_AUTO = "auto"
+MESSAGE_SOURCE_LOCAL = "local"
+MESSAGE_SOURCE_CLAUDE = "claude"
+
+# Hard cap on a commit subject. The model is told the limit up front; an overrun is
+# regenerated once with the actual length shown, which works where restating the rule
+# does not.
+SUBJECT_LIMIT = 72
+
+# Themed change sets. A dirty repo is split into one commit per theme so an unrelated
+# fix is never buried inside a large feature commit, and so each message describes one
+# coherent change and fits a short subject.
+REPO_ROOT_THEME = "repo root"
+OTHER_THEME = "other changes"
+
+# Directories that hold areas rather than being one. They are stepped through to find
+# the theme, so src/<package>/generators/x.py and tests/unit/generators/test_x.py share
+# the "generators" theme and a feature lands in one commit with its tests.
+THEME_CONTAINER_DIRS = frozenset(
+    {"src", "tests", "test", "unit", "unit_core", "integration", "e2e", "scripts", "library", "examples"}
+)
+
+# Directory directly under src/ that is the package itself, not an area (src/<package>/...).
+SRC_DIR = "src"
+
+# Test-file affixes stripped so tests/unit/test_activation.py joins the "activation"
+# theme of src/<package>/activation.py.
+TEST_FILE_PREFIX = "test_"
+TEST_FILE_SUFFIXES = ("_test", ".test", ".spec")
+
+# A change set's git queries name its paths on the command line. Windows caps a command
+# line at ~32K characters, so past this budget the prompt context covers the paths that
+# fit and says how many more there are. Staging and committing read the exact path list
+# from a file, so they are never narrowed.
+MAX_PATHSPEC_CHARS = 20000
+
 # A message-generating backend: (user_prompt, system_prompt) -> raw model text.
 Generator = Callable[[str, str], str]
 
 
 @dataclass(frozen=True)
+class LocalHost:
+    """One local model host: the API it speaks, where it is, and the model it runs."""
+
+    api: str
+    base_url: str
+    model: str
+
+    def label(self) -> str:
+        return f"{self.api} model '{self.model}' at {self.base_url}"
+
+
+@dataclass(frozen=True)
+class ReadyLocalHost:
+    """A host that answered and serves its model."""
+
+    host: LocalHost
+    thinking: bool
+
+
+@dataclass(frozen=True)
+class LocalHostProbe:
+    """Outcome of asking one local host whether it can serve its model."""
+
+    host: LocalHost
+    usable: bool
+    thinking: bool
+    detail: str
+
+
+@dataclass(frozen=True)
+class ChangeEntry:
+    """One dirty path from ``git status``, with every path its commit must include.
+
+    A staged rename reads ``old -> new``: the theme follows the new path, but the old
+    path is committed too so its deletion lands in the same commit. The old path is
+    already gone from disk and index, so it is only ever named to ``git commit`` (HEAD
+    still knows it), never to ``git add`` (which rejects a path matching nothing).
+    """
+
+    path: str
+    stage_paths: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ChangeGroup:
+    """One themed change set: what to describe and exactly what to commit."""
+
+    name: str
+    entries: tuple[ChangeEntry, ...]
+
+    @property
+    def add_paths(self) -> list[str]:
+        return list(dict.fromkeys(entry.path for entry in self.entries))
+
+    @property
+    def stage_paths(self) -> list[str]:
+        return list(dict.fromkeys(p for entry in self.entries for p in entry.stage_paths))
+
+
+@dataclass(frozen=True)
 class DirtyRepo:
+    """Change context for one change set of one repo -- what the model describes."""
+
     name: str
     path: Path
     branch: str
@@ -100,6 +246,9 @@ class DirtyRepo:
     diff_stat: str
     diff_sample: str
     untracked_note: str
+    scope: str
+    scope_files: int
+    omitted_files: int
 
 
 class ScriptError(RuntimeError):
@@ -244,39 +393,160 @@ def build_untracked_note(repo_path: Path, untracked_paths: list[str]) -> str:
     return "\n".join(lines)
 
 
-def collect_dirty_repos(workspace_root: Path, max_diff_chars_per_repo: int) -> list[DirtyRepo]:
-    dirty_repos: list[DirtyRepo] = []
+def find_dirty_repos(workspace_root: Path) -> list[Path]:
+    """Return every Datrix repo with uncommitted changes, reporting the clean ones."""
+    dirty: list[Path] = []
     for repo_path in repo_paths(workspace_root):
-        repo_name = repo_path.name
-        if not (repo_path / ".git").exists():
-            print(f"{repo_name}: not a git repo, skipping")
-            continue
-        porcelain = run_git(repo_path, ["status", "--porcelain"])
-        if not porcelain.strip():
-            print(f"{repo_name}: clean")
-            continue
+        if run_git(repo_path, ["status", "--porcelain"]).strip():
+            dirty.append(repo_path)
+        else:
+            print(f"{repo_path.name}: clean")
+    return dirty
 
-        print(f"{repo_name}: collecting changes")
-        branch = run_git(repo_path, ["branch", "--show-current"], check=False) or "(unknown branch)"
-        base = diff_base(repo_path)
-        diff_stat = run_git(repo_path, ["-c", "core.autocrlf=false", "diff", base, "--stat"])
-        name_status = run_git(repo_path, ["-c", "core.autocrlf=false", "diff", base, "--name-status"])
-        diff_sample = build_diff_sample(repo_path, name_status, max_diff_chars_per_repo, base)
-        untracked_raw = run_git(repo_path, ["ls-files", "--others", "--exclude-standard"])
-        untracked_paths = [line.strip() for line in untracked_raw.splitlines() if line.strip()]
-        dirty_repos.append(
-            DirtyRepo(
-                name=repo_name,
-                path=repo_path,
-                branch=branch.strip(),
-                porcelain=porcelain.rstrip(),
-                name_status=name_status.rstrip(),
-                diff_stat=diff_stat.rstrip(),
-                diff_sample=diff_sample.rstrip(),
-                untracked_note=build_untracked_note(repo_path, untracked_paths),
-            )
+
+def run_git_stdout(repo_path: Path, args: list[str]) -> str:
+    """Return git's stdout byte-for-byte -- for output whose leading whitespace is data.
+
+    ``run_git`` folds stderr in and rstrips, which eats the leading space of the first
+    porcelain line: `` M path`` arrives as ``M path`` and the path loses a character.
+    Anything parsing ``--porcelain`` columns must come through here.
+    """
+    result = subprocess.run(
+        ["git", "-c", f"safe.directory={repo_path.as_posix()}", "-C", str(repo_path), *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        raise ScriptError(
+            f"git {' '.join(args)} failed in {repo_path.name}: {(result.stderr or '').strip()}"
         )
-    return dirty_repos
+    return result.stdout
+
+
+def survey(repo_path: Path) -> list[ChangeEntry]:
+    """Every dirty path in the repo, untracked included, honouring .gitignore.
+
+    This is exactly the set ``git add -A`` would stage, which is what the pre-commit
+    checks were run against, so the union of the change sets commits the same content
+    a single whole-repo commit would have.
+    """
+    output = run_git_stdout(
+        repo_path,
+        ["-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    )
+    # -z: NUL-separated, paths unquoted; a rename/copy record is followed by its source path.
+    records = output.split("\0")
+    entries: list[ChangeEntry] = []
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
+        if not record:
+            continue
+        status, path = record[:2], record[3:]
+        if status[0] in "RC" and index < len(records):
+            source = records[index]
+            index += 1
+            entries.append(ChangeEntry(path, (path, source)))
+        else:
+            entries.append(ChangeEntry(path, (path,)))
+    return entries
+
+
+def theme_stem(filename: str) -> str:
+    """A module's theme from its file name: extension and test affixes removed."""
+    stem = filename.rsplit(".", 1)[0] if "." in filename.lstrip(".") else filename
+    for suffix in TEST_FILE_SUFFIXES:
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    if stem.startswith(TEST_FILE_PREFIX) and len(stem) > len(TEST_FILE_PREFIX):
+        stem = stem[len(TEST_FILE_PREFIX) :]
+    return stem
+
+
+def theme_of(path: str) -> str:
+    """The area a path belongs to, found by stepping through container directories.
+
+    ``src/<package>/generators/x.py``, ``tests/unit/generators/test_x.py`` -> ``generators``;
+    ``src/<package>/activation.py``, ``tests/unit/test_activation.py`` -> ``activation``;
+    ``scripts/library/git/x.py`` -> ``git``; a file at the repo root -> the root theme.
+    """
+    parts = [part for part in path.replace("\\", "/").split("/") if part]
+    if len(parts) == 1:
+        return REPO_ROOT_THEME
+    start = 2 if parts[0] == SRC_DIR and len(parts) > 2 else 0
+    while start < len(parts) - 1 and parts[start] in THEME_CONTAINER_DIRS:
+        start += 1
+    remainder = parts[start:]
+    return theme_stem(remainder[0]) if len(remainder) == 1 else remainder[0]
+
+
+def group_changes(entries: list[ChangeEntry], max_commits: int) -> list[ChangeGroup]:
+    """Split a repo's dirty paths into themed change sets, capped at ``max_commits``.
+
+    Past the cap, the smallest sets are folded into one so a wide change cannot fan out
+    into dozens of one-file commits. Sets are ordered alphabetically with root-level
+    files last, since those usually describe the rest.
+    """
+    buckets: dict[str, list[ChangeEntry]] = {}
+    for entry in entries:
+        buckets.setdefault(theme_of(entry.path), []).append(entry)
+    groups = [ChangeGroup(name, tuple(items)) for name, items in buckets.items()]
+    if len(groups) > max_commits:
+        by_size = sorted(groups, key=lambda g: (-len(g.entries), g.name))
+        kept, folded = by_size[: max_commits - 1], by_size[max_commits - 1 :]
+        merged = tuple(entry for group in folded for entry in group.entries)
+        print(
+            f"  folding {len(folded)} small change set(s) into '{OTHER_THEME}' "
+            f"to stay within {max_commits} commits"
+        )
+        groups = kept + [ChangeGroup(OTHER_THEME, merged)]
+    return sorted(
+        groups, key=lambda g: (g.name == OTHER_THEME, g.name == REPO_ROOT_THEME, g.name.lower())
+    )
+
+
+def literal_pathspecs_within_budget(paths: list[str]) -> list[str]:
+    """Literal pathspecs for as many paths as fit on one command line."""
+    specs: list[str] = []
+    used = 0
+    for path in paths:
+        spec = f":(literal){path}"
+        if specs and used + len(spec) + 1 > MAX_PATHSPEC_CHARS:
+            break
+        specs.append(spec)
+        used += len(spec) + 1
+    return specs
+
+
+def collect_group(repo_path: Path, group: ChangeGroup, max_diff_chars: int, themed: bool) -> DirtyRepo:
+    """Change context for one change set: every git query is scoped to its paths."""
+    paths = group.stage_paths
+    specs = literal_pathspecs_within_budget(paths)
+    limits = ["--", *specs]
+    branch = run_git(repo_path, ["branch", "--show-current"], check=False) or "(unknown branch)"
+    base = diff_base(repo_path)
+    porcelain = run_git(repo_path, ["status", "--porcelain", *limits])
+    diff_stat = run_git(repo_path, ["-c", "core.autocrlf=false", "diff", base, "--stat", *limits])
+    name_status = run_git(repo_path, ["-c", "core.autocrlf=false", "diff", base, "--name-status", *limits])
+    untracked_raw = run_git(repo_path, ["ls-files", "--others", "--exclude-standard", *limits])
+    untracked_paths = [line.strip() for line in untracked_raw.splitlines() if line.strip()]
+    return DirtyRepo(
+        name=repo_path.name,
+        path=repo_path,
+        branch=branch.strip(),
+        porcelain=porcelain.rstrip(),
+        name_status=name_status.rstrip(),
+        diff_stat=diff_stat.rstrip(),
+        diff_sample=build_diff_sample(repo_path, name_status, max_diff_chars, base).rstrip(),
+        untracked_note=build_untracked_note(repo_path, untracked_paths),
+        scope=group.name if themed else "",
+        scope_files=len(group.entries),
+        omitted_files=len(paths) - len(specs),
+    )
 
 
 def dirty_repo_bundle(dr: DirtyRepo) -> str:
@@ -334,61 +604,245 @@ def dirty_repo_bundle_paths_only(dr: DirtyRepo) -> str:
     return "\n".join(parts)
 
 
-def ollama_reachable(base_url: str, timeout_ms: int) -> bool:
-    """Return True if the Ollama endpoint answers its tag-list query in time."""
-    uri = f"{base_url.rstrip('/')}/api/tags"
+def qualified_ollama_model(model: str) -> str:
+    """Return the model name as Ollama lists it, with the implicit tag made explicit."""
+    return model if ":" in model else f"{model}:{OLLAMA_DEFAULT_TAG}"
+
+
+def parse_local_host(spec: str) -> LocalHost:
+    """Parse an ``API:URL=MODEL`` host spec. Every part is required: no default model.
+
+    A default would silently send a host a model it may not carry; naming it in the spec
+    is what lets each machine run a model sized to its own hardware.
+    """
+    example = f"{LOCAL_API_OLLAMA}{LOCAL_HOST_API_SEPARATOR}http://10.94.0.101:11434{LOCAL_HOST_MODEL_SEPARATOR}qwen3-coder:30b-ctx32k"
+    api, _, rest = spec.partition(LOCAL_HOST_API_SEPARATOR)
+    base_url, _, model = rest.partition(LOCAL_HOST_MODEL_SEPARATOR)
+    api, base_url, model = api.strip(), base_url.strip(), model.strip()
+    if api not in LOCAL_APIS:
+        raise ScriptError(
+            f"Local host spec '{spec}' names API '{api}'. Expected API:URL=MODEL with API one of "
+            f"{', '.join(LOCAL_APIS)}, e.g. {example}."
+        )
+    if not base_url.startswith(("http://", "https://")):
+        raise ScriptError(
+            f"Local host spec '{spec}' has no http:// or https:// URL after '{api}:'. "
+            f"Expected API:URL=MODEL, e.g. {example}."
+        )
+    if not model:
+        raise ScriptError(
+            f"Local host spec '{spec}' names no model. Expected API:URL=MODEL, e.g. {example}."
+        )
+    return LocalHost(api, base_url.rstrip("/"), model)
+
+
+def listed_ollama_models(tags_response: object) -> dict[str, frozenset[str]]:
+    """Map each model name in an Ollama ``/api/tags`` response to its capabilities."""
+    if not isinstance(tags_response, dict) or not isinstance(tags_response.get("models"), list):
+        raise ValueError("expected a JSON object with a 'models' list")
+    models: dict[str, frozenset[str]] = {}
+    for entry in tags_response["models"]:
+        if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+            continue
+        capabilities = entry.get("capabilities")
+        listed = capabilities if isinstance(capabilities, list) else []
+        models[entry["name"]] = frozenset(str(capability) for capability in listed)
+    return models
+
+
+def listed_openai_models(models_response: object) -> set[str]:
+    """Extract the served model ids from an OpenAI-compatible ``/v1/models`` response."""
+    if not isinstance(models_response, dict) or not isinstance(models_response.get("data"), list):
+        raise ValueError("expected a JSON object with a 'data' list")
+    return {
+        entry["id"]
+        for entry in models_response["data"]
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
+    }
+
+
+def fetch_json(uri: str, timeout_ms: int) -> object:
+    with urllib.request.urlopen(uri, timeout=max(1, timeout_ms / 1000.0)) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def probe_local_host(host: LocalHost, timeout_ms: int) -> LocalHostProbe:
+    """Ask one host for the models it serves and check that its model is among them.
+
+    Reachability alone is not enough: a host that answers but lacks the model would
+    fail every generate call with a 404, so it is reported unusable up front.
+    """
+    list_path = "/api/tags" if host.api == LOCAL_API_OLLAMA else "/v1/models"
+    capabilities: dict[str, frozenset[str]] = {}
     try:
-        with urllib.request.urlopen(uri, timeout=max(1, timeout_ms / 1000.0)) as resp:
-            status = int(resp.status)
-        return 200 <= status < 300
-    except (urllib.error.URLError, TimeoutError, OSError):
-        return False
+        listing = fetch_json(f"{host.base_url}{list_path}", timeout_ms)
+        if host.api == LOCAL_API_OLLAMA:
+            capabilities = listed_ollama_models(listing)
+            wanted = qualified_ollama_model(host.model)
+            available = set(capabilities)
+        else:
+            wanted = host.model
+            available = listed_openai_models(listing)
+    except OSError as exc:
+        return LocalHostProbe(host, False, False, f"unreachable ({exc})")
+    except ValueError as exc:
+        return LocalHostProbe(host, False, False, f"returned an unreadable model list ({exc})")
+    if wanted not in available:
+        return LocalHostProbe(
+            host, False, False, f"reachable, but it does not serve model '{wanted}'"
+        )
+    # Ollama declares whether a model reasons; an OpenAI-compatible server does not, so
+    # such a host is always asked to skip reasoning (see invoke_openai_generate).
+    thinking = wanted in capabilities and OLLAMA_THINKING_CAPABILITY in capabilities[wanted]
+    return LocalHostProbe(host, True, thinking, f"reachable, serving model '{wanted}'")
 
 
-def invoke_ollama_generate(
-    base_url: str,
-    model: str,
-    prompt: str,
-    timeout_ms: int,
-    num_predict: int,
-    system: str,
-) -> str:
-    uri = f"{base_url.rstrip('/')}/api/generate"
-    payload = json.dumps(
-        {
-            "model": model,
-            "prompt": prompt,
-            "system": system,
-            "stream": False,
-            "options": {
-                "num_predict": num_predict,
-                "temperature": 0.2,
-            },
-        }
-    ).encode("utf-8")
+def post_json(uri: str, body: dict[str, object], timeout_ms: int, model: str) -> dict[str, object]:
+    """POST one JSON request to a local model server and return the decoded JSON object.
+
+    Every failure is a ScriptError so the host failover can act on it: URLError, a
+    timeout, and a connection reset mid-read are all OSError, and an HTTP error's body
+    carries the real cause (model not found, GPU out of memory) where str(exc) is only
+    "HTTP Error 500".
+    """
     req = urllib.request.Request(
         uri,
-        data=payload,
+        data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json; charset=utf-8"},
     )
     try:
         with urllib.request.urlopen(req, timeout=max(1, timeout_ms / 1000.0)) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        # The body carries the actual cause (model not found, context overflow, GPU out of
-        # memory); str(exc) is only "HTTP Error 500: Internal Server Error", which is
-        # undiagnosable. Always surface the body.
-        body = exc.read().decode("utf-8", errors="replace").strip()
+        detail = exc.read().decode("utf-8", errors="replace").strip()
         raise ScriptError(
-            f"Ollama generate failed with HTTP {exc.code} at {uri} for model '{model}'. "
-            f"Server response: {body or '(empty body)'}"
+            f"Request to {uri} for model '{model}' failed with HTTP {exc.code}. "
+            f"Server response: {detail or '(empty body)'}"
         ) from exc
-    except (urllib.error.URLError, TimeoutError) as exc:
-        raise ScriptError(f"Ollama request to {uri} failed: {exc}") from exc
+    except OSError as exc:
+        raise ScriptError(f"Request to {uri} for model '{model}' failed: {exc}") from exc
+    except ValueError as exc:
+        raise ScriptError(f"{uri} returned a body that is not JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ScriptError(f"{uri} returned JSON that is not an object for model '{model}'")
+    return data
+
+
+def load_local_model(host: LocalHost, timeout_ms: int) -> None:
+    """Make sure the host's model is in memory before any message is requested.
+
+    Ollama loads on demand: a generate request with no prompt only loads the model.
+    Doing that once, under its own timeout, keeps a cold load -- minutes for a large
+    model on a slow disk -- from being charged against every generate call's timeout,
+    and a host that cannot load its model (out of GPU memory) is caught here, before it
+    is handed a change set. An OpenAI-compatible server listing the model in its probe
+    already has it loaded, so there is nothing to do.
+    """
+    if host.api != LOCAL_API_OLLAMA:
+        return
+    post_json(
+        f"{host.base_url}/api/generate",
+        {"model": host.model, "keep_alive": OLLAMA_KEEP_ALIVE},
+        timeout_ms,
+        host.model,
+    )
+
+
+def usable_local_hosts(args: argparse.Namespace) -> list[ReadyLocalHost]:
+    """Probe every configured host in order and return the usable ones, in order.
+
+    Nothing is loaded here: loading claims memory on a host that is only needed if the
+    ones before it fail. The first host is loaded by ``activate_first_host``, and a
+    later one only when failover reaches it.
+    """
+    ready: list[ReadyLocalHost] = []
+    for host in args.local_hosts:
+        probe = probe_local_host(host, args.local_reachable_timeout_ms)
+        print(f"Local host {host.base_url} ({host.api}): {probe.detail}.")
+        if probe.usable:
+            ready.append(ReadyLocalHost(host, probe.thinking))
+    return ready
+
+
+def activate_first_host(
+    hosts: list[ReadyLocalHost], args: argparse.Namespace
+) -> list[ReadyLocalHost]:
+    """Drop hosts from the front until one has its model loaded; return the survivors."""
+    remaining = list(hosts)
+    while remaining:
+        host = remaining[0].host
+        if host.api == LOCAL_API_OLLAMA:
+            print(f"Loading {host.label()} (up to {args.local_load_timeout_ms // 1000}s)...")
+        try:
+            load_local_model(host, args.local_load_timeout_ms)
+            return remaining
+        except ScriptError as exc:
+            print(f"Warning: {host.label()} could not load its model: {exc}", file=sys.stderr)
+            remaining = remaining[1:]
+    return remaining
+
+
+def invoke_ollama_generate(ready: ReadyLocalHost, prompt: str, system: str, args: argparse.Namespace) -> str:
+    host = ready.host
+    uri = f"{host.base_url}/api/generate"
+    body: dict[str, object] = {
+        "model": host.model,
+        "prompt": prompt,
+        "system": system,
+        "stream": False,
+        "keep_alive": OLLAMA_KEEP_ALIVE,
+        "options": {
+            "num_predict": args.local_max_tokens,
+            "temperature": LOCAL_TEMPERATURE,
+        },
+    }
+    if ready.thinking:
+        body["think"] = False
+    data = post_json(uri, body, args.local_timeout_ms, host.model)
     response = data.get("response")
-    if not response:
-        raise ScriptError("Ollama returned no .response field")
-    return str(response)
+    if not isinstance(response, str) or not response.strip():
+        raise ScriptError(f"{uri} returned no .response text for model '{host.model}'")
+    return response
+
+
+def invoke_openai_generate(ready: ReadyLocalHost, prompt: str, system: str, args: argparse.Namespace) -> str:
+    """One chat completion from an OpenAI-compatible server such as vLLM.
+
+    Reasoning is switched off through the chat template (``enable_thinking``): a commit
+    message needs no visible reasoning, and a reasoning pass multiplies generate time.
+    A server whose template has no such switch ignores the variable.
+    """
+    host = ready.host
+    uri = f"{host.base_url}/v1/chat/completions"
+    body: dict[str, object] = {
+        "model": host.model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+        "max_tokens": args.local_max_tokens,
+        "temperature": LOCAL_TEMPERATURE,
+        "stream": False,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    data = post_json(uri, body, args.local_timeout_ms, host.model)
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise ScriptError(f"{uri} returned no choices for model '{host.model}'")
+    message = choices[0].get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        raise ScriptError(
+            f"{uri} returned no message content for model '{host.model}' "
+            f"(finish_reason={choices[0].get('finish_reason')!r})"
+        )
+    return content
+
+
+LOCAL_GENERATORS: dict[str, Callable[[ReadyLocalHost, str, str, argparse.Namespace], str]] = {
+    LOCAL_API_OLLAMA: invoke_ollama_generate,
+    LOCAL_API_OPENAI: invoke_openai_generate,
+}
 
 
 def resolve_claude_exe() -> str | None:
@@ -400,10 +854,8 @@ def resolve_claude_exe() -> str | None:
     return None
 
 
-# The Claude Code CLI's built-in system prompt tells it to end every commit message with a
-# "Co-Authored-By: Claude ... <noreply@anthropic.com>" trailer. --append-system-prompt only adds
-# to that prompt, it cannot revoke the instruction, so the trailer has to be turned off at the
-# source: includeCoAuthoredBy=false suppresses the attribution section entirely.
+# Suppresses the CLI's own commit-attribution section. The commit author is the human running
+# this script; strip_attribution_trailers() below removes any trailer a model emits anyway.
 CLAUDE_CLI_SETTINGS = json.dumps({"includeCoAuthoredBy": False})
 
 
@@ -414,15 +866,17 @@ def invoke_claude_generate(
     timeout_ms: int,
     system: str,
 ) -> str:
-    """Generate a commit message with the Claude Code CLI for one repo.
+    """Generate a commit message with the Claude Code CLI, as a pure text call.
 
-    Claude runs non-interactively with read-only investigation tools scoped to
-    the repo, and returns JSON so the final assistant text is read from
-    ``.result`` regardless of any intermediate tool use.
+    Everything the model needs is already in ``prompt``, so the call gets no tools at
+    all (``--tools ""``). It once ran with ``Bash(git:*)`` under ``acceptEdits`` and
+    made the commit itself, returning "Committed as <sha>." as the message -- so the
+    capability is removed, not merely discouraged. ``--safe-mode`` and a neutral working
+    directory keep the workspace's CLAUDE.md, hooks and skills out of the call, and
+    ``--system-prompt`` replaces the coding-agent prompt instead of appending to it.
 
-    The prompt is fed via stdin rather than a ``-p`` argument: a large diff
-    bundle would otherwise overflow the OS command-line length limit (~32K
-    characters on Windows).
+    The prompt is fed via stdin rather than a ``-p`` argument: a large diff bundle would
+    otherwise overflow the OS command-line length limit (~32K characters on Windows).
     """
     exe = resolve_claude_exe()
     if not exe:
@@ -437,33 +891,29 @@ def invoke_claude_generate(
         model,
         "--output-format",
         "json",
-        "--permission-mode",
-        "acceptEdits",
-        "--allowedTools",
-        "Read",
-        "Glob",
-        "Grep",
-        "Bash(git:*)",
-        "--add-dir",
-        str(repo_path),
+        "--tools",
+        "",
+        "--safe-mode",
+        "--no-session-persistence",
         "--settings",
         CLAUDE_CLI_SETTINGS,
-        "--append-system-prompt",
+        "--system-prompt",
         system,
     ]
     env = {**os.environ, "NO_COLOR": "1"}
     try:
-        result = subprocess.run(
-            args,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=str(repo_path),
-            env=env,
-            timeout=max(1, timeout_ms / 1000.0),
-        )
+        with tempfile.TemporaryDirectory(prefix="commit-message-") as neutral_cwd:
+            result = subprocess.run(
+                args,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=neutral_cwd,
+                env=env,
+                timeout=max(1, timeout_ms / 1000.0),
+            )
     except subprocess.TimeoutExpired as exc:
         raise ScriptError(f"Claude CLI timed out for {repo_path.name}") from exc
     if result.returncode != 0:
@@ -558,6 +1008,15 @@ NON_LATIN_SCRIPT_PATTERN = re.compile(
 )
 
 
+# A "subject" that reports something the model did rather than describing the change --
+# "Committed as b2026ef." was once accepted as a message after the model made the commit
+# itself. The model no longer has tools; this rejects the shape regardless of backend.
+ACTION_REPORT_SUBJECT_PATTERN = re.compile(
+    r"^\s*(committed|pushed|created (a )?commit|staged|done\b|i (have |'ve )?(committed|pushed|created))",
+    re.IGNORECASE,
+)
+
+
 def looks_like_path_dump_line(line: str) -> bool:
     stripped = line.strip()
     if stripped.startswith("- "):
@@ -581,10 +1040,10 @@ def message_quality_problem(text: str, repo_name: str) -> str | None:
         return "missing subject"
     if subject.startswith("- "):
         return "subject is a bullet path, not a summary"
-    if len(subject) > 120:
-        return "subject is too long"
     if is_generic_subject(subject, repo_name):
         return "subject is too generic"
+    if ACTION_REPORT_SUBJECT_PATTERN.match(subject):
+        return "subject reports an action taken instead of describing the change"
 
     lowered = text.strip().lower()
     chatty_prefixes = (
@@ -636,83 +1095,50 @@ def message_quality_problem(text: str, repo_name: str) -> str | None:
     return None
 
 
-def fallback_subject_from_repo(dr: DirtyRepo) -> str:
-    text = "\n".join([dr.name_status, dr.diff_stat, dr.untracked_note]).lower()
-    if ("access_level" in text or "access level" in text or "service" in text) and (
-        "parser" in text or "transformer" in text or "grammar" in text
-    ):
-        return "Add service access parsing support"
-    if ("access_level" in text or "endpoint_identity" in text or "endpoint identity" in text) and (
-        "cross_service" in text or "cross-service" in text
-    ):
-        return "Add service endpoint identity and typed call validation"
-    if "resilience" in text or "dependency" in text or "cross_service" in text:
-        return "Add typed dependency call and resilience support"
-    if "grammar" in text or "parser" in text or "transformer" in text:
-        return "Update parser and transformer support"
-    if "constant" in text or "builtin" in text or "transpiler" in text:
-        return "Update builtin and constant expression handling"
-    if "test" in text:
-        return "Update test coverage"
-    if ".md" in text or "docs/" in text:
-        return "Update documentation"
-    return f"Update {dr.name} changes"
-
-
-def fallback_body_from_repo(dr: DirtyRepo) -> str:
-    text = "\n".join([dr.name_status, dr.diff_stat, dr.untracked_note]).lower()
-    if dr.name == "datrix":
-        return (
-            "Move local commit-message generation behind a Python implementation while "
-            "keeping the existing PowerShell entry point. Add stronger prompt handling, "
-            "message validation, balanced diff context, and deterministic fallback behavior."
-        )
-    if "product" in text or "order" in text or "ecommerce" in text:
-        return (
-            "Extend the ecommerce service definitions and configuration for service-facing "
-            "catalog data workflows. Add backend support for product lookup, related-product "
-            "search, and detail retrieval paths used by downstream services."
-        )
-    if ("access_level" in text or "access level" in text or "service" in text) and (
-        "parser" in text or "transformer" in text or "grammar" in text
-    ):
-        return (
-            "Introduce dedicated service access handling across parser, transformer, and "
-            "model contracts. Update tests and documentation so service-facing endpoints "
-            "are represented separately from role-based access."
-        )
-    if ("access_level" in text or "endpoint_identity" in text or "endpoint identity" in text) and (
-        "cross_service" in text or "cross-service" in text
-    ):
-        return (
-            "Add model and validator coverage for service-facing endpoint identity and "
-            "typed cross-service calls. Capture idempotency, dependency availability, "
-            "and duplicate contract diagnostics in the shared semantic layer."
-        )
-    if "resilience" in text or "dependency" in text or "cross_service" in text:
-        return (
-            "Add orchestration support for typed dependency calls and resilience policy "
-            "planning. Project cross-service registries into reusable operation metadata "
-            "and expose post-commit validation reporting helpers."
-        )
-    if "constant" in text or "builtin" in text or "transpiler" in text:
-        return (
-            "Extend constant expression and builtin handling in generated code. Add test "
-            "coverage for unary operators, string conversion helpers, and parser output "
-            "used by downstream generators."
-        )
-    if "test" in text:
-        return "Expand focused test coverage for the changed behavior and validation paths."
-    if ".md" in text or "docs/" in text:
-        return "Update documentation to align the reference material with the current implementation."
-    return "Describe the changed behavior and supporting validation for this repository."
-
-
 def fallback_commit_message(dr: DirtyRepo) -> str:
-    return fallback_subject_from_repo(dr) + "\n\n" + fallback_body_from_repo(dr)
+    """Last-resort message when no backend produced a usable one.
+
+    It states only what git itself reports -- the area and the counts -- and says it was
+    written without a model. It never guesses at intent: a canned feature description
+    chosen by keyword once committed claims about changes that were never made.
+    """
+    statuses = [line.split("\t", 1)[0][:1] for line in dr.name_status.splitlines() if "\t" in line]
+    untracked = sum(
+        1 for line in dr.untracked_note.splitlines() if line and line != "```" and not line.startswith("--")
+    )
+    counts = {
+        "modified": statuses.count("M"),
+        "added": statuses.count("A") + untracked,
+        "deleted": statuses.count("D"),
+        "renamed": statuses.count("R"),
+    }
+    summary = ", ".join(f"{count} {label}" for label, count in counts.items() if count)
+    area = dr.scope or dr.name
+    subject = f"Update {area}: {dr.scope_files} file(s)"
+    body = (
+        f"Changes in {area}: {summary or f'{dr.scope_files} file(s)'}. This message was written "
+        "without a language model because no backend produced a usable one; the diff is the "
+        "authoritative description."
+    )
+    return subject + "\n\n" + body
 
 
-def build_user_prompt(repo_name: str, bundle: str, repair_reason: str | None = None) -> str:
+def scope_note(dr: DirtyRepo) -> str:
+    if not dr.scope:
+        return ""
+    omitted = (
+        f" The git output below covers the first {dr.scope_files - dr.omitted_files}; "
+        f"{dr.omitted_files} more are in the same set."
+        if dr.omitted_files
+        else ""
+    )
+    return (
+        f"This commit covers the '{dr.scope}' change set ONLY -- {dr.scope_files} file(s).{omitted} "
+        "Describe that set and nothing else; the rest of the working tree is committed separately.\n"
+    )
+
+
+def build_user_prompt(dr: DirtyRepo, bundle: str, repair_reason: str | None = None) -> str:
     retry = ""
     if repair_reason:
         retry = (
@@ -720,7 +1146,8 @@ def build_user_prompt(repo_name: str, bundle: str, repair_reason: str | None = N
             "Write a concrete subject that names the feature, behavior, or contract changed.\n"
         )
     return (
-        f"Repository folder name: {repo_name}\n"
+        f"Repository folder name: {dr.name}\n"
+        f"{scope_note(dr)}"
         f"{retry}\n"
         "Machine-readable git output only. Write the commit message from this data; "
         "do not describe the format of the data.\n\n"
@@ -730,7 +1157,7 @@ def build_user_prompt(repo_name: str, bundle: str, repair_reason: str | None = N
     )
 
 
-SYSTEM_PROMPT = """You output ONLY the body of one git commit message. You are not a tutor or reviewer.
+SYSTEM_PROMPT = f"""You output ONLY the body of one git commit message. You are not a tutor or reviewer.
 
 Write the entire message in English. Every sentence, including the body, must be English even when GIT_OUTPUT contains other languages. Never switch language part-way through.
 
@@ -741,7 +1168,7 @@ Forbidden in your output: addressing the reader; markdown headings; fenced code 
 Never sign the message or credit yourself. Emit no trailer of any kind: no "Co-Authored-By", no "Generated with", no tool or model attribution. The commit author is the human running this script, and any such line overrides earlier instructions you may hold about signing commits.
 
 Required shape:
-Line 1: one short, concrete summary of the semantic change. Do not use a generic subject like "Update repo" or a path-only subject.
+Line 1: one short, concrete summary of the semantic change, {SUBJECT_LIMIT} characters or fewer. Name the single most important change; detail belongs in the body. Do not use a generic subject like "Update repo" or a path-only subject.
 Line 2: completely empty.
 Lines 3+: one short paragraph, 1 to 4 sentences, describing what behavior, contract, validation, generation, or workflow changed and why it matters. Prefer prose over bullets.
 
@@ -775,32 +1202,61 @@ def request_commit_message(dr: DirtyRepo, generate: Generator) -> str:
     last_problem: str | None = None
     for label, bundle, system in attempts:
         if last_problem:
-            print(f"Warning: repo '{dr.name}' retrying with {label}: {last_problem}", file=sys.stderr)
-        raw = generate(build_user_prompt(dr.name, bundle, last_problem), system)
+            print(f"Warning: {dr.name} [{dr.scope or 'all'}] retrying with {label}: {last_problem}", file=sys.stderr)
+        raw = generate(build_user_prompt(dr, bundle, last_problem), system)
         message = normalize_message(raw)
         problem = message_quality_problem(message, dr.name)
         if problem is None:
-            return message
+            return enforce_subject_limit(dr, message, generate)
         last_problem = problem
 
     print(
-        f"Warning: repo '{dr.name}' LLM output still unusable; using deterministic fallback.",
+        f"Warning: {dr.name} [{dr.scope or 'all'}] model output still unusable; "
+        "using the model-free fallback message.",
         file=sys.stderr,
     )
     return fallback_commit_message(dr)
 
 
-def make_generator(source: str, args: argparse.Namespace, dr: DirtyRepo) -> Generator:
-    """Bind the selected backend to a (prompt, system) -> text callable for one repo."""
-    if source == "ollama":
-        return lambda prompt, system: invoke_ollama_generate(
-            base_url=args.ollama_base_url,
-            model=args.ollama_model,
-            prompt=prompt,
-            timeout_ms=args.ollama_timeout_ms,
-            num_predict=args.ollama_num_predict,
-            system=system,
+def enforce_subject_limit(dr: DirtyRepo, message: str, generate: Generator) -> str:
+    """Ask once for a shorter subject when it overruns, showing the model the overrun.
+
+    Stating the limit is in the prompt already; showing the actual length is what gets a
+    model to cut. This is a targeted rewrite of an otherwise good message, not a trip back
+    down the retry ladder, whose later rungs throw away diff context. A rewrite that is
+    still over the limit but shorter is kept; the overrun is reported either way.
+    """
+    subject = first_line(message)
+    if len(subject) <= SUBJECT_LIMIT:
+        return message
+    print(f"  subject is {len(subject)} chars (limit {SUBJECT_LIMIT}) -- asking for a shorter one")
+    prompt = (
+        f"You wrote this commit message:\n\n{message}\n\n"
+        f"Its subject line is {len(subject)} characters; the hard limit is {SUBJECT_LIMIT}. "
+        "Rewrite the WHOLE commit message with a shorter subject. Cut detail out of the subject "
+        "and move it into the body -- do not abbreviate words or drop vowels. Output only the "
+        "commit message."
+    )
+    shorter = normalize_message(generate(prompt, SYSTEM_PROMPT))
+    if message_quality_problem(shorter, dr.name) is None and len(first_line(shorter)) < len(subject):
+        message, subject = shorter, first_line(shorter)
+    if len(subject) > SUBJECT_LIMIT:
+        print(
+            f"Warning: {dr.name} [{dr.scope or 'all'}] subject is still {len(subject)} chars "
+            f"(limit {SUBJECT_LIMIT}); committing it as written.",
+            file=sys.stderr,
         )
+    return message
+
+
+def make_local_generator(args: argparse.Namespace, ready: ReadyLocalHost) -> Generator:
+    """Bind one ready local host to a (prompt, system) -> text callable for its API."""
+    invoke = LOCAL_GENERATORS[ready.host.api]
+    return lambda prompt, system: invoke(ready, prompt, system, args)
+
+
+def make_claude_generator(args: argparse.Namespace, dr: DirtyRepo) -> Generator:
+    """Bind the Claude Code CLI to a (prompt, system) -> text callable for one repo."""
     return lambda prompt, system: invoke_claude_generate(
         repo_path=dr.path,
         model=args.claude_model,
@@ -810,53 +1266,63 @@ def make_generator(source: str, args: argparse.Namespace, dr: DirtyRepo) -> Gene
     )
 
 
-def generate_message_with_fallback(
-    dr: DirtyRepo, args: argparse.Namespace, source: str
-) -> tuple[str, str]:
-    """Generate one repo's message, returning it with the backend that is now in effect.
+def describe_backend(args: argparse.Namespace, local_hosts: list[ReadyLocalHost]) -> str:
+    """Name the backend the next change set will be sent to."""
+    if local_hosts:
+        return local_hosts[0].host.label()
+    return f"Claude Code CLI model '{args.claude_model}'"
 
-    The auto-mode probe only asks Ollama for its model list, which still answers when the
-    server cannot actually run a generate call (an exhausted GPU, an unloadable model). Auto
-    mode promises "Ollama if usable, otherwise Claude", so a backend failure routes this repo
-    -- and the remaining repos, since the cause is server-side and persistent -- to the Claude
-    CLI instead of aborting the run with nothing committed. A forced backend still fails loudly.
+
+def generate_message_with_failover(
+    dr: DirtyRepo, args: argparse.Namespace, local_hosts: list[ReadyLocalHost]
+) -> tuple[str, list[ReadyLocalHost]]:
+    """Generate one change set's message, returning it with the local hosts still in play.
+
+    A host whose generate call fails is dropped -- for this set and the remaining ones,
+    since the cause is server-side and persistent -- and the next host is loaded and takes
+    over. Once every host has failed, auto mode hands the set to the Claude Code CLI; a
+    forced ``local`` source fails loudly instead of silently leaving the local models.
     """
-    try:
-        return request_commit_message(dr, make_generator(source, args, dr)), source
-    except ScriptError as exc:
-        if source != "ollama" or args.message_source != "auto":
-            raise
-        print(
-            f"Warning: Ollama backend failed for {dr.name}: {exc}\n"
-            f"Falling back to the Claude Code CLI model '{args.claude_model}' "
-            "for this and the remaining repos.",
-            file=sys.stderr,
-        )
-        return request_commit_message(dr, make_generator("claude", args, dr)), "claude"
-
-
-def decide_source(args: argparse.Namespace) -> str:
-    """Resolve which backend to use, honoring a forced choice or auto-detecting Ollama."""
-    if args.message_source == "ollama":
-        if not ollama_reachable(args.ollama_base_url, args.ollama_reachable_timeout_ms):
-            raise ScriptError(
-                f"Ollama not reachable at {args.ollama_base_url} but --message-source=ollama was forced."
+    remaining = list(local_hosts)
+    while remaining:
+        ready = remaining[0]
+        try:
+            return request_commit_message(dr, make_local_generator(args, ready)), remaining
+        except ScriptError as exc:
+            remaining = activate_first_host(remaining[1:], args)
+            if not remaining and args.message_source == MESSAGE_SOURCE_LOCAL:
+                raise ScriptError(
+                    f"Every usable local host failed for {dr.name} and --message-source=local "
+                    f"was forced. Last failure ({ready.host.label()}): {exc}"
+                ) from exc
+            print(
+                f"Warning: {ready.host.label()} failed for {dr.name}: {exc}\n"
+                f"Switching to {describe_backend(args, remaining)} "
+                "for this and the remaining change sets.",
+                file=sys.stderr,
             )
-        print(f"Using local Ollama model '{args.ollama_model}' at {args.ollama_base_url}.")
-        return "ollama"
-    if args.message_source == "claude":
-        print(f"Using Claude Code CLI model '{args.claude_model}'.")
-        return "claude"
+    return request_commit_message(dr, make_claude_generator(args, dr)), remaining
 
-    # auto: prefer local Ollama when reachable, otherwise fall back to Claude.
-    if ollama_reachable(args.ollama_base_url, args.ollama_reachable_timeout_ms):
-        print(f"Ollama reachable at {args.ollama_base_url} -- using local model '{args.ollama_model}'.")
-        return "ollama"
-    print(
-        f"Ollama not reachable at {args.ollama_base_url} -- "
-        f"falling back to Claude Code CLI model '{args.claude_model}'."
-    )
-    return "claude"
+
+def decide_local_hosts(args: argparse.Namespace) -> list[ReadyLocalHost]:
+    """Resolve the ordered local hosts to use; an empty list means the Claude Code CLI."""
+    if args.message_source == MESSAGE_SOURCE_CLAUDE:
+        print(f"Using Claude Code CLI model '{args.claude_model}'.")
+        return []
+
+    hosts = activate_first_host(usable_local_hosts(args), args)
+    if hosts:
+        print(f"Using {describe_backend(args, hosts)}.")
+        return hosts
+    if args.message_source == MESSAGE_SOURCE_LOCAL:
+        tried = ", ".join(host.label() for host in args.local_hosts)
+        raise ScriptError(
+            f"No local host could serve its model (tried {tried}) but --message-source=local "
+            "was forced. Start one of those hosts or install the model on it, pass a different "
+            "host list (-LocalHosts / --local-host), or use message source auto or claude."
+        )
+    print(f"No local host usable -- falling back to {describe_backend(args, hosts)}.")
+    return hosts
 
 
 def set_git_identity() -> None:
@@ -875,43 +1341,58 @@ def clean_git_locks(repo_path: Path) -> None:
             pass
 
 
-def commit_and_push_repo(repo_path: Path, message: str) -> str:
-    """Stage, commit, and push one repo. Returns 'pushed' or 'clean'."""
-    name = repo_path.name
-    add = subprocess.run(
-        ["git", "-C", str(repo_path), "add", "-A"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if add.returncode != 0:
-        raise ScriptError(f"{name}: git add failed ({add.returncode}): {add.stderr or add.stdout}")
+def run_git_with_files(repo_path: Path, args: list[str], files: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """Run git with arguments that name temp files holding ``files``' contents.
 
-    with tempfile.NamedTemporaryFile(
-        "w", suffix=".txt", delete=False, encoding="utf-8", newline="\n"
-    ) as handle:
-        handle.write(message)
-        temp_path = handle.name
-    try:
-        commit = subprocess.run(
-            ["git", "-C", str(repo_path), "commit", "-F", temp_path],
+    ``args`` refers to each file by its key in ``{}``-format placeholders. The pathspec
+    list goes through a FILE, never argv: a regenerated tree is thousands of paths and
+    would overflow the Windows command-line limit.
+    """
+    with tempfile.TemporaryDirectory(prefix="commit-and-push-") as temp_dir:
+        paths: dict[str, str] = {}
+        for key, content in files.items():
+            file_path = Path(temp_dir) / key
+            file_path.write_text(content, encoding="utf-8", newline="\n")
+            paths[key] = str(file_path)
+        return subprocess.run(
+            ["git", "-C", str(repo_path), *(arg.format(**paths) for arg in args)],
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
         )
-    finally:
-        try:
-            os.unlink(temp_path)
-        except OSError:
-            pass
 
-    if commit.returncode == 1:
-        return "clean"
+
+def commit_group(repo_path: Path, group: ChangeGroup, message: str) -> str | None:
+    """Stage and commit exactly one change set. Returns the short sha, or None if empty.
+
+    ``git add -A`` over the set's literal pathspecs stages its additions, edits and
+    deletions. ``git commit --pathspec-from-file`` then commits ONLY those paths (git's
+    ``--only`` semantics), so anything else already sitting in the index -- another set,
+    or something staged by hand -- can never ride along in this commit.
+    """
+    name = repo_path.name
+    add_specs = "\n".join(f":(literal){path}" for path in group.add_paths) + "\n"
+    pathspecs = "\n".join(f":(literal){path}" for path in group.stage_paths) + "\n"
+    add = run_git_with_files(repo_path, ["add", "-A", "--pathspec-from-file={specs}"], {"specs": add_specs})
+    if add.returncode != 0:
+        raise ScriptError(f"{name}: git add failed for '{group.name}' ({add.returncode}): {add.stderr or add.stdout}")
+    commit = run_git_with_files(
+        repo_path,
+        ["commit", "-F", "{message}", "--pathspec-from-file={specs}"],
+        {"message": message, "specs": pathspecs},
+    )
+    if commit.returncode == 1 and "nothing" in (commit.stdout + commit.stderr).lower():
+        return None
     if commit.returncode != 0:
-        raise ScriptError(f"{name}: git commit failed ({commit.returncode}): {commit.stderr or commit.stdout}")
+        raise ScriptError(
+            f"{name}: git commit failed for '{group.name}' ({commit.returncode}): "
+            f"{commit.stderr or commit.stdout}"
+        )
+    return run_git(repo_path, ["rev-parse", "--short", "HEAD"])
 
+
+def push_repo(repo_path: Path) -> None:
     push = subprocess.run(
         ["git", "-C", str(repo_path), "push"],
         capture_output=True,
@@ -920,11 +1401,12 @@ def commit_and_push_repo(repo_path: Path, message: str) -> str:
         errors="replace",
     )
     if push.returncode != 0:
-        raise ScriptError(f"{name}: git push failed ({push.returncode}): {push.stderr or push.stdout}")
-    return "pushed"
+        raise ScriptError(
+            f"{repo_path.name}: git push failed ({push.returncode}): {push.stderr or push.stdout}"
+        )
 
 
-def enforce_customer_domain_isolation(dirty_repos: list[DirtyRepo], datrix_root: Path) -> None:
+def enforce_customer_domain_isolation(dirty_repos: list[Path], datrix_root: Path) -> None:
     """Refuse the whole run if any pending change carries a registered customer term.
 
     This is the seam where content actually enters a framework repo: every
@@ -960,11 +1442,11 @@ def enforce_customer_domain_isolation(dirty_repos: list[DirtyRepo], datrix_root:
         return
 
     violations: list[Violation] = []
-    for dr in dirty_repos:
+    for repo_path in dirty_repos:
         try:
-            violations.extend(scan_paths(dr.path, pending_files(dr.path), corpus))
+            violations.extend(scan_paths(repo_path, pending_files(repo_path), corpus))
         except CorpusError as exc:
-            raise ScriptError(f"Customer-domain isolation check failed in {dr.name}: {exc}") from exc
+            raise ScriptError(f"Customer-domain isolation check failed in {repo_path.name}: {exc}") from exc
 
     if not violations:
         print(f"Customer-domain isolation: clean across {len(dirty_repos)} dirty repo(s).")
@@ -979,7 +1461,7 @@ def enforce_customer_domain_isolation(dirty_repos: list[DirtyRepo], datrix_root:
     )
 
 
-def enforce_ignored_source(dirty_repos: list[DirtyRepo], datrix_root: Path) -> None:
+def enforce_ignored_source(dirty_repos: list[Path], datrix_root: Path) -> None:
     """Refuse the whole run if a `.gitignore` rule keeps a source file out of the commit.
 
     Same seam as the isolation check above, asked in the opposite direction:
@@ -1017,13 +1499,13 @@ def enforce_ignored_source(dirty_repos: list[DirtyRepo], datrix_root: Path) -> N
 
     shadowed: list[ShadowedPath] = []
     strays: list[tuple[StrayTempDir, Path]] = []
-    for dr in dirty_repos:
+    for repo_path in dirty_repos:
         try:
-            result = scan_for_commit(dr.path, exemptions, temp_dir_segment)
+            result = scan_for_commit(repo_path, exemptions, temp_dir_segment)
         except IgnoredSourceGateError as exc:
-            raise ScriptError(f"Ignored-source check failed in {dr.name}: {exc}") from exc
+            raise ScriptError(f"Ignored-source check failed in {repo_path.name}: {exc}") from exc
         shadowed.extend(result.violations)
-        strays.extend((stray, dr.path) for stray in result.stray_temp_dirs)
+        strays.extend((stray, repo_path) for stray in result.stray_temp_dirs)
 
     # A stray temp directory is a warning, not a refusal: its contents are
     # already unpublishable, so the commit loses nothing. It is reported once
@@ -1057,7 +1539,7 @@ def enforce_ignored_source(dirty_repos: list[DirtyRepo], datrix_root: Path) -> N
     )
 
 
-def enforce_polystring_case_roundtrips(dirty_repos: list[DirtyRepo]) -> None:
+def enforce_polystring_case_roundtrips(dirty_repos: list[Path]) -> None:
     """Refuse the whole run if a pending file re-cases a name through plain text.
 
     Same seam as the two checks above: ``git add -A`` is where a
@@ -1084,12 +1566,12 @@ def enforce_polystring_case_roundtrips(dirty_repos: list[DirtyRepo]) -> None:
         )
 
     results: list[RepoResult] = []
-    for dr in dirty_repos:
+    for repo_path in dirty_repos:
         try:
-            results.append(polystring_scan_for_commit(dr.path))
+            results.append(polystring_scan_for_commit(repo_path))
         except PolyStringGateError as exc:
             raise ScriptError(
-                f"PolyString case round-trip check failed in {dr.name}: {exc}"
+                f"PolyString case round-trip check failed in {repo_path.name}: {exc}"
             ) from exc
 
     violating = [result for result in results if result.hits]
@@ -1114,23 +1596,67 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--message-source",
-        choices=["auto", "ollama", "claude"],
-        default="auto",
-        help="Backend for commit messages: auto (Ollama if reachable, else Claude), or force one.",
+        choices=[MESSAGE_SOURCE_AUTO, MESSAGE_SOURCE_LOCAL, MESSAGE_SOURCE_CLAUDE],
+        default=MESSAGE_SOURCE_AUTO,
+        help=(
+            "Backend for commit messages: auto (the first usable local host, else Claude), "
+            "or force one."
+        ),
     )
-    parser.add_argument("--ollama-base-url", default="http://10.94.0.100:11434")
-    parser.add_argument("--ollama-model", default="qwen3-coder:30b-ctx32k")
-    parser.add_argument("--ollama-timeout-ms", type=int, default=180000)
     parser.add_argument(
-        "--ollama-reachable-timeout-ms",
+        "--local-host",
+        dest="local_host_specs",
+        action="append",
+        help=(
+            f"A local model host as API{LOCAL_HOST_API_SEPARATOR}URL{LOCAL_HOST_MODEL_SEPARATOR}MODEL, "
+            f"API one of {', '.join(LOCAL_APIS)}. Repeat to list several, in preference order. "
+            f"Default: {', '.join(DEFAULT_LOCAL_HOSTS)}."
+        ),
+    )
+    parser.add_argument(
+        "--local-timeout-ms",
+        type=int,
+        default=180000,
+        help="Timeout for each local generate call, with the model already loaded.",
+    )
+    parser.add_argument(
+        "--local-load-timeout-ms",
+        type=int,
+        default=900000,
+        help=(
+            "Timeout for loading an Ollama host's model into memory before the first "
+            "message. A cold load of a large model from a slow disk takes minutes."
+        ),
+    )
+    parser.add_argument(
+        "--local-reachable-timeout-ms",
         type=int,
         default=3000,
-        help="Timeout for the quick Ollama reachability probe.",
+        help="Timeout for each local host's quick reachability probe.",
     )
-    parser.add_argument("--ollama-num-predict", type=int, default=896)
+    parser.add_argument(
+        "--local-max-tokens",
+        type=int,
+        default=896,
+        help="Maximum tokens a local model may generate for one message.",
+    )
     parser.add_argument("--claude-model", default="sonnet")
     parser.add_argument("--claude-timeout-ms", type=int, default=300000)
-    parser.add_argument("--max-diff-chars-per-repo", type=int, default=45000)
+    parser.add_argument(
+        "--max-diff-chars-per-commit",
+        type=int,
+        default=45000,
+        help="Maximum characters of diff context sent to the model for one change set.",
+    )
+    parser.add_argument(
+        "--max-commits-per-repo",
+        type=int,
+        default=8,
+        help=(
+            "Upper bound on themed commits per repo; past it the smallest change sets are "
+            "folded into one. 1 commits each repo as a single change."
+        ),
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -1161,16 +1687,59 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "the check is what keeps to_*_case(str(name)) out of the framework repos."
         ),
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.max_commits_per_repo < 1:
+        raise ScriptError(
+            f"--max-commits-per-repo must be at least 1, got {args.max_commits_per_repo}. "
+            "Use 1 to commit each repo as a single change."
+        )
+    # argparse would append to a list default in place, so the default is applied here.
+    # dict.fromkeys drops a repeated host while keeping the preference order.
+    specs = list(dict.fromkeys(args.local_host_specs or DEFAULT_LOCAL_HOSTS))
+    args.local_hosts = [parse_local_host(spec) for spec in specs]
+    return args
+
+
+def commit_repo(repo_path: Path, args: argparse.Namespace, local_hosts: list[ReadyLocalHost]) -> list[ReadyLocalHost]:
+    """Commit one repo as themed change sets, then push once. Returns the hosts still in play."""
+    groups = group_changes(survey(repo_path), args.max_commits_per_repo)
+    themed = len(groups) > 1
+    print(f"{repo_path.name}: {len(groups)} change set(s)")
+    for group in groups:
+        print(f"  {group.name:<28} {len(group.entries):>5} file(s)")
+
+    made: list[str] = []
+    for index, group in enumerate(groups, 1):
+        label = f"{repo_path.name} [{index}/{len(groups)}] {group.name}"
+        print(f"\nGenerating commit message for {label} via {describe_backend(args, local_hosts)}...")
+        dr = collect_group(repo_path, group, args.max_diff_chars_per_commit, themed)
+        message, local_hosts = generate_message_with_failover(dr, args, local_hosts)
+        print(f"========== Commit message: {label} ==========")
+        print(message)
+        print(f"========== end {label} ==========")
+        if args.dry_run:
+            continue
+        clean_git_locks(repo_path)
+        sha = commit_group(repo_path, group, message)
+        if sha is None:
+            print(f"{label}: nothing to commit")
+            continue
+        print(f"{label}: committed {sha}")
+        made.append(sha)
+
+    if made:
+        print(f"\nPushing {repo_path.name} ({len(made)} commit(s))...")
+        push_repo(repo_path)
+        print(f"{repo_path.name}: pushed")
+    print("")
+    return local_hosts
 
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     workspace_root = workspace_root_from_script()
 
-    source = decide_source(args)
-
-    dirty_repos = collect_dirty_repos(workspace_root, args.max_diff_chars_per_repo)
+    dirty_repos = find_dirty_repos(workspace_root)
     if not dirty_repos:
         print("No uncommitted changes in any Datrix repo. Nothing to commit.")
         return 0
@@ -1201,29 +1770,15 @@ def main(argv: list[str]) -> int:
     else:
         enforce_polystring_case_roundtrips(dirty_repos)
 
+    # Backend selection comes after the checks: loading a large local model can take
+    # minutes, and must not be paid for a run that commits nothing.
+    local_hosts = decide_local_hosts(args)
+
     if not args.dry_run:
         set_git_identity()
 
-    for dr in dirty_repos:
-        print(f"Generating commit message for {dr.name} via {source}...")
-        message, source = generate_message_with_fallback(dr, args, source)
-        print("")
-        print(f"========== Commit message: {dr.name} ==========")
-        print(message)
-        print(f"========== end {dr.name} ==========")
-        print("")
-
-        if args.dry_run:
-            continue
-
-        clean_git_locks(dr.path)
-        print(f"Committing and pushing {dr.name}...")
-        outcome = commit_and_push_repo(dr.path, message)
-        if outcome == "clean":
-            print(f"{dr.name}: nothing to commit (working tree clean)")
-        else:
-            print(f"{dr.name}: committed and pushed successfully")
-        print("")
+    for repo_path in dirty_repos:
+        local_hosts = commit_repo(repo_path, args, local_hosts)
 
     if args.dry_run:
         print("Dry run complete; no commits were made.")

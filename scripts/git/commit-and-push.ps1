@@ -5,30 +5,45 @@ Generate commit messages for every dirty Datrix repo and commit+push them.
 
 .DESCRIPTION
 Single entry point that wraps scripts\library\git\commit-and-push.py. The Python
-implementation collects changes from each dirty Datrix repository, generates one
-commit message per repo, then stages, commits, and pushes it.
+implementation splits each dirty Datrix repository's changes into themed change
+sets, generates one commit message per set, commits each set separately, and
+pushes each repo once.
+
+Themes are areas, not top-level folders: container directories (src\<package>,
+tests\<tier>, scripts, examples) are stepped through, so a generator and its tests
+land in one commit while an unrelated docs edit gets its own. Each message
+describes one coherent change, which is what keeps subjects within 72 characters.
 
 Message source is chosen automatically:
- * If a local Ollama endpoint is reachable, messages come from the local model.
- * Otherwise the script falls back to the Claude Code CLI.
+ * The local model hosts are probed in order (-LocalHosts); the first one that
+   answers and serves its model generates the messages. A host speaks either
+   Ollama's API or the OpenAI-compatible API that vLLM serves. A host that fails
+   to load or generate hands over to the next usable host.
+ * If no local host is usable, the script falls back to the Claude Code CLI, run
+   with no tools and none of the workspace's CLAUDE.md, hooks or skills.
 
-Force a backend with -MessageSource ollama|claude. No commit-messages.json is
+Force a backend with -MessageSource local|claude. No commit-messages.json is
 written -- generation and commit/push happen in one pass.
 
 .PARAMETER MessageSource
-auto (default), ollama, or claude. auto probes Ollama and falls back to Claude.
+auto (default), local, or claude. auto tries every local host in order and falls
+back to Claude; local tries every local host and errors if none can serve.
 
-.PARAMETER OllamaBaseUrl
-Base URL for Ollama (no trailing path). Default matches the local Act Mode setup.
+.PARAMETER LocalHosts
+Local model hosts in preference order, each API:URL=MODEL with API 'ollama' or
+'openai' (OpenAI-compatible, e.g. vLLM). Omit to use the default list in
+commit-and-push.py (--help shows it): the Dell T5820 and T7920 (RTX 3090, Ollama)
+and the ASUS GX10 (vLLM serving Nemotron-3-Super).
 
-.PARAMETER OllamaModel
-Ollama model name. Default: qwen3-coder:30b-ctx32k
+.PARAMETER LocalTimeoutMs
+HTTP timeout (ms) for each local generate request, with the model already loaded.
 
-.PARAMETER OllamaTimeoutMs
-HTTP timeout (ms) for each Ollama generate request.
+.PARAMETER LocalLoadTimeoutMs
+Timeout (ms) for loading an Ollama host's model into memory before the first
+message. Default 900000: a cold load of a large model from a slow disk takes minutes.
 
-.PARAMETER OllamaNumPredict
-Ollama option num_predict (max tokens). Default 896.
+.PARAMETER LocalMaxTokens
+Maximum tokens a local model may generate for one message. Default 896.
 
 .PARAMETER ClaudeModel
 Claude model used by the Claude Code CLI fallback. Default: sonnet
@@ -36,8 +51,13 @@ Claude model used by the Claude Code CLI fallback. Default: sonnet
 .PARAMETER ClaudeTimeoutMs
 Timeout (ms) for each Claude CLI invocation. Default 300000.
 
-.PARAMETER MaxDiffCharsPerRepo
-Maximum prompt characters of tracked diff context to include per repo.
+.PARAMETER MaxDiffCharsPerCommit
+Maximum prompt characters of diff context sent to the model for one change set.
+
+.PARAMETER MaxCommitsPerRepo
+Upper bound on themed commits per repo (default 8); past it the smallest change
+sets are folded into one "other changes" commit. 1 commits each repo as a single
+change.
 
 .PARAMETER DryRun
 Generate and print commit messages but do not commit or push.
@@ -91,24 +111,28 @@ Force the Claude Code CLI as the message source.
 .EXAMPLE
 .\commit-and-push.ps1 -DryRun
 Print the generated messages without committing.
+
+.EXAMPLE
+.\commit-and-push.ps1 -LocalHosts 'openai:http://10.94.0.102:8000=nvidia/nemotron-3-super', 'ollama:http://10.94.0.101:11434=qwen3-coder:30b-ctx32k'
+Use only these hosts, in this order: the GX10's vLLM server first, then the T7920.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [ValidateSet('auto', 'ollama', 'claude')]
+    [ValidateSet('auto', 'local', 'claude')]
     [string]$MessageSource = 'auto',
 
     [Parameter(Mandatory = $false)]
-    [string]$OllamaBaseUrl = 'http://10.94.0.100:11434',
+    [string[]]$LocalHosts = @(),
 
     [Parameter(Mandatory = $false)]
-    [string]$OllamaModel = 'qwen3-coder:30b-ctx32k',
+    [int]$LocalTimeoutMs = 180000,
 
     [Parameter(Mandatory = $false)]
-    [int]$OllamaTimeoutMs = 180000,
+    [int]$LocalLoadTimeoutMs = 900000,
 
     [Parameter(Mandatory = $false)]
-    [int]$OllamaNumPredict = 896,
+    [int]$LocalMaxTokens = 896,
 
     [Parameter(Mandatory = $false)]
     [string]$ClaudeModel = 'sonnet',
@@ -117,7 +141,11 @@ param(
     [int]$ClaudeTimeoutMs = 300000,
 
     [Parameter(Mandatory = $false)]
-    [int]$MaxDiffCharsPerRepo = 45000,
+    [int]$MaxDiffCharsPerCommit = 45000,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateRange(1, [int]::MaxValue)]
+    [int]$MaxCommitsPerRepo = 8,
 
     [switch]$DryRun,
 
@@ -146,14 +174,20 @@ $pythonExe = if (Test-Path -LiteralPath $venvPython) { $venvPython } else { 'pyt
 $pyArgs = @(
     $pythonScript,
     '--message-source', $MessageSource,
-    '--ollama-base-url', $OllamaBaseUrl,
-    '--ollama-model', $OllamaModel,
-    '--ollama-timeout-ms', $OllamaTimeoutMs,
-    '--ollama-num-predict', $OllamaNumPredict,
+    '--local-timeout-ms', $LocalTimeoutMs,
+    '--local-load-timeout-ms', $LocalLoadTimeoutMs,
+    '--local-max-tokens', $LocalMaxTokens,
     '--claude-model', $ClaudeModel,
     '--claude-timeout-ms', $ClaudeTimeoutMs,
-    '--max-diff-chars-per-repo', $MaxDiffCharsPerRepo
+    '--max-diff-chars-per-commit', $MaxDiffCharsPerCommit,
+    '--max-commits-per-repo', $MaxCommitsPerRepo
 )
+
+# The default host list lives only in commit-and-push.py; it is overridden only when
+# -LocalHosts is passed.
+foreach ($localHost in $LocalHosts) {
+    $pyArgs += @('--local-host', $localHost)
+}
 
 if ($DryRun) {
     $pyArgs += '--dry-run'

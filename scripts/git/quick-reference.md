@@ -33,18 +33,18 @@ Pulls all git repositories under the workspace root.
 
 ## `git\commit-and-push.ps1`
 
-**One-pass commit-and-push across all Datrix repos.** For every repo with uncommitted changes, it generates a commit message and then stages, commits, and pushes it. No `commit-messages.json` is written. The message source is chosen automatically: if a local Ollama endpoint is reachable, messages come from the local model; otherwise it falls back to the Claude Code CLI. Stops on the first git failure.
+**One-pass commit-and-push across all Datrix repos.** For every repo with uncommitted changes, it splits the changes into themed change sets by area (a module and its tests together), generates one message per set, commits each set separately, and pushes the repo once. No `commit-messages.json` is written. The message source is chosen automatically: the local model hosts (Ollama, or OpenAI-compatible such as vLLM) are tried in order, each running its own model, and the first one that answers and serves its model generates the messages (a host that fails hands over to the next); if none is usable, it falls back to the Claude Code CLI, run with no tools. Subjects are held to 72 characters. Stops on the first git failure.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Auto (default)** | `.\git\commit-and-push.ps1` | Ollama if reachable, else Claude; commit + push |
-| **Force local model** | `.\git\commit-and-push.ps1 -MessageSource ollama` | Require Ollama; error if unreachable |
+| **Auto (default)** | `.\git\commit-and-push.ps1` | First usable local host, else Claude; commit + push |
+| **Force local model** | `.\git\commit-and-push.ps1 -MessageSource local` | Require a local host; error if none can serve its model |
 | **Force Claude** | `.\git\commit-and-push.ps1 -MessageSource claude` | Use the Claude Code CLI |
 | **Preview only** | `.\git\commit-and-push.ps1 -DryRun` | Print generated messages; do not commit |
 
-**Parameters:** `-MessageSource` (`auto`\|`ollama`\|`claude`, default `auto`), `-OllamaBaseUrl`, `-OllamaModel`, `-OllamaTimeoutMs`, `-OllamaNumPredict`, `-ClaudeModel`, `-ClaudeTimeoutMs`, `-MaxDiffCharsPerRepo`, `-DryRun`, `-SkipCustomerDomainCheck`, `-SkipIgnoredSourceCheck`, `-SkipPolyStringCaseCheck`
+**Parameters:** `-MessageSource` (`auto`\|`local`\|`claude`, default `auto`), `-LocalHosts` (`API:URL=MODEL`, API `ollama` or `openai`, preference order; default T5820 and T7920 via Ollama, GX10 via vLLM), `-LocalTimeoutMs`, `-LocalLoadTimeoutMs`, `-LocalMaxTokens`, `-ClaudeModel`, `-ClaudeTimeoutMs`, `-MaxDiffCharsPerCommit`, `-MaxCommitsPerRepo` (default 8; 1 = one commit per repo), `-DryRun`, `-SkipCustomerDomainCheck`, `-SkipIgnoredSourceCheck`, `-SkipPolyStringCaseCheck`
 
-**Prerequisites:** For the Claude fallback, the Claude Code CLI must be installed and available in PATH (`claude` command). For the Ollama path, the configured Ollama endpoint must be reachable.
+**Prerequisites:** For the Claude fallback, the Claude Code CLI must be installed and available in PATH (`claude` command). For the local path, at least one configured local host must be reachable and serve its model.
 
 ### Customer-domain isolation runs first
 
