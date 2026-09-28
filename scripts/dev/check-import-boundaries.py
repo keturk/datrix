@@ -328,6 +328,15 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         # per-queue override the emitters honoured. Pure config arithmetic over
         # ``QueueConfig``, no language-shaped surface.
         "datrix_codegen_common.algorithms.queue_overrides",
+        # WHICH of a service's async-handler sources a Functions host realizes
+        # (serverless blocks, service-level subscriptions / enqueue consumers /
+        # scheduled jobs, gated by ``hosting: inProcess``). THE SAME FACT crosses
+        # both axes: a Functions-hosting platform provisions and deploys exactly
+        # these handlers, and a language wires its function registrations into
+        # its project for exactly these -- one predicate, so the two can never
+        # disagree about which handlers run on the Function App. Pure DSL-model
+        # predicates, no language-shaped surface.
+        "datrix_codegen_common.algorithms.function_app_hosting",
     ]
 )
 
@@ -4131,6 +4140,7 @@ def _self_test_allowed_denied_subtrees(rules: dict[str, BoundaryRule]) -> bool:
             "datrix_codegen_common.algorithms.cqrs_projection_receivers",
             "datrix_codegen_common.generation.raise_site_guards",
             "datrix_codegen_common.algorithms.queue_overrides",
+            "datrix_codegen_common.algorithms.function_app_hosting",
         ]
     )
     ok &= _check(
@@ -4155,6 +4165,7 @@ def _self_test_allowed_denied_subtrees(rules: dict[str, BoundaryRule]) -> bool:
         "datrix_codegen_common.algorithms.cqrs_projection_receivers",
         "datrix_codegen_common.generation.raise_site_guards",
         "datrix_codegen_common.algorithms.queue_overrides",
+        "datrix_codegen_common.algorithms.function_app_hosting",
     )
     for imported in allowed_cases:
         ok &= _check(
