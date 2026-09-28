@@ -200,6 +200,12 @@ service shop.StorefrontService('config/storefront-service.dcfg')
             String reference;
         }
 
+        // Reads one order (a GraphQL schema always has a query root).
+        query getOrder(UUID id) -> OrderType {
+            let storeDb.Order order = storeDb.Order.findOrFail(id);
+            return order;
+        }
+
         // Pushes the watched order to the subscribed customer on each OrderUpdated event.
         subscription onOrderUpdated(UUID orderId) -> OrderType on OrderUpdated {
             let storeDb.Order order = storeDb.Order.findById(orderId);
