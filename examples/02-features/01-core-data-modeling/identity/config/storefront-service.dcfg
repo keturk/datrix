@@ -33,6 +33,18 @@
       volumePath = "/var/lib/postgresql/data";
       defaultUser = "postgres";
     }
+    pubsub orderEvents {
+      engine = "kafka";
+      flavor = "container";
+      brokers = ["localhost:9092"];
+      partitions = 3;
+      replicationFactor = 1;
+      retention = "7d";
+      port = 9092;
+      controllerPort = 9093;
+      dockerImage = "confluentinc/cp-kafka:7.6.0";
+      volumePath = "/var/lib/kafka/data";
+    }
     registration {
       tags = ["api", "shop", "identity", "v1"];
       meta = {};

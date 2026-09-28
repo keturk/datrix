@@ -99,6 +99,14 @@ service shop.StorefrontService('config/storefront-service.dcfg')
         }
     }
 
+    // Order lifecycle events. The GraphQL subscription below pushes each
+    // OrderUpdated event to the subscribed customer.
+    pubsub orderEvents {
+        topic OrderEvents {
+            publish OrderUpdated(UUID orderId);
+        }
+    }
+
     rest_api StorefrontAPI : basePath("/api/v1"), rdbms(storeDb) {
         // Anonymous catalogue browsing.
         resource storeDb.Product : only(list, get), auth(public);
@@ -192,8 +200,8 @@ service shop.StorefrontService('config/storefront-service.dcfg')
             String reference;
         }
 
-        // Pushes the watched order to the subscribed customer.
-        subscription onOrderUpdated(UUID orderId) -> OrderType {
+        // Pushes the watched order to the subscribed customer on each OrderUpdated event.
+        subscription onOrderUpdated(UUID orderId) -> OrderType on OrderUpdated {
             let storeDb.Order order = storeDb.Order.findById(orderId);
             return order;
         }
