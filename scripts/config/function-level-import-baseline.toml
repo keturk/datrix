@@ -85,6 +85,10 @@ file = "datrix-common/src/datrix_common/config/integrations/detection.py"
 count = 5
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/config/integrations/notification_vendor_profile.py"
+count = 1
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/config/integrations/provisioning.py"
 count = 3
 
@@ -105,10 +109,6 @@ file = "datrix-common/src/datrix_common/config_resolution.py"
 count = 30
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/cross_service/named_call_type_annotator.py"
-count = 2
-
-[[baseline]]
 file = "datrix-common/src/datrix_common/cross_service/registry_builder.py"
 count = 1
 
@@ -127,6 +127,10 @@ count = 19
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/blocks.py"
 count = 9
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/cache_connection_scope.py"
+count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/callables.py"
@@ -193,12 +197,20 @@ file = "datrix-common/src/datrix_common/datrix_model/service_accessors.py"
 count = 16
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/service_pubsub_scope.py"
+count = 3
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/shared_accessors.py"
 count = 5
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/storage_bindings.py"
 count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/storage_identity.py"
+count = 5
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/visitor_protocols.py"
@@ -228,10 +240,6 @@ count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/app_context.py"
-count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/generation/cache_connection_scope.py"
 count = 1
 
 [[baseline]]
@@ -291,10 +299,6 @@ file = "datrix-common/src/datrix_common/generation/nested_collection_routes.py"
 count = 5
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/notification_vendor_profile.py"
-count = 1
-
-[[baseline]]
 file = "datrix-common/src/datrix_common/generation/orchestrator.py"
 count = 11
 
@@ -317,10 +321,6 @@ count = 2
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/search_compose.py"
 count = 2
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/generation/service_pubsub_scope.py"
-count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/snapshot.py"
@@ -483,6 +483,10 @@ file = "datrix-common/src/datrix_common/semantic/inheritance.py"
 count = 1
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/semantic/named_call_type_annotator.py"
+count = 2
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/semantic/pipeline/keys.py"
 count = 1
 
@@ -508,10 +512,6 @@ count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/stdlib_integration.py"
-count = 5
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/semantic/storage_identity.py"
 count = 5
 
 [[baseline]]

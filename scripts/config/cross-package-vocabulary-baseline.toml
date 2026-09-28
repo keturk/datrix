@@ -549,6 +549,15 @@ file = "datrix-common/src/datrix_common/datrix_model/constants.py"
 count = 2
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/entity_query_models.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/ui_derivation.py"
+count = 1
+reason = "TEMPORAL_INPUT_KIND_BY_SCALAR_NAME: the UI input kind (date/dateTime/time) each temporal scalar derives to, the one table the UI derivation and the UI validator both read. Its key set (Date, DateTime, Time) coincides with Python's cross-field test inference set and the migration canonicalizer's timestamp category because every one enumerates the DSL's temporal scalars; each maps them to a different fact of its own subsystem."
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/deployment/azure_naming.py"
 count = 1
 
@@ -610,11 +619,6 @@ file = "datrix-common/src/datrix_common/semantic/code_body_validator.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/ui_derivation.py"
-count = 1
-reason = "TEMPORAL_INPUT_KIND_BY_SCALAR_NAME: the UI input kind (date/dateTime/time) each temporal scalar derives to, the one table the UI derivation and the UI validator both read. Its key set (Date, DateTime, Time) coincides with Python's cross-field test inference set and the migration canonicalizer's timestamp category because every one enumerates the DSL's temporal scalars; each maps them to a different fact of its own subsystem."
-
-[[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/contract.py"
 count = 1
 
@@ -642,10 +646,6 @@ count = 1
 [[baseline]]
 file = "datrix-common/src/datrix_common/transpiler/base.py"
 count = 3
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/transpiler/entity_query_models.py"
-count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/types/constraints.py"

@@ -11,3 +11,271 @@
 #   [[baseline]]
 #   file = "path/relative/to/monorepo-root, forward slashes"
 #   count = <int>
+#
+# The loader/writer below (load_target_literal_baseline/write_target_literal_baseline)
+# does not parse or round-trip a `reason` TOML key -- `--update-baseline` fully
+# regenerates this file from a fresh scan, so a reason lives as a `#`-comment line
+# directly above its `[[baseline]]` block instead (matching this header's own
+# comment style); re-running `--update-baseline` preserves every entry's COUNT
+# faithfully but does not carry a comment forward -- restore it by hand if that
+# ever happens.
+#
+# Every entry below was added by the derived-shared-package-classification
+# change: the I1 scan scope moved from a hardcoded 3-name tuple to the derived
+# shared-package set (every discovered package registering none of
+# datrix.languages/datrix.platforms/datrix.generators/datrix.extensions), and
+# the scan gained a platform-token identifier/module-name shape match
+# alongside the pre-existing frozen central-table-name match. Both changes
+# surfaced real, pre-existing identifiers the narrower scan and the narrower
+# match could not see before; none of them is new code written by that
+# change.
+
+# reason: documented platform-identity config-schema model (AwsPlatformConfig-shaped
+# Pydantic fields/classes) -- G2 (-CheckSharedTargetNames) already excludes
+# datrix_common from its identical identifier-shape scan for the same reason
+# (documented public config-schema API); relocating this schema out of the shared
+# layer is a separate architectural decision, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/platform/aws.py"
+count = 30
+
+# reason: documented platform-identity config-schema model (AzurePlatformConfig-shaped
+# Pydantic fields/classes) -- G2 (-CheckSharedTargetNames) already excludes
+# datrix_common from its identical identifier-shape scan for the same reason
+# (documented public config-schema API); relocating this schema out of the shared
+# layer is a separate architectural decision, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/platform/azure.py"
+count = 42
+
+# reason: documented platform-identity config-schema model (AzurePlatformConfig-shaped
+# Pydantic fields/classes for the Azure VM target) -- G2 already excludes datrix_common
+# from its identical identifier-shape scan for the same reason (documented public
+# config-schema API); relocating this schema out of the shared layer is a separate
+# architectural decision, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/platform/azure_vm.py"
+count = 16
+
+# reason: documented platform-identity config-schema model (DockerPlatformConfig-shaped
+# Pydantic fields/classes) -- G2 already excludes datrix_common from its identical
+# identifier-shape scan for the same reason (documented public config-schema API);
+# relocating this schema out of the shared layer is a separate architectural
+# decision, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/platform/docker.py"
+count = 19
+
+# reason: the shared project-config model's platform-config union (Aws/Azure/AzureVm/
+# DockerPlatformConfig references and platform-named fields) -- same documented
+# config-schema surface as config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/project/models.py"
+count = 11
+
+# reason: shared system-config model referencing the same documented platform-config
+# union (Aws/Azure/DockerPlatformConfig) as config/project/models.py, not this
+# task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/system_config/models.py"
+count = 12
+
+# reason: shared data-source config model with platform-named fields (Aws/Azure/
+# Docker-specific connection settings), part of the same documented config-schema
+# surface as config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/datasource/models.py"
+count = 5
+
+# reason: shared third-party integrations config model with platform-named fields
+# (e.g. Azure-hosted vs AWS-hosted integration endpoints), part of the same
+# documented config-schema surface as config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/integrations/models.py"
+count = 5
+
+# reason: shared CDN config model with platform-named fields (Azure Front Door /
+# AWS CloudFront-shaped settings), part of the same documented config-schema
+# surface as config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/cdn/models.py"
+count = 3
+
+# reason: shared observability config model with platform-named fields
+# (Azure Monitor / AWS CloudWatch-shaped settings), part of the same documented
+# config-schema surface as config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/observability/models.py"
+count = 3
+
+# reason: shared config-store model with platform-named fields (Azure App
+# Configuration / AWS-equivalent settings), part of the same documented
+# config-schema surface as config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/config_store/models.py"
+count = 2
+
+# reason: shared storage config model with platform-named fields (Azure Blob /
+# AWS S3-shaped settings), part of the same documented config-schema surface as
+# config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/storage/models.py"
+count = 2
+
+# reason: shared serverless config model with platform-named fields (Azure
+# Functions / AWS Lambda-shaped settings), part of the same documented
+# config-schema surface as config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/serverless/models.py"
+count = 3
+
+# reason: shared runtime-identity model referencing the platform-config union
+# (Aws/Azure/DockerPlatformConfig), part of the same documented config-schema
+# surface as config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/runtime_identity.py"
+count = 3
+
+# reason: single platform-named default constant in the shared deployment-defaults
+# module (mirrors the config/platform/*.py config-schema surface), not this
+# task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/deployment_defaults.py"
+count = 1
+
+# reason: single platform-named default constant in the shared engine-defaults
+# module (docker_image-shaped field), mirrors the config/platform/*.py
+# config-schema surface, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/engine_defaults.py"
+count = 1
+
+# reason: shared deployment-identity model referencing platform-named types
+# (Aws/AzurePlatformConfig), part of the same documented config-schema surface
+# as config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/identity/deployment_context.py"
+count = 1
+
+# reason: shared deployment-plan-artifact model referencing platform-named types
+# (Aws/AzurePlatformConfig), part of the same documented config-schema surface
+# as config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/identity/plan_artifact.py"
+count = 3
+
+# reason: Azure App Service/Flexible-Server resource-naming helpers (2 identifier
+# hits + the module's own path matching the new module-name shape match);
+# scheduled for relocation out of the shared layer to the owning platform
+# package as part of ongoing platform-package boundary work, not this task's
+# scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/deployment/azure_naming.py"
+count = 4
+
+# reason: shared deployment runtime-bootstrap module referencing every platform's
+# runtime id (docker-compose/AZURE_APP_SERVICE/aws), part of the same documented
+# config-schema surface as config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/deployment/runtime_bootstrap.py"
+count = 4
+
+# reason: shared secret-backend module's platform-named backend constants
+# (AWS_SECRETS_MANAGER/AZURE_KEY_VAULT/DOCKER_SECRET), the secret-backend
+# identity vocabulary every platform plugs into, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/deployment/secret_backend.py"
+count = 3
+
+# reason: shared doc-generator module referencing platform ids (AZURE_PLATFORM_ID
+# and friends) to label generated docs per target, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/doc_generator.py"
+count = 2
+
+# reason: single platform-named reference in the shared language-runtime-spec
+# module (DockerPlatformConfig), part of the same documented config-schema
+# surface as config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/language_runtime_spec.py"
+count = 1
+
+# reason: single Azure-named constant in the shared search-compose module
+# (AZURE_AI_SEARCH), a real third-party search-provider id, not this task's
+# scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/search_compose.py"
+count = 1
+
+# reason: single docker-named path helper in the shared paths module
+# (docker_image-shaped path), part of the same documented config-schema
+# surface as config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/paths.py"
+count = 1
+
+# reason: pre-existing Azure Flexible Server / AWS RDBMS connection-limit tables
+# in a shared semantic validator (azure_flex_max_connections and its sibling
+# per-provider ceiling constants) -- provider-specific tables living in the
+# shared layer, scheduled for relocation to the owning platform package, not
+# this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/pooling_rdbms.py"
+count = 4
+
+# reason: single docker-named helper in the shared test-context fixtures module,
+# part of the same documented config-schema surface as config/platform/*.py,
+# not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/context.py"
+count = 1
+
+# reason: shared generation-determinism test fixtures with platform-named helper
+# functions (per-provider infra-sizing/upgrade/parse helpers exercised across
+# AWS and Azure fixtures), not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/determinism_fixtures.py"
+count = 7
+
+# reason: single platform-named identity example in the shared testing fixtures
+# module, part of the same documented config-schema surface as
+# config/platform/*.py, not this task's scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/identity_example.py"
+count = 1
+
+# reason: shared testing infra-constants module's repeated docker_image-typed
+# field declarations across its fixture dataclasses, part of the same
+# documented config-schema surface as config/platform/*.py, not this task's
+# scope.
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/infra_constants.py"
+count = 12
+
+# reason: references datrix_common's documented AzurePlatformConfig type
+# (an isinstance type-directed lookup), the same documented config-schema
+# surface config/platform/*.py declares, not this task's scope.
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/service_predicates.py"
+count = 1
+
+# reason: single docker-named secret-mount-prefix constant
+# (_DOCKER_SECRET_MOUNT_PREFIX) in the shared secret-manifest builder, target-
+# neutral secret-management infra naming a platform's own mount convention,
+# not this task's scope.
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/secrets/manifest_builder.py"
+count = 1
+
+# reason: both hits are `tree_sitter.Language` (the third-party tree-sitter
+# parser library's own class, imported and referenced under its own name at
+# parser.py:114,163) colliding with the frozen central-table name "Language" --
+# not a reference to datrix's retired target-identity enum. A first-time hit
+# because datrix_language was outside the OLD hardcoded 3-package scan scope;
+# the derived shared-package set now correctly includes it (it registers no
+# datrix.languages/datrix.platforms/datrix.generators/datrix.extensions entry
+# point of its own), and this is a genuine identifier-name collision, not a
+# policy leak, so it is grandfathered rather than renamed.
+[[baseline]]
+file = "datrix-language/src/datrix_language/parser/tree_sitter_datrix/parser.py"
+count = 2
