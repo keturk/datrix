@@ -42,6 +42,7 @@ import argparse
 import ast
 import base64
 import datetime
+import functools
 import io
 import ipaddress
 import json
@@ -109,6 +110,18 @@ from datrix_common.generation.client_output import client_target_subtree  # noqa
 from datrix_common.generation.deployment_lifecycle import VERB_DEPLOY  # noqa: E402
 from datrix_common.generation.validation_level import ValidationLevel  # noqa: E402
 from datrix_common.plugin.identity import LanguageId  # noqa: E402
+
+# The roles a bearer token must carry are read from the fixture's own analyzed
+# application -- the per-route auth contracts every generator renders -- since
+# the identity provider plan carries providers only.
+from datrix_common.config_resolution import (  # noqa: E402
+    resolve_service_configs,
+    resolve_system_config,
+)
+from datrix_common.datrix_model.auth_contract import AuthMode  # noqa: E402
+from datrix_common.datrix_model.enumeration import enumerate_rest_endpoints  # noqa: E402
+from datrix_common.semantic import SemanticAnalyzer  # noqa: E402
+from datrix_language.parser import TreeSitterParser  # noqa: E402
 from datrix_language.registration import register_all  # noqa: E402
 
 # `GenerationPipeline.run()` parses real `.dtrx` source, which needs the stdlib
@@ -1195,7 +1208,8 @@ class TokenIssuance:
         algorithm: Signing algorithm both the provider's allow-list and the
             JWKS entry name.
         role_claim_path: Dotted claim path the provider reads roles from.
-        roles: Roles the emitted plan's surfaces require of this provider.
+        roles: Roles the fixture's authenticated routes demand, in this
+            provider's own spelling.
         private_key_file: The provisioned private key the stack mounts.
     """
 
@@ -1306,20 +1320,55 @@ def _jwk_holds(jwk: object, private_key: RSAPrivateKey) -> bool:
     )
 
 
-def _required_roles(plan: dict[str, object], provider_name: str, provider: dict[str, object]) -> tuple[str, ...]:
-    """Return the roles the plan's surfaces demand of *provider_name*, in its own spelling.
+@functools.lru_cache(maxsize=1)
+def fixture_demanded_roles() -> frozenset[str]:
+    """Return every Datrix role an authenticated REST route of the fixture demands.
+
+    The identity provider plan carries providers only; which roles a route
+    requires is enforced by the auth contract emitted with that route. So the
+    roles a bearer token must carry to exercise every route are read from the
+    same source the generators render those contracts from: the fixture's own
+    analyzed application, one ``AuthContract`` per REST endpoint.
+
+    Roles are any-of per route, so a token carrying the union of every route's
+    roles satisfies each role check; a route whose provider allow-list excludes
+    the token's provider refuses it on the provider check regardless.
+
+    Raises:
+        EmittedArtifactDefect: If the fixture does not analyze cleanly -- the
+            gate cannot know which roles to mint without it.
+    """
+    source = FIXTURE_SOURCE.resolve()
+    parsed = TreeSitterParser().parse_file(source)
+    # The same pre-analysis resolution generation performs: validators read
+    # both the system config and every service config during analysis.
+    resolve_system_config(parsed, source.parent, FIXTURE_PROFILE)
+    resolve_service_configs(parsed, source.parent, FIXTURE_PROFILE)
+    result = SemanticAnalyzer().analyze(parsed)
+    if not result.is_valid:
+        errors = "; ".join(f"{d.code}: {d.message}" for d in result.errors)
+        raise EmittedArtifactDefect(
+            f"The fixture {source} does not pass semantic analysis for profile "
+            f"{FIXTURE_PROFILE!r}, so the roles its routes demand cannot be read: {errors}. "
+            f"Expected the adopted fixture to analyze cleanly, as generation requires."
+        )
+    demanded: set[str] = set()
+    for ownership in enumerate_rest_endpoints(result.app):
+        contract = ownership.endpoint.auth_contract
+        if contract.mode in (AuthMode.PUBLIC, AuthMode.WEBHOOK):
+            continue
+        demanded.update(contract.roles)
+    logger.info("fixture routes demand roles %s", sorted(demanded))
+    return frozenset(demanded)
+
+
+def _required_roles(demanded: frozenset[str], provider: dict[str, object]) -> tuple[str, ...]:
+    """Return *demanded* Datrix roles in *provider*'s own spelling.
 
     ``roleMappings`` maps a provider-issued role name onto the Datrix role a
-    surface names, so the token has to carry the provider-side spelling. A role
+    route names, so the token has to carry the provider-side spelling. A role
     the provider does not remap passes through unchanged.
     """
-    surfaces = plan.get("surfaces")
-    demanded: set[str] = set()
-    if isinstance(surfaces, dict):
-        for surface in surfaces.values():
-            if not isinstance(surface, dict) or provider_name not in (surface.get("providers") or []):
-                continue
-            demanded.update(str(role) for role in surface.get("roles") or [])
     mappings = provider.get("roleMappings")
     provider_spelling = (
         {str(datrix): str(issued) for issued, datrix in mappings.items()}
@@ -1460,7 +1509,7 @@ def plan_token_issuance(project_dir: Path) -> TokenIssuance:
                 if isinstance(role_source, dict)
                 else DEFAULT_ROLE_CLAIM_PATH
             ),
-            roles=_required_roles(plan, str(name), provider),
+            roles=_required_roles(fixture_demanded_roles(), provider),
             private_key_file=private_key_file,
         )
         logger.info(
