@@ -1057,17 +1057,13 @@ function Get-DatrixPackages {
  here. A repo that has been cloned but not yet populated has no pyproject.toml and is
  correctly skipped until it does.
 
- The foundation packages are installed first, in the order the dependency graph requires;
- every other discovered package follows in sorted order.
+ Install order is DERIVED, not hand-kept: a topological sort (Kahn's algorithm, ties broken
+ alphabetically) over each discovered package's declared datrix-* [project.dependencies],
+ computed by scripts/library/common/install_order.py. A cycle, or a declared datrix-*
+ dependency missing from disk, throws naming every package involved -- this function never
+ silently falls back to alphabetical order.
  #>
  $datrixRoot = Get-DatrixRoot
-
- $foundationOrder = @(
- "datrix-common",
- "datrix-language",
- "datrix-codegen-common",
- "datrix-cli"
- )
 
  $installable = @()
  Get-ChildItem -Path $datrixRoot -Directory |
@@ -1077,19 +1073,24 @@ function Get-DatrixPackages {
  } |
  ForEach-Object { $installable += $_.Name }
 
- $ordered = @()
- foreach ($name in $foundationOrder) {
- if ($installable -contains $name) {
- $ordered += $name
- }
- }
- foreach ($name in ($installable | Sort-Object)) {
- if ($ordered -notcontains $name) {
- $ordered += $name
- }
+ if ($installable.Count -eq 0) {
+ return @()
  }
 
- return $ordered
+ $orderScript = Join-Path $datrixRoot "datrix\scripts\library\common\install_order.py"
+ $venvPath = Get-DatrixVenvPath
+ $pythonExe = Join-Path $venvPath "Scripts\python.exe"
+ if (-not (Test-Path $pythonExe)) {
+ $pythonExe = "python"
+ }
+
+ $orderArgs = @($orderScript, "--workspace-root", $datrixRoot, "--packages") + $installable
+ $orderJson = & $pythonExe @orderArgs 2>&1
+ if ($LASTEXITCODE -ne 0) {
+ throw "Failed to compute Datrix package install order: $orderJson"
+ }
+
+ return @($orderJson | ConvertFrom-Json)
 }
 
 # Get install marker path for a package
