@@ -780,10 +780,34 @@ same-behaviour role, one divergent role, one role split only by a language token
 unified only by shared-typed signature) must land in exactly its bucket, a single-target tree
 must be refused, a two-group divergent role must fail naming both groups and pass once the odd
 group's package declares the construct unsupported, and the bucket labels printed must be
-exactly `identical` / `same-behaviour` / `divergent`.
+exactly `identical` / `same-behaviour` / `divergent`. The fingerprint pass's own non-vacuity is
+checked the same way: a renamed cross-language pair must be reported, and a covered pair (same
+name in both packages), an under-size pair, a no-model-attribute-read pair, and a pair of renamed
+copies inside one package must not.
 
 **The platform axis (`-Axis platforms`) is report-only and never fails** — the platform packages
 realize different infrastructure by design.
+
+**Fingerprint pass (report-only, `-Fingerprint`).** The role/name grouping above only compares
+functions that already share a signature or normalized-name role; a parallel implementation each
+language wrote under an unrelated name, with no shared return type, lands in a single-package
+role and is never compared. `-Fingerprint` adds a second, independent pass over exactly those
+uncovered functions — members of a role with fewer than 2 distinct member packages, minus
+pre-binding adapters and rendering leaves — grouping them across packages by a **behaviour
+fingerprint**: the function's control shape (the ordered statement heads a skeleton renders —
+`if`/`for`/`return`/… — with every predicate, chain and operand dropped) paired with the set of
+model attribute names it reads (every `.attr` access rooted at a parameter or a derived root,
+never through `self` and never through a plain local). A skeleton under
+`FINGERPRINT_MIN_SKELETON_LINES` (6) lines, or a function reading no model attribute, is never a
+candidate. A surviving cross-package group is judged by the same `identical` / `same-behaviour` /
+`divergent` verdict rules a name/signature role uses — no second classifier — and labelled
+`match` (every member's skeleton text equal) or `near-match` (same shape and attributes, at least
+one member's skeleton text differs). The pass never reaches the exit code, the scope file, or
+`-Buckets`; it becomes gated only once its first measurement is worked down.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Fingerprint pass** | `.\test\behaviour-parity-gate.ps1 -Fingerprint` | Also report cross-package skeleton-fingerprint groups among functions no role covers (report-only; exit code unchanged) |
 
 **The language axis also covers every `transpiler_profile`-bearing frontend-client renderer.**
 Beside every `datrix.languages` package, the language axis compares every registered
@@ -803,7 +827,7 @@ plugin answers to the same name — never guessed from the bare registered name 
 | **Debug** | `.\test\behaviour-parity-gate.ps1 -Dbg` | Debug logging |
 | **Self-test only** | `.\test\behaviour-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test |
 
-**Parameters:** `-Axis <languages|platforms>` (default: languages), `-Scope <id,...>`, `-Buckets <id,...>`, `-Dbg`, `-SelfTest`
+**Parameters:** `-Axis <languages|platforms>` (default: languages), `-Scope <id,...>`, `-Buckets <id,...>`, `-Dbg`, `-SelfTest`, `-Fingerprint`
 
 **Exit codes:** 0 = no failing role in scope (or a successful `-SelfTest`, or `-Axis platforms`),
 1 = ≥1 failing role in scope, 2 = usage/discovery/parse error or the self-test failed.
