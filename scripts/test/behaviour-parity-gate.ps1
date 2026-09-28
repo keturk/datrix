@@ -15,9 +15,11 @@
  it splits into. The platform axis (-Axis platforms) is report-only and
  never fails.
 
- Runs a five-bucket non-vacuity self-test on every invocation. Exits 2 if
- fewer than two targets are registered on the chosen axis, or on a
- discovery/parse/self-test failure.
+ Runs a non-vacuity self-test on every invocation -- the five-bucket role
+ grouping/classification cases, and the fingerprint pass's own non-vacuity
+ (a planted renamed pair is reported; a covered, under-size, no-model-read
+ or single-package pair is not). Exits 2 if fewer than two targets are
+ registered on the chosen axis, or on a discovery/parse/self-test failure.
 
 .PARAMETER Axis
  "languages" (default) or "platforms".
@@ -41,6 +43,11 @@
 .PARAMETER SelfTest
  Run only the non-vacuity self-test and skip the real scan.
 
+.PARAMETER Fingerprint
+ Also run the report-only skeleton-fingerprint grouping pass: cross-package
+ groups of functions no name/signature role covers, judged by the same
+ verdict rules. Never changes the exit code.
+
 .EXAMPLE
  .\behaviour-parity-gate.ps1 -Axis languages
 
@@ -52,6 +59,9 @@
 
 .EXAMPLE
  .\behaviour-parity-gate.ps1 -Axis platforms -Dbg
+
+.EXAMPLE
+ .\behaviour-parity-gate.ps1 -Fingerprint
 #>
 
 [CmdletBinding()]
@@ -70,7 +80,10 @@ param(
     [switch]$Dbg,
 
     [Parameter()]
-    [switch]$SelfTest
+    [switch]$SelfTest,
+
+    [Parameter()]
+    [switch]$Fingerprint
 )
 
 $ErrorActionPreference = "Stop"
@@ -107,6 +120,7 @@ try {
     if ($Buckets) { $pythonArgs += "--buckets"; $pythonArgs += ($Buckets -join ",") }
     if ($Dbg) { $pythonArgs += "--debug" }
     if ($SelfTest) { $pythonArgs += "--self-test" }
+    if ($Fingerprint) { $pythonArgs += "--fingerprint" }
 
     Write-Host "Running behaviour-parity gate on the $Axis axis" -ForegroundColor Cyan
     python @pythonArgs
