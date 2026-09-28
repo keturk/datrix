@@ -111,6 +111,7 @@ _SET_SHAPED_SCALAR_FIELDS: Final[tuple[str, ...]] = (
     "native_notification_vendors",
     "supported_gateway_types",
     "injected_test_identity_providers",
+    "websocket_upgrade_runtimes",
 )
 
 #: Surface-6 optional fields compared by WHOLE-VALUE truthy/non-None
