@@ -107,7 +107,7 @@ graph TD
 - **datrix-extensions** (depends on datrix-common) — Optional domain packs; **not** required by `datrix-cli` or generators unless you declare `use extension` and install the pack
 - **datrix-codegen-common** (depends on datrix-common) — Shared codegen intelligence: profile-driven transpiler, language-agnostic algorithms, context models, field analysis, parity checking, shared Grafana dashboard builder, GenDSL runtime, serverless/replayable-ingestion plans. Consumed by language codegen packages and by **all three** platform generators for its language-agnostic services.
 - **Language Code Generators** (depend on datrix-codegen-common, which depends on datrix-common) — Python and TypeScript today. The set is open: each new target language is one more peer package here, and a language generator never depends on a sibling language package.
-- **Other Code Generators** (depend on datrix-common and datrix-codegen-common) — SQL (GenDSL runtime, migration adapter contract, a narrow language-agnostic subtree set) and component (GenDSL runtime, derived domain declarations, serverless plans). **One language generator also depends on the SQL generator:** `datrix-codegen-typescript`'s MikroORM migration adapter renders DDL through `datrix_codegen_sql`'s dialect protocol, index constants, naming, and type map (`datrix-codegen-typescript/src/datrix_codegen_typescript/generators/persistence/mikroorm_migration_adapter.py`). That edge is declared in its manifest and is the only language→SQL edge in the tree; the other language packages render their migration DDL without it.
+- **Other Code Generators** (depend on datrix-common and datrix-codegen-common) — SQL (GenDSL runtime, migration adapter contract, a narrow language-agnostic subtree set) and component (GenDSL runtime, derived domain declarations, serverless plans). **Both language generators also depend on the SQL generator:** `datrix-codegen-typescript`'s MikroORM migration adapter renders DDL through `datrix_codegen_sql`'s dialect protocol, index constants, naming, and type map (`datrix-codegen-typescript/src/datrix_codegen_typescript/generators/persistence/mikroorm_migration_adapter.py`), and `datrix-codegen-python`'s migration generator reads its SQL type map (`datrix-codegen-python/src/datrix_codegen_python/generators/persistence/migration_generator.py:58`). Both edges are declared in the manifests. Decision 50 moves these SQL facts into the codegen kernel, which removes both edges.
 - **Platform Generators** (Docker, AWS, Azure) — all three depend on **datrix-codegen-common** for its language-agnostic platform services (GenDSL runtime, shared Grafana `DashboardBuilder`, serverless and replayable-ingestion plans, shared enums) as well as datrix-common. They must **not** import the language-specific parts of codegen-common (`transpiler.*`, language-shaped `context_models`/`algorithms`) or any language generator package — see the [platform → codegen-common subtree contract](../../../datrix-common/docs/architecture/import-boundaries.md#platform--codegen-common-subtree-contract).
 - **datrix-cli** (depends on datrix-common, datrix-language, and datrix-codegen-common — the migration and generator-inspection commands import the shared migration-state, migration-render, and GenDSL-definition surfaces lazily; owns `GenerationPipeline` orchestration; discovers generator plugins dynamically)
 
@@ -495,7 +495,7 @@ Provider-native runtimes are produced by their provider generator plus, where th
 - **`AuthContract` replaces `AccessLevel` + `Endpoint.required_roles`/`Endpoint.access_level`.** The legacy `AccessLevel` enum, the `Endpoint.access_level`/`Endpoint.required_roles` fields, and the `is_public`/`is_service_facing`/`is_authorized()` predicates in `datrix-common` are **deleted, not adapted**. The transformer lowers each surface's `auth(...)`/`verify(...)` modifiers to a frozen `AuthContract` (`mode`, `providers`, `roles`, `principalTypes`, `surfaceId`, `delegation`, `profile`, `verify`). The generated auth code drops `ROLE_HIERARCHY`/`_expand_roles` — a deliberate forward-only break: a token previously passing a check only via transitive role inclusion no longer passes unless it carries the literal role.
 - **Provider is the source of truth; the stable local id is deterministic by default.** Datrix never mints primary tokens. It validates provider tokens via issuer/audience/client/JWKS. The stable local user id is resolved by an explicit per-provider `localIdentity` strategy carried in the plan: the **default `deterministicUuid5`** computes `userId = uuidv5(c9a255a1-350b-4414-beb9-7f06f7dfd92d, "<provider>:<sub>")` — stateless, uniform across services, UUID-shaped, no tables and no first-auth upsert. The frozen namespace is defined once in `datrix-common` and read from the plan by both codegens (never redeclared). Server-side profile attributes + cross-IdP account linking are an **opt-in** feature: declaring `profileProjection { enabled = true; profileStore = <service>; }` selects `localIdentity = projected` **unless every field the block declares is `owner = "app"`** — such an all-app-owned block stays on its normal local-identity mode (`deterministicUuid5` for a human/customer realm) and injects no `IdentityProfile`/`IdentityLink`. A block with any `owner = "provider"` field, or an enabled block with no fields, resolves to `projected` as before, injecting the Datrix-managed `IdentityProfile` (+ `IdentityLink` keyed `(providerName, providerSubject)`) into the single **explicitly declared** store and upserting on first auth. Store resolution is fail-loud — a `projected` resolution with an unresolvable `profileStore` is a generation error, never a silent runtime disable. **Decision-13 amendment (write-back):** app-owned fields (`owner = "app"`, `syncOnAuth`) instead write the application's values into the provider's user metadata, which the provider re-surfaces as a token claim on the next authentication. Providers on the default path inject no identity tables; per-request attributes come from validated token claims (with `required` identityFields enforced 401-at-the-edge), and tenancy is app-owned via onboarding. Account linking is explicit and verified; weak email-only linking is forbidden.
 - **Opinionated per-target providers.** Docker → Zitadel (provisioned with project/organization import, clients, groups/roles, social providers — Google, GitHub, generic-OIDC); AWS → Cognito User Pool (app-level, per-service app client); Azure customer → Microsoft Entra External ID, Azure workforce → Microsoft Entra ID, Azure machine → user-assigned managed identity (app registration via the Microsoft Graph Bicep extension, never a `deploy-identity.sh` stub). `provider self` (`ProviderPlanEntry.mode="self"`) is a Datrix-managed Zitadel issuer realizable on Docker targets — Docker reuses existing Zitadel provisioning; a self-host Zitadel instance on a cloud target (AWS/Azure) raises a `GenerationError` (external mode must be used to consume a remotely-hosted Zitadel). `mode: external` consumes issuer/JWKS/audience/client and provisions nothing. Supported `(providerType, target, feature)` combinations are declared by each platform plugin on its own `PlatformCapabilityDeclaration` and resolved by one generic validator in `datrix-common`; unsupported combinations fail loud. (This originally read "a capability matrix in `datrix-common` is the authoritative source" — that central table was deleted by [Decision 22](#decision-22-open-world-identity-providers-and-infrastructure-flavors-adopted), which moved identity capability into the per-platform declarations.)
-- **Structured versioned provider plan.** A `config/generated/identity-providers.json` artifact (schema owned by `datrix-common`, one per application+environment) carries providers, surfaces, role/attribute mappings, revocation mode, and `*_SECRET_REF` names. Runtime guards resolve provider per surface by issuer from `plan.surfaces[surfaceId]` — never a hardcoded provider name. A non-secret public-client metadata artifact (`identity-client-<provider>.<env>.json`) is the only supported input for frontend login config. Secrets are logical secret-handle references only (reusing the declared `secrets` table + raw-secret hygiene), wired to platform-native secret stores; raw secrets never appear in source, manifests, logs, or docs.
+- **Structured versioned provider plan.** A `config/generated/identity-providers.json` artifact (schema owned by `datrix-common`, one per application+environment) carries providers, role/attribute mappings, revocation mode, and `*_SECRET_REF` names — and no per-surface map. Runtime token validation selects the provider by the token's issuer from `plan.providers` — never a hardcoded provider name — and each route or construct enforces the auth contract (providers, roles, principal types) emitted with it. The plan's `schemaVersion` is checked at load by every generated identity core, which refuses any version but the one it was generated for. A non-secret public-client metadata artifact (`identity-client-<provider>.<env>.json`) is the only supported input for frontend login config. Secrets are logical secret-handle references only (reusing the declared `secrets` table + raw-secret hygiene), wired to platform-native secret stores; raw secrets never appear in source, manifests, logs, or docs.
 - **Security-sensitive defaults fail closed.** Auth/JWKS-refresh failures, authorization-bearing cache reads/deletes (revocation, role mappings, identity links), and revocation checks reuse the existing `dependencyPolicy` model with `onFailure="raise"`/`"deny"` only (the model has no `fallback`). Error bodies are opaque (RFC 7807) and never leak issuer/audience/client/role/claim detail; structured reason codes go to logs only. WebSocket auth uses fixed close codes (4401 auth-failed/expired, 4403 forbidden) and clears membership/`Auth.*` state on expiry.
 
 **Enforcement (managed-only):** Authentication issuance is provider-owned, end to end. The `Auth` issuance builtin (`generateToken`/`verifyToken`/`hashPassword`/`verifyPassword`/`generateOtp`/`generateApiKey`/…) is **removed wholesale** — the only recognized authentication is a provider-issued token validated through `auth(...)`, and a provider (external *or* `provider self`) owns issuance. The Decision-13 `Auth.*` context views (`Auth.isAuthenticated`/`subject`/`identity.*`) are generated runtime, not that builtin, and stay. Non-authentication cryptography (signing, hashing, HMAC, secure random, opaque keys) belongs to the pre-existing `Crypto` builtin — the sanctioned non-auth surface, which produces signed/hashed data and never confers an `Auth.*` principal. Enforcement extends the existing legacy-auth-conflict and identity validators (`LegacyAuthManagedOnlyValidator`, `IdentityDanglingProviderValidator`, etc. — removed-issuance-builtin diagnostics, dangling-provider checks, a best-effort hand-rolled-auth heuristic) — no new validator class. The Python first-party local-validation short-circuit (`_validate_local_issuer_token`, the `iss == JWT_ISSUER` path) is removed; `provider self` tokens validate through the standard provider-plan/JWKS path like any provider (TypeScript never had such a path).
@@ -1899,6 +1899,100 @@ and it had one latent defect.
   routes inexpressible.
 
 **Status:** Approved — Implementation In Progress (approved 2026-09-24).
+
+---
+
+### Decision 50: Foundation Package Restructure — Smaller Shared Packages, Narrower Change Reach (Approved — Implementation In Progress)
+
+**Rationale:**
+
+Change reach is computed per package: the affected-set tool takes the reverse-dependency
+closure of each package's `[project.dependencies]`
+(`datrix/scripts/library/test/affected_set.py`). The two shared layers are each one package
+that every consumer takes whole, so an edit anywhere in either reaches every package
+downstream. Measured on 2026-09-27:
+
+- `datrix-common` held 133k lines and 11,946 of the workspace's 47,972 test functions (24.9%).
+  `datrix-language` imports only its model, errors, types and a little config, semantic and
+  stdlib — never its generation, transpiler or migration code, which carried most of its churn.
+- `datrix-codegen-common` held 87k lines. 44k of them were imported only by the language
+  generators; aws, azure, docker, sql and component together needed 24.7k (everything they import,
+  followed through the package). The language-shaped subtrees (`transpiler`, `orchestration`,
+  `algorithms`) carried most of its churn.
+- The platform "language-agnostic" boundary was enforced on direct imports only: three
+  platform-allowed modules (`enums`, `algorithms/cqrs_projection_receivers`, `rest_api_helpers`)
+  import forbidden language subtrees, so every platform loaded the language layer at runtime.
+- `datrix-codegen-angular` depended on the TypeScript backend generator through a dedicated
+  scanner allowlist, although Decision 43 invariant 11 says a frontend target never needs
+  the backend language package that shares its file language.
+- `datrix-common` could not be cut along its directories: 20 of its 33 top-level subpackages
+  form one import cycle, closed by about a dozen import sites — mostly pure derivations over the
+  model filed under `semantic`/`generation`.
+
+**Result:**
+
+- **D1 — Seven shared packages, each holding what its consumers share.**
+  - `datrix-common` (core): the model, config, types, builtins, errors, utils, plugin
+    declarations, deployment declarations, identity, approvals, cross-service registry, seed
+    model, stdlib loader.
+  - `datrix-semantic`: semantic analysis.
+  - `datrix-migration`: the schema-migration framework.
+  - `datrix-codegen-kernel`: what every generator shares — the generation framework, the GenDSL
+    engine, the shared provider library, pooling, dashboards, secrets, seed planning, parity
+    declaration types, the serverless plan, and SQL dialect facts.
+  - `datrix-codegen-common`: the language layer — the transpiler and everything only language
+    generators and frontend targets use.
+  - `datrix-codegen-typescript-core`: the TypeScript transpiler core, profile, type maps and web
+    client mechanics, shared by the TypeScript backend and TypeScript frontend targets.
+  - `datrix-testing`: shared test support, taken only as a test/dev extra.
+
+  Platforms, sql and component depend on core and kernel only. `datrix-language` depends on core
+  and semantic. The two packages with the largest inbound import volume keep their names.
+- **D2 — The core's cycle is broken in place first.** A module moves to the core when its
+  module-level imports are core-only and a core module or a non-language package reads it; a
+  pure derivation over the model lives beside the model. A module holding a core fact next to an
+  upper-layer one is split, never admitted whole.
+- **D3 — The core names upper-layer types through Protocols** it declares, the same inversion
+  the parser protocols use.
+- **D4 — Generation and transpiler code is placed by who uses it:** the nearest package every
+  consumer already depends on, plus everything a kernel module imports.
+- **D5 — Single-consumer modules move into their consumer; unreferenced code is deleted.**
+- **D6 — Stdlib `.dtrx` modules ship with `datrix-language`**, supplied to the core's loader
+  through the stdlib parser protocol.
+- **D7 — Tooling derives, never lists.** The shared-layer ratchets derive the shared set from
+  entry-point registration and refuse an unclassified package; install order is a topological
+  sort of declared dependencies; path-keyed baselines treat a move as a rename.
+- **D8 — Tests move with the code they test.** A test file lives in the package that owns every
+  production module it imports; a test importing two destination packages lives in the higher
+  one. A test that would import a sibling package is rewritten against a local test
+  implementation, never left behind with a cross-package import. A moved test keeps its feature
+  tags.
+
+**Invariants:**
+
+| # | Invariant | Check |
+|---|---|---|
+| I1 | No upward import from a lower layer, at runtime or under `TYPE_CHECKING` | import-linter `layers` contract per package, zero ignored edges; manifest-import parity gate |
+| I2 | Importing the core loads no generation, migration or semantic code | fresh-subprocess absolute assertion |
+| I3 | The kernel loads no language-layer module | fresh-subprocess assertion in the kernel |
+| I4 | Platforms, sql and component never depend on the language layer | manifests; the platform and SQL subtree allowlists are deleted |
+| I5 | No frontend target depends on a backend language package | manifests; the web-client allowlist is deleted |
+| I6 | Every shared package is covered by the shared-layer ratchets | derived shared set, fail-loud classification |
+| I7 | Exactly one import path per symbol | per-move negative check; no facade survives a phase |
+| I8 | Behaviour preserved | tagged tests of every reached package, per phase; conformance testkit drills |
+
+**Rejected:**
+
+- **One package for all generation and transpiler code.** The consumer split shows two
+  populations; one package would put every platform back in the path of transpiler churn.
+- **One distribution with a subpackage-aware affected-set tool.** No manifest-enforced
+  boundary; reach would rest on a mapping staying correct.
+- **Separating config from the model.** They are co-dependent by design.
+- **Moving the model into `datrix-language`.** Every generator reads it.
+
+**Status:** Approved — Implementation In Progress (approved 2026-09-27). Until each package is
+extracted, the dependency graph above and the package docs describe the tree as it is; each
+extraction updates them in the same change.
 
 ---
 

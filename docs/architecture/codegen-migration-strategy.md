@@ -185,7 +185,7 @@ def test_typescript_transpiler_satisfies_protocol():
 
 ### Migration Steps
 
-1. Add generalized `StorageEntityKey` and `StorageEntityBinding` to `datrix_common.generation.storage_identity`
+1. Add generalized `StorageEntityKey` and `StorageEntityBinding` to `datrix_common.datrix_model.storage_bindings` (the collection and resolution helpers over them live in `datrix_common.semantic.storage_identity`)
 2. Replace RDBMS-only binding helpers with generalized storage helpers
 3. Add default storage fields to `RestApi` and `GraphqlApi` AST nodes
 4. Extend API attribute parsing for `basePath`, `rdbms`, and `nosql`

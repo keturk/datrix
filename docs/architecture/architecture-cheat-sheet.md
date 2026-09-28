@@ -616,6 +616,25 @@ replay fixtures stays out of this phase.
 
 Full decision log: [Architecture Overview — Decision 46](./architecture-overview.md#decision-46-ai-agents--model-driven-tool-loops-as-a-declared-service-block-approved--implementation-in-progress).
 
+## Foundation Package Restructure — Smaller Shared Packages
+
+Change reach is computed per package, and the two shared layers were each one package every consumer took whole: an edit anywhere in `datrix-common` (24.9% of all tests) or `datrix-codegen-common` reached every package downstream, though most consumers used a small slice (platforms, SQL and component need 24.7k of codegen-common's 87k lines). The shared layers split into packages that each hold what their consumers share: `datrix-common` (core: model, config, types, plugin and deployment declarations), `datrix-semantic`, `datrix-migration`, `datrix-codegen-kernel` (generation framework, GenDSL, provider library, SQL facts — everything every generator needs), `datrix-codegen-common` (the language layer), `datrix-codegen-typescript-core` (TypeScript transpiler core and web-client mechanics), `datrix-testing` (test extra only). **Approved — implementation in progress; until each package is extracted, the Packages table above describes the tree as it is.**
+
+| # | Invariant | Check |
+|---|---|---|
+| I1 | No upward import from a lower layer, `TYPE_CHECKING` included | import-linter `layers` contract per package, zero ignored edges; manifest-import parity gate |
+| I2 | Importing the core loads no generation, migration or semantic code | fresh-subprocess absolute assertion |
+| I3 | The kernel loads no language-layer module | fresh-subprocess assertion in the kernel |
+| I4 | Platforms, SQL and component never depend on the language layer | manifests; the platform and SQL subtree allowlists are deleted, not kept |
+| I5 | No frontend target depends on a backend language package | manifests; the web-client allowlist is deleted |
+| I6 | Every shared package is covered by the shared-layer ratchets | derived shared set; an unclassified package fails the scan |
+| I7 | Exactly one import path per symbol | per-move negative check; no facade survives a phase |
+| I8 | Behaviour preserved | tagged tests of every reached package, per phase |
+
+A module is placed by who uses it: the nearest package every consumer already depends on, plus everything a kernel module imports; a pure derivation over the model lives beside the model; a module holding a core fact beside an upper-layer one is split, never admitted whole. Tooling derives rather than lists: the shared set from entry-point registration, install order from declared dependencies, and a moved file keeps its path-keyed baseline entries as a rename.
+
+Full decision log: [Architecture Overview — Decision 50](./architecture-overview.md#decision-50-foundation-package-restructure--smaller-shared-packages-narrower-change-reach-approved--implementation-in-progress).
+
 ## Transpiler pipeline (per file)
 
 ```
