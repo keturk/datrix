@@ -66,8 +66,10 @@ from datrix_common.deployment.signing_backend import SigningBackend  # noqa: E40
 from datrix_common.plugin.capability import (
     # noqa: E402
     BlockRealization,
+    CustomDomainSurfaceRealization,
     DeployableConstruct,
     PlatformCapabilityDeclaration,
+    StaticWebHostingRealization,
 )
 from datrix_common.plugin.capability_resolution import declaration_for_provider  # noqa: E402
 from datrix_common.plugin.identity import RuntimeId  # noqa: E402
@@ -606,6 +608,17 @@ def _synthetic_declaration(
         serverless_compute_model=ServerlessPlatform.CONTAINER,
         block_realizations=block_realizations,
         model_realizations={},
+        static_web_hosting=StaticWebHostingRealization(
+            status="realized", origin="loopback_port"
+        ),
+        custom_domain_surfaces={
+            "gateway": CustomDomainSurfaceRealization(
+                status="unrealized", reason="self-test declaration binds no custom domain"
+            ),
+            "web": CustomDomainSurfaceRealization(
+                status="unrealized", reason="self-test declaration binds no custom domain"
+            ),
+        },
         declared_set_exclusions=set_exclusions or {},
     )
 
