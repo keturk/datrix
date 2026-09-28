@@ -33,18 +33,18 @@ Pulls all git repositories under the workspace root.
 
 ## `git\commit-and-push.ps1`
 
-**One-pass commit-and-push across all Datrix repos.** For every repo with uncommitted changes, it splits the changes into themed change sets by area (a module and its tests together), generates one message per set, commits each set separately, and pushes the repo once. No `commit-messages.json` is written. The message source is chosen automatically: the local model hosts (Ollama, or OpenAI-compatible such as vLLM) are tried in order, each running its own model, and the first one that answers and serves its model generates the messages (a host that fails hands over to the next); if none is usable, it falls back to the Claude Code CLI, run with no tools. Subjects are held to 72 characters. Stops on the first git failure.
+**One-pass commit-and-push across all Datrix repos.** For every repo with uncommitted changes, it splits the changes into themed change sets by area (a module and its tests together), generates one message per set, commits each set separately, and pushes the repo once. No `commit-messages.json` is written. The message source is chosen automatically: the local machines are searched for model servers (Ollama, or OpenAI-compatible such as vLLM or llama-server) and what they serve is discovered; models already in memory are tried first, then a model Ollama can load, and the first that answers generates the messages (one that fails hands over to the next); if none answers, it falls back to the Claude Code CLI, run with no tools. Subjects are held to 72 characters. Stops on the first git failure.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Auto (default)** | `.\git\commit-and-push.ps1` | First usable local host, else Claude; commit + push |
-| **Force local model** | `.\git\commit-and-push.ps1 -MessageSource local` | Require a local host; error if none can serve its model |
+| **Auto (default)** | `.\git\commit-and-push.ps1` | First local model that answers, else Claude; commit + push |
+| **Force local model** | `.\git\commit-and-push.ps1 -MessageSource local` | Require a local model; error if none answers |
 | **Force Claude** | `.\git\commit-and-push.ps1 -MessageSource claude` | Use the Claude Code CLI |
 | **Preview only** | `.\git\commit-and-push.ps1 -DryRun` | Print generated messages; do not commit |
 
-**Parameters:** `-MessageSource` (`auto`\|`local`\|`claude`, default `auto`), `-LocalHosts` (`API:URL=MODEL`, API `ollama` or `openai`, preference order; default T5820 and T7920 via Ollama, GX10 via vLLM), `-LocalTimeoutMs`, `-LocalLoadTimeoutMs`, `-LocalMaxTokens`, `-ClaudeModel`, `-ClaudeTimeoutMs`, `-MaxDiffCharsPerCommit`, `-MaxCommitsPerRepo` (default 8; 1 = one commit per repo), `-DryRun`, `-SkipCustomerDomainCheck`, `-SkipIgnoredSourceCheck`, `-SkipPolyStringCaseCheck`
+**Parameters:** `-MessageSource` (`auto`\|`local`\|`claude`, default `auto`), `-LocalMachines` (host names or IPs to search, preference order; default T5820, T7920, GX10), `-LocalTimeoutMs`, `-LocalLoadTimeoutMs`, `-LocalMaxTokens`, `-ClaudeModel`, `-ClaudeTimeoutMs`, `-MaxDiffCharsPerCommit`, `-MaxCommitsPerRepo` (default 8; 1 = one commit per repo), `-DryRun`, `-SkipCustomerDomainCheck`, `-SkipIgnoredSourceCheck`, `-SkipPolyStringCaseCheck`
 
-**Prerequisites:** For the Claude fallback, the Claude Code CLI must be installed and available in PATH (`claude` command). For the local path, at least one configured local host must be reachable and serve its model.
+**Prerequisites:** For the Claude fallback, the Claude Code CLI must be installed and available in PATH (`claude` command). For the local path, at least one searched machine must run a model server that answers.
 
 ### Customer-domain isolation runs first
 

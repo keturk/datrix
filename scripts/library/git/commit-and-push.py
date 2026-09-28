@@ -9,10 +9,11 @@ WHY THEMED SETS RATHER THAN ONE COMMIT PER REPO
     commit, an unrelated docs edit gets another -- capped by ``--max-commits-per-repo``.
 
 MESSAGE SOURCE
-    * **Local hosts** (preferred) -- models on the local network, each host speaking
-      Ollama's API or the OpenAI-compatible API (vLLM) and running its own model. They
-      are tried in order; the first that answers and serves its model generates the
-      messages, and a host that fails hands over to the next.
+    * **Local machines** (preferred) -- model servers on the local network. Each machine
+      is searched for an Ollama server and OpenAI-compatible servers (vLLM, llama-server),
+      and what they serve is discovered, never configured. Models already in memory are
+      used first; an Ollama model is loaded only when none is. A model that fails hands
+      over to the next.
     * **Claude Code CLI** -- the ``claude`` command, run as a pure text call with no
       tools. Used when no local host is usable (or ``--message-source claude``).
 
@@ -32,6 +33,7 @@ import tempfile
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -92,32 +94,43 @@ GIT_USER_NAME = "Kamil Ercan Turkarslan"
 # commit yet. See diff_base().
 EMPTY_TREE_OBJECT = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-# The HTTP APIs a local model host can speak. "ollama" is Ollama's native API, which can
-# list and load models. "openai" is the OpenAI-compatible chat API that vLLM (and most
-# other inference servers) expose; such a server has its model loaded already.
+# The HTTP APIs a local model server can speak. "ollama" is Ollama's native API, which can
+# list, report and load models. "openai" is the OpenAI-compatible chat API that vLLM,
+# llama.cpp's llama-server and most other inference servers expose; such a server holds
+# its models resident already.
 LOCAL_API_OLLAMA = "ollama"
 LOCAL_API_OPENAI = "openai"
-LOCAL_APIS = (LOCAL_API_OLLAMA, LOCAL_API_OPENAI)
 
-# Separators in a --local-host spec: API:URL=MODEL.
-LOCAL_HOST_API_SEPARATOR = ":"
-LOCAL_HOST_MODEL_SEPARATOR = "="
-
-# Local model hosts, in preference order. Auto mode uses the first one that answers and
-# serves its model, fails over down the list, and only then falls back to the Claude
-# Code CLI. Each host names its own API and model because the machines differ.
-#
-# The GX10 is served through vLLM, not Ollama: a vLLM container on it already holds
-# Nemotron-3-Super resident with --gpu-memory-utilization 0.85 of its unified memory, so
-# an Ollama load there has nowhere to go -- it drove the box into the kernel OOM killer.
-DEFAULT_LOCAL_HOSTS = (
-    "ollama:http://10.94.0.100:11434=qwen3-coder:30b-ctx32k",  # Dell T5820, RTX 3090
-    "ollama:http://10.94.0.101:11434=qwen3-coder:30b-ctx32k",  # Dell T7920, RTX 3090
-    "openai:http://10.94.0.102:8000=nvidia/nemotron-3-super",  # ASUS GX10, vLLM
+# Machines searched for local model servers, in preference order. What each one runs is
+# discovered, not configured: the servers on a machine change (a llama-server container
+# once took over the T5820's GPU, leaving the configured Ollama model nowhere to load),
+# and a pinned API:URL=MODEL list goes stale the moment they do.
+DEFAULT_LOCAL_MACHINES = (
+    "10.94.0.100",  # Dell T5820, RTX 3090
+    "10.94.0.101",  # Dell T7920, RTX 3090
+    "10.94.0.102",  # ASUS GX10, vLLM
 )
+
+# Where the servers listen: Ollama on its fixed port, OpenAI-compatible servers on the
+# ports vLLM (8000) and llama-server (8080, and 8081 beside another server) use.
+OLLAMA_PORT = 11434
+OPENAI_COMPATIBLE_PORTS = (8000, 8080, 8081)
+
+# Models Ollama may be asked to LOAD when a machine has nothing resident, best first.
+# Loading claims most of a GPU, so it is the last resort: every model already resident
+# on any machine is tried before any load. Only models installed on the machine count.
+OLLAMA_LOAD_PREFERENCE = ("qwen3-coder:30b-ctx32k",)
+
+# Ollama capability a model needs to answer a prompt; an embedding model lacks it.
+OLLAMA_COMPLETION_CAPABILITY = "completion"
 
 # Ollama resolves an untagged model name to this tag.
 OLLAMA_DEFAULT_TAG = "latest"
+
+# Output tokens for the readiness request an OpenAI-compatible server is sent before it
+# is handed a change set. One token proves the engine answers; listing a model does not
+# (vLLM keeps listing its model after its engine has died).
+READINESS_MAX_TOKENS = 1
 
 # Ollama capability that means the model reasons before answering. Such a model is
 # asked not to (think=false): a commit message needs no visible reasoning, and a
@@ -176,7 +189,7 @@ Generator = Callable[[str, str], str]
 
 @dataclass(frozen=True)
 class LocalHost:
-    """One local model host: the API it speaks, where it is, and the model it runs."""
+    """One local model server and one model it can run: the API, where it is, the model."""
 
     api: str
     base_url: str
@@ -188,20 +201,30 @@ class LocalHost:
 
 @dataclass(frozen=True)
 class ReadyLocalHost:
-    """A host that answered and serves its model."""
+    """A discovered server/model pair that can be asked for commit messages."""
 
     host: LocalHost
     thinking: bool
+    # Already in memory -- an OpenAI-compatible server's model, or one Ollama has
+    # loaded -- as opposed to a model Ollama would have to load first.
+    resident: bool
 
 
 @dataclass(frozen=True)
-class LocalHostProbe:
-    """Outcome of asking one local host whether it can serve its model."""
+class ServerSurvey:
+    """What one model server on one machine offers."""
 
-    host: LocalHost
-    usable: bool
-    thinking: bool
-    detail: str
+    api: str
+    base_url: str
+    candidates: tuple[ReadyLocalHost, ...]
+
+    def summary(self) -> str:
+        resident = [c.host.model for c in self.candidates if c.resident]
+        loadable = [c.host.model for c in self.candidates if not c.resident]
+        parts = [f"resident {', '.join(resident) or 'none'}"]
+        if loadable:
+            parts.append(f"loadable {', '.join(loadable)}")
+        return f"{self.api} at {self.base_url} ({'; '.join(parts)})"
 
 
 @dataclass(frozen=True)
@@ -609,31 +632,20 @@ def qualified_ollama_model(model: str) -> str:
     return model if ":" in model else f"{model}:{OLLAMA_DEFAULT_TAG}"
 
 
-def parse_local_host(spec: str) -> LocalHost:
-    """Parse an ``API:URL=MODEL`` host spec. Every part is required: no default model.
+def parse_local_machine(spec: str) -> str:
+    """Validate a --local-machine value: a bare host name or IP address, nothing else.
 
-    A default would silently send a host a model it may not carry; naming it in the spec
-    is what lets each machine run a model sized to its own hardware.
+    The ports and APIs are searched, so a scheme, port or path in the value would be
+    ignored at best; it is rejected so a mistyped value never searches the wrong place.
     """
-    example = f"{LOCAL_API_OLLAMA}{LOCAL_HOST_API_SEPARATOR}http://10.94.0.101:11434{LOCAL_HOST_MODEL_SEPARATOR}qwen3-coder:30b-ctx32k"
-    api, _, rest = spec.partition(LOCAL_HOST_API_SEPARATOR)
-    base_url, _, model = rest.partition(LOCAL_HOST_MODEL_SEPARATOR)
-    api, base_url, model = api.strip(), base_url.strip(), model.strip()
-    if api not in LOCAL_APIS:
+    machine = spec.strip()
+    if not machine or any(sep in machine for sep in ("/", ":", "=", " ")):
         raise ScriptError(
-            f"Local host spec '{spec}' names API '{api}'. Expected API:URL=MODEL with API one of "
-            f"{', '.join(LOCAL_APIS)}, e.g. {example}."
+            f"Local machine '{spec}' is not a bare host name or IP address. Pass only the "
+            f"machine, e.g. {DEFAULT_LOCAL_MACHINES[0]}; its Ollama port {OLLAMA_PORT} and "
+            f"OpenAI-compatible ports {', '.join(map(str, OPENAI_COMPATIBLE_PORTS))} are searched."
         )
-    if not base_url.startswith(("http://", "https://")):
-        raise ScriptError(
-            f"Local host spec '{spec}' has no http:// or https:// URL after '{api}:'. "
-            f"Expected API:URL=MODEL, e.g. {example}."
-        )
-    if not model:
-        raise ScriptError(
-            f"Local host spec '{spec}' names no model. Expected API:URL=MODEL, e.g. {example}."
-        )
-    return LocalHost(api, base_url.rstrip("/"), model)
+    return machine
 
 
 def listed_ollama_models(tags_response: object) -> dict[str, frozenset[str]]:
@@ -650,15 +662,26 @@ def listed_ollama_models(tags_response: object) -> dict[str, frozenset[str]]:
     return models
 
 
-def listed_openai_models(models_response: object) -> set[str]:
-    """Extract the served model ids from an OpenAI-compatible ``/v1/models`` response."""
+def loaded_ollama_models(ps_response: object) -> list[str]:
+    """The model names in an Ollama ``/api/ps`` response -- the models it holds in memory."""
+    if not isinstance(ps_response, dict) or not isinstance(ps_response.get("models"), list):
+        raise ValueError("expected a JSON object with a 'models' list")
+    return [
+        entry["name"]
+        for entry in ps_response["models"]
+        if isinstance(entry, dict) and isinstance(entry.get("name"), str)
+    ]
+
+
+def listed_openai_models(models_response: object) -> list[str]:
+    """The served model ids, in listed order, from an OpenAI-compatible ``/v1/models`` response."""
     if not isinstance(models_response, dict) or not isinstance(models_response.get("data"), list):
         raise ValueError("expected a JSON object with a 'data' list")
-    return {
+    return [
         entry["id"]
         for entry in models_response["data"]
         if isinstance(entry, dict) and isinstance(entry.get("id"), str)
-    }
+    ]
 
 
 def fetch_json(uri: str, timeout_ms: int) -> object:
@@ -666,35 +689,68 @@ def fetch_json(uri: str, timeout_ms: int) -> object:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def probe_local_host(host: LocalHost, timeout_ms: int) -> LocalHostProbe:
-    """Ask one host for the models it serves and check that its model is among them.
+def survey_ollama(base_url: str, timeout_ms: int) -> ServerSurvey:
+    """List what an Ollama server can answer with: its loaded models, then loadable ones.
 
-    Reachability alone is not enough: a host that answers but lacks the model would
-    fail every generate call with a 404, so it is reported unusable up front.
+    A loaded model costs nothing to use. A model that must be loaded is offered only if
+    it is in ``OLLAMA_LOAD_PREFERENCE`` and installed here; whether it fits the GPU is
+    learned by loading it (see ``activate_first_host``). Raises OSError or ValueError
+    when nothing usable answers.
     """
-    list_path = "/api/tags" if host.api == LOCAL_API_OLLAMA else "/v1/models"
-    capabilities: dict[str, frozenset[str]] = {}
+    capabilities = listed_ollama_models(fetch_json(f"{base_url}/api/tags", timeout_ms))
+    loaded = loaded_ollama_models(fetch_json(f"{base_url}/api/ps", timeout_ms))
+
+    def candidate(model: str, resident: bool) -> ReadyLocalHost:
+        thinking = OLLAMA_THINKING_CAPABILITY in capabilities[model]
+        return ReadyLocalHost(LocalHost(LOCAL_API_OLLAMA, base_url, model), thinking, resident)
+
+    answering = [
+        model for model in capabilities if OLLAMA_COMPLETION_CAPABILITY in capabilities[model]
+    ]
+    resident = [candidate(model, True) for model in loaded if model in answering]
+    loadable = [
+        candidate(model, False)
+        for model in map(qualified_ollama_model, OLLAMA_LOAD_PREFERENCE)
+        if model in answering and model not in loaded
+    ]
+    return ServerSurvey(LOCAL_API_OLLAMA, base_url, tuple(resident + loadable))
+
+
+def survey_openai(base_url: str, timeout_ms: int) -> ServerSurvey:
+    """List the models an OpenAI-compatible server serves; each is resident by definition.
+
+    Such a server does not say whether a model reasons, so every request asks it not to
+    (see ``openai_chat_body``). Raises OSError or ValueError when nothing usable answers.
+    """
+    models = listed_openai_models(fetch_json(f"{base_url}/v1/models", timeout_ms))
+    return ServerSurvey(
+        LOCAL_API_OPENAI,
+        base_url,
+        tuple(ReadyLocalHost(LocalHost(LOCAL_API_OPENAI, base_url, m), False, True) for m in models),
+    )
+
+
+def machine_endpoints(machine: str) -> list[tuple[Callable[[str, int], ServerSurvey], str]]:
+    """Every (surveyor, base URL) a model server on ``machine`` may listen at."""
+    endpoints: list[tuple[Callable[[str, int], ServerSurvey], str]] = [
+        (survey_ollama, f"http://{machine}:{OLLAMA_PORT}")
+    ]
+    endpoints.extend((survey_openai, f"http://{machine}:{port}") for port in OPENAI_COMPATIBLE_PORTS)
+    return endpoints
+
+
+def survey_endpoint(
+    surveyor: Callable[[str, int], ServerSurvey], base_url: str, timeout_ms: int
+) -> list[ServerSurvey]:
+    """Run one survey: the server found at ``base_url``, or nothing if none answered.
+
+    A closed port, a dropped connection, a timeout, and a port serving something other
+    than a model API are all normal while searching a machine, so none is an error.
+    """
     try:
-        listing = fetch_json(f"{host.base_url}{list_path}", timeout_ms)
-        if host.api == LOCAL_API_OLLAMA:
-            capabilities = listed_ollama_models(listing)
-            wanted = qualified_ollama_model(host.model)
-            available = set(capabilities)
-        else:
-            wanted = host.model
-            available = listed_openai_models(listing)
-    except OSError as exc:
-        return LocalHostProbe(host, False, False, f"unreachable ({exc})")
-    except ValueError as exc:
-        return LocalHostProbe(host, False, False, f"returned an unreadable model list ({exc})")
-    if wanted not in available:
-        return LocalHostProbe(
-            host, False, False, f"reachable, but it does not serve model '{wanted}'"
-        )
-    # Ollama declares whether a model reasons; an OpenAI-compatible server does not, so
-    # such a host is always asked to skip reasoning (see invoke_openai_generate).
-    thinking = wanted in capabilities and OLLAMA_THINKING_CAPABILITY in capabilities[wanted]
-    return LocalHostProbe(host, True, thinking, f"reachable, serving model '{wanted}'")
+        return [surveyor(base_url, timeout_ms)]
+    except (OSError, ValueError):
+        return []
 
 
 def post_json(uri: str, body: dict[str, object], timeout_ms: int, model: str) -> dict[str, object]:
@@ -728,56 +784,115 @@ def post_json(uri: str, body: dict[str, object], timeout_ms: int, model: str) ->
     return data
 
 
-def load_local_model(host: LocalHost, timeout_ms: int) -> None:
-    """Make sure the host's model is in memory before any message is requested.
+def openai_chat_body(model: str, prompt: str, system: str, max_tokens: int) -> dict[str, object]:
+    """One non-streaming chat request for an OpenAI-compatible server.
 
-    Ollama loads on demand: a generate request with no prompt only loads the model.
-    Doing that once, under its own timeout, keeps a cold load -- minutes for a large
-    model on a slow disk -- from being charged against every generate call's timeout,
-    and a host that cannot load its model (out of GPU memory) is caught here, before it
-    is handed a change set. An OpenAI-compatible server listing the model in its probe
-    already has it loaded, so there is nothing to do.
+    Reasoning is switched off through the chat template (``enable_thinking``): a commit
+    message needs no visible reasoning, and a reasoning pass multiplies generate time.
+    A server whose template has no such switch ignores the variable.
     """
-    if host.api != LOCAL_API_OLLAMA:
+    return {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+        "max_tokens": max_tokens,
+        "temperature": LOCAL_TEMPERATURE,
+        "stream": False,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+
+
+def ready_local_model(host: LocalHost, args: argparse.Namespace) -> None:
+    """Prove the model answers before it is handed a change set; raise ScriptError if not.
+
+    Ollama loads on demand: a generate request with no prompt only loads the model (or
+    renews a loaded one's keep-alive). Doing that once, under the load timeout, keeps a
+    cold load -- minutes for a large model on a slow disk -- from being charged against
+    a generate call's timeout, and a model that cannot load (out of GPU memory) is caught
+    here. An OpenAI-compatible server is sent a one-token completion: it keeps listing
+    its model after its engine has died, so only an answer proves it can serve. Its model
+    is already in memory, so it gets the generate timeout, not the load timeout -- a hung
+    engine must not hold the run for a cold load's allowance.
+    """
+    if host.api == LOCAL_API_OLLAMA:
+        post_json(
+            f"{host.base_url}/api/generate",
+            {"model": host.model, "keep_alive": OLLAMA_KEEP_ALIVE},
+            args.local_load_timeout_ms,
+            host.model,
+        )
         return
-    post_json(
-        f"{host.base_url}/api/generate",
-        {"model": host.model, "keep_alive": OLLAMA_KEEP_ALIVE},
-        timeout_ms,
-        host.model,
+    uri = f"{host.base_url}/v1/chat/completions"
+    data = post_json(
+        uri, openai_chat_body(host.model, "ping", "Reply with one word.", READINESS_MAX_TOKENS),
+        args.local_timeout_ms, host.model,
     )
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ScriptError(f"{uri} answered a readiness request for model '{host.model}' with no choices")
 
 
-def usable_local_hosts(args: argparse.Namespace) -> list[ReadyLocalHost]:
-    """Probe every configured host in order and return the usable ones, in order.
+def discover_local_hosts(args: argparse.Namespace) -> list[ReadyLocalHost]:
+    """Search every machine for model servers and return what they offer, best first.
 
-    Nothing is loaded here: loading claims memory on a host that is only needed if the
-    ones before it fail. The first host is loaded by ``activate_first_host``, and a
-    later one only when failover reaches it.
+    Every endpoint of every machine is surveyed in parallel, so a machine that drops
+    connections costs one timeout, not one per port. Models already in memory on any
+    machine come first, in machine order; models Ollama would have to load come last,
+    because loading one claims a GPU another server may be using. No load is offered on
+    a machine where an OpenAI-compatible server answered: that server holds the machine's
+    GPU memory, so the load fails out of memory on a discrete GPU and, on unified memory,
+    starves the whole machine. Nothing is loaded here: ``activate_first_host`` readies
+    the first candidate, and a later one only when failover reaches it.
     """
-    ready: list[ReadyLocalHost] = []
-    for host in args.local_hosts:
-        probe = probe_local_host(host, args.local_reachable_timeout_ms)
-        print(f"Local host {host.base_url} ({host.api}): {probe.detail}.")
-        if probe.usable:
-            ready.append(ReadyLocalHost(host, probe.thinking))
-    return ready
+    endpoints = [
+        (machine, surveyor, base_url)
+        for machine in args.local_machines
+        for surveyor, base_url in machine_endpoints(machine)
+    ]
+    with ThreadPoolExecutor(max_workers=len(endpoints)) as pool:
+        surveys = list(pool.map(
+            lambda endpoint: survey_endpoint(endpoint[1], endpoint[2], args.local_reachable_timeout_ms),
+            endpoints,
+        ))
+
+    found: list[ServerSurvey] = []
+    for machine in args.local_machines:
+        on_machine = [s for (m, _, _), hits in zip(endpoints, surveys) if m == machine for s in hits]
+        if any(s.api == LOCAL_API_OPENAI for s in on_machine):
+            on_machine = [
+                ServerSurvey(s.api, s.base_url, tuple(c for c in s.candidates if c.resident))
+                for s in on_machine
+            ]
+        if on_machine:
+            print(f"Local machine {machine}: {'; '.join(s.summary() for s in on_machine)}.")
+        else:
+            ports = ", ".join(str(p) for p in (OLLAMA_PORT, *OPENAI_COMPATIBLE_PORTS))
+            print(f"Local machine {machine}: no model server answered on ports {ports}.")
+        found.extend(on_machine)
+
+    candidates = [c for survey in found for c in survey.candidates]
+    return [c for c in candidates if c.resident] + [c for c in candidates if not c.resident]
 
 
 def activate_first_host(
     hosts: list[ReadyLocalHost], args: argparse.Namespace
 ) -> list[ReadyLocalHost]:
-    """Drop hosts from the front until one has its model loaded; return the survivors."""
+    """Drop candidates from the front until one answers; return the survivors."""
     remaining = list(hosts)
     while remaining:
-        host = remaining[0].host
-        if host.api == LOCAL_API_OLLAMA:
-            print(f"Loading {host.label()} (up to {args.local_load_timeout_ms // 1000}s)...")
+        ready = remaining[0]
+        if ready.host.api == LOCAL_API_OLLAMA:
+            verb = "Checking" if ready.resident else "Loading"
+            print(f"{verb} {ready.host.label()} (up to {args.local_load_timeout_ms // 1000}s)...")
+        else:
+            print(f"Checking {ready.host.label()} (up to {args.local_timeout_ms // 1000}s)...")
         try:
-            load_local_model(host, args.local_load_timeout_ms)
+            ready_local_model(ready.host, args)
             return remaining
         except ScriptError as exc:
-            print(f"Warning: {host.label()} could not load its model: {exc}", file=sys.stderr)
+            print(f"Warning: {ready.host.label()} cannot serve: {exc}", file=sys.stderr)
             remaining = remaining[1:]
     return remaining
 
@@ -806,25 +921,10 @@ def invoke_ollama_generate(ready: ReadyLocalHost, prompt: str, system: str, args
 
 
 def invoke_openai_generate(ready: ReadyLocalHost, prompt: str, system: str, args: argparse.Namespace) -> str:
-    """One chat completion from an OpenAI-compatible server such as vLLM.
-
-    Reasoning is switched off through the chat template (``enable_thinking``): a commit
-    message needs no visible reasoning, and a reasoning pass multiplies generate time.
-    A server whose template has no such switch ignores the variable.
-    """
+    """One chat completion from an OpenAI-compatible server such as vLLM or llama-server."""
     host = ready.host
     uri = f"{host.base_url}/v1/chat/completions"
-    body: dict[str, object] = {
-        "model": host.model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        ],
-        "max_tokens": args.local_max_tokens,
-        "temperature": LOCAL_TEMPERATURE,
-        "stream": False,
-        "chat_template_kwargs": {"enable_thinking": False},
-    }
+    body = openai_chat_body(host.model, prompt, system, args.local_max_tokens)
     data = post_json(uri, body, args.local_timeout_ms, host.model)
     choices = data.get("choices")
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
@@ -1310,16 +1410,17 @@ def decide_local_hosts(args: argparse.Namespace) -> list[ReadyLocalHost]:
         print(f"Using Claude Code CLI model '{args.claude_model}'.")
         return []
 
-    hosts = activate_first_host(usable_local_hosts(args), args)
+    hosts = activate_first_host(discover_local_hosts(args), args)
     if hosts:
         print(f"Using {describe_backend(args, hosts)}.")
         return hosts
     if args.message_source == MESSAGE_SOURCE_LOCAL:
-        tried = ", ".join(host.label() for host in args.local_hosts)
         raise ScriptError(
-            f"No local host could serve its model (tried {tried}) but --message-source=local "
-            "was forced. Start one of those hosts or install the model on it, pass a different "
-            "host list (-LocalHosts / --local-host), or use message source auto or claude."
+            f"No local model server could answer (searched {', '.join(args.local_machines)}) "
+            "but --message-source=local was forced. Start a model server on one of those "
+            f"machines (Ollama with one of {', '.join(OLLAMA_LOAD_PREFERENCE)} installed, or "
+            "any OpenAI-compatible server), pass other machines (-LocalMachines / "
+            "--local-machine), or use message source auto or claude."
         )
     print(f"No local host usable -- falling back to {describe_backend(args, hosts)}.")
     return hosts
@@ -1604,13 +1705,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--local-host",
-        dest="local_host_specs",
+        "--local-machine",
+        dest="local_machine_specs",
         action="append",
         help=(
-            f"A local model host as API{LOCAL_HOST_API_SEPARATOR}URL{LOCAL_HOST_MODEL_SEPARATOR}MODEL, "
-            f"API one of {', '.join(LOCAL_APIS)}. Repeat to list several, in preference order. "
-            f"Default: {', '.join(DEFAULT_LOCAL_HOSTS)}."
+            "A machine (host name or IP) to search for local model servers: Ollama on port "
+            f"{OLLAMA_PORT}, OpenAI-compatible servers on ports "
+            f"{', '.join(map(str, OPENAI_COMPATIBLE_PORTS))}. Repeat to list several, in "
+            f"preference order. Default: {', '.join(DEFAULT_LOCAL_MACHINES)}."
         ),
     )
     parser.add_argument(
@@ -1632,7 +1734,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--local-reachable-timeout-ms",
         type=int,
         default=3000,
-        help="Timeout for each local host's quick reachability probe.",
+        help="Timeout for each request that searches a machine for model servers.",
     )
     parser.add_argument(
         "--local-max-tokens",
@@ -1694,9 +1796,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "Use 1 to commit each repo as a single change."
         )
     # argparse would append to a list default in place, so the default is applied here.
-    # dict.fromkeys drops a repeated host while keeping the preference order.
-    specs = list(dict.fromkeys(args.local_host_specs or DEFAULT_LOCAL_HOSTS))
-    args.local_hosts = [parse_local_host(spec) for spec in specs]
+    # dict.fromkeys drops a repeated machine while keeping the preference order.
+    specs = args.local_machine_specs or DEFAULT_LOCAL_MACHINES
+    args.local_machines = list(dict.fromkeys(parse_local_machine(spec) for spec in specs))
     return args
 
 

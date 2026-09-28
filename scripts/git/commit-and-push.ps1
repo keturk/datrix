@@ -15,32 +15,34 @@ land in one commit while an unrelated docs edit gets its own. Each message
 describes one coherent change, which is what keeps subjects within 72 characters.
 
 Message source is chosen automatically:
- * The local model hosts are probed in order (-LocalHosts); the first one that
-   answers and serves its model generates the messages. A host speaks either
-   Ollama's API or the OpenAI-compatible API that vLLM serves. A host that fails
-   to load or generate hands over to the next usable host.
- * If no local host is usable, the script falls back to the Claude Code CLI, run
+ * The local machines (-LocalMachines) are searched for model servers: Ollama on
+   port 11434 and OpenAI-compatible servers (vLLM, llama-server) on 8000, 8080 and
+   8081. What each serves is discovered, not configured. Models already in memory
+   on any machine are used first, in machine order; an Ollama model is loaded only
+   when nothing is resident. A model that fails to answer hands over to the next.
+ * If no local model can answer, the script falls back to the Claude Code CLI, run
    with no tools and none of the workspace's CLAUDE.md, hooks or skills.
 
 Force a backend with -MessageSource local|claude. No commit-messages.json is
 written -- generation and commit/push happen in one pass.
 
 .PARAMETER MessageSource
-auto (default), local, or claude. auto tries every local host in order and falls
-back to Claude; local tries every local host and errors if none can serve.
+auto (default), local, or claude. auto tries every discovered local model and
+falls back to Claude; local tries every discovered local model and errors if none
+can answer.
 
-.PARAMETER LocalHosts
-Local model hosts in preference order, each API:URL=MODEL with API 'ollama' or
-'openai' (OpenAI-compatible, e.g. vLLM). Omit to use the default list in
-commit-and-push.py (--help shows it): the Dell T5820 and T7920 (RTX 3090, Ollama)
-and the ASUS GX10 (vLLM serving Nemotron-3-Super).
+.PARAMETER LocalMachines
+Machines (host name or IP address) to search for model servers, in preference
+order. Omit to search the default list in commit-and-push.py (--help shows it):
+the Dell T5820 and T7920 (RTX 3090) and the ASUS GX10.
 
 .PARAMETER LocalTimeoutMs
 HTTP timeout (ms) for each local generate request, with the model already loaded.
 
 .PARAMETER LocalLoadTimeoutMs
-Timeout (ms) for loading an Ollama host's model into memory before the first
-message. Default 900000: a cold load of a large model from a slow disk takes minutes.
+Timeout (ms) for readying a model before the first message: loading an Ollama
+model into memory, or a server's first answer. Default 900000: a cold load of a
+large model from a slow disk takes minutes.
 
 .PARAMETER LocalMaxTokens
 Maximum tokens a local model may generate for one message. Default 896.
@@ -113,8 +115,8 @@ Force the Claude Code CLI as the message source.
 Print the generated messages without committing.
 
 .EXAMPLE
-.\commit-and-push.ps1 -LocalHosts 'openai:http://10.94.0.102:8000=nvidia/nemotron-3-super', 'ollama:http://10.94.0.101:11434=qwen3-coder:30b-ctx32k'
-Use only these hosts, in this order: the GX10's vLLM server first, then the T7920.
+.\commit-and-push.ps1 -LocalMachines 10.94.0.102, 10.94.0.101
+Search only these machines, in this order: the GX10 first, then the T7920.
 #>
 [CmdletBinding()]
 param(
@@ -123,7 +125,7 @@ param(
     [string]$MessageSource = 'auto',
 
     [Parameter(Mandatory = $false)]
-    [string[]]$LocalHosts = @(),
+    [string[]]$LocalMachines = @(),
 
     [Parameter(Mandatory = $false)]
     [int]$LocalTimeoutMs = 180000,
@@ -183,10 +185,10 @@ $pyArgs = @(
     '--max-commits-per-repo', $MaxCommitsPerRepo
 )
 
-# The default host list lives only in commit-and-push.py; it is overridden only when
-# -LocalHosts is passed.
-foreach ($localHost in $LocalHosts) {
-    $pyArgs += @('--local-host', $localHost)
+# The default machine list lives only in commit-and-push.py; it is overridden only when
+# -LocalMachines is passed.
+foreach ($localMachine in $LocalMachines) {
+    $pyArgs += @('--local-machine', $localMachine)
 }
 
 if ($DryRun) {
