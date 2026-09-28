@@ -26,8 +26,16 @@
 
 .PARAMETER CheckTargetLiterals
  Run the I1 target-literal ratchet check (invariant I1) in addition
- to the import-boundary check. Compares current per-file target-literal counts
- against the frozen baseline at scripts/config/target-literal-baseline.toml.
+ to the import-boundary check. Scans the DERIVED shared-package set --
+ every discovered package registering none of datrix.languages/
+ datrix.platforms/datrix.generators/datrix.extensions (today:
+ datrix_common, datrix_codegen_common, datrix_cli, datrix_language),
+ never a hardcoded list -- for a frozen closed-world central-table/enum-member
+ name match PLUS a platform-token identifier/module-name shape match
+ (mirrors -CheckSharedTargetNames' language-token shape match, with the
+ "local" English-word collision excluded the same way). Compares current
+ per-file counts against the frozen baseline at
+ scripts/config/target-literal-baseline.toml.
 
 .PARAMETER UpdateBaseline
  Recompute current per-file counts and overwrite the frozen baseline(s), then
@@ -41,7 +49,12 @@
  addition to the import-boundary check. Compares current per-file
  platform-identity-conditional counts in the language packages
  (datrix_codegen_python, datrix_codegen_typescript) against the frozen
- baseline at scripts/config/provider-conditional-baseline.toml.
+ baseline at scripts/config/provider-conditional-baseline.toml. The same
+ flag also runs a SEPARATE, hard-zero (no-baseline) check over the DERIVED
+ shared-package set -- every discovered package registering none of
+ datrix.languages/datrix.platforms/datrix.generators/datrix.extensions
+ (today: datrix_common, datrix_codegen_common, datrix_cli, datrix_language),
+ never a hardcoded list -- where any provider-literal hit fails outright.
 
 .PARAMETER CheckFunctionLevelImports
  Run the function-level-import ratchet check

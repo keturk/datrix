@@ -7,10 +7,15 @@ exist) and checking imports against forbidden prefix rules. Uses AST parsing -
 no package installation required.
 
 Also implements the I1 target-literal ratchet:
-opt-in via --check-target-literals, it AST-scans the three shared-layer
-src/ trees (datrix_common, datrix_codegen_common, datrix_cli) for known
-closed-world target-identity identifiers and fails if any file's count
-increases past its frozen baseline (scripts/config/target-literal-baseline.toml).
+opt-in via --check-target-literals, it AST-scans the DERIVED shared-package
+src/ trees (discover_shared_packages: every discovered package registering
+none of datrix.languages/datrix.platforms/datrix.generators/
+datrix.extensions -- datrix_common, datrix_codegen_common, and datrix_cli
+today, never a hardcoded list) for known closed-world target-identity
+identifiers PLUS a platform-token identifier/module-name shape match
+(mirrors the G2 language-token shape match, minus the "local" collision --
+see _platform_token_vocabulary) and fails if any file's count increases past
+its frozen baseline (scripts/config/target-literal-baseline.toml).
 --update-baseline recomputes and overwrites that baseline.
 
 Also implements the I6 successor ratchet (invariant I6, DI-4/DI-5):
@@ -31,11 +36,12 @@ and overwrites that baseline.
 
 Also implements a DISTINCT, stricter D6.1 check that runs unconditionally
 whenever --check-provider-conditionals is passed: the same two D5 patterns
-plus the pre-existing ProviderId/match-case forms, applied to the three
-SHARED packages (datrix_common, datrix_codegen_common, datrix_cli) and held
-at a hard zero with no baseline file to grandfather a hit into -- any single
-occurrence fails, since shared layers must never encode platform-specific
-policy (Principle 10, D1).
+plus the pre-existing ProviderId/match-case forms, applied to the DERIVED
+shared-package set (discover_shared_packages -- datrix_common,
+datrix_codegen_common, and datrix_cli today, never a hardcoded list) and
+held at a hard zero with no baseline file to grandfather a hit into -- any
+single occurrence fails, since shared layers must never encode
+platform-specific policy (Principle 10, D1).
 
 Also implements the function-level-import ratchet:
 opt-in via --check-function-level-imports, it AST-scans ONLY the
@@ -429,6 +435,45 @@ WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES: frozenset[str] = frozenset(
 # today) must carry an explicit entry.
 LANGUAGES_ENTRY_POINT_GROUP = "datrix.languages"
 PLATFORMS_ENTRY_POINT_GROUP = "datrix.platforms"
+GENERATORS_ENTRY_POINT_GROUP = "datrix.generators"
+EXTENSIONS_ENTRY_POINT_GROUP = "datrix.extensions"
+
+# The four entry-point groups PluginRegistry resolves at runtime
+# (datrix_common.plugin.registry: GENERATOR_GROUP, PLATFORM_GROUP,
+# EXTENSION_GROUP, LANGUAGES_GROUP). A package registering ANY of these is a
+# generator/extension/target package, not a shared layer; a package
+# registering NONE of them is shared.
+SHARED_PACKAGE_CLASSIFIER_GROUPS: frozenset[str] = frozenset(
+    {
+        LANGUAGES_ENTRY_POINT_GROUP,
+        PLATFORMS_ENTRY_POINT_GROUP,
+        GENERATORS_ENTRY_POINT_GROUP,
+        EXTENSIONS_ENTRY_POINT_GROUP,
+    }
+)
+
+# GenDSL's own entry-point-group axis -- a SEPARATE, cross-cutting
+# registration mechanism from the four taxonomy groups above (mirrors
+# datrix_common.plugin.registry's GENDSL_FILE_LANGUAGES_GROUP/
+# GENDSL_ITERATION_TARGETS_GROUP/GENDSL_CONTEXT_NAMESPACES_GROUP, plus
+# datrix_codegen_common.gendsl.target_registry's
+# GENDSL_GENERATOR_TARGETS_GROUP -- read for the canonical spellings only,
+# same as the four taxonomy groups; this scanner does not import either
+# module). Confirmed against the real manifests (not assumed): every
+# language, every platform, the frontend targets, SQL, AND
+# datrix-codegen-common itself (the design's own named shared package)
+# register into this axis, so its presence carries NO taxonomy signal --
+# folding it into SHARED_PACKAGE_CLASSIFIER_GROUPS would misclassify every
+# one of those as shared, and treating it as "unrecognized" would make
+# discover_shared_packages abort on datrix-codegen-common itself.
+_GENDSL_AUXILIARY_ENTRY_POINT_GROUPS: frozenset[str] = frozenset(
+    {
+        "datrix.gendsl_file_languages",
+        "datrix.gendsl_iteration_targets",
+        "datrix.gendsl_context_namespaces",
+        "datrix.gendsl_generator_targets",
+    }
+)
 
 
 class GeneratorTaxonomyError(ValueError):
@@ -531,6 +576,124 @@ def discover_generator_taxonomy(base_dir: Path) -> GeneratorTaxonomy:
         language_packages=tuple(sorted(languages)),
         platform_packages=tuple(sorted(platforms)),
     )
+
+
+def discover_shared_packages(
+    base_dir: Path, packages: dict[str, PackageInfo]
+) -> tuple[str, ...]:
+    """Derive the shared-package set: every discovered ``datrix-*`` package
+    whose manifest registers NONE of the four target-taxonomy entry-point
+    groups (``datrix.languages``/``datrix.platforms``/``datrix.generators``/
+    ``datrix.extensions``). Deriving the set means a new shared package is
+    scanned the moment it exists, with no hand-kept list to update.
+
+    Classification walks every ``datrix-*/pyproject.toml`` directly (the same
+    directory walk ``discover_generator_taxonomy`` uses), independent of
+    whether the package has a ``src/`` tree yet, so the fail-loud
+    unclassifiable check (below) fires even for a manifest-only package with
+    nothing to scan. The RETURNED set, however, is intersected against
+    *packages* (as returned by ``discover_packages``, which already resolves
+    each distribution directory's real import-package name from its ``src/``
+    subdirectory) -- a package with no ``src/`` tree yet contributes no files
+    to scan, so it is correctly classified but not returned (mirrors the
+    existing "a package with no src/ tree yet contributes no files and no
+    baseline entries" note for language packages).
+
+    A package with an EMPTY [project.entry-points] table (or none at all) is
+    shared. A package registering at least one of the four known groups is a
+    generator/platform/language/extension package, never shared.
+
+    A package can ALSO register entry-point groups that carry no taxonomy
+    signal at all and must never affect this classification:
+
+    * A group outside the ``datrix.`` namespace entirely (e.g. pytest's own
+      ``pytest11`` plugin-discovery group -- ``datrix-common`` registers its
+      feature-tag pytest plugin this way, alongside zero taxonomy groups) is
+      a third-party mechanism, not a Datrix plugin-kind signal, and is
+      ignored unconditionally.
+    * GenDSL's own cross-cutting registration axis
+      (``_GENDSL_AUXILIARY_ENTRY_POINT_GROUPS`` -- ``datrix_common.plugin.registry``'s
+      ``GENDSL_FILE_LANGUAGES_GROUP``/``GENDSL_ITERATION_TARGETS_GROUP``/
+      ``GENDSL_CONTEXT_NAMESPACES_GROUP``, plus
+      ``datrix_codegen_common.gendsl.target_registry.GENDSL_GENERATOR_TARGETS_GROUP``)
+      is registered by packages spanning EVERY taxonomy class alike --
+      ``datrix-codegen-common`` (shared), every language, every platform, the
+      frontend targets, and SQL all register into it, so its presence says
+      nothing about which of the four taxonomy groups a package belongs to
+      (or doesn't). Confirmed against the real monorepo manifests, not
+      assumed: ``datrix-codegen-common`` registers ONLY
+      ``gendsl_file_languages``/``gendsl_iteration_targets`` and is the
+      design's own named example of a shared package.
+
+    A package registering a NON-EMPTY [project.entry-points] table whose
+    ``datrix.``-namespaced group name(s) are ALL outside the four known
+    taxonomy groups AND outside the known GenDSL auxiliary axis is
+    UNCLASSIFIABLE: folding it into "shared" would silently widen ratchet
+    scope to a package that is plausibly a not-yet-recognized plugin kind,
+    and excluding it would silently leave a real generator unpoliced by
+    either the shared ratchets or the boundary-rule taxonomy -- so the scan
+    aborts instead, naming the package and its unrecognized group(s).
+
+    Args:
+        base_dir: Monorepo root holding the ``datrix-*`` package directories.
+        packages: Package name -> PackageInfo, as returned by
+            ``discover_packages(base_dir)`` -- supplies the accurate import
+            root for each distribution directory that has a ``src/`` tree.
+
+    Returns:
+        Import package names (``datrix_common``, not ``datrix-common``) that
+        are both classified shared AND present in *packages*, sorted.
+
+    Raises:
+        GeneratorTaxonomyError: If a manifest is unparseable (propagated from
+            the same per-manifest parsing ``discover_generator_taxonomy``
+            uses), or a manifest registers a ``datrix.``-namespaced
+            entry-point group outside both the four taxonomy groups and the
+            known GenDSL auxiliary axis.
+    """
+    root_by_dir: dict[Path, str] = {info.root: name for name, info in packages.items()}
+    shared: set[str] = set()
+    for candidate in sorted(base_dir.iterdir()):
+        manifest = candidate / "pyproject.toml"
+        if not candidate.is_dir() or not candidate.name.startswith("datrix-"):
+            continue
+        if not manifest.is_file():
+            continue
+        try:
+            with manifest.open("rb") as handle:
+                data = tomllib.load(handle)
+        except tomllib.TOMLDecodeError as e:
+            raise GeneratorTaxonomyError(f"{manifest}: cannot parse manifest: {e}") from e
+        project = data.get("project")
+        groups = project.get("entry-points", {}) if isinstance(project, dict) else {}
+        if not isinstance(groups, dict):
+            raise GeneratorTaxonomyError(
+                f"{manifest}: [project.entry-points] must be a table, got "
+                f"{type(groups).__name__}."
+            )
+        if set(groups) & SHARED_PACKAGE_CLASSIFIER_GROUPS:
+            continue  # a real generator/platform/language/extension package
+        unrecognized_datrix_groups = {
+            group
+            for group in groups
+            if group.startswith("datrix.")
+            and group not in _GENDSL_AUXILIARY_ENTRY_POINT_GROUPS
+        }
+        if unrecognized_datrix_groups:
+            raise GeneratorTaxonomyError(
+                f"{manifest}: registers entry-point group(s) "
+                f"{sorted(unrecognized_datrix_groups)}, none of which is "
+                f"{sorted(SHARED_PACKAGE_CLASSIFIER_GROUPS)} (the four taxonomy "
+                f"groups) or {sorted(_GENDSL_AUXILIARY_ENTRY_POINT_GROUPS)} "
+                f"(GenDSL's own non-taxonomy registration axis). This package "
+                f"cannot be classified as shared or as a taxonomy member -- add an "
+                f"explicit classification before the I1/I6 shared-layer ratchets "
+                f"can be trusted to scan (or skip) it."
+            )
+        import_root = root_by_dir.get(candidate)
+        if import_root is not None:
+            shared.add(import_root)
+    return tuple(sorted(shared))
 
 
 def _siblings(package: str, group: tuple[str, ...]) -> tuple[str, ...]:
@@ -671,15 +834,16 @@ def unruled_packages(
 # ---------------------------------------------------------------------------
 # I1 Target-Literal Ratchet (Decision D1, Invariant I1)
 #
-# The three shared-layer package names the I1 ratchet polices ("shared
-# layers ask questions, target plugins answer them" — datrix_language and the
-# leaf datrix_codegen_{python,typescript,aws,azure,docker,sql,component}
-# packages are OWNERS of target identity and are exempt from this scan).
-TARGET_LITERAL_SHARED_PACKAGES: tuple[str, ...] = (
-    "datrix_common",
-    "datrix_codegen_common",
-    "datrix_cli",
-)
+# The I1 ratchet polices the DERIVED shared-package set
+# (discover_shared_packages -- every discovered package registering none of
+# datrix.languages/datrix.platforms/datrix.generators/datrix.extensions;
+# datrix_common, datrix_codegen_common, and datrix_cli today, never a
+# hardcoded list). "Shared layers ask questions, target plugins answer
+# them" — datrix_language and the leaf
+# datrix_codegen_{python,typescript,aws,azure,docker,sql,component} packages
+# are OWNERS of target identity and are exempt from this scan (they always
+# register a taxonomy entry point, so discover_shared_packages never
+# classifies them as shared).
 
 # Central table / dict / class names known TODAY to encode closed-world target
 # policy in a shared layer. The list is frozen: each entry is scheduled for
@@ -715,6 +879,26 @@ TARGET_LITERAL_ENUM_MEMBERS: dict[str, frozenset[str]] = {
     "DeploymentProvider": frozenset({"LOCAL", "EXISTING", "AWS", "AZURE"}),
 }
 
+# Platform-token identifier-shape match: mirrors
+# _identifier_carries_target_name (G2, language tokens) but over registered
+# PLATFORM tokens, restricted to the same declaration/type-reference
+# positions scan_file_for_shared_target_names already scopes to (class/
+# function defs, annotated/plain module- or class-level assignment targets,
+# type references) -- reusing _identifier_segments and
+# _identifiers_in_type_expression unmodified. "local" is EXCLUDED from the
+# platform-token vocabulary for this check specifically: it is a registered
+# datrix.platforms id that is also an ordinary English word, the exact reason
+# G2 excludes platforms entirely. The vocabulary stays derived from the
+# registry; only this word-collision set is hand-kept, and the self-test
+# asserts every excluded token is still a registered platform so a stale
+# exclusion fails loud.
+_PLATFORM_TOKEN_EXCLUSIONS: frozenset[str] = frozenset({"local"})
+
+
+def _platform_token_vocabulary() -> frozenset[str]:
+    """Registered platform tokens, minus the English-word collision(s)."""
+    return frozenset(registered_platform_names()) - _PLATFORM_TOKEN_EXCLUSIONS
+
 
 # ---------------------------------------------------------------------------
 # I6 Successor Ratchet (invariant I6, DI-4/DI-5)
@@ -738,18 +922,14 @@ TARGET_LITERAL_ENUM_MEMBERS: dict[str, frozenset[str]] = {
 # no src/ tree yet contributes no files and no baseline entries.
 
 
-# D6.1 second half: the SHARED packages the provider-literal pattern's scan
-# scope extends to, held at a HARD ZERO (not the language packages' decrease-
-# only ratchet against a grandfathered baseline -- see
-# check_shared_package_provider_literals below for why the enforcement shape
-# is deliberately different). Mirrors TARGET_LITERAL_SHARED_PACKAGES exactly:
-# the three packages D1 names as the shared layer that must never encode
-# platform-specific policy itself.
-PROVIDER_LITERAL_SHARED_PACKAGES: tuple[str, ...] = (
-    "datrix_common",
-    "datrix_codegen_common",
-    "datrix_cli",
-)
+# D6.1 second half: the provider-literal pattern's scan scope also extends
+# to the DERIVED shared-package set (discover_shared_packages -- the same
+# set the I1 ratchet polices, threaded into main() once and passed to
+# scan_shared_package_provider_literals below), held at a HARD ZERO (not the
+# language packages' decrease-only ratchet against a grandfathered baseline
+# -- see check_shared_package_provider_literals below for why the
+# enforcement shape is deliberately different): the shared layer must never
+# encode platform-specific policy itself.
 
 
 # ---------------------------------------------------------------------------
@@ -1069,7 +1249,18 @@ class TargetLiteralHit:
     file_path: Path
     line_number: int
     identifier: str
-    kind: Literal["central_table_name", "enum_member_qualified"]
+    kind: Literal[
+        "central_table_name",
+        "enum_member_qualified",
+        "platform_token_identifier",
+        "platform_token_module_name",
+    ]
+    # The registered platform token *identifier* carries as a segment (or
+    # a matched dotted-path segment / path component). Populated only for
+    # the two platform_token_* kinds -- the frozen-name matches
+    # (central_table_name / enum_member_qualified) match an exact known
+    # name, not a segment, so they carry no "matched" vocabulary member.
+    matched_target: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1314,10 +1505,180 @@ def scan_package_for_violations(
     return violations
 
 
-def scan_file_for_target_literals(file_path: Path) -> list[TargetLiteralHit]:
+# A heuristic dotted-import-path shape: one or more '.'-separated Python
+# identifier segments, at least two segments (a bare identifier is never a
+# module path). Matches "datrix_codegen_aws.gendsl.aws_definitions"; never
+# matches a plain single word or a non-identifier string.
+_DOTTED_MODULE_PATH_RE: re.Pattern[str] = re.compile(
+    r"[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)+"
+)
+
+
+def _platform_token_in_dotted_string(
+    value: str, platform_names: frozenset[str]
+) -> str | None:
+    """The platform token a dotted-module-path-shaped string carries in any
+    of its '.'-separated segments, or ``None`` -- ``value`` itself is never
+    matched whole; only a genuine dotted-path shape is considered, and each
+    segment is matched via the same identifier-segment algorithm
+    ``_identifier_carries_target_name`` already applies to real identifiers.
+    """
+    if not _DOTTED_MODULE_PATH_RE.fullmatch(value):
+        return None
+    for segment in value.split("."):
+        matched = _identifier_carries_target_name(segment, platform_names)
+        if matched is not None:
+            return matched
+    return None
+
+
+def _scoped_plain_assign_values(tree: ast.Module) -> list[tuple[ast.expr, int]]:
+    """Every ``(value, line_number)`` of a plain (unannotated) ``ast.Assign``
+    declared at MODULE top level or immediate CLASS-BODY level -- the exact
+    same scope ``_scoped_plain_assign_targets`` restricts its TARGETS to,
+    applied to the VALUE side instead so a dotted-module-path string literal
+    assigned there can be inspected. A function-body-local assignment is out
+    of scope for the same reason it is out of scope for
+    ``_scoped_plain_assign_targets``: an ordinary local variable's value is
+    not a declaration.
+    """
+    values: list[tuple[ast.expr, int]] = []
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign):
+            values.append((stmt.value, stmt.lineno))
+        elif isinstance(stmt, ast.ClassDef):
+            for class_stmt in stmt.body:
+                if isinstance(class_stmt, ast.Assign):
+                    values.append((class_stmt.value, class_stmt.lineno))
+    return values
+
+
+def _platform_token_module_path_string_hits(
+    tree: ast.Module, platform_names: frozenset[str]
+) -> list[tuple[str, int, str]]:
+    """``(string, line_number, matched_platform)`` for every dotted-module-
+    path-shaped string literal assigned as a plain value, a dict value, or a
+    list/tuple/set element, at the same module-/class-body scope
+    ``_scoped_plain_assign_values`` restricts to -- an ordinary function-
+    local string is out of scope, exactly like the identifier-shape match.
+    """
+    hits: list[tuple[str, int, str]] = []
+
+    def _check_constant(node: ast.expr) -> None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            matched = _platform_token_in_dotted_string(node.value, platform_names)
+            if matched is not None:
+                hits.append((node.value, node.lineno, matched))
+
+    for value, _line in _scoped_plain_assign_values(tree):
+        if isinstance(value, ast.Dict):
+            for element in value.values:
+                _check_constant(element)
+        elif isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+            for element in value.elts:
+                _check_constant(element)
+        else:
+            _check_constant(value)
+    return hits
+
+
+def _platform_token_identifier_hits(
+    tree: ast.Module, platform_names: frozenset[str]
+) -> list[tuple[str, int, str]]:
+    """``(identifier, line_number, matched_platform)`` for every declaration
+    or type-reference identifier carrying a registered platform token as an
+    identifier segment.
+
+    Scoped to the EXACT declaration/type-reference positions
+    ``scan_file_for_shared_target_names`` (G2) already restricts language-
+    token matching to -- class/function/method DEFINITIONS, a dataclass
+    field or type alias at module/class-body level (annotated or plain
+    assignment), and a type reference (isinstance/issubclass argument, base
+    class, parameter/return annotation, annotated-assignment value). Never a
+    bare local variable, function parameter, loop variable, or attribute
+    READ -- an unscoped scan over an open, runtime-derived vocabulary is
+    exactly what produced G2's own 305-false-positive result for the
+    (excluded) "local" case; the same false-positive mode would reproduce
+    for every OTHER platform token (e.g. "aws" as a local variable name) if
+    this match were not scoped identically.
+    """
+    hits: list[tuple[str, int, str]] = []
+
+    def _emit(identifier: str, line_number: int) -> None:
+        matched = _identifier_carries_target_name(identifier, platform_names)
+        if matched is not None:
+            hits.append((identifier, line_number, matched))
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            _emit(node.name, node.lineno)
+            for base in node.bases:
+                for identifier, lineno in _identifiers_in_type_expression(base):
+                    _emit(identifier, lineno)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            _emit(node.name, node.lineno)
+            all_args = [
+                *node.args.args,
+                *node.args.kwonlyargs,
+                node.args.vararg,
+                node.args.kwarg,
+            ]
+            for arg in all_args:
+                if arg is not None and arg.annotation is not None:
+                    for identifier, lineno in _identifiers_in_type_expression(
+                        arg.annotation
+                    ):
+                        _emit(identifier, lineno)
+            if node.returns is not None:
+                for identifier, lineno in _identifiers_in_type_expression(node.returns):
+                    _emit(identifier, lineno)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            _emit(node.target.id, node.lineno)
+            if node.value is not None:
+                for identifier, lineno in _identifiers_in_type_expression(node.value):
+                    _emit(identifier, lineno)
+            for identifier, lineno in _identifiers_in_type_expression(node.annotation):
+                _emit(identifier, lineno)
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id in _TYPE_REFERENCE_CALL_NAMES:
+                for call_arg in node.args[1:]:
+                    for identifier, lineno in _identifiers_in_type_expression(call_arg):
+                        _emit(identifier, lineno)
+
+    for identifier, line_number in _scoped_plain_assign_targets(tree):
+        _emit(identifier, line_number)
+
+    return hits
+
+
+def _platform_token_module_name_hits(
+    file_path: Path, monorepo_root: Path, platform_names: frozenset[str]
+) -> list[tuple[str, int, str]]:
+    """``(component, line_number, matched_platform)`` for every path
+    component of *file_path*'s path relative to *monorepo_root* (directory
+    names and the filename stem, split on '/' by the relative-path
+    computation and on '_'/camelCase by ``_identifier_carries_target_name``)
+    that carries a registered platform token as a segment -- catches a file
+    at a path like ``deployment/azure_naming.py``. Reported at line 1: this
+    is a file-level match, not tied to any single AST node.
+    """
+    hits: list[tuple[str, int, str]] = []
+    rel_parts = file_path.relative_to(monorepo_root).parts
+    components = (*rel_parts[:-1], Path(rel_parts[-1]).stem)
+    for component in components:
+        matched = _identifier_carries_target_name(component, platform_names)
+        if matched is not None:
+            hits.append((component, 1, matched))
+    return hits
+
+
+def scan_file_for_target_literals(
+    file_path: Path, monorepo_root: Path, platform_names: frozenset[str]
+) -> list[TargetLiteralHit]:
     """AST-walk *file_path* for target-literal identifiers.
 
-    Two match kinds:
+    Four match kinds:
       - ``central_table_name``: any ``ast.Name``/``ast.ClassDef``/``ast.FunctionDef``
         (or ``ast.AsyncFunctionDef``) whose identifier is exactly one of
         ``TARGET_LITERAL_CENTRAL_NAMES`` (definition sites AND reference sites
@@ -1329,12 +1690,26 @@ def scan_file_for_target_literals(file_path: Path) -> list[TargetLiteralHit]:
         an ``ast.Name`` with ``id`` in ``TARGET_LITERAL_ENUM_MEMBERS`` and whose
         ``attr`` is in the corresponding member frozenset (e.g. `Language.PYTHON`,
         `DeploymentProvider.AWS`) -- NOT a bare `AWS` identifier alone.
+      - ``platform_token_identifier``: a declaration/type-reference identifier
+        (class/function def, module-/class-level field or type alias, type
+        reference) carrying a registered platform token as an identifier
+        segment -- see ``_platform_token_identifier_hits``. ``"local"`` is
+        excluded (English-word collision, see ``_PLATFORM_TOKEN_EXCLUSIONS``).
+      - ``platform_token_module_name``: the file's own path (relative to
+        *monorepo_root*, split on both ``/`` and ``_``/camelCase) or a
+        dotted-module-path-shaped string literal assigned at module-/class-
+        level scope carries a registered platform token -- see
+        ``_platform_token_module_name_hits`` / ``_platform_token_module_path_string_hits``.
 
     Args:
         file_path: Path to Python source file.
+        monorepo_root: Monorepo root, for the module-name-from-path match.
+        platform_names: Registered platform tokens minus the "local"
+            English-word collision, from ``_platform_token_vocabulary()``.
 
     Returns:
-        List of hits found in the file, in AST-walk order.
+        List of hits found in the file, in AST-walk order (the two
+        platform-token kinds are appended after the frozen-name-match walk).
 
     Raises:
         SyntaxError: propagated from ast.parse (caller decides how to report).
@@ -1405,34 +1780,78 @@ def scan_file_for_target_literals(file_path: Path) -> list[TargetLiteralHit]:
                     )
                 )
 
+    for identifier, line_number, matched in _platform_token_identifier_hits(
+        tree, platform_names
+    ):
+        hits.append(
+            TargetLiteralHit(
+                file_path=file_path,
+                line_number=line_number,
+                identifier=identifier,
+                kind="platform_token_identifier",
+                matched_target=matched,
+            )
+        )
+
+    for identifier, line_number, matched in _platform_token_module_name_hits(
+        file_path, monorepo_root, platform_names
+    ):
+        hits.append(
+            TargetLiteralHit(
+                file_path=file_path,
+                line_number=line_number,
+                identifier=identifier,
+                kind="platform_token_module_name",
+                matched_target=matched,
+            )
+        )
+
+    for identifier, line_number, matched in _platform_token_module_path_string_hits(
+        tree, platform_names
+    ):
+        hits.append(
+            TargetLiteralHit(
+                file_path=file_path,
+                line_number=line_number,
+                identifier=identifier,
+                kind="platform_token_module_name",
+                matched_target=matched,
+            )
+        )
+
     return hits
 
 
 def scan_target_literals(
     packages: dict[str, PackageInfo],
     monorepo_root: Path,
+    shared_packages: tuple[str, ...],
 ) -> dict[Path, list[TargetLiteralHit]]:
-    """Scan every ``.py`` file under each of ``TARGET_LITERAL_SHARED_PACKAGES``'
-    ``src/`` tree (via *packages*, as already discovered by ``discover_packages``)
-    for target-literal identifiers.
+    """Scan every ``.py`` file under each of *shared_packages*' ``src/`` tree
+    (via *packages*, as already discovered by ``discover_packages``) for
+    target-literal identifiers.
 
     Args:
         packages: Package name -> PackageInfo, as returned by discover_packages().
         monorepo_root: Monorepo root for relative path reporting.
+        shared_packages: The DERIVED shared-package set
+            (``discover_shared_packages``) -- every discovered package
+            registering none of the four taxonomy entry-point groups.
 
     Returns:
         Mapping of file path -> hits in that file (files with zero hits omitted).
     """
     results: dict[Path, list[TargetLiteralHit]] = {}
+    platform_names = _platform_token_vocabulary()
 
-    for package_name in TARGET_LITERAL_SHARED_PACKAGES:
+    for package_name in shared_packages:
         package_info = packages.get(package_name)
         if package_info is None:
             continue
 
         for py_file in package_info.src_dir.rglob("*.py"):
             try:
-                hits = scan_file_for_target_literals(py_file)
+                hits = scan_file_for_target_literals(py_file, monorepo_root, platform_names)
             except SyntaxError as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
@@ -1845,9 +2264,10 @@ def check_provider_conditional_ratchet(
 def scan_shared_package_provider_literals(
     packages: dict[str, PackageInfo],
     monorepo_root: Path,
+    shared_packages: tuple[str, ...],
 ) -> dict[Path, list[ProviderConditionalHit]]:
-    """Scan every ``.py`` file under each of ``PROVIDER_LITERAL_SHARED_PACKAGES``'
-    ``src/`` tree for platform-identity conditionals -- REUSES
+    """Scan every ``.py`` file under each of *shared_packages*' ``src/`` tree
+    for platform-identity conditionals -- REUSES
     ``scan_file_for_provider_conditionals`` (the two D5 sub-patterns plus the
     pre-existing ``ProviderId``/``match``-case forms) unmodified; only the
     package SCOPE differs from ``scan_provider_conditionals`` (which targets
@@ -1856,6 +2276,9 @@ def scan_shared_package_provider_literals(
     Args:
         packages: Package name -> PackageInfo, as returned by discover_packages().
         monorepo_root: Monorepo root for relative path reporting.
+        shared_packages: The DERIVED shared-package set
+            (``discover_shared_packages``) -- every discovered package
+            registering none of the four taxonomy entry-point groups.
 
     Returns:
         Mapping of file path -> hits in that file (files with zero hits omitted).
@@ -1863,7 +2286,7 @@ def scan_shared_package_provider_literals(
     results: dict[Path, list[ProviderConditionalHit]] = {}
     provider_ids = registered_platform_names()
 
-    for package_name in PROVIDER_LITERAL_SHARED_PACKAGES:
+    for package_name in shared_packages:
         package_info = packages.get(package_name)
         if package_info is None:
             continue
@@ -2834,10 +3257,10 @@ def check_shared_vocabulary_ratchet(
 # (PythonFileScope, TypeScriptFileScope -- both listed as canonical imports
 # in datrix-common/docs/contributing/ai-agent-rules/canonical-imports.md),
 # so renaming them would be a breaking change to a published surface. Kept
-# as its own tuple (not reused from TARGET_LITERAL_SHARED_PACKAGES, whose
-# three-package scope belongs to the I1 ratchet only) per this file's
-# established one-tuple-per-ratchet precedent (see
-# PROVIDER_LITERAL_SHARED_PACKAGES above).
+# as its own tuple (not reused from the I1/I6 DERIVED shared-package set,
+# whose scope is computed once by discover_shared_packages and belongs to
+# those two ratchets only) per this file's established one-tuple/one-scope-
+# per-ratchet precedent.
 SHARED_TARGET_NAME_PACKAGES: tuple[str, ...] = (
     "datrix_codegen_common",
 )
@@ -4765,7 +5188,14 @@ def _self_test_shared_package_provider_literal_build_fixture_monorepo(
     """Build a minimal isolated monorepo: one datrix-common package with a
     module carrying NO provider-literal conditional (clean shared-package
     fixture -- no baseline file needed, since the shared-package check has
-    none)."""
+    none). Carries a manifest registering NO entry-point groups so
+    ``discover_shared_packages`` classifies it as shared -- the DERIVED set
+    main() now threads into ``scan_shared_package_provider_literals``,
+    replacing the old hardcoded shared-package tuple this fixture used to
+    rely on implicitly."""
+    _self_test_write_manifest(
+        tmp_root, "datrix-common", "datrix_common", entry_point_groups={}
+    )
     package_src = tmp_root / "datrix-common" / "src" / "datrix_common"
     package_src.mkdir(parents=True, exist_ok=True)
     (package_src / "__init__.py").write_text("", encoding="utf-8")
@@ -6514,6 +6944,225 @@ def _self_test_design_label_cli_non_vacuity() -> bool:
     return ok
 
 
+def _self_test_shared_package_classification_fixture() -> bool:
+    """``discover_shared_packages`` excludes a taxonomy-classified package,
+    includes an entry-point-less package that has a real ``src/`` tree, and
+    raises ``GeneratorTaxonomyError`` -- naming the package and the
+    unrecognized group -- for a package registering only an unrecognized
+    entry-point group, even with no ``src/`` tree at all to scan (the
+    fail-loud check fires from the manifest walk alone)."""
+    _step(
+        "Self-test 20/21: shared-package classification (derivation "
+        "excludes/includes correctly; fail-loud on an unclassifiable package)"
+    )
+    ok = True
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"shared-pkg-classification-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        _self_test_write_manifest(
+            tmp_root, "datrix-codegen-lang-x", "datrix_codegen_lang_x",
+            entry_point_groups={LANGUAGES_ENTRY_POINT_GROUP: {"lang_x": "LangXPlugin"}},
+        )
+        lang_src = tmp_root / "datrix-codegen-lang-x" / "src" / "datrix_codegen_lang_x"
+        lang_src.mkdir(parents=True, exist_ok=True)
+        (lang_src / "__init__.py").write_text("", encoding="utf-8")
+
+        _self_test_write_manifest(
+            tmp_root, "datrix-shared-y", "datrix_shared_y", entry_point_groups={},
+        )
+        shared_src = tmp_root / "datrix-shared-y" / "src" / "datrix_shared_y"
+        shared_src.mkdir(parents=True, exist_ok=True)
+        (shared_src / "__init__.py").write_text("", encoding="utf-8")
+
+        packages = discover_packages(tmp_root)
+        shared = discover_shared_packages(tmp_root, packages)
+        ok &= _check(
+            "a datrix.languages-registering package is NOT in the derived shared set",
+            "datrix_codegen_lang_x" not in shared,
+        )
+        ok &= _check(
+            "an entry-point-less package with a real src/ tree IS in the derived shared set",
+            "datrix_shared_y" in shared,
+        )
+
+        _self_test_write_manifest(
+            tmp_root, "datrix-mystery-z", "datrix_mystery_z",
+            entry_point_groups={"datrix.something_new": {"mystery": "MysteryThing"}},
+        )
+        error_text = ""
+        try:
+            discover_shared_packages(tmp_root, packages)
+            unclassifiable_rejected = False
+        except GeneratorTaxonomyError as e:
+            error_text = str(e)
+            unclassifiable_rejected = (
+                "datrix-mystery-z" in error_text and "datrix.something_new" in error_text
+            )
+        ok &= _check(
+            f"a package registering only an unrecognized group is rejected by "
+            f"name, got {error_text!r}",
+            unclassifiable_rejected,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+    return ok
+
+
+def _self_test_platform_token_build_fixture_monorepo(tmp_root: Path) -> Path:
+    """Build a minimal isolated monorepo: one ``datrix-common`` package (no
+    entry points -> classified SHARED by ``discover_shared_packages``) with
+    a module carrying NO platform-token identifier, plus a target-literal
+    baseline TOML freezing that file at count 0."""
+    _self_test_write_manifest(
+        tmp_root, "datrix-common", "datrix_common", entry_point_groups={}
+    )
+    package_src = tmp_root / "datrix-common" / "src" / "datrix_common"
+    package_src.mkdir(parents=True, exist_ok=True)
+    (package_src / "__init__.py").write_text("", encoding="utf-8")
+
+    module_path = package_src / "sample_platform_neutral.py"
+    module_path.write_text(
+        "def resolve_something() -> None:\n    return None\n", encoding="utf-8"
+    )
+
+    config_dir = tmp_root / "datrix" / "scripts" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "target-literal-baseline.toml").write_text(
+        "[[baseline]]\n"
+        'file = "datrix-common/src/datrix_common/sample_platform_neutral.py"\n'
+        "count = 0\n",
+        encoding="utf-8",
+    )
+    return module_path
+
+
+def _self_test_platform_token_run_cli(tmp_root: Path) -> subprocess.CompletedProcess[str]:
+    """Invoke THIS script as a real subprocess against the isolated fixture."""
+    return subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--base-dir",
+            str(tmp_root),
+            "--check-target-literals",
+            "--skip-auto-self-test",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _self_test_platform_token_scanner() -> bool:
+    """The I1 platform-token identifier/module-name shape match: a
+    declaration named ``build_azure_thing`` is a ``platform_token_identifier``
+    hit naming ``azure``; ``local_cache`` produces ZERO hits (the "local"
+    English-word exclusion holds); a file at ``deployment/azure_naming.py``
+    is a ``platform_token_module_name`` hit naming ``azure``; every excluded
+    token is still a registered platform name (a stale exclusion fails
+    loud) -- PLUS a real CLI mutation proof (plant ``build_azure_thing`` in
+    a derived shared-package fixture, prove the I1 ratchet fires, prove it
+    clears on revert), mirroring the G2 shared-target-name ratchet's own
+    CLI-mutation non-vacuity shape rather than an in-process call alone."""
+    _step(
+        "Self-test 21/21: platform-token identifier/module-name shape match "
+        "(direct scanner assertions + CLI mutation non-vacuity)"
+    )
+    ok = True
+
+    scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"platform-token-scanner-{uuid.uuid4().hex}"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        platform_names = _platform_token_vocabulary()
+
+        azure_file = scratch_dir / "azure_thing.py"
+        azure_file.write_text(
+            "def build_azure_thing() -> None:\n    return None\n", encoding="utf-8"
+        )
+        azure_hits = scan_file_for_target_literals(azure_file, scratch_dir, platform_names)
+        ok &= _check(
+            "build_azure_thing() is a platform_token_identifier hit naming 'azure'",
+            any(
+                h.kind == "platform_token_identifier" and h.matched_target == "azure"
+                for h in azure_hits
+            ),
+        )
+
+        local_file = scratch_dir / "local_helper.py"
+        local_file.write_text("local_cache: dict = {}\n", encoding="utf-8")
+        local_hits = scan_file_for_target_literals(local_file, scratch_dir, platform_names)
+        ok &= _check(
+            "a module-level 'local_cache' declaration produces ZERO hits -- "
+            "'local' is excluded from the platform-token vocabulary",
+            local_hits == [],
+        )
+
+        module_name_dir = scratch_dir / "deployment"
+        module_name_dir.mkdir(parents=True, exist_ok=True)
+        module_name_file = module_name_dir / "azure_naming.py"
+        module_name_file.write_text("VALUE = 1\n", encoding="utf-8")
+        module_name_hits = scan_file_for_target_literals(
+            module_name_file, scratch_dir, platform_names
+        )
+        ok &= _check(
+            "deployment/azure_naming.py is a platform_token_module_name hit naming 'azure'",
+            any(
+                h.kind == "platform_token_module_name" and h.matched_target == "azure"
+                for h in module_name_hits
+            ),
+        )
+
+        ok &= _check(
+            "every _PLATFORM_TOKEN_EXCLUSIONS member is a registered platform name "
+            "(a stale exclusion for a retired platform fails loud)",
+            _PLATFORM_TOKEN_EXCLUSIONS <= frozenset(registered_platform_names()),
+        )
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"platform-token-cli-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        module_path = _self_test_platform_token_build_fixture_monorepo(tmp_root)
+
+        clean_result = _self_test_platform_token_run_cli(tmp_root)
+        ok &= _check(
+            f"clean shared-package fixture exits 0, got {clean_result.returncode}",
+            clean_result.returncode == 0,
+        )
+
+        module_path.write_text(
+            "def build_azure_thing() -> None:\n    return None\n", encoding="utf-8"
+        )
+        failing_result = _self_test_platform_token_run_cli(tmp_root)
+        ok &= _check(
+            f"planted build_azure_thing exits 1, got {failing_result.returncode}",
+            failing_result.returncode == 1,
+        )
+        ok &= _check(
+            "failure output names the mutated file",
+            "sample_platform_neutral.py" in failing_result.stdout,
+        )
+        ok &= _check(
+            "failure output names the exact count delta (0 -> 1)",
+            "increased from baseline 0 to 1" in failing_result.stdout,
+        )
+
+        module_path.write_text(
+            "def resolve_something() -> None:\n    return None\n", encoding="utf-8"
+        )
+        reverted_result = _self_test_platform_token_run_cli(tmp_root)
+        ok &= _check(
+            f"reverting the mutation clears the failure, got exit {reverted_result.returncode}",
+            reverted_result.returncode == 0,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+    return ok
+
+
 def run_self_test() -> bool:
     """Run every self-test check; return True iff all passed.
 
@@ -6548,6 +7197,8 @@ def run_self_test() -> bool:
         _self_test_cross_package_vocabulary_cli_non_vacuity(),
         _self_test_own_target_name_cli_non_vacuity(),
         _self_test_design_label_cli_non_vacuity(),
+        _self_test_shared_package_classification_fixture(),
+        _self_test_platform_token_scanner(),
     ]
     print()
     if all(results):
@@ -6782,6 +7433,16 @@ def main() -> int:
         )
         return 2
 
+    # Derive the shared-package set the I1 target-literal ratchet and the I6
+    # shared-package hard-zero check scan. A package this derivation cannot
+    # classify (registers only unrecognized entry-point groups) aborts the
+    # whole scan rather than being silently folded into either bucket.
+    try:
+        shared_packages = discover_shared_packages(monorepo_root, packages)
+    except GeneratorTaxonomyError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 2
+
     if args.verbose:
         print(f"Found {len(packages)} packages:", file=sys.stderr)
         for pkg_name in sorted(packages.keys()):
@@ -6874,7 +7535,7 @@ def main() -> int:
     shared_package_provider_literal_messages: list[str] = []
     if args.check_provider_conditionals:
         shared_package_hits_by_file = scan_shared_package_provider_literals(
-            packages, monorepo_root
+            packages, monorepo_root, shared_packages
         )
         shared_package_provider_literal_messages = check_shared_package_provider_literals(
             shared_package_hits_by_file, monorepo_root
@@ -7018,7 +7679,9 @@ def main() -> int:
             or args.check_cross_package_vocabulary
             or args.check_own_target_names
         ):
-            target_literal_hits_by_file = scan_target_literals(packages, monorepo_root)
+            target_literal_hits_by_file = scan_target_literals(
+                packages, monorepo_root, shared_packages
+            )
             current_counts = {
                 str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
                 for file_path, hits in target_literal_hits_by_file.items()
@@ -7068,7 +7731,9 @@ def main() -> int:
             return 2
 
         baseline = load_target_literal_baseline(target_literal_baseline_path)
-        target_literal_hits_by_file = scan_target_literals(packages, monorepo_root)
+        target_literal_hits_by_file = scan_target_literals(
+            packages, monorepo_root, shared_packages
+        )
         current_counts = {
             str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
             for file_path, hits in target_literal_hits_by_file.items()
@@ -7334,7 +7999,7 @@ def main() -> int:
 
     # Clean
     if args.check_provider_conditionals:
-        shared_package_list = ", ".join(PROVIDER_LITERAL_SHARED_PACKAGES)
+        shared_package_list = ", ".join(shared_packages)
         print(
             "Shared-package provider-literal zero-tolerance check: 0 hits "
             f"({shared_package_list})."
