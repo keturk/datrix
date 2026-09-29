@@ -264,7 +264,7 @@ count = 1
 # neutral secret-management infra naming a platform's own mount convention,
 # not this task's scope.
 [[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/secrets/manifest_builder.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/manifest_builder.py"
 count = 1
 
 # reason: both hits are `tree_sitter.Language` (the third-party tree-sitter

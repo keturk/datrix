@@ -1,787 +1,157 @@
-# Function-Level-Import Ratchet Baseline (D4/I6)
+# Function-Level-Import Ratchet Baseline
 #
 # Frozen per-file counts of function-level imports (any Import/ImportFrom
 # AST node that is not a direct top-level statement of its module --
 # nested in a function/method body, an `if TYPE_CHECKING:` block, or a
-# `try`/`except`) in datrix-common's src/ tree ONLY. D4 requires these to
-# "move back to module top with a ratchet": this baseline freezes the
-# count measured immediately after the Service/Shared decomposition
-# landed, so it reflects those import relocations rather than a stale
-# pre-decomposition number. Any INCREASE in a file's count fails
+# `try`/`except`) in the code that was datrix-common's before the
+# foundation packages were extracted from it: every src/ file of
+# datrix-common, datrix-semantic, datrix-migration and datrix-testing, plus
+# each file an entry below names in another package (a former
+# datrix-common module that moved up a layer; its entry moved with it).
+#
+# Decrease-only. Any INCREASE in a file's count fails
 # datrix/scripts/dev/check-import-boundaries.py
-# --check-function-level-imports. Decreases are always allowed and should
-# be captured by re-running with --update-baseline once later work
-# promotes more deferred imports back to module top -- a one-shot sweep of
-# all sites is deliberately rejected; each area migrates with the work
-# that next touches it.
+# --check-function-level-imports, which check-import-boundaries.ps1 runs on
+# every check invocation. --update-baseline only lowers counts and drops
+# emptied entries; it refuses to raise one. A module that moves keeps its
+# entry under the new path at the same count (a rename).
+#
+# Every entry carries a reason: the import cycle that forces its deferrals
+# (both modules) or their measured import cost. An entry without one, an
+# entry naming a file no scan reads, and a zero-count entry all fail the flag.
 #
 # Format:
 #   [[baseline]]
 #   file = "path/relative/to/monorepo-root, forward slashes"
 #   count = <int>
+#   reason = "the cycle (both modules) or the measured import cost"
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/builders.py"
-count = 2
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/builtins/member_types.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/context.py"
 count = 1
+reason = "transpiler.context <-> transpiler.language_transpiler: language_transpiler imports IntegrationClientEntry/TranspileContext from context at module top, so context's LiteralKeywords annotation import stays TYPE_CHECKING-only."
+
+[[baseline]]
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/generator.py"
+count = 1
+reason = "generation.generator <-> generation.audit_log: audit_log imports GeneratedFile from generator at module top, so generator's AuditTracker annotation import stays TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/config_store/compatibility.py"
 count = 2
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/datasource/validation.py"
-count = 4
+reason = "config.config_store.compatibility <-> plugin.capability / plugin.capability_resolution: config.system_config.models imports compatibility at module top, and both plugin.capability (via platform_config_contract -> datrix_model.containers -> datrix_model.service_accessors -> config.system_config.models) and plugin.capability_resolution (directly -> config.system_config.models) reach it back."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/dcfg/group_models.py"
 count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/dcfg/resolver.py"
-count = 1
-
-# REVIEWED INCREASE 7 -> 8. This file already carried FOUR deferred imports of
-# `datrix_common.plugin.capability_resolution`, each dodging the same package-init
-# cycle that pyproject.toml's own [tool.importlinter] comment block documents:
-# datrix_common/__init__ -> errors -> utils -> utils.job_helpers ->
-# config.infrastructure.models -> config/__init__'s eager DeploymentPlan export ->
-# plugin.capability_resolution -> plugin.registry -> plugin.extension ->
-# builtins.scalar_definitions -> types -> types.parser -> errors.UnknownTypeError,
-# while datrix_common.errors is still mid-init. Hoisting was attempted and fails
-# with `ImportError: cannot import name 'UnknownTypeError' from partially
-# initialized module 'datrix_common.errors'`.
-#
-# The language-observability realization validator added here is the FIFTH site of
-# that identical, already-reviewed pattern in this same file -- not a new class of
-# debt. Relocating this one validator while its four siblings stay would leave the
-# cycle intact and the file inconsistent. Removing the cycle for real means
-# restructuring datrix_common's root package-init order (breaking the
-# errors -> utils -> config eager chain, or making config/__init__'s DeploymentPlan
-# export lazy) -- an API-affecting change with no bearing on the invariants this
-# phase implements, so it is deliberately NOT bundled into it.
-#
-# Reproduced by promoting `_validate_language_observability_realization`'s deferred
-# `from datrix_common.plugin.capability_resolution import declaration_for_language,
-# validate_language_provider_realization` to module top and executing
-# `import datrix_common.config.deployment_plan`.
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/deployment_plan.py"
-count = 8
+reason = "config.dcfg.group_models <-> datrix_model.containers: containers -> datrix_model.service_accessors -> config.system_config.models imports group_models at module top, so group_models' Application annotation import stays TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/deployment_validation.py"
 count = 5
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/integrations/detection.py"
-count = 5
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/integrations/notification_vendor_profile.py"
-count = 1
+reason = "config.deployment_validation <-> config.system_config.models / plugin.capability_resolution: system_config.models imports deployment_validation at module top (the SystemConfigProfileConfig annotation import), and capability_resolution imports system_config.models at module top (the four validator-body imports of capability_resolution)."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/integrations/provisioning.py"
 count = 3
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/resilience/discovery_synthetic.py"
-count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/serverless/hosting_validation.py"
-count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/system_config/access.py"
-count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/config_resolution.py"
-count = 30
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/cross_service/registry_builder.py"
-count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/_codegen/generate_model_classes.py"
-count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/api.py"
-count = 3
+reason = "config.integrations.provisioning <-> plugin.capability_resolution: capability_resolution -> plugin.capability -> plugin.capability_cells imports NotificationRealization from provisioning at module top."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/base.py"
 count = 19
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/blocks.py"
-count = 9
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/cache_connection_scope.py"
-count = 1
+reason = "datrix_model.base <-> datrix_model.containers/enums/entity/callables/expressions/imports/blocks/cqrs/pubsub/extern_service: every one of those node modules subclasses base's Node hierarchy at module top, so base reaches their classes only inside the symbol-resolution functions and TYPE_CHECKING annotations."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/callables.py"
-count = 6
+count = 2
+reason = "datrix_model.callables <-> datrix_model.api / datrix_model.serverless: api and serverless both import Endpoint (and the other callables) from callables at module top, so callables' RestApi/WebsocketApi/ServerlessBlock owner annotations stay TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/containers.py"
 count = 2
+reason = "datrix_model.containers <-> datrix_model.serialization: serialization imports Application/Service/Shared from containers at module top, so Application.hash and Service.hash import the serializers in their bodies."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/contract.py"
-count = 2
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/cqrs.py"
-count = 4
+count = 1
+reason = "datrix_model.contract <-> datrix_model.pubsub: pubsub imports EnsureClause from contract at module top, so contract's Event owner annotation stays TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/entity.py"
-count = 11
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/enums.py"
-count = 2
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/exceptions.py"
 count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/expressions.py"
-count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/extern_service.py"
-count = 23
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/imports.py"
-count = 1
+reason = "datrix_model.entity <-> datrix_model.callables: callables imports Entity from entity at module top, so entity's Function/Modifier annotations stay TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/ingress.py"
-count = 2
+count = 1
+reason = "datrix_model.ingress <-> datrix_model.containers: containers imports ServiceIngressExposure from ingress at module top, so ingress' Service annotation stays TYPE_CHECKING-only."
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/observability.py"
+file = "datrix-common/src/datrix_common/datrix_model/observability_validation.py"
 count = 1
+reason = "datrix_model.observability_validation <-> datrix_model.containers: containers imports validate_alerts/validate_audit from observability_validation at module top, so its Service/Shared annotations stay TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/pubsub.py"
-count = 4
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/search.py"
-count = 4
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/serverless.py"
-count = 5
+count = 2
+reason = "datrix_model.pubsub <-> datrix_model.callables / datrix_model.containers: callables imports Topic and containers imports Event/PubsubBlock/Subscription from pubsub at module top, so pubsub's EventHandler and Service/Shared annotations stay TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/service_accessors.py"
-count = 16
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/service_pubsub_scope.py"
-count = 3
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/shared_accessors.py"
-count = 5
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/storage_bindings.py"
 count = 2
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/storage_identity.py"
-count = 5
+reason = "datrix_model.service_accessors <-> datrix_model.containers: containers imports ServiceQueryMixin/ServiceRegistrarMixin from service_accessors at module top to declare Service, so the Service/UsesDirective annotations and depends_on's isinstance(Service) import stay deferred."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/visitor_protocols.py"
 count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/deployment/connection_surface.py"
-count = 4
-
-[[baseline]]
-# Both deferrals are permanent and cycle-mandated, not promotion candidates:
-# config/codegen_context.py imports this module at its own top, and both
-# plugin.runtime_spec_resolution and plugin.capability_resolution pull in
-# plugin.registry -> plugin.extension -> builtins.scalar_definitions -> types
-# -> types.registry -> plugin.extension (partially initialized). Verified by
-# import, and reproduced by promoting either one to module top.
-file = "datrix-common/src/datrix_common/deployment/runtime_bootstrap.py"
-count = 2
+reason = "datrix_model.visitor_protocols <-> datrix_model.expressions: expressions imports ExpressionVisitor/StatementVisitor from visitor_protocols at module top, so the visitors' node-type annotations stay TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/deployment/secret_backend.py"
 count = 2
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/api_helpers.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/app_context.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/entity_helpers.py"
-count = 8
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/external_infrastructure.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/feature_catalog.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/framework_secret_handles.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/gateway_routes.py"
-count = 4
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/generator.py"
-count = 2
-
-[[baseline]]
-file = "datrix-cli/src/datrix_cli/generation/generator_lineup.py"
-count = 3
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/generation/hook_analysis.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/generation/import_paths.py"
-count = 1
-
-[[baseline]]
-file = "datrix-cli/src/datrix_cli/generation/incremental.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/generation/language_generator.py"
-count = 6
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/language_helpers.py"
-count = 9
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/language_runtime_spec.py"
-count = 6
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/nested_collection_routes.py"
-count = 5
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/generation/orchestrator.py"
-count = 11
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/generation/payment_gateway_dsl.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/plugin_helpers.py"
-count = 7
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/registry.py"
-count = 3
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/result.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/search_compose.py"
-count = 2
-
-[[baseline]]
-file = "datrix-cli/src/datrix_cli/generation/snapshot.py"
-count = 3
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/sub_generator.py"
-count = 3
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/generation/sub_generator_bases.py"
-count = 9
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/generation/symbol_helpers.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/generation/type_helpers.py"
-count = 3
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/type_mapping_registry.py"
-count = 3
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/generation/type_resolver.py"
-count = 9
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/validation.py"
-count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/identity/deployment_context.py"
-count = 2
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/identity/plan_artifact.py"
-count = 8
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/infra/registry.py"
-count = 3
-
-[[baseline]]
-file = "datrix-migration/src/datrix_migration/differ.py"
-count = 1
-
-[[baseline]]
-file = "datrix-migration/src/datrix_migration/generator.py"
-count = 2
-
-[[baseline]]
-file = "datrix-migration/src/datrix_migration/schema_snapshot.py"
-count = 15
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/observability_validation.py"
-count = 6
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/plugin/__init__.py"
-count = 8
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/plugin/capability.py"
-count = 2
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/plugin/capability_resolution.py"
-count = 4
+reason = "deployment.secret_backend <-> config.system_config.models / plugin.capability_resolution: system_config.models imports SecretBackendPolicy from secret_backend at module top, and capability_resolution imports system_config.models at module top."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/plugin/descriptor.py"
 count = 2
+reason = "plugin.descriptor <-> plugin.identity / datrix_model.containers: identity imports require_descriptor from descriptor at module top, and containers -> datrix_model.pubsub -> datrix_model._block_provisioning -> plugin.identity reaches descriptor, so the LanguageId and Application annotations stay TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/plugin/identity.py"
 count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/plugin/language_plugin.py"
-count = 4
+reason = "plugin.identity <-> plugin.registry: registry -> plugin.protocol -> datrix_model.containers -> datrix_model.pubsub -> datrix_model._block_provisioning imports FlavorId from identity at module top, so identity's PluginRegistry annotation stays TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/plugin/platform_config_contract.py"
-count = 3
+count = 1
+reason = "plugin.platform_config_contract <-> config.codegen_context: codegen_context -> deployment.runtime_bootstrap -> plugin.capability_resolution -> plugin.capability imports PlatformConfigContract at module top, so the CodegenContext annotation stays TYPE_CHECKING-only."
 
 [[baseline]]
-# TYPE_CHECKING-only imports backing the optional build_bootstrap Protocol
-# member. Permanent, not promotion candidates: a runtime import of
-# deployment.runtime_bootstrap from here closes
-# plugin.platform_runtime_spec -> deployment.runtime_bootstrap ->
-# plugin.runtime_spec_resolution -> plugin.platform_runtime_spec, and the
-# config-model imports are deferred alongside it so this Protocol module keeps
-# no runtime edge into the config/deployment subtrees. Same shape and same
-# rationale as the plugin/protocol.py entry below.
 file = "datrix-common/src/datrix_common/plugin/platform_runtime_spec.py"
-count = 4
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/plugin/protocol.py"
 count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/plugin/search_realization.py"
-count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/protocols/integration_usage.py"
-count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/protocols/parser.py"
-count = 1
+reason = "plugin.platform_runtime_spec <-> deployment.runtime_bootstrap: runtime_bootstrap imports PlatformRuntimeSpec from platform_runtime_spec at module top, so the RuntimeBootstrap annotation stays TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/rendering/expressions.py"
 count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/rendering/renderer.py"
-count = 10
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/analyzer.py"
-count = 22
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/api_defaults.py"
-count = 15
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/auth_contract_lowering.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/callable_blocks.py"
-count = 7
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/code_body_validator.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/endpoint_paths.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/field_types.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/imports.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/inheritance.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/named_call_type_annotator.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/pipeline/keys.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/pipeline/phase.py"
-count = 4
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/pipeline/store.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/references.py"
-count = 4
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/result.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/stdlib_expression_materialize.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/stdlib_integration.py"
-count = 5
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/storage_resolution.py"
-count = 7
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/symbols.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/synthesis/replay_endpoints.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/type_checker.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/type_walker.py"
-count = 6
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/__init__.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/_legacy_auth_shared.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/_pooling_shared.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/_test_body_helpers.py"
-count = 5
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/_utils.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/api.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/base.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/builtin_traits.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/contract.py"
-count = 7
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/cqrs.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/cross_service_argument_checks.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/cross_service_call_sites.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/cross_service_endpoint_declarations.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/cross_service_entity_ambiguity.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/entity.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/event.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/exception_validator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/extension_validator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/extern_validator.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/geo_validator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/identity_app_wide.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/identity_block_hygiene.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/identity_dangling_provider.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/identity_endpoint_checks.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/identity_service_surface.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/legacy_auth_credential_reuse.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/legacy_auth_managed_only.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/pooling_pubsub.py"
-count = 6
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/pooling_rdbms.py"
-count = 6
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/pooling_storage.py"
-count = 6
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/relationship.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/replay_idempotency.py"
-count = 4
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/replayable_topic.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/required_body.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/scalar_validator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/search.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/serverless.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/service.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/shared.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/shared_uses.py"
-count = 2
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/system.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/tenancy.py"
-count = 3
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/test.py"
-count = 5
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/verify_contract.py"
-count = 4
-
-[[baseline]]
-file = "datrix-testing/src/datrix_testing/conftest_plugin.py"
-count = 2
-
-[[baseline]]
-file = "datrix-testing/src/datrix_testing/determinism_fixtures.py"
-count = 1
-
-[[baseline]]
-file = "datrix-testing/src/datrix_testing/factories.py"
-count = 3
-
-[[baseline]]
-file = "datrix-testing/src/datrix_testing/fixtures.py"
-count = 1
-
-[[baseline]]
-file = "datrix-testing/src/datrix_testing/identity_example.py"
-count = 3
-
-[[baseline]]
-file = "datrix-testing/src/datrix_testing/parsing.py"
-count = 8
-
-[[baseline]]
-file = "datrix-testing/src/datrix_testing/pipelines.py"
-count = 1
-
-[[baseline]]
-file = "datrix-testing/src/datrix_testing/semantic_baseline.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/base.py"
-count = 3
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/context.py"
-count = 3
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/language_transpiler.py"
-count = 4
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/protocols.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/scope.py"
-count = 2
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/types/parser.py"
-count = 2
+reason = "rendering.expressions <-> rendering.renderer: renderer imports _render_expr/_render_stmts from expressions at module top, so the _ASTRenderer annotation stays TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/types/ref.py"
-count = 4
+count = 3
+reason = "types.ref <-> datrix_model.entity/enums/cqrs through the types package: those modules import datrix_model.base, which imports EnumType/StructType from the datrix_common.types package at module top, and that package's __init__ imports ref, so a runtime import would run them against a partially initialised datrix_common.types."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/types/registry.py"
 count = 6
+reason = "types.registry <-> builtins.scalar_definitions / plugin.extension / types.definitions.loader / types.parser: scalar_definitions imports types.mapping_requirement, whose package __init__ imports registry (the loader and the three get_builtin_scalar_definitions imports; plugin.extension reaches scalar_definitions the same way), and parser imports TypeRegistry from registry at module top."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/utils/engine_helpers.py"
 count = 1
+reason = "utils.engine_helpers <-> datrix_model.containers: containers -> datrix_model.pubsub imports engine_str from engine_helpers at module top, so the Application/Service annotations stay TYPE_CHECKING-only."
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/utils/provider_helpers.py"
+file = "datrix-testing/src/datrix_testing/semantic_baseline.py"
 count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/utils/pubsub_helpers.py"
-count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/utils/service_container_memory.py"
-count = 1
+reason = "_typeshed has no runtime module (it exists only in type-checker stubs), so the DataclassInstance annotation import can only live under TYPE_CHECKING."

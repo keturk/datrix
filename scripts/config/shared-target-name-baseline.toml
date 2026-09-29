@@ -24,6 +24,6 @@
 #   count = <int>
 
 [[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/platform/container_image_supply.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/container_image_supply.py"
 count = 1
 reason = "PYTHON_BASE_IMAGE_DIR (:60) is a genuine target name, but datrix-codegen-docker consumes it directly and this design excludes datrix-codegen-docker from scope -- scope-fenced exemption; needs a follow-up design scoping docker's base-image-family naming. NOTE: _BASE_IMAGE_FAMILY_SUFFIX (:53) is NOT a hit -- its IDENTIFIER carries no language segment; only its string VALUE ('-python-base') does, which is outside this ratchet's identifier scope."

@@ -2,7 +2,7 @@
 #
 # Frozen per-file counts of module-level frozenset/set/dict
 # declarations in the four datrix-codegen-{lang} packages whose
-# normalized member set duplicates a datrix_codegen_common.enums
+# normalized member set duplicates a datrix_codegen_kernel.enums
 # vocabulary. Any INCREASE in a file's count fails
 # datrix/scripts/dev/check-import-boundaries.py --check-shared-vocabulary.
 # Decreases are always allowed and should be captured by re-running

@@ -1,5 +1,5 @@
 {
-  "_comment": "I5 GeneratedFile-construction ratchet baseline (Invariant I5). Frozen per-package counts of direct GeneratedFile(...) constructor calls in each package's src/ tree (tests/ excluded; datrix-codegen-common/.../gendsl/executor.py excluded as the declared-render path's own internals). Any INCREASE fails datrix/scripts/test/check-generated-file-ratchet.py. Decreases are always allowed and should be captured by re-running with --update-baseline once a migration converts hand-coded construction into a genDSL declaration.",
+  "_comment": "I5 GeneratedFile-construction ratchet baseline (Invariant I5). Frozen per-package counts of direct GeneratedFile(...) constructor calls in each package's src/ tree (tests/ excluded; datrix-codegen-kernel/.../gendsl/executor.py excluded as the declared-render path's own internals). Any INCREASE fails datrix/scripts/test/check-generated-file-ratchet.py. Decreases are always allowed and should be captured by re-running with --update-baseline once a migration converts hand-coded construction into a genDSL declaration.",
   "baseline": {
     "datrix-cli": 0,
     "datrix-codegen-aws": 7,
@@ -7,10 +7,13 @@
     "datrix-codegen-common": 0,
     "datrix-codegen-component": 10,
     "datrix-codegen-docker": 4,
+    "datrix-codegen-flutter": 0,
+    "datrix-codegen-kernel": 2,
     "datrix-codegen-python": 0,
     "datrix-codegen-sql": 3,
-    "datrix-codegen-typescript": 1,
-    "datrix-common": 2,
+    "datrix-codegen-typescript": 0,
+    "datrix-codegen-typescript-core": 1,
+    "datrix-common": 0,
     "datrix-extensions": 0,
     "datrix-language": 0
   }

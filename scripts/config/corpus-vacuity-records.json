@@ -43,7 +43,7 @@
       "language": "python",
       "domain": "cdn",
       "status": "cloud-platform-only",
-      "reason": "Pattern */src/*/infrastructure/cdn.py. CDN-module emission requires all three of: the resolved platform realizing CDN cache invalidation, a declared cdn block, and that block enabled (datrix-codegen-common/src/datrix_codegen_common/platform/cdn_emission.py, service_needs_cdn_module). provides_cdn_cache_invalidation is True only on the aws and azure platform capability declarations; azure-vm declares it False and the local docker target does not declare it at all. Both preconditions are missing from the corpus: zero cdn blocks in the 201 example .dtrx files (matcher proven against datrix-language's cdn-*.dtrx transformer fixtures), and every example config resolves deployment.provider = \"local\". Closing this needs the corpus's first cloud-targeting example, not a cdn block."
+      "reason": "Pattern */src/*/infrastructure/cdn.py. CDN-module emission requires all three of: the resolved platform realizing CDN cache invalidation, a declared cdn block, and that block enabled (datrix-codegen-kernel/src/datrix_codegen_kernel/platform/cdn_emission.py, service_needs_cdn_module). provides_cdn_cache_invalidation is True only on the aws and azure platform capability declarations; azure-vm declares it False and the local docker target does not declare it at all. Both preconditions are missing from the corpus: zero cdn blocks in the 201 example .dtrx files (matcher proven against datrix-language's cdn-*.dtrx transformer fixtures), and every example config resolves deployment.provider = \"local\". Closing this needs the corpus's first cloud-targeting example, not a cdn block."
     },
     {
       "language": "python",
@@ -67,7 +67,7 @@
       "language": "typescript",
       "domain": "cdn",
       "status": "cloud-platform-only",
-      "reason": "Pattern */src/*/infrastructure/cdn.ts. CDN-module emission requires all three of: the resolved platform realizing CDN cache invalidation, a declared cdn block, and that block enabled (datrix-codegen-common/src/datrix_codegen_common/platform/cdn_emission.py, service_needs_cdn_module). provides_cdn_cache_invalidation is True only on the aws and azure platform capability declarations; azure-vm declares it False and the local docker target does not declare it at all. Both preconditions are missing from the corpus: zero cdn blocks in the 201 example .dtrx files (matcher proven against datrix-language's cdn-*.dtrx transformer fixtures), and every example config resolves deployment.provider = \"local\". Closing this needs the corpus's first cloud-targeting example, not a cdn block."
+      "reason": "Pattern */src/*/infrastructure/cdn.ts. CDN-module emission requires all three of: the resolved platform realizing CDN cache invalidation, a declared cdn block, and that block enabled (datrix-codegen-kernel/src/datrix_codegen_kernel/platform/cdn_emission.py, service_needs_cdn_module). provides_cdn_cache_invalidation is True only on the aws and azure platform capability declarations; azure-vm declares it False and the local docker target does not declare it at all. Both preconditions are missing from the corpus: zero cdn blocks in the 201 example .dtrx files (matcher proven against datrix-language's cdn-*.dtrx transformer fixtures), and every example config resolves deployment.provider = \"local\". Closing this needs the corpus's first cloud-targeting example, not a cdn block."
     },
     {
       "language": "typescript",
