@@ -131,7 +131,7 @@ EXCLUDED_CYCLOMATIC_BLOCKS: list[tuple[str, str]] = [
     ("datrix_common/generator.py", "Generator"),
     ("transpiler/base.py", "Transpiler"),
     ("datrix_codegen_python/transpiler/core.py", "PythonTranspilerCore"),
-    ("datrix_codegen_typescript/transpiler/core.py", "TypeScriptTranspilerCore"),
+    ("datrix_codegen_typescript_core/transpiler/core.py", "TypeScriptTranspilerCore"),
     ("datrix_codegen_python/generators/api_test_generator.py", "ApiTestGenerator"),
     # TypeScript mirror: large orchestration class (same role as Python ApiTestGenerator).
     ("datrix_codegen_typescript/generators/api/api_test_generator.py", "ApiTestGenerator"),
