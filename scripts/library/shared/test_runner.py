@@ -752,6 +752,17 @@ class TestRunner:
    returncode = 1 # Default to failure
    env = os.environ.copy()
    env["PYTHONUNBUFFERED"] = "1"
+   # RUNNER_PLUGIN_MODULE ("test.runner_plugin") lives under scripts/library/,
+   # not in an installed distribution, so the pytest subprocess needs that
+   # directory on PYTHONPATH to resolve "-p test.runner_plugin" the same way
+   # this process resolves "shared.test_runner" via sys.path.
+   library_dir = str(get_datrix_root() / "datrix" / "scripts" / "library")
+   existing_pythonpath = env.get("PYTHONPATH", "")
+   env["PYTHONPATH"] = (
+    library_dir
+    if not existing_pythonpath
+    else os.pathsep.join([library_dir, existing_pythonpath])
+   )
 
    # Phase execution depends on xdist availability:
    # With xdist: Phase 1 (parallel) → Phase 2 (serial), the latter skipped when

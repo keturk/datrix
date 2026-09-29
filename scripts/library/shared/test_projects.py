@@ -16,7 +16,7 @@ _datrix_root = get_datrix_root()
 _datrix_common_src = _datrix_root / "datrix-common" / "src"
 if _datrix_common_src.exists() and str(_datrix_common_src) not in sys.path:
     sys.path.insert(0, str(_datrix_common_src))
-from datrix_common import DATRIX_FILE_EXTENSION  # noqa: E402
+from datrix_common.constants import DATRIX_FILE_EXTENSION  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

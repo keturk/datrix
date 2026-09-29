@@ -48,7 +48,7 @@ from test.affected_set import UsageError
 logger = logging.getLogger(__name__)
 
 #: The pytest plugin that records what a run touched; loaded with ``-p``.
-RUNNER_PLUGIN_MODULE: Final[str] = "datrix_common.testing.runner_plugin"
+RUNNER_PLUGIN_MODULE: Final[str] = "test.runner_plugin"
 ENV_RUN_DIR: Final[str] = "DATRIX_RUN_DIR"
 ENV_SUITE_CONE: Final[str] = "DATRIX_SUITE_CONE"
 ENV_WORKSPACE_ROOT: Final[str] = "DATRIX_WORKSPACE_ROOT"
