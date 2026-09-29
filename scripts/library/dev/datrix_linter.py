@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     # Imported for annotations only -- the runtime imports stay function-local
     # inside _get_parser()/_get_analyzer() so `--help` and path discovery do not
     # pay the tree-sitter/semantic-analyzer import cost.
-    from datrix_common.datrix_model import Application
+    from datrix_common.datrix_model.containers import Application
     from datrix_semantic import SemanticAnalyzer
     from datrix_language.parser import TreeSitterParser
 

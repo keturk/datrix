@@ -57,17 +57,23 @@
  never a hardcoded list -- where any provider-literal hit fails outright.
 
 .PARAMETER CheckFunctionLevelImports
- Run the function-level-import ratchet check
- in addition to the import-boundary check. Compares current per-file
- function-level-import counts in datrix-common's src/ tree ONLY against the
- frozen baseline at scripts/config/function-level-import-baseline.toml.
+ Run the function-level-import ratchet check. Compares current per-file
+ function-level-import counts in the code that was datrix-common's before
+ the foundation packages were extracted from it (the src/ trees of
+ datrix-common, datrix-semantic, datrix-migration and datrix-testing, plus
+ each file a baseline entry names in another package) against the
+ decrease-only baseline at scripts/config/function-level-import-baseline.toml,
+ and fails on any baseline entry that is inert, empty, or carries no written
+ reason. Runs on EVERY check invocation of this script (see NOTES); the
+ switch matters only together with -UpdateBaseline, which lowers the
+ baseline and refuses to raise it.
 
 .PARAMETER CheckSharedVocabulary
  Run the G1 shared-vocabulary ratchet check (Decision D3, Invariant I2) in
  addition to the import-boundary check. Fails when a datrix-codegen-{lang}
  module declares a module-level set/frozenset/dict whose normalized member
  set duplicates a vocabulary already declared in
- datrix_codegen_common.enums. Compares current per-file counts against the
+ datrix_codegen_kernel.enums. Compares current per-file counts against the
  frozen baseline at scripts/config/shared-vocabulary-baseline.toml.
 
 .PARAMETER CheckSharedTargetNames
@@ -86,12 +92,14 @@
  with a bare string literal, identically in two or more datrix-* packages
  -- every package discover_packages() finds, not only the language
  packages the G1 ratchet scans -- independent of whether either copy also
- duplicates a datrix_codegen_common.enums vocabulary. Compares current
+ duplicates a datrix_codegen_kernel.enums vocabulary. Compares current
  per-file counts against the frozen baseline at
  scripts/config/cross-package-vocabulary-baseline.toml. A baseline entry
- carrying a `reason` key is a duplicate a design requires (Decision 36 D9)
+ carrying a `reason` key is a duplicate a design requires
  and must never be driven to zero; -UpdateBaseline reads every reason back
- and re-emits it rather than discarding it with the rewritten file.
+ and re-emits it rather than discarding it with the rewritten file. Runs on
+ EVERY check invocation of this script (see NOTES); the switch matters only
+ together with -UpdateBaseline.
 
 .PARAMETER CheckOwnTargetNames
  Run the I4 own-target-name ratchet check (Decision D5, Invariant I4) in
@@ -123,6 +131,13 @@
 
 .PARAMETER Dbg
  Enable debug logging
+
+.NOTES
+ Every check invocation -- the default run and any -Check* run, i.e. every run
+ without -UpdateBaseline or -SelfTest -- also runs the function-level-import
+ and cross-package-vocabulary ratchets. The quality gate's
+ -CheckTargetLiterals / -CheckProviderConditionals runs therefore fail on a new
+ deferred import or a re-spelled vocabulary set, in the change that adds it.
 
 .EXAMPLE
  .\check-import-boundaries.ps1
@@ -296,6 +311,17 @@ try {
     # Get Python executable from venv
     $venvPath = Get-DatrixVenvPath
     $pythonExe = Join-Path $venvPath "Scripts\python.exe"
+
+    # The function-level-import and cross-package-vocabulary ratchets run on
+    # every check invocation -- the default run and every -Check* run alike --
+    # so a new deferred import or a re-spelled vocabulary fails the gate run in
+    # the change that introduces it, whichever other check that run asked for.
+    # Only a baseline update (which touches just the baselines it names) and a
+    # self-test-only run leave them to their explicit flags.
+    if (-not $UpdateBaseline -and -not $SelfTest) {
+        $CheckFunctionLevelImports = [switch]$true
+        $CheckCrossPackageVocabulary = [switch]$true
+    }
 
     # Build arguments for Python script
     $pythonArgs = @($pythonScript)

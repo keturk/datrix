@@ -44,23 +44,25 @@ single occurrence fails, since shared layers must never encode
 platform-specific policy (Principle 10, D1).
 
 Also implements the function-level-import ratchet:
-opt-in via --check-function-level-imports, it AST-scans ONLY the
-datrix-common src/ tree for function-level imports (an Import/ImportFrom AST
-node that is not a direct top-level statement of its module -- nested in a
-function/method body, an `if TYPE_CHECKING:` block, or a `try`/`except`) and
-fails if any file's count increases past its frozen baseline
-(scripts/config/function-level-import-baseline.toml). A one-shot sweep of
-every site is deliberately rejected; the ratchet freezes the count so it
-cannot grow while later work promotes deferred imports back to module top as
-the changes that touch each file allow.
---update-baseline (combined with --check-function-level-imports) recomputes
-and overwrites that baseline.
+via --check-function-level-imports, it AST-scans the code that was
+datrix-common's before the foundation packages were extracted from it (the
+src/ trees of FUNCTION_LEVEL_IMPORT_PACKAGES, plus each file a baseline entry
+names in another package) for function-level imports (an Import/ImportFrom
+AST node that is not a direct top-level statement of its module -- nested in
+a function/method body, an `if TYPE_CHECKING:` block, or a `try`/`except`)
+and fails if any file's count increases past its frozen baseline
+(scripts/config/function-level-import-baseline.toml), or if any baseline
+entry is inert, empty, or carries no written reason (the cycle that forces
+the deferral, or its measured import cost).
+--update-baseline (combined with --check-function-level-imports) lowers that
+baseline to the current counts and drops emptied entries; it refuses to
+raise any count.
 
 Also implements the G1 shared-vocabulary ratchet (Decision D3, Invariant I2):
 opt-in via --check-shared-vocabulary, it AST-scans the LANGUAGE package src/
 trees (the ``datrix.languages`` packages the manifests declare) for a module-level
 frozenset/set/dict whose normalized member set duplicates a vocabulary
-already declared in datrix_codegen_common.enums (read live from the
+already declared in datrix_codegen_kernel.enums (read live from the
 installed package at scan time, never mirrored) -- the DSL vocabulary
 re-scattered as hand-rolled string literals after being centralised -- and
 fails if any file's count increases past its frozen baseline
@@ -119,14 +121,14 @@ LANGUAGE packages G1 scans) for a module-level set/frozenset/dict/tuple
 literal, normalizes each one's member set, and fails when the SAME
 normalized member set is declared with a bare string literal in two or
 more DISTINCT packages -- independent of whether either copy also
-duplicates a datrix_codegen_common.enums vocabulary (that comparison is
+duplicates a datrix_codegen_kernel.enums vocabulary (that comparison is
 G1's job; G3 compares packages against each other directly, with no
 notion of a canonical source). A value set declared twice within the SAME
 package is a different, already-tracked defect (intra-package DRY, not
 G3) and is never counted here. A container built entirely from qualified
 EnumClass.MEMBER references is CONSUMING a vocabulary, not hardcoding it,
 and is never flagged -- the same has_bare_literal gate G1 uses, classified
-PURELY BY AST SHAPE (never by resolving against datrix_codegen_common.enums
+PURELY BY AST SHAPE (never by resolving against datrix_codegen_kernel.enums
 the way G1 does -- G3 must never consult that module). Fails if
 any file's count increases past its frozen baseline
 (scripts/config/cross-package-vocabulary-baseline.toml).
@@ -223,207 +225,46 @@ class BoundaryRule:
     """Per-package boundary rule: forbidden prefixes plus subtree carve-outs.
 
     An import that matches a forbidden prefix is still permitted when it
-    starts with one of ``allowed_subtrees`` — used to admit the narrow,
-    language-agnostic platform -> codegen-common edges while keeping the
-    language-shaped subtrees walled off.
+    starts with one of ``allowed_subtrees`` -- used where a package may reach
+    a narrow, reviewed part of an otherwise-forbidden package (the test
+    harness's kernel import).
+
+    ``test_only_subtrees`` admits a subtree in the package's test trees
+    (``tests/``, ``fixtures/``, ``helpers/``) and nowhere else: a subtree the
+    package takes only through a declared dev extra, never at runtime. An
+    import of it from ``src/`` is still a violation.
     """
 
     forbidden_prefixes: tuple[str, ...]
     allowed_subtrees: frozenset[str] = frozenset()
+    test_only_subtrees: frozenset[str] = frozenset()
 
 
-# The closed set of language-agnostic datrix_codegen_common subtrees that
-# platform generators (docker, aws, azure) are permitted to import. Every entry
-# carries a written reason directly above it, and the set is frozen a second
-# time in this script's own self-test, so adding one is a reviewed act rather
-# than an edit that quietly widens the boundary.
-#
-# Matching is exact-or-child, never raw prefix: an entry naming a MODULE admits
-# that module and its children and nothing else beside it. That precision is
-# what lets a mixed package expose only its neutral half -- see
-# ``algorithms.cqrs_projection_receivers``, which is allowed while its sibling
-# ``algorithms.cqrs`` stays denied.
-#
-# The bar for an entry is that the fact is target-neutral AND genuinely crosses
-# the axis: a platform provisions the resource an emitted consumer binds, so a
-# single definition is the only thing that keeps the two from drifting. When a
-# module holds such a fact next to a language-shaped one, the fix is to split
-# the module -- never to admit the whole thing.
-#
-# Platforms remain FORBIDDEN from: transpiler.*, language-shaped context_models.*
-# (entity/schema/service/endpoint/cache/pubsub/cqrs/jobs/project), and
-# language-shaped algorithms.* (same suffixes).
-PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
-    [
-        "datrix_codegen_common.gendsl",
-        "datrix_codegen_common.dashboards",
-        "datrix_codegen_common.algorithms.serverless",
-        "datrix_codegen_common.context_models.serverless",
-        "datrix_codegen_common.context_models.replayable_ingestion",
-        "datrix_codegen_common.enums",
-        "datrix_codegen_common.platform",
-        # D8 shared decision engines + D9/D10 conformance layers:
-        # target-neutral infrastructure decisions every platform legitimately
-        # consumes -- NOT language-shaped. pooling: the unified pooled-resource
-        # context builder (DI-5); secrets: the shared secret-manifest /
-        # handle-derivation decision layer (rendering stays per-target); seed:
-        # config-seed planning; parity: the D6/D9 BlockRealization /
-        # DomainDeclaration types platforms declare their capabilities with;
-        # orchestration.resolved_runtime_plan: the target-neutral resolved
-        # runtime plan; testkit: the D10 conformance kit each target package
-        # consumes as a dev-dependency in its own test tree.
-        "datrix_codegen_common.pooling",
-        "datrix_codegen_common.secrets",
-        "datrix_codegen_common.seed",
-        "datrix_codegen_common.parity",
-        "datrix_codegen_common.orchestration.resolved_runtime_plan",
-        "datrix_codegen_common.testkit",
-        # The shared container-image supply primitives (union requirements +
-        # content-hash base-image tag).
-        # THREE platform plugins need this ONE algorithm -- docker (emits the
-        # base image, bakes the tag into every per-service Dockerfile FROM
-        # line), aws (its deploy script builds/pushes exactly that tag), and
-        # azure (its ACR site-config image reference). A platform plugin may
-        # never import a sibling platform plugin to get it (that would make
-        # AWS uninstallable without Docker -- see the platform->platform
-        # prohibition in build_boundary_rules below), so the algorithm lives in the
-        # shared codegen layer and every platform imports it from here.
-        # Redundant with the broader ``datrix_codegen_common.platform`` entry
-        # above; listed explicitly so this edge is reviewable on its own.
-        "datrix_codegen_common.platform.container_image_supply",
-        # The canonical, subscriber-scoped Azure Service Bus subscription-name
-        # algorithm -- a deterministic infrastructure-naming function with
-        # zero per-target variation, sibling in kind to the already-allowed
-        # ``algorithms.serverless``. Consumed by azure src (the Service Bus
-        # topic/subscription provisioning builder in
-        # ``resource_mapping/_pubsub.py``), plus the language packages'
-        # messaging-runtime emit helpers, so the name a subscriber binds at
-        # runtime and the name Azure provisions can never drift out of sync.
-        "datrix_codegen_common.algorithms.servicebus_naming",
-        # The peek-lock duration written into the provisioned Service Bus
-        # entity, and the renewal budget the emitted consumer uses. THE SAME
-        # FACT crosses both axes -- azure provisions ``lockDuration``, the
-        # language emitters renew against it -- so it is a shared constant by
-        # construction, exactly like ``servicebus_naming`` above (it exists
-        # because the two provisioning code paths had already drifted to PT30S
-        # vs PT1M for the one fact). Azure imports only the duration constant.
-        "datrix_codegen_common.algorithms.servicebus_lock_renewal",
-        # The (physical topic, receiver base) pairs a service's CQRS
-        # projections bind. Provisioning and consumer emission MUST derive
-        # their receiver set from one function or the consumer binds entities
-        # nothing created -- the defect this module's own canonical marker
-        # records. Split out of ``algorithms.cqrs`` for this rule rather than
-        # admitted through it: that module also carries the CQRS block
-        # resolution and ``CqrsOperationKind`` classification a language
-        # micro-generator branches on -- a language-shaped surface -- and
-        # carving out the whole module to reach the neutral half would have
-        # handed every platform the other half.
-        "datrix_codegen_common.algorithms.cqrs_projection_receivers",
-        # Shared raise-site bodies for the W5 guards. The rate-limit guard here
-        # exists BECAUSE aws, azure and docker each wrote their own copy of it;
-        # the per-platform declaration is the field rows each passes in, not the
-        # guard. Every caller raises the same ``GenerationError``, so no
-        # per-target exception type crosses this edge either.
-        "datrix_codegen_common.generation.raise_site_guards",
-        # The GenDSL intermediate representation a platform's own GenDSL
-        # declarations are written in, and the GenDSL registry wrappers its
-        # declarations register into. Both are part of the GenDSL engine the
-        # ``gendsl`` entry above admits -- the engine imports them at runtime --
-        # and neither carries a language-shaped surface.
-        "datrix_codegen_kernel.generation.gendsl_ir",
-        "datrix_codegen_kernel.generation.gendsl_registry",
-        # Per-queue override-over-default resolution of a queues block's
-        # settings (delay, visibility timeout, max receive count, retention,
-        # concurrency). THE SAME FACT crosses both axes: a platform provisions
-        # a queue's delay / redrive bound / retention, and the language
-        # emitters apply the same queue's delay and delivery-attempt bound -- a
-        # second resolver on either side is how the platforms came to ignore a
-        # per-queue override the emitters honoured. Pure config arithmetic over
-        # ``QueueConfig``, no language-shaped surface.
-        "datrix_codegen_common.algorithms.queue_overrides",
-        # WHICH of a service's async-handler sources a Functions host realizes
-        # (serverless blocks, service-level subscriptions / enqueue consumers /
-        # scheduled jobs, gated by ``hosting: inProcess``). THE SAME FACT crosses
-        # both axes: a Functions-hosting platform provisions and deploys exactly
-        # these handlers, and a language wires its function registrations into
-        # its project for exactly these -- one predicate, so the two can never
-        # disagree about which handlers run on the Function App. Pure DSL-model
-        # predicates, no language-shaped surface.
-        "datrix_codegen_common.algorithms.function_app_hosting",
-    ]
+# The language layer's conformance testkit: the fixture language, the fixture
+# platform and client, and the realization / dispatch-ladder / domain
+# self-consistency gates each target package runs against itself. Platforms,
+# SQL and component take it through the ``datrix-codegen-common[testkit]`` dev
+# extra, so their TESTS may import it -- and only their tests: production code
+# in those packages depends on the kernel alone and may import nothing from
+# datrix_codegen_common.
+TARGET_TEST_ONLY_CODEGEN_COMMON_SUBTREES: frozenset[str] = frozenset(
+    {"datrix_codegen_common.testkit"}
 )
 
-# The closed set of language-agnostic datrix_codegen_common subtrees that the
-# SQL generator is permitted to import.  SQL is a schema/DDL generator — it is
-# not a language generator, but it is not a platform generator either, so it
-# carries its own narrower carve-out rather than the platform set.
+# Language-core packages: a package holding one language's transpiler core,
+# language profile and web-client mechanics, split out of that language's
+# backend generator so a frontend target emitting the same file language can
+# depend on it without depending on the backend. It registers no entry point
+# (it is a library, not a plugin), so the taxonomy cannot discover its role;
+# each one is named here with the language package it serves.
 #
-# Covers the datrix_codegen_common modules that SQL imports today:
-#   gendsl.*                          — GenDSL compiler/executor (shared entry point)
-#   context_models.migration          — SQL migration state model (language-agnostic)
-#   orchestration.migration_adapter   — migration adapter shared by SQL + TS (language-agnostic)
-#
-# SQL remains FORBIDDEN from: transpiler.*, language-shaped context_models.*
-# (entity/schema/service/endpoint/cache/pubsub/cqrs/jobs/project), algorithms.*,
-# dashboards.*, and the platform-specific subtrees.
-SQL_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
-    [
-        "datrix_codegen_common.gendsl",
-        "datrix_codegen_common.context_models.migration",
-        "datrix_codegen_common.orchestration.migration_adapter",
-        # D9 conformance types SQL declares its domain support with (kit-CI):
-        # the same target-neutral DomainDeclaration / SHARED_CONTEXT_TYPES
-        # layer platforms consume -- not language-shaped.
-        "datrix_codegen_common.parity",
-        # D10 testkit is a dev-dependency of every target package (its gates /
-        # capability harness are target-neutral); SQL's kit-CI test consumes the
-        # shared domain-self-consistency gate the same way platform kit-CI tests do.
-        "datrix_codegen_common.testkit",
-        # Two algorithms modules that are pure SQL facts, not language-shaped:
-        # the PostgreSQL ``to_tsvector(...)`` expression text and GIN method every
-        # RDBMS target must emit identically, and the naming/ordering rule for
-        # fulltext and spatial snapshot indexes -- the identity of the database
-        # object, which the SQL reflector must recognise exactly as the migration
-        # adapters name it. Exact-or-child matching admits these two modules and
-        # nothing else under ``algorithms``.
-        "datrix_codegen_common.algorithms.postgresql_fulltext",
-        "datrix_codegen_common.algorithms.snapshot_index_naming",
-        # The GenDSL intermediate representation SQL's own GenDSL declarations
-        # are written in and typed against, and the GenDSL registry wrappers
-        # its declarations register into: the GenDSL engine's own data model.
-        "datrix_codegen_kernel.generation.gendsl_ir",
-        "datrix_codegen_kernel.generation.gendsl_registry",
-    ]
-)
-
-# The datrix_codegen_typescript modules a web client target (a browser client
-# emitted in TypeScript) is permitted to import. A web client target is not a
-# language generator, but it renders through the TypeScript transpiler core and
-# the shared web-client mechanics, so the backend language package is a real
-# runtime dependency of it -- never its server-shaped generators, templates or
-# language-plugin surface. Each target's own import-allowlist test pins the
-# same set from inside the package.
-#   transpiler.core / .operators / .js_identifier / .visitor_statements
-#                              -- the transpiler core and its own statement facts
-#   syntax_emitters / type_mappings / profile
-#                              -- the language sub-profiles the target composes
-#   web_client                 -- escaping, local names, endpoint contexts,
-#                                 naming, override plumbing, shared builtin rows
-WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES: frozenset[str] = frozenset(
-    [
-        "datrix_codegen_typescript.transpiler.core",
-        # The TypeScript core's own per-file scope: the web-client targets
-        # construct the scope the core they drive reads.
-        "datrix_codegen_typescript.transpiler.scope",
-        "datrix_codegen_typescript.transpiler.operators",
-        "datrix_codegen_typescript.transpiler.js_identifier",
-        "datrix_codegen_typescript.transpiler.visitor_statements",
-        "datrix_codegen_typescript.syntax_emitters",
-        "datrix_codegen_typescript.type_mappings",
-        "datrix_codegen_typescript.profile",
-        "datrix_codegen_typescript.web_client",
-    ]
-)
+# The language it serves and every frontend target emitting that language may
+# import it; every other language (and that language's own core) is a sibling
+# it may not reach, and the platform, SQL, component and extension packages --
+# forbidden the language layer -- are forbidden it too.
+LANGUAGE_CORE_PACKAGES: dict[str, str] = {
+    "datrix_codegen_typescript_core": "datrix_codegen_typescript",
+}
 
 # ---------------------------------------------------------------------------
 # Generator taxonomy -- DISCOVERED from the manifests on disk, never declared.
@@ -471,16 +312,16 @@ SHARED_PACKAGE_CLASSIFIER_GROUPS: frozenset[str] = frozenset(
 # registration mechanism from the four taxonomy groups above (mirrors
 # datrix_common.plugin.registry's GENDSL_FILE_LANGUAGES_GROUP/
 # GENDSL_ITERATION_TARGETS_GROUP/GENDSL_CONTEXT_NAMESPACES_GROUP, plus
-# datrix_codegen_common.gendsl.target_registry's
+# datrix_codegen_kernel.gendsl.target_registry's
 # GENDSL_GENERATOR_TARGETS_GROUP -- read for the canonical spellings only,
 # same as the four taxonomy groups; this scanner does not import either
 # module). Confirmed against the real manifests (not assumed): every
-# language, every platform, the frontend targets, SQL, AND
-# datrix-codegen-common itself (the design's own named shared package)
-# register into this axis, so its presence carries NO taxonomy signal --
-# folding it into SHARED_PACKAGE_CLASSIFIER_GROUPS would misclassify every
-# one of those as shared, and treating it as "unrecognized" would make
-# discover_shared_packages abort on datrix-codegen-common itself.
+# language, every platform, the frontend targets, SQL, AND the shared
+# packages datrix-codegen-kernel and datrix-codegen-common register into this
+# axis, so its presence carries NO taxonomy signal -- folding it into
+# SHARED_PACKAGE_CLASSIFIER_GROUPS would misclassify every one of those as
+# shared, and treating it as "unrecognized" would make
+# discover_shared_packages abort on the shared packages themselves.
 _GENDSL_AUXILIARY_ENTRY_POINT_GROUPS: frozenset[str] = frozenset(
     {
         "datrix.gendsl_file_languages",
@@ -630,15 +471,16 @@ def discover_shared_packages(
       (``_GENDSL_AUXILIARY_ENTRY_POINT_GROUPS`` -- ``datrix_common.plugin.registry``'s
       ``GENDSL_FILE_LANGUAGES_GROUP``/``GENDSL_ITERATION_TARGETS_GROUP``/
       ``GENDSL_CONTEXT_NAMESPACES_GROUP``, plus
-      ``datrix_codegen_common.gendsl.target_registry.GENDSL_GENERATOR_TARGETS_GROUP``)
+      ``datrix_codegen_kernel.gendsl.target_registry.GENDSL_GENERATOR_TARGETS_GROUP``)
       is registered by packages spanning EVERY taxonomy class alike --
-      ``datrix-codegen-common`` (shared), every language, every platform, the
-      frontend targets, and SQL all register into it, so its presence says
-      nothing about which of the four taxonomy groups a package belongs to
-      (or doesn't). Confirmed against the real monorepo manifests, not
-      assumed: ``datrix-codegen-common`` registers ONLY
-      ``gendsl_file_languages``/``gendsl_iteration_targets`` and is the
-      design's own named example of a shared package.
+      the shared ``datrix-codegen-kernel`` and ``datrix-codegen-common``,
+      every language, every platform, the frontend targets, and SQL all
+      register into it, so its presence says nothing about which of the four
+      taxonomy groups a package belongs to (or doesn't). Confirmed against the
+      real monorepo manifests, not assumed: ``datrix-codegen-kernel``
+      registers ONLY ``gendsl_file_languages``/``gendsl_iteration_targets``
+      and ``datrix-codegen-common`` ONLY ``gendsl_iteration_targets``; both
+      are shared packages.
 
     A package registering a NON-EMPTY [project.entry-points] table whose
     ``datrix.``-namespaced group name(s) are ALL outside the four known
@@ -724,6 +566,7 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
     """
     language_packages = taxonomy.language_packages
     platform_packages = taxonomy.platform_packages
+    language_cores = tuple(sorted(LANGUAGE_CORE_PACKAGES))
     return {
         "datrix_common": BoundaryRule(
             forbidden_prefixes=(
@@ -746,61 +589,107 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
             ),
         ),
         "datrix_codegen_common": BoundaryRule(
-            forbidden_prefixes=(*language_packages, *platform_packages, "datrix_cli"),
+            forbidden_prefixes=(
+                *language_packages, *language_cores, *platform_packages, "datrix_cli",
+            ),
         ),
-        # Language generators: each forbids every SIBLING language package. They share
-        # code through datrix-codegen-common, never through direct imports -- importing a
-        # sibling re-introduces the O(N^2) coupling the shared layer exists to prevent
-        # (see "Cross-language parity is verified by per-language conformance, never by
+        # Language generators: each forbids every SIBLING language package, and every
+        # language-core package that serves a sibling. They share code through
+        # datrix-codegen-common, never through direct imports -- importing a sibling
+        # re-introduces the O(N^2) coupling the shared layer exists to prevent (see
+        # "Cross-language parity is verified by per-language conformance, never by
         # comparison" in datrix-common/docs/architecture/import-boundaries.md).
         **{
-            language: BoundaryRule(forbidden_prefixes=_siblings(language, language_packages))
+            language: BoundaryRule(
+                forbidden_prefixes=(
+                    *_siblings(language, language_packages),
+                    *(
+                        core
+                        for core in language_cores
+                        if LANGUAGE_CORE_PACKAGES[core] != language
+                    ),
+                )
+            )
             for language in language_packages
         },
-        # SQL generator: forbidden from sibling language packages and from the bulk of
-        # datrix_codegen_common (it is not a language generator, so the transpiler and
-        # language-shaped subtrees are off-limits).  SQL_CODEGEN_COMMON_ALLOWED_SUBTREES
-        # carves out the narrow language-agnostic subtrees SQL legitimately uses.
+        # Language-core packages sit below the backend language generator they
+        # serve and every frontend target emitting that language: an import of any
+        # of them -- or of any other generator, the parser, the semantic layer, the
+        # CLI or the extension packs -- would put a consumer back underneath its own
+        # dependency. Each package's own import-linter contract enforces the same
+        # fence on src/ with TYPE_CHECKING imports counted.
+        **{
+            core: BoundaryRule(
+                forbidden_prefixes=(
+                    *language_packages,
+                    *_siblings(core, language_cores),
+                    *platform_packages,
+                    "datrix_codegen_sql",
+                    "datrix_codegen_component",
+                    "datrix_codegen_angular",
+                    "datrix_codegen_flutter",
+                    "datrix_language",
+                    "datrix_semantic",
+                    "datrix_cli",
+                    "datrix_extensions",
+                ),
+            )
+            for core in language_cores
+        },
+        # SQL generator: forbidden from every language package, from the whole of
+        # datrix_codegen_common, and from datrix_cli. SQL is a schema/DDL generator, not a
+        # language generator: every target-neutral fact it consumes (the GenDSL engine,
+        # the migration adapter protocol and chain model, the parity declaration types,
+        # the pure-SQL index facts) lives in datrix_codegen_kernel, which it depends on
+        # instead. Only its tests may reach the language layer's conformance testkit,
+        # which it takes as a dev extra.
         "datrix_codegen_sql": BoundaryRule(
             forbidden_prefixes=(
                 *language_packages,
+                *language_cores,
                 "datrix_codegen_common",
                 "datrix_cli",
             ),
-            allowed_subtrees=SQL_CODEGEN_COMMON_ALLOWED_SUBTREES,
+            test_only_subtrees=TARGET_TEST_ONLY_CODEGEN_COMMON_SUBTREES,
         ),
-        # Component generator: forbidden from sibling language packages and datrix_cli.
-        # Component is a language-agnostic scaffolding generator — it is not a language
-        # generator, but unlike SQL it legitimately imports datrix_codegen_common freely
-        # (gendsl, algorithms.serverless, context_models.serverless, etc.), so
-        # datrix_codegen_common is NOT on its forbidden list.
+        # Component generator: forbidden from every language package, from the whole of
+        # datrix_codegen_common, and from datrix_cli. Component is a language-agnostic
+        # scaffolding generator: the GenDSL engine, the serverless plan and the NoSQL
+        # collection facts it consumes live in datrix_codegen_kernel, which it depends
+        # on instead. Only its tests may reach the conformance testkit (dev extra).
         "datrix_codegen_component": BoundaryRule(
-            forbidden_prefixes=(*language_packages, "datrix_cli"),
+            forbidden_prefixes=(
+                *language_packages, *language_cores, "datrix_codegen_common", "datrix_cli",
+            ),
+            test_only_subtrees=TARGET_TEST_ONLY_CODEGEN_COMMON_SUBTREES,
         ),
         # Client-target generators: forbidden from every backend language generator, from every
         # other client target, and from datrix_cli -- a frontend client target is not a language
-        # generator, but (like Component) legitimately imports datrix_codegen_common freely (the
-        # shared client contract builder, GenDSL registrations), so datrix_codegen_common is NOT
-        # on its forbidden list. The web target (Angular) renders TypeScript through the
-        # backend TypeScript package's transpiler core and shared web-client modules, admitted by
-        # WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES and nothing wider. Without these entries the
-        # scanner would have NO rule for these packages at all, which main() refuses to run with
-        # -- silently unguarded is not a state this gate allows.
+        # generator, but (like Component and Flutter) it legitimately imports
+        # datrix_codegen_common freely (the shared client contract builder, the transpiler it
+        # renders DSL bodies with), so datrix_codegen_common is NOT on its forbidden list. The
+        # web target (Angular) renders TypeScript through datrix_codegen_typescript_core, a
+        # language-core library that registers no entry point, so it is not a language package
+        # and needs no carved-out allowed_subtrees -- the backend TypeScript generator stays
+        # forbidden whole. Flutter emits Dart, so every language core is forbidden to it. Without
+        # these entries the scanner would have NO rule for these packages at all, which main()
+        # refuses to run with -- silently unguarded is not a state this gate allows.
         "datrix_codegen_angular": BoundaryRule(
             forbidden_prefixes=(
                 *language_packages, "datrix_codegen_flutter", "datrix_cli",
             ),
-            allowed_subtrees=WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES,
         ),
         "datrix_codegen_flutter": BoundaryRule(
             forbidden_prefixes=(
-                *language_packages, "datrix_codegen_angular", "datrix_cli",
+                *language_packages, *language_cores, "datrix_codegen_angular", "datrix_cli",
             ),
         ),
-        # Platform generators keep datrix_codegen_common on forbidden_prefixes but carry
-        # PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES to admit the language-agnostic
-        # subtrees they legitimately consume. The transpiler and language-shaped
-        # context_models/algorithms subtrees remain forbidden.
+        # Platform generators are forbidden the whole of datrix_codegen_common: every
+        # target-neutral service they consume (the GenDSL engine, the provider library,
+        # pooling, secrets, seed planning, dashboards, the serverless and replayable-
+        # ingestion plans, the shared enums) lives in datrix_codegen_kernel, which they
+        # depend on instead. Only their tests may reach the language layer's
+        # conformance testkit, which they take as a dev extra.
         #
         # SIBLING PLATFORM PLUGINS ARE FORBIDDEN TOO. Each platform
         # forbids every OTHER platform. This edge was once missing from every
@@ -810,19 +699,19 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
         # reuse the base-image tag algorithm) means the importing platform can no
         # longer be installed without the imported one, and would grow into a
         # three-way coupling the moment a second platform needed the same code.
-        # The correct home for anything two platforms share is the shared codegen
-        # layer (PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES above): shared layers
-        # ask, target plugins answer (design principle 16; CLAUDE.md's
-        # generality-preserving design rule).
+        # The correct home for anything two platforms share is the generation
+        # kernel (datrix_codegen_kernel): shared layers ask, target plugins answer
+        # (design principle 16; CLAUDE.md's generality-preserving design rule).
         **{
             platform: BoundaryRule(
                 forbidden_prefixes=(
                     "datrix_codegen_common",
                     *language_packages,
+                    *language_cores,
                     *_siblings(platform, platform_packages),
                     "datrix_cli",
                 ),
-                allowed_subtrees=PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES,
+                test_only_subtrees=TARGET_TEST_ONLY_CODEGEN_COMMON_SUBTREES,
             )
             for platform in platform_packages
         },
@@ -830,6 +719,7 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
             forbidden_prefixes=(
                 "datrix_cli",
                 *language_packages,
+                *language_cores,
                 "datrix_codegen_common",
                 *platform_packages,
                 "datrix_language",
@@ -841,11 +731,34 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
         # implementations reach it only through the calling test session's
         # registration (datrix_testing.parsing.register_test_parser), never
         # through an import.
+        #
+        # The one generation package it may import is the kernel: its assertion,
+        # I/O, pipeline and determinism helpers build and compare the kernel's
+        # GeneratedFile/Generator values. The kernel takes datrix-testing only
+        # as a dev extra, so that edge closes no runtime cycle.
         "datrix_testing": BoundaryRule(
             forbidden_prefixes=(
                 "datrix_language",
                 "datrix_cli",
                 "datrix_codegen_",  # Wildcard: any package starting with datrix_codegen_
+                "datrix_extensions",
+            ),
+            allowed_subtrees=frozenset({"datrix_codegen_kernel"}),
+        ),
+        # The generation kernel (generator base classes, template engine,
+        # discovery, the shared route and runtime derivations, the GenDSL data
+        # model, the Seed datasets) sits on the core alone. Every language,
+        # platform and frontend generator, the language layer and the CLI
+        # depend on it, so an import of any of them -- or of the parser or the
+        # semantic layer -- would put that package back in every platform's
+        # dependency path. Its own import-linter contract enforces the same
+        # fence on src/ with TYPE_CHECKING imports counted.
+        "datrix_codegen_kernel": BoundaryRule(
+            forbidden_prefixes=(
+                "datrix_codegen_",  # Wildcard: every other datrix_codegen_* package
+                "datrix_language",
+                "datrix_semantic",
+                "datrix_cli",
                 "datrix_extensions",
             ),
         ),
@@ -1028,17 +941,36 @@ DESIGN_LABEL_PATTERN: re.Pattern[str] = re.compile(
 # Function-Level-Import Ratchet
 #
 # The rule: deferred function-level imports move back to module top under a
-# ratchet -- a 668 baseline, monotonically decreasing (superseded by an
-# orchestrator-frozen 657 ceiling for the pre-decomposition tree -- see the
-# frozen baseline file's own header). A
-# function-level import is any `Import`/`ImportFrom` AST node that is not a
-# direct top-level statement of its module -- nested inside a function body,
-# a method body, an `if TYPE_CHECKING:` block, or a `try`/`except`. Scoped to
-# `datrix-common` ONLY (unlike I1/I6 above): this is that package's own
-# intra-package layering effort (D4/I6 concerns `datrix-common`'s model/
-# semantic/config/generation layering specifically), not a monorepo-wide
-# metric. Do not extend this tuple to other packages.
-FUNCTION_LEVEL_IMPORT_PACKAGES: tuple[str, ...] = ("datrix_common",)
+# decrease-only ratchet. A function-level import is any `Import`/`ImportFrom`
+# AST node that is not a direct top-level statement of its module -- nested
+# inside a function body, a method body, an `if TYPE_CHECKING:` block, or a
+# `try`/`except`.
+#
+# The ratchet polices the code that was `datrix-common`'s before the
+# foundation packages were extracted from it, wherever that code now lives --
+# a move must read as a rename, never as the ratchet losing sight of the file:
+#   * every src/ file of the packages whose WHOLE tree came out of
+#     `datrix-common` (the tuple below: the core itself and the three packages
+#     extracted from it whole); and
+#   * every file a baseline entry names in any other discovered package -- a
+#     former `datrix-common` module that moved into a layer above, whose entry
+#     moved with it as a rename.
+# The scope is exactly this and no wider: the other packages' own modules were
+# never part of this layering effort, and folding them in would admit their
+# whole deferral count at once instead of ratcheting the code this baseline
+# was frozen over.
+#
+# Every baseline entry must name a Python file under a discovered package's
+# src/ tree (anything else is an inert entry the scan never reads), must count
+# at least one import (a zero entry polices nothing), and must carry a written
+# reason: the import cycle that forces the deferral (both modules) or its
+# measured import cost. An entry failing any of the three fails the flag.
+FUNCTION_LEVEL_IMPORT_PACKAGES: tuple[str, ...] = (
+    "datrix_common",
+    "datrix_semantic",
+    "datrix_migration",
+    "datrix_testing",
+)
 
 # Root name(s) recognized as "the deployment/infrastructure provider" for the
 # `.value`/`str(...)` detection forms below. Restricting to these roots (a
@@ -1353,8 +1285,8 @@ def is_forbidden_import(
     """Check if an import violates a forbidden prefix rule.
 
     An import that matches a forbidden prefix is still permitted when it
-    starts with one of the ``allowed_subtrees`` entries — used to admit
-    the narrow, language-agnostic platform -> codegen-common edges.
+    starts with one of the ``allowed_subtrees`` entries -- used to admit a
+    narrow, reviewed part of an otherwise-forbidden package.
 
     Subtree matching uses an exact-or-child rule:
         subtree ``s`` matches ``m`` when ``m == s`` or ``m.startswith(s + ".")``.
@@ -1519,8 +1451,15 @@ def scan_package_for_violations(
         if optional_dir.exists() and optional_dir.is_dir():
             scan_dirs.append(optional_dir)
 
-    # Walk all .py files under all scan directories
+    # Walk all .py files under all scan directories. src/ is held to
+    # allowed_subtrees alone; the test trees additionally admit the rule's
+    # test_only_subtrees (a subtree the package takes only as a dev extra).
     for scan_dir in scan_dirs:
+        permitted_subtrees = (
+            rule.allowed_subtrees
+            if scan_dir == package_info.src_dir
+            else rule.allowed_subtrees | rule.test_only_subtrees
+        )
         for py_file in scan_dir.rglob("*.py"):
             if verbose:
                 rel_path = py_file.relative_to(monorepo_root)
@@ -1553,7 +1492,7 @@ def scan_package_for_violations(
                         package_info.name,
                         imported_module,
                         forbidden_prefix,
-                        rule.allowed_subtrees,
+                        permitted_subtrees,
                     ):
                         violations.append(
                             Violation(
@@ -2510,7 +2449,7 @@ def check_design_labels(
 def scan_file_for_function_level_imports(
     file_path: Path,
 ) -> list[FunctionLevelImportHit]:
-    """AST-walk *file_path* for function-level imports (D4/I6 successor).
+    """AST-walk *file_path* for function-level imports.
 
     A hit is any ``ast.Import``/``ast.ImportFrom`` node that is NOT a direct
     top-level statement of the module -- i.e., not a member of ``tree.body``
@@ -2551,108 +2490,164 @@ def scan_file_for_function_level_imports(
     return hits
 
 
+def _scan_one_policed_file_for_function_level_imports(
+    py_file: Path, monorepo_root: Path
+) -> list[FunctionLevelImportHit]:
+    """Scan one policed file, exiting 2 when it cannot be read or parsed --
+    a policed file the scan cannot read would otherwise escape it silently."""
+    try:
+        return scan_file_for_function_level_imports(py_file)
+    except SyntaxError as e:
+        rel_path = py_file.relative_to(monorepo_root)
+        print(
+            f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
+            f"A policed file that cannot be parsed would escape this scan "
+            f"(a silent blind spot); fix its syntax or encoding.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    except OSError as e:
+        rel_path = py_file.relative_to(monorepo_root)
+        print(
+            f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
+            f"cannot be read would escape this scan; resolve the read error.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+
 def scan_function_level_imports(
     packages: dict[str, PackageInfo],
     monorepo_root: Path,
+    tracked_files: frozenset[str],
 ) -> dict[Path, list[FunctionLevelImportHit]]:
-    """Scan every ``.py`` file under each of ``FUNCTION_LEVEL_IMPORT_PACKAGES``'
-    ``src/`` tree (via *packages*, as already discovered by ``discover_packages``)
-    for function-level imports.
+    """Scan the function-level-import ratchet's policed files.
+
+    The policed files are every ``.py`` file under each of
+    ``FUNCTION_LEVEL_IMPORT_PACKAGES``' ``src/`` trees, plus every file in
+    *tracked_files* (the baseline's own entries) that lies in another
+    package -- a former ``datrix-common`` module that moved up a layer. A
+    tracked file that does not exist is not scanned here; it is reported by
+    :func:`check_function_level_import_baseline_entries` instead.
 
     Args:
         packages: Package name -> PackageInfo, as returned by discover_packages().
         monorepo_root: Monorepo root for relative path reporting.
+        tracked_files: Monorepo-relative paths (forward slashes) the baseline
+            names.
 
     Returns:
         Mapping of file path -> hits in that file (files with zero hits omitted).
+
+    Raises:
+        SystemExit: (exit 2) when a policed package is not discovered -- its
+            whole tree would otherwise leave the scan without a word.
     """
     results: dict[Path, list[FunctionLevelImportHit]] = {}
+    policed_dirs: list[Path] = []
 
     for package_name in FUNCTION_LEVEL_IMPORT_PACKAGES:
         package_info = packages.get(package_name)
         if package_info is None:
-            continue
-
+            print(
+                f"ERROR: the function-level-import ratchet polices package "
+                f"'{package_name}', but no datrix-* directory under {monorepo_root} "
+                f"holds src/{package_name}. Discovered: {sorted(packages)}. A policed "
+                f"package that is not discovered would drop its whole tree from the "
+                f"scan; restore it, or remove it from FUNCTION_LEVEL_IMPORT_PACKAGES "
+                f"together with its baseline entries.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        policed_dirs.append(package_info.src_dir)
         for py_file in package_info.src_dir.rglob("*.py"):
-            try:
-                hits = scan_file_for_function_level_imports(py_file)
-            except SyntaxError as e:
-                rel_path = py_file.relative_to(monorepo_root)
-                print(
-                    f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
-                    f"A policed file that cannot be parsed would escape this scan "
-                    f"(a silent blind spot); fix its syntax or encoding.",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-            except OSError as e:
-                rel_path = py_file.relative_to(monorepo_root)
-                print(
-                    f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
-                    f"cannot be read would escape this scan; resolve the read error.",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-
+            hits = _scan_one_policed_file_for_function_level_imports(py_file, monorepo_root)
             if hits:
                 results[py_file] = hits
+
+    for file_rel in sorted(tracked_files):
+        py_file = monorepo_root / file_rel
+        if not py_file.is_file() or any(py_file.is_relative_to(d) for d in policed_dirs):
+            continue
+        hits = _scan_one_policed_file_for_function_level_imports(py_file, monorepo_root)
+        if hits:
+            results[py_file] = hits
 
     return results
 
 
-def load_function_level_import_baseline(baseline_path: Path) -> dict[str, int]:
-    """Load ``{relative_file: frozen_count}`` from the function-level-import
-    baseline TOML.
+@dataclass(frozen=True)
+class FunctionLevelImportBaseline:
+    """The frozen function-level-import baseline: one count per policed file
+    and the written reason that forces each file's surviving deferrals.
+
+    A reason is part of the frozen record, not a comment beside it:
+    ``--update-baseline`` reads it back through this type and re-emits it.
+    """
+
+    counts: dict[str, int]
+    reasons: dict[str, str]
+
+
+class FunctionLevelImportBaselineError(ValueError):
+    """The function-level-import baseline file is malformed."""
+
+
+def load_function_level_import_baseline(baseline_path: Path) -> FunctionLevelImportBaseline:
+    """Load the function-level-import baseline TOML: ``{relative_file:
+    frozen_count}`` plus ``{relative_file: reason}`` for every entry that
+    carries one.
 
     Args:
         baseline_path: Path to the function-level-import baseline TOML file.
 
     Returns:
-        An empty dict if the file does not exist yet (first-ever run, before
-        this task's `--update-baseline` freezes it).
+        The frozen counts and reasons.
+
+    Raises:
+        FunctionLevelImportBaselineError: An entry has no string ``file``, no
+            integer ``count``, or names a file twice -- a malformed entry is
+            never skipped, because a skipped entry would stop policing its file.
     """
-    if not baseline_path.exists():
-        return {}
-
-    try:
-        import tomllib  # Python 3.11+
-    except ImportError:
-        try:
-            import tomli as tomllib  # type: ignore[no-redef]
-        except ImportError:
-            print(
-                "Warning: TOML library not available. Install tomli for baseline support.",
-                file=sys.stderr,
-            )
-            return {}
-
     with baseline_path.open("rb") as f:
         data = tomllib.load(f)
 
     counts: dict[str, int] = {}
-    for entry in data.get("baseline", []):
-        if not isinstance(entry, dict):
-            continue
+    reasons: dict[str, str] = {}
+    for index, entry in enumerate(data.get("baseline", [])):
+        file_rel = entry.get("file") if isinstance(entry, dict) else None
+        count = entry.get("count") if isinstance(entry, dict) else None
+        if not isinstance(file_rel, str) or not file_rel or not isinstance(count, int):
+            raise FunctionLevelImportBaselineError(
+                f"{baseline_path}: [[baseline]] entry #{index + 1} is malformed ({entry!r}). "
+                f"Expected: file = \"<monorepo-relative path>\", count = <int>, "
+                f"reason = \"<the cycle (both modules) or measured import cost>\". "
+                f"Fix the entry; a malformed entry is never skipped."
+            )
+        if file_rel in counts:
+            raise FunctionLevelImportBaselineError(
+                f"{baseline_path}: '{file_rel}' has two [[baseline]] entries. "
+                f"Expected exactly one per file; merge them into one entry."
+            )
+        counts[file_rel] = count
+        reason = entry.get("reason")
+        if isinstance(reason, str) and reason.strip():
+            reasons[file_rel] = reason
 
-        file_rel = entry.get("file", "")
-        count = entry.get("count")
-
-        if file_rel and isinstance(count, int):
-            counts[file_rel] = count
-
-    return counts
+    return FunctionLevelImportBaseline(counts=counts, reasons=reasons)
 
 
 def write_function_level_import_baseline(
-    baseline_path: Path, counts: dict[str, int]
+    baseline_path: Path, counts: dict[str, int], reasons: dict[str, str]
 ) -> None:
-    """Write ``counts`` to the function-level-import baseline TOML as
-    ``[[baseline]] file=... count=...`` entries, sorted by file for
-    deterministic diffs.
+    """Write the function-level-import baseline TOML as ``[[baseline]]
+    file=... count=... reason=...`` entries, sorted by file for deterministic
+    diffs. Every entry's reason in *reasons* is re-emitted.
 
     Args:
         baseline_path: Path to the function-level-import baseline TOML file to write.
         counts: Mapping of relative file path (forward slashes) -> hit count.
+        reasons: Mapping of relative file path -> written reason.
     """
     header = (
         "# Function-Level-Import Ratchet Baseline\n"
@@ -2660,22 +2655,28 @@ def write_function_level_import_baseline(
         "# Frozen per-file counts of function-level imports (any Import/ImportFrom\n"
         "# AST node that is not a direct top-level statement of its module --\n"
         "# nested in a function/method body, an `if TYPE_CHECKING:` block, or a\n"
-        "# `try`/`except`) in datrix-common's src/ tree ONLY. D4 requires these to\n"
-        '# "move back to module top with a ratchet": this baseline freezes the\n'
-        "# count measured immediately after the Service/Shared decomposition\n"
-        "# landed, so it reflects those import relocations rather than a stale\n"
-        "# pre-decomposition number. Any INCREASE in a file's count fails\n"
+        "# `try`/`except`) in the code that was datrix-common's before the\n"
+        "# foundation packages were extracted from it: every src/ file of\n"
+        "# datrix-common, datrix-semantic, datrix-migration and datrix-testing, plus\n"
+        "# each file an entry below names in another package (a former\n"
+        "# datrix-common module that moved up a layer; its entry moved with it).\n"
+        "#\n"
+        "# Decrease-only. Any INCREASE in a file's count fails\n"
         "# datrix/scripts/dev/check-import-boundaries.py\n"
-        "# --check-function-level-imports. Decreases are always allowed and should\n"
-        "# be captured by re-running with --update-baseline once later work\n"
-        "# promotes more deferred imports back to module top -- a one-shot sweep of\n"
-        "# all sites is deliberately rejected; each area migrates with the work\n"
-        "# that next touches it.\n"
+        "# --check-function-level-imports, which check-import-boundaries.ps1 runs on\n"
+        "# every check invocation. --update-baseline only lowers counts and drops\n"
+        "# emptied entries; it refuses to raise one. A module that moves keeps its\n"
+        "# entry under the new path at the same count (a rename).\n"
+        "#\n"
+        "# Every entry carries a reason: the import cycle that forces its deferrals\n"
+        "# (both modules) or their measured import cost. An entry without one, an\n"
+        "# entry naming a file no scan reads, and a zero-count entry all fail the flag.\n"
         "#\n"
         "# Format:\n"
         "#   [[baseline]]\n"
         '#   file = "path/relative/to/monorepo-root, forward slashes"\n'
         "#   count = <int>\n"
+        '#   reason = "the cycle (both modules) or the measured import cost"\n'
     )
 
     lines = [header]
@@ -2683,9 +2684,94 @@ def write_function_level_import_baseline(
         lines.append("\n[[baseline]]\n")
         lines.append(f'file = "{file_rel}"\n')
         lines.append(f"count = {counts[file_rel]}\n")
+        if file_rel in reasons:
+            # json.dumps yields a TOML basic string: the escapes it emits
+            # (\" \\ \n \r \t \b \f \uXXXX) are all TOML basic-string escapes.
+            lines.append(f"reason = {json.dumps(reasons[file_rel])}\n")
 
     baseline_path.parent.mkdir(parents=True, exist_ok=True)
     baseline_path.write_text("".join(lines), encoding="utf-8")
+
+
+def check_function_level_import_baseline_entries(
+    baseline: FunctionLevelImportBaseline,
+    packages: dict[str, PackageInfo],
+    monorepo_root: Path,
+) -> list[str]:
+    """Fail-closed consistency check over the baseline's own entries.
+
+    An entry is inert -- it polices nothing -- when its path names no Python
+    file under a discovered package's ``src/`` tree (a module moved without
+    its entry being renamed, a deleted module, a path outside every package).
+    A zero-count entry polices nothing either. An entry without a written
+    reason records a deferral nobody has justified. Each of these fails the
+    flag, naming the entry, so none can recur silently.
+
+    Args:
+        baseline: The loaded baseline.
+        packages: Package name -> PackageInfo, as returned by discover_packages().
+        monorepo_root: Monorepo root the entries are relative to.
+
+    Returns:
+        One message per offending entry, sorted by path.
+    """
+    src_dirs = [info.src_dir for info in packages.values()]
+    messages: list[str] = []
+    for file_rel in sorted(baseline.counts):
+        path = monorepo_root / file_rel
+        if path.suffix != ".py" or not path.is_file():
+            messages.append(
+                f"{file_rel}: baseline entry names no existing Python file, so no scan "
+                f"reads it. A moved module's entry is renamed with it at the same count; "
+                f"a deleted module's entry is removed."
+            )
+        elif not any(path.is_relative_to(src_dir) for src_dir in src_dirs):
+            messages.append(
+                f"{file_rel}: baseline entry lies outside every discovered package's "
+                f"src/ tree, so no scan reads it. Expected a module under "
+                f"datrix-*/src/<package>/; remove the entry."
+            )
+        if baseline.counts[file_rel] <= 0:
+            messages.append(
+                f"{file_rel}: baseline entry counts {baseline.counts[file_rel]} "
+                f"function-level imports; a zero entry polices nothing. Remove it."
+            )
+        if file_rel not in baseline.reasons:
+            messages.append(
+                f"{file_rel}: baseline entry carries no reason. Every surviving "
+                f"deferral names the import cycle that forces it (both modules) or its "
+                f"measured import cost: add reason = \"...\", or promote the imports "
+                f"to module top."
+            )
+    return messages
+
+
+def lowered_function_level_import_baseline(
+    baseline: FunctionLevelImportBaseline,
+    current_counts: dict[str, int],
+) -> tuple[FunctionLevelImportBaseline, list[str]]:
+    """The baseline ``--update-baseline`` writes: every entry lowered to its
+    current count, emptied entries dropped, reasons carried across.
+
+    Returns the lowered baseline and the paths of the dropped entries. Never
+    raises a count or adds an entry -- the caller refuses the update when
+    :func:`check_function_level_import_ratchet` reports any increase.
+
+    Args:
+        baseline: The frozen baseline.
+        current_counts: Relative file path -> current hit count.
+
+    Returns:
+        ``(lowered baseline, dropped entry paths)``.
+    """
+    counts = {
+        file_rel: min(frozen, current_counts[file_rel])
+        for file_rel, frozen in baseline.counts.items()
+        if current_counts.get(file_rel, 0) > 0
+    }
+    reasons = {file_rel: reason for file_rel, reason in baseline.reasons.items() if file_rel in counts}
+    dropped = sorted(baseline.counts.keys() - counts.keys())
+    return FunctionLevelImportBaseline(counts=counts, reasons=reasons), dropped
 
 
 def check_function_level_import_ratchet(
@@ -2723,7 +2809,7 @@ def check_function_level_import_ratchet(
 #
 # Fails when a datrix-codegen-{lang} module declares a module-level
 # frozenset/set/dict whose normalized member set equals a member set already
-# declared in datrix_codegen_common.enums, OR in one of the additional
+# declared in datrix_codegen_kernel.enums, OR in one of the additional
 # non-enums.py canonical homes named in
 # _ADDITIONAL_SHARED_VOCABULARY_SOURCES (a vocabulary moved out of enums.py
 # for a layering reason, e.g. LOG_BUILTIN_METHODS). The LANGUAGE packages
@@ -2733,23 +2819,23 @@ def check_function_level_import_ratchet(
 
 
 def _import_shared_enums_module() -> ModuleType:
-    """Import and return ``datrix_codegen_common.enums``, the single module
+    """Import and return ``datrix_codegen_kernel.enums``, the single module
     every G1 canonical-source harvest function (Enum and non-Enum alike)
     reads live at scan time -- never a hardcoded mirror of its content.
 
     Returns:
-        The imported ``datrix_codegen_common.enums`` module object.
+        The imported ``datrix_codegen_kernel.enums`` module object.
 
     Raises:
         RuntimeError: if the module cannot be imported (the shared
             vocabulary layer is not installed in the active venv).
     """
     try:
-        from datrix_codegen_common import enums as shared_enums
+        from datrix_codegen_kernel import enums as shared_enums
     except ImportError as exc:
         raise RuntimeError(
-            "Failed to import datrix_codegen_common.enums -- the G1 "
-            "shared-vocabulary ratchet requires datrix-codegen-common "
+            "Failed to import datrix_codegen_kernel.enums -- the G1 "
+            "shared-vocabulary ratchet requires datrix-codegen-kernel "
             "installed in the active environment (D:\\datrix\\.venv). Fix: "
             "run this script via check-import-boundaries.ps1, which "
             "activates the venv first."
@@ -2758,7 +2844,7 @@ def _import_shared_enums_module() -> ModuleType:
 
 
 def _shared_enum_members() -> dict[str, dict[str, str]]:
-    """Every ``str, Enum`` class declared in ``datrix_codegen_common.enums``,
+    """Every ``str, Enum`` class declared in ``datrix_codegen_kernel.enums``,
     keyed by class name, mapped to ``{member_name: member_value}``.
 
     Read from the INSTALLED package at scan time -- never a hardcoded mirror
@@ -2773,7 +2859,7 @@ def _shared_enum_members() -> dict[str, dict[str, str]]:
         Mapping of enum class name -> {member name -> member value}.
 
     Raises:
-        RuntimeError: if datrix_codegen_common.enums cannot be imported (the
+        RuntimeError: if datrix_codegen_kernel.enums cannot be imported (the
             shared vocabulary layer is not installed in the active venv).
     """
     shared_enums = _import_shared_enums_module()
@@ -2876,7 +2962,7 @@ def _non_enum_vocabulary_member_set(name: str, runtime_value: object) -> frozens
         shape = "set/frozenset elements"
     else:
         raise TypeError(
-            f"G1 harvest: '{name}' in datrix_codegen_common.enums has a "
+            f"G1 harvest: '{name}' in datrix_codegen_kernel.enums has a "
             f"module-level dict/set/frozenset assignment shape but its live "
             f"value is a {type(runtime_value).__name__}, not a dict/set/"
             f"frozenset. Expected the runtime type to match the declared "
@@ -2889,7 +2975,7 @@ def _non_enum_vocabulary_member_set(name: str, runtime_value: object) -> frozens
     for element in candidate_members:
         if not isinstance(element, str):
             raise TypeError(
-                f"G1 harvest: '{name}' in datrix_codegen_common.enums has a "
+                f"G1 harvest: '{name}' in datrix_codegen_kernel.enums has a "
                 f"non-string member ({element!r}, type "
                 f"{type(element).__name__}) among its {shape}. Expected "
                 f"every member to be a str so it can be compared against a "
@@ -3005,7 +3091,7 @@ def _shared_non_enum_vocabularies() -> dict[str, frozenset[str]]:
         Mapping of module-level constant name -> canonical member-value set.
 
     Raises:
-        RuntimeError: if datrix_codegen_common.enums cannot be imported, if
+        RuntimeError: if datrix_codegen_kernel.enums cannot be imported, if
             a name the AST identifies as a module-level assignment is
             missing from the imported module (source/installed-package
             mismatch), or if a declared additional home is missing or
@@ -3028,9 +3114,9 @@ def _shared_non_enum_vocabularies() -> dict[str, frozenset[str]]:
             raise RuntimeError(
                 f"G1 harvest: '{name}' is assigned at module level in "
                 f"{source_path} but is not an attribute of the imported "
-                f"datrix_codegen_common.enums module. Expected the source "
+                f"datrix_codegen_kernel.enums module. Expected the source "
                 f"file and the installed package to agree. Fix: reinstall "
-                f"datrix-codegen-common in the active environment (D:\\"
+                f"datrix-codegen-kernel in the active environment (D:\\"
                 f"datrix\\.venv)."
             )
         runtime_value = getattr(shared_enums, name)
@@ -3043,7 +3129,7 @@ def _shared_non_enum_vocabularies() -> dict[str, frozenset[str]]:
 @dataclass(frozen=True)
 class SharedVocabularyHit:
     """One module-level container in a language package whose normalized
-    member set duplicates a datrix_codegen_common.enums vocabulary -- an
+    member set duplicates a datrix_codegen_kernel.enums vocabulary -- an
     Enum class's value set or a plain module-level dict/set/frozenset's
     key/element set alike."""
 
@@ -3147,7 +3233,7 @@ def scan_file_for_shared_vocabulary(
     non_enum_vocabularies: dict[str, frozenset[str]],
 ) -> list[SharedVocabularyHit]:
     """AST-walk *file_path* for module-level set/frozenset/dict declarations
-    whose normalized member set equals a ``datrix_codegen_common.enums``
+    whose normalized member set equals a ``datrix_codegen_kernel.enums``
     vocabulary's own value set (Decision D3, Invariant I2) -- an Enum
     class's value set, or a plain module-level dict's key set / set's
     frozenset's element set (``non_enum_vocabularies``) alike. G1's own
@@ -3241,7 +3327,7 @@ def scan_shared_vocabulary(
 ) -> dict[Path, list[SharedVocabularyHit]]:
     """Scan every ``.py`` file under each language package's ``src/`` tree
     for module-level vocabulary duplication against
-    ``datrix_codegen_common.enums``.
+    ``datrix_codegen_kernel.enums``.
 
     Args:
         packages: Package name -> PackageInfo, as returned by discover_packages().
@@ -3345,7 +3431,7 @@ def write_shared_vocabulary_baseline(baseline_path: Path, counts: dict[str, int]
         "#\n"
         "# Frozen per-file counts of module-level frozenset/set/dict\n"
         "# declarations in the four datrix-codegen-{lang} packages whose\n"
-        "# normalized member set duplicates a datrix_codegen_common.enums\n"
+        "# normalized member set duplicates a datrix_codegen_kernel.enums\n"
         "# vocabulary. Any INCREASE in a file's count fails\n"
         "# datrix/scripts/dev/check-import-boundaries.py --check-shared-vocabulary.\n"
         "# Decreases are always allowed and should be captured by re-running\n"
@@ -3399,7 +3485,10 @@ def check_shared_vocabulary_ratchet(
 # ---------------------------------------------------------------------------
 # G2 Shared-Layer Target-Name Ratchet (Decision D4, Invariant I3)
 #
-# The single shared-layer package this ratchet polices. `datrix_common` and
+# The shared codegen packages this ratchet polices: the language layer and the
+# generation kernel (which took the GenDSL data model and catalog modules out of
+# the language layer, so leaving it out would drop them from this check).
+# `datrix_common` and
 # `datrix_cli` are deliberately excluded (design §8): they hold platform
 # config-schema models (AwsPlatformConfig, AzureCosmosConfig,
 # DockerHealthcheckConfig, ...) whose relocation into the platform packages
@@ -3412,6 +3501,7 @@ def check_shared_vocabulary_ratchet(
 # per-ratchet precedent.
 SHARED_TARGET_NAME_PACKAGES: tuple[str, ...] = (
     "datrix_codegen_common",
+    "datrix_codegen_kernel",
 )
 
 # Registered-target identifier-segment call names this ratchet treats as a
@@ -4087,7 +4177,7 @@ def check_own_target_name_ratchet(
 # Fails when a module-level set/frozenset/dict/tuple literal's normalized
 # member set is declared -- with at least one bare string literal -- in TWO
 # OR MORE DISTINCT datrix-* packages. Unlike G1 (source-keyed: "does this
-# language package redeclare something datrix_codegen_common.enums
+# language package redeclare something datrix_codegen_kernel.enums
 # declares?"), G3 is keyed on duplication ACROSS packages with no notion of
 # a canonical source -- it catches a vocabulary hand-copied between two
 # packages that have no shared enum to key off at all. Scope is every
@@ -4102,11 +4192,11 @@ def _resolve_g3_vocabulary_element(node: ast.AST) -> tuple[str, bool] | None:
     is_bare)`` for G3's classification -- PURELY BY AST SHAPE, never by
     resolving a qualified reference's runtime value the way G1's
     ``_resolve_vocabulary_element`` does. G3 must never consult
-    ``datrix_codegen_common.enums`` (that canonical-vocabulary comparison
+    ``datrix_codegen_kernel.enums`` (that canonical-vocabulary comparison
     is G1's job; G3 compares packages against EACH OTHER); reusing G1's
     resolver -- which can only recognize a qualified ``EnumClass.MEMBER``
     reference when ``EnumClass`` happens to be harvested from
-    ``datrix_codegen_common.enums`` -- would silently make every qualified
+    ``datrix_codegen_kernel.enums`` -- would silently make every qualified
     reference to any OTHER enum (e.g. ``ChangeKind`` from
     ``datrix_migration.differ``, ``TracingProvider`` from
     ``datrix_common.config.observability.models``) unresolvable, which
@@ -4143,7 +4233,7 @@ def _normalize_container_g3(node: ast.AST) -> _NormalizedContainer | None:
     ``frozenset()``/``set()`` wrapper) -- G1 never needed this shape; G3's
     own scope explicitly includes it ("set/frozenset/dict/tuple" literals).
     Per-element resolution uses ``_resolve_g3_vocabulary_element`` (shape-
-    based, never consults ``datrix_codegen_common.enums``), so a qualified
+    based, never consults ``datrix_codegen_kernel.enums``), so a qualified
     ``EnumClass.MEMBER`` element still counts as "consuming", not
     "declaring", exactly as it does for G1, and a partially-dynamic tuple
     (an element that is neither a bare string nor a qualified attribute
@@ -4285,7 +4375,7 @@ def scan_cross_package_vocabulary(
     qualified ``EnumClass.MEMBER`` references (no bare string literal) is
     consumption, not duplication, and is never flagged -- but classifies it
     PURELY BY AST SHAPE (``_resolve_g3_vocabulary_element``), never by
-    resolving against ``datrix_codegen_common.enums`` the way G1's
+    resolving against ``datrix_codegen_kernel.enums`` the way G1's
     ``scan_file_for_shared_vocabulary`` does: that canonical-vocabulary
     comparison is G1's job, and G3 compares packages against each other
     directly, with no notion of a canonical source or which specific enum
@@ -4665,12 +4755,23 @@ def _check(label: str, condition: bool) -> bool:
 
 
 def _rule_forbids(
-    rules: dict[str, BoundaryRule], source_package: str, imported_module: str
+    rules: dict[str, BoundaryRule],
+    source_package: str,
+    imported_module: str,
+    *,
+    in_tests: bool = False,
 ) -> bool:
-    """True if any of source_package's forbidden_prefixes flags imported_module."""
+    """True if any of source_package's forbidden_prefixes flags imported_module.
+
+    ``in_tests`` classifies the import as scan_package does for a file under the
+    package's test trees, where the rule's test_only_subtrees are also admitted.
+    """
     rule = rules[source_package]
+    permitted = (
+        rule.allowed_subtrees | rule.test_only_subtrees if in_tests else rule.allowed_subtrees
+    )
     return any(
-        is_forbidden_import(source_package, imported_module, prefix, rule.allowed_subtrees)
+        is_forbidden_import(source_package, imported_module, prefix, permitted)
         for prefix in rule.forbidden_prefixes
     )
 
@@ -4685,100 +4786,107 @@ def _real_repo_rules() -> tuple[GeneratorTaxonomy, dict[str, BoundaryRule]]:
     return taxonomy, build_boundary_rules(taxonomy)
 
 
-def _self_test_allowed_denied_subtrees(rules: dict[str, BoundaryRule]) -> bool:
-    """The platform allowed-subtree carve-out constant is frozen exactly, and
-    every representative allowed/denied import is classified correctly."""
-    _step("Self-test 1/19: platform allowed/denied codegen-common subtrees")
+#: Formerly carved out of datrix_codegen_common for platforms, SQL and
+#: component; now in the kernel. Each must be forbidden in src/ AND tests/.
+_FORMER_CARVE_OUT_MODULES: tuple[str, ...] = (
+    "datrix_codegen_common.gendsl",
+    "datrix_codegen_common.gendsl.compiler",
+    "datrix_codegen_common.dashboards.builder",
+    "datrix_codegen_common.algorithms.serverless",
+    "datrix_codegen_common.context_models.serverless",
+    "datrix_codegen_common.context_models.migration",
+    "datrix_codegen_common.orchestration.migration_adapter",
+    "datrix_codegen_common.enums",
+    "datrix_codegen_common.platform.runtime",
+    "datrix_codegen_common.pooling.contract",
+    "datrix_codegen_common.secrets.manifest",
+    "datrix_codegen_common.seed.config_seed_plan",
+    "datrix_codegen_common.parity.domain_declaration",
+)
+#: The kernel home of the same facts: never forbidden to any target.
+_KERNEL_TARGET_MODULES: tuple[str, ...] = (
+    "datrix_codegen_kernel.gendsl.compiler",
+    "datrix_codegen_kernel.dashboards.builder",
+    "datrix_codegen_kernel.algorithms.serverless",
+    "datrix_codegen_kernel.context_models.migration",
+    "datrix_codegen_kernel.orchestration.migration_adapter",
+    "datrix_codegen_kernel.enums",
+    "datrix_codegen_kernel.platform.runtime",
+    "datrix_codegen_kernel.pooling.contract",
+    "datrix_codegen_kernel.parity.domain_declaration",
+    "datrix_codegen_kernel.generation.gendsl_ir",
+)
+
+
+def _kernel_consumer_packages(taxonomy: GeneratorTaxonomy) -> tuple[str, ...]:
+    """Every package that depends on the kernel and never on the language layer."""
+    return (*taxonomy.platform_packages, "datrix_codegen_sql", "datrix_codegen_component")
+
+
+def _self_test_allowed_denied_subtrees(
+    taxonomy: GeneratorTaxonomy, rules: dict[str, BoundaryRule]
+) -> bool:
+    """Platforms, SQL and component are forbidden the language layer outright:
+    no rule carries a codegen-common carve-out, every formerly carved-out module
+    is flagged, the kernel home of each is admitted, and the conformance testkit
+    is admitted in the test trees only."""
+    _step("Self-test 1/19: platforms, SQL and component forbid datrix_codegen_common")
     ok = True
 
-    expected_allowed_subtrees: frozenset[str] = frozenset(
-        [
-            "datrix_codegen_common.gendsl",
-            "datrix_codegen_common.dashboards",
-            "datrix_codegen_common.algorithms.serverless",
-            "datrix_codegen_common.context_models.serverless",
-            "datrix_codegen_common.context_models.replayable_ingestion",
-            "datrix_codegen_common.enums",
-            "datrix_codegen_common.platform",
-            "datrix_codegen_common.pooling",
-            "datrix_codegen_common.secrets",
-            "datrix_codegen_common.seed",
-            "datrix_codegen_common.parity",
-            "datrix_codegen_common.orchestration.resolved_runtime_plan",
-            "datrix_codegen_common.testkit",
-            "datrix_codegen_common.platform.container_image_supply",
-            "datrix_codegen_common.algorithms.servicebus_naming",
-            "datrix_codegen_common.algorithms.servicebus_lock_renewal",
-            "datrix_codegen_common.algorithms.cqrs_projection_receivers",
-            "datrix_codegen_common.generation.raise_site_guards",
-            "datrix_codegen_kernel.generation.gendsl_ir",
-            "datrix_codegen_kernel.generation.gendsl_registry",
-            "datrix_codegen_common.algorithms.queue_overrides",
-            "datrix_codegen_common.algorithms.function_app_hosting",
-        ]
-    )
-    ok &= _check(
-        "PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES matches the frozen expected set exactly "
-        "(a silent shrink or an unreviewed addition would fail here)",
-        PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES == expected_allowed_subtrees,
-    )
+    for source in _kernel_consumer_packages(taxonomy):
+        rule = rules[source]
+        ok &= _check(
+            f"{source} carries no allowed_subtrees (the codegen-common carve-out is gone)",
+            rule.allowed_subtrees == frozenset(),
+        )
+        ok &= _check(
+            f"{source} admits exactly the conformance testkit in its test trees",
+            rule.test_only_subtrees == frozenset({"datrix_codegen_common.testkit"}),
+        )
+        ok &= _check(
+            f"{source} forbids datrix_codegen_common itself",
+            _rule_forbids(rules, source, "datrix_codegen_common"),
+        )
+        for imported in _FORMER_CARVE_OUT_MODULES:
+            ok &= _check(
+                f"former carve-out forbidden in src/: {source} -> {imported}",
+                _rule_forbids(rules, source, imported),
+            )
+            ok &= _check(
+                f"former carve-out forbidden in tests/: {source} -> {imported}",
+                _rule_forbids(rules, source, imported, in_tests=True),
+            )
+        for imported in _KERNEL_TARGET_MODULES:
+            ok &= _check(
+                f"kernel module NOT forbidden: {source} -> {imported}",
+                not _rule_forbids(rules, source, imported),
+            )
+        ok &= _check(
+            f"conformance testkit forbidden in src/: {source} -> "
+            "datrix_codegen_common.testkit.gates",
+            _rule_forbids(rules, source, "datrix_codegen_common.testkit.gates"),
+        )
+        ok &= _check(
+            f"conformance testkit admitted in tests/: {source} -> "
+            "datrix_codegen_common.testkit.gates",
+            not _rule_forbids(
+                rules, source, "datrix_codegen_common.testkit.gates", in_tests=True
+            ),
+        )
 
     platform_source = "datrix_codegen_aws"
-    allowed_cases = (
-        "datrix_codegen_common.gendsl",
-        "datrix_codegen_common.gendsl.compiler",
-        "datrix_codegen_common.dashboards.builder",
-        "datrix_codegen_common.algorithms.serverless",
-        "datrix_codegen_common.algorithms.serverless.plan",
-        "datrix_codegen_common.context_models.serverless",
-        "datrix_codegen_common.context_models.replayable_ingestion",
-        "datrix_codegen_common.enums",
-        "datrix_codegen_common.enums.DatabaseEngine",
-        "datrix_codegen_common.platform.runtime",
-        "datrix_codegen_common.algorithms.servicebus_lock_renewal",
-        "datrix_codegen_common.algorithms.cqrs_projection_receivers",
-        "datrix_codegen_common.generation.raise_site_guards",
-        "datrix_codegen_kernel.generation.gendsl_ir",
-        "datrix_codegen_kernel.generation.gendsl_registry",
-        "datrix_codegen_common.algorithms.queue_overrides",
-        "datrix_codegen_common.algorithms.function_app_hosting",
-    )
-    for imported in allowed_cases:
-        ok &= _check(
-            f"allowed subtree not forbidden: {platform_source} -> {imported}",
-            not _rule_forbids(rules, platform_source, imported),
-        )
-
-    for platform in ("datrix_codegen_docker", "datrix_codegen_aws", "datrix_codegen_azure"):
-        ok &= _check(
-            f"gendsl carve-out applies to platform package {platform}",
-            not _rule_forbids(rules, platform, "datrix_codegen_common.gendsl"),
-        )
-
-    denied_cases = (
+    for imported in (
         "datrix_codegen_common.transpiler.parity_checker",
         "datrix_codegen_common.context_models.entity",
-        "datrix_codegen_common.algorithms.entity",
+        "datrix_codegen_common.algorithms.cqrs",
+        "datrix_codegen_common.generation.type_resolver",
         "datrix_codegen_python",
         "datrix_codegen_python.generators.api",
         "datrix_codegen_typescript",
-        # The language-shaped half of the CQRS split. Its neutral sibling
-        # ``algorithms.cqrs_projection_receivers`` is in allowed_cases above:
-        # this pair is what proves the split bought something, rather than the
-        # carve-out having quietly admitted the context-model surface too.
-        "datrix_codegen_common.algorithms.cqrs",
-        # Subtree matching is exact-or-child, so allowing
-        # ``generation.raise_site_guards`` must NOT admit its siblings.
-        "datrix_codegen_common.generation.service_predicates",
-        # Nor does admitting the GenDSL IR admit the language-layer generation
-        # modules beside it.
-        "datrix_codegen_common.generation.type_resolver",
-        "datrix_codegen_common.generation.language_hooks",
-    )
-    for imported in denied_cases:
+    ):
         ok &= _check(
-            f"denied subtree flagged: {platform_source} -> {imported}",
-            _rule_forbids(rules, platform_source, imported),
+            f"language-layer/language import flagged: {platform_source} -> {imported}",
+            _rule_forbids(rules, platform_source, imported, in_tests=True),
         )
 
     return ok
@@ -4792,22 +4900,32 @@ def _self_test_dotted_precision_and_carveout(rules: dict[str, BoundaryRule]) -> 
     platform_source = "datrix_codegen_aws"
 
     ok &= _check(
-        "'enums_other' is NOT a child of 'enums' -> forbidden",
-        _rule_forbids(rules, platform_source, "datrix_codegen_common.enums_other"),
-    )
-    ok &= _check(
-        "'enums.DatabaseEngine' IS a child of 'enums' -> allowed",
-        not _rule_forbids(rules, platform_source, "datrix_codegen_common.enums.DatabaseEngine"),
-    )
-    ok &= _check(
-        "'algorithms.serverless.plan' IS a child of 'algorithms.serverless' -> allowed",
-        not _rule_forbids(
-            rules, platform_source, "datrix_codegen_common.algorithms.serverless.plan"
+        "'testkit_other' is NOT a child of 'testkit' -> forbidden even in tests/",
+        _rule_forbids(
+            rules, platform_source, "datrix_codegen_common.testkit_other", in_tests=True
         ),
     )
     ok &= _check(
-        "'algorithms.serverlessX' is a SIBLING, not a child -> forbidden",
-        _rule_forbids(rules, platform_source, "datrix_codegen_common.algorithms.serverlessX"),
+        "'testkit.fixtures.harness' IS a child of 'testkit' -> allowed in tests/",
+        not _rule_forbids(
+            rules, platform_source, "datrix_codegen_common.testkit.fixtures.harness",
+            in_tests=True,
+        ),
+    )
+    ok &= _check(
+        "the test-only carve-out never admits the same subtree in src/",
+        _rule_forbids(rules, platform_source, "datrix_codegen_common.testkit.fixtures.harness"),
+    )
+    web_source = "datrix_codegen_angular"
+    ok &= _check(
+        "a forbidden prefix matches a dotted child: angular -> "
+        "datrix_codegen_typescript.plugin is forbidden",
+        _rule_forbids(rules, web_source, "datrix_codegen_typescript.plugin"),
+    )
+    ok &= _check(
+        "a forbidden prefix never matches a longer sibling name: angular -> "
+        "datrix_codegen_typescript_core.transpiler.core is allowed",
+        not _rule_forbids(rules, web_source, "datrix_codegen_typescript_core.transpiler.core"),
     )
 
     ok &= _check(
@@ -4822,11 +4940,39 @@ def _self_test_dotted_precision_and_carveout(rules: dict[str, BoundaryRule]) -> 
         "datrix_codegen_common itself still forbids datrix_codegen_python",
         _rule_forbids(rules, "datrix_codegen_common", "datrix_codegen_python"),
     )
-    for platform in ("datrix_codegen_docker", "datrix_codegen_aws", "datrix_codegen_azure"):
-        ok &= _check(
-            f"platform rule for {platform} carries a non-empty allowed_subtrees",
-            bool(rules[platform].allowed_subtrees),
-        )
+    ok &= _check(
+        "datrix_codegen_python carries no test-only carve-out (it depends on the "
+        "language layer outright; nothing to leak)",
+        rules["datrix_codegen_python"].test_only_subtrees == frozenset(),
+    )
+
+    # The generation kernel sits on the core alone: the language layer is
+    # forbidden to it, its own modules are not, and the test harness's one
+    # admitted generation package is the kernel -- never the language layer.
+    ok &= _check(
+        "datrix_codegen_kernel forbids the language layer (datrix_codegen_common)",
+        _rule_forbids(rules, "datrix_codegen_kernel", "datrix_codegen_common.generation.orchestrator"),
+    )
+    ok &= _check(
+        "datrix_codegen_kernel forbids the semantic layer",
+        _rule_forbids(rules, "datrix_codegen_kernel", "datrix_semantic.analyzer"),
+    )
+    ok &= _check(
+        "datrix_codegen_kernel may import its own modules",
+        not _rule_forbids(rules, "datrix_codegen_kernel", "datrix_codegen_kernel.generation.generator"),
+    )
+    ok &= _check(
+        "datrix_testing may import datrix_codegen_kernel",
+        not _rule_forbids(rules, "datrix_testing", "datrix_codegen_kernel.generation.generator"),
+    )
+    ok &= _check(
+        "datrix_testing's kernel carve-out does not leak to datrix_codegen_kernel_other",
+        _rule_forbids(rules, "datrix_testing", "datrix_codegen_kernel_other"),
+    )
+    ok &= _check(
+        "datrix_testing still forbids datrix_codegen_common",
+        _rule_forbids(rules, "datrix_testing", "datrix_codegen_common.generation.orchestrator"),
+    )
 
     return ok
 
@@ -4841,44 +4987,33 @@ def _self_test_sql_and_component_coverage(rules: dict[str, BoundaryRule]) -> boo
         "datrix_codegen_sql has a boundary-rule entry",
         "datrix_codegen_sql" in rules,
     )
-    sql_rule = rules["datrix_codegen_sql"]
-    ok &= _check(
-        "datrix_codegen_sql carries SQL_CODEGEN_COMMON_ALLOWED_SUBTREES exactly",
-        sql_rule.allowed_subtrees == SQL_CODEGEN_COMMON_ALLOWED_SUBTREES,
-    )
     for imported in ("datrix_codegen_typescript", "datrix_codegen_python", "datrix_cli"):
         ok &= _check(
             f"SQL sibling-language/CLI import forbidden: {imported}",
             _rule_forbids(rules, "datrix_codegen_sql", imported),
         )
     for imported in (
-        "datrix_codegen_common.gendsl",
-        "datrix_codegen_common.context_models.migration",
-        "datrix_codegen_common.orchestration.migration_adapter",
-        "datrix_codegen_kernel.generation.gendsl_ir",
+        "datrix_codegen_kernel.gendsl.compiler",
+        "datrix_codegen_kernel.context_models.migration",
+        "datrix_codegen_kernel.algorithms.postgresql_fulltext",
     ):
         ok &= _check(
-            f"SQL allowed codegen_common subtree NOT forbidden: {imported}",
+            f"SQL kernel import NOT forbidden: {imported}",
             not _rule_forbids(rules, "datrix_codegen_sql", imported),
         )
     for imported in (
+        "datrix_codegen_common.algorithms.postgresql_fulltext",
         "datrix_codegen_common.transpiler.parity_checker",
-        "datrix_codegen_common.context_models.entity",
-        "datrix_codegen_common.algorithms.entity",
         "datrix_codegen_common.generation.type_resolver",
     ):
         ok &= _check(
-            f"SQL denied codegen_common subtree forbidden: {imported}",
+            f"SQL codegen_common import forbidden: {imported}",
             _rule_forbids(rules, "datrix_codegen_sql", imported),
         )
 
     ok &= _check(
         "datrix_codegen_component has a boundary-rule entry",
         "datrix_codegen_component" in rules,
-    )
-    ok &= _check(
-        "datrix_codegen_component has empty allowed_subtrees (codegen_common unrestricted)",
-        rules["datrix_codegen_component"].allowed_subtrees == frozenset(),
     )
     for imported in ("datrix_codegen_typescript", "datrix_codegen_python", "datrix_cli"):
         ok &= _check(
@@ -4887,54 +5022,94 @@ def _self_test_sql_and_component_coverage(rules: dict[str, BoundaryRule]) -> boo
         )
     for imported in (
         "datrix_codegen_common.gendsl.compiler",
-        "datrix_codegen_common.algorithms.serverless",
-        "datrix_codegen_common.context_models.serverless",
+        "datrix_codegen_common.algorithms.nosql_connection",
     ):
         ok &= _check(
-            f"Component codegen_common import NOT forbidden: {imported}",
+            f"Component codegen_common import forbidden: {imported}",
+            _rule_forbids(rules, "datrix_codegen_component", imported),
+        )
+    for imported in (
+        "datrix_codegen_kernel.gendsl.compiler",
+        "datrix_codegen_kernel.algorithms.nosql_connection",
+    ):
+        ok &= _check(
+            f"Component kernel import NOT forbidden: {imported}",
             not _rule_forbids(rules, "datrix_codegen_component", imported),
         )
 
-    ok &= _self_test_client_target_coverage(rules)
+    ok &= _self_test_client_target_and_language_core_rules(rules)
     return ok
 
 
-def _self_test_client_target_coverage(rules: dict[str, BoundaryRule]) -> bool:
-    """The client targets each carry a rule: a web target admits exactly the
-    TypeScript transpiler core and shared web-client subtrees, never the
-    server-shaped rest of the package, and no client target imports another."""
+def _self_test_client_target_and_language_core_rules(rules: dict[str, BoundaryRule]) -> bool:
+    """The client targets and the language-core packages each carry a rule.
+
+    A client target carries no carve-out: the web target reaches the
+    TypeScript transpiler core and web-client mechanics through the
+    language-core package, which no rule forbids it, while the backend
+    TypeScript generator stays forbidden whole. A language core imports none
+    of its consumers, and no client target imports another."""
     ok = True
-    for web_target in ("datrix_codegen_angular",):
-        ok &= _check(f"{web_target} has a boundary-rule entry", web_target in rules)
+    for client_target in ("datrix_codegen_angular", "datrix_codegen_flutter"):
+        ok &= _check(f"{client_target} has a boundary-rule entry", client_target in rules)
         ok &= _check(
-            f"{web_target} carries WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES exactly",
-            rules[web_target].allowed_subtrees == WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES,
+            f"{client_target} carries no allowed_subtrees carve-out",
+            rules[client_target].allowed_subtrees == frozenset(),
         )
+    web_target = "datrix_codegen_angular"
+    for imported in (
+        "datrix_codegen_typescript_core.transpiler.core",
+        "datrix_codegen_typescript_core.web_client.source_text",
+        "datrix_codegen_typescript_core.profile",
+    ):
+        ok &= _check(
+            f"{web_target} TypeScript language-core import NOT forbidden: {imported}",
+            not _rule_forbids(rules, web_target, imported),
+        )
+    for imported in (
+        "datrix_codegen_typescript",
+        "datrix_codegen_typescript.generators.entity",
+        "datrix_codegen_typescript.language_plugin",
+        "datrix_codegen_python",
+        "datrix_cli",
+    ):
+        ok &= _check(
+            f"{web_target} backend/sibling import forbidden: {imported}",
+            _rule_forbids(rules, web_target, imported),
+        )
+    ok &= _check(
+        "datrix_codegen_flutter admits no TypeScript surface (backend or language core)",
+        _rule_forbids(rules, "datrix_codegen_flutter", "datrix_codegen_typescript.plugin")
+        and _rule_forbids(
+            rules, "datrix_codegen_flutter", "datrix_codegen_typescript_core.web_client.source_text"
+        ),
+    )
+    for core, owner in sorted(LANGUAGE_CORE_PACKAGES.items()):
+        ok &= _check(f"language core {core} has a boundary-rule entry", core in rules)
         for imported in (
-            "datrix_codegen_typescript.transpiler.core",
-            "datrix_codegen_typescript.web_client.source_text",
-            "datrix_codegen_typescript.profile",
-        ):
-            ok &= _check(
-                f"{web_target} TypeScript web-client import NOT forbidden: {imported}",
-                not _rule_forbids(rules, web_target, imported),
-            )
-        for imported in (
-            "datrix_codegen_typescript.generators.entity",
-            "datrix_codegen_typescript.transpiler.builtins",
-            "datrix_codegen_typescript.language_plugin",
+            f"{owner}.plugin",
+            "datrix_codegen_angular.gendsl",
             "datrix_codegen_python",
+            "datrix_language.parser",
             "datrix_cli",
         ):
             ok &= _check(
-                f"{web_target} server-shaped/sibling import forbidden: {imported}",
-                _rule_forbids(rules, web_target, imported),
+                f"language core {core} cannot import its consumer or a generator: {imported}",
+                _rule_forbids(rules, core, imported),
             )
-    ok &= _check("datrix_codegen_flutter has a boundary-rule entry", "datrix_codegen_flutter" in rules)
-    ok &= _check(
-        "datrix_codegen_flutter admits no TypeScript subtree",
-        _rule_forbids(rules, "datrix_codegen_flutter", "datrix_codegen_typescript.web_client.source_text"),
-    )
+        ok &= _check(
+            f"language core {core} may import the language layer",
+            not _rule_forbids(rules, core, "datrix_codegen_common.transpiler.profile"),
+        )
+        ok &= _check(
+            f"the language {owner} it serves may import language core {core}",
+            not _rule_forbids(rules, owner, f"{core}.transpiler.core"),
+        )
+        for source in ("datrix_codegen_common", "datrix_codegen_sql", "datrix_codegen_component"):
+            ok &= _check(
+                f"{source} cannot import language core {core}",
+                _rule_forbids(rules, source, f"{core}.profile"),
+            )
     for source, imported in (
         ("datrix_codegen_angular", "datrix_codegen_flutter.gendsl"),
         ("datrix_codegen_flutter", "datrix_codegen_angular.gendsl"),
@@ -5056,7 +5231,7 @@ def _self_test_platform_to_platform_prohibition(
     prohibition in the rule model for every ordered sibling pair of the
     DISCOVERED platform set, and proves the shared-layer escape route
     (importing the same algorithm from
-    ``datrix_codegen_common.platform.container_image_supply``) is NOT flagged
+    ``datrix_codegen_kernel.platform.container_image_supply``) is NOT flagged
     -- otherwise the rule would forbid the correct fix along with the wrong one.
 
     It also proves discovery itself is non-vacuous: the real repository must
@@ -5099,9 +5274,9 @@ def _self_test_platform_to_platform_prohibition(
     for source in platforms:
         ok &= _check(
             f"shared container-image-supply layer NOT forbidden: {source} -> "
-            "datrix_codegen_common.platform.container_image_supply",
+            "datrix_codegen_kernel.platform.container_image_supply",
             not _rule_forbids(
-                rules, source, "datrix_codegen_common.platform.container_image_supply"
+                rules, source, "datrix_codegen_kernel.platform.container_image_supply"
             ),
         )
 
@@ -5121,8 +5296,8 @@ def _self_test_build_platform_fixture_monorepo(
     """Build a minimal isolated monorepo with a real datrix-codegen-aws package.
 
     Its one module imports either a SIBLING PLATFORM (docker -- a violation)
-    or the shared codegen-common container-image-supply layer (the correct,
-    permitted edge), so the same fixture proves both directions. Both
+    or the kernel's container-image-supply module (the correct, permitted
+    edge), so the same fixture proves both directions. Both
     packages carry a manifest registering ``datrix.platforms`` -- that is
     what makes them platforms to the scanner, which discovers the taxonomy
     from manifests rather than from a declared list.
@@ -5157,7 +5332,7 @@ def _self_test_platform_module_source(*, import_sibling: bool) -> str:
         )
     else:
         import_line = (
-            "from datrix_codegen_common.platform.container_image_supply import (\n"
+            "from datrix_codegen_kernel.platform.container_image_supply import (\n"
             "    compute_base_image_tag,\n"
             ")"
         )
@@ -5186,7 +5361,7 @@ def _self_test_platform_cli_non_vacuity() -> bool:
 
     Plants a real aws -> docker import in a real, isolated fixture monorepo,
     proves the scanner exits 1 and names it, then rewrites the SAME module to
-    import the shared codegen-common layer instead and proves the failure
+    import the generation kernel instead and proves the failure
     clears (exit 0) -- i.e. the rule flags the defect and permits the fix.
     """
     _step(
@@ -5222,12 +5397,47 @@ def _self_test_platform_cli_non_vacuity() -> bool:
         )
         fixed_result = _self_test_run_boundary_cli(tmp_root)
         ok &= _check(
-            "rewriting the SAME import to the shared codegen-common layer clears the "
+            "rewriting the SAME import to the generation kernel clears the "
             f"failure, got exit {fixed_result.returncode}",
             fixed_result.returncode == 0,
         )
+        ok &= _self_test_platform_testkit_scope(tmp_root, module_path)
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)
+    return ok
+
+
+_TESTKIT_IMPORT_LINE: str = (
+    "from datrix_codegen_common.testkit.gates import dispatch_ladder  # noqa: F401\n"
+)
+
+
+def _self_test_platform_testkit_scope(tmp_root: Path, module_path: Path) -> bool:
+    """The conformance testkit is admitted in a platform's tests and nowhere
+    else: the same import exits 0 from ``tests/`` and 1 from ``src/``."""
+    ok = True
+    tests_dir = tmp_root / "datrix-codegen-aws" / "tests"
+    tests_dir.mkdir(parents=True, exist_ok=True)
+    (tests_dir / "test_kit.py").write_text(_TESTKIT_IMPORT_LINE, encoding="utf-8")
+    tests_result = _self_test_run_boundary_cli(tmp_root)
+    ok &= _check(
+        "a platform TEST importing the conformance testkit exits 0, got "
+        f"{tests_result.returncode}",
+        tests_result.returncode == 0,
+    )
+    clean_source = module_path.read_text(encoding="utf-8")
+    module_path.write_text(_TESTKIT_IMPORT_LINE + clean_source, encoding="utf-8")
+    src_result = _self_test_run_boundary_cli(tmp_root)
+    ok &= _check(
+        "the SAME testkit import from platform src/ exits 1, got "
+        f"{src_result.returncode}",
+        src_result.returncode == 1,
+    )
+    ok &= _check(
+        "the src/ failure names datrix_codegen_common",
+        "datrix_codegen_common" in src_result.stdout + src_result.stderr,
+    )
+    module_path.write_text(clean_source, encoding="utf-8")
     return ok
 
 
@@ -5485,7 +5695,7 @@ def _self_test_shared_vocabulary_scanner() -> bool:
 
         qualified_only_file = scratch_dir / "qualified_only.py"
         qualified_only_file.write_text(
-            "from datrix_codegen_common.enums import QueryTerminal\n\n"
+            "from datrix_codegen_kernel.enums import QueryTerminal\n\n"
             "_QB_EXECUTE_TERMINALS = frozenset({\n"
             "    QueryTerminal.ALL,\n"
             "    QueryTerminal.FIRST,\n"
@@ -5519,7 +5729,7 @@ def _self_test_shared_vocabulary_scanner() -> bool:
         # proving these three names are ABSENT from it, while the widened
         # `_shared_non_enum_vocabularies()` DOES contain them, is the direct
         # proof that an Enum-only harvest would FAIL to cover them.
-        from datrix_codegen_common.enums import (
+        from datrix_codegen_kernel.enums import (
             DSL_EXCEPTION_HTTP_STATUS,
             NOSQL_SUPPORTED_METHODS,
             NOSQL_UNSUPPORTED_METHODS,
@@ -5593,7 +5803,7 @@ def _self_test_shared_vocabulary_scanner() -> bool:
 
         dict_shape_importing_file = scratch_dir / "dict_shape_importing.py"
         dict_shape_importing_file.write_text(
-            "from datrix_codegen_common.enums import DSL_EXCEPTION_HTTP_STATUS\n\n"
+            "from datrix_codegen_kernel.enums import DSL_EXCEPTION_HTTP_STATUS\n\n"
             "def status_for(exc_name: str) -> int:\n"
             "    return DSL_EXCEPTION_HTTP_STATUS[exc_name]\n",
             encoding="utf-8",
@@ -5624,7 +5834,7 @@ def _self_test_shared_vocabulary_scanner() -> bool:
 
         second_dict_shape_importing_file = scratch_dir / "second_dict_shape_importing.py"
         second_dict_shape_importing_file.write_text(
-            "from datrix_codegen_common.enums import NOSQL_UNSUPPORTED_METHODS\n\n"
+            "from datrix_codegen_kernel.enums import NOSQL_UNSUPPORTED_METHODS\n\n"
             "def reason_for(method: str) -> str:\n"
             "    return NOSQL_UNSUPPORTED_METHODS[method]\n",
             encoding="utf-8",
@@ -5654,7 +5864,7 @@ def _self_test_shared_vocabulary_scanner() -> bool:
 
         frozenset_shape_importing_file = scratch_dir / "frozenset_shape_importing.py"
         frozenset_shape_importing_file.write_text(
-            "from datrix_codegen_common.enums import NOSQL_SUPPORTED_METHODS\n\n"
+            "from datrix_codegen_kernel.enums import NOSQL_SUPPORTED_METHODS\n\n"
             "def is_nosql_supported(method: str) -> bool:\n"
             "    return method in NOSQL_SUPPORTED_METHODS\n",
             encoding="utf-8",
@@ -5675,7 +5885,7 @@ def _self_test_shared_vocabulary_scanner() -> bool:
         # declaration -- without this, a language package that hand-copies
         # the Log builtin method set would go unflagged (the exact coverage
         # gap this list exists to close).
-        from datrix_codegen_common import enums as shared_enums_module
+        from datrix_codegen_kernel import enums as shared_enums_module
         from datrix_codegen_common.transpiler.builtin_registry import LOG_BUILTIN_METHODS
 
         ok &= _check(
@@ -5745,7 +5955,7 @@ def _self_test_shared_vocabulary_build_fixture_monorepo(tmp_root: Path) -> Path:
 
     module_path = package_src / "sample_query_chain.py"
     module_path.write_text(
-        "from datrix_codegen_common.enums import QueryTerminal\n\n"
+        "from datrix_codegen_kernel.enums import QueryTerminal\n\n"
         "def is_terminal(method: str) -> bool:\n"
         "    return method in {t.value for t in QueryTerminal}\n",
         encoding="utf-8",
@@ -5893,7 +6103,7 @@ def _self_test_shared_vocabulary_cli_non_vacuity() -> bool:
             reverted_result.returncode == 0,
         )
 
-        from datrix_codegen_common.enums import (
+        from datrix_codegen_kernel.enums import (
             DSL_EXCEPTION_HTTP_STATUS,
             NOSQL_SUPPORTED_METHODS,
             NOSQL_UNSUPPORTED_METHODS,
@@ -6525,45 +6735,90 @@ def _self_test_module_source(function_level_import_count: int) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _self_test_build_fixture_monorepo(tmp_root: Path, initial_import_count: int) -> Path:
-    """Build a minimal isolated monorepo: one datrix-common package with one
-    module carrying *initial_import_count* function-level imports, plus a
-    baseline TOML freezing exactly that count."""
-    package_src = tmp_root / "datrix-common" / "src" / "datrix_common"
-    package_src.mkdir(parents=True, exist_ok=True)
-    (package_src / "__init__.py").write_text("", encoding="utf-8")
+#: The fixture's policed module, and the former-core module it tracks in a
+#: package above the policed set. The tracked module's package is one whose
+#: boundary rule is static (no entry-point classification), so the fixture
+#: needs no ``pyproject.toml`` for the checker to accept it.
+_FLI_FIXTURE_MODULE = "datrix-common/src/datrix_common/sample_module.py"
+_FLI_FIXTURE_MOVED_MODULE = "datrix-codegen-common/src/datrix_codegen_common/moved_module.py"
+_FLI_FIXTURE_REASON = "sample_module <-> sample_partner: each calls the other at import"
 
-    module_path = package_src / "sample_module.py"
+
+def _self_test_function_level_baseline_text(
+    entries: tuple[tuple[str, int, str | None], ...],
+) -> str:
+    """Baseline TOML text for *entries* -- ``(file, count, reason or None)``."""
+    lines: list[str] = []
+    for file_rel, count, reason in entries:
+        lines.extend(["[[baseline]]", f'file = "{file_rel}"', f"count = {count}"])
+        if reason is not None:
+            lines.append(f"reason = {json.dumps(reason)}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _self_test_build_fixture_monorepo(tmp_root: Path, initial_import_count: int) -> Path:
+    """Build a minimal isolated monorepo: every policed package, one module
+    in datrix-common carrying *initial_import_count* function-level imports,
+    one tracked former-core module in a package above the policed set, and a
+    reasoned baseline TOML freezing exactly those counts."""
+    for package_name in FUNCTION_LEVEL_IMPORT_PACKAGES:
+        package_src = tmp_root / package_name.replace("_", "-") / "src" / package_name
+        package_src.mkdir(parents=True, exist_ok=True)
+        (package_src / "__init__.py").write_text("", encoding="utf-8")
+
+    module_path = tmp_root / _FLI_FIXTURE_MODULE
     module_path.write_text(_self_test_module_source(initial_import_count), encoding="utf-8")
 
-    config_dir = tmp_root / "datrix" / "scripts" / "config"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    baseline_path = config_dir / "function-level-import-baseline.toml"
-    baseline_path.write_text(
-        "[[baseline]]\n"
-        'file = "datrix-common/src/datrix_common/sample_module.py"\n'
-        f"count = {initial_import_count}\n",
-        encoding="utf-8",
+    moved_path = tmp_root / _FLI_FIXTURE_MOVED_MODULE
+    moved_path.parent.mkdir(parents=True, exist_ok=True)
+    (moved_path.parent / "__init__.py").write_text("", encoding="utf-8")
+    moved_path.write_text(_self_test_module_source(1), encoding="utf-8")
+
+    _self_test_write_function_level_baseline(
+        tmp_root,
+        (
+            (_FLI_FIXTURE_MODULE, initial_import_count, _FLI_FIXTURE_REASON),
+            (_FLI_FIXTURE_MOVED_MODULE, 1, _FLI_FIXTURE_REASON),
+        ),
     )
     return module_path
 
 
-def _self_test_run_cli(tmp_root: Path) -> subprocess.CompletedProcess[str]:
+def _self_test_write_function_level_baseline(
+    tmp_root: Path, entries: tuple[tuple[str, int, str | None], ...]
+) -> Path:
+    """Write the fixture's function-level-import baseline and return its path."""
+    config_dir = tmp_root / "datrix" / "scripts" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    baseline_path = config_dir / "function-level-import-baseline.toml"
+    baseline_path.write_text(
+        _self_test_function_level_baseline_text(entries), encoding="utf-8"
+    )
+    return baseline_path
+
+
+def _self_test_run_cli(
+    tmp_root: Path, *, update_baseline: bool = False
+) -> subprocess.CompletedProcess[str]:
     """Invoke THIS script as a real subprocess against the isolated fixture.
 
     --skip-auto-self-test prevents the nested invocation from recursively
     re-running the self-test (which would otherwise spawn this same
     subprocess again, without end).
     """
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--base-dir",
+        str(tmp_root),
+        "--check-function-level-imports",
+        "--skip-auto-self-test",
+    ]
+    if update_baseline:
+        command.append("--update-baseline")
     return subprocess.run(
-        [
-            sys.executable,
-            str(Path(__file__).resolve()),
-            "--base-dir",
-            str(tmp_root),
-            "--check-function-level-imports",
-            "--skip-auto-self-test",
-        ],
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -6612,6 +6867,110 @@ def _self_test_cli_non_vacuity() -> bool:
         ok &= _check(
             f"reverting the mutation clears the failure, got exit {reverted_result.returncode}",
             reverted_result.returncode == 0,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+    return ok
+
+
+def _self_test_function_level_scope_and_entries() -> bool:
+    """The widened scope and the fail-closed entry check, end to end: a new
+    deferral in every policed package is caught, a tracked former-core module
+    in a package above is still policed, and an inert, reasonless or empty
+    entry each fails the flag and clears when removed. ``--update-baseline``
+    refuses to raise a count and lowers one, keeping its reason."""
+    _step(
+        "Self-test 8b/19: function-level-import scope (every policed package, "
+        "tracked moved modules) and fail-closed baseline entries"
+    )
+    ok = True
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"fli-scope-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        _self_test_build_fixture_monorepo(tmp_root, initial_import_count=1)
+        clean_entries = (
+            (_FLI_FIXTURE_MODULE, 1, _FLI_FIXTURE_REASON),
+            (_FLI_FIXTURE_MOVED_MODULE, 1, _FLI_FIXTURE_REASON),
+        )
+
+        for package_name in FUNCTION_LEVEL_IMPORT_PACKAGES[1:]:
+            planted = (
+                tmp_root / package_name.replace("_", "-") / "src" / package_name / "planted.py"
+            )
+            planted.write_text(_self_test_module_source(1), encoding="utf-8")
+            result = _self_test_run_cli(tmp_root)
+            ok &= _check(
+                f"a new deferral in {package_name} exits 1, got {result.returncode}",
+                result.returncode == 1 and "planted.py" in result.stdout,
+            )
+            planted.unlink()
+
+        moved_path = tmp_root / _FLI_FIXTURE_MOVED_MODULE
+        moved_path.write_text(_self_test_module_source(2), encoding="utf-8")
+        result = _self_test_run_cli(tmp_root)
+        ok &= _check(
+            f"a tracked former-core module above the policed set is still policed "
+            f"(1 -> 2 exits 1), got {result.returncode}",
+            result.returncode == 1 and "moved_module.py" in result.stdout,
+        )
+        moved_path.write_text(_self_test_module_source(1), encoding="utf-8")
+
+        inert_cases: tuple[tuple[str, tuple[str, int, str | None]], ...] = (
+            (
+                "an entry naming a file that does not exist",
+                ("datrix-common/src/datrix_common/moved_away.py", 1, _FLI_FIXTURE_REASON),
+            ),
+            (
+                "an entry outside every package's src/ tree",
+                ("datrix/scripts/dev/inert_entry.py", 1, _FLI_FIXTURE_REASON),
+            ),
+            ("an entry without a reason", (_FLI_FIXTURE_MOVED_MODULE, 1, None)),
+            ("a zero-count entry", (_FLI_FIXTURE_MOVED_MODULE, 0, _FLI_FIXTURE_REASON)),
+        )
+        outside_file = tmp_root / "datrix" / "scripts" / "dev" / "inert_entry.py"
+        outside_file.parent.mkdir(parents=True, exist_ok=True)
+        outside_file.write_text(_self_test_module_source(1), encoding="utf-8")
+        for label, planted_entry in inert_cases:
+            entries = tuple(
+                entry for entry in clean_entries if entry[0] != planted_entry[0]
+            ) + (planted_entry,)
+            _self_test_write_function_level_baseline(tmp_root, entries)
+            result = _self_test_run_cli(tmp_root)
+            ok &= _check(
+                f"{label} exits 1 naming the entry, got {result.returncode}",
+                result.returncode == 1 and planted_entry[0] in result.stdout,
+            )
+            _self_test_write_function_level_baseline(tmp_root, clean_entries)
+            result = _self_test_run_cli(tmp_root)
+            ok &= _check(
+                f"removing {label} clears the failure, got exit {result.returncode}",
+                result.returncode == 0,
+            )
+
+        moved_path.write_text(_self_test_module_source(2), encoding="utf-8")
+        refused = _self_test_run_cli(tmp_root, update_baseline=True)
+        ok &= _check(
+            f"--update-baseline refuses to raise a count (exit 1), got {refused.returncode}",
+            refused.returncode == 1,
+        )
+        ok &= _check(
+            "the refused update left the baseline unchanged",
+            load_function_level_import_baseline(
+                tmp_root / "datrix" / "scripts" / "config" / "function-level-import-baseline.toml"
+            ).counts
+            == {entry[0]: entry[1] for entry in clean_entries},
+        )
+        moved_path.write_text(_self_test_module_source(0), encoding="utf-8")
+        lowered = _self_test_run_cli(tmp_root, update_baseline=True)
+        lowered_baseline = load_function_level_import_baseline(
+            tmp_root / "datrix" / "scripts" / "config" / "function-level-import-baseline.toml"
+        )
+        ok &= _check(
+            f"--update-baseline lowers and drops an emptied entry, keeping the other's "
+            f"reason, got exit {lowered.returncode}",
+            lowered.returncode == 0
+            and lowered_baseline.counts == {_FLI_FIXTURE_MODULE: 1}
+            and lowered_baseline.reasons == {_FLI_FIXTURE_MODULE: _FLI_FIXTURE_REASON},
         )
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)
@@ -6716,10 +7075,10 @@ def _self_test_cross_package_vocabulary_scanner() -> bool:
         )
 
         # A MIXED container (one bare literal + one qualified reference to
-        # an enum from an ARBITRARY module -- not datrix_codegen_common.enums)
+        # an enum from an ARBITRARY module -- not datrix_codegen_kernel.enums)
         # must still have its bare portion recognized: G3 classifies the
         # qualified element by AST SHAPE alone (never by resolving it
-        # against datrix_codegen_common.enums), so an enum from any other
+        # against datrix_codegen_kernel.enums), so an enum from any other
         # module must not silently make the whole container invisible.
         (alpha_src / "mixed.py").write_text(
             "import enum\n\n"
@@ -6741,7 +7100,7 @@ def _self_test_cross_package_vocabulary_scanner() -> bool:
         beta_mixed_hits = hits_with_mixed.get(beta_src / "mixed.py", [])
         ok &= _check(
             "a MIXED bare+qualified container (qualified element from an "
-            "enum outside datrix_codegen_common.enums) still has its bare "
+            "enum outside datrix_codegen_kernel.enums) still has its bare "
             "portion recognized and flagged as a cross-package duplicate, "
             "not silently dropped",
             len(alpha_mixed_hits) == 1 and len(beta_mixed_hits) == 1,
@@ -6756,7 +7115,7 @@ def _self_test_cross_package_vocabulary_build_fixture_monorepo(
 ) -> tuple[Path, Path]:
     """Build a minimal isolated monorepo with TWO fixture packages
     (datrix-codegen-alpha, datrix-codegen-beta), neither importing anything
-    from datrix_codegen_common.enums, and a baseline TOML freezing both
+    from datrix_codegen_kernel.enums, and a baseline TOML freezing both
     files at count 0. Returns (alpha_module_path, beta_module_path).
 
     Both register a ``datrix.languages`` entry point so the scanner classifies
@@ -7418,7 +7777,7 @@ def run_self_test() -> bool:
         print(f"{_RED}[FAIL]{_RESET} cannot discover the real repository's taxonomy: {e}")
         return False
     results = [
-        _self_test_allowed_denied_subtrees(rules),
+        _self_test_allowed_denied_subtrees(taxonomy, rules),
         _self_test_dotted_precision_and_carveout(rules),
         _self_test_sql_and_component_coverage(rules),
         _self_test_platform_to_platform_prohibition(taxonomy, rules),
@@ -7426,6 +7785,7 @@ def run_self_test() -> bool:
         _self_test_function_level_import_scanner(),
         _self_test_ratchets(),
         _self_test_cli_non_vacuity(),
+        _self_test_function_level_scope_and_entries(),
         _self_test_platform_cli_non_vacuity(),
         _self_test_provider_literal_cli_non_vacuity(),
         _self_test_shared_package_provider_literal_cli_non_vacuity(),
@@ -7522,7 +7882,7 @@ def main() -> int:
             "Invariant I2) in addition to the import-boundary check. Fails "
             "when a datrix-codegen-{lang} module declares a module-level "
             "frozenset/set/dict whose normalized member set duplicates a "
-            "vocabulary already declared in datrix_codegen_common.enums."
+            "vocabulary already declared in datrix_codegen_kernel.enums."
         ),
     )
     parser.add_argument(
@@ -7548,7 +7908,7 @@ def main() -> int:
             "literal, identically in two or more datrix-* packages -- "
             "every discovered package, not only the language "
             "packages G1 scans -- independent of whether either copy "
-            "also duplicates a datrix_codegen_common.enums vocabulary."
+            "also duplicates a datrix_codegen_kernel.enums vocabulary."
         ),
     )
     parser.add_argument(
@@ -7818,17 +8178,62 @@ def main() -> int:
             updated_any = True
 
         if args.check_function_level_imports:
-            function_level_hits_by_file = scan_function_level_imports(packages, monorepo_root)
+            if not function_level_import_baseline_path.exists():
+                print(
+                    f"Error: function-level-import baseline not found at "
+                    f"{function_level_import_baseline_path}. The baseline is "
+                    f"decrease-only: --update-baseline lowers an existing record and "
+                    f"never creates one. Restore the file from version control.",
+                    file=sys.stderr,
+                )
+                return 2
+            try:
+                frozen_baseline = load_function_level_import_baseline(
+                    function_level_import_baseline_path
+                )
+            except FunctionLevelImportBaselineError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                return 2
+            function_level_hits_by_file = scan_function_level_imports(
+                packages, monorepo_root, frozenset(frozen_baseline.counts)
+            )
             current_counts = {
                 str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
                 for file_path, hits in function_level_hits_by_file.items()
             }
-            write_function_level_import_baseline(
-                function_level_import_baseline_path, current_counts
+            increases = check_function_level_import_ratchet(
+                current_counts, frozen_baseline.counts
             )
+            if increases:
+                print(
+                    f"Error: refusing to raise the function-level-import baseline -- "
+                    f"{len(increases)} file(s) are above it. The ratchet is "
+                    f"decrease-only: promote the new deferred imports to module top, or "
+                    f"record a cycle-forced deferral by hand with its reason:\n"
+                )
+                for message in increases:
+                    print(message)
+                print()
+                return 1
+            lowered_baseline, dropped = lowered_function_level_import_baseline(
+                frozen_baseline, current_counts
+            )
+            write_function_level_import_baseline(
+                function_level_import_baseline_path,
+                lowered_baseline.counts,
+                lowered_baseline.reasons,
+            )
+            for file_rel in dropped:
+                print(
+                    f"Dropped function-level-import baseline entry {file_rel}: it has no "
+                    f"function-level import left.",
+                    file=sys.stderr,
+                )
             print(
-                f"Updated function-level-import baseline: {len(current_counts)} file(s) "
-                f"recorded at {function_level_import_baseline_path.relative_to(monorepo_root)}"
+                f"Updated function-level-import baseline: {len(lowered_baseline.counts)} "
+                f"file(s) recorded at "
+                f"{function_level_import_baseline_path.relative_to(monorepo_root)} "
+                f"({len(dropped)} dropped, none raised)"
             )
             updated_any = True
 
@@ -8011,23 +8416,30 @@ def main() -> int:
         if not function_level_import_baseline_path.exists():
             print(
                 f"Error: function-level-import baseline not found at "
-                f"{function_level_import_baseline_path}. Run "
-                f"'check-import-boundaries.py --check-function-level-imports --update-baseline' "
-                f"first to freeze the initial baseline.",
+                f"{function_level_import_baseline_path}. The ratchet cannot run "
+                f"without its frozen record; restore the file from version control.",
                 file=sys.stderr,
             )
             return 2
 
-        baseline = load_function_level_import_baseline(
-            function_level_import_baseline_path
+        try:
+            function_level_baseline = load_function_level_import_baseline(
+                function_level_import_baseline_path
+            )
+        except FunctionLevelImportBaselineError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
+        function_level_hits_by_file = scan_function_level_imports(
+            packages, monorepo_root, frozenset(function_level_baseline.counts)
         )
-        function_level_hits_by_file = scan_function_level_imports(packages, monorepo_root)
         current_counts = {
             str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
             for file_path, hits in function_level_hits_by_file.items()
         }
-        function_level_import_messages = check_function_level_import_ratchet(
-            current_counts, baseline
+        function_level_import_messages = check_function_level_import_baseline_entries(
+            function_level_baseline, packages, monorepo_root
+        ) + check_function_level_import_ratchet(
+            current_counts, function_level_baseline.counts
         )
 
     shared_vocabulary_messages: list[str] = []
@@ -8180,8 +8592,8 @@ def main() -> int:
 
         if function_level_import_messages:
             print(
-                f"{mode}: function-level-import ratchet failed for "
-                f"{len(function_level_import_messages)} file(s):\n"
+                f"{mode}: function-level-import ratchet failed with "
+                f"{len(function_level_import_messages)} finding(s):\n"
             )
             for message in function_level_import_messages:
                 print(message)

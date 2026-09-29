@@ -58,9 +58,9 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from datrix_codegen_common.gendsl import target_registry  # noqa: E402
-from datrix_codegen_common.gendsl.compiler import get_definitions  # noqa: E402
-from datrix_codegen_common.gendsl.registry_adapter import (  # noqa: E402
+from datrix_codegen_kernel.gendsl import target_registry  # noqa: E402
+from datrix_codegen_kernel.gendsl.compiler import get_definitions  # noqa: E402
+from datrix_codegen_kernel.gendsl.registry_adapter import (  # noqa: E402
     MICRO_GENERATOR_ATTR,  # noqa: E402
 )
 from datrix_codegen_kernel.generation.gendsl_ir import (  # noqa: E402
