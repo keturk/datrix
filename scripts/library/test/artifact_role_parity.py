@@ -99,8 +99,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final, cast
 
-from datrix_codegen_common.parity.derived_declarations import DerivationError
-from datrix_codegen_common.parity.domain_declaration import (
+from datrix_codegen_kernel.parity.derived_declarations import DerivationError
+from datrix_codegen_kernel.parity.domain_declaration import (
     DomainDeclaration,
     DomainDeclarations,
 )
@@ -535,7 +535,7 @@ def language_domain_declarations(language: str) -> DomainDeclarations:
         `domain_id -> DomainDeclaration`, derived fresh from the plugin's
         registered sub-generator specs.
     """
-    from datrix_codegen_common.parity.derived_declarations import (
+    from datrix_codegen_kernel.parity.derived_declarations import (
         derive_domain_declarations,
     )
     from datrix_codegen_common.testkit.gates.domain_self_consistency import (
