@@ -148,7 +148,7 @@ Map the generated file type to its generator and template:
 - **Docker generators:** `d:\datrix\datrix-codegen-docker\src\datrix_codegen_docker\`
 - **Path helpers:** `d:\datrix\datrix-common\src\datrix_common\paths.py`
 - **Template engine:** `d:\datrix\datrix-common\src\datrix_common\rendering\`
-- **Base generator:** `d:\datrix\datrix-common\src\datrix_common\generation\`
+- **Base generator:** `d:\datrix\datrix-codegen-kernel\src\datrix_codegen_kernel\generation\`
 
 #### 3c: Read the Generator and Template
 

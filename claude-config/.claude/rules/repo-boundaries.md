@@ -15,9 +15,20 @@ pushed unless a human notices:
 `datrix-codegen-typescript-core`, `datrix-common`, `datrix-extensions`, `datrix-language`,
 `datrix-migration`, `datrix-semantic`, `datrix-testing`, `datrix-vscode`
 
-`datrix-codegen-kernel` and `datrix-codegen-typescript-core` are cloned,
-not-yet-populated repositories (a README and a LICENSE only). They are git repos all the
-same, so the placement rules below bind them already.
+`datrix-codegen-typescript-core` holds the TypeScript language core
+(`datrix_codegen_typescript_core`: the transpiler core and visitors, the language profile,
+the type maps and resolver, the TypeScript naming and path facts, the web-client mechanics).
+It is a library with no entry point and depends on `datrix-common`, `datrix-codegen-kernel`
+and `datrix-codegen-common`. The TypeScript backend (`datrix-codegen-typescript`) and every
+frontend target that emits TypeScript (`datrix-codegen-angular`) declare it as a runtime
+dependency; it imports none of them, and no frontend target depends on the backend.
+
+`datrix-codegen-kernel` holds the target-neutral generation framework
+(`datrix_codegen_kernel`: generator base classes, template engine, discovery, the shared
+route and runtime derivations, the deploy-script machinery, the GenDSL data model, the Seed
+datasets) and depends on `datrix-common` alone. Every generator, the language layer
+(`datrix-codegen-common`), the CLI and `datrix-testing` declare it as a runtime
+dependency; it loads no language-layer, generator, parser, semantic or CLI module.
 
 `datrix-testing` is the shared test harness (`datrix_testing`): every package takes it as
 a `dev` extra, never as a runtime dependency. The `pytest11` feature-tag plugin
