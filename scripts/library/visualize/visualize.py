@@ -76,7 +76,7 @@ def _parse_application(source_path: Path, profile: str) -> object:
         resolve_infrastructure_configs,
         resolve_service_configs,
     )
-    from datrix_common.semantic import SemanticAnalyzer
+    from datrix_semantic import SemanticAnalyzer
     from datrix_language.parser import TreeSitterParser
     from datrix_language.registration import register_all
 
