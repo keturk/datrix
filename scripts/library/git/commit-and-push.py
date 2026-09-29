@@ -231,14 +231,17 @@ class ServerSurvey:
 class ChangeEntry:
     """One dirty path from ``git status``, with every path its commit must include.
 
-    A staged rename reads ``old -> new``: the theme follows the new path, but the old
-    path is committed too so its deletion lands in the same commit. The old path is
-    already gone from disk and index, so it is only ever named to ``git commit`` (HEAD
-    still knows it), never to ``git add`` (which rejects a path matching nothing).
+    ``stage_paths`` is what ``git commit`` is told to include; ``add_paths`` is the
+    subset ``git add`` can match. A path already gone from both disk and index is only
+    ever named to ``git commit`` (HEAD still knows it), never to ``git add`` (which
+    rejects a path matching nothing). Two records carry such a path: a staged rename
+    (``old -> new``), whose old path is committed so its deletion lands with the new
+    one, and a staged deletion (index status ``D``), which is already fully staged.
     """
 
     path: str
     stage_paths: tuple[str, ...]
+    add_paths: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -250,7 +253,7 @@ class ChangeGroup:
 
     @property
     def add_paths(self) -> list[str]:
-        return list(dict.fromkeys(entry.path for entry in self.entries))
+        return list(dict.fromkeys(p for entry in self.entries for p in entry.add_paths))
 
     @property
     def stage_paths(self) -> list[str]:
@@ -472,9 +475,11 @@ def survey(repo_path: Path) -> list[ChangeEntry]:
         if status[0] in "RC" and index < len(records):
             source = records[index]
             index += 1
-            entries.append(ChangeEntry(path, (path, source)))
+            entries.append(ChangeEntry(path, (path, source), (path,)))
+        elif status[0] == "D":
+            entries.append(ChangeEntry(path, (path,), ()))
         else:
-            entries.append(ChangeEntry(path, (path,)))
+            entries.append(ChangeEntry(path, (path,), (path,)))
     return entries
 
 
@@ -1473,11 +1478,18 @@ def commit_group(repo_path: Path, group: ChangeGroup, message: str) -> str | Non
     or something staged by hand -- can never ride along in this commit.
     """
     name = repo_path.name
-    add_specs = "\n".join(f":(literal){path}" for path in group.add_paths) + "\n"
     pathspecs = "\n".join(f":(literal){path}" for path in group.stage_paths) + "\n"
-    add = run_git_with_files(repo_path, ["add", "-A", "--pathspec-from-file={specs}"], {"specs": add_specs})
-    if add.returncode != 0:
-        raise ScriptError(f"{name}: git add failed for '{group.name}' ({add.returncode}): {add.stderr or add.stdout}")
+    # A set made only of staged deletions has nothing to add, and an empty pathspec
+    # file would make ``git add -A`` stage the whole tree.
+    if group.add_paths:
+        add_specs = "\n".join(f":(literal){path}" for path in group.add_paths) + "\n"
+        add = run_git_with_files(
+            repo_path, ["add", "-A", "--pathspec-from-file={specs}"], {"specs": add_specs}
+        )
+        if add.returncode != 0:
+            raise ScriptError(
+                f"{name}: git add failed for '{group.name}' ({add.returncode}): {add.stderr or add.stdout}"
+            )
     commit = run_git_with_files(
         repo_path,
         ["commit", "-F", "{message}", "--pathspec-from-file={specs}"],
