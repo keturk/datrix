@@ -70,8 +70,7 @@ hardcoding it, and is never flagged. The canonical side of this comparison
 covers every module-level member-set declaration in enums.py, not only
 ``str, Enum`` classes: a plain module-level dict's KEY set (e.g.
 DSL_EXCEPTION_HTTP_STATUS, NOSQL_UNSUPPORTED_METHODS) or a set/frozenset's
-element set (e.g. LOG_BUILTIN_METHODS, itself derived from BUILTIN_REGISTRY
-rather than hand-listed) is exactly as canonical as an Enum class's value
+element set (e.g. NOSQL_SUPPORTED_METHODS) is exactly as canonical as an Enum class's value
 set, and a bare-literal redeclaration of either is the same defect.
 --update-baseline (combined with --check-shared-vocabulary) recomputes and
 overwrites that baseline.
@@ -184,6 +183,7 @@ from __future__ import annotations
 import argparse
 import ast
 import enum
+import importlib
 import json
 import re
 import shutil
@@ -812,6 +812,20 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
                 "datrix_codegen_common",
                 *platform_packages,
                 "datrix_language",
+            ),
+        ),
+        # The shared test harness sits on the foundation alone: every other
+        # package lists it as a dev dependency, so an import of any of them
+        # would close a cycle through that package's dev install. Parser
+        # implementations reach it only through the calling test session's
+        # registration (datrix_testing.parsing.register_test_parser), never
+        # through an import.
+        "datrix_testing": BoundaryRule(
+            forbidden_prefixes=(
+                "datrix_language",
+                "datrix_cli",
+                "datrix_codegen_",  # Wildcard: any package starting with datrix_codegen_
+                "datrix_extensions",
             ),
         ),
         # The CLI is the composition root: it may import any installed package
@@ -2659,8 +2673,11 @@ def check_function_level_import_ratchet(
 #
 # Fails when a datrix-codegen-{lang} module declares a module-level
 # frozenset/set/dict whose normalized member set equals a member set already
-# declared in datrix_codegen_common.enums. The LANGUAGE packages this ratchet
-# polices are the discovered taxonomy's ``language_packages``
+# declared in datrix_codegen_common.enums, OR in one of the additional
+# non-enums.py canonical homes named in
+# _ADDITIONAL_SHARED_VOCABULARY_SOURCES (a vocabulary moved out of enums.py
+# for a layering reason, e.g. LOG_BUILTIN_METHODS). The LANGUAGE packages
+# this ratchet polices are the discovered taxonomy's ``language_packages``
 # (discover_generator_taxonomy), threaded in by main(), so a new language
 # generator is policed from the commit that registers its entry point.
 
@@ -2699,8 +2716,8 @@ def _shared_enum_members() -> dict[str, dict[str, str]]:
     picked up with zero edit to this scanner. This covers ONLY the ``str,
     Enum`` half of the canonical source; ``_shared_non_enum_vocabularies``
     covers the plain dict/set/frozenset half (Decision D3's DSL exception-
-    status map, the NoSQL unsupported-method map, and the derived
-    log-builtin-method set are deliberately not Enums -- see that function).
+    status map, the NoSQL unsupported-method map, and the NoSQL
+    supported-method set are deliberately not Enums -- see that function).
 
     Returns:
         Mapping of enum class name -> {member name -> member value}.
@@ -2741,8 +2758,8 @@ def _is_module_level_container_assignment(stmt: ast.stmt) -> str | None:
     ``_shared_enum_members``'s "read live, never mirrored" property for the
     Enum half. The RHS's own inner shape is deliberately not inspected any
     further here (a ``frozenset(...)`` call's argument may be a literal
-    display or a generator expression -- e.g. ``LOG_BUILTIN_METHODS`` -- both
-    count as "container-shaped"; the actual member VALUES always come from
+    display or a generator expression -- both count as "container-shaped";
+    the actual member VALUES always come from
     the live imported object in ``_non_enum_vocabulary_member_set``, never
     from re-parsing this argument).
 
@@ -2834,35 +2851,116 @@ def _non_enum_vocabulary_member_set(name: str, runtime_value: object) -> frozens
     return frozenset(members)
 
 
+# Declared homes for a canonical shared vocabulary that lives OUTSIDE
+# enums.py. Each entry is (dotted module path, attribute name). This exists
+# only for a vocabulary that was deliberately MOVED out of enums.py because
+# its derivation is shaped like the layer it lives beside (e.g.
+# LOG_BUILTIN_METHODS is `frozenset(method for category, method in
+# BUILTIN_REGISTRY if category == "Log")`, and enums.py -- the
+# target-neutral vocabulary module -- must not import the transpiler to
+# compute it; see datrix_codegen_common/transpiler/builtin_registry.py).
+#
+# This is deliberately NOT a general "scan every container in this module"
+# rule the way `_shared_non_enum_vocabularies` scans enums.py: a home module
+# outside enums.py may also declare module-level containers whose members
+# are not strings (e.g. builtin_registry.py's `UI_BUILTIN_GROUPS`, a
+# frozenset of `BuiltinGroup` enum members, and `BUILTIN_REGISTRY`, a dict
+# keyed by `(category, method)` tuples) -- `_non_enum_vocabulary_member_set`
+# correctly raises TypeError on those, so scanning the whole module would
+# break the ratchet on every run instead of harvesting the one vocabulary
+# that was actually moved there. Naming the exact attribute keeps the
+# harvest working without hardcoding a mirror of the moved value, and the
+# `hasattr` check below fails loud (not silently) the moment the declared
+# attribute is renamed or removed, so this list cannot go silently stale.
+_ADDITIONAL_SHARED_VOCABULARY_SOURCES: tuple[tuple[str, str], ...] = (
+    ("datrix_codegen_common.transpiler.builtin_registry", "LOG_BUILTIN_METHODS"),
+)
+
+
+def _additional_shared_non_enum_vocabularies() -> dict[str, frozenset[str]]:
+    """Canonical member sets for the shared vocabularies declared in
+    ``_ADDITIONAL_SHARED_VOCABULARY_SOURCES`` -- vocabulary homes outside
+    ``enums.py`` that hold a canonical set moved there for a layering
+    reason.
+
+    Returns:
+        Mapping of attribute name -> canonical member-value set, one entry
+        per declared source.
+
+    Raises:
+        RuntimeError: if a declared module cannot be imported, or if a
+            declared attribute is missing from the imported module (the
+            declared home has gone stale -- renamed, removed, or moved
+            again without updating this list).
+        TypeError: if a declared attribute's members cannot be determined
+            as strings (propagated from ``_non_enum_vocabulary_member_set``).
+    """
+    vocabularies: dict[str, frozenset[str]] = {}
+    for module_path, attr_name in _ADDITIONAL_SHARED_VOCABULARY_SOURCES:
+        try:
+            module = importlib.import_module(module_path)
+        except ImportError as exc:
+            raise RuntimeError(
+                f"G1 harvest: failed to import declared shared-vocabulary "
+                f"home '{module_path}' (for attribute '{attr_name}') -- is "
+                f"the package that provides it installed in the active "
+                f"environment (D:\\datrix\\.venv)? Fix: run this script via "
+                f"check-import-boundaries.ps1, which activates the venv "
+                f"first, or correct the module path in "
+                f"_ADDITIONAL_SHARED_VOCABULARY_SOURCES if the module moved."
+            ) from exc
+        if not hasattr(module, attr_name):
+            raise RuntimeError(
+                f"G1 harvest: declared shared-vocabulary home "
+                f"'{module_path}.{attr_name}' is missing -- '{attr_name}' "
+                f"is not an attribute of the imported '{module_path}' "
+                f"module. Expected _ADDITIONAL_SHARED_VOCABULARY_SOURCES "
+                f"and the installed package to agree. Fix: reinstall the "
+                f"owning package in the active environment, or if "
+                f"'{attr_name}' was renamed or moved again, update "
+                f"_ADDITIONAL_SHARED_VOCABULARY_SOURCES in "
+                f"check-import-boundaries.py to match -- never drop the "
+                f"entry, or this vocabulary silently stops being policed."
+            )
+        runtime_value = getattr(module, attr_name)
+        vocabularies[attr_name] = _non_enum_vocabulary_member_set(attr_name, runtime_value)
+    return vocabularies
+
+
 def _shared_non_enum_vocabularies() -> dict[str, frozenset[str]]:
     """Every module-level ``dict``/``set``/``frozenset`` constant DECLARED IN
     ``enums.py``'s own source (never an imported symbol merely visible
     through it, e.g. ``BUILTIN_REGISTRY``) that is not a ``str, Enum`` class,
-    mapped to its canonical member-value set.
+    mapped to its canonical member-value set -- merged with the additional
+    declared homes in ``_ADDITIONAL_SHARED_VOCABULARY_SOURCES`` (canonical
+    vocabularies that were moved out of enums.py; see that constant).
 
     Covers value-derived declarations the AST cannot evaluate on its own --
-    e.g. ``LOG_BUILTIN_METHODS = frozenset(method for category, method in
-    BUILTIN_REGISTRY if category == "Log")``, a generator expression, not a
-    literal display. The AST is used ONLY to decide WHICH names are
+    e.g. a ``frozenset(<generator expression>)`` derived from another
+    table, not a literal display. The AST is used ONLY to decide WHICH names are
     container-shaped constants (``_is_module_level_container_assignment``);
     the member set always comes from the live imported object, which
     already carries the fully-derived value regardless of how it was
     computed.
 
-    No vocabulary name is ever hardcoded: a dict/set/frozenset constant
-    added to ``enums.py`` later is harvested with zero edit here, the same
-    generality property ``_shared_enum_members`` already has for the Enum
-    half (Decision D3, Invariant I2; design principle 16 -- shared layers
-    ask, target plugins answer).
+    No vocabulary name is ever hardcoded for the enums.py half: a dict/set/
+    frozenset constant added to ``enums.py`` later is harvested with zero
+    edit here, the same generality property ``_shared_enum_members`` already
+    has for the Enum half (Decision D3, Invariant I2; design principle 16 --
+    shared layers ask, target plugins answer). Only a vocabulary that no
+    longer lives in enums.py needs an entry in
+    ``_ADDITIONAL_SHARED_VOCABULARY_SOURCES``.
 
     Returns:
         Mapping of module-level constant name -> canonical member-value set.
 
     Raises:
-        RuntimeError: if datrix_codegen_common.enums cannot be imported, or
-            if a name the AST identifies as a module-level assignment is
+        RuntimeError: if datrix_codegen_common.enums cannot be imported, if
+            a name the AST identifies as a module-level assignment is
             missing from the imported module (source/installed-package
-            mismatch).
+            mismatch), or if a declared additional home is missing or
+            unimportable (propagated from
+            ``_additional_shared_non_enum_vocabularies``).
         TypeError: if a qualifying container's members cannot be determined
             as strings (propagated from ``_non_enum_vocabulary_member_set``).
     """
@@ -2887,6 +2985,8 @@ def _shared_non_enum_vocabularies() -> dict[str, frozenset[str]]:
             )
         runtime_value = getattr(shared_enums, name)
         vocabularies[name] = _non_enum_vocabulary_member_set(name, runtime_value)
+
+    vocabularies.update(_additional_shared_non_enum_vocabularies())
     return vocabularies
 
 
@@ -3003,7 +3103,7 @@ def scan_file_for_shared_vocabulary(
     frozenset's element set (``non_enum_vocabularies``) alike. G1's own
     specification never restricts the canonical side to Enum classes; a
     name -> value lookup table like ``DSL_EXCEPTION_HTTP_STATUS`` or a
-    derived set like ``LOG_BUILTIN_METHODS`` is exactly as canonical as
+    member set like ``NOSQL_SUPPORTED_METHODS`` is exactly as canonical as
     ``HTTPMethod``, and a bare-literal redeclaration of either is the same
     defect.
 
@@ -5288,10 +5388,13 @@ def _self_test_shared_vocabulary_scanner() -> bool:
     from qualified enum-member references, and does NOT flag an unrelated
     container whose members don't match any known vocabulary -- PLUS (added
     when the canonical-source harvest was widened past ``str, Enum``
-    classes) the non-Enum harvest actually contains the three dict/frozenset
-    canonical vocabularies, a harvest restricted to Enum classes alone would
-    have missed every one of them, and each non-Enum shape's bare-literal
-    redeclaration is detected while its importing form is not."""
+    classes) the non-Enum harvest actually contains the three enums.py-
+    declared dict/frozenset canonical vocabularies plus one vocabulary
+    declared OUTSIDE enums.py (``LOG_BUILTIN_METHODS``, harvested via
+    ``_ADDITIONAL_SHARED_VOCABULARY_SOURCES``), a harvest restricted to Enum
+    classes alone would have missed every one of them, and each non-Enum
+    shape's bare-literal redeclaration is detected while its importing form
+    is not."""
     _step(
         "Self-test 12/19: shared-vocabulary scanner (detection + exemption "
         "non-vacuity, Enum and non-Enum canonical sources alike)"
@@ -5359,7 +5462,7 @@ def _self_test_shared_vocabulary_scanner() -> bool:
         # proof that an Enum-only harvest would FAIL to cover them.
         from datrix_codegen_common.enums import (
             DSL_EXCEPTION_HTTP_STATUS,
-            LOG_BUILTIN_METHODS,
+            NOSQL_SUPPORTED_METHODS,
             NOSQL_UNSUPPORTED_METHODS,
         )
 
@@ -5368,7 +5471,7 @@ def _self_test_shared_vocabulary_scanner() -> bool:
         for vocabulary_name in (
             "DSL_EXCEPTION_HTTP_STATUS",
             "NOSQL_UNSUPPORTED_METHODS",
-            "LOG_BUILTIN_METHODS",
+            "NOSQL_SUPPORTED_METHODS",
         ):
             ok &= _check(
                 f"a str,Enum-only harvest does not contain {vocabulary_name} "
@@ -5387,10 +5490,30 @@ def _self_test_shared_vocabulary_scanner() -> bool:
             == frozenset(NOSQL_UNSUPPORTED_METHODS.keys()),
         )
         ok &= _check(
-            "the widened harvest contains LOG_BUILTIN_METHODS's members "
-            "(value-derived from BUILTIN_REGISTRY, not a literal display)",
-            non_enum_harvest.get("LOG_BUILTIN_METHODS")
-            == frozenset(LOG_BUILTIN_METHODS),
+            "the widened harvest contains NOSQL_SUPPORTED_METHODS's members",
+            non_enum_harvest.get("NOSQL_SUPPORTED_METHODS")
+            == frozenset(NOSQL_SUPPORTED_METHODS),
+        )
+
+        # --- Container-shape detection: a value-DERIVED frozenset ------------
+        # enums.py declares no generator-expression-derived constant today,
+        # so a synthetic module proves the AST shape test still counts a
+        # ``frozenset(<genexpr>)`` assignment (plain and annotated) as a
+        # container constant, and still rejects a non-container call.
+        derived_shape_source = (
+            "_ROWS = (('Log', 'info'), ('Log', 'warn'), ('Http', 'get'))\n"
+            "DERIVED_PLAIN = frozenset(m for c, m in _ROWS if c == 'Log')\n"
+            "DERIVED_ANNOTATED: frozenset[str] = frozenset(m for c, m in _ROWS)\n"
+            "NOT_A_CONTAINER = sorted(m for c, m in _ROWS)\n"
+        )
+        derived_shape_names = [
+            _is_module_level_container_assignment(stmt)
+            for stmt in ast.parse(derived_shape_source).body
+        ]
+        ok &= _check(
+            "a frozenset(<generator expression>) assignment is container-shaped, "
+            "plain and annotated alike, while a non-container call is not",
+            derived_shape_names == [None, "DERIVED_PLAIN", "DERIVED_ANNOTATED", None],
         )
 
         # --- Non-Enum shape 1: dict-keys (DSL_EXCEPTION_HTTP_STATUS) --------
@@ -5455,34 +5578,92 @@ def _self_test_shared_vocabulary_scanner() -> bool:
             second_dict_shape_importing_hits == [],
         )
 
-        # --- Non-Enum shape 3: frozenset elements (LOG_BUILTIN_METHODS) -----
+        # --- Non-Enum shape 3: frozenset elements (NOSQL_SUPPORTED_METHODS) -
         frozenset_shape_bare_file = scratch_dir / "frozenset_shape_bare.py"
         frozenset_shape_bare_file.write_text(
-            f"_LOG_METHODS = {frozenset(LOG_BUILTIN_METHODS)!r}\n",
+            f"_NOSQL_SUPPORTED = {frozenset(NOSQL_SUPPORTED_METHODS)!r}\n",
             encoding="utf-8",
         )
         frozenset_shape_bare_hits = scan_file_for_shared_vocabulary(
             frozenset_shape_bare_file, {}, non_enum_harvest
         )
         ok &= _check(
-            "a bare frozenset literal redeclaring LOG_BUILTIN_METHODS's members is flagged",
+            "a bare frozenset literal redeclaring NOSQL_SUPPORTED_METHODS's members is flagged",
             len(frozenset_shape_bare_hits) == 1
-            and frozenset_shape_bare_hits[0].matched_vocabulary == "LOG_BUILTIN_METHODS",
+            and frozenset_shape_bare_hits[0].matched_vocabulary == "NOSQL_SUPPORTED_METHODS",
         )
 
         frozenset_shape_importing_file = scratch_dir / "frozenset_shape_importing.py"
         frozenset_shape_importing_file.write_text(
-            "from datrix_codegen_common.enums import LOG_BUILTIN_METHODS\n\n"
-            "def is_log_builtin(method: str) -> bool:\n"
-            "    return method in LOG_BUILTIN_METHODS\n",
+            "from datrix_codegen_common.enums import NOSQL_SUPPORTED_METHODS\n\n"
+            "def is_nosql_supported(method: str) -> bool:\n"
+            "    return method in NOSQL_SUPPORTED_METHODS\n",
             encoding="utf-8",
         )
         frozenset_shape_importing_hits = scan_file_for_shared_vocabulary(
             frozenset_shape_importing_file, {}, non_enum_harvest
         )
         ok &= _check(
-            "importing LOG_BUILTIN_METHODS instead of redeclaring it is NOT flagged",
+            "importing NOSQL_SUPPORTED_METHODS instead of redeclaring it is NOT flagged",
             frozenset_shape_importing_hits == [],
+        )
+
+        # --- Non-Enum shape 4: a vocabulary moved OUT of enums.py -----------
+        # LOG_BUILTIN_METHODS used to live in enums.py; it now lives in
+        # datrix_codegen_common.transpiler.builtin_registry (a kernel-closure
+        # cut: enums.py must not import the transpiler). Proves
+        # _ADDITIONAL_SHARED_VOCABULARY_SOURCES actually harvests a moved
+        # declaration -- without this, a language package that hand-copies
+        # the Log builtin method set would go unflagged (the exact coverage
+        # gap this list exists to close).
+        from datrix_codegen_common import enums as shared_enums_module
+        from datrix_codegen_common.transpiler.builtin_registry import LOG_BUILTIN_METHODS
+
+        ok &= _check(
+            "LOG_BUILTIN_METHODS is not an attribute of enums.py itself "
+            "(proves it truly moved out, so its harvest coverage can only "
+            "come from _ADDITIONAL_SHARED_VOCABULARY_SOURCES, not from the "
+            "enums.py AST scan)",
+            not hasattr(shared_enums_module, "LOG_BUILTIN_METHODS"),
+        )
+        ok &= _check(
+            "the widened harvest contains LOG_BUILTIN_METHODS's members even "
+            "though it is declared outside enums.py",
+            non_enum_harvest.get("LOG_BUILTIN_METHODS") == frozenset(LOG_BUILTIN_METHODS),
+        )
+
+        moved_shape_bare_file = scratch_dir / "moved_shape_bare.py"
+        moved_shape_bare_file.write_text(
+            f"_LOG_METHODS = {frozenset(LOG_BUILTIN_METHODS)!r}\n",
+            encoding="utf-8",
+        )
+        moved_shape_bare_hits = scan_file_for_shared_vocabulary(
+            moved_shape_bare_file, {}, non_enum_harvest
+        )
+        ok &= _check(
+            "a language package hand-copying LOG_BUILTIN_METHODS's members "
+            "as a bare frozenset literal is flagged even though the "
+            "canonical source moved out of enums.py",
+            len(moved_shape_bare_hits) == 1
+            and moved_shape_bare_hits[0].matched_vocabulary == "LOG_BUILTIN_METHODS",
+        )
+
+        moved_shape_importing_file = scratch_dir / "moved_shape_importing.py"
+        moved_shape_importing_file.write_text(
+            "from datrix_codegen_common.transpiler.builtin_registry import (\n"
+            "    LOG_BUILTIN_METHODS,\n"
+            ")\n\n"
+            "def is_log_method(method: str) -> bool:\n"
+            "    return method in LOG_BUILTIN_METHODS\n",
+            encoding="utf-8",
+        )
+        moved_shape_importing_hits = scan_file_for_shared_vocabulary(
+            moved_shape_importing_file, {}, non_enum_harvest
+        )
+        ok &= _check(
+            "importing LOG_BUILTIN_METHODS from its moved home instead of "
+            "redeclaring it is NOT flagged",
+            moved_shape_importing_hits == [],
         )
     finally:
         shutil.rmtree(scratch_dir, ignore_errors=True)
@@ -5604,7 +5785,7 @@ def _self_test_shared_vocabulary_cli_non_vacuity() -> bool:
     the file and the exact count delta), reverts and proves it clears, then
     repeats one mutate/detect/revert cycle per non-Enum vocabulary
     (``DSL_EXCEPTION_HTTP_STATUS`` and ``NOSQL_UNSUPPORTED_METHODS`` as bare
-    dict literals redeclaring their keys, ``LOG_BUILTIN_METHODS`` as a bare
+    dict literals redeclaring their keys, ``NOSQL_SUPPORTED_METHODS`` as a bare
     frozenset literal redeclaring its members) against the SAME clean
     fixture file.
     """
@@ -5655,7 +5836,7 @@ def _self_test_shared_vocabulary_cli_non_vacuity() -> bool:
 
         from datrix_codegen_common.enums import (
             DSL_EXCEPTION_HTTP_STATUS,
-            LOG_BUILTIN_METHODS,
+            NOSQL_SUPPORTED_METHODS,
             NOSQL_UNSUPPORTED_METHODS,
         )
 
@@ -5679,9 +5860,9 @@ def _self_test_shared_vocabulary_cli_non_vacuity() -> bool:
             tmp_root,
             module_path,
             clean_source,
-            vocabulary_name="LOG_BUILTIN_METHODS",
+            vocabulary_name="NOSQL_SUPPORTED_METHODS",
             container_name="frozenset",
-            literal_source=f"_LOG_METHODS = {frozenset(LOG_BUILTIN_METHODS)!r}\n",
+            literal_source=f"_NOSQL_SUPPORTED = {frozenset(NOSQL_SUPPORTED_METHODS)!r}\n",
         )
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)

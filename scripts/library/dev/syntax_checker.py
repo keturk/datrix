@@ -40,7 +40,7 @@ try:
     if datrix_language_src.exists() and str(datrix_language_src) not in sys.path:
         sys.path.insert(0, str(datrix_language_src))
 
-    from datrix_common import DATRIX_FILE_EXTENSION
+    from datrix_common.constants import DATRIX_FILE_EXTENSION
     from datrix_common.errors import ParseError
     from datrix_language.parser import TreeSitterParser
     from datrix_language.parser.contextual_keywords import validate_contextual_keywords
