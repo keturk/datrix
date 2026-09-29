@@ -41,7 +41,7 @@ All skill outputs (summaries, generated artifacts like dependencies.md) must be 
 
 ## Task Location Allowlist — HARD CONSTRAINT
 
-**`.tasks` folders may ONLY be created at the root of one of these 17 framework projects, all of which live directly under `D:\datrix\`:**
+**`.tasks` folders may ONLY be created at the root of one of these 18 framework projects, all of which live directly under `D:\datrix\`:**
 
 ```
 D:\datrix\datrix\.tasks
@@ -60,13 +60,14 @@ D:\datrix\datrix-common\.tasks
 D:\datrix\datrix-extensions\.tasks
 D:\datrix\datrix-language\.tasks
 D:\datrix\datrix-migration\.tasks
+D:\datrix\datrix-semantic\.tasks
 D:\datrix\datrix-testing\.tasks
 ```
 
 **Rules — no exceptions:**
-1. Every task file path AND the `dependencies.md` path MUST begin with `D:\datrix\{project}\.tasks\`, where `{project}` is exactly one of the 17 names above. Validate every path against this list before writing.
+1. Every task file path AND the `dependencies.md` path MUST begin with `D:\datrix\{project}\.tasks\`, where `{project}` is exactly one of the 18 names above. Validate every path against this list before writing.
 2. **Fallback:** If a task does not clearly belong to a specific framework package, place it under **`D:\datrix\datrix\.tasks`** (the `datrix` showcase repo's task folder). This is the default bucket — never invent a new location for an "uncategorized" task.
-3. **NEVER create a `.tasks` folder anywhere else.** In particular, never under a customer/generated project — a consuming product lives outside `D:\datrix` entirely, either as a single repo (`D:\<Product>\`) or as a workspace of sibling repos (`D:\<Product>\<product>-backend\`, `<product>-generated\`, …) — and never under any other path outside `D:\datrix\{one-of-the-17}\`. A design document may live inside a customer project, but the tasks it produces still go in one of the 17 framework `.tasks` folders above (use the fallback if no specific package fits).
+3. **NEVER create a `.tasks` folder anywhere else.** In particular, never under a customer/generated project — a consuming product lives outside `D:\datrix` entirely, either as a single repo (`D:\<Product>\`) or as a workspace of sibling repos (`D:\<Product>\<product>-backend\`, `<product>-generated\`, …) — and never under any other path outside `D:\datrix\{one-of-the-18}\`. A design document may live inside a customer project, but the tasks it produces still go in one of the 18 framework `.tasks` folders above (use the fallback if no specific package fits).
 
 **Why this matters:** Task tooling (`todo.ps1`, `complete.ps1`, `latest-phase.ps1`, the orchestrator skills) only scans `D:\datrix\*/.tasks`. A `.tasks` folder created in a customer project directory (e.g. `D:\<Product>\<product>-backend\.tasks`) is invisible to every one of these scripts — the tasks silently never run. Placing tasks outside the allowlist is a defect, not a style choice.
 

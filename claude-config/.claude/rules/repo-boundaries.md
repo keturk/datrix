@@ -15,9 +15,9 @@ pushed unless a human notices:
 `datrix-codegen-typescript-core`, `datrix-common`, `datrix-extensions`, `datrix-language`,
 `datrix-migration`, `datrix-semantic`, `datrix-testing`, `datrix-vscode`
 
-`datrix-codegen-kernel`, `datrix-codegen-typescript-core` and `datrix-semantic` are
-cloned, not-yet-populated repositories (a README and a LICENSE only). They are git repos
-all the same, so the placement rules below bind them already.
+`datrix-codegen-kernel` and `datrix-codegen-typescript-core` are cloned,
+not-yet-populated repositories (a README and a LICENSE only). They are git repos all the
+same, so the placement rules below bind them already.
 
 `datrix-testing` is the shared test harness (`datrix_testing`): every package takes it as
 a `dev` extra, never as a runtime dependency. The `pytest11` feature-tag plugin
@@ -27,6 +27,12 @@ a `dev` extra, never as a runtime dependency. The `pytest11` feature-tag plugin
 snapshot, schema diff, change policy, revision ledger, state store) and depends on
 `datrix-common` alone. The CLI, the codegen layer and every RDBMS-emitting generator
 declare it as a runtime dependency.
+
+`datrix-semantic` holds semantic analysis (`datrix_semantic`: the analyzer, its phase
+pipeline, every domain validator, synthesis, and auth-contract lowering) and depends on
+`datrix-common` alone. `datrix-language`, `datrix-cli` and `datrix-testing` declare it as a
+runtime dependency, as does `datrix-codegen-azure` (its RDBMS pooling generator reads the
+Flexible Server connection-capacity table from the pooling validator).
 
 **The count is not a constant.** This list grows as targets are added — a new language, a
 new platform, or a new frontend target is a new repo. Update the list and the heading in

@@ -14,7 +14,8 @@ disable-model-invocation: true
 - `datrix_common.datrix_model.api` → `RestApi`, `GraphqlApi`
 - `datrix_common.datrix_model.callables` → `Function`, `Endpoint`, `Command`, `Query`, `EventHandler`, `Parameter`, `AccessLevel`
 - `datrix_common.types` → `TypeRegistry`, `ScalarType`, `DatrixType`
-- `datrix_common.semantic` → `SemanticAnalyzer`, `AnalysisResult`
+- `datrix_semantic` → `SemanticAnalyzer`, `AnalysisResult`
+- `datrix_common.cross_service.contract` → `EndpointContract`, `get_cross_service_contract`
 - `datrix_common.rendering` → `render`, `RenderOptions`
 - `datrix_common.config_resolution` → `resolve_service_configs`, `resolve_infrastructure_configs`
 - `datrix_language.parser` → `TreeSitterParser`
@@ -24,11 +25,11 @@ disable-model-invocation: true
 - `datrix_common.generation.type_resolver` → `TypeResolver`, `OrmTypeResolver`, `TypeMapping`
 - `datrix_common.generation.plugin_helpers` → `detect_service_features`, `render_code_file`, `create_template_generator`
 - `datrix_common.generation.discovery` → `discover_generators`, `discover_platforms`
-- `datrix_common.generation.orchestrator` → `ServiceOrchestrator`
-- `datrix_common.generation.language_generator` → `LanguageGenerator`
+- `datrix_codegen_common.generation.orchestrator` → `ServiceOrchestrator`
+- `datrix_codegen_common.generation.language_generator` → `LanguageGenerator`
 - `datrix_common.generation.type_mapping_registry` → `TypeMappingRegistry`, `global_registry`
-- `datrix_common.transpiler.language_transpiler` → `LanguageTranspiler`, `LiteralKeywords`
-- `datrix_common.transpiler.protocols` → `TranspilerStateProtocol`
+- `datrix_codegen_common.transpiler.language_transpiler` → `LanguageTranspiler`, `LiteralKeywords`
+- `datrix_codegen_common.transpiler.protocols` → `TranspilerStateProtocol`
 - `datrix_common.generation.language_helpers` → `_derive_default_dialect`, `_build_service_map`, `_register_module_level_names`, `effective_observability_config`
 - `datrix_common.generation.import_paths` → `build_entity_import_paths`
 - `datrix_codegen_python.generation.sample_values` → `select_sample_index`
