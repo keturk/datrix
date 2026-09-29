@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     # inside _get_parser()/_get_analyzer() so `--help` and path discovery do not
     # pay the tree-sitter/semantic-analyzer import cost.
     from datrix_common.datrix_model import Application
-    from datrix_common.semantic import SemanticAnalyzer
+    from datrix_semantic import SemanticAnalyzer
     from datrix_language.parser import TreeSitterParser
 
 # ── UTF-8 stdout/stderr on Windows ──────────────────────────────────────────
@@ -198,7 +198,7 @@ class DatrixLinter:
 
     def _get_analyzer(self) -> SemanticAnalyzer:
         if self._analyzer is None:
-            from datrix_common.semantic import SemanticAnalyzer
+            from datrix_semantic import SemanticAnalyzer
             self._analyzer = SemanticAnalyzer()
             self._dbg("SemanticAnalyzer ready.")
         return self._analyzer
@@ -280,7 +280,7 @@ class DatrixLinter:
             return result
 
         # ── Report diagnostics ────────────────────────────────────────────────
-        from datrix_common.semantic.result import Severity
+        from datrix_semantic.result import Severity
 
         skipped_codes = {"SVC006", "SVC007"} if not self.resolve_configs else set()
         for diag in analysis.diagnostics:

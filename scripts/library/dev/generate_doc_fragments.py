@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
 # ── Constants ──
 VALID_FRAGMENTS = frozenset({"semantic-pipeline", "cli-help", "all"})
 ANALYZER_RELATIVE_PATH = Path(
-    "datrix-common/src/datrix_common/semantic/analyzer.py"
+    "datrix-semantic/src/datrix_semantic/analyzer.py"
 )
 OUTPUT_DIR_NAME = Path("datrix/docs/generated")
 SEMANTIC_OUTPUT_FILENAME = "semantic-pipeline-stages.md"
@@ -101,8 +101,8 @@ def _derive_phase_names() -> list[str]:
     Raises:
         ValueError: If the derived order is empty.
     """
-    from datrix_common.semantic.analyzer import _build_phases
-    from datrix_common.semantic.pipeline.phase import topologically_sort_phases
+    from datrix_semantic.analyzer import _build_phases
+    from datrix_semantic.pipeline.phase import topologically_sort_phases
 
     phase_names = [
         phase.name
@@ -111,7 +111,7 @@ def _derive_phase_names() -> list[str]:
     if not phase_names:
         raise ValueError(
             "The semantic analyzer declares no phases: "
-            "datrix_common.semantic.analyzer._build_phases returned an empty "
+            "datrix_semantic.analyzer._build_phases returned an empty "
             "order. Expected the declared phase list analyze() walks; check "
             "that _build_phases still returns it."
         )

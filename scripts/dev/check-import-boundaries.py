@@ -400,6 +400,9 @@ SQL_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
 WEB_CLIENT_TYPESCRIPT_ALLOWED_SUBTREES: frozenset[str] = frozenset(
     [
         "datrix_codegen_typescript.transpiler.core",
+        # The TypeScript core's own per-file scope: the web-client targets
+        # construct the scope the core they drive reads.
+        "datrix_codegen_typescript.transpiler.scope",
         "datrix_codegen_typescript.transpiler.operators",
         "datrix_codegen_typescript.transpiler.js_identifier",
         "datrix_codegen_typescript.transpiler.visitor_statements",
@@ -719,6 +722,9 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
                 # datrix-migration depends on the core; the core names its
                 # run-scoped state transaction through a Protocol instead.
                 "datrix_migration",
+                # datrix-semantic depends on the core; a fact both the core's
+                # consumers and a semantic phase read lives in the core.
+                "datrix_semantic",
             ),
         ),
         "datrix_language": BoundaryRule(
@@ -843,6 +849,21 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
                 "datrix_codegen_",  # Wildcard: any package starting with datrix_codegen_
                 "datrix_extensions",
                 "datrix_semantic",
+            ),
+        ),
+        # The semantic-analysis package (the analyzer, every domain validator,
+        # auth-contract lowering) sits on the core alone. The parser, the CLI
+        # and the test harness depend on it, and every generator and the
+        # migration package sit beside it on the core, so an import of any of
+        # them would close a cycle or couple two siblings. Its tests reach the
+        # parser only through the root conftest's registration.
+        "datrix_semantic": BoundaryRule(
+            forbidden_prefixes=(
+                "datrix_language",
+                "datrix_cli",
+                "datrix_codegen_",  # Wildcard: any package starting with datrix_codegen_
+                "datrix_extensions",
+                "datrix_migration",
             ),
         ),
         # The CLI is the composition root: it may import any installed package
@@ -1621,7 +1642,7 @@ def _platform_token_identifier_hits(
     identifier segment.
 
     Scoped to the EXACT declaration/type-reference positions
-    ``scan_file_for_shared_target_names`` (G2) already restricts language-
+    ``scan_file_for_shared_target_names`` (the shared-target-name ratchet) already restricts language-
     token matching to -- class/function/method DEFINITIONS, a dataclass
     field or type alias at module/class-body level (annotated or plain
     assignment), and a type reference (isinstance/issubclass argument, base
@@ -3370,10 +3391,9 @@ def check_shared_vocabulary_ratchet(
 # `datrix_cli` are deliberately excluded (design §8): they hold platform
 # config-schema models (AwsPlatformConfig, AzureCosmosConfig,
 # DockerHealthcheckConfig, ...) whose relocation into the platform packages
-# is a separate Decision-22-shaped question, and documented public API
-# (PythonFileScope, TypeScriptFileScope -- both listed as canonical imports
-# in datrix-common/docs/contributing/ai-agent-rules/canonical-imports.md),
-# so renaming them would be a breaking change to a published surface. Kept
+# is a separate Decision-22-shaped question. (The per-language transpiler
+# file scopes are not among them: they live beside each language's own
+# transpiler core, so the shared transpiler holds only the neutral base.) Kept
 # as its own tuple (not reused from the I1/I6 DERIVED shared-package set,
 # whose scope is computed once by discover_shared_packages and belongs to
 # those two ratchets only) per this file's established one-tuple/one-scope-
