@@ -363,15 +363,15 @@ file = "datrix-common/src/datrix_common/infra/registry.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/migration/differ.py"
+file = "datrix-migration/src/datrix_migration/differ.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/migration/generator.py"
+file = "datrix-migration/src/datrix_migration/generator.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/migration/schema_snapshot.py"
+file = "datrix-migration/src/datrix_migration/schema_snapshot.py"
 count = 15
 
 [[baseline]]
@@ -733,10 +733,6 @@ count = 8
 [[baseline]]
 file = "datrix-testing/src/datrix_testing/pipelines.py"
 count = 1
-
-[[baseline]]
-file = "datrix-codegen-docker/src/datrix_codegen_docker/platform_configs.py"
-count = 3
 
 [[baseline]]
 file = "datrix-testing/src/datrix_testing/semantic_baseline.py"

@@ -594,15 +594,15 @@ file = "datrix-common/src/datrix_common/infra/providers.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/migration/canonicalize.py"
+file = "datrix-migration/src/datrix_migration/canonicalize.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/migration/generator.py"
+file = "datrix-migration/src/datrix_migration/generator.py"
 count = 4
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/migration/live_snapshot_export.py"
+file = "datrix-migration/src/datrix_migration/live_snapshot_export.py"
 count = 1
 
 [[baseline]]
