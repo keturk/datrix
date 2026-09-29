@@ -3547,7 +3547,7 @@ def _self_test_case_role_level_arity() -> bool:
         root = Path(tmp)
         _write_module(
             root / _SELF_TEST_ALPHA,
-            "from datrix_common.transpiler.scope import FileScope\n\n\n"
+            "from datrix_codegen_common.transpiler.scope import FileScope\n\n\n"
             "def dispatch_role(scope: FileScope):\n"
             "    return scope\n\n\n"
             "def other_role(scope: FileScope, value):\n"
