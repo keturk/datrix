@@ -220,7 +220,7 @@ count = 1
 # shared layer, scheduled for relocation to the owning platform package, not
 # this task's scope.
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/pooling_rdbms.py"
+file = "datrix-semantic/src/datrix_semantic/validators/pooling_rdbms.py"
 count = 4
 
 # reason: single docker-named helper in the shared test-context fixtures module,

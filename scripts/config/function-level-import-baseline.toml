@@ -279,7 +279,7 @@ file = "datrix-common/src/datrix_common/generation/incremental.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/language_generator.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/language_generator.py"
 count = 6
 
 [[baseline]]
@@ -295,7 +295,7 @@ file = "datrix-common/src/datrix_common/generation/nested_collection_routes.py"
 count = 5
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/orchestrator.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/orchestrator.py"
 count = 11
 
 [[baseline]]
@@ -327,7 +327,7 @@ file = "datrix-common/src/datrix_common/generation/sub_generator.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/sub_generator_bases.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/sub_generator_bases.py"
 count = 9
 
 [[baseline]]
@@ -443,267 +443,267 @@ file = "datrix-common/src/datrix_common/rendering/renderer.py"
 count = 10
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/analyzer.py"
+file = "datrix-semantic/src/datrix_semantic/analyzer.py"
 count = 22
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/api_defaults.py"
+file = "datrix-semantic/src/datrix_semantic/api_defaults.py"
 count = 15
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/auth_contract_lowering.py"
+file = "datrix-semantic/src/datrix_semantic/auth_contract_lowering.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/callable_blocks.py"
+file = "datrix-semantic/src/datrix_semantic/callable_blocks.py"
 count = 7
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/code_body_validator.py"
+file = "datrix-semantic/src/datrix_semantic/code_body_validator.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/endpoint_paths.py"
+file = "datrix-semantic/src/datrix_semantic/endpoint_paths.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/field_types.py"
+file = "datrix-semantic/src/datrix_semantic/field_types.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/imports.py"
+file = "datrix-semantic/src/datrix_semantic/imports.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/inheritance.py"
+file = "datrix-semantic/src/datrix_semantic/inheritance.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/named_call_type_annotator.py"
+file = "datrix-semantic/src/datrix_semantic/named_call_type_annotator.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/pipeline/keys.py"
+file = "datrix-semantic/src/datrix_semantic/pipeline/keys.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/pipeline/phase.py"
+file = "datrix-semantic/src/datrix_semantic/pipeline/phase.py"
 count = 4
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/pipeline/store.py"
+file = "datrix-semantic/src/datrix_semantic/pipeline/store.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/references.py"
+file = "datrix-semantic/src/datrix_semantic/references.py"
 count = 4
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/result.py"
+file = "datrix-semantic/src/datrix_semantic/result.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/stdlib_expression_materialize.py"
+file = "datrix-semantic/src/datrix_semantic/stdlib_expression_materialize.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/stdlib_integration.py"
+file = "datrix-semantic/src/datrix_semantic/stdlib_integration.py"
 count = 5
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/storage_resolution.py"
+file = "datrix-semantic/src/datrix_semantic/storage_resolution.py"
 count = 7
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/symbols.py"
+file = "datrix-semantic/src/datrix_semantic/symbols.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/synthesis/replay_endpoints.py"
+file = "datrix-semantic/src/datrix_semantic/synthesis/replay_endpoints.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/type_checker.py"
+file = "datrix-semantic/src/datrix_semantic/type_checker.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/type_walker.py"
+file = "datrix-semantic/src/datrix_semantic/type_walker.py"
 count = 6
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/__init__.py"
+file = "datrix-semantic/src/datrix_semantic/validators/__init__.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/_legacy_auth_shared.py"
+file = "datrix-semantic/src/datrix_semantic/validators/_legacy_auth_shared.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/_pooling_shared.py"
+file = "datrix-semantic/src/datrix_semantic/validators/_pooling_shared.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/_test_body_helpers.py"
+file = "datrix-semantic/src/datrix_semantic/validators/_test_body_helpers.py"
 count = 5
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/_utils.py"
+file = "datrix-semantic/src/datrix_semantic/validators/_utils.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/api.py"
+file = "datrix-semantic/src/datrix_semantic/validators/api.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/base.py"
+file = "datrix-semantic/src/datrix_semantic/validators/base.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/builtin_traits.py"
+file = "datrix-semantic/src/datrix_semantic/validators/builtin_traits.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/contract.py"
+file = "datrix-semantic/src/datrix_semantic/validators/contract.py"
 count = 7
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/cqrs.py"
+file = "datrix-semantic/src/datrix_semantic/validators/cqrs.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/cross_service_argument_checks.py"
+file = "datrix-semantic/src/datrix_semantic/validators/cross_service_argument_checks.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/cross_service_call_sites.py"
+file = "datrix-semantic/src/datrix_semantic/validators/cross_service_call_sites.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/cross_service_endpoint_declarations.py"
+file = "datrix-semantic/src/datrix_semantic/validators/cross_service_endpoint_declarations.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/cross_service_entity_ambiguity.py"
+file = "datrix-semantic/src/datrix_semantic/validators/cross_service_entity_ambiguity.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/entity.py"
+file = "datrix-semantic/src/datrix_semantic/validators/entity.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/event.py"
+file = "datrix-semantic/src/datrix_semantic/validators/event.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/exception_validator.py"
+file = "datrix-semantic/src/datrix_semantic/validators/exception_validator.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/extension_validator.py"
+file = "datrix-semantic/src/datrix_semantic/validators/extension_validator.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/extern_validator.py"
+file = "datrix-semantic/src/datrix_semantic/validators/extern_validator.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/geo_validator.py"
+file = "datrix-semantic/src/datrix_semantic/validators/geo_validator.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/identity_app_wide.py"
+file = "datrix-semantic/src/datrix_semantic/validators/identity_app_wide.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/identity_block_hygiene.py"
+file = "datrix-semantic/src/datrix_semantic/validators/identity_block_hygiene.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/identity_dangling_provider.py"
+file = "datrix-semantic/src/datrix_semantic/validators/identity_dangling_provider.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/identity_endpoint_checks.py"
+file = "datrix-semantic/src/datrix_semantic/validators/identity_endpoint_checks.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/identity_service_surface.py"
+file = "datrix-semantic/src/datrix_semantic/validators/identity_service_surface.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/legacy_auth_credential_reuse.py"
+file = "datrix-semantic/src/datrix_semantic/validators/legacy_auth_credential_reuse.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/legacy_auth_managed_only.py"
+file = "datrix-semantic/src/datrix_semantic/validators/legacy_auth_managed_only.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/pooling_pubsub.py"
+file = "datrix-semantic/src/datrix_semantic/validators/pooling_pubsub.py"
 count = 6
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/pooling_rdbms.py"
+file = "datrix-semantic/src/datrix_semantic/validators/pooling_rdbms.py"
 count = 6
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/pooling_storage.py"
+file = "datrix-semantic/src/datrix_semantic/validators/pooling_storage.py"
 count = 6
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/relationship.py"
+file = "datrix-semantic/src/datrix_semantic/validators/relationship.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/replay_idempotency.py"
+file = "datrix-semantic/src/datrix_semantic/validators/replay_idempotency.py"
 count = 4
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/replayable_topic.py"
+file = "datrix-semantic/src/datrix_semantic/validators/replayable_topic.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/required_body.py"
+file = "datrix-semantic/src/datrix_semantic/validators/required_body.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/scalar_validator.py"
+file = "datrix-semantic/src/datrix_semantic/validators/scalar_validator.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/search.py"
+file = "datrix-semantic/src/datrix_semantic/validators/search.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/serverless.py"
+file = "datrix-semantic/src/datrix_semantic/validators/serverless.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/service.py"
+file = "datrix-semantic/src/datrix_semantic/validators/service.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/shared.py"
+file = "datrix-semantic/src/datrix_semantic/validators/shared.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/shared_uses.py"
+file = "datrix-semantic/src/datrix_semantic/validators/shared_uses.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/system.py"
+file = "datrix-semantic/src/datrix_semantic/validators/system.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/tenancy.py"
+file = "datrix-semantic/src/datrix_semantic/validators/tenancy.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/test.py"
+file = "datrix-semantic/src/datrix_semantic/validators/test.py"
 count = 5
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/verify_contract.py"
+file = "datrix-semantic/src/datrix_semantic/validators/verify_contract.py"
 count = 4
 
 [[baseline]]
@@ -739,23 +739,23 @@ file = "datrix-testing/src/datrix_testing/semantic_baseline.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/transpiler/base.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/base.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/transpiler/context.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/context.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/transpiler/language_transpiler.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/language_transpiler.py"
 count = 4
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/transpiler/protocols.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/protocols.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/transpiler/scope.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/scope.py"
 count = 2
 
 [[baseline]]
