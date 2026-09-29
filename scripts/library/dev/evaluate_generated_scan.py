@@ -270,7 +270,7 @@ def load_json_object(path: Path) -> dict[str, object]:
     if not isinstance(raw, dict):
         raise ScanInputError(
             f"File {path} does not contain a JSON object (got {type(raw).__name__}). "
-            "Expected the manifest schema written by datrix_common.generation.manifest."
+            "Expected the manifest schema written by datrix_codegen_kernel.generation.manifest."
         )
     return {str(key): value for key, value in raw.items()}
 
@@ -281,7 +281,7 @@ def _require_str(data: dict[str, object], key: str, context: str) -> str:
     if not isinstance(value, str):
         raise ScanInputError(
             f"{context}: required string field '{key}' is missing or not a string. "
-            "Expected the manifest schema written by datrix_common.generation.manifest; "
+            "Expected the manifest schema written by datrix_codegen_kernel.generation.manifest; "
             "regenerate the project."
         )
     return value
@@ -295,7 +295,7 @@ def _optional_str_tuple(data: dict[str, object], key: str, context: str) -> tupl
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ScanInputError(
             f"{context}: field '{key}' must be a list of strings. "
-            "Expected the manifest schema written by datrix_common.generation.manifest; "
+            "Expected the manifest schema written by datrix_codegen_kernel.generation.manifest; "
             "regenerate the project."
         )
     return tuple(str(item) for item in value)

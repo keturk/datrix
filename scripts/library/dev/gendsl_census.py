@@ -63,7 +63,7 @@ from datrix_codegen_common.gendsl.compiler import get_definitions  # noqa: E402
 from datrix_codegen_common.gendsl.registry_adapter import (  # noqa: E402
     MICRO_GENERATOR_ATTR,  # noqa: E402
 )
-from datrix_common.generation.gendsl_ir import (  # noqa: E402
+from datrix_codegen_kernel.generation.gendsl_ir import (  # noqa: E402
     CallExpression,
     DomainDefinition,
     FileDefinition,

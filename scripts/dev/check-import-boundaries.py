@@ -325,6 +325,13 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         # guard. Every caller raises the same ``GenerationError``, so no
         # per-target exception type crosses this edge either.
         "datrix_codegen_common.generation.raise_site_guards",
+        # The GenDSL intermediate representation a platform's own GenDSL
+        # declarations are written in, and the GenDSL registry wrappers its
+        # declarations register into. Both are part of the GenDSL engine the
+        # ``gendsl`` entry above admits -- the engine imports them at runtime --
+        # and neither carries a language-shaped surface.
+        "datrix_codegen_kernel.generation.gendsl_ir",
+        "datrix_codegen_kernel.generation.gendsl_registry",
         # Per-queue override-over-default resolution of a queues block's
         # settings (delay, visibility timeout, max receive count, retention,
         # concurrency). THE SAME FACT crosses both axes: a platform provisions
@@ -381,6 +388,11 @@ SQL_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         # nothing else under ``algorithms``.
         "datrix_codegen_common.algorithms.postgresql_fulltext",
         "datrix_codegen_common.algorithms.snapshot_index_naming",
+        # The GenDSL intermediate representation SQL's own GenDSL declarations
+        # are written in and typed against, and the GenDSL registry wrappers
+        # its declarations register into: the GenDSL engine's own data model.
+        "datrix_codegen_kernel.generation.gendsl_ir",
+        "datrix_codegen_kernel.generation.gendsl_registry",
     ]
 )
 
@@ -4699,6 +4711,8 @@ def _self_test_allowed_denied_subtrees(rules: dict[str, BoundaryRule]) -> bool:
             "datrix_codegen_common.algorithms.servicebus_lock_renewal",
             "datrix_codegen_common.algorithms.cqrs_projection_receivers",
             "datrix_codegen_common.generation.raise_site_guards",
+            "datrix_codegen_kernel.generation.gendsl_ir",
+            "datrix_codegen_kernel.generation.gendsl_registry",
             "datrix_codegen_common.algorithms.queue_overrides",
             "datrix_codegen_common.algorithms.function_app_hosting",
         ]
@@ -4724,6 +4738,8 @@ def _self_test_allowed_denied_subtrees(rules: dict[str, BoundaryRule]) -> bool:
         "datrix_codegen_common.algorithms.servicebus_lock_renewal",
         "datrix_codegen_common.algorithms.cqrs_projection_receivers",
         "datrix_codegen_common.generation.raise_site_guards",
+        "datrix_codegen_kernel.generation.gendsl_ir",
+        "datrix_codegen_kernel.generation.gendsl_registry",
         "datrix_codegen_common.algorithms.queue_overrides",
         "datrix_codegen_common.algorithms.function_app_hosting",
     )
@@ -4754,6 +4770,10 @@ def _self_test_allowed_denied_subtrees(rules: dict[str, BoundaryRule]) -> bool:
         # Subtree matching is exact-or-child, so allowing
         # ``generation.raise_site_guards`` must NOT admit its siblings.
         "datrix_codegen_common.generation.service_predicates",
+        # Nor does admitting the GenDSL IR admit the language-layer generation
+        # modules beside it.
+        "datrix_codegen_common.generation.type_resolver",
+        "datrix_codegen_common.generation.language_hooks",
     )
     for imported in denied_cases:
         ok &= _check(
@@ -4835,6 +4855,7 @@ def _self_test_sql_and_component_coverage(rules: dict[str, BoundaryRule]) -> boo
         "datrix_codegen_common.gendsl",
         "datrix_codegen_common.context_models.migration",
         "datrix_codegen_common.orchestration.migration_adapter",
+        "datrix_codegen_kernel.generation.gendsl_ir",
     ):
         ok &= _check(
             f"SQL allowed codegen_common subtree NOT forbidden: {imported}",
@@ -4844,6 +4865,7 @@ def _self_test_sql_and_component_coverage(rules: dict[str, BoundaryRule]) -> boo
         "datrix_codegen_common.transpiler.parity_checker",
         "datrix_codegen_common.context_models.entity",
         "datrix_codegen_common.algorithms.entity",
+        "datrix_codegen_common.generation.type_resolver",
     ):
         ok &= _check(
             f"SQL denied codegen_common subtree forbidden: {imported}",
