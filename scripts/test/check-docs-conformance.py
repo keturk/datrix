@@ -116,6 +116,7 @@ ARCHITECTURE_DOC_FILES: tuple[str, ...] = (
     "datrix-language/docs/architecture/parser-design.md",
     "datrix-language/docs/architecture/parser-overview.md",
     "datrix-language/docs/architecture/semantic-design.md",
+    "datrix-testing/docs/architecture.md",
 )
 
 # The monorepo root, resolved the same way auto_detect_base_dir() resolves it
