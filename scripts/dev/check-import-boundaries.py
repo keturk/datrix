@@ -716,6 +716,9 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
                 "datrix_cli",
                 "datrix_codegen_",  # Wildcard: any package starting with datrix_codegen_
                 "datrix_extensions",
+                # datrix-migration depends on the core; the core names its
+                # run-scoped state transaction through a Protocol instead.
+                "datrix_migration",
             ),
         ),
         "datrix_language": BoundaryRule(
@@ -826,6 +829,20 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
                 "datrix_cli",
                 "datrix_codegen_",  # Wildcard: any package starting with datrix_codegen_
                 "datrix_extensions",
+            ),
+        ),
+        # The migration package (schema snapshot, diff, change policy, revision
+        # ledger, state store) sits on the core alone. Every generator, the
+        # codegen layer and the CLI consume it, so an import of any of them --
+        # or of the semantic layer above the core -- would close a cycle. Its
+        # tests reach the parser only through the root conftest's registration.
+        "datrix_migration": BoundaryRule(
+            forbidden_prefixes=(
+                "datrix_language",
+                "datrix_cli",
+                "datrix_codegen_",  # Wildcard: any package starting with datrix_codegen_
+                "datrix_extensions",
+                "datrix_semantic",
             ),
         ),
         # The CLI is the composition root: it may import any installed package
@@ -4059,7 +4076,7 @@ def _resolve_g3_vocabulary_element(node: ast.AST) -> tuple[str, bool] | None:
     reference when ``EnumClass`` happens to be harvested from
     ``datrix_codegen_common.enums`` -- would silently make every qualified
     reference to any OTHER enum (e.g. ``ChangeKind`` from
-    ``datrix_common.migration.differ``, ``TracingProvider`` from
+    ``datrix_migration.differ``, ``TracingProvider`` from
     ``datrix_common.config.observability.models``) unresolvable, which
     would drop the WHOLE container (not just exempt it) and could hide a
     genuinely duplicated bare-literal sibling in the same container.
