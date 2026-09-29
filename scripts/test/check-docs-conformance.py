@@ -110,13 +110,14 @@ ARCHITECTURE_DOC_FILES: tuple[str, ...] = (
     "datrix-common/docs/architecture/import-boundaries.md",
     "datrix-common/docs/architecture/migration.md",
     "datrix-common/docs/architecture/output-path-contract.md",
-    "datrix-common/docs/architecture/semantic-validators.md",
     "datrix-language/docs/architecture.md",
     "datrix-language/docs/architecture/model-metaprogramming.md",
     "datrix-language/docs/architecture/parser-design.md",
     "datrix-language/docs/architecture/parser-overview.md",
     "datrix-language/docs/architecture/semantic-design.md",
     "datrix-migration/docs/architecture.md",
+    "datrix-semantic/docs/architecture.md",
+    "datrix-semantic/docs/architecture/semantic-validators.md",
     "datrix-testing/docs/architecture.md",
 )
 

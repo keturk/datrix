@@ -120,7 +120,7 @@ from datrix_common.config_resolution import (  # noqa: E402
 )
 from datrix_common.datrix_model.auth_contract import AuthMode  # noqa: E402
 from datrix_common.datrix_model.enumeration import enumerate_rest_endpoints  # noqa: E402
-from datrix_common.semantic import SemanticAnalyzer  # noqa: E402
+from datrix_semantic import SemanticAnalyzer  # noqa: E402
 from datrix_language.parser import TreeSitterParser  # noqa: E402
 from datrix_language.registration import register_all  # noqa: E402
 

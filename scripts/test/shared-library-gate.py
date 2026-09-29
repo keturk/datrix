@@ -242,7 +242,7 @@ _SLW_CLUSTERABLE = """\
       <failure type="GenerationError" message="Undefined identifier 'foo'">
 tests/transpiler/test_ctx.py:10: in test_alpha
     out = transpile(expr)
-src/datrix_common/transpiler/visitor.py:243: in transpile_expression
+src/datrix_codegen_common/transpiler/visitor.py:243: in transpile_expression
     raise GenerationError("Undefined identifier 'foo'")
 E   GenerationError: Undefined identifier 'foo'
       </failure>
@@ -251,7 +251,7 @@ E   GenerationError: Undefined identifier 'foo'
       <failure type="GenerationError" message="Undefined identifier 'bar'">
 tests/transpiler/test_ctx.py:20: in test_beta
     out = transpile(expr)
-src/datrix_common/transpiler/visitor.py:243: in transpile_expression
+src/datrix_codegen_common/transpiler/visitor.py:243: in transpile_expression
     raise GenerationError("Undefined identifier 'bar'")
 E   GenerationError: Undefined identifier 'bar'
       </failure>
@@ -260,7 +260,7 @@ E   GenerationError: Undefined identifier 'bar'
       <failure type="GenerationError" message="Undefined identifier 'baz'">
 tests/transpiler/test_ctx.py:30: in test_gamma
     out = transpile(expr)
-src/datrix_common/transpiler/visitor.py:243: in transpile_expression
+src/datrix_codegen_common/transpiler/visitor.py:243: in transpile_expression
     raise GenerationError("Undefined identifier 'baz'")
 E   GenerationError: Undefined identifier 'baz'
       </failure>
@@ -269,7 +269,7 @@ E   GenerationError: Undefined identifier 'baz'
       <failure type="AttributeError" message="'NoneType' object has no attribute 'name'">
 tests/transpiler/test_other.py:5: in test_different
     result = obj.name
-src/datrix_common/transpiler/dispatch.py:63: in dispatch
+src/datrix_codegen_common/transpiler/dispatch.py:63: in dispatch
     return target.name
 E   AttributeError: 'NoneType' object has no attribute 'name'
       </failure>

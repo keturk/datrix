@@ -2509,7 +2509,7 @@ def _run_arity_checks() -> bool:
     )
     shared_annotated = _function_source_from_code(
         """
-        from datrix_common.transpiler.scope import FileScope
+        from datrix_codegen_common.transpiler.scope import FileScope
 
         def emit_break_statement(scope: FileScope):
             return scope
@@ -2552,7 +2552,7 @@ def _run_rendering_leaf_privacy_checks() -> bool:
     )
     shared_not_leaf = _function_source_from_code(
         """
-        from datrix_common.transpiler.scope import FileScope
+        from datrix_codegen_common.transpiler.scope import FileScope
 
         def build_import_line(scope: FileScope, helper: str) -> str:
             module = scope.transpiler.module_name
