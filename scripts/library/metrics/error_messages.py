@@ -79,7 +79,6 @@ EXCLUDED_ERROR_SITES: list[tuple[str, str]] = [
     ("datrix_codegen_python/hooks/language_hooks.py", "format_files"),
     ("datrix_codegen_sql/migration/renderer.py", "_warn_non_nullable_add"),
     ("datrix_codegen_typescript/language_hooks.py", "validate_files"),
-    ("datrix_common/config/env_ref_scan.py", "_log_attr_access_failure"),
     ("datrix_common/generation/audit_log.py", "write_audit_log"),
     ("datrix_common/generation/pipeline.py", "_validate_type_completeness"),
     ("datrix_common/generation/snapshot.py", "load_latest_snapshot"),
@@ -120,7 +119,7 @@ EXCLUDED_ERROR_SITES: list[tuple[str, str]] = [
     ("datrix_common/datrix_model/_meta.py", "_make_require_method"),
     ("datrix_common/datrix_model/base.py", "_register_named"),
     ("datrix_common/generation/language_generator.py", "generate"),
-    ("datrix_common/testing/names.py", "unique_name"),
+    ("datrix_testing/names.py", "unique_name"),
     ("datrix_common/transpiler/base.py", "decrease_indent"),
     ("datrix_common/transpiler/resolution.py", "pop"),
     ("datrix_common/transpiler/resolution.py", "declare"),
@@ -144,10 +143,9 @@ EXCLUDED_ERROR_SITES: list[tuple[str, str]] = [
     ("datrix_common/generation/snapshot.py", "_validate_service_entities"),
     ("datrix_common/generation/snapshot.py", "_validate_snapshot_schema"),
     # ── testing — test-infrastructure assertions ─────────────────────────────────
-    ("datrix_codegen_typescript/testing.py", "assert_all_ts_files_balanced"),
-    ("datrix_common/testing/assertions.py", "assert_file_exists"),
-    ("datrix_common/testing/assertions.py", "assert_json_valid"),
-    ("datrix_common/testing/assertions.py", "assert_balanced_braces"),
+    ("datrix_testing/assertions.py", "assert_file_exists"),
+    ("datrix_testing/assertions.py", "assert_json_valid"),
+    ("datrix_testing/assertions.py", "assert_balanced_braces"),
 ]
 
 # --- Scoring keyword lists ---

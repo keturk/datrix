@@ -28,7 +28,7 @@ Components (the ``inputs.components`` object of a stamped run's index.json):
 - ``executables`` -- every executable the run started, content-digested,
   except one resolved under a transient location (the OS temp directory, or
   one of the workspace's own scratch directories -- see
-  :func:`datrix_common.testing.runner_plugin.transient_roots`): such an
+  :func:`test.runner_plugin.transient_roots`): such an
   executable is an OUTPUT of the run (built or generated from in-cone inputs
   that are already fingerprinted), never one of its inputs, and its own path
   is unstable from run to run.
@@ -83,7 +83,7 @@ if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
 from test import affected_set  # noqa: E402
 from test.affected_set import UsageError  # noqa: E402
 
-from datrix_common.testing.runner_plugin import transient_roots  # noqa: E402
+from test.runner_plugin import transient_roots  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

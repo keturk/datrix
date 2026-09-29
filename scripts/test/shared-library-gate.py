@@ -1280,7 +1280,7 @@ def check_suite_stamp_record_names_match_the_runner_plugin() -> None:
     """The seam between the plugin that writes the records and the merge that
     reads them: file names, session ids, buckets, schema and environment
     variables are compared in code, so neither side can drift alone."""
-    from datrix_common.testing import runner_plugin
+    from test import runner_plugin
     from shared import suite_stamp
 
     assert RUNNER_PLUGIN_MODULE == runner_plugin.__name__
@@ -1615,7 +1615,7 @@ def check_unstamped_recorder_environment_passes_the_runner_plugins_validation() 
     with an environment naming only the package's own tree as its cone. The
     plugin's own settings validation must accept it -- a refusal would fail
     every targeted run with a usage error."""
-    from datrix_common.testing import runner_plugin
+    from test import runner_plugin
 
     workspace = get_datrix_root()
     with TemporaryDirectory(prefix="recorder-env-") as tmp:

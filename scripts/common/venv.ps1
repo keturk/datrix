@@ -946,7 +946,8 @@ function Test-DatrixWorkspacePresent {
  "datrix-codegen-azure",
  "datrix-codegen-angular",
  "datrix-codegen-flutter",
- "datrix-codegen-docker"
+ "datrix-codegen-docker",
+ "datrix-testing"
  )
 
  $missing = @()

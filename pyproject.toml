@@ -52,10 +52,10 @@ select = ["E4", "E7", "E9", "F", "I", "UP", "TID251"]
 # Project-wide ban on mocks, fakes, and SimpleNamespace, declared inline for the
 # self-containment reason above.
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"unittest.mock.MagicMock".msg = "MagicMock is banned. Use real objects, .dtrx fixtures, or factories from datrix_common.testing."
-"unittest.mock.Mock".msg = "Mock is banned. Use real objects, .dtrx fixtures, or factories from datrix_common.testing."
-"unittest.mock.patch".msg = "patch is banned. Use real objects, .dtrx fixtures, or factories from datrix_common.testing."
+"unittest.mock.MagicMock".msg = "MagicMock is banned. Use real objects, .dtrx fixtures, or factories from datrix_testing."
+"unittest.mock.Mock".msg = "Mock is banned. Use real objects, .dtrx fixtures, or factories from datrix_testing."
+"unittest.mock.patch".msg = "patch is banned. Use real objects, .dtrx fixtures, or factories from datrix_testing."
 "unittest.mock.PropertyMock".msg = "PropertyMock is banned. Use real objects."
 "unittest.mock.AsyncMock".msg = "AsyncMock is banned. Use real objects."
 "unittest.mock.create_autospec".msg = "create_autospec is banned. Use real objects."
-"types.SimpleNamespace".msg = "SimpleNamespace is banned as a fake/stub. Use real AST model constructors, .dtrx fixtures, or factories from datrix_common.testing."
+"types.SimpleNamespace".msg = "SimpleNamespace is banned as a fake/stub. Use real AST model constructors, .dtrx fixtures, or factories from datrix_testing."
