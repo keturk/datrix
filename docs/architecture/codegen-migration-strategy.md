@@ -132,7 +132,7 @@ If issues found after merge: `git revert` the PR. Language packages are independ
 **Unit tests** (`datrix-codegen-common/tests/unit/generation/test_language_generator.py`):
 - `MinimalLanguageGenerator` — real subclass using real objects (PythonTranspiler, PythonTypeResolver), NOT mocks. Implements only the required abstract methods with the simplest valid objects.
 
-**Helper function tests** (`datrix-common/tests/unit/generation/test_language_helpers.py`):
+**Helper function tests** (`datrix-codegen-kernel/tests/unit/generation/test_language_helpers.py`):
 - Build real AST objects via `TreeSitterParser` or direct construction
 - `test_derive_default_dialect_postgresql_fallback()` — no RDBMS blocks falls back to `"postgresql"`
 - `test_effective_observability_config_default()` — None input returns Prometheus + OTEL + JSON
@@ -145,11 +145,11 @@ If issues found after merge: `git revert` the PR. Language packages are independ
 
 ### TypeMappingRegistry Tests
 
-**File:** `datrix-common/tests/unit/generation/test_type_mapping_registry.py`
+**File:** `datrix-codegen-kernel/tests/unit/generation/test_type_mapping_registry.py`
 
 1. **Registration:** Register, re-register (error), query registered languages
 2. **Unmapped types:** Detect gaps when one language has more types than another
-3. **Cross-language completeness:** Import real `datrix_codegen_python.type_mappings` and `datrix_codegen_typescript.type_mappings`, validate no gaps via `global_registry.validate_completeness()`
+3. **Cross-language completeness:** Import real `datrix_codegen_python.type_mappings` and `datrix_codegen_typescript_core.type_mappings`, validate no gaps via `global_registry.validate_completeness()`
 4. **Error messages:** KeyError on unknown type/language includes available options
 
 ### LanguageTranspiler Tests

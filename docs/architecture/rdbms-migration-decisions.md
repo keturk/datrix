@@ -2,7 +2,7 @@
 
 **Last Updated:** June 8, 2026
 
-This document records the architectural decisions for Datrix incremental RDBMS schema migrations. For API-level documentation see [RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md). For the adapter protocol see [RdbmsMigrationAdapter](../../../datrix-codegen-common/docs/migration-adapter.md).
+This document records the architectural decisions for Datrix incremental RDBMS schema migrations. For API-level documentation see [RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md). For the adapter protocol see [RdbmsMigrationAdapter](../../../datrix-codegen-kernel/docs/migration-adapter.md).
 
 ---
 
@@ -249,6 +249,6 @@ Two obligations travel with the type. **The language-runtime mapping is register
 - [Architecture Overview — Decision 8](architecture-overview.md#decision-8-incremental-rdbms-schema-migrations-adopted) — Rationale and summary
 - [Architecture Overview — Decision 45](architecture-overview.md#decision-45-a-generated-service-must-be-able-to-reach-its-database--probe-transport-migration-readiness-and-chain-owned-schema-approved--implementation-in-progress) — Boot-path contracts these decisions detail
 - [RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md) — Shared module documentation
-- [RdbmsMigrationAdapter Protocol](../../../datrix-codegen-common/docs/migration-adapter.md) — Adapter contract
+- [RdbmsMigrationAdapter Protocol](../../../datrix-codegen-kernel/docs/migration-adapter.md) — Adapter contract
 - [CLI Migrations Commands](../../../datrix-cli/docs/commands/migrations.md) — CLI surface
 - [Config DSL Reference — RDBMS ID](../reference/config-dsl-reference.md#rdbms-migration-identity) — ConfigDSL `id` field

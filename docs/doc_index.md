@@ -107,27 +107,31 @@ Quick-reference index for AI agents. All paths relative to `D:/datrix/`.
 
 **When:** Working with generators, templates, or code output
 
-### GenDSL (datrix-codegen-common)
+### GenDSL (datrix-codegen-kernel)
 
 **When:** Defining or modifying generators
-- [overview.md](datrix-codegen-common/docs/gendsl/overview.md) → Generator Definition DSL overview
-- [syntax.md](datrix-codegen-common/docs/gendsl/syntax.md) → GenDSL syntax specification
-- [context-models.md](datrix-codegen-common/docs/gendsl/context-models.md) → Template context models
-- [iteration-model.md](datrix-codegen-common/docs/gendsl/iteration-model.md) → Multi-pass generation
-- [python-interop.md](datrix-codegen-common/docs/gendsl/python-interop.md) → Python integration
-- [runtime-ir.md](datrix-codegen-common/docs/gendsl/runtime-ir.md) → Runtime IR
-- [semantic-requirements.md](datrix-codegen-common/docs/gendsl/semantic-requirements.md) → Semantic requirements
-- [design-decisions.md](datrix-codegen-common/docs/gendsl/design-decisions.md) → GenDSL design decisions
-- [migration-guide.md](datrix-codegen-common/docs/gendsl/migration-guide.md) → GenDSL migration guide
-- [cross-domain-contributions.md](datrix-codegen-common/docs/gendsl/cross-domain-contributions.md) → Cross-domain file contributions
-- [generated-tests.md](datrix-codegen-common/docs/gendsl/generated-tests.md) → Generated test structure
-- [examples.md](datrix-codegen-common/docs/gendsl/examples.md) → Complete GenDSL examples
+- [overview.md](datrix-codegen-kernel/docs/gendsl/overview.md) → Generator Definition DSL overview
+- [syntax.md](datrix-codegen-kernel/docs/gendsl/syntax.md) → GenDSL syntax specification
+- [context-models.md](datrix-codegen-kernel/docs/gendsl/context-models.md) → Template context models
+- [iteration-model.md](datrix-codegen-kernel/docs/gendsl/iteration-model.md) → Multi-pass generation
+- [python-interop.md](datrix-codegen-kernel/docs/gendsl/python-interop.md) → Python integration
+- [runtime-ir.md](datrix-codegen-kernel/docs/gendsl/runtime-ir.md) → Runtime IR
+- [semantic-requirements.md](datrix-codegen-kernel/docs/gendsl/semantic-requirements.md) → Semantic requirements
+- [design-decisions.md](datrix-codegen-kernel/docs/gendsl/design-decisions.md) → GenDSL design decisions
+- [migration-guide.md](datrix-codegen-kernel/docs/gendsl/migration-guide.md) → GenDSL migration guide
+- [cross-domain-contributions.md](datrix-codegen-kernel/docs/gendsl/cross-domain-contributions.md) → Cross-domain file contributions
+- [generated-tests.md](datrix-codegen-kernel/docs/gendsl/generated-tests.md) → Generated test structure
+- [examples.md](datrix-codegen-kernel/docs/gendsl/examples.md) → Complete GenDSL examples
 
 ### Codegen Common
 
 - [architecture.md](datrix-codegen-common/docs/architecture.md) → datrix-codegen-common overview
-- [dashboards-api.md](datrix-codegen-common/docs/dashboards-api.md) → Dashboard generation API
 - [test-artifacts.md](datrix-codegen-common/docs/test-artifacts.md) → Test artifact generation
+
+### Codegen Kernel
+
+- [architecture.md](datrix-codegen-kernel/docs/architecture.md) → datrix-codegen-kernel overview
+- [dashboards-api.md](datrix-codegen-kernel/docs/dashboards-api.md) → Dashboard generation API
 
 ### Language Generators
 

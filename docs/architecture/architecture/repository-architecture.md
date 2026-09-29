@@ -6,24 +6,24 @@
 
 ## Repository Architecture
 
-The project is split into **seventeen** installable packages (fifteen core toolchain packages, the **datrix-testing** test harness, and optional **datrix-extensions**), plus the **datrix** showcase repo (docs, examples, scripts). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
+The project is split into **nineteen** installable packages (seventeen core toolchain packages, the **datrix-testing** test harness, and optional **datrix-extensions**), plus the **datrix** showcase repo (docs, examples, scripts). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
 
 > **The datrix showcase repo holds only docs, examples, and scripts — it is not an installable toolchain package and hosts no test suite.** It must never contain a `tests/` pytest suite, product tests, cross-package tests, or language/provider matrix tests. Datrix is a **multi-language, multi-platform generator** (not limited to Python/TypeScript, not limited to Docker/AWS/Azure), so no test that enumerates specific languages or providers belongs in it. Each `datrix-*` package tests only its own surface; genuine repo-level cross-cutting validation lives as **scripts under `datrix/scripts/test/`**, never as `datrix/tests/`.
 
 ### Core Repositories (2)
 
 #### 1. datrix-common
-**Purpose:** Shared foundation and code generation framework for all Datrix packages — AST model, type system, standard library, config resolution, and generator infrastructure. Semantic analysis is the separate `datrix-semantic` package (#17).
+**Purpose:** Shared foundation for all Datrix packages — AST model, type system, standard library, config resolution, and plugin and deployment declarations. Semantic analysis is the separate `datrix-semantic` package (#17); the generation framework is the separate `datrix-codegen-kernel` package (#18).
 
 **Responsibilities:**
 - **AST and types:** AST model (`Application`, `Entity`, `Service`, **`Shared`**, `RdbmsBlock`, etc.) — the single representation consumed by all generators; type system (`TypeRegistry`, `ScalarType`) and builtin scalar type definitions
-- **Standard library:** Ships `.dtrx` stdlib modules (`datrix_common.stdlib`) and the stdlib loader. Parsing of stdlib `.dtrx` sources uses a `StdlibParserProtocol` injected by `datrix-language` — `datrix-common` never imports the parser directly. See `datrix_common.stdlib.protocols`.
+- **Standard library:** Ships the stdlib loader, catalog and errors (`datrix_common.stdlib.loader`, `.catalog`, `.errors`) and consumes the seven `.dtrx` module files `datrix-language` ships. Discovery and parsing of stdlib `.dtrx` sources use a `StdlibParserProtocol` injected by `datrix-language` — its `stdlib_module_directory()` names where the files live and its `parse_stdlib_source()` parses each one; `datrix-common` never imports the parser directly. See `datrix_common.protocols.parser`.
 - **Config resolution:** parses `.dcfg` ConfigDSL files referenced by AST declarations, selects active profile, validates against schemas, attaches resolved config to blocks
-- **Generation framework:** Generator base classes, plugin protocols (`GeneratorPlugin`, `PlatformPlugin`), template rendering (Jinja2), YAML/JSON document builders, file coordination, code formatting integration, and the `pytest11` feature-tag plugin (`datrix_common.testing.feature_tags`); the shared test harness is the separate `datrix-testing` package. **Pipeline orchestration** (`GenerationPipeline`) lives in `datrix-cli`, not here — `datrix-common` provides the framework; `datrix-cli` owns the orchestrator.
+- **Plugin declarations:** plugin protocols (`GeneratorPlugin`, `PlatformPlugin`), the structural Protocols that name generation-framework types without importing them (`plugin/framework_protocols.py`), YAML/JSON document builders, and the `pytest11` feature-tag plugin (`datrix_common.testing.feature_tags`); the shared test harness is the separate `datrix-testing` package. The generator base classes and template rendering are `datrix-codegen-kernel`; **pipeline orchestration** (`GenerationPipeline`) lives in `datrix-cli`.
 - **Protocols:** `ParserProtocol`, `StdlibParserProtocol`, `LanguageHooks`, `LanguageRuntimeSpec`, `GeneratorPlugin`, `PlatformPlugin` — all protocol definitions that enable dependency inversion across packages
 - **Transpiler:** Staged DSL-to-source pipeline shared across language packages — **`NameResolver`** (Stage 1) and **`QueryExpander`** (Stage 2) in **datrix-common** produce **`ResolutionTable`** / query-annotation side-tables; each **`LanguageTranspiler`** subclass (Stage 3) consumes those tables and returns **`TranspileResult`**. Configuration is a frozen **`TranspileContext`**; per-file sibling-flow state lives in **`FileScope`** / **`PythonFileScope`** / **`TypeScriptFileScope`**. Expression and statement work uses **`ExpressionVisitor`** / **`StatementVisitor`** and **`node.accept()`**; call targets use **`CallTargetEmitter`** and **`dispatch_call()`**. See [datrix-common — Transpiler architecture](../../../../datrix-common/docs/architecture.md#transpiler-architecture-staged-pipeline), [code-generation.md — Consolidated generator infrastructure](../../../../datrix-common/docs/architecture/code-generation.md#consolidated-generator-infrastructure), and [datrix-common-api — Transpiler modules](../../../../datrix-common/docs/datrix-common-api.md#transpiler-modules).
 - **Shared:** Rendering utilities, error classes, configuration models, shared utilities
-- **Seed builtins:** `Seed` builtin object with framework-maintained reference datasets (countries, subdivisions, currencies, timezones, languages); canonical data in `builtins/data/` as JSON; SeedDSL AST model classes for parsed seed declarations
+- **Seed builtins:** `Seed` builtin object declaring the framework-maintained reference datasets (countries, subdivisions, currencies, timezones, languages); the datasets and their loader live in `datrix-codegen-kernel` (`datrix_codegen_kernel.seed_data`); SeedDSL AST model classes for parsed seed declarations
 - **Seed config:** ConfigDSL schema extensions for component-scoped seed policy (category enablement, tenant distribution, hash policy)
 
 **Dependencies:** None (zero dependencies on other Datrix packages). All parser and stdlib-loader functionality is injected via protocols at runtime.
@@ -66,7 +66,8 @@ The project is split into **seventeen** installable packages (fifteen core toolc
 - **Seed orchestration:** SeedDSL-backed orchestration across RDBMS, NoSQL, and Storage targets — semantic validation, dependency graph construction, target writer interfaces, and component-scoped seed policy resolution (replaces the obsolete YAML-driven `SeedOrchestrator`)
 
 **Dependencies:**
-- `datrix-common` (AST model, type system, transpiler base, generation framework)
+- `datrix-common` (AST model, type system, configuration)
+- `datrix-codegen-kernel` (generator base classes, template rendering, the GenDSL data model, the service-feature vocabulary)
 - `datrix-migration` (schema snapshot, diff, change policy, revision ledger and state store the migration orchestrator drives)
 
 See [datrix-codegen-common — Architecture](../../../../datrix-codegen-common/docs/architecture.md).
@@ -75,9 +76,9 @@ See [datrix-codegen-common — Architecture](../../../../datrix-codegen-common/d
 
 ### Code Generators (4)
 
-These are **specialized extensions** of the generation framework in `datrix-common` for specific languages or platform-agnostic artifacts.
+These are **specialized extensions** of the generation framework in `datrix-codegen-kernel` for specific languages or platform-agnostic artifacts.
 
-The language generators below are the set that ships **today**. Datrix is a multi-language generator by design: this list grows, and nothing in the framework may assume it is closed. Every language generator is a peer — it depends on `datrix-codegen-common` + `datrix-common` and never on a sibling language package.
+The language generators below are the set that ships **today**. Datrix is a multi-language generator by design: this list grows, and nothing in the framework may assume it is closed. Every language generator is a peer — it depends on `datrix-codegen-common` + `datrix-codegen-kernel` + `datrix-common` and never on a sibling language package.
 
 #### 4. datrix-codegen-component
 Generates platform-agnostic components: documentation (README, API reference, architecture), configuration (Alembic, pytest, coverage), scripts (entrypoint, dev scripts), and shared templates (Mermaid diagrams)
@@ -93,16 +94,19 @@ Generates SQL DDL (PostgreSQL, MySQL). Extends `SQLDialect` protocol with seed-s
 
 **Dependencies (language generators):**
 - `datrix-codegen-common` (shared transpiler, algorithms, context models, field analysis)
-- `datrix-common` (AST model, type system, template rendering, generation framework)
+- `datrix-codegen-kernel` (generator base classes, template rendering, generation framework)
+- `datrix-common` (AST model, type system, configuration)
 - `datrix-migration` (schema snapshot, diff and revision ledger their migration adapters render from)
 - `jinja2` (for template rendering)
-- `datrix-codegen-typescript` additionally depends on `datrix-codegen-sql`: its MikroORM migration adapter renders DDL through the SQL package's dialect protocol, index constants, naming, and type map. It is the only language→SQL edge; a language package never depends on a sibling language package.
+- No language package depends on `datrix-codegen-sql`: the SQL dialect facts their migration adapters render DDL through (dialect protocol and registry, index constants, naming, column derivation, type map) live in `datrix-codegen-kernel` (`datrix_codegen_kernel.sql_facts`). A language package never depends on a sibling language package.
 
 **Dependencies (component, SQL):**
-- `datrix-common` (AST model, type system, template rendering, generation framework)
+- `datrix-codegen-kernel` (generator base classes, template rendering, generation framework, GenDSL runtime and registrations; component also consumes derived domain declarations, the shared serverless plan and NoSQL connection plans, SQL the migration-adapter contract, its language-agnostic plans and the SQL dialect facts in `sql_facts`)
+- `datrix-common` (AST model, type system, configuration)
 - `datrix-migration` (SQL only: schema diff, revision ids, live-snapshot reflector contract)
-- `datrix-codegen-common` (GenDSL runtime and registrations; component also consumes derived domain declarations and the shared serverless plan, SQL the migration-adapter contract and a closed set of language-agnostic subtrees)
 - `jinja2` (for template rendering)
+
+Neither declares `datrix-codegen-common`: the import-boundary scanner forbids them every `datrix_codegen_common` import in `src/`.
 
 Every edge is held equal to the import set by `datrix/scripts/test/manifest-import-parity-gate.ps1`.
 
@@ -127,20 +131,21 @@ Generates AWS infrastructure (CDK, CloudFormation) including VPC, ECS Fargate, R
 Generates Azure infrastructure (Bicep) including App Service (native PaaS runtime for `runtime: azure-app-service`), Azure Functions (serverless handlers from `serverless` blocks), Flexible Server (from `rdbms` blocks), Cosmos DB (from `nosql` blocks), Service Bus or Event Hubs/Kafka (from `pubsub` blocks), Azure Cache for Redis (from `cache` blocks), Blob Storage (from `storage` blocks), Azure AI Search services (from `search` blocks), Azure Front Door CDN profiles (from `cdn` blocks), Azure API Management (from `gateway.type: managed`), built-in PgBouncer server parameters on Flexible Server when `connectionPooler.enabled: true`, and App Service internal service discovery (peer service URL env vars). Service deployment shape is derived from declared DSL blocks; no per-service runtime-flavor selector is used.
 
 **Dependencies:**
-- `datrix-common` (AST model, configuration, generation framework, YAML/JSON builders)
+- `datrix-common` (AST model, configuration, YAML/JSON builders)
+- `datrix-codegen-kernel` (generator base classes, template rendering, the shared route and runtime derivations, the deploy-script machinery, and every language-agnostic platform service: GenDSL runtime, the `platform/` provider library, pooling, dashboards, secrets, seed planning, serverless plans, shared enums). Platform generators do not declare `datrix-codegen-common`; the import-boundary scanner forbids them every `datrix_codegen_common` import in `src/`
 - `datrix-semantic` (`datrix-codegen-azure` only: its RDBMS pooling generator reads the Flexible Server connection-capacity table from `datrix_semantic.validators.pooling_rdbms`)
 
-> **Language-agnostic provider generators.** All three platform generators obtain language-specific runtime details from the `LanguageRuntimeSpec` protocol via `discover_language_runtime_spec(target_language)` — no `Language`-enum branching, no `language_name == "…"` comparisons in application-wiring code. The protocol carries provider-facing methods alongside the Docker set, including: `container_command(service, package_name)` (the single source of truth for how the HTTP service starts — consumed both as Azure App Service's `startup_command` and as the source every `datrix-codegen-docker` Dockerfile `CMD` is rendered from on both clouds), `hosts_consumers_in_process()` (whether scheduled-job / event-consumer / queue-worker containers run in-process on Compose), and `language_id()` (the language's open-identity `LanguageId`). The IaC language a provider authors infrastructure in (AWS CDK Python, Azure Bicep) is independent of the generated app's language — AWS pins it in one `_CDK_IAC_LANGUAGE` constant. Shared, language-agnostic provider concerns (the `resolve_runtime_spec` discovery helper, the `runtime_stack_token` composer, and the `PlatformInfrastructure` protocol) live in the **`platform/` subpackage inside the existing `datrix-codegen-common`** (`datrix_codegen_common.platform`, a sibling of `gendsl/`, `dashboards/`, `algorithms/`, `context_models/`) — **not a new package**. The shared Grafana `DashboardBuilder` already lives in `datrix_codegen_common.dashboards` and platforms import it directly (no re-home, no facade). The platform discovery seam is the existing `PlatformGenerator` + `datrix.platforms` group — there is no separate `PlatformAdapter` type; `PlatformInfrastructure` is a property on `PlatformGenerator` subclasses. See [Shared Provider Library](../../../../datrix-codegen-common/docs/architecture.md#shared-provider-library-platform) and [Decision 12: Language-Agnostic Provider Generators](../architecture-overview.md#decision-12-language-agnostic-provider-generators-adopted).
+> **Language-agnostic provider generators.** All three platform generators obtain language-specific runtime details from the `LanguageRuntimeSpec` protocol via `discover_language_runtime_spec(target_language)` — no `Language`-enum branching, no `language_name == "…"` comparisons in application-wiring code. The protocol carries provider-facing methods alongside the Docker set, including: `container_command(service, package_name)` (the single source of truth for how the HTTP service starts — consumed both as Azure App Service's `startup_command` and as the source every `datrix-codegen-docker` Dockerfile `CMD` is rendered from on both clouds), `hosts_consumers_in_process()` (whether scheduled-job / event-consumer / queue-worker containers run in-process on Compose), and `language_id()` (the language's open-identity `LanguageId`). The IaC language a provider authors infrastructure in (AWS CDK Python, Azure Bicep) is independent of the generated app's language — AWS pins it in one `_CDK_IAC_LANGUAGE` constant. Shared, language-agnostic provider concerns (the `resolve_runtime_spec` discovery helper, the `runtime_stack_token` composer, and the `PlatformInfrastructure` protocol) live in the **`platform/` subpackage of `datrix-codegen-kernel`** (`datrix_codegen_kernel.platform`, a sibling of `gendsl/`, `dashboards/`, `pooling/`, `secrets/`), the target-neutral layer platforms depend on instead of `datrix-codegen-common`. The shared Grafana `DashboardBuilder` already lives in `datrix_codegen_kernel.dashboards` and platforms import it directly (no re-home, no facade). The platform discovery seam is the existing `PlatformGenerator` + `datrix.platforms` group — there is no separate `PlatformAdapter` type; `PlatformInfrastructure` is a property on `PlatformGenerator` subclasses. See [Platform Subpackage](../../../../datrix-codegen-kernel/docs/platform-subpackage.md) and [Decision 12: Language-Agnostic Provider Generators](../architecture-overview.md#decision-12-language-agnostic-provider-generators-adopted).
 
 ---
 
 ### Frontend Client Generators (2)
 
 #### 11. datrix-codegen-angular
-Generates a TypeScript Angular client from the shared frontend client contract: request/response types, enums, and injectable HTTP services built from the same contract-builder every frontend target consumes. An artifact-phase companion generator — activates only when the application declares a `clients { angular { ... } }` config block. Depends on `datrix-common` and `datrix-codegen-common` like every other codegen-* target; imports no backend language generator.
+Generates a TypeScript Angular client from the shared frontend client contract: request/response types, enums, and injectable HTTP services built from the same contract-builder every frontend target consumes. An artifact-phase companion generator — activates only when the application declares a `clients { angular { ... } }` config block. Depends on `datrix-common`, `datrix-codegen-kernel` and `datrix-codegen-common` like every other codegen-* target, plus `datrix-codegen-typescript-core` (#19) for the TypeScript transpiler core and web-client mechanics; imports no backend language generator.
 
 #### 12. datrix-codegen-flutter
-Generates the Flutter mobile client's API layer in Dart — models, one client class per API, the exception vocabulary, and the route manifest — from the same shared client contract. An artifact-phase `datrix.generators` plugin, not a language plugin: it activates only when an application's `targets` (or the system `clients { flutter { } }` block) names it. Depends on `datrix-common` and `datrix-codegen-common`; imports no backend language generator.
+Generates the Flutter mobile client's API layer in Dart — models, one client class per API, the exception vocabulary, and the route manifest — from the same shared client contract. An artifact-phase `datrix.generators` plugin, not a language plugin: it activates only when an application's `targets` (or the system `clients { flutter { } }` block) names it. Depends on `datrix-common`, `datrix-codegen-kernel` and `datrix-codegen-common`; imports no backend language generator.
 
 ---
 
@@ -159,7 +164,8 @@ Command-line interface for code generation and seed management
 - User interaction
 
 **Dependencies:**
-- `datrix-common` (AST model, type system, configuration, generation framework, generator discovery)
+- `datrix-common` (AST model, type system, configuration)
+- `datrix-codegen-kernel` (generation framework, generator discovery)
 - `datrix-semantic` (the `analyze` stage, push device-registry injection, and `datrix validate`)
 - `datrix-language` (parser, CST-to-AST transformers, `ParserProtocol` implementation)
 - `datrix-migration` (the migrations stage, the migration state transaction, and the `datrix migrations` commands)
@@ -171,7 +177,7 @@ Command-line interface for code generation and seed management
 ### Extension packs (optional)
 
 #### 14. datrix-extensions
-Optional package of **domain extension** entry points registered under the `datrix.extensions` group. Each pack contributes language-agnostic scalar definitions, builtin objects, and value struct definitions via the **`value_struct_definitions()`** surface on the `DatrixExtension` protocol, database extension names, extra dependency hints, and optional template directories. **Language-specific type mappings** live in `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, not in the extension pack (split ownership).
+Optional package of **domain extension** entry points registered under the `datrix.extensions` group. Each pack contributes language-agnostic scalar definitions, builtin objects, and value struct definitions via the **`value_struct_definitions()`** surface on the `DatrixExtension` protocol, database extension names, extra dependency hints, and optional template directories. **Language-specific type mappings** live in `datrix-codegen-python`, `datrix-codegen-typescript-core` (TypeScript's, shared by the backend and every TypeScript frontend target), `datrix-codegen-kernel` (SQL's `sql_facts`), not in the extension pack (split ownership).
 
 **Current extensions:**
 
@@ -195,13 +201,14 @@ The shared test harness every package's suite imports: factories that build real
 **Dependencies:**
 - `datrix-common`
 - `datrix-semantic` (the parsing and semantic-baseline harnesses run the analyzer)
+- `datrix-codegen-kernel` (the assertion, I/O, pipeline and determinism helpers build and compare `GeneratedFile`/`Generator` values; the kernel takes this package only as a dev extra)
 
 ---
 
 ### Migration framework (1)
 
 #### 16. datrix-migration
-The RDBMS migration machinery every RDBMS-emitting generator shares: the canonical schema snapshot and revision ledger formats, the schema differ and snapshot-to-snapshot differ, the change policy, deterministic revision ids, the rebaseline builder, the live-snapshot artifact contract, and the migration state store. Target adapters (Alembic, MikroORM, versioned SQL) render their own files from its canonical state. `datrix-common` must never import it; the core's generation layer names the run's state transaction through the `RunScopedStateCommit` Protocol. See [datrix-migration — Architecture](../../../../datrix-migration/docs/architecture.md).
+The RDBMS migration machinery every RDBMS-emitting generator shares: the canonical schema snapshot and revision ledger formats, the schema differ and snapshot-to-snapshot differ, the change policy, deterministic revision ids, the rebaseline builder, the live-snapshot artifact contract, and the migration state store. Target adapters (Alembic, MikroORM, versioned SQL) render their own files from its canonical state. `datrix-common` must never import it; the core names the run's state transaction through the `RunScopedStateCommit` Protocol. See [datrix-migration — Architecture](../../../../datrix-migration/docs/architecture.md).
 
 **Dependencies:**
 - `datrix-common`
@@ -222,15 +229,41 @@ Semantic analysis over the parsed `Application`: `SemanticAnalyzer` and its decl
 
 ---
 
+### Generation kernel (1)
+
+#### 18. datrix-codegen-kernel
+The target-neutral generation framework every generator shares: the `Generator` / `GeneratedFile` base classes, the Jinja2 template engine, entry-point discovery, the sub-generator registry framework, the cross-language `TypeMappingRegistry`, the shared route and runtime-configuration derivations, the deploy-script machinery and its templates, the framework-header and framework-secret contracts, the GenDSL data model and registries, the service-feature vocabulary every feature gate reads, and the Seed reference datasets. It loads no language-layer, generator, parser, semantic or CLI module: its own import-linter contract forbids them (`TYPE_CHECKING` included) and a fresh-subprocess test proves it at runtime. `datrix-common` must never import it. See [datrix-codegen-kernel — Architecture](../../../../datrix-codegen-kernel/docs/architecture.md).
+
+**Dependencies:**
+- `datrix-common`
+
+**Consumers (runtime dependency):** `datrix-cli`, `datrix-codegen-common`, `datrix-codegen-typescript-core`, every language, platform and frontend generator, `datrix-codegen-sql`, `datrix-codegen-component`, and `datrix-testing`.
+
+---
+
+### Language cores (1)
+
+#### 19. datrix-codegen-typescript-core
+The TypeScript language core: the transpiler core and its visitors, the language profile and its sub-profiles, the scalar type maps and type resolver, the TypeScript naming and path facts the transpiler binds imports with (block-qualified entity names, NoSQL module paths, MikroORM connection maps, storage-service injections, job handler names), the class-validator field decorators, and the web-client mechanics every browser client emitting TypeScript shares. A library with no entry point, split out of the TypeScript backend so a frontend target emitting TypeScript never depends on the backend language package. It imports none of its consumers: its own import-linter contract forbids them (`TYPE_CHECKING` included) and a fresh-subprocess test imports each module first and proves it at runtime. See [datrix-codegen-typescript-core — Architecture](../../../../datrix-codegen-typescript-core/docs/architecture.md).
+
+**Dependencies:**
+- `datrix-common`
+- `datrix-codegen-kernel`
+- `datrix-codegen-common` (the shared transpiler, profile and algorithms the core builds on)
+
+**Consumers (runtime dependency):** `datrix-codegen-typescript` (the backend) and every frontend target that emits TypeScript (`datrix-codegen-angular` today).
+
+---
+
 ### Showcase (1)
 
-#### 18. datrix
+#### 20. datrix
 Public repository with documentation, examples, and scripts.
 
 ### Client artifact outside this registry: `datrix-vscode`
 
 One further repository, `datrix-vscode`, exists and is deliberately **not** one of the
-fifteen above: it is the thin VS Code client for the Datrix language server, hosts no
+nineteen above: it is the thin VS Code client for the Datrix language server, hosts no
 framework tests and no framework code, and its packaging CI proves the published `.vsix`
 bundles none of the framework packages. Its **source repository is private; the extension
 it publishes to the marketplace is public** — a `.vsix` is a readable archive regardless of
@@ -259,7 +292,7 @@ Generators and domain extensions load through **setuptools entry-point groups** 
 | `datrix.languages` | Aggregate language plugins (Python, TypeScript) bundling generator, hooks, runtime spec, type mappings, transpiler profile, migration adapter, and gendsl behind one registration | `LanguagePlugin` |
 | `datrix.extensions` | Domain extension packs (types, builtins, DB extension names, templates) | `DatrixExtension` |
 
-There is no `datrix.language_hooks` or `datrix.language_runtime_spec` entry-point group — both protocols travel as facets of the one `LanguagePlugin` registered per language (Decision 23, [Architecture Overview](../architecture-overview.md#decision-23-generation-pipeline-and-plugin-coherence-adopted)). The plugin protocols are defined in `datrix-common` (see `datrix_common.plugin.protocol`, `datrix_common.plugin.extension`, `datrix_common.plugin.language_plugin`, `datrix_common.plugin.hook_outcome`, `datrix_codegen_kernel.generation.language_runtime_spec`); the language post-generation hooks protocol `LanguageHooks` is defined in `datrix-codegen-common` (`datrix_codegen_common.generation.language_hooks`) and mirrored for the core by `datrix_common.plugin.framework_protocols.LanguageHooksProtocol`. The CLI and pipeline discover every plugin kind — generators, platforms, languages, and extensions — through one `PluginRegistry` discovery path, one cache, and one error family. Users only install the generators they need — no unused dependencies. Install **`datrix-extensions`** only when using `use extension` in `system.dtrx`.
+There is no `datrix.language_hooks` or `datrix.language_runtime_spec` entry-point group — both protocols travel as facets of the one `LanguagePlugin` registered per language (Decision 23, [Architecture Overview](../architecture-overview.md#decision-23-generation-pipeline-and-plugin-coherence-adopted)). The plugin protocols are defined in `datrix-common` (see `datrix_common.plugin.protocol`, `datrix_common.plugin.extension`, `datrix_common.plugin.language_plugin`, `datrix_common.plugin.hook_outcome`); the `LanguageRuntimeSpec` protocol is defined in `datrix-codegen-kernel` (`datrix_codegen_kernel.generation.language_runtime_spec`); the language post-generation hooks protocol `LanguageHooks` is defined in `datrix-codegen-common` (`datrix_codegen_common.generation.language_hooks`) and mirrored for the core by `datrix_common.plugin.framework_protocols.LanguageHooksProtocol`. The CLI and pipeline discover every plugin kind — generators, platforms, languages, and extensions — through one `PluginRegistry` discovery path, one cache, and one error family. Users only install the generators they need — no unused dependencies. Install **`datrix-extensions`** only when using `use extension` in `system.dtrx`.
 
 ---
 
