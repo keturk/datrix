@@ -37,9 +37,9 @@ disable-model-invocation: true
 - `datrix_common.generation.defaults` → `build_project_config`
 - `datrix_common.generation.file_writer` → `FileWriter`, `WriteResult`, `ConflictStrategy`
 - `datrix_common.generation.app_context` → `get_app_name`
-- `datrix_common.migration.generator` → `MigrationGenerator`, `MigrationFormat`
-- `datrix_common.migration.differ` → `SchemaDiffer`, `SchemaDiff`, `SchemaChange`, `ChangeKind`
-- `datrix_common.migration.errors` → `DestructiveOperationError`, `NoSnapshotError`
+- `datrix_migration.generator` → `MigrationGenerator`, `MigrationFormat`
+- `datrix_migration.differ` → `SchemaDiffer`, `SchemaDiff`, `SchemaChange`, `ChangeKind`
+- `datrix_migration.errors` → `DestructiveOperationError`, `NoSnapshotError`
 - `datrix_common.fileops` → `read_text_utf8`, `write_text_utf8`, `load_json`, `save_json`
 - `datrix_common.utils.text` → `to_snake_case`, `to_camel_case`, `to_pascal_case`, `to_kebab_case`, `to_screaming_snake_case`, `to_plural`, `to_singular`, `extract_simple_name`
 - `datrix_common.paths` → `ServicePaths`
