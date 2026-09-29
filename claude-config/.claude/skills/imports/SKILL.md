@@ -19,25 +19,27 @@ disable-model-invocation: true
 - `datrix_common.rendering` → `render`, `RenderOptions`
 - `datrix_common.config_resolution` → `resolve_service_configs`, `resolve_infrastructure_configs`
 - `datrix_language.parser` → `TreeSitterParser`
-- `datrix_common.generation.template_generator` → `TemplateGenerator`
-- `datrix_common.generation.generator` → `Generator`, `GeneratedFile`
-- `datrix_common.generation.pipeline` → `GenerationPipeline`, `PipelineConfig`, `PipelineResult`
-- `datrix_common.generation.type_resolver` → `TypeResolver`, `OrmTypeResolver`, `TypeMapping`
-- `datrix_common.generation.plugin_helpers` → `detect_service_features`, `render_code_file`, `create_template_generator`
-- `datrix_common.generation.discovery` → `discover_generators`, `discover_platforms`
+- `datrix_codegen_kernel.generation.template_generator` → `TemplateGenerator`
+- `datrix_codegen_kernel.generation.generator` → `Generator`, `GeneratedFile`
+- `datrix_cli.pipeline.generation` → `GenerationPipeline`, `PipelineConfig`, `PipelineResult`
+- `datrix_codegen_common.generation.type_resolver` → `TypeResolver`, `OrmTypeResolver`, `TypeMapping`
+- `datrix_codegen_kernel.generation.plugin_helpers` → `detect_service_features`, `render_code_file`, `create_template_generator`
+- `datrix_codegen_kernel.generation.discovery` → `discover_generators`, `discover_platforms`
 - `datrix_codegen_common.generation.orchestrator` → `ServiceOrchestrator`
 - `datrix_codegen_common.generation.language_generator` → `LanguageGenerator`
-- `datrix_common.generation.type_mapping_registry` → `TypeMappingRegistry`, `global_registry`
+- `datrix_codegen_kernel.generation.type_mapping_registry` → `TypeMappingRegistry`, `global_registry`
 - `datrix_codegen_common.transpiler.language_transpiler` → `LanguageTranspiler`, `LiteralKeywords`
 - `datrix_codegen_common.transpiler.protocols` → `TranspilerStateProtocol`
-- `datrix_common.generation.language_helpers` → `_derive_default_dialect`, `_build_service_map`, `_register_module_level_names`, `effective_observability_config`
-- `datrix_common.generation.import_paths` → `build_entity_import_paths`
+- `datrix_codegen_kernel.generation.language_helpers` → `_derive_default_dialect`, `_build_service_map`, `_register_module_level_names`, `effective_observability_config`
+- `datrix_codegen_common.generation.import_paths` → `build_entity_import_paths`
 - `datrix_codegen_python.generation.sample_values` → `select_sample_index`
-- `datrix_common.generation.registry` → `GeneratorDep`, `SubGeneratorSpec`
-- `datrix_common.generation.validation` → `require_mapped_type`, `validate_template_dir`, `require_deployment_field`
-- `datrix_common.generation.defaults` → `build_project_config`
-- `datrix_common.generation.file_writer` → `FileWriter`, `WriteResult`, `ConflictStrategy`
-- `datrix_common.generation.app_context` → `get_app_name`
+- `datrix_codegen_kernel.generation.registry` → `GeneratorDep`, `SubGeneratorSpec`
+- `datrix_codegen_kernel.generation.validation` → `require_mapped_type`, `validate_template_dir`, `require_deployment_field`
+- `datrix_codegen_common.generation.defaults` → `build_project_config`
+- `datrix_cli.generation.file_writer` → `FileWriter`, `WriteResult`, `ConflictStrategy`
+- `datrix_codegen_common.generation.language_hooks` → `LanguageHooks`
+- `datrix_common.plugin.hook_outcome` → `HookOutcome`
+- `datrix_codegen_kernel.generation.app_context` → `get_app_name`
 - `datrix_migration.generator` → `MigrationGenerator`, `MigrationFormat`
 - `datrix_migration.differ` → `SchemaDiffer`, `SchemaDiff`, `SchemaChange`, `ChangeKind`
 - `datrix_migration.errors` → `DestructiveOperationError`, `NoSnapshotError`
