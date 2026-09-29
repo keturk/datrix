@@ -88,7 +88,7 @@ Datrix-generated automatic migrations do not perform destructive or ambiguous sc
 
 ## D15: Migration State Paths Are Centralized and Stable
 
-`datrix_common.migration.state_store` is the only code allowed to construct app-level migration state paths. It validates `RdbmsConfig.id` as a UUID and lower-cases it, validates the `target` (concrete profile name) as a filesystem-safe segment, and uses `{target}/{rdbms_id}` as the path segments under `.datrix/rdbms-migrations` (see D35–D37). Language generators and platform generators must call the state store API (`block_dir(rdbms_id, target)`, `load(rdbms_id, target)`) instead of hand-building paths.
+`datrix_migration.state_store` is the only code allowed to construct app-level migration state paths. It validates `RdbmsConfig.id` as a UUID and lower-cases it, validates the `target` (concrete profile name) as a filesystem-safe segment, and uses `{target}/{rdbms_id}` as the path segments under `.datrix/rdbms-migrations` (see D35–D37). Language generators and platform generators must call the state store API (`block_dir(rdbms_id, target)`, `load(rdbms_id, target)`) instead of hand-building paths.
 
 ## D16: RDBMS UUID Is Required and Stable Across Profiles
 

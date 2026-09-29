@@ -6,7 +6,7 @@
 
 ## Repository Architecture
 
-The project is split into **fifteen** installable packages (thirteen core toolchain packages, the **datrix-testing** test harness, and optional **datrix-extensions**), plus the **datrix** showcase repo (docs, examples, scripts). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
+The project is split into **sixteen** installable packages (fourteen core toolchain packages, the **datrix-testing** test harness, and optional **datrix-extensions**), plus the **datrix** showcase repo (docs, examples, scripts). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
 
 > **The datrix showcase repo holds only docs, examples, and scripts — it is not an installable toolchain package and hosts no test suite.** It must never contain a `tests/` pytest suite, product tests, cross-package tests, or language/provider matrix tests. Datrix is a **multi-language, multi-platform generator** (not limited to Python/TypeScript, not limited to Docker/AWS/Azure), so no test that enumerates specific languages or providers belongs in it. Each `datrix-*` package tests only its own surface; genuine repo-level cross-cutting validation lives as **scripts under `datrix/scripts/test/`**, never as `datrix/tests/`.
 
@@ -67,6 +67,7 @@ The project is split into **fifteen** installable packages (thirteen core toolch
 
 **Dependencies:**
 - `datrix-common` (AST model, type system, transpiler base, generation framework)
+- `datrix-migration` (schema snapshot, diff, change policy, revision ledger and state store the migration orchestrator drives)
 
 See [datrix-codegen-common — Architecture](../../../../datrix-codegen-common/docs/architecture.md).
 
@@ -93,11 +94,13 @@ Generates SQL DDL (PostgreSQL, MySQL). Extends `SQLDialect` protocol with seed-s
 **Dependencies (language generators):**
 - `datrix-codegen-common` (shared transpiler, algorithms, context models, field analysis)
 - `datrix-common` (AST model, type system, template rendering, generation framework)
+- `datrix-migration` (schema snapshot, diff and revision ledger their migration adapters render from)
 - `jinja2` (for template rendering)
 - `datrix-codegen-typescript` additionally depends on `datrix-codegen-sql`: its MikroORM migration adapter renders DDL through the SQL package's dialect protocol, index constants, naming, and type map. It is the only language→SQL edge; a language package never depends on a sibling language package.
 
 **Dependencies (component, SQL):**
 - `datrix-common` (AST model, type system, template rendering, generation framework)
+- `datrix-migration` (SQL only: schema diff, revision ids, live-snapshot reflector contract)
 - `datrix-codegen-common` (GenDSL runtime and registrations; component also consumes derived domain declarations and the shared serverless plan, SQL the migration-adapter contract and a closed set of language-agnostic subtrees)
 - `jinja2` (for template rendering)
 
@@ -157,6 +160,7 @@ Command-line interface for code generation and seed management
 **Dependencies:**
 - `datrix-common` (AST model, type system, configuration, semantic analysis, generation framework, generator discovery)
 - `datrix-language` (parser, CST-to-AST transformers, `ParserProtocol` implementation)
+- `datrix-migration` (the migrations stage, the migration state transaction, and the `datrix migrations` commands)
 - `datrix-codegen-common` (the migration and generator-inspection commands import migration state and render, the migration CQRS algorithm, and GenDSL definitions lazily inside their command bodies)
 - Discovers installed generator *plugins* dynamically (datrix-codegen-python, etc.)
 
@@ -191,9 +195,21 @@ The shared test harness every package's suite imports: factories that build real
 
 ---
 
+### Migration framework (1)
+
+#### 16. datrix-migration
+The RDBMS migration machinery every RDBMS-emitting generator shares: the canonical schema snapshot and revision ledger formats, the schema differ and snapshot-to-snapshot differ, the change policy, deterministic revision ids, the rebaseline builder, the live-snapshot artifact contract, and the migration state store. Target adapters (Alembic, MikroORM, versioned SQL) render their own files from its canonical state. `datrix-common` must never import it; the core's generation layer names the run's state transaction through the `RunScopedStateCommit` Protocol. See [datrix-migration — Architecture](../../../../datrix-migration/docs/architecture.md).
+
+**Dependencies:**
+- `datrix-common`
+
+**Consumers (runtime dependency):** `datrix-cli`, `datrix-codegen-common`, `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`.
+
+---
+
 ### Showcase (1)
 
-#### 15. datrix
+#### 17. datrix
 Public repository with documentation, examples, and scripts.
 
 ### Client artifact outside this registry: `datrix-vscode`

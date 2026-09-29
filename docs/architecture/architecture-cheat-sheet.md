@@ -17,13 +17,14 @@ semantic analysis -> stdlib placeholders + lazy module injection -> continuing p
 
 No IR layer. Parser produces `Application` directly. `GenerationPipeline` lives in `datrix-cli` (`datrix-cli/src/datrix_cli/pipeline/generation.py`); `run()` walks an ordered registry of typed `Stage` values through one runner. The named stages, in order: `parse` → `discover_and_parse_seeds` → `resolve_service_configs` → `inject_identity_system_entities` → `inject_approval_system_entities` → `inject_push_device_registry` → `analyze` → `apply_service_filter` (skipped without `--service`) → `validate_deployment` → `resolve_incremental` → `build_codegen_context` → `build_deployment_plan` → `resolve_config_surfaces` → `discover_generators` → `validate_type_completeness` → `validate_builtin_realization` → `discover_platforms` → `sort_generators` → `select_generation_targets` (skipped without `--only`) → `attach_runtime_bootstrap` → `generate:{name}` (one per generator) → `resolve_intra_group_conflicts` → `detect_file_conflicts` → `assert_deploy_binding_conformance` → `write:{target}` (one per target) → `migrations` → `discover_language_hooks` → `run_language_post_processing` → `run_client_target_post_processing` → `format_json_files` → `update_append_only_hashes` → `snapshot` → `commit_migration_state`. Infrastructure-config resolution and service memory-limit normalization are **not** stages: they run inside `analyze` as `SemanticAnalyzer.analyze()` pre-seal hooks, because both depend on nodes analysis itself may synthesize. There is **no** `platform_validation` or `apply_cli_overrides` stage; `--language` is a required generation parameter resolved before the run, and cross-model and `(provider, DeploymentProvider)` realization checks run inside the pre-seal infrastructure-config hook, with deployment-presence checks in `validate_deployment`.
 
-## Packages (15)
+## Packages (16)
 
-Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) plus fourteen core packages below.
+Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) plus fifteen core packages below.
 
 | Package | Purpose |
 |---------|---------|
 | datrix-common | Foundation: AST model, types, semantic analysis, config resolution, generation framework. ZERO deps on other Datrix packages |
+| datrix-migration | RDBMS migration machinery shared by every RDBMS-emitting generator: canonical schema snapshot, schema diff, change policy, revision ledger and ids, rebaseline, live-snapshot artifact, and the migration state store. Depends on datrix-common only; datrix-cli, datrix-codegen-common and the python, typescript and sql generators declare it |
 | datrix-language | Parser (Tree-sitter) + CST-to-AST transformers; implements the `StdlibParserProtocol` that pre-parses the seven stdlib `.dtrx` modules shipped under `datrix-common/src/datrix_common/stdlib/`. Depends on datrix-common |
 | datrix-codegen-common | Shared codegen intelligence: transpiler, `LanguageProfile` + `SyntaxEmitters`, context builders, genDSL. Consumed by EVERY language generator |
 | datrix-codegen-component | Platform-agnostic artifacts (docs, config, scripts) |
