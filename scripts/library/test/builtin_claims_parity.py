@@ -47,7 +47,7 @@ from datrix_codegen_common.transpiler.builtin_registry import (  # noqa: E402
     BuiltinGroup,
 )
 from datrix_codegen_common.transpiler.profile import TranspilerProfile  # noqa: E402
-from datrix_common.generation.discovery import get_language_plugin  # noqa: E402
+from datrix_codegen_kernel.generation.discovery import get_language_plugin  # noqa: E402
 from datrix_common.plugin.language_capability import BuiltinGroupStance  # noqa: E402
 
 logger = logging.getLogger(__name__)

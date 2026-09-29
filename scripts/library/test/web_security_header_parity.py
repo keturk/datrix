@@ -1,13 +1,13 @@
 """Web security header parity gate -- every registered platform that hosts a
 web client realizes the ONE declared security-header set from
-`datrix_common.generation.web_security_headers`, with no declarable hole: a
+`datrix_codegen_kernel.platform.web_security_headers`, with no declarable hole: a
 generated static site is either fronted by the full header set its own
 topology requires, or it is a defect, never a documented gap.
 
 Every static-site hosting realization -- docker/local's loopback nginx
 container, AWS's CloudFront response-headers policy, Azure's Static Web Apps
 `staticwebapp.config.json` -- consumes
-`datrix_common.generation.web_security_headers.build_web_security_headers`,
+`datrix_codegen_kernel.platform.web_security_headers.build_web_security_headers`,
 but none of the three spells a header NAME literally in its own package
 source: each threads the shared builder's `WebSecurityHeaderSet.as_header_dict()`
 straight into its own rendering primitive (a Jinja loop, a CDK IR list, a JSON
@@ -36,7 +36,7 @@ topology-correct expected family set via the SAME shared builder, never a
 hand-typed exemption.
 
 Platform set from the installed `datrix.platforms` entry points at runtime;
-the declared header set read from `datrix_common.generation.web_security_headers`
+the declared header set read from `datrix_codegen_kernel.platform.web_security_headers`
 at runtime -- never a table in this script. Runs a built-in non-vacuity
 self-test on every invocation. Repo-level validation script (per the datrix
 showcase boundary -- no pytest suite lives in datrix).
@@ -58,8 +58,8 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from datrix_common.generation.template_generator import TemplateGenerator  # noqa: E402
-from datrix_common.generation.web_security_headers import (  # noqa: E402
+from datrix_codegen_kernel.generation.template_generator import TemplateGenerator  # noqa: E402
+from datrix_codegen_kernel.platform.web_security_headers import (  # noqa: E402
     WebSecurityHeaderSet,
     build_web_security_headers,
 )
@@ -159,7 +159,7 @@ def _topology_families(*, is_loopback: bool) -> frozenset[str]:
 
 def declared_header_families() -> frozenset[str]:
     """The header-family vocabulary read from
-    `datrix_common.generation.web_security_headers` -- never a literal tuple
+    `datrix_codegen_kernel.platform.web_security_headers` -- never a literal tuple
     in this script. The full (non-loopback) set is the union vocabulary the
     report and the "realized by no platform" dead-entry check compare
     against; a loopback platform's own expected set
@@ -277,7 +277,7 @@ def evaluate(
             problems.append(
                 f"{census.package} ({platform}): emits header {family!r}, which is "
                 f"not part of the one declared web-security header set "
-                f"(datrix_common.generation.web_security_headers). Fix: remove the "
+                f"(datrix_codegen_kernel.platform.web_security_headers). Fix: remove the "
                 f"hand-written header, or thread it through build_web_security_headers "
                 f"so every platform stays on the one declared set."
             )
@@ -423,7 +423,7 @@ def _docker_driver(src_dir: Path, header_set: WebSecurityHeaderSet) -> dict[str,
     `add_header` directives -- the header names are Jinja variables in the
     template (`{{ name }}`/`{{ value }}`), never literal source text, so
     only the RENDERED artifact carries them."""
-    from datrix_common.generation.client_runtime_paths import client_resolved_runtime_config_path
+    from datrix_codegen_kernel.generation.client_runtime_paths import client_resolved_runtime_config_path
     from datrix_codegen_docker.generators.compose._client_runtime_resolver import (
         STATIC_SITE_RUNTIME_CONFIG_MOUNT,
     )

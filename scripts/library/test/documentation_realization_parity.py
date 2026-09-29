@@ -614,7 +614,7 @@ def generate_for_target(system_dtrx: Path, output_dir: Path, target: str) -> lis
         RuntimeError: The pipeline reported failure.
     """
     from datrix_cli.pipeline.generation import GenerationPipeline, PipelineConfig
-    from datrix_common.generation.validation_level import ValidationLevel
+    from datrix_cli.generation.validation_level import ValidationLevel
     from datrix_common.plugin.identity import LanguageId
 
     _ensure_language_plugins_registered()

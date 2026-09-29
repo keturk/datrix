@@ -275,7 +275,7 @@ def _check_bare_constructor_call_counted() -> None:
     with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
         file_path = Path(tmp) / "sample.py"
         file_path.write_text(
-            "from datrix_common.generation.generator import GeneratedFile\n"
+            "from datrix_codegen_kernel.generation.generator import GeneratedFile\n"
             "def f():\n"
             "    return GeneratedFile(path=None, content='', language='python', source_hash='x')\n",
             encoding="utf-8",
@@ -288,7 +288,7 @@ def _check_qualified_constructor_call_counted() -> None:
     with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
         file_path = Path(tmp) / "sample.py"
         file_path.write_text(
-            "import datrix_common.generation.generator as gen\n"
+            "import datrix_codegen_kernel.generation.generator as gen\n"
             "def f():\n"
             "    return gen.GeneratedFile(path=None, content='', language='python', source_hash='x')\n",
             encoding="utf-8",
@@ -301,7 +301,7 @@ def _check_from_content_factory_not_counted() -> None:
     with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
         file_path = Path(tmp) / "sample.py"
         file_path.write_text(
-            "from datrix_common.generation.generator import GeneratedFile\n"
+            "from datrix_codegen_kernel.generation.generator import GeneratedFile\n"
             "def f():\n"
             "    return GeneratedFile.from_content(path=None, content='', language='python')\n",
             encoding="utf-8",
@@ -314,7 +314,7 @@ def _check_multiple_constructions_counted() -> None:
     with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
         file_path = Path(tmp) / "sample.py"
         file_path.write_text(
-            "from datrix_common.generation.generator import GeneratedFile\n"
+            "from datrix_codegen_kernel.generation.generator import GeneratedFile\n"
             "def f():\n"
             "    a = GeneratedFile(path=None, content='', language='python', source_hash='a')\n"
             "    b = GeneratedFile(path=None, content='', language='python', source_hash='b')\n"
@@ -344,7 +344,7 @@ def _check_tests_directory_never_scanned() -> None:
         tests_dir = pkg_dir / "tests"
         tests_dir.mkdir()
         (tests_dir / "test_gen.py").write_text(
-            "from datrix_common.generation.generator import GeneratedFile\n"
+            "from datrix_codegen_kernel.generation.generator import GeneratedFile\n"
             "GeneratedFile(path=None, content='', language='python', source_hash='x')\n",
             encoding="utf-8",
         )
@@ -361,7 +361,7 @@ def _check_excluded_executor_file_never_counted() -> None:
         executor_dir = pkg_dir / "src" / "datrix_codegen_common" / "gendsl"
         executor_dir.mkdir(parents=True)
         (executor_dir / "executor.py").write_text(
-            "from datrix_common.generation.generator import GeneratedFile\n"
+            "from datrix_codegen_kernel.generation.generator import GeneratedFile\n"
             "GeneratedFile(path=None, content='', language='python', source_hash='x')\n",
             encoding="utf-8",
         )

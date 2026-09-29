@@ -430,8 +430,8 @@ def resolve_module_candidate(span: str, monorepo_root: Path) -> bool:
     ``<package>/src/<import_name>/<prefix>.py`` or
     ``<package>/src/<import_name>/<prefix>/__init__.py``. This tolerates a
     trailing symbol/attribute/function name appended to a real module path
-    (e.g. ``datrix_common.generation.type_resolver._dispatch`` resolves via
-    the 2-segment prefix ``generation/type_resolver.py``).
+    (e.g. ``datrix_codegen_kernel.generation.template_generator._dispatch`` resolves via
+    the 2-segment prefix ``generation/template_generator.py``).
 
     Args:
         span: The raw backtick-span text (module-reference candidate).
@@ -886,10 +886,10 @@ def _check_line_number_is_tracked_per_span() -> None:
 
 
 def _check_fully_qualified_module_span_is_a_candidate() -> None:
-    doc_text = "See `datrix_common.generation.type_resolver` for details."
+    doc_text = "See `datrix_codegen_kernel.generation.template_generator` for details."
     candidates = extract_module_candidates(doc_text)
     assert len(candidates) == 1, f"expected 1 candidate, got {candidates}"
-    assert candidates[0][1] == "datrix_common.generation.type_resolver"
+    assert candidates[0][1] == "datrix_codegen_kernel.generation.template_generator"
 
 
 def _check_generic_dotted_identifier_without_known_import_name_is_excluded() -> None:
@@ -1012,11 +1012,11 @@ def _check_exact_module_match_resolves() -> None:
     with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
         root = Path(tmp)
         target = (
-            root / "datrix-common" / "src" / "datrix_common" / "generation" / "type_resolver.py"
+            root / "datrix-common" / "src" / "datrix_common" / "generation" / "template_generator.py"
         )
         target.parent.mkdir(parents=True)
-        target.write_text("class TypeResolver: ...\n", encoding="utf-8")
-        resolved = resolve_module_candidate("datrix_common.generation.type_resolver", root)
+        target.write_text("class TemplateGenerator: ...\n", encoding="utf-8")
+        resolved = resolve_module_candidate("datrix_codegen_kernel.generation.template_generator", root)
         assert resolved is True, "exact module path must resolve"
 
 
@@ -1024,12 +1024,12 @@ def _check_trailing_symbol_name_is_tolerated() -> None:
     with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
         root = Path(tmp)
         target = (
-            root / "datrix-common" / "src" / "datrix_common" / "generation" / "type_resolver.py"
+            root / "datrix-common" / "src" / "datrix_common" / "generation" / "template_generator.py"
         )
         target.parent.mkdir(parents=True)
         target.write_text("def _dispatch(): ...\n", encoding="utf-8")
         resolved = resolve_module_candidate(
-            "datrix_common.generation.type_resolver._dispatch", root
+            "datrix_codegen_kernel.generation.template_generator._dispatch", root
         )
         assert resolved is True, "a trailing symbol/attribute name must be tolerated"
 

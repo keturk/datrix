@@ -100,15 +100,15 @@ from datrix_common.deployment.runtime_bootstrap import (  # noqa: E402
     LOCAL_IDENTITY_PROVIDER_PLAN_PATH,
 )
 from datrix_common.directory_constants import CLIENTS_DIR  # noqa: E402
-from datrix_common.generation.framework_secret_handles import (  # noqa: E402
+from datrix_codegen_kernel.generation.framework_secret_handles import (  # noqa: E402
     JWT_PRIVATE_KEY_HANDLE,
 )
-from datrix_common.generation.client_output import client_target_subtree  # noqa: E402
+from datrix_codegen_kernel.generation.client_output import client_target_subtree  # noqa: E402
 
 # The lifecycle verb every Datrix-generated deployment CLI answers to, taken
 # from the module that defines the shared vocabulary rather than spelled again.
-from datrix_common.generation.deployment_lifecycle import VERB_DEPLOY  # noqa: E402
-from datrix_common.generation.validation_level import ValidationLevel  # noqa: E402
+from datrix_codegen_kernel.platform.deployment_lifecycle import VERB_DEPLOY  # noqa: E402
+from datrix_cli.generation.validation_level import ValidationLevel  # noqa: E402
 from datrix_common.plugin.identity import LanguageId  # noqa: E402
 
 # The roles a bearer token must carry are read from the fixture's own analyzed

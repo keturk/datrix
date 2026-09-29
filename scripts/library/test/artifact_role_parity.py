@@ -541,7 +541,7 @@ def language_domain_declarations(language: str) -> DomainDeclarations:
     from datrix_codegen_common.testkit.gates.domain_self_consistency import (
         DomainDeclaringPlugin,
     )
-    from datrix_common.generation.discovery import get_language_plugin
+    from datrix_codegen_kernel.generation.discovery import get_language_plugin
 
     plugin = cast(DomainDeclaringPlugin, get_language_plugin(language))
     specs = plugin.generator.get_sub_generators()

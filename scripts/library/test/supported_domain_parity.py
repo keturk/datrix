@@ -90,7 +90,7 @@ from datrix_codegen_common.parity.domain_registry import SHARED_CONTEXT_TYPES
 from datrix_codegen_common.testkit.gates.domain_self_consistency import (
     DomainDeclaringPlugin,
 )
-from datrix_common.generation.discovery import get_language_plugin
+from datrix_codegen_kernel.generation.discovery import get_language_plugin
 from datrix_common.plugin.registry import LANGUAGES_GROUP
 
 #: A cross-language parity comparison over 0 or 1 language is vacuous (there
@@ -590,7 +590,7 @@ def check_supported_domain_parity() -> int:
             "DOMAIN UNIVERSE CLOSURE VIOLATION: domain %r is declared by "
             "%s's compiled GenDSL IR but is not a member of "
             "SHARED_CONTEXT_TYPES. Fix: add it to "
-            "datrix_common.generation.registry.COMMON_GENERATOR_REGISTRATIONS.",
+            "datrix_codegen_kernel.generation.registry.COMMON_GENERATOR_REGISTRATIONS.",
             domain_id, sorted(declaring_languages),
         )
     if dead_registry_ids:

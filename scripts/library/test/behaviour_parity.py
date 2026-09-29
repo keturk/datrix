@@ -2821,7 +2821,7 @@ def _self_test_case_inputs_never_key_a_role() -> bool:
         root = Path(tmp)
         body = (
             "from datrix_common.datrix_model.containers import Service\n"
-            "from datrix_common.generation.generator import GeneratedFile\n\n"
+            "from datrix_codegen_kernel.generation.generator import GeneratedFile\n\n"
             "def {label}_label(service: Service) -> str:\n"
             "    return service.name\n\n"
             "def render_{label}_file(service: Service) -> GeneratedFile:\n"

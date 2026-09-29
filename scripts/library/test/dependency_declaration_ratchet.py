@@ -120,7 +120,7 @@ _DECLARED_TABLE_RELATIVE_PATH: Final[Path] = Path("generation") / "dependency_ta
 
 #: The one filename every language package's dependency version catalog ships
 #: as, sitting directly at the package's own `src/datrix_codegen_<lang>/` root
-#: -- the same file `datrix_common.generation.generator.Generator
+#: -- the same file `datrix_codegen_kernel.generation.generator.Generator
 #: .get_project_defaults()` loads via `importlib.resources`. A language with no
 #: such file has declared no
 #: dependency catalog at all, which is a legitimate empty package universe --
@@ -254,7 +254,7 @@ class OutOfTableSite:
 def _catalog_package_names(language_src_dir: Path, language: str) -> frozenset[str]:
     """The language's registered dependency-catalog package universe.
 
-    Reads the same `defaults.yaml` shape `datrix_common.generation.generator
+    Reads the same `defaults.yaml` shape `datrix_codegen_kernel.generation.generator
     .Generator.get_project_defaults()` loads for real generation, then hands
     the parsed `dependencies.<language>` mapping to `DependencyCatalog` itself
     (`packages_for`) rather than reading its keys directly, so the scanner's

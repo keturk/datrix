@@ -51,12 +51,12 @@ from shared.registered_targets import registered_language_names  # noqa: E402
 
 from datrix_codegen_common.templates import shared_template_dir  # noqa: E402
 from datrix_common.datrix_model.enums import Enum, EnumValue  # noqa: E402
-from datrix_common.generation.discovery import get_language_plugin  # noqa: E402
-from datrix_common.generation.gendsl_ir import DomainDefinition  # noqa: E402
-from datrix_common.generation.generator import GeneratedFile  # noqa: E402
-from datrix_common.generation.plugin_helpers import template_dir_for  # noqa: E402
-from datrix_common.generation.registry import SubGeneratorSpec  # noqa: E402
-from datrix_common.generation.template_generator import TemplateGenerator  # noqa: E402
+from datrix_codegen_kernel.generation.discovery import get_language_plugin  # noqa: E402
+from datrix_codegen_kernel.generation.gendsl_ir import DomainDefinition  # noqa: E402
+from datrix_codegen_kernel.generation.generator import GeneratedFile  # noqa: E402
+from datrix_codegen_kernel.generation.plugin_helpers import template_dir_for  # noqa: E402
+from datrix_codegen_kernel.generation.registry import SubGeneratorSpec  # noqa: E402
+from datrix_codegen_kernel.generation.template_generator import TemplateGenerator  # noqa: E402
 from datrix_common.paths import ServicePaths  # noqa: E402
 
 logger = logging.getLogger(__name__)

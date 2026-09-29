@@ -7,7 +7,7 @@ trusted-caller token on an inter-service call, the delegated-user envelope,
 the three rate-limit response headers, the inbound webhook shared secret and
 the outbound webhook delivery headers. Each is a cross-language wire contract
 (a python caller and a typescript callee must spell the same name), and each
-has one home: ``datrix_common.generation.http_headers``. Two things went wrong
+has one home: ``datrix_codegen_common.generation.http_headers``. Two things went wrong
 before this gate existed. One language re-typed the caller header as a private
 ``X-Datrix-Trusted-Caller`` with a different mechanism behind it, so its
 services and a python caller could never talk. And a typescript test template kept
@@ -31,7 +31,7 @@ The gate holds every registered language to two rules, from a census of the
   entry and fails.
 
 Language set from the installed ``datrix.languages`` entry points at runtime;
-registry from datrix-common at runtime; holes from each language's own
+registry from datrix-codegen-common at runtime; holes from each language's own
 declaration -- never a table in this script. Runs a built-in non-vacuity
 self-test on every invocation. Repo-level validation script (per the datrix
 showcase boundary -- no pytest suite lives in datrix).
@@ -55,13 +55,15 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from datrix_common.generation import http_headers as registry_module  # noqa: E402
-from datrix_common.generation.http_headers import (  # noqa: E402
+from datrix_codegen_common.generation import http_headers as registry_module  # noqa: E402
+from datrix_codegen_common.generation.http_headers import (  # noqa: E402
     FRAMEWORK_HEADER_PREFIXES,
     FRAMEWORK_HEADERS,
     RETIRED_HEADERS,
     FrameworkHeader,
 )
+from datrix_codegen_kernel.generation.trusted_caller import CALLER_TOKEN_HEADER  # noqa: E402
+from datrix_common.identity.delegation import DELEGATION_HEADER  # noqa: E402
 from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
 
 from shared.registered_targets import registered_language_names  # noqa: E402
@@ -131,7 +133,13 @@ class Registry:
 
 def registry_constant_families() -> dict[str, str]:
     """Derive ``{constant name: family}`` from the registry module's own
-    exports, so a new family's constant is recognized with no edit here."""
+    exports, so a new family's constant is recognized with no edit here.
+
+    ``CALLER_TOKEN_HEADER`` and ``DELEGATION_HEADER`` are not in that
+    ``__all__`` -- their one import path (I7) is their owning module
+    (``trusted_caller``, ``identity.delegation``), not the re-export the
+    registry module used to index. They are added here directly so a
+    ``.py`` file referencing either constant still realizes its family."""
     by_name = {header.name.lower(): header.family for header in FRAMEWORK_HEADERS}
     families: dict[str, str] = {}
     for exported in registry_module.__all__:
@@ -140,6 +148,8 @@ def registry_constant_families() -> dict[str, str]:
         value = getattr(registry_module, exported)
         if isinstance(value, str) and value.lower() in by_name:
             families[exported] = by_name[value.lower()]
+    families["CALLER_TOKEN_HEADER"] = by_name[CALLER_TOKEN_HEADER.lower()]
+    families["DELEGATION_HEADER"] = by_name[DELEGATION_HEADER.lower()]
     return families
 
 
@@ -310,7 +320,7 @@ def _spelling_problems(
             problems.append(
                 f"{where}: spells RETIRED framework header {spelling.name!r}. No consumer reads "
                 f"it. Fix: use the registered header for the contract "
-                f"(datrix_common.generation.http_headers) and delete the spelling."
+                f"(datrix_codegen_common.generation.http_headers) and delete the spelling."
             )
             continue
         if spelling.name.lower() in by_name or not registry.is_framework_prefixed(spelling.name):
@@ -552,7 +562,8 @@ def _self_test_census(tmp_root: Path, registry: Registry) -> bool:
         "headers['X-RateLimit-Limit'] = 1\nconst h = 'x-webhook-secret';\n", encoding="utf-8",
     )
     (src / "generator.py").write_text(
-        "from datrix_common.generation.http_headers import CALLER_TOKEN_HEADER\n", encoding="utf-8",
+        "from datrix_codegen_common.generation.http_headers import CALLER_TOKEN_HEADER\n",
+        encoding="utf-8",
     )
     (src / "notes.md").write_text("X-Datrix-Ignored-Because-Markdown\n", encoding="utf-8")
     (src / "__pycache__" / "stale.py").write_text("'X-Datrix-Ignored-Because-Cache'\n", encoding="utf-8")

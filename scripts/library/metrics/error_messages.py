@@ -79,9 +79,9 @@ EXCLUDED_ERROR_SITES: list[tuple[str, str]] = [
     ("datrix_codegen_python/hooks/language_hooks.py", "format_files"),
     ("datrix_codegen_sql/migration/renderer.py", "_warn_non_nullable_add"),
     ("datrix_codegen_typescript/language_hooks.py", "validate_files"),
-    ("datrix_common/generation/audit_log.py", "write_audit_log"),
+    ("datrix_codegen_kernel/generation/audit_log.py", "write_audit_log"),
     ("datrix_common/generation/pipeline.py", "_validate_type_completeness"),
-    ("datrix_common/generation/snapshot.py", "load_latest_snapshot"),
+    ("datrix_cli/generation/snapshot.py", "load_latest_snapshot"),
     ("datrix_common/plugin/registry.py", "_load_classes_from_entry_points"),
     ("datrix_common/utils/engine_helpers.py", "resolve_default_dialect_for_app"),
     # ── internal-assertion — guards on internal invariants, not user input ────────
@@ -130,7 +130,7 @@ EXCLUDED_ERROR_SITES: list[tuple[str, str]] = [
     ("datrix_common/generation/pipeline.py", "_run_stage"),
     ("datrix_common/infra/registry.py", "_build_container_key_impl"),
     # ── re-raise-wrapper — raise … from e, wrapping with context ─────────────────
-    ("datrix_common/generation/formatter.py", "_format_json_file"),
+    ("datrix_cli/generation/formatter.py", "_format_json_file"),
     # ── framework-boundary — Pydantic validators, framework-enforced constraints ─
     ("datrix_common/config/datasource/models.py", "_validate_external_platform_fields"),
     ("datrix_common/config/datasource/models.py", "_engine_requirements"),
@@ -138,10 +138,10 @@ EXCLUDED_ERROR_SITES: list[tuple[str, str]] = [
     ("datrix_common/config/datasource/models.py", "_validate_platform_fields"),
     ("datrix_common/config/serverless/models.py", "_validate_handler_entry"),
     ("datrix_common/config/storage/models.py", "_provider_requirements"),
-    ("datrix_common/generation/snapshot.py", "_validate_app_state"),
-    ("datrix_common/generation/snapshot.py", "_validate_entity_fields"),
-    ("datrix_common/generation/snapshot.py", "_validate_service_entities"),
-    ("datrix_common/generation/snapshot.py", "_validate_snapshot_schema"),
+    ("datrix_cli/generation/snapshot.py", "_validate_app_state"),
+    ("datrix_cli/generation/snapshot.py", "_validate_entity_fields"),
+    ("datrix_cli/generation/snapshot.py", "_validate_service_entities"),
+    ("datrix_cli/generation/snapshot.py", "_validate_snapshot_schema"),
     # ── testing — test-infrastructure assertions ─────────────────────────────────
     ("datrix_testing/assertions.py", "assert_file_exists"),
     ("datrix_testing/assertions.py", "assert_json_valid"),

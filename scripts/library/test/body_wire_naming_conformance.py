@@ -8,7 +8,7 @@ to each other, and one of them -- the Python CQRS view response schema
 so it serializes its raw snake_case attribute names instead of camelCase.
 This gate generates a real example project once per registered language and
 compares each language's OWN emitted response classes' EFFECTIVE wire names
-against `datrix_common.generation.wire_naming.body_wire_name(field_name)` --
+against `datrix_codegen_common.generation.wire_naming.body_wire_name(field_name)` --
 the one home of the declared rule, called rather than restated, so the gate
 and the frontend client contract that computes body wire keys can never be
 measuring two different rules.
@@ -49,8 +49,8 @@ from shared.registered_targets import registered_language_names  # noqa: E402
 
 from datrix_cli.pipeline.contract import PipelineConfig, PipelineResult  # noqa: E402
 from datrix_cli.pipeline.generation import GenerationPipeline  # noqa: E402
-from datrix_common.generation.validation_level import ValidationLevel  # noqa: E402
-from datrix_common.generation.wire_naming import body_wire_name  # noqa: E402
+from datrix_cli.generation.validation_level import ValidationLevel  # noqa: E402
+from datrix_codegen_common.generation.wire_naming import body_wire_name  # noqa: E402
 from datrix_common.plugin.identity import LanguageId  # noqa: E402
 from datrix_language.registration import register_all  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
@@ -472,7 +472,7 @@ _EXTRACTORS: Final[dict[str, ResponseFieldExtractor]] = {
 def is_wire_name_conformant(field: ResponseField) -> bool:
     """Return True iff *field*'s effective wire name matches the declared rule.
 
-    The declared rule is `datrix_common.generation.wire_naming.body_wire_name`
+    The declared rule is `datrix_codegen_common.generation.wire_naming.body_wire_name`
     -- camelCase -- and this gate calls THAT function rather than restating
     the rule, so a gate that passes and a contract that computes a wire key
     can never be measuring two different rules. It is case-variant-idempotent,

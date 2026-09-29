@@ -31,7 +31,7 @@ if _library_dir.exists() and str(_library_dir) not in sys.path:
 
 from shared.registered_targets import registered_language_names  # noqa: E402
 
-from datrix_common.generation.discovery import list_available_generators  # noqa: E402
+from datrix_codegen_kernel.generation.discovery import list_available_generators  # noqa: E402
 from datrix_common.plugin.registry import EXTENSION_GROUP  # noqa: E402
 
 #: Every language's type_mappings module exposes exactly one module-level
@@ -91,7 +91,7 @@ def import_language_mappings(language: str) -> ModuleType:
             f"Registered languages: {', '.join(sorted(registered))}."
         )
 
-    from datrix_common.generation.discovery import get_language_plugin
+    from datrix_codegen_kernel.generation.discovery import get_language_plugin
 
     plugin = get_language_plugin(language)
     package_root = type(plugin).__module__.split(".")[0]
@@ -120,7 +120,7 @@ def validate_completeness(languages: list[str]) -> int:
     logger = logging.getLogger(__name__)
 
     try:
-        from datrix_common.generation.type_mapping_registry import global_registry
+        from datrix_codegen_kernel.generation.type_mapping_registry import global_registry
     except ImportError as e:
         logger.error("Failed to import global_registry: %s", e)
         logger.error("Is datrix-common installed?")

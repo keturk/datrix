@@ -10,7 +10,7 @@
  A generated static site's security headers -- Content-Security-Policy,
  Strict-Transport-Security, X-Content-Type-Options, Referrer-Policy,
  Permissions-Policy -- have one home:
- datrix_common.generation.web_security_headers.build_web_security_headers.
+ datrix_codegen_kernel.platform.web_security_headers.build_web_security_headers.
  Every platform that realizes static_web_hosting (docker/local's loopback
  nginx container, AWS's CloudFront response-headers policy, Azure's Static
  Web Apps staticwebapp.config.json) consumes it, but none spells a header
