@@ -167,7 +167,7 @@ version-1 file predates both, and a reader treats it as a run whose selection is
   unaccounted for, or when a cone tree or the installed set changed while the suite ran;
   `full.log` states the reason.
 
-A full pytest run loads `datrix_common.testing.runner_plugin` with `-p` in every phase; any
+A full pytest run loads `test.runner_plugin` with `-p` in every phase; any
 other saved run loads it in its parallel phase only, for the serial-phase decision below, and is
 never stamped. The plugin writes its records into the run directory:
 
