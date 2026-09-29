@@ -30,7 +30,7 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 
 ### The suite runs under Node, not pytest — three playbook steps differ
 
-`test.ps1` dispatches on the suite a package carries and writes the **same** run artifacts either way, so the playbook's parse → triage → fix loop, the `index.json` schema, the cluster rules and the abort conditions all apply unchanged. What changes:
+`test.ps1` dispatches on the suite a package carries and writes the **same** run artifacts either way, so the playbook's parse → triage → fix loop, the `index.json` schema, the cluster rules, the abort conditions and the final full suite all apply unchanged. What changes:
 
 | Playbook step | For `datrix-vscode` |
 |---|---|

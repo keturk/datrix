@@ -1,6 +1,6 @@
 # Fix-Package Playbook (shared by all /fix-* package skills)
 
-Shared workflow for diagnosing and fixing failures, errors, and warnings in a single `datrix-*` package from a structured test-results `index.json` — without exploring the codebase first.
+Shared workflow for diagnosing and fixing failures, errors, and warnings in a single `datrix-*` package from a structured test-results `index.json` — without exploring the codebase first — and proving the result with a green full suite of that package.
 
 The invoking skill (`/fix-{suffix}`) defines these parameters — substitute them everywhere below:
 - `{PACKAGE}` — package name (e.g. `datrix-common`)
@@ -103,7 +103,7 @@ powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} {other-packa
 powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} -ListTags
 ```
 
-No agent ever runs a whole-package suite (no `-Specific`/`-Keyword`/`-Tag`, a tier switch such as `-Fast`, `-All`, `-Rerun`, or `affected-gate.ps1`) — not per fix, not as a final regression check. `guard-full-suite-runs.py` refuses every form.
+Inside the fix loop (Steps 2–8), never run a whole-package suite — verify each fix with its own tests. The ONE whole-suite run this playbook prescribes is Step 10: `{PACKAGE}`'s own full suite, once, after every fix is in. Never a tier switch (`-Fast`, `-Unit`, …), `-All`, `-Rerun`, several packages, or `affected-gate.ps1`, and never a consuming package's whole suite.
 
 `failure-data.json` already carries a ready-to-run `test_command` per cluster representative — use it. If you must construct one by hand (e.g. for a non-representative member): dots→`/` for the module path, keep `::` — `tests.module.test_file.TestClass::test_method` → `tests/module/test_file.py::TestClass::test_method`.
 
@@ -168,9 +168,22 @@ Once, after ALL fixes (the dispatcher does it once over the union when fixes wer
    ```
 3. A changed behaviour no tagged test covers gets a new, tagged test now.
 
-Never a whole suite: `guard-full-suite-runs.py` refuses it for every agent.
+Consuming packages get the tag runs above, never their whole suites.
 
-### Step 10: Report
+### Step 10: Full Suite of `{PACKAGE}`
+
+After Step 9 is green, run `{PACKAGE}`'s entire test suite once — the proof that everything is fixed and nothing in the package regressed:
+
+```
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE}
+```
+
+- Exactly this form: one package, no other flag. A full suite runs for tens of minutes — launch it with `run_in_background` and resume on the completion notification; never poll with `sleep`.
+- It writes a new `.test_results/test-results-*/` run. **PASSED** (zero failed, zero error) → Step 11.
+- **FAILED** → the new run is your input: return to Step 1 with its `index.json` and work every cluster and warning it reports, whether your fixes caused it or it was already there (a failure you found is yours). Then Steps 7–9 for those fixes, then this step again. Re-run the full suite only after every cluster from the previous run passes its targeted tests — a re-run with a known failure still open is a wasted run.
+- The turn ends at a PASSED full suite or a valid B1–B4 blocker with its four-part proof — never at "the originally reported clusters pass".
+
+### Step 11: Report
 
 ```
 FIX-{PACKAGE} COMPLETE
@@ -178,6 +191,7 @@ Test results: {index.json path}
 Original issues: {E} errors, {F} failures in {C} clusters, {W} warnings
 Fixed: {file:line} — {what changed} — {cluster #id / warning category}   (one line each)
 Verification: originally-failing tests {PASS/FAIL}; warnings resolved {N}/{total}; regression check {PASS/FAIL} ({pass}/{total}; tags {list} over packages {list})
+Full suite: {PACKAGE} {PASSED/FAILED} ({passed} passed, {failed} failed, {error} error, {skipped} skipped) — {run dir}
 Unresolved (if any): {cluster/warning} — {reason}
 ```
 
@@ -194,7 +208,7 @@ If the root cause is in a different project, do NOT fix it directly. Report the 
 - **NO exploring the project structure** — read `.project-structure.md` and the context above; don't rediscover it
 - **NO hand-parsing what the scripts extract** — `collect-failure-data.ps1` and `extract-warnings.ps1` own the run-dir parsing; read their JSON
 - **NO reading every file in failures/** — cluster representatives only, and only when the embedded `traceback_tail` is insufficient
-- **NO whole-suite runs, ever** — verify individual tests per fix; one tag-based regression check at the end (Step 9)
+- **NO whole-suite runs inside the fix loop** — verify individual tests per fix; one tag-based regression check (Step 9); then exactly one full suite of `{PACKAGE}` per pass (Step 10), never of another package
 - **NO cross-package fixes** — hand off via the other project's fix skill
 - **NO security downgrade to reach green** — no disabled/loosened auth, TLS, CORS, permission, or validation check; no hardcoded or logged secret; no fail-open guard; no widened permission. The control is the requirement (§13)
 - **NO expedient fix** — nothing whose justification is "for now", "temporary", "minimal to get it green", or "to save context". Fix what the defect deserves (§14)
