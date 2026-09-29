@@ -164,7 +164,7 @@ def discover_packages_registering(base_dir: Path, group: str) -> list[PackageSrc
 
 def declared_probe_routes() -> dict[str, frozenset[str]]:
     """Registered language name -> the probe routes its runtime spec declares."""
-    from datrix_common.generation.language_runtime_spec import (
+    from datrix_codegen_kernel.generation.language_runtime_spec import (
         discover_language_runtime_spec,
     )
     from datrix_common.plugin.identity import LanguageId
