@@ -623,7 +623,7 @@ Full decision log: [Architecture Overview — Decision 46](./architecture-overvi
 
 ## Foundation Package Restructure — Smaller Shared Packages
 
-Change reach is computed per package, and the two shared layers were each one package every consumer took whole: an edit anywhere in `datrix-common` (24.9% of all tests) or `datrix-codegen-common` reached every package downstream, though most consumers used a small slice (platforms, SQL and component need 24.7k of codegen-common's 87k lines). The shared layers split into packages that each hold what their consumers share: `datrix-common` (core: model, config, types, plugin and deployment declarations), `datrix-semantic`, `datrix-migration`, `datrix-codegen-kernel` (generation framework, GenDSL, provider library, SQL facts — everything every generator needs), `datrix-codegen-common` (the language layer), `datrix-codegen-typescript-core` (TypeScript transpiler core and web-client mechanics), `datrix-testing` (test extra only). **Approved — implementation in progress; until each package is extracted, the Packages table above describes the tree as it is.**
+Change reach is computed per package, and the two shared layers were each one package every consumer took whole: an edit anywhere in `datrix-common` (24.9% of all tests) or `datrix-codegen-common` reached every package downstream, though most consumers used a small slice (platforms, SQL and component need 24.7k of codegen-common's 87k lines). The shared layers split into packages that each hold what their consumers share: `datrix-common` (core: model, config, types, plugin and deployment declarations), `datrix-semantic`, `datrix-migration`, `datrix-codegen-kernel` (generation framework, GenDSL, provider library, SQL facts — everything every generator needs), `datrix-codegen-common` (the language layer), `datrix-codegen-typescript-core` (TypeScript transpiler core and web-client mechanics), `datrix-testing` (test extra only). **Adopted — the Packages table above is the current tree.**
 
 | # | Invariant | Check |
 |---|---|---|
@@ -638,7 +638,7 @@ Change reach is computed per package, and the two shared layers were each one pa
 
 A module is placed by who uses it: the nearest package every consumer already depends on, plus everything a kernel module imports; a pure derivation over the model lives beside the model; a module holding a core fact beside an upper-layer one is split, never admitted whole. Tooling derives rather than lists: the shared set from entry-point registration, install order from declared dependencies, and a moved file keeps its path-keyed baseline entries as a rename.
 
-Full decision log: [Architecture Overview — Decision 50](./architecture-overview.md#decision-50-foundation-package-restructure--smaller-shared-packages-narrower-change-reach-approved--implementation-in-progress).
+Full decision log: [Architecture Overview — Decision 50](./architecture-overview.md#decision-50-foundation-package-restructure--smaller-shared-packages-narrower-change-reach-adopted).
 
 ## Transpiler pipeline (per file)
 

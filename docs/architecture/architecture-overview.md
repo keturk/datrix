@@ -1932,7 +1932,7 @@ and it had one latent defect.
 
 ---
 
-### Decision 50: Foundation Package Restructure — Smaller Shared Packages, Narrower Change Reach (Approved — Implementation In Progress)
+### Decision 50: Foundation Package Restructure — Smaller Shared Packages, Narrower Change Reach (Adopted)
 
 **Rationale:**
 
@@ -2020,9 +2020,18 @@ downstream. Measured on 2026-09-27:
 - **Separating config from the model.** They are co-dependent by design.
 - **Moving the model into `datrix-language`.** Every generator reads it.
 
-**Status:** Approved — Implementation In Progress (approved 2026-09-27). Until each package is
-extracted, the dependency graph above and the package docs describe the tree as it is; each
-extraction updates them in the same change.
+**Status:** Adopted. All eight invariants hold today: the `layers` import-linter contract
+enforces I1 with zero ignored edges in every package; a fresh-subprocess test proves I2
+(importing the core loads no generation, migration or semantic code) and I3 (the kernel loads
+no language-layer module); the platform and SQL subtree allowlists are deleted and the manifest-
+import parity gate holds every platform, SQL and component manifest to zero `datrix-codegen-common`
+dependency (I4); the web-client allowlist is deleted and no frontend target declares the backend
+language package (I5); the shared-layer ratchets derive their scope from entry-point registration
+and fail loud on an unclassified package (I6); no re-export facade survived a phase and each moved
+symbol resolves through exactly one import path (I7); the tagged tests of every reached package
+stayed green through each phase (I8). `datrix-codegen-azure` keeps one interim `datrix-semantic`
+dependency, for the Flexible Server connection-capacity table — tracked as its own finding, not a
+gap in this decision.
 
 ---
 
