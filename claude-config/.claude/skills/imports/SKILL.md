@@ -31,7 +31,7 @@ disable-model-invocation: true
 - `datrix_common.transpiler.protocols` → `TranspilerStateProtocol`
 - `datrix_common.generation.language_helpers` → `_derive_default_dialect`, `_build_service_map`, `_register_module_level_names`, `effective_observability_config`
 - `datrix_common.generation.import_paths` → `build_entity_import_paths`
-- `datrix_common.generation.sample_values` → `select_sample_index`
+- `datrix_codegen_python.generation.sample_values` → `select_sample_index`
 - `datrix_common.generation.registry` → `GeneratorDep`, `SubGeneratorSpec`
 - `datrix_common.generation.validation` → `require_mapped_type`, `validate_template_dir`, `require_deployment_field`
 - `datrix_common.generation.defaults` → `build_project_config`
@@ -48,10 +48,9 @@ disable-model-invocation: true
 - `datrix_common.config.project` → `ProjectConfig`, `InfraImageCatalog`, `PlatformsConfig`
 - `datrix_common.config.project.catalog` → `get_dependency_version`, `CatalogLookupError`
 - `datrix_common.config.datasource` → `BrokerEngine`, `CacheEngine`, `get_broker_engine`, `get_cache_engine`, `KAFKA`, `REDIS`, `all_broker_engines`, `all_cache_engines` (plus `rdbms_engine`, `nosql_engine`, models, loader)
-- `datrix_common.secrets` → `SecretStore`, `generate_password`, `generate_secret_key`
+- `datrix_codegen_docker.secrets` → `SecretStore`, `generate_password`, `generate_secret_key`
 - `datrix_common.infra.registry` → `InfraRegistry`, `InfraGroup`, `InfraIdentity`
-- `datrix_common.infra.images` → (docstring-only; deployment values from config models, test values from `datrix_common.testing.infra_constants`)
-- `datrix_common.testing.infra_constants` → `RDBMS_DEPLOYMENT_DEFAULTS`, `CACHE_DEPLOYMENT_DEFAULTS`, `PUBSUB_DEPLOYMENT_DEFAULTS`, `NOSQL_DEPLOYMENT_DEFAULTS`
+- `datrix_testing.infra_constants` (test/dev extra only) → `RDBMS_DEPLOYMENT_DEFAULTS`, `CACHE_DEPLOYMENT_DEFAULTS`, `PUBSUB_DEPLOYMENT_DEFAULTS`, `NOSQL_DEPLOYMENT_DEFAULTS`
 - `datrix_common.config.datasource.rdbms_engine` → `RdbmsEngine`, `POSTGRES`, `MYSQL`, `MARIADB`, `get_rdbms_engine`, `get_rdbms_engine_by_sql_dialect`, `all_rdbms_engines`
 - `datrix_common.errors.configuration` → `ConfigurationError`, `ConfigFileNotFoundError`, `ConfigParseError`, `ConfigValidationError`
 - `datrix_common.utils.engine_helpers` → `engine_str`, `validate_engine`, `resolve_sql_dialect`

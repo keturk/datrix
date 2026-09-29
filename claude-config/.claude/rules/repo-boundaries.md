@@ -15,10 +15,13 @@ pushed unless a human notices:
 `datrix-codegen-typescript-core`, `datrix-common`, `datrix-extensions`, `datrix-language`,
 `datrix-migration`, `datrix-semantic`, `datrix-testing`, `datrix-vscode`
 
-`datrix-codegen-kernel`, `datrix-codegen-typescript-core`, `datrix-migration`,
-`datrix-semantic` and `datrix-testing` are cloned, not-yet-populated repositories (a
-README and a LICENSE only). They are git repos all the same, so the placement rules below
-bind them already.
+`datrix-codegen-kernel`, `datrix-codegen-typescript-core`, `datrix-migration` and
+`datrix-semantic` are cloned, not-yet-populated repositories (a README and a LICENSE
+only). They are git repos all the same, so the placement rules below bind them already.
+
+`datrix-testing` is the shared test harness (`datrix_testing`): every package takes it as
+a `dev` extra, never as a runtime dependency. The `pytest11` feature-tag plugin
+(`datrix_common.testing.feature_tags`) stays in `datrix-common`.
 
 **The count is not a constant.** This list grows as targets are added — a new language, a
 new platform, or a new frontend target is a new repo. Update the list and the heading in
