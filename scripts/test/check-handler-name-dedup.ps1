@@ -14,7 +14,7 @@
  shape over a derived REST handler / controller method name.
 
  Every handler name is derived ONCE, in the shared API-level derivation
- (datrix_common.generation.api_helpers: compute_rest_api_handler_names /
+ (datrix_codegen_kernel.generation.api_helpers: compute_rest_api_handler_names /
  rest_api_handler_names_by_endpoint), which REFUSES to hand two endpoints of
  one rest_api a single name -- it raises, naming both routes. A package-local
  de-duplicator does the opposite: it renames one side of the collision

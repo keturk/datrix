@@ -2,7 +2,7 @@
 """Hard-zero gate: no ``datrix-codegen-*`` package may de-duplicate a handler name.
 
 Every REST handler / controller method name is derived ONCE, in the shared
-API-level derivation (``datrix_common.generation.api_helpers``:
+API-level derivation (``datrix_codegen_kernel.generation.api_helpers``:
 ``compute_rest_api_handler_names`` / ``rest_api_handler_names_by_endpoint``).
 That derivation REFUSES to hand two endpoints of one ``rest_api`` a single
 name: it raises, naming both routes, so the author disambiguates the ``@path``.
@@ -474,7 +474,7 @@ def main(argv: list[str] | None = None) -> int:
             print(violation.render(base_dir))
         print(
             "\nA REST handler/controller method name is derived once, in "
-            "datrix_common.generation.api_helpers "
+            "datrix_codegen_kernel.generation.api_helpers "
             "(compute_rest_api_handler_names / rest_api_handler_names_by_endpoint), "
             "which RAISES on a collision naming both routes. Take the name from "
             "that table and re-case it with this package's own caser; pass any "
