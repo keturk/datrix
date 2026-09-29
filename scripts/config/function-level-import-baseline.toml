@@ -231,51 +231,51 @@ file = "datrix-common/src/datrix_common/deployment/secret_backend.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/api_helpers.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/api_helpers.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/app_context.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/app_context.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/entity_helpers.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/entity_helpers.py"
 count = 8
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/external_infrastructure.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/external_infrastructure.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/feature_catalog.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/feature_catalog.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/framework_secret_handles.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/framework_secret_handles.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/gateway_routes.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/gateway_routes.py"
 count = 4
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/generator.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/generator.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/generator_lineup.py"
+file = "datrix-cli/src/datrix_cli/generation/generator_lineup.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/hook_analysis.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/hook_analysis.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/import_paths.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/import_paths.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/incremental.py"
+file = "datrix-cli/src/datrix_cli/generation/incremental.py"
 count = 1
 
 [[baseline]]
@@ -283,15 +283,15 @@ file = "datrix-codegen-common/src/datrix_codegen_common/generation/language_gene
 count = 6
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/language_helpers.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/language_helpers.py"
 count = 9
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/language_runtime_spec.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/language_runtime_spec.py"
 count = 6
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/nested_collection_routes.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/nested_collection_routes.py"
 count = 5
 
 [[baseline]]
@@ -299,31 +299,31 @@ file = "datrix-codegen-common/src/datrix_codegen_common/generation/orchestrator.
 count = 11
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/payment_gateway_dsl.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/payment_gateway_dsl.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/plugin_helpers.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/plugin_helpers.py"
 count = 7
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/registry.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/registry.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/result.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/result.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/search_compose.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/search_compose.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/snapshot.py"
+file = "datrix-cli/src/datrix_cli/generation/snapshot.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/sub_generator.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/sub_generator.py"
 count = 3
 
 [[baseline]]
@@ -331,23 +331,23 @@ file = "datrix-codegen-common/src/datrix_codegen_common/generation/sub_generator
 count = 9
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/symbol_helpers.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/symbol_helpers.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/type_helpers.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/type_helpers.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/type_mapping_registry.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/type_mapping_registry.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/type_resolver.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/type_resolver.py"
 count = 9
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/validation.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/validation.py"
 count = 1
 
 [[baseline]]

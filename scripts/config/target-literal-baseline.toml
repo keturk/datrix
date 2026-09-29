@@ -190,21 +190,21 @@ count = 3
 # reason: shared doc-generator module referencing platform ids (AZURE_PLATFORM_ID
 # and friends) to label generated docs per target, not this task's scope.
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/doc_generator.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/doc_generator.py"
 count = 2
 
 # reason: single platform-named reference in the shared language-runtime-spec
 # module (DockerPlatformConfig), part of the same documented config-schema
 # surface as config/platform/*.py, not this task's scope.
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/language_runtime_spec.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/language_runtime_spec.py"
 count = 1
 
 # reason: single Azure-named constant in the shared search-compose module
 # (AZURE_AI_SEARCH), a real third-party search-provider id, not this task's
 # scope.
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/search_compose.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/search_compose.py"
 count = 1
 
 # reason: single docker-named path helper in the shared paths module

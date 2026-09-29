@@ -562,27 +562,27 @@ file = "datrix-codegen-azure/src/datrix_codegen_azure/azure_naming.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/alert_metrics.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/alert_metrics.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/api_helpers.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/api_helpers.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/client_output.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/client_output.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/conflict.py"
+file = "datrix-cli/src/datrix_cli/generation/conflict.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/entity_helpers.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/entity_helpers.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/extension_validation.py"
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/extension_validation.py"
 count = 1
 
 [[baseline]]
