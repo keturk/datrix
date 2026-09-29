@@ -145,6 +145,8 @@ If investigation reveals the root cause is in a different project than expected:
 2. If the root cause is in a different datrix package with its own fix skill, activate that skill. Every package has one, and the name is derived — `datrix-<name>` → `/fix-<name>`:
    - `datrix-cli` → `/fix-cli`
    - `datrix-common` → `/fix-common`
+   - `datrix-semantic` → `/fix-semantic`, `datrix-migration` → `/fix-migration`, `datrix-testing` → `/fix-testing`
+   - `datrix-codegen-kernel` → `/fix-codegen-kernel`, `datrix-codegen-typescript-core` → `/fix-codegen-typescript-core`
    - `datrix-codegen-python` → `/fix-codegen-python`
    - `datrix-codegen-typescript` → `/fix-codegen-typescript`
    - `datrix-codegen-angular` → `/fix-codegen-angular`, `datrix-codegen-flutter` → `/fix-codegen-flutter`, and so on for any codegen package

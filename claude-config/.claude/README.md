@@ -369,6 +369,9 @@ Skills that support delegation:
     fix-common/SKILL.md
     fix-extensions/SKILL.md
     fix-language/SKILL.md
+    fix-migration/SKILL.md
+    fix-semantic/SKILL.md
+    fix-testing/SKILL.md
     fix-vscode/SKILL.md
     fix-codegen-angular/SKILL.md
     fix-codegen-aws/SKILL.md
@@ -377,9 +380,11 @@ Skills that support delegation:
     fix-codegen-component/SKILL.md
     fix-codegen-docker/SKILL.md
     fix-codegen-flutter/SKILL.md
+    fix-codegen-kernel/SKILL.md
     fix-codegen-python/SKILL.md
     fix-codegen-sql/SKILL.md
     fix-codegen-typescript/SKILL.md
+    fix-codegen-typescript-core/SKILL.md
     codegen-review/SKILL.md
     codegen-fix-loop/SKILL.md
     complexity-reducer/SKILL.md
