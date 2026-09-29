@@ -129,7 +129,7 @@ If issues found after merge: `git revert` the PR. Language packages are independ
 
 ### LanguageGenerator Tests
 
-**Unit tests** (`datrix-common/tests/unit/generation/test_language_generator.py`):
+**Unit tests** (`datrix-codegen-common/tests/unit/generation/test_language_generator.py`):
 - `MinimalLanguageGenerator` — real subclass using real objects (PythonTranspiler, PythonTypeResolver), NOT mocks. Implements only the required abstract methods with the simplest valid objects.
 
 **Helper function tests** (`datrix-common/tests/unit/generation/test_language_helpers.py`):
@@ -154,7 +154,7 @@ If issues found after merge: `git revert` the PR. Language packages are independ
 
 ### LanguageTranspiler Tests
 
-**Unit tests** (`datrix-common/tests/unit/transpiler/test_language_transpiler.py`):
+**Unit tests** (`datrix-codegen-common/tests/unit/transpiler/test_language_transpiler.py`):
 - `test_set_known_entity_names()` — stores and retrieves
 - `test_reset_common_state_preserves_configuration()` — config preserved, per-file state cleared
 - `test_python_literal_keywords()` — `True` / `False` / `None`

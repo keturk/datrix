@@ -247,7 +247,7 @@ cover. See [Architecture Overview — Decision 41](../architecture-overview.md#d
 Generators and domain extensions load through **setuptools entry-point groups** discovered at runtime (see table). Cross-cutting pieces:
 
 - **Protocols** — Code generators implement `GeneratorPlugin`; platform generators implement `PlatformPlugin`. **Language targets subclass `LanguageGenerator`** (`datrix_codegen_common.generation.language_generator`): `generate()` is `@final` in the base class; subclasses implement **ten abstract methods**. See [code-generation.md](../../../../datrix-common/docs/architecture/code-generation.md#consolidated-generator-infrastructure) in datrix-common.
-- **`TypeMappingRegistry`** (`datrix_common.generation.type_mapping_registry`) — each registered language maps canonical `TypeRegistry` types (`global_registry.register_language()` at import time).
+- **`TypeMappingRegistry`** (`datrix_codegen_kernel.generation.type_mapping_registry`) — each registered language maps canonical `TypeRegistry` types (`global_registry.register_language()` at import time).
 - **`LanguageHooks` / `LanguageRuntimeSpec`** — reached as facets of each language's `LanguagePlugin` aggregate (registered under `datrix.languages`, not as standalone entry-point groups): post-write formatting and validation hooks, and infrastructure details for Docker (Dockerfile context, health checks, migration commands), respectively.
 
 ### Entry Point Groups
@@ -259,7 +259,7 @@ Generators and domain extensions load through **setuptools entry-point groups** 
 | `datrix.languages` | Aggregate language plugins (Python, TypeScript) bundling generator, hooks, runtime spec, type mappings, transpiler profile, migration adapter, and gendsl behind one registration | `LanguagePlugin` |
 | `datrix.extensions` | Domain extension packs (types, builtins, DB extension names, templates) | `DatrixExtension` |
 
-There is no `datrix.language_hooks` or `datrix.language_runtime_spec` entry-point group — both protocols travel as facets of the one `LanguagePlugin` registered per language (Decision 23, [Architecture Overview](../architecture-overview.md#decision-23-generation-pipeline-and-plugin-coherence-adopted)). All protocols are defined in `datrix-common` (see `datrix_common.plugin.protocol`, `datrix_common.plugin.extension`, `datrix_common.plugin.language_plugin`, `datrix_common.generation.language_hooks`, `datrix_common.generation.language_runtime_spec`). The CLI and pipeline discover every plugin kind — generators, platforms, languages, and extensions — through one `PluginRegistry` discovery path, one cache, and one error family. Users only install the generators they need — no unused dependencies. Install **`datrix-extensions`** only when using `use extension` in `system.dtrx`.
+There is no `datrix.language_hooks` or `datrix.language_runtime_spec` entry-point group — both protocols travel as facets of the one `LanguagePlugin` registered per language (Decision 23, [Architecture Overview](../architecture-overview.md#decision-23-generation-pipeline-and-plugin-coherence-adopted)). The plugin protocols are defined in `datrix-common` (see `datrix_common.plugin.protocol`, `datrix_common.plugin.extension`, `datrix_common.plugin.language_plugin`, `datrix_common.plugin.hook_outcome`, `datrix_codegen_kernel.generation.language_runtime_spec`); the language post-generation hooks protocol `LanguageHooks` is defined in `datrix-codegen-common` (`datrix_codegen_common.generation.language_hooks`) and mirrored for the core by `datrix_common.plugin.framework_protocols.LanguageHooksProtocol`. The CLI and pipeline discover every plugin kind — generators, platforms, languages, and extensions — through one `PluginRegistry` discovery path, one cache, and one error family. Users only install the generators they need — no unused dependencies. Install **`datrix-extensions`** only when using `use extension` in `system.dtrx`.
 
 ---
 
@@ -360,7 +360,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
 
 ### Pipeline integration
 
-The high-level flow is: **parse** records extension directives on the AST → **registry / type registry** APIs load and validate packs when invoked → **semantic analysis** and **generators** consume the resulting types and maps. Exact call ordering follows the implementation in `GenerationPipeline` and semantic analysis; language generation always receives declared names via `declared_extension_names(app)` (`datrix_common.generation.language_helpers`).
+The high-level flow is: **parse** records extension directives on the AST → **registry / type registry** APIs load and validate packs when invoked → **semantic analysis** and **generators** consume the resulting types and maps. Exact call ordering follows the implementation in `GenerationPipeline` and semantic analysis; language generation always receives declared names via `declared_extension_names(app)` (`datrix_codegen_kernel.generation.language_helpers`).
 
 ### Adding a New Language
 

@@ -513,7 +513,7 @@ transcript directories — is declared on that platform's
 that *emits* the tooling: the `docker` generator, never the `local` identity), resolved by
 `capability_resolution.untracked_project_artifacts_for(provider, runtime)` as the union of the
 provider and every scaffold contributor for the runtime, and appended by the shared
-`DocGenerator` (`datrix_common.generation.project_ignore`, which also carries the shared deploy
+`DocGenerator` (`datrix_codegen_kernel.generation.project_ignore`, which also carries the shared deploy
 wrappers' `.venv/`). A language template never re-types a platform's secret layout — two of
 four once carried docker's by hand and the other two would have committed every per-service
 database password on a first `git add -A`. The cross-platform parity gate does not compare the
@@ -526,7 +526,7 @@ test asserts the resolved set is a subset of its rendered file.
 Every header Datrix itself mints on a generated service's wire — the trusted-caller token, the
 delegated-user envelope, the three rate-limit response headers, the inbound webhook secret and
 the outbound webhook delivery headers — is a cross-language contract with one home,
-`datrix_common.generation.http_headers` (`FRAMEWORK_HEADERS`, keyed by family; retired names
+`datrix_codegen_common.generation.http_headers` (`FRAMEWORK_HEADERS`, keyed by family; retired names
 under `RETIRED_HEADERS`). A language package spells a framework header with the exact registered
 name or references its registry constant, never a private re-typing, and either realizes every
 family or declares the hole with a reason on
@@ -661,7 +661,7 @@ Orchestration: `StagePipeline` in **datrix-codegen-common** (`datrix_codegen_com
 - **Discovery:** `PluginRegistry.discover_extensions()`; load declared names: `load_declared_extensions(declared)`.
 - **Types:** `TypeRegistry.load_extensions(extensions)` when callers register pack scalars.
 - **Declared names in codegen:** `declared_extension_names(app)` → passed into `LanguageGenerator` / resolvers.
-- **Python maps:** `PYTHON_EXTENSION_MAPS` in `datrix_codegen_python.type_mappings`, merged by the shared `datrix_common.generation.type_mapping_registry.build_type_map` (raises `ExtensionNotSupportedError` if a declared extension has no Python map).
+- **Python maps:** `PYTHON_EXTENSION_MAPS` in `datrix_codegen_python.type_mappings`, merged by the shared `datrix_codegen_kernel.generation.type_mapping_registry.build_type_map` (raises `ExtensionNotSupportedError` if a declared extension has no Python map).
 - **Every language + SQL package:** same split-ownership pattern, already shipped — `TS_EXTENSION_MAPS` (`datrix_codegen_typescript.type_mappings`), `SQL_EXTENSION_MAPS` (`datrix_codegen_sql.type_mappings`) each merge into their core `*_TYPE_MAP` via `build_type_map()`, mirroring `PYTHON_EXTENSION_MAPS` above. A new language package is expected to ship its own `*_EXTENSION_MAPS` module the same way.
 
 Full guide: [extensions-guide.md](../../../datrix-extensions/docs/extensions-guide.md) · Core protocol: [datrix-common extensions](../../../datrix-common/docs/extensions.md).
@@ -704,7 +704,7 @@ Key rules:
 - Prometheus metrics, Grafana dashboards, cAdvisor, alert rules (the LOCAL/docker-native observability stack)
 - **Native-only observability per platform** — each target emits only its native providers (LOCAL: Prometheus/Jaeger/Loki/Grafana/Alertmanager; AWS: CloudWatch/X-Ray; Azure: Azure Monitor/App Insights). Each platform declares its native set on `PlatformCapabilityDeclaration`; a generic validator rejects non-native providers at the platform boundary (see architecture-overview Decision 27; design principle 10)
 - Export **volume** (trace sampling rate, log export floor, metric export interval) and platform-collected **diagnostics** (verbosity, retention, daily budget) are separate portable axes, orthogonal to the provider axis above — see Portable Telemetry Volume, Platform Diagnostics, and Realization Conformance above
-- Declaration-driven gateway realizations (NGINX, Azure APIM, AWS API Gateway), emitted when the system declares `gateway { }`; all consume the same shared route enumeration (`datrix_common.generation.gateway_routes`), so the public surface — including relationship-derived nested sub-collection routes — and per-route JWT enforcement can never diverge between them. **Gateway-minted routes no backend serves are a declared family registry** (`GATEWAY_SYNTHESIZED_ROUTE_FAMILIES` → `gateway_synthesized_routes`, covering the health-probe and OpenAPI discovery/spec families): every realization consumes the registry rather than naming builders, so registering a family reaches every target at once. Minting one inside a single platform's private route table is what shipped health routes, and later the whole OpenAPI surface, on nginx alone. Per-service routing derived from auth contracts; upstreams, health aliases, CORS, rate limit zones
+- Declaration-driven gateway realizations (NGINX, Azure APIM, AWS API Gateway), emitted when the system declares `gateway { }`; all consume the same shared route enumeration (`datrix_codegen_kernel.generation.gateway_routes`), so the public surface — including relationship-derived nested sub-collection routes — and per-route JWT enforcement can never diverge between them. **Gateway-minted routes no backend serves are a declared family registry** (`GATEWAY_SYNTHESIZED_ROUTE_FAMILIES` → `gateway_synthesized_routes`, covering the health-probe and OpenAPI discovery/spec families): every realization consumes the registry rather than naming builders, so registering a family reaches every target at once. Minting one inside a single platform's private route table is what shipped health routes, and later the whole OpenAPI surface, on nginx alone. Per-service routing derived from auth contracts; upstreams, health aliases, CORS, rate limit zones
 - ArcGIS FeatureServer paged ingestion (`arcgisFeatureLayer` integration kind): metadata-aware pagination, deterministic checksums, watermark optimization, archive/refresh modes
 
 ## Declared Work Lifecycle
