@@ -195,7 +195,7 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from datrix_codegen_common.parity.domain_declaration import DomainDeclaration  # noqa: E402
+from datrix_codegen_kernel.parity.domain_declaration import DomainDeclaration  # noqa: E402
 from datrix_codegen_common.testkit.fixtures.fixtureclient import fixture_client_target_descriptor  # noqa: E402
 from datrix_codegen_common.parity.domain_registry import (  # noqa: E402
     _RICH_CONTEXT_TYPES,
@@ -234,6 +234,7 @@ from shared.registered_targets import (  # noqa: E402
     AXIS_PLATFORMS,
     DATRIX_DIR,
     WORKSPACE_ROOT,
+    all_src_dirs,
     discover_all_other_package_src_dirs,
     discover_all_package_locations,
     discover_client_target_generator_src_dirs,
@@ -241,6 +242,7 @@ from shared.registered_targets import (  # noqa: E402
     registered_client_target_generator_names,
     registered_language_names,
     registered_platform_names,
+    resolve_target_src_dirs,
 )
 
 from test.behaviour_skeleton import (  # noqa: E402
@@ -327,8 +329,11 @@ _UNSUPPORTED_STATUS: Final[str] = "unsupported"
 #: symbol fails this constant rather than silently matching nothing.
 _EMIT_ADAPTER_QUALIFIED_NAME: Final[str] = f"{emit_adapter.__module__}.{emit_adapter.__qualname__}"
 #: Only a product type defined under one of these shared modules is eligible
-#: for ladder step 2 (module-basename resolution).
+#: for ladder step 2 (module-basename resolution). The target-neutral context
+#: models (serverless, migration, replayable ingestion, NoSQL connection) live
+#: in the kernel; the language-shaped ones in the language layer.
 _ELIGIBLE_CONTEXT_MODULE_PREFIXES: Final[tuple[str, ...]] = (
+    "datrix_codegen_kernel.context_models.",
     "datrix_codegen_common.context_models.",
     "datrix_codegen_common.orchestration.contexts.",
 )
@@ -741,7 +746,7 @@ def _locate_module_file(module_name: str) -> tuple[Path, Path] | None:
     leaves the qualified name unchanged rather than guessing.
 
     Args:
-        module_name: A dotted module path (e.g. ``"datrix_codegen_common.platform"``).
+        module_name: A dotted module path (e.g. ``"datrix_codegen_kernel.platform"``).
 
     Returns:
         ``(src_dir, file_path)`` for the resolved file, or ``None``.
@@ -790,8 +795,8 @@ def _resolve_static_reexport(qualified_name: str, *, _hops: int = 0) -> str:
     the two-package comparison floor and vanish from the report -- exactly
     what happened to AWS's ``provision_queue``/``provision_serverless``
     before this canonicalization existed (AWS imported ``ManagedServicePlan``
-    from ``datrix_codegen_common.platform``, Azure/Docker from
-    ``datrix_codegen_common.platform.value_objects``; the two textually
+    from the ``platform`` package re-export, Azure/Docker from the
+    ``platform.value_objects`` submodule; the two textually
     distinct qualified names hid AWS's declarations from the role Azure and
     Docker shared).
 
@@ -1108,15 +1113,17 @@ def _is_excluded_name_role(key: RoleKey, members: list[FunctionSource], other_ba
 
 
 def key_functions_by_role(
-    target_src_dirs: Mapping[str, Path],
+    target_src_dirs: Mapping[str, tuple[Path, ...]],
     tokens_by_label: Mapping[str, frozenset[str]],
 ) -> dict[RoleKey, list[FunctionSource]]:
-    """Collect every target package's functions and key each into its role
-    (the two-key ladder of ``_role_key_for``) -- every role, including those
-    with a single member package.
+    """Collect every target's functions -- across EVERY package implementing
+    it, a language core included -- and key each into its role (the two-key
+    ladder of ``_role_key_for``) -- every role, including those with a single
+    member package. A core's functions carry their target's label, so they are
+    members of the same target, never of a separate package.
 
     Args:
-        target_src_dirs: ``{label: src_dir}`` for every package to compare.
+        target_src_dirs: ``{label: (src dir, ...)}`` for every target to compare.
         tokens_by_label: ``{label: token vocabulary}`` for every label in
             *target_src_dirs*.
 
@@ -1128,10 +1135,11 @@ def key_functions_by_role(
         SkeletonError: An unparseable file or an unclassifiable annotation.
     """
     by_role: dict[RoleKey, list[FunctionSource]] = {}
-    for label, src_dir in target_src_dirs.items():
+    for label, src_dirs in target_src_dirs.items():
         package_tokens = tokens_by_label[label]
-        for fn in collect_function_sources(src_dir, label):
-            by_role.setdefault(_role_key_for(fn, package_tokens), []).append(fn)
+        for src_dir in src_dirs:
+            for fn in collect_function_sources(src_dir, label):
+                by_role.setdefault(_role_key_for(fn, package_tokens), []).append(fn)
     return by_role
 
 
@@ -1178,7 +1186,7 @@ def classify_keyed_roles(
 
 
 def group_and_classify_roles(
-    target_src_dirs: dict[str, Path],
+    target_src_dirs: Mapping[str, tuple[Path, ...]],
     tokens_by_label: dict[str, frozenset[str]],
     other_src_dirs: list[Path],
 ) -> list[RoleVerdict]:
@@ -1191,7 +1199,7 @@ def group_and_classify_roles(
     injected tokens, never a live plugin.
 
     Args:
-        target_src_dirs: ``{label: src_dir}`` for every package to compare.
+        target_src_dirs: ``{label: (src dir, ...)}`` for every target to compare.
         tokens_by_label: ``{label: token vocabulary}`` for every label in
             *target_src_dirs* (from ``tokens_for``, or injected by the
             self-test).
@@ -1218,15 +1226,21 @@ class RoleScan:
     by_role: Mapping[RoleKey, tuple[FunctionSource, ...]]
 
 
-def discover_role_scan(axis: str, target_src_dirs: Mapping[str, Path], workspace_root: Path) -> RoleScan:
+def discover_role_scan(
+    axis: str, target_src_dirs: Mapping[str, tuple[Path, ...]], workspace_root: Path
+) -> RoleScan:
     """``discover_roles_for`` returning the keyed map too: refuse a vacuous
     comparison, collect every other package's bare names, build each label's
     token vocabulary via the live registry, key every function into its
     role, and classify.
 
+    Every src dir implementing a compared target -- a language core included
+    -- belongs to that target, never to the "other package" set whose bare
+    names exclude name roles.
+
     Args:
         axis: ``AXIS_LANGUAGES`` or ``AXIS_PLATFORMS``.
-        target_src_dirs: ``{label: src_dir}`` from
+        target_src_dirs: ``{label: (src dir, ...)}`` from
             ``discover_target_package_src_dirs``.
         workspace_root: The monorepo root.
 
@@ -1238,20 +1252,22 @@ def discover_role_scan(axis: str, target_src_dirs: Mapping[str, Path], workspace
         SkeletonError: An unparseable or unclassifiable member.
     """
     _require_min_packages(axis, frozenset(target_src_dirs))
-    other_src_dirs = discover_all_other_package_src_dirs(workspace_root, frozenset(target_src_dirs.values()))
+    other_src_dirs = discover_all_other_package_src_dirs(workspace_root, all_src_dirs(target_src_dirs))
     tokens_by_label = {label: tokens_for(axis, label) for label in target_src_dirs}
     by_role = key_functions_by_role(dict(target_src_dirs), tokens_by_label)
     verdicts = classify_keyed_roles(by_role, other_src_dirs)
     return RoleScan(verdicts=verdicts, by_role={key: tuple(members) for key, members in by_role.items()})
 
 
-def discover_roles_for(axis: str, target_src_dirs: Mapping[str, Path], workspace_root: Path) -> list[RoleVerdict]:
+def discover_roles_for(
+    axis: str, target_src_dirs: Mapping[str, tuple[Path, ...]], workspace_root: Path
+) -> list[RoleVerdict]:
     """Scan the already-resolved *target_src_dirs* on *axis* and return only
     the classified roles -- ``discover_role_scan(...).verdicts``.
 
     Args:
         axis: ``AXIS_LANGUAGES`` or ``AXIS_PLATFORMS``.
-        target_src_dirs: ``{label: src_dir}`` from
+        target_src_dirs: ``{label: (src dir, ...)}`` from
             ``discover_target_package_src_dirs``.
         workspace_root: The monorepo root.
 
@@ -1838,6 +1854,21 @@ def collect_emit_tables(src_dir: Path) -> tuple[EmitTable[object], ...]:
     return tuple(tables.values())
 
 
+def collect_emit_tables_across(src_dirs: Iterable[Path]) -> tuple[EmitTable[object], ...]:
+    """``collect_emit_tables`` over every package implementing one target,
+    deduplicated by identity -- a table one package defines and another
+    re-imports is one table.
+
+    Raises:
+        ValueError: A module or package under any of *src_dirs* cannot be imported.
+    """
+    tables: dict[int, EmitTable[object]] = {}
+    for src_dir in src_dirs:
+        for table in collect_emit_tables(src_dir):
+            tables.setdefault(id(table), table)
+    return tuple(tables.values())
+
+
 def is_emit_adapter_member(member: FunctionSource) -> bool:
     """Whether *member* carries the ``@emit_adapter`` marker, recognized
     STRUCTURALLY: one of its decorators resolves through the member's own
@@ -1947,7 +1978,7 @@ def _merge_declared(
     mappings: Iterable[Mapping[str, _DeclaredValue]], label: str, surface: str
 ) -> Mapping[str, _DeclaredValue]:
     """One declaration table for one package label: the registered names
-    folded into *label* (``registered_targets.fold_names_by_src_dir``) each
+    folded into *label* (``registered_targets.fold_names_by_src_dirs``) each
     carry a declaration, and a key two of them declare differently is
     ambiguous -- refused, never resolved by order."""
     merged: dict[str, _DeclaredValue] = {}
@@ -1963,7 +1994,7 @@ def _merge_declared(
 
 
 def live_exemption_surfaces(
-    target_src_dirs: Mapping[str, Path], registry: Mapping[BuiltinKey, BuiltinDecl]
+    target_src_dirs: Mapping[str, tuple[Path, ...]], registry: Mapping[BuiltinKey, BuiltinDecl]
 ) -> ExemptionSurfaces:
     """Read the three declared surfaces for every language package label from
     the live registry: domain stances through
@@ -1972,8 +2003,9 @@ def live_exemption_surfaces(
     adapter index through ``collect_emit_tables`` + ``adapter_group_index``.
 
     Args:
-        target_src_dirs: ``{label: src_dir}`` for every compared language
-            package.
+        target_src_dirs: ``{label: (src dir, ...)}`` for every compared
+            language; a label's emit tables are collected from every package
+            implementing it, a language core included.
         registry: The builtin registry the languages' tables were validated
             against.
 
@@ -1988,7 +2020,7 @@ def live_exemption_surfaces(
     on_demand: dict[str, Mapping[str, str]] = {}
     group_stances: dict[str, Mapping[str, BuiltinGroupStance]] = {}
     adapter_groups: dict[str, Mapping[AdapterIdentity, frozenset[str]]] = {}
-    for label, src_dir in target_src_dirs.items():
+    for label, src_dirs in target_src_dirs.items():
         names = label.split(_LABEL_JOIN_SEPARATOR)
         declarations = [_builtin_capability_for_language_axis_member(name) for name in names]
         # Domain stances and on-demand domains are a SERVER-axis-only
@@ -2008,7 +2040,7 @@ def live_exemption_surfaces(
         group_stances[label] = _merge_declared(
             [declaration.builtin_group_stances for declaration in declarations], label, "builtin_group_stances"
         )
-        tables = collect_emit_tables(src_dir)
+        tables = collect_emit_tables_across(src_dirs)
         adapter_groups[label] = adapter_group_index(tables, registry)
         logger.info(
             "exemption surfaces for %s: %d domain stance(s), %d on-demand domain(s), %d builtin-group stance(s), "
@@ -2700,7 +2732,7 @@ def _tokens(*labels: str) -> dict[str, frozenset[str]]:
 def _scan(root: Path, labels: tuple[str, ...], other_labels: tuple[str, ...] = ()) -> list[RoleVerdict]:
     """Run the core scan over the synthetic packages ``root/<label>``."""
     return group_and_classify_roles(
-        {label: root / label for label in labels},
+        {label: (root / label,) for label in labels},
         _tokens(*labels),
         [root / label for label in other_labels],
     )
@@ -3739,7 +3771,7 @@ def _self_test_case_client_target_generator_src_dir_resolution() -> bool:
             resolved = discover_client_target_generator_src_dirs(
                 frozenset({_SELF_TEST_SRCDIR_TARGET_NAME}), root, registry=PluginRegistry()
             )
-            resolves_correctly = resolved == {_SELF_TEST_SRCDIR_TARGET_NAME: package_src}
+            resolves_correctly = resolved == {_SELF_TEST_SRCDIR_TARGET_NAME: (package_src,)}
 
             unresolvable_name = "bogus-unresolvable-name"
             try:
@@ -3754,6 +3786,52 @@ def _self_test_case_client_target_generator_src_dir_resolution() -> bool:
         finally:
             registry_module.entry_points = original_entry_points
     return resolves_correctly and raised_naming_both
+
+
+def _self_test_case_language_core_is_a_member_not_an_other_package() -> bool:
+    """(z6) A fixture language split into a backend and a core: target
+    discovery resolves BOTH packages under the language's one label, the core
+    never lands in the "other package" set, and a function defined only in the
+    core is compared as that language's member. Fed the pre-split shape -- the
+    core scanned as an other package -- the same role is excluded, which is
+    exactly the blindness this case exists to keep closed."""
+    split_label, plain_label = "selftest_split_lang", "selftest_plain_lang"
+    backend, core, plain, shared = (
+        "datrix_selftest_split",
+        "datrix_selftest_split_core",
+        "datrix_selftest_plain",
+        "datrix_selftest_shared",
+    )
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-z6-") as tmp:
+        root = Path(tmp)
+        for import_name in (backend, core, plain, shared):
+            (root / import_name.replace("_", "-") / "src" / import_name).mkdir(parents=True)
+        locations = discover_all_package_locations(root)
+        resolved = resolve_target_src_dirs(
+            AXIS_LANGUAGES, {split_label: (backend, core), plain_label: (plain,)}, locations
+        )
+        body = "def core_planted_thing(value):\n    return value.strip()\n"
+        _write_module(locations[core], body)
+        _write_module(locations[plain], body)
+        _write_module(locations[backend], "def backend_only_thing(value):\n    return value\n")
+        others = discover_all_other_package_src_dirs(root, all_src_dirs(resolved))
+        verdicts = group_and_classify_roles(resolved, _tokens(split_label, plain_label), others)
+        seen = _name_roles(verdicts, "core_planted_thing")
+        blind = _name_roles(
+            group_and_classify_roles(
+                {split_label: (locations[backend],), plain_label: (locations[plain],)},
+                _tokens(split_label, plain_label),
+                [locations[core], locations[shared]],
+            ),
+            "core_planted_thing",
+        )
+    return (
+        resolved == {split_label: (locations[backend], locations[core]), plain_label: (locations[plain],)}
+        and others == [locations[shared]]
+        and _single_role_with_verdict(seen, _VERDICT_IDENTICAL)
+        and {member.package for member in seen[0].members} == {split_label, plain_label}
+        and not blind
+    )
 
 
 def _forget_self_test_package() -> None:
@@ -3843,7 +3921,7 @@ def _self_test_case_fingerprint_renamed_pair_reported() -> bool:
         _write_module(root / _SELF_TEST_ALPHA, _FINGERPRINT_ALPHA_SOURCE)
         _write_module(root / _SELF_TEST_BETA, _FINGERPRINT_BETA_RENAMED_SOURCE)
         labels = (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
-        by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+        by_role = key_functions_by_role({label: (root / label,) for label in labels}, _tokens(*labels))
         uncovered = uncovered_functions(by_role)
         groups = fingerprint_groups(uncovered)
         if len(groups) != 1:
@@ -3873,7 +3951,7 @@ def _self_test_case_fingerprint_near_match_divergent() -> bool:
         _write_module(root / _SELF_TEST_ALPHA, _FINGERPRINT_ALPHA_SOURCE)
         _write_module(root / _SELF_TEST_BETA, _FINGERPRINT_BETA_NEAR_SOURCE)
         labels = (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
-        by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+        by_role = key_functions_by_role({label: (root / label,) for label in labels}, _tokens(*labels))
         groups = fingerprint_groups(uncovered_functions(by_role))
         if len(groups) != 1:
             return False
@@ -3889,7 +3967,7 @@ def _self_test_case_fingerprint_covered_pair_absent() -> bool:
         _write_module(root / _SELF_TEST_ALPHA, _FINGERPRINT_ALPHA_SOURCE)
         _write_module(root / _SELF_TEST_BETA, _FINGERPRINT_ALPHA_SOURCE)
         labels = (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
-        by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+        by_role = key_functions_by_role({label: (root / label,) for label in labels}, _tokens(*labels))
         uncovered = uncovered_functions(by_role)
         not_reopened = all(fn.qualified_name != "resolve_widget_limits" for fn in uncovered)
         return not_reopened and fingerprint_groups(uncovered) == []
@@ -3906,20 +3984,20 @@ def _self_test_case_fingerprint_thresholds() -> bool:
         _write_module(root / _SELF_TEST_ALPHA, _FINGERPRINT_UNDERSIZE_ALPHA_SOURCE)
         _write_module(root / _SELF_TEST_BETA, _FINGERPRINT_UNDERSIZE_BETA_SOURCE)
         labels = (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
-        by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+        by_role = key_functions_by_role({label: (root / label,) for label in labels}, _tokens(*labels))
         ok = ok and fingerprint_groups(uncovered_functions(by_role)) == []
     with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-fp4b-") as tmp:
         root = Path(tmp)
         _write_module(root / _SELF_TEST_ALPHA, _FINGERPRINT_NO_MODEL_ALPHA_SOURCE)
         _write_module(root / _SELF_TEST_BETA, _FINGERPRINT_NO_MODEL_BETA_SOURCE)
         labels = (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
-        by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+        by_role = key_functions_by_role({label: (root / label,) for label in labels}, _tokens(*labels))
         ok = ok and fingerprint_groups(uncovered_functions(by_role)) == []
     with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-fp4c-") as tmp:
         root = Path(tmp)
         _write_module(root / _SELF_TEST_ALPHA, f"{_FINGERPRINT_ALPHA_SOURCE}\n\n{_FINGERPRINT_BETA_RENAMED_SOURCE}")
         labels = (_SELF_TEST_ALPHA,)
-        by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+        by_role = key_functions_by_role({label: (root / label,) for label in labels}, _tokens(*labels))
         uncovered = uncovered_functions(by_role)
         ok = ok and len(uncovered) == 2 and fingerprint_groups(uncovered) == []
     return ok
@@ -3938,7 +4016,7 @@ def _self_test_case_fingerprint_report_only() -> bool:
             _write_module(root / _SELF_TEST_ALPHA, _FINGERPRINT_ALPHA_SOURCE)
             _write_module(root / _SELF_TEST_BETA, beta_source)
             labels = (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
-            by_role = key_functions_by_role({label: root / label for label in labels}, _tokens(*labels))
+            by_role = key_functions_by_role({label: (root / label,) for label in labels}, _tokens(*labels))
             uncovered = uncovered_functions(by_role)
             uncovered_total += len(uncovered)
             scan_groups = fingerprint_groups(uncovered)
@@ -4124,6 +4202,12 @@ def run_self_test() -> bool:
         _self_test_case_client_target_generator_src_dir_resolution(),
         "(z5) discover_client_target_generator_src_dirs resolves a planted fixture to its on-disk src/ "
         "directory, and raises naming the unresolved name and the discovered roots when it cannot",
+    )
+    ok &= _assert(
+        _self_test_case_language_core_is_a_member_not_an_other_package(),
+        "(z6) a fixture language split into a backend and a core resolves both packages under one label; "
+        "a function planted only in the core is compared as that language's member, and the core is never "
+        "an 'other package' (fed as one, the role is excluded)",
     )
     ok &= _assert(
         _self_test_case_fingerprint_renamed_pair_reported(),
