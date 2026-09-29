@@ -170,7 +170,7 @@ count = 3
 # package as part of ongoing platform-package boundary work, not this task's
 # scope.
 [[baseline]]
-file = "datrix-common/src/datrix_common/deployment/azure_naming.py"
+file = "datrix-codegen-azure/src/datrix_codegen_azure/azure_naming.py"
 count = 4
 
 # reason: shared deployment runtime-bootstrap module referencing every platform's
@@ -227,21 +227,21 @@ count = 4
 # part of the same documented config-schema surface as config/platform/*.py,
 # not this task's scope.
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/context.py"
+file = "datrix-testing/src/datrix_testing/context.py"
 count = 1
 
 # reason: shared generation-determinism test fixtures with platform-named helper
 # functions (per-provider infra-sizing/upgrade/parse helpers exercised across
 # AWS and Azure fixtures), not this task's scope.
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/determinism_fixtures.py"
+file = "datrix-testing/src/datrix_testing/determinism_fixtures.py"
 count = 7
 
 # reason: single platform-named identity example in the shared testing fixtures
 # module, part of the same documented config-schema surface as
 # config/platform/*.py, not this task's scope.
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/identity_example.py"
+file = "datrix-testing/src/datrix_testing/identity_example.py"
 count = 1
 
 # reason: shared testing infra-constants module's repeated docker_image-typed
@@ -249,7 +249,7 @@ count = 1
 # documented config-schema surface as config/platform/*.py, not this task's
 # scope.
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/infra_constants.py"
+file = "datrix-testing/src/datrix_testing/infra_constants.py"
 count = 12
 
 # reason: references datrix_common's documented AzurePlatformConfig type

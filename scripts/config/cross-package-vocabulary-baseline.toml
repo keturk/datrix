@@ -163,7 +163,7 @@ file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/graphql_ts_fi
 count = 3
 
 [[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/pubsub_render.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/pubsub_engines.py"
 count = 1
 
 [[baseline]]
@@ -558,7 +558,7 @@ count = 1
 reason = "TEMPORAL_INPUT_KIND_BY_SCALAR_NAME: the UI input kind (date/dateTime/time) each temporal scalar derives to, the one table the UI derivation and the UI validator both read. Its key set (Date, DateTime, Time) coincides with Python's cross-field test inference set and the migration canonicalizer's timestamp category because every one enumerates the DSL's temporal scalars; each maps them to a different fact of its own subsystem."
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/deployment/azure_naming.py"
+file = "datrix-codegen-azure/src/datrix_codegen_azure/azure_naming.py"
 count = 1
 
 [[baseline]]
@@ -586,7 +586,7 @@ file = "datrix-common/src/datrix_common/generation/extension_validation.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/generation/health_check.py"
+file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/infra/health_check.py"
 count = 1
 
 [[baseline]]
@@ -636,11 +636,11 @@ count = 2
 reason = "SPEC_ASSERTION_BUILTIN_NAMES and SPEC_STATEMENT_BUILTIN_NAMES: the declared spec-test builtin vocabularies every language's lowering table is keyed by. This IS the one home; each language's lowering table (python transpiler/_expr_call_dispatch.py and transpiler/visitor_statements.py, each its own reasoned entry) holds that language's own emitted callables or method names under the same keys and is held equal to the obligation computed for it by that package's seam test."
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/determinism_fixtures.py"
+file = "datrix-testing/src/datrix_testing/determinism_fixtures.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/infra_constants.py"
+file = "datrix-testing/src/datrix_testing/infra_constants.py"
 count = 1
 
 [[baseline]]

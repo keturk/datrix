@@ -77,10 +77,6 @@ file = "datrix-common/src/datrix_common/config/deployment_validation.py"
 count = 5
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/config/env_ref_scan.py"
-count = 1
-
-[[baseline]]
 file = "datrix-common/src/datrix_common/config/integrations/detection.py"
 count = 5
 
@@ -379,7 +375,7 @@ file = "datrix-common/src/datrix_common/migration/schema_snapshot.py"
 count = 15
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/observability_validation.py"
+file = "datrix-common/src/datrix_common/datrix_model/observability_validation.py"
 count = 6
 
 [[baseline]]
@@ -711,39 +707,39 @@ file = "datrix-common/src/datrix_common/semantic/validators/verify_contract.py"
 count = 4
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/conftest_plugin.py"
+file = "datrix-testing/src/datrix_testing/conftest_plugin.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/determinism_fixtures.py"
+file = "datrix-testing/src/datrix_testing/determinism_fixtures.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/factories.py"
+file = "datrix-testing/src/datrix_testing/factories.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/fixtures.py"
+file = "datrix-testing/src/datrix_testing/fixtures.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/identity_example.py"
+file = "datrix-testing/src/datrix_testing/identity_example.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/parsing.py"
+file = "datrix-testing/src/datrix_testing/parsing.py"
 count = 8
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/pipelines.py"
+file = "datrix-testing/src/datrix_testing/pipelines.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/platform_configs.py"
+file = "datrix-codegen-docker/src/datrix_codegen_docker/platform_configs.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/testing/semantic_baseline.py"
+file = "datrix-testing/src/datrix_testing/semantic_baseline.py"
 count = 1
 
 [[baseline]]
