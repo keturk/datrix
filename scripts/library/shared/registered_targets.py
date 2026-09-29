@@ -18,16 +18,22 @@ Run directly to print the set for shell consumption::
     python registered_targets.py languages   # one name per line, sorted
     python registered_targets.py platforms
 
-Every script that also needs "which on-disk ``src/`` directory backs this
+Every script that also needs "which on-disk ``src/`` directories implement this
 registered target" sources it here too, via
 ``discover_target_package_src_dirs``/``discover_all_other_package_src_dirs`` --
-never a hardcoded ``datrix-codegen-{name}`` string-format assumption.
+never a hardcoded ``datrix-codegen-{name}`` string-format assumption. A target
+is implemented by the package registering its entry point PLUS every language
+core that package requires, so each target resolves to a tuple of src dirs; the
+backend-plus-cores derivation itself lives once, in
+``datrix_testing.target_distributions``, shared with every package's structural
+tests.
 """
 
 from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Final
 
@@ -41,6 +47,7 @@ from datrix_common.plugin.registry import (
     PluginRegistry,
     entry_points,
 )
+from datrix_testing.target_distributions import target_import_names
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +118,7 @@ _AXIS_ENTRY_POINT_GROUPS: Final[dict[str, str]] = {
 }
 
 #: Separator joining registered names that share ONE package into a single
-#: comparison entry (e.g. "azure+azure-vm" -- see fold_names_by_src_dir).
+#: comparison entry (e.g. "azure+azure-vm" -- see fold_names_by_src_dirs).
 _SHARED_PACKAGE_LABEL_SEPARATOR: Final[str] = "+"
 
 #: Directory-name prefix identifying a Datrix package at the workspace root.
@@ -153,19 +160,21 @@ def discover_all_package_locations(monorepo_root: Path) -> dict[str, Path]:
     return locations
 
 
-def fold_names_by_src_dir(names_by_src_dir: dict[Path, list[str]]) -> dict[str, Path]:
-    """Fold registered names sharing ONE package into a single labelled entry.
+def fold_names_by_src_dirs(names_by_src_dirs: Mapping[tuple[Path, ...], list[str]]) -> dict[str, tuple[Path, ...]]:
+    """Fold registered names sharing ONE implementation into a single labelled entry.
 
     Pure and dependency-injected so the self-test can exercise the many-to-one
     case directly, without a live registry that happens to contain one.
 
     Args:
-        names_by_src_dir: `{src_dir: [registered names backed by it]}`.
+        names_by_src_dirs: `{src dirs: [registered names implemented by them]}`.
 
     Returns:
-        `{joined label: src_dir}`, one entry per distinct package.
+        `{joined label: src dirs}`, one entry per distinct implementation.
     """
-    return {_SHARED_PACKAGE_LABEL_SEPARATOR.join(sorted(names)): src_dir for src_dir, names in names_by_src_dir.items()}
+    return {
+        _SHARED_PACKAGE_LABEL_SEPARATOR.join(sorted(names)): src_dirs for src_dirs, names in names_by_src_dirs.items()
+    }
 
 
 def entry_point_module_roots(axis: str) -> dict[str, str]:
@@ -173,11 +182,10 @@ def entry_point_module_roots(axis: str) -> dict[str, str]:
 
     Read from the entry point's DECLARED module rather than by importing and
     instantiating the plugin: a platform plugin needs generation context to
-    construct, and this report only needs to know which package the code lives
-    in. For the language axis this is provably the same answer the plugin-class
-    route gives -- asserted every run by the self-test's
-    `_language_entry_point_roots_match_plugin_roots` check, so the two can
-    never silently diverge.
+    construct, and a caller of this map only needs to know which package the
+    plugin itself loads from. This is the plugin's OWN package only; every
+    package implementing the target (a language core included) comes from
+    ``discover_target_package_src_dirs``.
 
     Args:
         axis: `AXIS_LANGUAGES` or `AXIS_PLATFORMS`.
@@ -189,17 +197,66 @@ def entry_point_module_roots(axis: str) -> dict[str, str]:
     return {ep.name: ep.module.split(".")[0] for ep in entry_points(group=group)}
 
 
-def discover_target_package_src_dirs(axis: str, target_names: frozenset[str], monorepo_root: Path) -> dict[str, Path]:
-    """Resolve the registered target names on *axis* to their packages'
-    `src/<import_name>` directories, matched against the filesystem package map
-    -- never a hardcoded `datrix-codegen-{name}` string-format assumption.
+def resolve_target_src_dirs(
+    axis: str,
+    import_names_by_name: Mapping[str, tuple[str, ...]],
+    all_locations: Mapping[str, Path],
+) -> dict[str, tuple[Path, ...]]:
+    """Resolve each registered name's import packages to on-disk src dirs and
+    fold names sharing one implementation.
 
-    **Names sharing one package are folded into a single entry** whose label
-    joins them (e.g. `azure+azure-vm`), because the comparison unit is the
-    package: two registered names backed by the same src tree are not parallel
-    implementations of each other. On the 1:1 language axis every group has
-    exactly one member, so each label is just the language name and the report
-    is unchanged.
+    Pure and dependency-injected: the self-tests feed it a fixture target
+    split into a backend and a core, with no installed distribution.
+
+    Args:
+        axis: `AXIS_LANGUAGES` or `AXIS_PLATFORMS` (named in errors only).
+        import_names_by_name: `{registered name: (backend import, *core imports)}`.
+        all_locations: `{import name: src dir}` (``discover_all_package_locations``).
+
+    Returns:
+        `{label: (backend src dir, *core src dirs)}`, one entry per distinct
+        implementation.
+
+    Raises:
+        ValueError: An import package has no on-disk src dir -- a real
+            configuration error, never silently skipped (shrinking a target's
+            package set quietly would hide the exact drift a gate exists to
+            surface).
+    """
+    names_by_src_dirs: dict[tuple[Path, ...], list[str]] = {}
+    for name in sorted(import_names_by_name):
+        src_dirs: list[Path] = []
+        for import_name in import_names_by_name[name]:
+            src_dir = all_locations.get(import_name)
+            if src_dir is None:
+                raise ValueError(
+                    f"Could not resolve an on-disk src/ directory for {axis} target "
+                    f"{name!r}: it is implemented by import package {import_name!r}, but "
+                    f"no 'datrix-*' directory's src/ tree contains a {import_name!r} "
+                    f"package directory. Discovered package roots: {sorted(all_locations)}. "
+                    f"Fix: check the package out at the workspace root."
+                )
+            src_dirs.append(src_dir)
+        names_by_src_dirs.setdefault(tuple(src_dirs), []).append(name)
+    return fold_names_by_src_dirs(names_by_src_dirs)
+
+
+def discover_target_package_src_dirs(
+    axis: str, target_names: frozenset[str], monorepo_root: Path
+) -> dict[str, tuple[Path, ...]]:
+    """Resolve the registered target names on *axis* to the `src/<import_name>`
+    directory of EVERY package implementing each -- the package registering the
+    entry point, then each language core it requires (derived from the
+    installed distribution requirements by
+    ``datrix_testing.target_distributions``) -- matched against the filesystem
+    package map. Never a hardcoded `datrix-codegen-{name}` string-format
+    assumption and never a hand list of cores.
+
+    **Names sharing one implementation are folded into a single entry** whose
+    label joins them (e.g. `azure+azure-vm`), because the comparison unit is
+    the implementation: two registered names backed by the same src trees are
+    not parallel implementations of each other. On the 1:1 language axis every
+    group has exactly one member, so each label is just the language name.
 
     Args:
         axis: `AXIS_LANGUAGES` or `AXIS_PLATFORMS`.
@@ -207,50 +264,30 @@ def discover_target_package_src_dirs(axis: str, target_names: frozenset[str], mo
         monorepo_root: The workspace root containing every `datrix-*` checkout.
 
     Returns:
-        `{label: absolute src package directory}`, one entry per distinct
-        package.
+        `{label: (backend src dir, *core src dirs)}`, one entry per distinct
+        implementation.
 
     Raises:
-        ValueError: If a registered name resolves to an import root with no
-            matching on-disk package, or has no entry point at all -- a real
-            configuration error, never silently skipped (shrinking the target
-            set quietly would hide the exact drift this report exists to
-            surface).
+        ValueError: A name is not registered on *axis*, or one of its import
+            packages has no matching on-disk package.
     """
-    all_locations = discover_all_package_locations(monorepo_root)
-    module_roots = entry_point_module_roots(axis)
-
-    names_by_src_dir: dict[Path, list[str]] = {}
-    for name in sorted(target_names):
-        import_name = module_roots.get(name)
-        if import_name is None:
-            raise ValueError(
-                f"Registered {axis} target {name!r} has no entry point in group "
-                f"{_AXIS_ENTRY_POINT_GROUPS[axis]!r}. Registered entry points: "
-                f"{sorted(module_roots)}."
-            )
-        src_dir = all_locations.get(import_name)
-        if src_dir is None:
-            raise ValueError(
-                f"Could not resolve an on-disk src/ directory for {axis} target "
-                f"{name!r} (its registered plugin lives in module root "
-                f"{import_name!r}). Expected a 'datrix-*' directory under "
-                f"{monorepo_root} whose src/ tree contains a {import_name!r} "
-                f"package directory. Discovered package roots: "
-                f"{sorted(all_locations)}."
-            )
-        names_by_src_dir.setdefault(src_dir, []).append(name)
-
-    folded = fold_names_by_src_dir(names_by_src_dir)
+    group = _AXIS_ENTRY_POINT_GROUPS[axis]
+    import_names_by_name = {name: target_import_names(group, name) for name in sorted(target_names)}
+    folded = resolve_target_src_dirs(axis, import_names_by_name, discover_all_package_locations(monorepo_root))
     if len(folded) < len(target_names):
         logger.info(
-            "axis=%s folded %d registered name(s) into %d distinct package(s): %s",
+            "axis=%s folded %d registered name(s) into %d distinct implementation(s): %s",
             axis,
             len(target_names),
             len(folded),
             sorted(folded),
         )
     return folded
+
+
+def all_src_dirs(src_dirs_by_label: Mapping[str, tuple[Path, ...]]) -> frozenset[Path]:
+    """Every src dir any label in *src_dirs_by_label* is implemented by."""
+    return frozenset(src_dir for src_dirs in src_dirs_by_label.values() for src_dir in src_dirs)
 
 
 #: Process-wide registry used to resolve which `datrix.generators` native
@@ -374,14 +411,17 @@ def client_target_generator_module_roots(
 
 def discover_client_target_generator_src_dirs(
     names: frozenset[str], monorepo_root: Path, registry: PluginRegistry | None = None
-) -> dict[str, Path]:
+) -> dict[str, tuple[Path, ...]]:
     """The ``datrix.generators``-group sibling of ``discover_target_package_src_dirs``,
     for the client-target names *names* resolves.
 
-    Reuses ``discover_all_package_locations``/``fold_names_by_src_dir`` -- the
+    Reuses ``discover_all_package_locations``/``fold_names_by_src_dirs`` -- the
     same on-disk resolution and same-package folding -- seeded from
-    ``client_target_generator_module_roots(names, registry)`` instead of
-    ``entry_point_module_roots(axis)``.
+    ``client_target_generator_module_roots(names, registry)``: each name
+    resolves to the one package its generator class lives in (the registry the
+    self-test seeds holds fixture classes with no installed distribution to
+    follow). A language core a client target builds on is compared under the
+    language whose backend requires it, never twice.
 
     Args:
         names: Registered `datrix.generators` names to resolve (normally
@@ -392,7 +432,7 @@ def discover_client_target_generator_src_dirs(
             generator plugins.
 
     Returns:
-        `{label: absolute src package directory}`.
+        `{label: (absolute src package directory,)}`.
 
     Raises:
         ValueError: A name resolves to no on-disk package (same failure shape
@@ -403,7 +443,7 @@ def discover_client_target_generator_src_dirs(
     all_locations = discover_all_package_locations(monorepo_root)
     module_roots = client_target_generator_module_roots(names, registry)
 
-    names_by_src_dir: dict[Path, list[str]] = {}
+    import_names_by_name: dict[str, tuple[str, ...]] = {}
     for name in sorted(names):
         import_name = module_roots.get(name)
         if import_name is None:
@@ -412,18 +452,8 @@ def discover_client_target_generator_src_dirs(
                 f"'{GENERATOR_GROUP}' class declaring a 'transpiler_profile'. "
                 f"Client-target generators with a transpiler_profile: {sorted(module_roots)}."
             )
-        src_dir = all_locations.get(import_name)
-        if src_dir is None:
-            raise ValueError(
-                f"Could not resolve an on-disk src/ directory for client-target "
-                f"generator {name!r} (its registered plugin class lives in module "
-                f"root {import_name!r}). Expected a 'datrix-*' directory under "
-                f"{monorepo_root} whose src/ tree contains a {import_name!r} "
-                f"package directory. Discovered package roots: {sorted(all_locations)}."
-            )
-        names_by_src_dir.setdefault(src_dir, []).append(name)
-
-    return fold_names_by_src_dir(names_by_src_dir)
+        import_names_by_name[name] = (import_name,)
+    return resolve_target_src_dirs("client-target generator", import_names_by_name, all_locations)
 
 
 def discover_all_other_package_src_dirs(monorepo_root: Path, exclude_dirs: frozenset[Path]) -> list[Path]:

@@ -2,7 +2,7 @@
 
 For every registered ``datrix.languages`` / ``datrix.platforms`` target,
 asserts that a pooled cache member's declared slice
-(``PooledMember.slice_index`` -- ``datrix_codegen_common.pooling.contract``)
+(``PooledMember.slice_index`` -- ``datrix_codegen_kernel.pooling.contract``)
 actually reaches that target's own emitted-output-facing source, not merely
 that the shared pooling pre-pass computed it. A target that does not yet
 realize the slice must carry a typed exemption (axis + target + reason) in

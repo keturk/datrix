@@ -8,7 +8,7 @@ call -- in every ``.py`` file under each discovered ``datrix-*`` package's
 
   - Everything under a package's ``tests/`` directory (this scanner only
     walks ``src/``, never ``tests/``).
-  - ``datrix-codegen-common/src/datrix_codegen_common/gendsl/executor.py``
+  - ``datrix-codegen-kernel/src/datrix_codegen_kernel/gendsl/executor.py``
     (the declared-file render path's own internals -- constructing
     ``GeneratedFile`` there IS the render mechanism, not a hand-coded
     duplicate of a genDSL declaration).
@@ -47,7 +47,7 @@ from pathlib import Path
 # monorepo root, forward slashes.
 EXCLUDED_FILES: frozenset[str] = frozenset(
     {
-        "datrix-codegen-common/src/datrix_codegen_common/gendsl/executor.py",
+        "datrix-codegen-kernel/src/datrix_codegen_kernel/gendsl/executor.py",
     }
 )
 
@@ -357,16 +357,24 @@ def _check_tests_directory_never_scanned() -> None:
 def _check_excluded_executor_file_never_counted() -> None:
     with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
         root = Path(tmp)
-        pkg_dir = root / "datrix-codegen-common"
-        executor_dir = pkg_dir / "src" / "datrix_codegen_common" / "gendsl"
+        pkg_dir = root / "datrix-codegen-kernel"
+        executor_dir = pkg_dir / "src" / "datrix_codegen_kernel" / "gendsl"
         executor_dir.mkdir(parents=True)
         (executor_dir / "executor.py").write_text(
             "from datrix_codegen_kernel.generation.generator import GeneratedFile\n"
             "GeneratedFile(path=None, content='', language='python', source_hash='x')\n",
             encoding="utf-8",
         )
+        # Non-vacuity: the planted file must be the one EXCLUDED_FILES names,
+        # so this check cannot pass merely because it planted a path nothing
+        # scans or excludes.
+        planted = (executor_dir / "executor.py").relative_to(root).as_posix()
+        assert planted in EXCLUDED_FILES, (
+            f"self-test planted {planted}, which EXCLUDED_FILES does not name: "
+            f"{sorted(EXCLUDED_FILES)}"
+        )
 
-        package = PackageInfo(name="datrix-codegen-common", src_dir=pkg_dir / "src")
+        package = PackageInfo(name="datrix-codegen-kernel", src_dir=pkg_dir / "src")
         total = scan_package(package, root, verbose=False)
         assert total == 0, f"gendsl/executor.py must be excluded, got total={total}"
 

@@ -358,11 +358,11 @@ def _python_facts(fixture: Enum, paths: ServicePaths) -> ClassifierConformanceFa
 def _typescript_facts(fixture: Enum, paths: ServicePaths) -> ClassifierConformanceFacts:
     """Render *fixture* through typescript's real context-builder + template render."""
     import datrix_codegen_typescript.plugin as _plugin_module
-    from datrix_codegen_typescript.file_helpers import render_ts_file_with_context
+    from datrix_codegen_typescript_core.file_helpers import render_ts_file_with_context
     from datrix_codegen_typescript.generators.entity.enum_generator import (
         build_enum_template_context,
     )
-    from datrix_codegen_typescript.profile import TS_PROFILE
+    from datrix_codegen_typescript_core.profile import TS_PROFILE
 
     template_gen = _template_generator_for("typescript", _plugin_module.__file__)
     context = build_enum_template_context(fixture, paths)

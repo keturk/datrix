@@ -2,9 +2,13 @@
 
 Enumerates registered languages from the ``datrix.languages`` entry-point group at
 runtime -- via ``shared.registered_targets.registered_language_names()``, never a
-hardcoded list -- and reports, per language, every site in that language's
-``src/`` tree (and ``templates/`` tree) that decides a dependency PACKAGE NAME
-outside its own ``generation/dependency_tables.py`` table.
+hardcoded list -- and reports, per language, every site in the ``src/`` tree
+(and ``templates/`` tree) of EVERY package implementing that language -- its
+backend and each language core the backend requires -- that decides a
+dependency PACKAGE NAME outside the language's ``generation/dependency_tables.py``
+table. The catalog universe is the union of those packages' ``defaults.yaml``
+files, so a decision site that moved into a core is matched against the catalog
+it decides from.
 
 This is the permanent census for the declared-table migration: a language's
 migration is complete when this scan reports ZERO out-of-table sites for that
@@ -42,11 +46,15 @@ Two structural detection passes, neither a text regex over raw source:
    an import-module-name constant, an unrelated docstring) is not a decision
    site and is not counted, by design.
 2. Jinja templates: parse every ``.j2`` file under the language's
-   ``templates/`` tree into its Jinja AST and walk ``nodes.Const`` literal
-   nodes inside ``{{ }}``/``{% %}`` expressions (e.g. a ``v['pkg']``
-   version-lookup in a manifest template) for the same catalog-membership
-   match -- the structural analogue of the Python pass's ``ast.Constant``.
-   Raw ``TemplateData`` text (the literal characters between tags) is
+   ``templates/`` tree into its Jinja AST and take the ``nodes.Const``
+   literals that DECIDE a dependency -- a version-map subscript key (the
+   ``'pkg'`` of ``v['pkg']``), the needle of a membership test against a
+   decision-named collection (``'pkg' in deps``), or a literal assigned to a
+   decision-named variable (``{% set npm_deps = [...] %}``) -- for the same
+   catalog-membership match: the structural analogue of the Python pass's
+   decision-span gating. A literal in any other expression position (an
+   equality test of a parameter's pipe kind that happens to spell a package
+   name) decides nothing and is not counted. Raw ``TemplateData`` text (the literal characters between tags) is
    deliberately NOT scanned by containment: it degrades to a text search over
    a template's entire RENDERED OUTPUT, including plain generated code
    (``import stripe`` in a payment-client template) and even doc comments
@@ -58,12 +66,17 @@ Built-in non-vacuity self-test, every invocation: a synthetic two-language
 package tree proves the scan finds exactly its planted out-of-table sites and
 that moving a planted site into a synthetic ``dependency_tables.py`` drops the
 count by exactly one; a synthetic Jinja template proves the template pass is
-independently exercised; a synthetic non-qualifying reference proves the
-narrowing itself (a second, non-qualifying use of the same planted literal
-does not add a second site); a live-tree check proves the matcher finds a
-described, currently-real POSITIVE instance (``_KNOWN_LIVE_INSTANCE``) and
-that it no longer reports three described, currently-real sites the earlier,
-over-broad matcher wrongly counted (``_KNOWN_EXCLUDED_FALSE_POSITIVES``).
+independently exercised, and counts its three decision shapes but not an
+equality test against an unrelated attribute; a synthetic non-qualifying
+reference proves the narrowing itself (a second, non-qualifying use of the
+same planted literal does not add a second site); a fixture language split
+into a backend and a core proves a decision site in the core is found against
+the backend's catalog and missed by a backend-only scan; a live-tree check
+proves every registered language's real catalog contains every package its
+real declared table names and that a real declared name planted into a
+decision site is reported against it, and that the scan no longer reports
+three described, currently-real sites the earlier, over-broad matcher wrongly
+counted (``_KNOWN_EXCLUDED_FALSE_POSITIVES``).
 Refuses to run (exit 2) with fewer than two registered languages.
 
 Usage:
@@ -128,33 +141,20 @@ _DECLARED_TABLE_RELATIVE_PATH: Final[Path] = Path("generation") / "dependency_ta
 _DEFAULTS_YAML_NAME: Final[str] = "defaults.yaml"
 _TEMPLATES_SUBDIR_NAME: Final[str] = "templates"
 
+#: Jinja's `Operand.op` spellings of a membership test (`in` / `not in`).
+_JINJA_MEMBERSHIP_OPS: Final[frozenset[str]] = frozenset({"in", "notin"})
+
 _MIN_LANGUAGES_FOR_COMPARISON: Final[int] = 2
 
 EXIT_OK: Final[int] = 0
 EXIT_FAIL: Final[int] = 1
 EXIT_USAGE: Final[int] = 2
 
-#: A described, currently-real out-of-table instance the self-test additionally
-#: proves the matcher finds. `(language, relative_src_path, line_number, literal)`.
-#: Re-pinned once already: typescript's own dependency-table migration
-#: (in progress) converted the original `ioredis`-at-172 instance this
-#: constant used to name, which is exactly the kind of drift this comment
-#: warns about -- whichever migration next converts THIS pinned instance must
-#: re-pin this constant to a still-live site in the same pass, the same way
-#: this one was re-pinned.
-_KNOWN_LIVE_INSTANCE: Final[tuple[str, str, int, str]] = (
-    "typescript",
-    "generators/service/_project_npm_deps.py",
-    795,
-    "amqplib",
-)
-# Line numbers drift -- re-verify this coordinate against the live tree before
-# pinning it, and the self-test asserts the matcher finds this instance rather
-# than asserting the literal line number in isolation. Confirmed by reading
-# the file directly at authoring time: `needs_amqp_types` checks
-# `"amqplib" in pubsub_npm_deps` as an un-converted membership test against the
-# catalog-registered `amqplib` package name, inside the decision-shaped
-# function that builds `jobs`'s AMQP-types dev dependency.
+#: The keyword a declared-table row names its package with
+#: (`DependencyRow(package="...")`) -- read structurally by the live
+#: non-vacuity check, which takes its real package names from the declared
+#: tables rather than from a pinned coordinate that a migration invalidates.
+_DECLARED_ROW_PACKAGE_KEYWORD: Final[str] = "package"
 
 #: Whole snake_case tokens (an identifier split on `_`, never a substring
 #: search) that mark a function or module-level constant as a dependency-SET
@@ -200,7 +200,8 @@ _DEPENDENCY_DECISION_NAME_TOKENS: Final[frozenset[str]] = frozenset(
 #: whose name matches `_DEPENDENCY_DECISION_NAME_TOKENS`. The self-test
 #: proves the live scan no longer reports any of these -- the direct,
 #: load-bearing proof the narrowing actually narrows, alongside
-#: `_KNOWN_LIVE_INSTANCE` proving it still finds a real positive.
+#: `_live_catalog_matches_real_declarations` proving it still finds a real
+#: declared package planted into a decision site.
 #: `(language, relative_src_path, line_number, literal)`.
 _KNOWN_EXCLUDED_FALSE_POSITIVES: Final[tuple[tuple[str, str, int, str], ...]] = (
     ("python", "generators/_field_type_helpers.py", 26, "redis"),
@@ -217,6 +218,8 @@ _SELF_TEST_PACKAGE_A: Final[str] = "self-test-dep-package-a"
 _SELF_TEST_PACKAGE_B: Final[str] = "self-test-dep-package-b"
 _SELF_TEST_LANGUAGE_TMPL: Final[str] = "self_test_dep_lang_tmpl"
 _SELF_TEST_TEMPLATE_PACKAGE: Final[str] = "self-test-dep-template-package"
+_SELF_TEST_LANGUAGE_CORE: Final[str] = "self_test_dep_lang_split"
+_SELF_TEST_CORE_PACKAGE: Final[str] = "self-test-dep-core-package"
 
 #: `.j2`-suffixed files that are not actually Jinja template source -- a
 #: reviewed, coordinate-pinned exemption from the Jinja parse pass, never a
@@ -460,18 +463,64 @@ def _scan_python_source(
     ]
 
 
+def _is_decision_named_jinja_reference(node: jinja2.nodes.Node) -> bool:
+    """True when *node* is a template variable or attribute whose own name is
+    dependency-decision shaped (`deps`, `npm_dependencies`, `ctx.packages`)."""
+    if isinstance(node, jinja2.nodes.Name):
+        return _is_dependency_decision_name(node.name)
+    if isinstance(node, jinja2.nodes.Getattr):
+        return _is_dependency_decision_name(node.attr)
+    return False
+
+
+def _jinja_decision_constants(template_ast: jinja2.nodes.Template) -> list[jinja2.nodes.Const]:
+    """Every literal a template uses to DECIDE a dependency: the structural
+    Jinja analogue of the Python pass's decision-site spans.
+
+    Three shapes, each read off the Jinja AST, never the text:
+
+    1. A subscript key -- the `'pkg'` of a manifest's `v['pkg']` version
+       lookup: selecting a package from a version map.
+    2. The needle of a membership test against a decision-named collection --
+       `'pkg' in deps` / `'pkg' not in ctx.packages`.
+    3. Any literal assigned to a decision-named template variable --
+       `{% set npm_deps = ['pkg'] %}`.
+
+    A literal anywhere else -- an equality test against an unrelated
+    attribute (`qp.pipe == 'uuid'` compares a parameter's pipe KIND that
+    happens to share a package's spelling), a filter argument, a printed
+    value -- decides no dependency and is not returned.
+    """
+    constants: list[jinja2.nodes.Const] = []
+    for getitem in template_ast.find_all(jinja2.nodes.Getitem):
+        if isinstance(getitem.arg, jinja2.nodes.Const):
+            constants.append(getitem.arg)
+    for compare in template_ast.find_all(jinja2.nodes.Compare):
+        if isinstance(compare.expr, jinja2.nodes.Const) and any(
+            operand.op in _JINJA_MEMBERSHIP_OPS and _is_decision_named_jinja_reference(operand.expr)
+            for operand in compare.ops
+        ):
+            constants.append(compare.expr)
+    for assign in template_ast.find_all(jinja2.nodes.Assign):
+        if isinstance(assign.target, jinja2.nodes.Name) and _is_dependency_decision_name(assign.target.name):
+            constants.extend(assign.node.find_all(jinja2.nodes.Const))
+    return constants
+
+
 def _scan_jinja_templates(
     templates_dir: Path, language: str, package_names: frozenset[str]
 ) -> list[OutOfTableSite]:
     """Parse every `.j2` file's Jinja AST for literal package-name segments
-    that sit inside an actual template EXPRESSION.
+    that DECIDE a dependency inside a template expression.
 
-    Uses `jinja2.Environment().parse(source)` and walks the resulting node
-    tree via `Node.find_all` for `nodes.Const` -- a literal value inside a
-    `{{ ... }}`/`{% ... %}` expression (e.g. the `'pkg'` in a manifest
-    template's `v['pkg']` version lookup) -- matched by EXACT equality, the
-    structural analogue of the Python pass's `ast.Constant` matching. This is
-    never a text regex over the template source.
+    Uses `jinja2.Environment().parse(source)` and keeps the `nodes.Const`
+    literals `_jinja_decision_constants` returns -- a version-map subscript
+    key (e.g. the `'pkg'` in a manifest template's `v['pkg']` version lookup),
+    the needle of a membership test against a decision-named collection, or a
+    literal assigned to a decision-named variable -- matched by EXACT
+    equality, the structural analogue of the Python pass's decision-span
+    gated `ast.Constant` matching. This is never a text regex over the
+    template source.
 
     Raw `TemplateData` (the literal characters of a template BETWEEN tags,
     i.e. its rendered output) is deliberately NOT scanned: a package name can
@@ -525,7 +574,7 @@ def _scan_jinja_templates(
                 filename=str(j2_file),
             ) from exc
         resolved = j2_file.resolve()
-        for const_node in template_ast.find_all(jinja2.nodes.Const):
+        for const_node in _jinja_decision_constants(template_ast):
             if isinstance(const_node.value, str) and const_node.value in package_names:
                 found.add((resolved, const_node.lineno, const_node.value))
 
@@ -535,27 +584,31 @@ def _scan_jinja_templates(
     ]
 
 
-def scan_language(language: str, package_src_root: Path) -> list[OutOfTableSite]:
-    """Both structural passes for one registered language package.
+def scan_language(language: str, package_src_roots: tuple[Path, ...]) -> list[OutOfTableSite]:
+    """Both structural passes over every package implementing one registered
+    language -- its backend and every language core it requires.
+
+    The language's catalog universe is the union of every root's
+    `defaults.yaml` (a core ships none and scans against its backend's), so a
+    decision site that moved into a core is still matched against the
+    catalog it decides from. Each root's own `generation/dependency_tables.py`
+    is the table the exclusion honours.
 
     Args:
-        language: The registered language name (or, for future many-to-one
-            axes, the folded label -- kept generic like
-            `discover_target_package_src_dirs`'s own label).
-        package_src_root: The package's `src/datrix_codegen_<lang>` root.
+        language: The registered language name (or a folded label -- kept
+            generic like `discover_target_package_src_dirs`'s own label).
+        package_src_roots: `(backend src root, *core src roots)`.
 
     Returns:
-        Every out-of-table site found by either pass, sorted by file, line,
-        then literal.
+        Every out-of-table site found by either pass in any root, sorted by
+        file, line, then literal.
     """
-    package_names = _catalog_package_names(package_src_root, language)
-    python_sites = _scan_python_source(package_src_root, language, package_names)
-    templates_dir = package_src_root / _TEMPLATES_SUBDIR_NAME
-    jinja_sites = _scan_jinja_templates(templates_dir, language, package_names)
-    return sorted(
-        python_sites + jinja_sites,
-        key=lambda site: (str(site.file_path), site.line_number, site.package_name),
-    )
+    package_names = frozenset[str]().union(*(_catalog_package_names(root, language) for root in package_src_roots))
+    sites: list[OutOfTableSite] = []
+    for root in package_src_roots:
+        sites.extend(_scan_python_source(root, language, package_names))
+        sites.extend(_scan_jinja_templates(root / _TEMPLATES_SUBDIR_NAME, language, package_names))
+    return sorted(sites, key=lambda site: (str(site.file_path), site.line_number, site.package_name))
 
 
 def _require_min_languages(language_names: frozenset[str]) -> None:
@@ -587,10 +640,9 @@ def _require_min_languages(language_names: frozenset[str]) -> None:
 
 def scan_all_registered_languages() -> dict[str, list[OutOfTableSite]]:
     """Run `scan_language` for every name `registered_language_names()` returns,
-    resolved to its package's `src/` root via the SAME on-disk package-map
-    discovery `shared.registered_targets.discover_target_package_src_dirs`
-    already implements (never a hardcoded `datrix-codegen-{name}`
-    string-format assumption).
+    resolved to every package implementing it (backend plus language cores)
+    via `shared.registered_targets.discover_target_package_src_dirs` (never a
+    hardcoded `datrix-codegen-{name}` string-format assumption).
 
     Raises:
         SystemExit: `EXIT_USAGE` if fewer than `_MIN_LANGUAGES_FOR_COMPARISON`
@@ -601,7 +653,7 @@ def scan_all_registered_languages() -> dict[str, list[OutOfTableSite]]:
     language_names = registered_language_names()
     _require_min_languages(language_names)
     target_src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, language_names, WORKSPACE_ROOT)
-    return {label: scan_language(label, src_dir) for label, src_dir in sorted(target_src_dirs.items())}
+    return {label: scan_language(label, src_dirs) for label, src_dirs in sorted(target_src_dirs.items())}
 
 
 # ---------------------------------------------------------------------------
@@ -682,57 +734,119 @@ def _self_test_jinja_pass(tmp_root: Path) -> bool:
     )
     (templates_dir / "manifest.json.j2").write_text(template_source, encoding="utf-8")
 
-    sites = scan_language(_SELF_TEST_LANGUAGE_TMPL, language_dir)
+    sites = scan_language(_SELF_TEST_LANGUAGE_TMPL, (language_dir,))
     return len(sites) == 1 and sites[0].package_name == _SELF_TEST_TEMPLATE_PACKAGE
 
 
-def _live_scan_finds_known_instance() -> bool:
-    """Prove the matcher finds `_KNOWN_LIVE_INSTANCE` in the REAL tree, not
-    only in synthetic fixtures -- the non-vacuity discipline this task's own
-    proof exists to enforce: a scanner that only works on synthetic fixtures
-    and silently misses the real, described instance is exactly the vacuity
-    this check rules out.
+def _self_test_jinja_decision_shapes(tmp_root: Path) -> bool:
+    """The template pass counts a membership test against a decision-named
+    collection and a literal assigned to a decision-named variable, and does
+    NOT count an equality test against an unrelated attribute that happens to
+    spell a package name (a parameter's pipe KIND, for instance)."""
+    language_dir = tmp_root / "lang_tmpl_shapes"
+    templates_dir = language_dir / _TEMPLATES_SUBDIR_NAME
+    templates_dir.mkdir(parents=True, exist_ok=True)
+    (language_dir / _DEFAULTS_YAML_NAME).write_text(
+        f"dependencies:\n  {_SELF_TEST_LANGUAGE_TMPL}:\n    {_SELF_TEST_TEMPLATE_PACKAGE}: '>=1.0.0'\n",
+        encoding="utf-8",
+    )
+    decoy = "{%% if qp.pipe == '%s' %%}pipe{%% endif %%}\n" % _SELF_TEST_TEMPLATE_PACKAGE
+    (templates_dir / "decoy.ts.j2").write_text(decoy, encoding="utf-8")
+    decoy_sites = scan_language(_SELF_TEST_LANGUAGE_TMPL, (language_dir,))
+    decisions = (
+        "{%% if '%s' in deps %%}yes{%% endif %%}\n{%% set npm_dependencies = ['%s'] %%}\n"
+        % (_SELF_TEST_TEMPLATE_PACKAGE, _SELF_TEST_TEMPLATE_PACKAGE)
+    )
+    (templates_dir / "decisions.json.j2").write_text(decisions, encoding="utf-8")
+    decision_sites = scan_language(_SELF_TEST_LANGUAGE_TMPL, (language_dir,))
+    return not decoy_sites and [site.line_number for site in decision_sites] == [1, 2]
 
-    A registered language's own per-language migration landing is a
-    LEGITIMATE reason the pinned historical instance stops appearing at its
-    original site -- that is the ratchet's own success condition, not a
-    scanner regression. When the original site no longer matches, this falls
-    back to checking whether the SAME literal now appears inside that
-    language's own `generation/dependency_tables.py` (the one file this
-    scan's own `_is_declared_table_file` exclusion deliberately does not
-    scan): finding it there still proves the matcher recognizes the literal
-    and that it MIGRATED rather than silently vanished, so the non-vacuity
-    proof holds without pinning this self-test to a pre-migration snapshot a
-    passing per-language migration task is expected to invalidate.
+
+def _self_test_language_core(tmp_root: Path) -> bool:
+    """A fixture language split into a backend and a core: the decision site
+    planted in the CORE (which ships no catalog of its own) is found when the
+    language is scanned as backend plus core, against the backend's catalog;
+    scanning the backend alone -- the pre-split blindness -- finds nothing."""
+    backend_dir = tmp_root / "lang_split_backend"
+    core_dir = tmp_root / "lang_split_core"
+    backend_dir.mkdir(parents=True, exist_ok=True)
+    core_dir.mkdir(parents=True, exist_ok=True)
+    (backend_dir / _DEFAULTS_YAML_NAME).write_text(
+        f"dependencies:\n  {_SELF_TEST_LANGUAGE_CORE}:\n    {_SELF_TEST_CORE_PACKAGE}: '>=1.0.0'\n",
+        encoding="utf-8",
+    )
+    (core_dir / "core_module.py").write_text(
+        f'def get_dependencies() -> list[str]:\n    return ["{_SELF_TEST_CORE_PACKAGE}"]\n', encoding="utf-8"
+    )
+    split_sites = scan_language(_SELF_TEST_LANGUAGE_CORE, (backend_dir, core_dir))
+    backend_only = scan_language(_SELF_TEST_LANGUAGE_CORE, (backend_dir,))
+    return (
+        [site.file_path for site in split_sites] == [(core_dir / "core_module.py").resolve()]
+        and not backend_only
+    )
+
+
+def _declared_row_packages(src_roots: tuple[Path, ...]) -> frozenset[str]:
+    """Every `package=` string a language's declared table(s) name a row with,
+    read off the AST of each root's `generation/dependency_tables.py`."""
+    names: set[str] = set()
+    for root in src_roots:
+        table = root / _DECLARED_TABLE_RELATIVE_PATH
+        if not table.is_file():
+            continue
+        tree = ast.parse(table.read_text(encoding="utf-8-sig"), filename=str(table))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            for keyword in node.keywords:
+                if (
+                    keyword.arg == _DECLARED_ROW_PACKAGE_KEYWORD
+                    and isinstance(keyword.value, ast.Constant)
+                    and isinstance(keyword.value.value, str)
+                ):
+                    names.add(keyword.value.value)
+    return frozenset(names)
+
+
+def _live_catalog_matches_real_declarations(tmp_root: Path) -> bool:
+    """Prove the matcher works against the REAL tree, not only synthetic
+    fixtures, without pinning a coordinate a migration is expected to remove.
+
+    For every registered language: its live catalog universe (the union over
+    every package implementing it) must contain every package its live
+    declared table names, and the declared table must name at least one; and
+    a real declared package name, planted into a synthetic decision-named
+    function and scanned against that live universe, must be reported as
+    exactly one site. A matcher reading an empty or wrong universe -- a
+    catalog that moved, a core scanned without its backend's catalog -- fails
+    here instead of reporting a vacuous zero.
     """
-    language, relative_path, line_number, literal = _KNOWN_LIVE_INSTANCE
-    target_src_dirs = discover_target_package_src_dirs(
-        AXIS_LANGUAGES, registered_language_names(), WORKSPACE_ROOT
-    )
-    src_dir = target_src_dirs.get(language)
-    if src_dir is None:
-        return False
-    expected_path = (src_dir / relative_path).resolve()
-    sites = scan_language(language, src_dir)
-    if any(
-        site.file_path == expected_path
-        and site.line_number == line_number
-        and site.package_name == literal
-        for site in sites
-    ):
-        return True
-    declared_table = (src_dir / _DECLARED_TABLE_RELATIVE_PATH).resolve()
-    if not declared_table.is_file():
-        return False
-    try:
-        table_tree = ast.parse(
-            declared_table.read_text(encoding="utf-8-sig"), filename=str(declared_table)
+    target_src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, registered_language_names(), WORKSPACE_ROOT)
+    languages_proven = 0
+    for language, src_roots in sorted(target_src_dirs.items()):
+        universe = frozenset[str]().union(*(_catalog_package_names(root, language) for root in src_roots))
+        declared = _declared_row_packages(src_roots)
+        if not declared or not declared <= universe:
+            logger.error(
+                "live check: language=%s declares %d table package(s), %d outside its %d-package catalog: %s",
+                language,
+                len(declared),
+                len(declared - universe),
+                len(universe),
+                sorted(declared - universe),
+            )
+            return False
+        planted_dir = tmp_root / f"live_{language}"
+        planted_dir.mkdir(parents=True, exist_ok=True)
+        planted_name = sorted(declared)[0]
+        (planted_dir / "planted.py").write_text(
+            f'def get_dependencies() -> list[str]:\n    return ["{planted_name}"]\n', encoding="utf-8"
         )
-    except SyntaxError:
-        return False
-    return any(
-        isinstance(node, ast.Constant) and node.value == literal for node in ast.walk(table_tree)
-    )
+        sites = _scan_python_source(planted_dir, language, universe)
+        if [site.package_name for site in sites] != [planted_name]:
+            return False
+        languages_proven += 1
+    return languages_proven >= _MIN_LANGUAGES_FOR_COMPARISON
 
 
 def _live_scan_excludes_known_false_positives() -> bool:
@@ -744,12 +858,15 @@ def _live_scan_excludes_known_false_positives() -> bool:
     )
     scanned_by_language: dict[str, list[OutOfTableSite]] = {}
     for language, relative_path, line_number, literal in _KNOWN_EXCLUDED_FALSE_POSITIVES:
-        src_dir = target_src_dirs.get(language)
-        if src_dir is None:
+        src_roots = target_src_dirs.get(language)
+        if src_roots is None:
+            return False
+        candidates = [root / relative_path for root in src_roots if (root / relative_path).is_file()]
+        if len(candidates) != 1:
             return False
         if language not in scanned_by_language:
-            scanned_by_language[language] = scan_language(language, src_dir)
-        expected_path = (src_dir / relative_path).resolve()
+            scanned_by_language[language] = scan_language(language, src_roots)
+        expected_path = candidates[0].resolve()
         if any(
             site.file_path == expected_path
             and site.line_number == line_number
@@ -776,9 +893,17 @@ def self_test() -> bool:
        exactly one.
     4. Plant a synthetic language whose only out-of-table site lives in a
        `.j2` template; assert the Jinja pass finds it independently.
-    5. Assert the LIVE scan (real tree) finds `_KNOWN_LIVE_INSTANCE`.
-    6. Assert the LIVE scan no longer reports any `_KNOWN_EXCLUDED_FALSE_POSITIVES`.
-    7. Assert the minimum-language guard refuses a single-language set with
+    5. Assert the Jinja pass counts a membership test against a
+       decision-named collection and a decision-named `set`, and not an
+       equality test against an unrelated attribute.
+    6. Plant a fixture language split into a backend and a core; assert a
+       decision site in the core is found against the backend's catalog, and
+       that scanning the backend alone misses it.
+    7. Assert the LIVE catalogs contain every package the live declared tables
+       name, and that a real declared name planted into a decision site is
+       reported against the live universe.
+    8. Assert the LIVE scan no longer reports any `_KNOWN_EXCLUDED_FALSE_POSITIVES`.
+    9. Assert the minimum-language guard refuses a single-language set with
        `SystemExit(EXIT_USAGE)`, never a silent pass.
 
     Returns:
@@ -792,15 +917,15 @@ def self_test() -> bool:
         _write_synthetic_language(lang_a_dir, _SELF_TEST_LANGUAGE_A, _SELF_TEST_PACKAGE_A)
         _write_synthetic_language(lang_b_dir, _SELF_TEST_LANGUAGE_B, _SELF_TEST_PACKAGE_B)
 
-        sites_a = scan_language(_SELF_TEST_LANGUAGE_A, lang_a_dir)
-        sites_b = scan_language(_SELF_TEST_LANGUAGE_B, lang_b_dir)
+        sites_a = scan_language(_SELF_TEST_LANGUAGE_A, (lang_a_dir,))
+        sites_b = scan_language(_SELF_TEST_LANGUAGE_B, (lang_b_dir,))
         ok &= _assert(
             len(sites_a) == 1 and len(sites_b) == 1,
             "synthetic two-language tree yields exactly two planted out-of-table sites",
         )
 
         _write_non_qualifying_decoy(lang_a_dir, _SELF_TEST_PACKAGE_A)
-        sites_a_with_decoy = scan_language(_SELF_TEST_LANGUAGE_A, lang_a_dir)
+        sites_a_with_decoy = scan_language(_SELF_TEST_LANGUAGE_A, (lang_a_dir,))
         ok &= _assert(
             len(sites_a_with_decoy) == 1,
             "a non-qualifying function/constant referencing the same planted "
@@ -809,7 +934,7 @@ def self_test() -> bool:
         )
 
         _move_planted_literal_into_declared_table(lang_a_dir)
-        sites_a_after = scan_language(_SELF_TEST_LANGUAGE_A, lang_a_dir)
+        sites_a_after = scan_language(_SELF_TEST_LANGUAGE_A, (lang_a_dir,))
         combined_after = len(sites_a_after) + len(sites_b)
         ok &= _assert(
             len(sites_a_after) == 0 and combined_after == 1,
@@ -824,8 +949,21 @@ def self_test() -> bool:
         )
 
         ok &= _assert(
-            _live_scan_finds_known_instance(),
-            f"live scan (real tree) finds the known-present instance {_KNOWN_LIVE_INSTANCE}",
+            _self_test_jinja_decision_shapes(tmp_root),
+            "the template pass counts a membership test against a decision-named collection and a "
+            "decision-named set, and not an equality test against an unrelated attribute",
+        )
+
+        ok &= _assert(
+            _self_test_language_core(tmp_root),
+            "a fixture language split into a backend and a core: a decision site planted in the core is "
+            "found against the backend's catalog; scanning the backend alone misses it",
+        )
+
+        ok &= _assert(
+            _live_catalog_matches_real_declarations(tmp_root),
+            "live tree: every registered language's catalog contains every package its declared table "
+            "names, and a real declared name planted into a decision site is reported against it",
         )
 
         ok &= _assert(

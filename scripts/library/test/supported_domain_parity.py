@@ -85,7 +85,7 @@ from collections.abc import Iterable, Mapping
 from importlib.metadata import entry_points
 from typing import Final, cast
 
-from datrix_codegen_common.parity.domain_declaration import DomainDeclaration
+from datrix_codegen_kernel.parity.domain_declaration import DomainDeclaration
 from datrix_codegen_common.parity.domain_registry import SHARED_CONTEXT_TYPES
 from datrix_codegen_common.testkit.gates.domain_self_consistency import (
     DomainDeclaringPlugin,
@@ -205,7 +205,7 @@ def compiled_domain_ids_by_language(
         `{language_name: frozenset of every DomainDefinition.name the
         compiled IR reports for that language}`.
     """
-    from datrix_codegen_common.gendsl.compiler import get_definitions
+    from datrix_codegen_kernel.gendsl.compiler import get_definitions
 
     return {
         name: frozenset(

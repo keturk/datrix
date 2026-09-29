@@ -12,8 +12,10 @@ family). Before this gate, the languages disagreed: some spelled the URNs,
 typescript composed ``https://api.example.com/<service>/errors/<slug>``, and
 another emitted ``https://httpstatuses.com/<status>`` for everything.
 
-The gate censuses the ``.py`` and ``.j2`` sources under every registered
-language package for ``urn:datrix:error:`` literals and holds each language to:
+The gate censuses the ``.py`` and ``.j2`` sources under every package
+implementing each registered language -- its backend and every language core
+the backend requires -- for ``urn:datrix:error:`` literals and holds each
+language to:
 
 * **Spelling.** Every literal slug is a registered family. A private slug is a
   defect with no exemption path: register the family or spell the registered
@@ -84,6 +86,7 @@ _URN_LITERAL_RE: Final[re.Pattern[str]] = re.compile(
 @dataclass(frozen=True, slots=True)
 class Spelling:
     language: str
+    package: str
     relative_path: str
     line: int
     slug: str
@@ -92,7 +95,6 @@ class Spelling:
 @dataclass(frozen=True, slots=True)
 class LanguageCensus:
     language: str
-    package: str
     spellings: tuple[Spelling, ...]
 
 
@@ -107,15 +109,22 @@ def _iter_source_files(src_dir: Path) -> list[Path]:
     return files
 
 
-def census_source(language: str, package: str, src_dir: Path) -> LanguageCensus:
-    """Every literal ``urn:datrix:error:<slug>`` under ``src_dir`` (``.py`` and ``.j2``)."""
+def census_sources(language: str, src_dirs: tuple[Path, ...]) -> LanguageCensus:
+    """Every literal ``urn:datrix:error:<slug>`` (``.py`` and ``.j2``) under every
+    package implementing *language* -- its backend and each language core.
+
+    Each ``src_dir`` is ``<package>/src/<import_name>``; a spelling records the
+    package it was found in.
+    """
     spellings: list[Spelling] = []
-    for path in _iter_source_files(src_dir):
-        relative = path.relative_to(src_dir).as_posix()
-        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            for match in _URN_LITERAL_RE.finditer(line):
-                spellings.append(Spelling(language, relative, line_number, match.group(1)))
-    return LanguageCensus(language, package, tuple(spellings))
+    for src_dir in src_dirs:
+        package = src_dir.parents[1].name
+        for path in _iter_source_files(src_dir):
+            relative = path.relative_to(src_dir).as_posix()
+            for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                for match in _URN_LITERAL_RE.finditer(line):
+                    spellings.append(Spelling(language, package, relative, line_number, match.group(1)))
+    return LanguageCensus(language, tuple(spellings))
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,7 +152,7 @@ def evaluate(
         for spelling in census.spellings:
             if spelling.slug not in families:
                 problems.append(
-                    f"{census.package}: {spelling.relative_path}:{spelling.line}: spells "
+                    f"{spelling.package}: {spelling.relative_path}:{spelling.line}: spells "
                     f"{PROBLEM_TYPE_URN_PREFIX}{spelling.slug!s}, which is not a registered "
                     f"problem-type family. Fix: spell a registered family, or register it in "
                     f"datrix_common.datrix_model.problem_types so every target mints it."
@@ -200,14 +209,14 @@ def scan_all_registered_languages() -> tuple[dict[str, LanguageCensus], dict[str
     src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, language_names, WORKSPACE_ROOT)
     censuses: dict[str, LanguageCensus] = {}
     holes: dict[str, Mapping[str, str]] = {}
-    for language, src_dir in sorted(src_dirs.items()):
-        # ``src_dir`` is ``<package>/src/<import_name>``.
-        package = src_dir.parents[1].name
-        censuses[language] = census_source(language, package, src_dir)
+    for language, language_src_dirs in sorted(src_dirs.items()):
+        censuses[language] = census_sources(language, language_src_dirs)
         holes[language] = declaration_for_language(language).unrealized_problem_types
         logger.debug(
-            "census language=%s package=%s spellings=%d",
-            language, package, len(censuses[language].spellings),
+            "census language=%s packages=%s spellings=%d",
+            language,
+            [src_dir.parents[1].name for src_dir in language_src_dirs],
+            len(censuses[language].spellings),
         )
     return censuses, holes
 
@@ -241,8 +250,10 @@ def _assert(condition: bool, label: str) -> bool:
 
 
 def _planted(language: str, slugs: tuple[str, ...]) -> LanguageCensus:
-    spellings = tuple(Spelling(language, "planted.j2", i + 1, slug) for i, slug in enumerate(slugs))
-    return LanguageCensus(language, f"datrix-codegen-{language}", spellings)
+    spellings = tuple(
+        Spelling(language, f"datrix-codegen-{language}", "planted.j2", i + 1, slug) for i, slug in enumerate(slugs)
+    )
+    return LanguageCensus(language, spellings)
 
 
 def _self_test_comparator(registry: tuple[ProblemType, ...]) -> bool:
@@ -293,11 +304,31 @@ def _self_test_census(tmp_root: Path) -> bool:
     (src / "handler.py").write_text('URN = "urn:datrix:error:internal"\n', encoding="utf-8")
     (src / "notes.md").write_text("urn:datrix:error:ignored-because-markdown\n", encoding="utf-8")
     (src / "__pycache__" / "stale.py").write_text("'urn:datrix:error:ignored-because-cache'\n", encoding="utf-8")
-    census = census_source("fixture", "datrix-codegen-fixture", src)
+    census = census_sources("fixture", (src,))
     slugs = sorted(spelling.slug for spelling in census.spellings)
     return _assert(
         slugs == ["internal", "validation"],
         f"planted sources yield exactly their two literal slugs; the bare prefix is not one (got {slugs})",
+    )
+
+
+def _self_test_language_core(tmp_root: Path) -> bool:
+    """A fixture language split into a backend and a core: a URN spelled only
+    in the core is part of the language's census, recorded against the core
+    package; a backend-only census (the pre-split blindness) misses it."""
+    backend = tmp_root / "datrix-codegen-splitlang" / "src" / "datrix_codegen_splitlang"
+    core = tmp_root / "datrix-codegen-splitlang-core" / "src" / "datrix_codegen_splitlang_core"
+    backend.mkdir(parents=True)
+    core.mkdir(parents=True)
+    (backend / "plugin.py").write_text("NAME = 'splitlang'\n", encoding="utf-8")
+    (core / "errors.py").write_text('URN = "urn:datrix:error:internal"\n', encoding="utf-8")
+    split = census_sources("splitlang", (backend, core))
+    backend_only = census_sources("splitlang", (backend,))
+    found = [(spelling.package, spelling.slug) for spelling in split.spellings]
+    return _assert(
+        found == [("datrix-codegen-splitlang-core", "internal")] and not backend_only.spellings,
+        f"a fixture language split into a backend and a core: the census sees the URN planted in the core "
+        f"(got {found}); a backend-only census does not",
     )
 
 
@@ -318,6 +349,7 @@ def self_test() -> bool:
     tmp_root = Path(tempfile.mkdtemp(prefix="problem-type-gate-"))
     try:
         ok = _self_test_census(tmp_root)
+        ok &= _self_test_language_core(tmp_root)
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)
     ok &= _self_test_comparator(FRAMEWORK_PROBLEM_TYPES)

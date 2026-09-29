@@ -68,7 +68,7 @@ class CrossPackageViolation:
         return (
             f"  {shown}:{self.line}  {self.name} resolves to "
             f"{_relative(self.resolved_dir, base_dir)} -- inside "
-            f"{self.other_package}'s own tests/ tree (D14)"
+            f"{self.other_package}'s own tests/ tree"
         )
 
 
@@ -327,6 +327,7 @@ def scan_file(
                 CrossPackageViolation(file_path, node.lineno, target.id, resolved, other)
             )
 
+    asserted_absent = _names_asserted_absent(tree, file_path, scope)
     missing: list[MissingFixture] = []
     for node in ast.walk(tree):
         if not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)):
@@ -336,8 +337,35 @@ def scan_file(
             continue
         if resolved.exists():
             continue
+        if resolved in asserted_absent:
+            continue
         missing.append(MissingFixture(file_path, node.lineno, ast.unparse(node), resolved))
     return violations, missing
+
+
+def _names_asserted_absent(tree: ast.Module, file_path: Path, scope: _Scope) -> set[Path]:
+    """Resolved values a test explicitly checks are ABSENT (``assert not
+    X.exists()`` / ``if not X.exists(): ...``) -- read as a negative
+    assertion, never as an unresolved fixture read. Uses the SAME scope the
+    caller already built (so ``Path(__file__)``-anchored names resolve to the
+    real file location, matching what the missing-fixture pass compares
+    against)."""
+    absent: set[Path] = set()
+    for node in ast.walk(tree):
+        test = node.test if isinstance(node, (ast.Assert, ast.If)) else None
+        if not isinstance(test, ast.UnaryOp) or not isinstance(test.op, ast.Not):
+            continue
+        call = test.operand
+        if not (
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "exists"
+        ):
+            continue
+        resolved = _eval_path_expr(call.func.value, file_path, scope)
+        if isinstance(resolved, Path):
+            absent.add(resolved)
+    return absent
 
 
 def _other_package_tests_hit(resolved_dir: Path, own_package_root: Path) -> str | None:

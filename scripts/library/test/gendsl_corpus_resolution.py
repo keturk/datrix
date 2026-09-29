@@ -3,7 +3,7 @@
 
 Eager builder/call-expression reference resolution runs at
 ``@generator_definition`` registration time
-(``datrix_codegen_common.gendsl.resolver``). This is the cross-package proof
+(``datrix_codegen_kernel.gendsl.resolver``). This is the cross-package proof
 that the real, shipped corpus of builder/call/context/appends references
 across every consumer package is genuinely resolvable: importing each
 package's genDSL definitions module IS the assertion. If any reference in
@@ -51,7 +51,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-from datrix_codegen_common.gendsl import target_registry
+from datrix_codegen_kernel.gendsl import target_registry
 
 #: Generous ceiling for a single package's genDSL-definitions import. Eager
 #: reference resolution walks one package's compiled IR tree in memory; a
@@ -125,7 +125,7 @@ def resolve_module_in_subprocess(
     Runs ``python -c "import <module_name>"`` as a fresh child process so
     that this module's process never holds more than one generator
     package's genDSL modules loaded at once. Eager reference resolution
-    (``datrix_codegen_common.gendsl.resolver``) runs as a side effect of the
+    (``datrix_codegen_kernel.gendsl.resolver``) runs as a side effect of the
     import; any unresolved reference raises
     ``GenDSLReferenceResolutionError`` inside the child process, which
     prints its traceback to stderr and exits non-zero -- the child's

@@ -31,7 +31,7 @@ if _library_dir.exists() and str(_library_dir) not in sys.path:
 
 from shared.registered_targets import registered_language_names  # noqa: E402
 
-from datrix_codegen_kernel.generation.discovery import list_available_generators  # noqa: E402
+from datrix_codegen_kernel.sql_facts import type_mappings as sql_type_mappings  # noqa: E402
 from datrix_common.plugin.registry import EXTENSION_GROUP  # noqa: E402
 
 #: Every language's type_mappings module exposes exactly one module-level
@@ -41,8 +41,9 @@ from datrix_common.plugin.registry import EXTENSION_GROUP  # noqa: E402
 #: the dict by suffix, never by guessing a per-language constant name).
 _EXTENSION_MAPS_SUFFIX: Final[str] = "_EXTENSION_MAPS"
 
-#: SQL registers under `datrix.generators`, not `datrix.languages` -- it is a
-#: singular, named non-language type-mapping surface the design requires
+#: The SQL type map is a shared SQL fact in the codegen kernel
+#: (``datrix_codegen_kernel.sql_facts.type_mappings``), not a ``datrix.languages``
+#: plugin -- a singular, named non-language type-mapping surface checked
 #: alongside the (fully-derived) language axis. Naming this one literal does
 #: NOT truncate the language axis: registered_language_names() below still
 #: derives that axis at runtime with no per-language literal anywhere.
@@ -65,12 +66,13 @@ def configure_logging(debug: bool = False) -> None:
 
 
 def import_language_mappings(language: str) -> ModuleType:
-    """Import a language's ``type_mappings`` module (registering its mappings).
+    """Return a language's ``type_mappings`` module (registering its mappings).
 
-    The language's package root is resolved from its registered
-    ``datrix.languages`` plugin, so this works for every installed language
-    with no per-language branch. Importing ``<package>.type_mappings`` triggers
-    that language's registration into the global type-mapping registry.
+    Loading the language's registered ``datrix.languages`` plugin imports the
+    module that registers its type map; the global type-mapping registry then
+    names that module. So this works for every installed language with no
+    per-language branch, and wherever the map lives -- the generator package
+    itself or a language core it builds on.
 
     Args:
         language: A registered ``datrix.languages`` entry-point name.
@@ -92,17 +94,23 @@ def import_language_mappings(language: str) -> ModuleType:
         )
 
     from datrix_codegen_kernel.generation.discovery import get_language_plugin
+    from datrix_codegen_kernel.generation.type_mapping_registry import global_registry
 
-    plugin = get_language_plugin(language)
-    package_root = type(plugin).__module__.split(".")[0]
-    module_name = f"{package_root}.type_mappings"
+    get_language_plugin(language)
+    try:
+        module_name = global_registry.mapping_module(language)
+    except ValueError as e:
+        raise ImportError(
+            f"Loading the {language} plugin registered no type map. Expected the "
+            f"plugin to import the module that calls register_language({language!r}, ...). "
+            f"Error: {e}"
+        ) from e
     try:
         module = importlib.import_module(module_name)
     except ImportError as e:
         raise ImportError(
             f"Failed to import {language} type mappings ({module_name}). "
-            f"Is datrix-codegen-{language} installed and does it ship a "
-            f"type_mappings module? Error: {e}"
+            f"Is the package providing it installed? Error: {e}"
         ) from e
     logger.debug("Imported %s type mappings from %s", language, module_name)
     return module
@@ -186,42 +194,6 @@ def registered_extension_pack_names() -> frozenset[str]:
     return frozenset(ep.name for ep in eps)
 
 
-def _sql_type_mappings_module() -> ModuleType:
-    """Resolve datrix-codegen-sql's ``type_mappings`` module.
-
-    SQL is not a ``datrix.languages`` plugin, so it cannot go through
-    :func:`import_language_mappings`. Its package root is still resolved via
-    the sanctioned :func:`list_available_generators` API (never a hardcoded
-    ``datrix_codegen_sql`` package-path literal).
-
-    Returns:
-        The imported ``datrix_codegen_sql.type_mappings`` module.
-
-    Raises:
-        ValueError: If no ``"sql"`` entry is registered under ``datrix.generators``.
-        ImportError: If the resolved module cannot be imported.
-    """
-    available = list_available_generators()
-    if _SQL_SURFACE_NAME not in available:
-        raise ValueError(
-            f"No {_SQL_SURFACE_NAME!r} generator registered under 'datrix.generators'. "
-            f"Installed: {sorted(available)}. Fix: install datrix-codegen-sql into "
-            f"D:\\datrix\\.venv (editable install)."
-        )
-    class_path = available[_SQL_SURFACE_NAME]  # e.g. "datrix_codegen_sql.plugin:SQLGenerator"
-    module_path = class_path.split(":", 1)[0]
-    package_root = module_path.split(".")[0]
-    module_name = f"{package_root}.type_mappings"
-    try:
-        return importlib.import_module(module_name)
-    except ImportError as e:
-        raise ImportError(
-            f"Failed to import SQL type mappings ({module_name}). Is "
-            f"datrix-codegen-sql installed and does it ship a type_mappings "
-            f"module? Error: {e}"
-        ) from e
-
-
 def extension_map_completeness_surfaces() -> dict[str, ModuleType]:
     """Return ``{surface_name: type_mappings module}`` for every checked surface.
 
@@ -235,7 +207,7 @@ def extension_map_completeness_surfaces() -> dict[str, ModuleType]:
         language: import_language_mappings(language)
         for language in sorted(registered_language_names())
     }
-    surfaces[_SQL_SURFACE_NAME] = _sql_type_mappings_module()
+    surfaces[_SQL_SURFACE_NAME] = sql_type_mappings
     return surfaces
 
 

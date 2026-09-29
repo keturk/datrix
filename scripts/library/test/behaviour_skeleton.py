@@ -2501,9 +2501,9 @@ def _run_arity_checks() -> bool:
     ok = True
     private_annotated = _function_source_from_code(
         """
-        from datrix_codegen_typescript.transpiler.scope import TsFileScope
+        from datrix_codegen_typescript_core.transpiler.scope import TypeScriptFileScope
 
-        def emit_break_statement(scope: TsFileScope):
+        def emit_break_statement(scope: TypeScriptFileScope):
             return scope
         """
     )
@@ -2543,9 +2543,9 @@ def _run_rendering_leaf_privacy_checks() -> bool:
     not."""
     private_leaf = _function_source_from_code(
         """
-        from datrix_codegen_typescript.transpiler.scope import TsFileScope
+        from datrix_codegen_typescript_core.transpiler.scope import TypeScriptFileScope
 
-        def build_import_line(scope: TsFileScope, helper: str) -> str:
+        def build_import_line(scope: TypeScriptFileScope, helper: str) -> str:
             module = scope.transpiler.module_name
             return f"import {module}.{helper}"
         """

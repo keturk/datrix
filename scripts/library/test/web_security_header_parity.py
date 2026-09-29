@@ -732,7 +732,11 @@ def scan_all_registered_platforms() -> tuple[dict[str, PlatformCensus], dict[str
     src_dirs = discover_target_package_src_dirs(AXIS_PLATFORMS, platform_names, WORKSPACE_ROOT)
     censuses: dict[str, PlatformCensus] = {}
     unrealized: dict[str, str] = {}
-    for label, src_dir in sorted(src_dirs.items()):
+    for label, platform_src_dirs in sorted(src_dirs.items()):
+        # The census drives the registering package's own generation
+        # composition: the first src dir is always the package whose entry
+        # point registers the platform (any core it requires follows it).
+        src_dir = platform_src_dirs[0]
         package = src_dir.parents[1].name
         member_names = label.split(_LABEL_JOIN_SEPARATOR)
         realizations = {name: declaration_for_provider(name).static_web_hosting for name in member_names}

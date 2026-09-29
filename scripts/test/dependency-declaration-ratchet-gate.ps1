@@ -4,15 +4,18 @@
  Dependency-declaration-only-path ratchet (W4 / design-principle F5 enforcement).
 
 .DESCRIPTION
- Reports every site in each registered language package that decides a
- dependency package NAME outside that package's own
+ Reports every site in every package implementing each registered language
+ (its backend plus each language core the backend requires) that decides a
+ dependency package NAME outside the language's own
  generation/dependency_tables.py table, and checks the out-of-table count
  against a decrease-only baseline at
  scripts/config/dependency-declaration-ratchet-baseline.json.
 
- Runs a built-in non-vacuity self-test on every invocation, including a check
- against a described, currently-real out-of-table instance. Fails loud
- (exit 2) if fewer than two languages are registered.
+ Runs a built-in non-vacuity self-test on every invocation, including a
+ fixture language split into a backend and a core, and a live check that
+ every registered language's real catalog covers every package its real
+ declared table names. Fails loud (exit 2) if fewer than two languages are
+ registered.
 
  Repo-level validation script (per the datrix showcase boundary -- no pytest
  suite lives in datrix).

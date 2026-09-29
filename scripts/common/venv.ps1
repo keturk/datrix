@@ -949,7 +949,9 @@ function Test-DatrixWorkspacePresent {
  "datrix-codegen-docker",
  "datrix-testing",
  "datrix-migration",
- "datrix-semantic"
+ "datrix-semantic",
+ "datrix-codegen-kernel",
+ "datrix-codegen-typescript-core"
  )
 
  $missing = @()

@@ -95,9 +95,11 @@ ARCHITECTURE_DOC_FILES: tuple[str, ...] = (
     "datrix-codegen-component/docs/architecture.md",
     "datrix-codegen-docker/docs/architecture.md",
     "datrix-codegen-flutter/docs/architecture.md",
+    "datrix-codegen-kernel/docs/architecture.md",
     "datrix-codegen-python/docs/architecture.md",
     "datrix-codegen-sql/docs/architecture.md",
     "datrix-codegen-typescript/docs/architecture.md",
+    "datrix-codegen-typescript-core/docs/architecture.md",
     "datrix-common/docs/architecture.md",
     "datrix-common/docs/architecture/ast-parent-containment.md",
     "datrix-common/docs/architecture/code-generation.md",
@@ -1011,26 +1013,20 @@ def _check_ambiguous_tier2_match_stays_unresolved() -> None:
 def _check_exact_module_match_resolves() -> None:
     with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
         root = Path(tmp)
-        target = (
-            root / "datrix-common" / "src" / "datrix_common" / "generation" / "template_generator.py"
-        )
+        target = root / "datrix-common" / "src" / "datrix_common" / "config" / "parser.py"
         target.parent.mkdir(parents=True)
-        target.write_text("class TemplateGenerator: ...\n", encoding="utf-8")
-        resolved = resolve_module_candidate("datrix_codegen_kernel.generation.template_generator", root)
+        target.write_text("class ConfigParser: ...\n", encoding="utf-8")
+        resolved = resolve_module_candidate("datrix_common.config.parser", root)
         assert resolved is True, "exact module path must resolve"
 
 
 def _check_trailing_symbol_name_is_tolerated() -> None:
     with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
         root = Path(tmp)
-        target = (
-            root / "datrix-common" / "src" / "datrix_common" / "generation" / "template_generator.py"
-        )
+        target = root / "datrix-common" / "src" / "datrix_common" / "config" / "parser.py"
         target.parent.mkdir(parents=True)
         target.write_text("def _dispatch(): ...\n", encoding="utf-8")
-        resolved = resolve_module_candidate(
-            "datrix_codegen_kernel.generation.template_generator._dispatch", root
-        )
+        resolved = resolve_module_candidate("datrix_common.config.parser._dispatch", root)
         assert resolved is True, "a trailing symbol/attribute name must be tolerated"
 
 

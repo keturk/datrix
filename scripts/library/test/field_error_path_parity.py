@@ -86,6 +86,8 @@ class RealizationSite:
     a candidate realization or divergence, found by the census."""
 
     language: str
+    package: str
+    """The package repo the site lives in -- a language's backend or one of its cores."""
     relative_path: str
     line: int
     spelled_path: str
@@ -147,7 +149,7 @@ def _load_module_from_path(path: Path) -> ModuleType:
     return module
 
 
-def _census_python(src_dir: Path, files: list[Path]) -> tuple[RealizationSite, ...]:
+def _census_python(package: str, src_dir: Path, files: list[Path]) -> tuple[RealizationSite, ...]:
     """Python realizes the rule with a real, callable mapping function --
     found by its definition, then EXECUTED against the canonical fixture."""
     sites: list[RealizationSite] = []
@@ -164,12 +166,12 @@ def _census_python(src_dir: Path, files: list[Path]) -> tuple[RealizationSite, .
                 continue
             produced = formatter(_CANONICAL_LOC)
             sites.append(
-                RealizationSite("python", path.relative_to(src_dir).as_posix(), line_number, produced)
+                RealizationSite("python", package, path.relative_to(src_dir).as_posix(), line_number, produced)
             )
     return tuple(sites)
 
 
-def _census_typescript(src_dir: Path, files: list[Path]) -> tuple[RealizationSite, ...]:
+def _census_typescript(package: str, src_dir: Path, files: list[Path]) -> tuple[RealizationSite, ...]:
     """TypeScript realizes the rule with a hand-written recursive builder over
     class-validator's own `ValidationError` tree (`main.ts.j2`'s
     `buildValidationFieldErrors`). class-validator's tree starts at the DTO's
@@ -185,11 +187,12 @@ def _census_typescript(src_dir: Path, files: list[Path]) -> tuple[RealizationSit
                 continue
             relative = path.relative_to(src_dir).as_posix()
             if _TS_ARRAY_BRACKET_RE.search(text) and _TS_DOT_JOIN_RE.search(text):
-                sites.append(RealizationSite("typescript", relative, line_number, _CANONICAL_PATH))
+                sites.append(RealizationSite("typescript", package, relative, line_number, _CANONICAL_PATH))
             else:
                 sites.append(
                     RealizationSite(
                         "typescript",
+                        package,
                         relative,
                         line_number,
                         f"{_CANONICAL_PATH} (missing the canonical `[n]`-index / `.`-join "
@@ -206,18 +209,23 @@ def _census_typescript(src_dir: Path, files: list[Path]) -> tuple[RealizationSit
 #: unless that language declares `unrealized_field_error_path`. This is NOT
 #: the retired per-family mapping shape: it holds no reason, only a census
 #: FUNCTION, because there is no family axis on a one-rule gate.
-_CENSUS_DISPATCH: Final[Mapping[str, Callable[[Path, list[Path]], tuple[RealizationSite, ...]]]] = {
+_CENSUS_DISPATCH: Final[Mapping[str, Callable[[str, Path, list[Path]], tuple[RealizationSite, ...]]]] = {
     "python": _census_python,
     "typescript": _census_typescript,
 }
 
 
-def census_source(language: str, src_dir: Path) -> tuple[RealizationSite, ...]:
-    """Every field-error-path construction site under `src_dir` for `language`."""
+def census_sources(language: str, src_dirs: tuple[Path, ...]) -> tuple[RealizationSite, ...]:
+    """Every field-error-path construction site for `language` under every
+    package implementing it -- its backend and each language core. Each
+    `src_dir` is `<package>/src/<import_name>`; a site records its package."""
     detector = _CENSUS_DISPATCH.get(language)
     if detector is None:
         return ()
-    return detector(src_dir, _iter_source_files(src_dir))
+    sites: list[RealizationSite] = []
+    for src_dir in src_dirs:
+        sites.extend(detector(src_dir.parents[1].name, src_dir, _iter_source_files(src_dir)))
+    return tuple(sites)
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +260,7 @@ def evaluate(
             if site.spelled_path == canonical_path:
                 continue
             problems.append(
-                f"{language}: {site.relative_path}:{site.line}: spells field-error path "
+                f"{language}: {site.package}: {site.relative_path}:{site.line}: spells field-error path "
                 f"{site.spelled_path!r}, which diverges from the canonical form "
                 f"{canonical_path!r} FIELD_ERROR_PATH_RULE derives. Fix: match the rule's "
                 f"dot-separated, body-prefix-free, `[n]`-indexed form."
@@ -297,8 +305,8 @@ def scan_all_registered_languages() -> tuple[dict[str, tuple[RealizationSite, ..
     src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, language_names, WORKSPACE_ROOT)
     censuses: dict[str, tuple[RealizationSite, ...]] = {}
     reasons: dict[str, str | None] = {}
-    for language, src_dir in sorted(src_dirs.items()):
-        censuses[language] = census_source(language, src_dir)
+    for language, language_src_dirs in sorted(src_dirs.items()):
+        censuses[language] = census_sources(language, language_src_dirs)
         reasons[language] = declaration_for_language(language).unrealized_field_error_path
         logger.debug(
             "census language=%s sites=%d declared=%s",
@@ -333,7 +341,7 @@ def _assert(condition: bool, label: str) -> bool:
 
 
 def _planted(language: str, spelled_path: str) -> tuple[RealizationSite, ...]:
-    return (RealizationSite(language, "planted.j2", 1, spelled_path),)
+    return (RealizationSite(language, f"datrix-codegen-{language}", "planted.j2", 1, spelled_path),)
 
 
 def _self_test_comparator() -> bool:
@@ -378,48 +386,57 @@ def _self_test_comparator() -> bool:
     return ok
 
 
+#: A correct, self-contained `format_field_error_path` -- the planted
+#: realization of the executed-formatter technique.
+_CANONICAL_FORMATTER_SOURCE: Final[str] = (
+    "def format_field_error_path(loc):\n"
+    "    segments = list(loc)\n"
+    "    if segments and segments[0] == 'body':\n"
+    "        segments = segments[1:]\n"
+    "    parts = []\n"
+    "    for segment in segments:\n"
+    "        if isinstance(segment, int):\n"
+    "            parts.append(f'[{segment}]')\n"
+    "        elif parts:\n"
+    "            parts.append(f'.{segment}')\n"
+    "        else:\n"
+    "            parts.append(str(segment))\n"
+    "    return ''.join(parts)\n"
+)
+
+
+def _fixture_src(tmp_root: Path, package: str) -> Path:
+    """A fixture ``<package>/src/<import_name>`` tree, the shape every
+    discovered src dir has."""
+    src = tmp_root / package / "src" / package.replace("-", "_")
+    src.mkdir(parents=True)
+    return src
+
+
 def _self_test_census(tmp_root: Path) -> bool:
     ok = True
 
-    py_good = tmp_root / "python-good"
-    py_good.mkdir(parents=True)
-    (py_good / "field_error_path.py").write_text(
-        "def format_field_error_path(loc):\n"
-        "    segments = list(loc)\n"
-        "    if segments and segments[0] == 'body':\n"
-        "        segments = segments[1:]\n"
-        "    parts = []\n"
-        "    for segment in segments:\n"
-        "        if isinstance(segment, int):\n"
-        "            parts.append(f'[{segment}]')\n"
-        "        elif parts:\n"
-        "            parts.append(f'.{segment}')\n"
-        "        else:\n"
-        "            parts.append(str(segment))\n"
-        "    return ''.join(parts)\n",
-        encoding="utf-8",
-    )
-    sites = census_source("python", py_good)
+    py_good = _fixture_src(tmp_root, "python-good")
+    (py_good / "field_error_path.py").write_text(_CANONICAL_FORMATTER_SOURCE, encoding="utf-8")
+    sites = census_sources("python", (py_good,))
     ok &= _assert(
         len(sites) == 1 and sites[0].spelled_path == _CANONICAL_PATH,
         f"a correct python formatter's real execution produces the canonical path (got {sites})",
     )
 
-    py_bad = tmp_root / "python-bad"
-    py_bad.mkdir(parents=True)
+    py_bad = _fixture_src(tmp_root, "python-bad")
     (py_bad / "field_error_path.py").write_text(
         "def format_field_error_path(loc):\n"
         "    return '.'.join(str(s) for s in loc)\n",
         encoding="utf-8",
     )
-    sites = census_source("python", py_bad)
+    sites = census_sources("python", (py_bad,))
     ok &= _assert(
         len(sites) == 1 and sites[0].spelled_path != _CANONICAL_PATH,
         f"a divergent python formatter's real execution surfaces its actual wrong output (got {sites})",
     )
 
-    ts_good = tmp_root / "typescript-good"
-    ts_good.mkdir(parents=True)
+    ts_good = _fixture_src(tmp_root, "typescript-good")
     (ts_good / "main.ts.j2").write_text(
         "function buildValidationFieldErrors(errors, parentPath = '') {\n"
         "  if (isArrayIndex) { path = `${parentPath}[${error.property}]`; }\n"
@@ -427,35 +444,54 @@ def _self_test_census(tmp_root: Path) -> bool:
         "}\n",
         encoding="utf-8",
     )
-    sites = census_source("typescript", ts_good)
+    sites = census_sources("typescript", (ts_good,))
     ok &= _assert(
         len(sites) == 1 and sites[0].spelled_path == _CANONICAL_PATH,
         f"a correct typescript builder censuses as canonical (got {sites})",
     )
 
-    ts_bad = tmp_root / "typescript-bad"
-    ts_bad.mkdir(parents=True)
+    ts_bad = _fixture_src(tmp_root, "typescript-bad")
     (ts_bad / "main.ts.j2").write_text(
         "function buildValidationFieldErrors(errors, parentPath = '') {\n"
         "  path = `${parentPath}.${error.property}`;\n"
         "}\n",
         encoding="utf-8",
     )
-    sites = census_source("typescript", ts_bad)
+    sites = census_sources("typescript", (ts_bad,))
     ok &= _assert(
         len(sites) == 1 and sites[0].spelled_path != _CANONICAL_PATH,
         f"a builder missing the `[n]`-index construction censuses as divergent (got {sites})",
     )
 
-    unknown_empty = tmp_root / "unknown-language"
-    unknown_empty.mkdir(parents=True)
+    unknown_empty = _fixture_src(tmp_root, "unknown-language")
     (unknown_empty / "nothing.py").write_text(
         "def format_field_error_path(loc):\n    return 'never read'\n", encoding="utf-8",
     )
-    sites = census_source("self_test_unregistered_language", unknown_empty)
+    sites = census_sources("self_test_unregistered_language", (unknown_empty,))
     ok &= _assert(sites == (), "a language with no known detector censuses to zero sites")
 
     return ok
+
+
+def _self_test_language_core(tmp_root: Path) -> bool:
+    """A fixture language split into a backend and a core: a realization that
+    lives only in the core is censused for the language and recorded against
+    the core package; a backend-only census (the pre-split blindness) sees
+    nothing. The language key is whichever registered detector runs the
+    executed-formatter technique, looked up by function, never by name."""
+    language = next(name for name, detector in _CENSUS_DISPATCH.items() if detector is _census_python)
+    backend = _fixture_src(tmp_root, "datrix-codegen-splitlang")
+    core = _fixture_src(tmp_root, "datrix-codegen-splitlang-core")
+    (backend / "plugin.py").write_text("NAME = 'splitlang'\n", encoding="utf-8")
+    (core / "field_error_path.py").write_text(_CANONICAL_FORMATTER_SOURCE, encoding="utf-8")
+    split = census_sources(language, (backend, core))
+    backend_only = census_sources(language, (backend,))
+    found = [(site.package, site.spelled_path) for site in split]
+    return _assert(
+        found == [("datrix-codegen-splitlang-core", _CANONICAL_PATH)] and backend_only == (),
+        f"a fixture language split into a backend and a core: the census sees the realization planted in the "
+        f"core (got {found}); a backend-only census does not",
+    )
 
 
 def _self_test_min_languages_refusal() -> bool:
@@ -497,6 +533,7 @@ def self_test() -> bool:
     tmp_root = Path(tempfile.mkdtemp(prefix="field-error-path-gate-"))
     try:
         ok = _self_test_census(tmp_root)
+        ok &= _self_test_language_core(tmp_root)
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)
     ok &= _self_test_comparator()

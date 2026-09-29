@@ -15,7 +15,8 @@ sending the retired ``X-Internal-Token`` long after every guard had moved on,
 so the generated test exercised a header nothing reads.
 
 The gate holds every registered language to two rules, from a census of the
-``.py`` and ``.j2`` sources under its package:
+``.py`` and ``.j2`` sources under every package implementing it -- its backend
+and each language core the backend requires:
 
 * **Spelling.** A header under a framework prefix (``X-Datrix-``,
   ``X-RateLimit-``, ``X-Webhook-``) is either an exact registered name or a
@@ -136,7 +137,7 @@ def registry_constant_families() -> dict[str, str]:
     exports, so a new family's constant is recognized with no edit here.
 
     ``CALLER_TOKEN_HEADER`` and ``DELEGATION_HEADER`` are not in that
-    ``__all__`` -- their one import path (I7) is their owning module
+    ``__all__`` -- their one import path is their owning module
     (``trusted_caller``, ``identity.delegation``), not the re-export the
     registry module used to index. They are added here directly so a
     ``.py`` file referencing either constant still realizes its family."""
@@ -172,6 +173,8 @@ class Spelling:
     """One ``X-``-prefixed header token found in a language package source."""
 
     language: str
+    package: str
+    """The package repo the spelling lives in -- what the exemption file keys on."""
     relative_path: str
     line: int
     name: str
@@ -180,10 +183,9 @@ class Spelling:
 @dataclass(frozen=True, slots=True)
 class LanguageCensus:
     language: str
-    package: str
     spellings: tuple[Spelling, ...]
     constant_references: frozenset[str]
-    """Registry constant names referenced from this package's ``.py`` files."""
+    """Registry constant names referenced from the language's ``.py`` files."""
 
 
 def _iter_source_files(src_dir: Path) -> list[Path]:
@@ -197,26 +199,33 @@ def _iter_source_files(src_dir: Path) -> list[Path]:
     return files
 
 
-def census_source(language: str, package: str, src_dir: Path, registry: Registry) -> LanguageCensus:
-    """Every ``X-`` header token and every registry-constant reference under
-    ``src_dir`` (``.py`` and ``.j2`` only)."""
+def census_sources(language: str, src_dirs: tuple[Path, ...], registry: Registry) -> LanguageCensus:
+    """Every ``X-`` header token and every registry-constant reference
+    (``.py`` and ``.j2`` only) under every package implementing *language* --
+    its backend and each language core.
+
+    Each ``src_dir`` is ``<package>/src/<import_name>``; the package repo is
+    two levels up and is what a spelling records (and the exemption file keys on).
+    """
     constant_patterns = {
         name: re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
         for name in registry.constant_families
     }
     spellings: list[Spelling] = []
     constant_references: set[str] = set()
-    for path in _iter_source_files(src_dir):
-        text = path.read_text(encoding="utf-8")
-        relative = path.relative_to(src_dir).as_posix()
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            for match in _HEADER_TOKEN_RE.finditer(line):
-                spellings.append(Spelling(language, relative, line_number, match.group(0)))
-        if path.suffix == ".py":
-            for name, pattern in constant_patterns.items():
-                if pattern.search(text):
-                    constant_references.add(name)
-    return LanguageCensus(language, package, tuple(spellings), frozenset(constant_references))
+    for src_dir in src_dirs:
+        package = src_dir.parents[1].name
+        for path in _iter_source_files(src_dir):
+            text = path.read_text(encoding="utf-8")
+            relative = path.relative_to(src_dir).as_posix()
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                for match in _HEADER_TOKEN_RE.finditer(line):
+                    spellings.append(Spelling(language, package, relative, line_number, match.group(0)))
+            if path.suffix == ".py":
+                for name, pattern in constant_patterns.items():
+                    if pattern.search(text):
+                        constant_references.add(name)
+    return LanguageCensus(language, tuple(spellings), frozenset(constant_references))
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +324,7 @@ def _spelling_problems(
     by_name = registry.family_by_name()
     problems: list[str] = []
     for spelling in census.spellings:
-        where = f"{census.package}: {spelling.relative_path}:{spelling.line}"
+        where = f"{spelling.package}: {spelling.relative_path}:{spelling.line}"
         if registry.is_retired(spelling.name):
             problems.append(
                 f"{where}: spells RETIRED framework header {spelling.name!r}. No consumer reads "
@@ -326,7 +335,7 @@ def _spelling_problems(
         if spelling.name.lower() in by_name or not registry.is_framework_prefixed(spelling.name):
             continue
         exemption = next(
-            (entry for entry in exemptions if entry.matches(census.package, spelling.name)), None,
+            (entry for entry in exemptions if entry.matches(spelling.package, spelling.name)), None,
         )
         if exemption is None:
             problems.append(
@@ -432,15 +441,14 @@ def scan_all_registered_languages(
     src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, language_names, WORKSPACE_ROOT)
     censuses: dict[str, LanguageCensus] = {}
     holes: dict[str, Mapping[str, str]] = {}
-    for language, src_dir in sorted(src_dirs.items()):
-        # ``src_dir`` is ``<package>/src/<import_name>``; the package repo is
-        # two levels up and is what the exemption file keys on.
-        package = src_dir.parents[1].name
-        censuses[language] = census_source(language, package, src_dir, registry)
+    for language, language_src_dirs in sorted(src_dirs.items()):
+        censuses[language] = census_sources(language, language_src_dirs, registry)
         holes[language] = declaration_for_language(language).unrealized_framework_headers
         logger.debug(
-            "census language=%s package=%s spellings=%d constant_refs=%s",
-            language, package, len(censuses[language].spellings),
+            "census language=%s packages=%s spellings=%d constant_refs=%s",
+            language,
+            [src_dir.parents[1].name for src_dir in language_src_dirs],
+            len(censuses[language].spellings),
             sorted(censuses[language].constant_references),
         )
     return censuses, holes
@@ -477,8 +485,11 @@ def _assert(condition: bool, label: str) -> bool:
 def _planted_census(
     language: str, names: tuple[str, ...], constants: frozenset[str] = frozenset(),
 ) -> LanguageCensus:
-    spellings = tuple(Spelling(language, "planted.j2", index + 1, name) for index, name in enumerate(names))
-    return LanguageCensus(language, f"datrix-codegen-{language}", spellings, constants)
+    package = f"datrix-codegen-{language}"
+    spellings = tuple(
+        Spelling(language, package, "planted.j2", index + 1, name) for index, name in enumerate(names)
+    )
+    return LanguageCensus(language, spellings, constants)
 
 
 def _all_names(registry: Registry) -> tuple[str, ...]:
@@ -555,7 +566,7 @@ def _name_of_constant(registry: Registry, constant_name: str) -> str:
 
 
 def _self_test_census(tmp_root: Path, registry: Registry) -> bool:
-    src = tmp_root / "datrix-codegen-fixture" / "src"
+    src = tmp_root / "datrix-codegen-fixture" / "src" / "datrix_codegen_fixture"
     (src / "templates").mkdir(parents=True)
     (src / "__pycache__").mkdir()
     (src / "templates" / "planted.j2").write_text(
@@ -567,7 +578,7 @@ def _self_test_census(tmp_root: Path, registry: Registry) -> bool:
     )
     (src / "notes.md").write_text("X-Datrix-Ignored-Because-Markdown\n", encoding="utf-8")
     (src / "__pycache__" / "stale.py").write_text("'X-Datrix-Ignored-Because-Cache'\n", encoding="utf-8")
-    census = census_source("fixture", "datrix-codegen-fixture", src, registry)
+    census = census_sources("fixture", (src,), registry)
     names = sorted(spelling.name for spelling in census.spellings)
     ok = _assert(
         names == ["X-RateLimit-Limit", "x-webhook-secret"],
@@ -582,6 +593,40 @@ def _self_test_census(tmp_root: Path, registry: Registry) -> bool:
         "realized families come from spellings (case-insensitively) and constant references",
     )
     return ok
+
+
+def _self_test_language_core(tmp_root: Path, registry: Registry) -> bool:
+    """A fixture language split into a backend and a core: a header spelled
+    and a registry constant referenced only in the core realize their families
+    for the language, and the spelling records the core package (so an
+    exemption keyed on the core matches it); a backend-only census misses both."""
+    backend = tmp_root / "datrix-codegen-splitlang" / "src" / "datrix_codegen_splitlang"
+    core = tmp_root / "datrix-codegen-splitlang-core" / "src" / "datrix_codegen_splitlang_core"
+    backend.mkdir(parents=True)
+    core.mkdir(parents=True)
+    (backend / "plugin.py").write_text("NAME = 'splitlang'\n", encoding="utf-8")
+    (core / "client.j2").write_text("headers['X-Datrix-Private-Core'] = 1\n", encoding="utf-8")
+    (core / "caller.py").write_text(
+        "from datrix_codegen_kernel.generation.trusted_caller import CALLER_TOKEN_HEADER\n", encoding="utf-8",
+    )
+    split = census_sources("splitlang", (backend, core), registry)
+    backend_only = census_sources("splitlang", (backend,), registry)
+    exemption = Exemption("datrix-codegen-splitlang-core", "X-Datrix-Private-Core", "caller_token", "planted")
+    problems, _ = evaluate(
+        registry,
+        {"splitlang": split, "other": _planted_census("other", _all_names(registry))},
+        {"splitlang": {family: "planted" for family in registry.families() - {"caller_token"}}},
+        (exemption,),
+    )
+    return _assert(
+        [spelling.package for spelling in split.spellings] == ["datrix-codegen-splitlang-core"]
+        and "caller_token" in realized_families(split, registry)
+        and not backend_only.spellings
+        and not backend_only.constant_references
+        and problems == [],
+        f"a fixture language split into a backend and a core: the census sees the header and the constant "
+        f"planted in the core, keyed on the core package (problems: {problems})",
+    )
 
 
 def _self_test_exemption_parsing(registry: Registry) -> bool:
@@ -625,6 +670,7 @@ def self_test() -> bool:
     tmp_root = Path(tempfile.mkdtemp(prefix="framework-header-gate-"))
     try:
         ok &= _self_test_census(tmp_root, registry)
+        ok &= _self_test_language_core(tmp_root, registry)
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)
     ok &= _self_test_comparator(registry)

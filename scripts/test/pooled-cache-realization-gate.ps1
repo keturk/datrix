@@ -6,7 +6,7 @@
 .DESCRIPTION
  For every registered `datrix.languages` / `datrix.platforms` target, asserts
  that a pooled cache member's declared slice (`PooledMember.slice_index`,
- `datrix_codegen_common.pooling.contract`) actually reaches that target's own
+ `datrix_codegen_kernel.pooling.contract`) actually reaches that target's own
  emitted-output-facing source -- never merely that the shared pooling
  pre-pass computed it. Detection is STATIC: this gate parses each target
  package's own `src/` tree (Python `ast`, never a substring/regex scan) for a

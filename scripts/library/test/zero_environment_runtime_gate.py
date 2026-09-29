@@ -26,7 +26,8 @@ language to that declaration:
 The language set is derived from the installed ``datrix.languages`` entry
 points at runtime, never a hardcoded list, and each language's idiom comes
 from its own declaration, never a table in this script. Templates are every
-``.j2`` file under the language package's ``src/`` tree; test-harness
+``.j2`` file under the ``src/`` tree of every package implementing the
+language -- its backend and each language core the backend requires; test-harness
 templates count too, because a harness that reads the environment is still
 emitted into the generated project -- a realized language lists them as
 exemptions with that reason.
@@ -106,10 +107,10 @@ _SELF_TEST_IDIOM: Final[str] = r"\bSELF_TEST_ENV\.read\b"
 
 @dataclass(frozen=True)
 class LanguageCensus:
-    """The environment-reading templates one language's package carries."""
+    """The environment-reading templates one language's packages carry."""
 
     language: str
-    src_dir: Path
+    src_dirs: tuple[Path, ...]
     reads: frozenset[str]
 
 
@@ -126,29 +127,46 @@ class Exemption:
 # ---------------------------------------------------------------------------
 
 
-def census_templates(src_dir: Path, idioms: tuple[re.Pattern[str], ...]) -> frozenset[str]:
-    """Every ``.j2`` template under *src_dir* that matches any idiom, as a
-    posix path relative to *src_dir*.
+def census_templates(src_dirs: tuple[Path, ...], idioms: tuple[re.Pattern[str], ...]) -> frozenset[str]:
+    """Every ``.j2`` template under any of *src_dirs* -- every package
+    implementing one language, its backend and each language core -- that
+    matches any idiom, as a posix path relative to its own package's src root
+    (the key the baseline's exemptions use).
 
     File-level granularity: a template is a read when any line of it matches,
     so a docstring that mentions the idiom counts and needs an exemption too.
     That is deliberate -- a mention is cheap to exempt with a reason, and a
     matcher that tried to tell prose from code would be the eyeballing regex
     the seam discipline forbids.
+
+    Raises:
+        ValueError: Two of the language's packages carry a template at the
+            same relative path, so one baseline key would name two files.
     """
-    reads: set[str] = set()
-    for template in sorted(src_dir.rglob(f"*{_TEMPLATE_SUFFIX}")):
-        text = template.read_text(encoding="utf-8-sig")
-        if any(pattern.search(text) for pattern in idioms):
-            reads.add(template.relative_to(src_dir).as_posix())
+    reads: dict[str, Path] = {}
+    for src_dir in src_dirs:
+        for template in sorted(src_dir.rglob(f"*{_TEMPLATE_SUFFIX}")):
+            text = template.read_text(encoding="utf-8-sig")
+            if not any(pattern.search(text) for pattern in idioms):
+                continue
+            key = template.relative_to(src_dir).as_posix()
+            if key in reads:
+                raise ValueError(
+                    f"Two packages of one language carry an environment-reading template at "
+                    f"{key!r}: {reads[key]} and {template}. A baseline key must name one file. "
+                    f"Fix: keep the template in one package."
+                )
+            reads[key] = template
     return frozenset(reads)
 
 
-def census_language(language: str, src_dir: Path, declaration: ZeroEnvironmentRuntimeDeclaration) -> LanguageCensus:
+def census_language(
+    language: str, src_dirs: tuple[Path, ...], declaration: ZeroEnvironmentRuntimeDeclaration
+) -> LanguageCensus:
     return LanguageCensus(
         language=language,
-        src_dir=src_dir,
-        reads=census_templates(src_dir, declaration.compiled_idioms()),
+        src_dirs=src_dirs,
+        reads=census_templates(src_dirs, declaration.compiled_idioms()),
     )
 
 
@@ -313,7 +331,7 @@ def scan_all_registered_languages() -> tuple[dict[str, LanguageCensus], dict[str
     censuses: dict[str, LanguageCensus] = {}
     declarations: dict[str, ZeroEnvironmentRuntimeDeclaration] = {}
     undeclared: list[str] = []
-    for language, src_dir in sorted(src_dirs.items()):
+    for language, language_src_dirs in sorted(src_dirs.items()):
         declaration = _declaration_for(language)
         if declaration is None:
             undeclared.append(
@@ -324,7 +342,7 @@ def scan_all_registered_languages() -> tuple[dict[str, LanguageCensus], dict[str
             )
             continue
         declarations[language] = declaration
-        censuses[language] = census_language(language, src_dir, declaration)
+        censuses[language] = census_language(language, language_src_dirs, declaration)
     return censuses, declarations, undeclared
 
 
@@ -351,13 +369,40 @@ def _self_test_census(tmp_root: Path) -> tuple[bool, LanguageCensus]:
     declaration = ZeroEnvironmentRuntimeDeclaration(
         realized=True, environment_read_idioms=(_SELF_TEST_IDIOM,)
     )
-    census = census_language(_SELF_TEST_LANGUAGE, src_dir, declaration)
+    census = census_language(_SELF_TEST_LANGUAGE, (src_dir,), declaration)
     ok = _assert(
         census.reads == frozenset({"templates/reads.py.j2"}),
         "synthetic tree: exactly the planted template is a read; the clean template and "
         "the non-template file are not",
     )
     return ok, census
+
+
+def _self_test_language_core(tmp_root: Path) -> bool:
+    """A fixture language split into a backend and a core: a template read
+    planted only in the core is part of the language's census; a backend-only
+    census (the pre-split blindness) misses it; and the same relative template
+    path carried by both packages is refused rather than folded into one key."""
+    backend = tmp_root / "split_backend"
+    core = tmp_root / "split_core"
+    (backend / "templates").mkdir(parents=True)
+    (core / "templates").mkdir(parents=True)
+    (backend / "templates" / "clean.py.j2").write_text("value = 1\n", encoding="utf-8")
+    (core / "templates" / "core_reads.py.j2").write_text("value = SELF_TEST_ENV.read('X')\n", encoding="utf-8")
+    declaration = ZeroEnvironmentRuntimeDeclaration(realized=True, environment_read_idioms=(_SELF_TEST_IDIOM,))
+    split = census_language(_SELF_TEST_LANGUAGE, (backend, core), declaration)
+    backend_only = census_language(_SELF_TEST_LANGUAGE, (backend,), declaration)
+    (backend / "templates" / "core_reads.py.j2").write_text("value = SELF_TEST_ENV.read('Y')\n", encoding="utf-8")
+    try:
+        census_language(_SELF_TEST_LANGUAGE, (backend, core), declaration)
+        collision_refused = False
+    except ValueError:
+        collision_refused = True
+    return _assert(
+        split.reads == frozenset({"templates/core_reads.py.j2"}) and not backend_only.reads and collision_refused,
+        "a fixture language split into a backend and a core: a read planted in the core is censused, a "
+        "backend-only census misses it, and one relative path in both packages is refused",
+    )
 
 
 def _self_test_comparator(census: LanguageCensus) -> bool:
@@ -427,11 +472,11 @@ def _self_test_live_read() -> bool:
     language, relative_template = _KNOWN_LIVE_READ
     language_names = registered_language_names()
     src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, language_names, WORKSPACE_ROOT)
-    src_dir = src_dirs.get(language)
-    declaration = _declaration_for(language) if src_dir is not None else None
-    if src_dir is None or declaration is None:
+    language_src_dirs = src_dirs.get(language)
+    declaration = _declaration_for(language) if language_src_dirs is not None else None
+    if language_src_dirs is None or declaration is None:
         return _assert(False, f"live tree registers {language} with a declared posture")
-    census = census_language(language, src_dir, declaration)
+    census = census_language(language, language_src_dirs, declaration)
     return _assert(
         relative_template in census.reads,
         f"live census (real tree) finds the known read {language}:{relative_template}",
@@ -445,6 +490,7 @@ def self_test() -> bool:
         census_ok, census = _self_test_census(tmp_root)
         ok &= census_ok
         ok &= _self_test_comparator(census)
+        ok &= _self_test_language_core(tmp_root)
         ok &= _self_test_declaration_validation()
         ok &= _self_test_live_read()
         try:
