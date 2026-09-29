@@ -163,7 +163,7 @@ If issues found after merge: `git revert` the PR. Language packages are independ
 
 **Protocol conformance tests:**
 ```python
-from datrix_common.transpiler.protocols import TranspilerStateProtocol
+from datrix_codegen_common.transpiler.protocols import TranspilerStateProtocol
 
 def test_python_transpiler_satisfies_protocol():
     assert isinstance(PythonTranspiler(), TranspilerStateProtocol)

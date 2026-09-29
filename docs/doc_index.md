@@ -28,7 +28,7 @@ Quick-reference index for AI agents. All paths relative to `D:/datrix/`.
 - [codegen-consolidation.md](datrix-common/docs/architecture/codegen-consolidation.md) → Consolidation architecture
 - [config-system.md](datrix-common/docs/architecture/config-system.md) → Configuration architecture
 - [config-migration-rationale.md](datrix-common/docs/architecture/config-migration-rationale.md) → YAML → ConfigDSL migration
-- [semantic-validators.md](datrix-common/docs/architecture/semantic-validators.md) → Validation system
+- [semantic-validators.md](datrix-semantic/docs/architecture/semantic-validators.md) → Validation system
 - [ast-parent-containment.md](datrix-common/docs/architecture/ast-parent-containment.md) → AST design
 - [import-boundaries.md](datrix-common/docs/architecture/import-boundaries.md) → Module dependency rules
 - [output-path-contract.md](datrix-common/docs/architecture/output-path-contract.md) → Output file path conventions

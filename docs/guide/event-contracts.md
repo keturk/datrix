@@ -226,7 +226,8 @@ Owner: `Event.ensure_clauses: tuple[EnsureClause, ...]` in `datrix_common.datrix
 | Package | What it provides |
 |---------|-----------------|
 | **datrix-language** | Grammar rule `ensure_clause` inside `event_declaration`; CST-to-AST transformer produces `EnsureClause` nodes |
-| **datrix-common** | `EnsureClause` AST node (`datrix_model.contract`); `ContractValidator` (`semantic/validators/contract.py`) with CTR001-CTR003 |
+| **datrix-common** | `EnsureClause` AST node (`datrix_model.contract`) |
+| **datrix-semantic** | `ContractValidator` (`datrix_semantic/validators/contract.py`) with CTR001-CTR003 |
 | **datrix-codegen-python** | Template `messaging/contracts.py.j2` for validation functions; producer templates call validation before publish; `ContractViolationError` in generated error classes; contract test templates |
 | **datrix-codegen-typescript** | Template `messaging/contracts.ts.j2` for validation functions; producer templates call validation before publish; `ContractViolationError` in generated error classes; contract test templates |
 

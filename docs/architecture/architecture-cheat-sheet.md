@@ -17,15 +17,16 @@ semantic analysis -> stdlib placeholders + lazy module injection -> continuing p
 
 No IR layer. Parser produces `Application` directly. `GenerationPipeline` lives in `datrix-cli` (`datrix-cli/src/datrix_cli/pipeline/generation.py`); `run()` walks an ordered registry of typed `Stage` values through one runner. The named stages, in order: `parse` → `discover_and_parse_seeds` → `resolve_service_configs` → `inject_identity_system_entities` → `inject_approval_system_entities` → `inject_push_device_registry` → `analyze` → `apply_service_filter` (skipped without `--service`) → `validate_deployment` → `resolve_incremental` → `build_codegen_context` → `build_deployment_plan` → `resolve_config_surfaces` → `discover_generators` → `validate_type_completeness` → `validate_builtin_realization` → `discover_platforms` → `sort_generators` → `select_generation_targets` (skipped without `--only`) → `attach_runtime_bootstrap` → `generate:{name}` (one per generator) → `resolve_intra_group_conflicts` → `detect_file_conflicts` → `assert_deploy_binding_conformance` → `write:{target}` (one per target) → `migrations` → `discover_language_hooks` → `run_language_post_processing` → `run_client_target_post_processing` → `format_json_files` → `update_append_only_hashes` → `snapshot` → `commit_migration_state`. Infrastructure-config resolution and service memory-limit normalization are **not** stages: they run inside `analyze` as `SemanticAnalyzer.analyze()` pre-seal hooks, because both depend on nodes analysis itself may synthesize. There is **no** `platform_validation` or `apply_cli_overrides` stage; `--language` is a required generation parameter resolved before the run, and cross-model and `(provider, DeploymentProvider)` realization checks run inside the pre-seal infrastructure-config hook, with deployment-presence checks in `validate_deployment`.
 
-## Packages (16)
+## Packages (17)
 
-Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) plus fifteen core packages below.
+Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) plus sixteen core packages below.
 
 | Package | Purpose |
 |---------|---------|
-| datrix-common | Foundation: AST model, types, semantic analysis, config resolution, generation framework. ZERO deps on other Datrix packages |
+| datrix-common | Foundation: AST model, types, config resolution, generation framework. ZERO deps on other Datrix packages |
+| datrix-semantic | Semantic analysis: `SemanticAnalyzer` and its declared phase pipeline, every domain validator, synthesis, auth-contract lowering. Depends on datrix-common only; datrix-language, datrix-cli and datrix-testing declare it, and datrix-codegen-azure declares it for the Flexible Server connection-capacity table its RDBMS pooling generator reads |
 | datrix-migration | RDBMS migration machinery shared by every RDBMS-emitting generator: canonical schema snapshot, schema diff, change policy, revision ledger and ids, rebaseline, live-snapshot artifact, and the migration state store. Depends on datrix-common only; datrix-cli, datrix-codegen-common and the python, typescript and sql generators declare it |
-| datrix-language | Parser (Tree-sitter) + CST-to-AST transformers; implements the `StdlibParserProtocol` that pre-parses the seven stdlib `.dtrx` modules shipped under `datrix-common/src/datrix_common/stdlib/`. Depends on datrix-common |
+| datrix-language | Parser (Tree-sitter) + CST-to-AST transformers; implements the `StdlibParserProtocol` that pre-parses the seven stdlib `.dtrx` modules shipped under `datrix-common/src/datrix_common/stdlib/`. Depends on datrix-common and datrix-semantic (the language server runs the analyzer) |
 | datrix-codegen-common | Shared codegen intelligence: transpiler, `LanguageProfile` + `SyntaxEmitters`, context builders, genDSL. Consumed by EVERY language generator |
 | datrix-codegen-component | Platform-agnostic artifacts (docs, config, scripts) |
 | datrix-codegen-python | Python generation (FastAPI). Jinja2 + ruff format |
@@ -38,7 +39,7 @@ Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) 
 | datrix-codegen-flutter | Flutter mobile client target (`client_target=True` artifact-phase plugin): the client API layer in Dart -- models, one client class per API, the exception vocabulary and route manifest -- from the same validated `Application` that emits the backend. Activates only when an app's `targets` (or the system `clients { flutter { } }` block) names it |
 | datrix-cli | CLI. Discovers generator plugins dynamically via entry points |
 | datrix-extensions | Optional domain extension packs (`datrix.extensions`). Depends on datrix-common |
-| datrix-testing | Shared test harness: real-AST factories, fixtures, assertions, `.dtrx` parsing helpers, determinism and semantic-baseline harnesses. Depends on datrix-common only. A test/dev extra of every package, never a runtime dependency. The `pytest11` feature-tag plugin stays in datrix-common |
+| datrix-testing | Shared test harness: real-AST factories, fixtures, assertions, `.dtrx` parsing helpers, determinism and semantic-baseline harnesses. Depends on datrix-common and datrix-semantic. A test/dev extra of every package, never a runtime dependency. The `pytest11` feature-tag plugin stays in datrix-common |
 
 Repo tooling keys off what is actually on disk — a package joins the venv install set and the import-boundary/dead-code scans as soon as it has a `pyproject.toml` / `src/`, and joins `test.ps1 -All` and `status-tests.ps1` as soon as it carries a **test suite**: a `tests/` directory (pytest) or a `package.json` declaring a `test` script (Node). Nothing needs to be re-listed by hand.
 
@@ -645,7 +646,7 @@ Stage 2: QueryExpander    -> updated table + query annotations
 Stage 3: LanguageTranspiler (Python / TypeScript / …) -> TranspileResult (code + imports + flags)
 ```
 
-Orchestration: `StagePipeline` in **datrix-common** runs Stages 1–2 and configures the emitter; templates call the language transpiler for DSL bodies. Details: [code-generation.md](../../../datrix-common/docs/architecture/code-generation.md), [datrix-common architecture](../../../datrix-common/docs/architecture.md#transpiler-architecture-staged-pipeline).
+Orchestration: `StagePipeline` in **datrix-codegen-common** (`datrix_codegen_common.transpiler`) runs Stages 1–2 and configures the emitter; templates call the language transpiler for DSL bodies. Details: [code-generation.md](../../../datrix-common/docs/architecture/code-generation.md), [datrix-common architecture](../../../datrix-common/docs/architecture.md#transpiler-architecture-staged-pipeline).
 
 | Category | Type | Lifetime |
 |----------|------|----------|
