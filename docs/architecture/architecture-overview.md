@@ -16,7 +16,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 ✅ **Multi-Language Support** - Python, TypeScript, SQL — the language set is open
 ✅ **Multi-Platform Support** - Docker, AWS, Azure
 ✅ **Type-Safe** - Exhaustive type mappings with validation
-✅ **Modular Architecture** - 14 installable packages (13 core toolchain + optional **datrix-extensions**) plus showcase and projects repos
+✅ **Modular Architecture** - 15 installable packages (13 core toolchain + the **datrix-testing** test harness + optional **datrix-extensions**) plus showcase and projects repos
 ✅ **Specification-Level Testing** - DSL `test` blocks transpile to pytest under `tests/spec/` (Python) and Jest under `test/spec/` (TypeScript); see the [spec testing documentation](../guide/spec-testing.md)
 ✅ **Event contracts** - `ensure` clauses on `publish` events enforce publisher-side validation before `dispatch`
 ✅ **External library interfacing** - `extern service` declarations generate typed HTTP clients and deployment wiring for user-built services
@@ -31,7 +31,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 This overview was split into focused sub-documents for easier navigation. Each sub-document preserves the original section headings.
 
 - **[Pipeline Flow & Capabilities](architecture/pipeline-and-capabilities.md)** — System architecture, pipeline stages, standard library, phase 01/02/03 capabilities, search engine integration, CDN / content delivery, managed API gateway
-- **[Repository Architecture & Plugins](architecture/repository-architecture.md)** — 15 repos (14 installable packages + the showcase repo), plugin system, domain extension system, extern services, application containers, adding a new language
+- **[Repository Architecture & Plugins](architecture/repository-architecture.md)** — 16 repos (15 installable packages + the showcase repo), plugin system, domain extension system, extern services, application containers, adding a new language
 - **[Builtin Traits & Enums](architecture/builtin-traits-enums.md)** — 10 builtin traits, 2 builtin enums, injection mechanism
 
 Related:
@@ -70,6 +70,7 @@ graph TD
  A[datrix-common]
  B[datrix-language] --> A
  L[datrix-extensions] --> A
+ T[datrix-testing] --> A
  A --> CC[datrix-codegen-component]
  A --> CGC[datrix-codegen-common]
  CGC --> CC
@@ -105,6 +106,7 @@ graph TD
 - **datrix-common** (no dependencies) — Foundation and generation framework (AST model, type system, semantic analysis, standard library resources + loader protocols, config resolution, plugin protocols, generation framework). Does **not** import `datrix-language` — parser and stdlib-loader implementations are injected via protocols.
 - **datrix-language** (depends on datrix-common) — Parser + CST-to-AST transformers, implements `ParserProtocol` and `StdlibParserProtocol` defined in datrix-common
 - **datrix-extensions** (depends on datrix-common) — Optional domain packs; **not** required by `datrix-cli` or generators unless you declare `use extension` and install the pack
+- **datrix-testing** (depends on datrix-common) — The shared test harness (factories, fixtures, assertions, `.dtrx` parsing helpers). Every package lists it in its `dev` extra only, so no runtime edge points at it and none is drawn; the `pytest11` feature-tag plugin stays in datrix-common. See [datrix-testing architecture](../../../datrix-testing/docs/architecture.md)
 - **datrix-codegen-common** (depends on datrix-common) — Shared codegen intelligence: profile-driven transpiler, language-agnostic algorithms, context models, field analysis, parity checking, shared Grafana dashboard builder, GenDSL runtime, serverless/replayable-ingestion plans. Consumed by language codegen packages and by **all three** platform generators for its language-agnostic services.
 - **Language Code Generators** (depend on datrix-codegen-common, which depends on datrix-common) — Python and TypeScript today. The set is open: each new target language is one more peer package here, and a language generator never depends on a sibling language package.
 - **Other Code Generators** (depend on datrix-common and datrix-codegen-common) — SQL (GenDSL runtime, migration adapter contract, a narrow language-agnostic subtree set) and component (GenDSL runtime, derived domain declarations, serverless plans). **Both language generators also depend on the SQL generator:** `datrix-codegen-typescript`'s MikroORM migration adapter renders DDL through `datrix_codegen_sql`'s dialect protocol, index constants, naming, and type map (`datrix-codegen-typescript/src/datrix_codegen_typescript/generators/persistence/mikroorm_migration_adapter.py`), and `datrix-codegen-python`'s migration generator reads its SQL type map (`datrix-codegen-python/src/datrix_codegen_python/generators/persistence/migration_generator.py:58`). Both edges are declared in the manifests. Decision 50 moves these SQL facts into the codegen kernel, which removes both edges.
@@ -1554,7 +1556,7 @@ Generating a service that compiles is not the same as generating a service that 
 
 **These are behaviour changes and are intended.** Dependents wait longer on a first start because they now wait for a condition that is actually true, so a project whose probe timing was tuned against a permissive probe may need a longer start period; that is the correct cost of a probe that means what it says, not a regression. And fixing a boot-path defect reveals whatever the same startup path was masking rather than promising a clean boot: a migration that fails on its first revision cannot report a query-time defect behind it. The invariants above prove the named seams are closed; the first full run after them is new information, not confirmation.
 
-**Status:** Approved — Implementation In Progress. Landed: the TCP probe correction and dead probe-registry deletion in `datrix_common.generation.health_check`, asserted over the whole surviving registry (invariants 1, 2); the single readiness declaration in `datrix_codegen_common.orchestration.migration_readiness`, consumed by the python and typescript migration renderers with driver-cause propagation and chain printing (invariants 3–5); the init-script enum DDL deleted and pinned in `datrix-codegen-docker` (invariant 8); and the typescript database configuration resolving through the config store and the platform-declared secrets backend, held by that package's emitted-service zero-environment conformance test (invariants 10, 11 on typescript, alongside python).
+**Status:** Approved — Implementation In Progress. Landed: the TCP probe correction and dead probe-registry deletion in `datrix_codegen_docker.generators.infra.health_check`, asserted over the whole surviving registry (invariants 1, 2); the single readiness declaration in `datrix_codegen_common.orchestration.migration_readiness`, consumed by the python and typescript migration renderers with driver-cause propagation and chain printing (invariants 3–5); the init-script enum DDL deleted and pinned in `datrix-codegen-docker` (invariant 8); and the typescript database configuration resolving through the config store and the platform-declared secrets backend, held by that package's emitted-service zero-environment conformance test (invariants 10, 11 on typescript, alongside python).
 
 ---
 

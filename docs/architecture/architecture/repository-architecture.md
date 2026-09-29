@@ -6,7 +6,7 @@
 
 ## Repository Architecture
 
-The project is split into **fourteen** installable packages (thirteen core toolchain packages plus optional **datrix-extensions**), plus the **datrix** showcase repo (docs, examples, scripts). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
+The project is split into **fifteen** installable packages (thirteen core toolchain packages, the **datrix-testing** test harness, and optional **datrix-extensions**), plus the **datrix** showcase repo (docs, examples, scripts). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
 
 > **The datrix showcase repo holds only docs, examples, and scripts — it is not an installable toolchain package and hosts no test suite.** It must never contain a `tests/` pytest suite, product tests, cross-package tests, or language/provider matrix tests. Datrix is a **multi-language, multi-platform generator** (not limited to Python/TypeScript, not limited to Docker/AWS/Azure), so no test that enumerates specific languages or providers belongs in it. Each `datrix-*` package tests only its own surface; genuine repo-level cross-cutting validation lives as **scripts under `datrix/scripts/test/`**, never as `datrix/tests/`.
 
@@ -20,7 +20,7 @@ The project is split into **fourteen** installable packages (thirteen core toolc
 - **Semantic analysis:** ordered passes in `SemanticAnalyzer.analyze` (`datrix_common.semantic.analyzer`) — stdlib symbol registration, symbol collection, import and reference resolution, field typing, inheritance merge, FK synthesis, index resolution, type checking, and domain validators (collects diagnostics; fails the pipeline when errors remain)
 - **Standard library:** Ships `.dtrx` stdlib modules (`datrix_common.stdlib`) and the stdlib loader. Parsing of stdlib `.dtrx` sources uses a `StdlibParserProtocol` injected by `datrix-language` — `datrix-common` never imports the parser directly. See `datrix_common.stdlib.protocols`.
 - **Config resolution:** parses `.dcfg` ConfigDSL files referenced by AST declarations, selects active profile, validates against schemas, attaches resolved config to blocks
-- **Generation framework:** Generator base classes, plugin protocols (`GeneratorPlugin`, `PlatformPlugin`), template rendering (Jinja2), YAML/JSON document builders, file coordination, code formatting integration, testing utilities for generator packages. **Pipeline orchestration** (`GenerationPipeline`) lives in `datrix-cli`, not here — `datrix-common` provides the framework; `datrix-cli` owns the orchestrator.
+- **Generation framework:** Generator base classes, plugin protocols (`GeneratorPlugin`, `PlatformPlugin`), template rendering (Jinja2), YAML/JSON document builders, file coordination, code formatting integration, and the `pytest11` feature-tag plugin (`datrix_common.testing.feature_tags`); the shared test harness is the separate `datrix-testing` package. **Pipeline orchestration** (`GenerationPipeline`) lives in `datrix-cli`, not here — `datrix-common` provides the framework; `datrix-cli` owns the orchestrator.
 - **Protocols:** `ParserProtocol`, `StdlibParserProtocol`, `LanguageHooks`, `LanguageRuntimeSpec`, `GeneratorPlugin`, `PlatformPlugin` — all protocol definitions that enable dependency inversion across packages
 - **Transpiler:** Staged DSL-to-source pipeline shared across language packages — **`NameResolver`** (Stage 1) and **`QueryExpander`** (Stage 2) in **datrix-common** produce **`ResolutionTable`** / query-annotation side-tables; each **`LanguageTranspiler`** subclass (Stage 3) consumes those tables and returns **`TranspileResult`**. Configuration is a frozen **`TranspileContext`**; per-file sibling-flow state lives in **`FileScope`** / **`PythonFileScope`** / **`TypeScriptFileScope`**. Expression and statement work uses **`ExpressionVisitor`** / **`StatementVisitor`** and **`node.accept()`**; call targets use **`CallTargetEmitter`** and **`dispatch_call()`**. See [datrix-common — Transpiler architecture](../../../../datrix-common/docs/architecture.md#transpiler-architecture-staged-pipeline), [code-generation.md — Consolidated generator infrastructure](../../../../datrix-common/docs/architecture/code-generation.md#consolidated-generator-infrastructure), and [datrix-common-api — Transpiler modules](../../../../datrix-common/docs/datrix-common-api.md#transpiler-modules).
 - **Shared:** Rendering utilities, error classes, configuration models, shared utilities
@@ -178,6 +178,16 @@ Optional package of **domain extension** entry points registered under the `datr
 - `datrix-common` (protocols, types)
 
 **Installation:** Only required when a project's `system.dtrx` declares `use extension <name>;`. Not a hard dependency of `datrix-cli` or the language generators.
+
+---
+
+### Test harness (1)
+
+#### 15. datrix-testing
+The shared test harness every package's suite imports: factories that build real AST objects, fixtures, assertions, `.dtrx` parsing helpers, pipeline and platform-config helpers, the determinism and semantic-baseline harnesses, and Hypothesis strategies. Every package lists it in its `dev` extra only; it is never a runtime dependency, and no module under any package's `src/` imports it. The `pytest11` feature-tag plugin stays in `datrix-common`, because it loads into every pytest session in the shared venv. See [datrix-testing — Architecture](../../../../datrix-testing/docs/architecture.md).
+
+**Dependencies:**
+- `datrix-common`
 
 ---
 
