@@ -348,6 +348,27 @@ generated, and invariant 11's wording, are superseded by Decision 48.
 
 Full decision log: [Architecture Overview — Decision 43](./architecture-overview.md#decision-43-frontend-api-client-generation--browser-clients-emitted-from-the-same-dsl-as-the-backend-approved--implementation-in-progress).
 
+## Inbound API-Key Identity Provider
+
+An application-issued API key becomes an ordinary identity-block provider (`provider = "apiKey"`), verified by a SHA-256 hash lookup at the single service that owns the key entity — never by JWT/JWKS. Every other service asks the owner over the existing authenticated service-to-service channel and caches nothing, so revocation and the per-key rate limit are exact on every request. The provider plan moves to schema v4, a discriminated union on `credential` (`"jwt"` | `"apiKey"`); the JWT variant is unchanged. Every gateway type realizes a per-route edge credential policy: a route admitting a key provider accepts a validated bearer JWT or, absent `Authorization`, a bounds-checked key header, and the edge never validates the key itself. **Approved — implementation in progress.**
+
+| # | Invariant | Check |
+|---|---|---|
+| I1 | A key authenticates only on a surface whose contract lists its provider | Per language: a key-admitting route yields a principal; a bearer-only route yields the existing 401 with zero verify calls |
+| I2 | The raw key never leaves the receiving service | Per language: the rendered verify client sends only the hash; a test over the rendered module shows no reference to the header value past the hash call |
+| I3 | Fail closed on every failure path | Per language: owner timeout/breaker-open/5xx/malformed body → 503; invalid → 401; ambiguous or out-of-bounds credentials → 401 with no network call; rate-limit store down → 503 |
+| I4 | Revocation is immediate | `api-key-identity-round-trip-gate.ps1` (enumerates `datrix.languages` at run time, self-tests non-vacuity, refuses under two languages): verify ok, set the row inactive, the next request is 401 — no cache exists to invalidate |
+| I5 | A key principal is indistinguishable from a token principal to the contract checks | Existing `check_providers`/`check_roles`/`check_principal_types` tests re-run over a key-principal fixture |
+| I6 | Tenant comes from the key row | Same round-trip gate: header/path tenant differing from the key's → 403; with the JWT tenant source, the tenant is set from the principal |
+| I7 | The rate limit counts exactly under concurrency | Same round-trip gate, against real Redis: N concurrent verifies of one key with limit L yield exactly `min(N, L)` `ok` |
+| I8 | `lastUsedAt` writes are bounded | Same round-trip gate: K verifies inside one resolution window produce exactly one UPDATE |
+| I9 | Declaration errors are rejected exactly at their cases | One negative and one positive fixture per IDN020–IDN027 |
+| I10 | The edge realizes the policy on every gateway type | nginx: a key-admitting location forwards the key header, a bearer-only location does not. Azure APIM: the rendered gate condition. **AWS: a Lambda REQUEST authorizer (payload format 2.0, simple responses, no identity sources) on key-admitting routes, admitting a validated bearer or a bounded key header; every other route keeps its unmodified JWT authorizer** |
+| I11 | JWT behaviour is unchanged | The existing identity tests of both languages and all four platforms pass over schema v4; a JWT-only application's plan differs only by `schemaVersion` and `credential: "jwt"` |
+| I12 | Parity | Same round-trip gate proves identical outcomes for I1–I8 across every registered language |
+
+Full decision log: [Architecture Overview — Decision 13 amendment](./architecture-overview.md#decision-13-managed-identity-provider-integration-adopted).
+
 ## Parity by Construction — Closing the Hand-Written Feature Surface
 
 Parity **measurement** on the language axis is mature; **prevention** is not. A feature lands once in the shared model and then once by hand in every language package, and the gates report the drift after it exists. Two declaration universes are open on one side, so a target can silently opt out: the shared GenDSL domain registry was seeded from the python/typescript-era shared registration table and never re-derived from what the languages declare (when this was measured, the four languages then registered declared 62 domain ids; 23 were outside the registry, twelve of them declared by all four — realized everywhere, compared nowhere), and 314 of 522 builtin registry rows are ungrouped ("optional everywhere"), so the resulting capability holes accumulate as 475 per-method reason strings in a JSON exemption file rather than as a stance on the plugin. **A feature is authored once as a shared plan and N times as a rendering, never N times as a decision.** **Adopted** — the two declaration universes are closed (A1, A2) and every single-step routing decision is a declared row (C); the shared-plan-module workstream (B) is adopted as its mechanism and as the rule for new work, not as a retroactive count target — see invariants 5 and 7.
@@ -488,6 +509,35 @@ tenants, and it is declared on each callable. **Approved — implementation in p
   other route stays fail-closed.
 
 Full decision log: [Architecture Overview — Decision 49](./architecture-overview.md#decision-49-declared-cross-tenant-bodies-and-tenant-parameters-on-service-routes-approved--implementation-in-progress).
+
+## Declared Route Response Media Type
+
+A `-> Bytes` route's body defaults to `application/octet-stream`, because the DSL had no
+media-type declaration and the generator refuses to guess one from a path suffix. `@produces`
+lets the author declare the real type once; the transformer consumes it the same way it already
+consumes `@crossTenant`, so it never reaches a language's endpoint-decorator dispatcher.
+**Approved — implementation in progress.**
+
+- **Syntax:** `@produces('<media type>')` — exactly one positional string-literal argument, no
+  named arguments, no interpolation.
+- **Where legal:** a REST or serverless HTTP endpoint whose top-level return type is
+  `Bytes`/`Bytes?`; every other declaration kind rejects it as a transform error.
+- **API013:** `@produces` only on a route whose return type is binary.
+- **API014:** lower-case RFC 6838 `type/subtype[;params]`, no `*`; a `text/*` type requires
+  exactly one `charset=utf-8` parameter, and no other type takes one.
+- **API015:** an allowlist of top-level types, rejecting every `html`/`xml`/`+xml` subtype,
+  script types, `multipart/*` and `message/*`; `application/pdf` stays allowed only because
+  every binary response already carries `Content-Disposition: attachment`.
+- **Realization:** the binary route plan reads the declared type (else falls back to
+  `application/octet-stream`) into the backend response, the OpenAPI entry, each language's
+  produces annotation, the serverless/AWS binary media types, and the client's first `Accept`
+  value; the response stays a `Blob`/`Uint8List` either way.
+- **Security:** the fixed binary-response header set (`nosniff`, CSP `default-src 'none';
+  sandbox`, `Content-Disposition: attachment`) is unchanged and is what keeps an allowed
+  renderable type from rendering on the API origin; the type is always a generation-time
+  literal, never influenced by a request or a stored value.
+
+Full decision log: [Architecture Overview — Decision 51](./architecture-overview.md#decision-51-declared-route-response-media-type-produces-approved--implementation-in-progress).
 
 ## Zero-Environment Runtime — Declared Per Language
 
@@ -701,12 +751,12 @@ Key rules:
 ## Key Capabilities
 
 - Background jobs (APScheduler), incremental RDBMS migrations (Alembic/MikroORM adapters), seed data
-- Elasticsearch integration, inter-service HTTP auth (shared secret), JWT gateway
+- Elasticsearch integration, inter-service HTTP auth (shared secret), per-route edge credential enforcement (JWT and inbound API-key)
 - GraphQL DataLoaders, rate limiting (gateway + per-route Redis), RFC 7807 errors
 - Prometheus metrics, Grafana dashboards, cAdvisor, alert rules (the LOCAL/docker-native observability stack)
 - **Native-only observability per platform** — each target emits only its native providers (LOCAL: Prometheus/Jaeger/Loki/Grafana/Alertmanager; AWS: CloudWatch/X-Ray; Azure: Azure Monitor/App Insights). Each platform declares its native set on `PlatformCapabilityDeclaration`; a generic validator rejects non-native providers at the platform boundary (see architecture-overview Decision 27; design principle 10)
 - Export **volume** (trace sampling rate, log export floor, metric export interval) and platform-collected **diagnostics** (verbosity, retention, daily budget) are separate portable axes, orthogonal to the provider axis above — see Portable Telemetry Volume, Platform Diagnostics, and Realization Conformance above
-- Declaration-driven gateway realizations (NGINX, Azure APIM, AWS API Gateway), emitted when the system declares `gateway { }`; all consume the same shared route enumeration (`datrix_codegen_kernel.generation.gateway_routes`), so the public surface — including relationship-derived nested sub-collection routes — and per-route JWT enforcement can never diverge between them. **Gateway-minted routes no backend serves are a declared family registry** (`GATEWAY_SYNTHESIZED_ROUTE_FAMILIES` → `gateway_synthesized_routes`, covering the health-probe and OpenAPI discovery/spec families): every realization consumes the registry rather than naming builders, so registering a family reaches every target at once. Minting one inside a single platform's private route table is what shipped health routes, and later the whole OpenAPI surface, on nginx alone. Per-service routing derived from auth contracts; upstreams, health aliases, CORS, rate limit zones
+- Declaration-driven gateway realizations (NGINX, Azure APIM, AWS API Gateway), emitted when the system declares `gateway { }`; all consume the same shared route enumeration (`datrix_codegen_kernel.generation.gateway_routes`), so the public surface — including relationship-derived nested sub-collection routes — and per-route edge credential policy can never diverge between them. **Gateway-minted routes no backend serves are a declared family registry** (`GATEWAY_SYNTHESIZED_ROUTE_FAMILIES` → `gateway_synthesized_routes`, covering the health-probe and OpenAPI discovery/spec families): every realization consumes the registry rather than naming builders, so registering a family reaches every target at once. Minting one inside a single platform's private route table is what shipped health routes, and later the whole OpenAPI surface, on nginx alone. Per-service routing derived from auth contracts; upstreams, health aliases, CORS, rate limit zones
 - ArcGIS FeatureServer paged ingestion (`arcgisFeatureLayer` integration kind): metadata-aware pagination, deterministic checksums, watermark optimization, archive/refresh modes
 
 ## Declared Work Lifecycle

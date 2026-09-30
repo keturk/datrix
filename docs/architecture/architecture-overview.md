@@ -527,6 +527,7 @@ Provider-native runtimes are produced by their provider generator plus, where th
 - **Opinionated per-target providers.** Docker → Zitadel (provisioned with project/organization import, clients, groups/roles, social providers — Google, GitHub, generic-OIDC); AWS → Cognito User Pool (app-level, per-service app client); Azure customer → Microsoft Entra External ID, Azure workforce → Microsoft Entra ID, Azure machine → user-assigned managed identity (app registration via the Microsoft Graph Bicep extension, never a `deploy-identity.sh` stub). `provider self` (`ProviderPlanEntry.mode="self"`) is a Datrix-managed Zitadel issuer realizable on Docker targets — Docker reuses existing Zitadel provisioning; a self-host Zitadel instance on a cloud target (AWS/Azure) raises a `GenerationError` (external mode must be used to consume a remotely-hosted Zitadel). `mode: external` consumes issuer/JWKS/audience/client and provisions nothing. Supported `(providerType, target, feature)` combinations are declared by each platform plugin on its own `PlatformCapabilityDeclaration` and resolved by one generic validator in `datrix-common`; unsupported combinations fail loud. (This originally read "a capability matrix in `datrix-common` is the authoritative source" — that central table was deleted by [Decision 22](#decision-22-open-world-identity-providers-and-infrastructure-flavors-adopted), which moved identity capability into the per-platform declarations.)
 - **Structured versioned provider plan.** A `config/generated/identity-providers.json` artifact (schema owned by `datrix-common`, one per application+environment) carries providers, role/attribute mappings, revocation mode, and `*_SECRET_REF` names — and no per-surface map. Runtime token validation selects the provider by the token's issuer from `plan.providers` — never a hardcoded provider name — and each route or construct enforces the auth contract (providers, roles, principal types) emitted with it. The plan's `schemaVersion` is checked at load by every generated identity core, which refuses any version but the one it was generated for. A non-secret public-client metadata artifact (`identity-client-<provider>.<env>.json`) is the only supported input for frontend login config. Secrets are logical secret-handle references only (reusing the declared `secrets` table + raw-secret hygiene), wired to platform-native secret stores; raw secrets never appear in source, manifests, logs, or docs.
 - **Security-sensitive defaults fail closed.** Auth/JWKS-refresh failures, authorization-bearing cache reads/deletes (revocation, role mappings, identity links), and revocation checks reuse the existing `dependencyPolicy` model with `onFailure="raise"`/`"deny"` only (the model has no `fallback`). Error bodies are opaque (RFC 7807) and never leak issuer/audience/client/role/claim detail; structured reason codes go to logs only. WebSocket auth uses fixed close codes (4401 auth-failed/expired, 4403 forbidden) and clears membership/`Auth.*` state on expiry.
+- **Decision-13 amendment (inbound API-key credential — approved, implementation in progress):** An application-issued API key is an ordinary identity-block provider (`provider = "apiKey"`, `mode = "self"`), declared like any other, named in `auth(..., providers: […])`, and bound by the same allow-list, role and principal-type rules — there is no separate opt-in surface. Exactly one service owns the key entity; every other service verifies a presented key by asking the owner, over the existing authenticated service-to-service channel, for a SHA-256 hash match — the raw key never leaves the service that received it, and no verifying service caches a result, so revocation and the per-key rate limit are exact on every request. `ProviderPlanEntry` becomes a discriminated union on a new `credential` field (`"jwt"` | `"apiKey"`) at schema version 4, with no backward-compatible reader for version 3; the JWT variant is unchanged. Every verification failure path — the owner unreachable, its rate-limit store unavailable, an ambiguous or malformed credential — denies. Each gateway realizes a **per-route edge credential policy**: a route admitting an API-key provider accepts a validated bearer JWT or, absent `Authorization`, a bounds-checked key header, and the edge never validates the key itself — nginx through a renamed second internal auth location (`/internal/credential-verify`), Azure APIM through an extended `validate-jwt` gate condition, and AWS through a new Lambda REQUEST authorizer (payload format 2.0, simple responses, no identity sources, so it runs on every request and never caches) admitting the same two shapes; the owning service's hash lookup remains the sole verification point on every platform. Security posture: 256-bit CSPRNG keys stored only as an unsalted SHA-256 hash (a slow KDF was rejected — the secret is already unguessable, and a KDF would defeat the indexed equality lookup the verification query depends on), opaque failure responses, roles taken only from declared scope mappings, and the key header excluded from every CORS allow-list. Rejected alternatives: a shared cache as the verification source (caches are per-service, and cross-service cache access is already rejected); positive-result caching at verifying services (lags revocation by the cache TTL and cannot count the rate limit exactly); reusing the managed gateway's usage-plan API keys (a distinct, platform-issued and platform-validated mechanism, unavailable on `nginx`, whose service-side extractor validates nothing); full key verification at the edge (doubles the owning service's load for an identical security outcome); and a new `.dtrx` keyword or config kind for keys (the identity block, provider allow-list, role mappings and declaration checks already express everything a key needs).
 
 **Enforcement (managed-only):** Authentication issuance is provider-owned, end to end. The `Auth` issuance builtin (`generateToken`/`verifyToken`/`hashPassword`/`verifyPassword`/`generateOtp`/`generateApiKey`/…) is **removed wholesale** — the only recognized authentication is a provider-issued token validated through `auth(...)`, and a provider (external *or* `provider self`) owns issuance. The Decision-13 `Auth.*` context views (`Auth.isAuthenticated`/`subject`/`identity.*`) are generated runtime, not that builtin, and stay. Non-authentication cryptography (signing, hashing, HMAC, secure random, opaque keys) belongs to the pre-existing `Crypto` builtin — the sanctioned non-auth surface, which produces signed/hashed data and never confers an `Auth.*` principal. Enforcement extends the existing legacy-auth-conflict and identity validators (`LegacyAuthManagedOnlyValidator`, `IdentityDanglingProviderValidator`, etc. — removed-issuance-builtin diagnostics, dangling-provider checks, a best-effort hand-rolled-auth heuristic) — no new validator class. The Python first-party local-validation short-circuit (`_validate_local_issuer_token`, the `iss == JWT_ISSUER` path) is removed; `provider self` tokens validate through the standard provider-plan/JWKS path like any provider (TypeScript never had such a path).
 
@@ -2032,6 +2033,133 @@ symbol resolves through exactly one import path (I7); the tagged tests of every 
 stayed green through each phase (I8). `datrix-codegen-azure` keeps one interim `datrix-semantic`
 dependency, for the Flexible Server connection-capacity table — tracked as its own finding, not a
 gap in this decision.
+
+---
+
+### Decision 51: Declared Route Response Media Type (`@produces`) (Approved — Implementation In Progress)
+
+**Rationale:**
+
+A route declared `-> Bytes` answers with its bytes labelled `application/octet-stream`, because
+the DSL has no media-type declaration — that label is deliberately never guessed from a path
+suffix. The default is correct when nothing else is known, but it throws away information the
+author already has. Measured demand from one production system: a CSV export route, two Mapbox
+vector-tile routes, and a GeoTIFF DEM-tile route all serve typed binary bodies labelled generic
+bytes today. The one framework example with a binary route serves a per-record content type read
+from a stored value — a case a static declaration cannot express, and it stays out of scope
+(below).
+
+The endpoint decorator slot is already open-ended, and the transformer already has a precedent
+for consuming one before it reaches a language's decorator dispatcher: `@crossTenant` is
+extracted into a model fact and never appears in `Endpoint.decorators`. Endpoint-decorator
+validation today happens only at code generation, per language, and one language backend
+recognizes no closed decorator set at all — so a misspelt decorator name is caught late on some
+languages and never on others. Consuming the new decorator in the transformer, the way
+`@crossTenant` already is, avoids adding a further per-language failure mode.
+
+**Result:**
+
+- **D1 — Syntax.** `@produces('<media type>')` on a REST endpoint or a serverless HTTP endpoint,
+  with exactly one positional string-literal argument — no named arguments, no interpolation.
+  Example:
+  ```
+  @path('/orders/export.csv')
+  @produces('text/csv; charset=utf-8')
+  get exportOrders(String? status) : auth(required) -> Bytes { … }
+  ```
+- **D2 — Model and transformer.** `Endpoint` gains `response_media_type: str | None`. A
+  transformer step removes `@produces` from the decorator list and records the literal, the same
+  way `@crossTenant` is consumed — so `@produces` never appears in `Endpoint.decorators` and
+  never reaches any language's endpoint-decorator dispatcher. A missing, duplicate,
+  multi-argument, named-argument, or non-literal `@produces` is a transform error. `@produces` on
+  every other declaration kind (`fn`, event handlers, enqueue consumers, jobs, tools, websocket
+  messages, extern endpoints, UI pages and workspaces) is a transform error. The declared type is
+  part of the endpoint's serialized model and therefore of the incremental service hash:
+  changing only `@produces` regenerates the service.
+- **D3 — Semantic validation**, three new `ApiValidator` codes:
+
+  | Code | Rule |
+  |---|---|
+  | API013 | `@produces` is legal only on a route whose top-level return type is `Bytes` or `Bytes?`. |
+  | API014 | The value must parse as `type "/" subtype *( ";" parameter )`, lower-case RFC 6838 restricted-name characters only (`*` is rejected, so `*/*` and `image/*` fail), with optional whitespace around `;` per RFC 9110. A `text/*` type must carry exactly one parameter, `charset=utf-8`, and no other type takes a parameter — checked only once a type has passed API015, so a type API015 rejects reports API015 alone. `String.toBytes` encodes UTF-8 by default and an unlabelled `text/*` defaults to US-ASCII, so an absent charset would mis-decode any non-ASCII body. |
+  | API015 | An allowlist at the top-level-type layer: `application`, `image`, `audio`, `video`, `font`, `model`, and `text` restricted to `csv`, `plain`, `tab-separated-values`, `calendar`. Rejected: any `html`/`xml`/`+xml` subtype, `javascript`/`ecmascript` and their `x-` forms, `multipart/*`, `message/*`. The diagnostic names the rejected type and suggests `application/octet-stream`. |
+
+  `application/pdf` stays allowed, and only because every binary response carries
+  `Content-Disposition: attachment` (D4): a navigation downloads the file instead of rendering
+  it, which is what makes a script-capable PDF viewer safe here. If that header is ever removed
+  from the binary response set, `pdf` and `x-pdf` move to the rejected list in the same change.
+  The binary-response classification (`Bytes`/`Bytes?`, the `Blob` alias) has one home, shared by
+  the validator and the generator layer.
+- **D4 — Realization.** The binary route plan reads `endpoint.response_media_type`, falling back
+  to `application/octet-stream`. Every binary response keeps the fixed security header set the
+  binary route plan already applies (`X-Content-Type-Options: nosniff`, CSP `default-src 'none';
+  sandbox`, `Content-Disposition: attachment`) — this decision adds no header, and that fixed set
+  is what makes an allowed renderable type such as `application/pdf` safe to declare. Python
+  passes the declared type into the binary body response and, when it differs from
+  `application/octet-stream`, emits the route's OpenAPI `responses=` content entry (FastAPI's
+  `response_class` otherwise reports one class-level media type regardless of what is actually
+  sent). Every language's produces annotation takes the plan's type. Serverless adapters and the AWS
+  REST facade's `binary_media_types` read the plan and list exact declared types, never `*/*`.
+  API Gateway honours only the first `Accept` value and does not document whether an entry is
+  matched against the full value or its bare `type/subtype`, so for a declared type that
+  carries a parameter the facade lists both the literal and its essence (`text/csv;
+  charset=utf-8` and `text/csv`) — correct under either rule, and still no wildcard. `ClientRoute.response_media_type` is set on binary routes and `None` on
+  JSON routes, and becomes the first client `Accept` value, followed by
+  `application/problem+json`; the client still holds a `Blob`/`Uint8List` — the media type never
+  changes how bytes are held, only how a text type is decoded by the caller (`blob.text()` /
+  `utf8.decode`).
+
+| # | Invariant | Check |
+|---|---|---|
+| I1 | The declared type is the `Content-Type` on every backend, serverless platform and client `Accept` | Per package: fixtures with `@produces('text/csv; charset=utf-8')` and `@produces('application/vnd.mapbox-vector-tile')`; assert the rendered helper call, annotation, adapter and client header carry the literal |
+| I2 | An undeclared binary route is unchanged | The binary route plan's own fixtures render byte-identically |
+| I3 | `@produces` never reaches `Endpoint.decorators` or any language's decorator dispatcher | Transformer test; negative test that the decorator dispatcher never sees `produces` |
+| I4 | API013–API015 reject exactly their cases | Validator tests per code, negative and positive, over the full case list each code names |
+| I5 | A declared type never removes a binary-response security header | The binary route plan's own header tests, run over the declared-type fixtures |
+| I6 | Changing only `@produces` regenerates the service | Incremental-generation test in `datrix-cli` |
+| I7 | The keyword manifest and the VS Code grammars are unchanged | The existing manifest drift test passes unchanged |
+
+**Security posture:**
+
+- API015 rejects every type a browser executes or renders as a document, enforced at declaration
+  time; `nosniff` and CSP `default-src 'none'; sandbox` on every binary response keep any other
+  declared type inert. Together they close stored XSS through a route serving uploaded bytes.
+- No caller influence on the type: the media type is a literal fixed at generation. No request
+  value, header, or stored value ever selects it — the per-record case is out of scope for
+  exactly this reason.
+- `Content-Disposition: attachment`, `nosniff`, and CSP `sandbox` on every binary response mean
+  even an allowed renderable type such as `application/pdf` downloads on navigation instead of
+  rendering on the API origin.
+- The AWS REST facade lists exact declared types (plus the bare essence of a parameterised
+  one), never `*/*`.
+- The API013–API015 diagnostics quote the declared literal and the rule; they are
+  generation-time messages to the author and never reach a runtime response.
+
+**Rejected:**
+
+- **Infer the type from the path suffix.** Implicit logic, wrong for suffix-less routes, and a
+  guess where the author already knows the answer.
+- **A modifier instead of a decorator.** Modifiers are access and visibility facts; the decorator
+  slot already exists with a consumed precedent.
+- **Allow any syntactically valid type and rely on `nosniff` alone.** `nosniff` does not stop a
+  browser from rendering a body correctly labelled `text/html`.
+- **Add the new name to the closed endpoint-decorator set.** It would be validated at generation
+  time per language, and one language backend validates no unknown decorator at all.
+
+**Out of scope:**
+
+- **Per-record media type**, such as a stored attachment's content type. The value comes from a
+  user's upload; serving it as `Content-Type` would let an uploader choose `text/html`. A safe
+  design needs a declared allowlist the runtime value is checked against, plus
+  `Content-Disposition: attachment` — its own decision. Until then such a route stays
+  `application/octet-stream`.
+- **Download filenames.** The filename-less `Content-Disposition: attachment` is in scope as a
+  fixed security header. A filename (`attachment; filename*=…`) would come from its own
+  declaration (a `@download('<filename>')` pairs naturally with `@produces`) and is a separate,
+  input-bearing surface with its own filename-safety rules (RFC 6266 `filename*`); no filename
+  emission exists anywhere today.
+
+**Status:** Approved — Implementation In Progress (approved 2026-09-26).
 
 ---
 
