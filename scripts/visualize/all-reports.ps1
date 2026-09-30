@@ -71,21 +71,25 @@ if ($Source)   { $commonArgs.Source = $Source }
 if ($All)      { $commonArgs.All = $true }
 if ($Domains)  { $commonArgs.Domains = $true }
 if ($TestSet -ne "all") { $commonArgs.TestSet = $TestSet }
-if ($Profile -ne "test") { $commonArgs.Profile = $Profile }
 if ($Dbg) { $commonArgs.Dbg = $true }
 
+# ResolvesProfile: the step loads the application under a config profile and
+# accepts -Profile; status-docs only inspects files on disk and takes none.
 $steps = @(
     @{
-        Name   = "Mermaid Diagrams"
-        Script = Join-Path $scriptDir "visualize.ps1"
+        Name            = "Mermaid Diagrams"
+        Script          = Join-Path $scriptDir "visualize.ps1"
+        ResolvesProfile = $true
     },
     @{
-        Name   = "OpenAPI / AsyncAPI Specs"
-        Script = Join-Path $scriptDir "openapi-gen.ps1"
+        Name            = "OpenAPI / AsyncAPI Specs"
+        Script          = Join-Path $scriptDir "openapi-gen.ps1"
+        ResolvesProfile = $true
     },
     @{
-        Name   = "Documentation Status"
-        Script = Join-Path $scriptDir "status-docs.ps1"
+        Name            = "Documentation Status"
+        Script          = Join-Path $scriptDir "status-docs.ps1"
+        ResolvesProfile = $false
     }
 )
 
@@ -114,8 +118,11 @@ for ($i = 0; $i -lt $totalSteps; $i++) {
         continue
     }
 
+    $stepArgs = $commonArgs.Clone()
+    if ($step.ResolvesProfile -and $Profile -ne "test") { $stepArgs.Profile = $Profile }
+
     try {
-        & $stepScript @commonArgs
+        & $stepScript @stepArgs
         if ($LASTEXITCODE -eq 0) {
             Write-Host "  -> OK" -ForegroundColor Green
             $passed++

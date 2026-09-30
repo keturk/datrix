@@ -40,6 +40,7 @@ for sub in ("datrix-common/src", "datrix-language/src"):
 
 from shared.logging_utils import ColorCodes, colorize  # noqa: E402
 from shared.test_projects import get_test_projects  # noqa: E402
+from shared.visualization.application_loader import load_application  # noqa: E402
 from shared.visualization.mermaid import DIAGRAM_TYPES, build_diagram  # noqa: E402
 from shared.visualization.svg import build_event_flow_svg  # noqa: E402
 from shared.visualization.svg_cqrs import build_cqrs_svg  # noqa: E402
@@ -62,42 +63,11 @@ SVG_DIAGRAM_TYPES = {
 VALID_DIAGRAM_TYPES = tuple(DIAGRAM_TYPES.keys()) + ("all",)
 VALID_FORMATS = ("md", "mmd")
 
-
-def _parse_application(source_path: Path, profile: str) -> object:
-    """Parse a .dtrx file, resolve configs, and run semantic analysis.
-
-    Args:
-        source_path: Path to .dtrx file.
-        profile: Config profile to resolve (e.g. 'test', 'development').
-
-    Returns the resolved Application object with configs attached.
-    """
-    from datrix_common.config_resolution import (
-        resolve_infrastructure_configs,
-        resolve_service_configs,
-    )
-    from datrix_semantic import SemanticAnalyzer
-    from datrix_language.parser import TreeSitterParser
-    from datrix_language.registration import register_all
-
-    register_all()
-    project_root = source_path.parent
-
-    parser = TreeSitterParser()
-    ast = parser.parse_file(source_path)
-
-    # Stage 1: resolve service configs (before semantic analysis)
-    resolve_service_configs(ast, project_root, profile)
-
-    # Semantic analysis
-    analyzer = SemanticAnalyzer()
-    result = analyzer.analyze(ast)
-    app = result.app
-
-    # Stage 2: resolve infrastructure configs (after semantic analysis)
-    resolve_infrastructure_configs(app, project_root, profile)
-
-    return app
+#: The ``docs/`` subdirectories this script writes, and therefore the only
+#: ones it clears before a run. ``docs/openapi`` and ``docs/asyncapi`` belong
+#: to ``openapi_gen.py``; clearing them here left them empty whenever this
+#: script ran alone.
+DIAGRAM_OUTPUT_DIRS = ("diagrams", "diagrams/ERDs", "diagrams/inheritance")
 
 
 def _write_diagram(
@@ -151,29 +121,15 @@ def _generate_for_project(
     warnings: list[str] = []
     errors: list[str] = []
 
-    # Resolve system.dtrx if directory given
-    if source_path.is_dir():
-        system_dtrx = source_path / "system.dtrx"
-        if system_dtrx.exists():
-            source_path = system_dtrx
-        else:
-            errors.append(f"No system.dtrx found in {source_path}")
-            return False, warnings, errors
-
-    if not source_path.exists():
-        errors.append(f"Source file not found: {source_path}")
-        return False, warnings, errors
-
-    # Parse with config resolution
     try:
-        app = _parse_application(source_path, profile)
+        app = load_application(source_path, profile)
     except Exception as e:
-        errors.append(f"Parse error: {e}")
+        errors.append(f"Load error: {e}")
         return False, warnings, errors
 
-    # Clean output directories before generating
+    # Clean the directories this script owns before generating
     docs_dir = output_path / "docs"
-    for subdir_name in ("diagrams", "diagrams/ERDs", "diagrams/inheritance", "openapi", "asyncapi"):
+    for subdir_name in DIAGRAM_OUTPUT_DIRS:
         subdir = docs_dir / subdir_name
         if subdir.is_dir():
             for old_file in subdir.iterdir():

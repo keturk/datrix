@@ -25,7 +25,7 @@ Runs all visualization and documentation scripts for a project: diagrams, schema
 
 ## `visualize\visualize.ps1`
 
-Generates Mermaid diagrams from `.dtrx` source files. Produces ERD, service map, event flow, API catalog, CQRS flow, inheritance tree, infrastructure topology, and system context diagrams. Output is written next to the `.dtrx` source (e.g., `examples/.../docs/diagrams/`).
+Generates Mermaid diagrams from `.dtrx` source files. Produces ERD, service map, event flow, API catalog, CQRS flow, inheritance tree, infrastructure topology, and system context diagrams. The application is loaded exactly as generation loads it (config resolution under `-Profile`, then semantic analysis with infrastructure configs resolved before the tree seals). Output is written next to the `.dtrx` source (e.g., `examples/.../docs/diagrams/`); the script clears only the `docs/diagrams` tree it writes, never `docs/openapi` or `docs/asyncapi`.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -78,7 +78,7 @@ Saves `.dtrx` Application as a JSON snapshot for future diffs. Output is written
 
 ## `visualize\openapi-gen.ps1`
 
-Generates OpenAPI 3.1 YAML per REST API and AsyncAPI 3.0 YAML per PubSub block. Output is written next to the `.dtrx` source (e.g., `examples/.../docs/openapi/`).
+Generates one OpenAPI 3.1 YAML per service — every `rest_api` block of the service in one document, so a multi-file service keeps every block's paths — and one AsyncAPI 3.0 YAML per service covering every pubsub block. Two blocks of one service declaring the same path and method (or the same topic) fail the run rather than overwrite each other. The application is loaded exactly as generation loads it (config resolution under `-Profile`, then semantic analysis with infrastructure configs resolved before the tree seals). Output is written next to the `.dtrx` source (e.g., `examples/.../docs/openapi/`); the script clears only `docs/openapi` and `docs/asyncapi` for the spec types it writes.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -88,9 +88,10 @@ Generates OpenAPI 3.1 YAML per REST API and AsyncAPI 3.0 YAML per PubSub block. 
 | **All projects** | `.\visualize\openapi-gen.ps1 -All` | Batch: all test-projects.json |
 | **Foundation only** | `.\visualize\openapi-gen.ps1 -TestSet foundation` | Batch: foundation examples |
 | **Domains only** | `.\visualize\openapi-gen.ps1 -Domains` | Batch: domain examples |
+| **Non-test profile** | `.\visualize\openapi-gen.ps1 <source.dtrx> -Profile staging` | Use non-default config profile |
 | **Debug** | `.\visualize\openapi-gen.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Type` (openapi\|asyncapi\|all, default: all), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Type` (openapi\|asyncapi\|all, default: all), `-Profile` (config profile, default: test), `-Dbg`
 
 ---
 

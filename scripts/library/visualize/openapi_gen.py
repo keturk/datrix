@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate OpenAPI and AsyncAPI specifications from .dtrx source files.
 
-Produces OpenAPI 3.1 YAML per REST API and AsyncAPI 3.0 YAML per PubSub block.
-Supports single-file and batch modes.
+Produces one OpenAPI 3.1 YAML per service (every ``rest_api`` block of the
+service in one document) and one AsyncAPI 3.0 YAML per service (every pubsub
+block of the service in one document). Supports single-file and batch modes.
 """
 
 from __future__ import annotations
@@ -40,12 +41,30 @@ for sub in ("datrix-common/src", "datrix-language/src"):
 
 from shared.logging_utils import ColorCodes, colorize  # noqa: E402
 from shared.test_projects import get_test_projects  # noqa: E402
+from shared.visualization.application_loader import load_application  # noqa: E402
 from shared.visualization.json_schema import (  # noqa: E402
     build_asyncapi_spec,
     build_openapi_spec,
 )
 
 VALID_TYPES = ("openapi", "asyncapi", "all")
+
+#: The ``docs/`` subdirectory each spec type writes -- and the only ones this
+#: script clears, so a service renamed or removed since the last run leaves no
+#: stale document behind.
+SPEC_OUTPUT_DIRS: dict[str, str] = {"openapi": "openapi", "asyncapi": "asyncapi"}
+
+
+def _clear_owned_spec_dirs(docs_dir: Path, spec_types: list[str]) -> None:
+    """Delete the files in the output directory of every requested spec type."""
+    for spec_type, subdir_name in SPEC_OUTPUT_DIRS.items():
+        if spec_type not in spec_types and "all" not in spec_types:
+            continue
+        subdir = docs_dir / subdir_name
+        if subdir.is_dir():
+            for old_file in subdir.iterdir():
+                if old_file.is_file():
+                    old_file.unlink()
 
 
 def _write_yaml(data: dict[str, object], output_path: Path) -> None:
@@ -75,73 +94,57 @@ def _generate_specs(
     source_path: Path,
     output_path: Path,
     spec_types: list[str],
+    profile: str,
 ) -> tuple[bool, list[str], list[str]]:
     """Generate OpenAPI/AsyncAPI specs for a single project.
 
     Returns (success, warnings, errors).
     """
+    from datrix_common.paths import ServicePaths
+
     warnings: list[str] = []
     errors: list[str] = []
 
-    # Resolve system.dtrx if directory given
-    if source_path.is_dir():
-        system_dtrx = source_path / "system.dtrx"
-        if system_dtrx.exists():
-            source_path = system_dtrx
-        else:
-            errors.append(f"No system.dtrx found in {source_path}")
-            return False, warnings, errors
-
-    if not source_path.exists():
-        errors.append(f"Source file not found: {source_path}")
-        return False, warnings, errors
-
-    # Parse
     try:
-        from datrix_common.paths import ServicePaths
-        from datrix_semantic import SemanticAnalyzer
-        from datrix_language.parser import TreeSitterParser
-        from datrix_language.registration import register_all
-
-        register_all()
-        parser = TreeSitterParser()
-        ast = parser.parse_file(source_path)
-        analyzer = SemanticAnalyzer()
-        result = analyzer.analyze(ast)
-        app = result.app
+        app = load_application(source_path, profile)
     except Exception as e:
-        errors.append(f"Parse error: {e}")
+        errors.append(f"Load error: {e}")
         return False, warnings, errors
 
+    _clear_owned_spec_dirs(output_path / "docs", spec_types)
     file_count = 0
 
-    # OpenAPI specs
+    # One OpenAPI document per service, covering every rest_api block
     if "openapi" in spec_types or "all" in spec_types:
         for service in app.services.values():
-            for api_name, rest_api in service.rest_apis.items():
-                try:
-                    spec = build_openapi_spec(service, rest_api, app)
-                    sname = ServicePaths(service.name).simple_name
-                    spec_path = output_path / "docs" / "openapi" / f"{sname}.yaml"
-                    _write_yaml(spec, spec_path)
-                    print(f"  OpenAPI: {spec_path}")
-                    file_count += 1
-                except Exception as e:
-                    warnings.append(f"OpenAPI for {service.name}: {e}")
+            if not service.rest_apis:
+                continue
+            try:
+                spec = build_openapi_spec(service, app)
+            except Exception as e:
+                errors.append(f"OpenAPI for {service.name}: {e}")
+                continue
+            sname = ServicePaths(service.name).simple_name
+            spec_path = output_path / "docs" / "openapi" / f"{sname}.yaml"
+            _write_yaml(spec, spec_path)
+            print(f"  OpenAPI: {spec_path}")
+            file_count += 1
 
-    # AsyncAPI specs
+    # One AsyncAPI document per service, covering every pubsub block
     if "asyncapi" in spec_types or "all" in spec_types:
         for service in app.services.values():
-            for block_name, pubsub_block in service.pubsub_blocks.items():
-                try:
-                    spec = build_asyncapi_spec(service, pubsub_block)
-                    sname = ServicePaths(service.name).simple_name
-                    spec_path = output_path / "docs" / "asyncapi" / f"{sname}.yaml"
-                    _write_yaml(spec, spec_path)
-                    print(f"  AsyncAPI: {spec_path}")
-                    file_count += 1
-                except Exception as e:
-                    warnings.append(f"AsyncAPI for {service.name}: {e}")
+            if not service.pubsub_blocks:
+                continue
+            try:
+                spec = build_asyncapi_spec(service)
+            except Exception as e:
+                errors.append(f"AsyncAPI for {service.name}: {e}")
+                continue
+            sname = ServicePaths(service.name).simple_name
+            spec_path = output_path / "docs" / "asyncapi" / f"{sname}.yaml"
+            _write_yaml(spec, spec_path)
+            print(f"  AsyncAPI: {spec_path}")
+            file_count += 1
 
     if file_count == 0 and not errors:
         warnings.append("No REST APIs or PubSub blocks found — no specs generated.")
@@ -160,6 +163,7 @@ def main() -> int:
     parser.add_argument("--domains", action="store_true", help="Domain examples only")
     parser.add_argument("--test-set", type=str, default="all", help="Named test set")
     parser.add_argument("--type", type=str, default="all", choices=VALID_TYPES, help="Spec type to generate")
+    parser.add_argument("--profile", type=str, default="test", help="Config profile to resolve (default: test)")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
 
     args = parser.parse_args()
@@ -183,7 +187,8 @@ def main() -> int:
 
         print(f"Source: {source_path}")
         print(f"Output: {output_path}")
-        ok, warnings, errors = _generate_specs(source_path, output_path, spec_types)
+        print(f"Profile: {args.profile}")
+        ok, warnings, errors = _generate_specs(source_path, output_path, spec_types, args.profile)
         if ok:
             success_count += 1
         else:
@@ -211,7 +216,7 @@ def main() -> int:
             return 1
 
         total = len(projects)
-        print(f"Generating API specs for {total} projects (test set: {test_set})\n")
+        print(f"Generating API specs for {total} projects (test set: {test_set}, profile: {args.profile})\n")
 
         for i, project in enumerate(projects):
             idx = i + 1
@@ -226,7 +231,7 @@ def main() -> int:
             output_path = source_path.parent if source_path.is_file() else source_path
 
             print(f"[{idx}/{total}] {project_name}")
-            ok, warnings, errors = _generate_specs(source_path, output_path, spec_types)
+            ok, warnings, errors = _generate_specs(source_path, output_path, spec_types, args.profile)
             if ok:
                 success_count += 1
                 print(colorize("  -> OK", ColorCodes.GREEN))

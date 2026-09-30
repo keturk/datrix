@@ -3,8 +3,10 @@
     Generate OpenAPI and AsyncAPI specs from .dtrx source files.
 
 .DESCRIPTION
-    Parses .dtrx files and produces OpenAPI 3.1 YAML per REST API and
-    AsyncAPI 3.0 YAML per PubSub block. Supports single-file and batch modes.
+    Parses .dtrx files and produces one OpenAPI 3.1 YAML per service (every
+    rest_api block of the service) and one AsyncAPI 3.0 YAML per service (every
+    pubsub block of the service). Clears only docs/openapi and docs/asyncapi.
+    Supports single-file and batch modes.
 
 .PARAMETER Source
     Path to .dtrx file or directory (single mode).
@@ -20,6 +22,9 @@
 
 .PARAMETER Type
     Spec type: openapi, asyncapi, or all (default: all).
+
+.PARAMETER Profile
+    Config profile to resolve (default: test).
 
 .PARAMETER Dbg
     Enable debug logging.
@@ -47,6 +52,8 @@ param(
 
     [ValidateSet("openapi", "asyncapi", "all")]
     [string]$Type = "all",
+
+    [string]$Profile = "test",
 
     [switch]$Dbg
 )
@@ -100,6 +107,10 @@ try {
     if ($Type -ne "all") {
         $pyArgs += "--type"
         $pyArgs += $Type
+    }
+    if ($Profile -ne "test") {
+        $pyArgs += "--profile"
+        $pyArgs += $Profile
     }
     if ($Dbg) { $pyArgs += "--debug" }
 
