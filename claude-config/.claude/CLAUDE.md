@@ -122,7 +122,7 @@ doing the wrong thing.
 | pytest collection | `datrix_common.testing.feature_tags` | a `-Tag`/`-Keyword` selection keeping more than 25% of a package's test tree (above 300 tests) — a full suite by instalments |
 | `PreToolUse(Bash\|PowerShell)` | `guard-untargeted-scans.py` | whole-package `semgrep.ps1`/`libcst.ps1`/`ast-grep.ps1` runs with no `-Rule` and no `SCAN_QUESTION:` in the description; `-All` and subagent runs unconditionally |
 | `PreToolUse(Bash\|PowerShell)` | `validate-script-invocation.py` | `generate.ps1` with `-All`/`-Domains`/`-TestSet` (no override) |
-| `PreToolUse(Bash\|PowerShell)` | `guard-forbidden-commands.py` | git reverts, standalone type-checkers (`mypy` and equivalents, wrappers included), and other prohibited commands |
+| `PreToolUse(Bash\|PowerShell)` | `guard-forbidden-commands.py` | git reverts, standalone type-checkers (`mypy` and equivalents, wrappers included), and other prohibited commands. Sole exception: while Jon's `/resolve-conflicts` is the latest prompt, path-limited stash, index-only reset and `--ours/--theirs` pass |
 | `PreToolUse(Bash\|PowerShell)` | `guard-shell-file-writes.py` | authoring file content from a shell — heredocs, `>`/`>>` into a file, `Set-Content`/`Out-File`, and `python -c`/`python - <<` bodies that write files |
 | `PreToolUse(Bash\|PowerShell)` | `guard-repo-temp-dirs.py` | opening a temp/scratch dir inside a package repo from a shell — the `mkdir`, the redirect, and the `-Output*` argument |
 | `PreToolUse(Write\|Edit\|NotebookEdit)` | `guard-repo-temp-dirs.py`, `guard-temp-file-policy.py` | temp/scratch dirs and files inside package repos |
@@ -199,6 +199,7 @@ re-arms: re-read before acting.
   on context, budget, or time is not a fourth option (§14).
 - **No git reverts.** Never `git checkout`/`restore`/`reset`/`stash`/`revert` to discard
   changes — you do not know how many prior tasks touched these files. Undo your own edits manually.
+  A pull blocked by local changes is Jon's `/resolve-conflicts`, never a reason to discard them.
 - No GitHub Actions. No backward compat (delete old code). Don't act on the open editor file
   unless mentioned.
 
@@ -327,7 +328,7 @@ outcome — never submit it. An unproven BLOCKED is the second worst.**
 
 **Jon types these — you cannot:** `/opus-work`, `/fable-work`, `/delegate`, `/imports`,
 `/logic-map`, `/fix`, `/scope`, `/codegen-review`, `/execute-tasks`,
-`/execute-tasks-parallel`, `/absorb-design`, `/verify-implementation`. They are
+`/execute-tasks-parallel`, `/absorb-design`, `/verify-implementation`, `/resolve-conflicts`. They are
 `disable-model-invocation`: the Skill tool returns a hard error and forbids reproducing the
 workflow another way. **Do not attempt one, and never file the refusal as BLOCKED** — a
 skill reserved for Jon is not B1–B4, it is not a blocker, and reporting it as one turns a

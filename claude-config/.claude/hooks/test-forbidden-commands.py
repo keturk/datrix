@@ -98,6 +98,88 @@ check("syntax-checking the guarded script (-m consumes the module)",
 check("compiling the wrapper's directory",
       cmd("python -m compileall d:/datrix/datrix/scripts/library"), ALLOW)
 
+print("== /resolve-conflicts: the window opens only on Jon's own invocation ==")
+TRANSCRIPT_DIR = r"D:\datrix\.tmp"
+INVOKED = ("<command-message>resolve-conflicts</command-message>\n"
+           "<command-name>/resolve-conflicts</command-name>\n"
+           "<command-args>datrix-common</command-args>")
+
+
+def transcript(name, entries):
+    os.makedirs(TRANSCRIPT_DIR, exist_ok=True)
+    path = os.path.join(TRANSCRIPT_DIR, f"forbidden-commands-test-{name}.jsonl")
+    with open(path, "w", encoding="utf-8") as handle:
+        for entry in entries:
+            handle.write(json.dumps(entry) + "\n")
+    return path
+
+
+def user(content, **extra):
+    return {"type": "user", "message": {"role": "user", "content": content}, **extra}
+
+
+def tool_result(text):
+    return user([{"type": "tool_result", "tool_use_id": "t1", "content": text}])
+
+
+OPEN = transcript("open", [
+    user(INVOKED),
+    user([{"type": "text", "text": "Base directory for this skill: ..."}], isMeta=True),
+    tool_result("error: Your local changes would be overwritten by merge"),
+])
+FOLLOW_UP = transcript("follow-up", [user(INVOKED), user("now fix the other thing")])
+QUOTED = transcript("quoted", [
+    user("why did <command-name>/resolve-conflicts</command-name> fail?")])
+MODEL_INVOKED = transcript("model-invoked", [
+    user("pull everything"),
+    user([{"type": "text", "text": INVOKED}], isMeta=True),
+])
+
+
+def in_window(command, path=OPEN, tool="Bash"):
+    return run({"tool_name": tool, "transcript_path": path,
+                "tool_input": {"command": command}})
+
+
+STASH_PATHS = "git stash push -m pull -- docs/a.md docs/b.md"
+check("window: path-limited stash push", in_window(STASH_PATHS), ALLOW)
+check("window: stash pop", in_window("git -C d:/datrix/datrix-common stash pop"), ALLOW)
+check("window: stash drop", in_window("git stash drop stash@{0}"), ALLOW)
+check("window: unstage paths", in_window("git reset -q -- docs/a.md"), ALLOW)
+check("window: unstage all, HEAD", in_window("git reset HEAD"), ALLOW)
+check("window: restore --staged", in_window("git restore --staged docs/a.md"), ALLOW)
+check("window: take theirs", in_window("git checkout --theirs -- docs/a.md"), ALLOW)
+check("window: full stash-pull-pop chain",
+      in_window(f"cd /d/datrix/datrix-common && {STASH_PATHS} && git pull --ff-only "
+                "&& git stash pop"), ALLOW)
+check("window, PowerShell: stash push",
+      in_window(f"git -C D:\\datrix\\datrix-common {STASH_PATHS}", tool="PowerShell"), ALLOW)
+
+check("window still blocks: bare stash (everything)", in_window("git stash"), BLOCK)
+check("window still blocks: stash push without paths", in_window("git stash push -m x"), BLOCK)
+check("window still blocks: stash clear", in_window("git stash clear"), BLOCK)
+check("window still blocks: reset --hard", in_window("git reset --hard origin/main"), BLOCK)
+check("window still blocks: reset to another commit", in_window("git reset HEAD~1"), BLOCK)
+check("window still blocks: reset --soft", in_window("git reset --soft HEAD"), BLOCK)
+check("window still blocks: restore the working tree", in_window("git restore docs/a.md"), BLOCK)
+check("window still blocks: restore --staged --worktree",
+      in_window("git restore --staged --worktree docs/a.md"), BLOCK)
+check("window still blocks: restore --staged --source",
+      in_window("git restore --staged --source=HEAD~2 docs/a.md"), BLOCK)
+check("window still blocks: checkout -- path", in_window("git checkout -- docs/a.md"), BLOCK)
+check("window still blocks: checkout a ref", in_window("git checkout origin/main"), BLOCK)
+check("window still blocks: revert", in_window("git revert HEAD"), BLOCK)
+check("window still blocks: clean -fd", in_window("git clean -fd"), BLOCK)
+check("window still blocks: an allowed call chained to reset --hard",
+      in_window(f"{STASH_PATHS} && git reset --hard"), BLOCK)
+
+check("closed: no transcript", cmd(STASH_PATHS), BLOCK)
+check("closed: unreadable transcript",
+      in_window(STASH_PATHS, path=r"D:\datrix\.tmp\no-such-transcript.jsonl"), BLOCK)
+check("closed: a follow-up prompt ends the window", in_window(STASH_PATHS, FOLLOW_UP), BLOCK)
+check("closed: the tag quoted mid-prompt", in_window(STASH_PATHS, QUOTED), BLOCK)
+check("closed: meta text is not Jon's prompt", in_window(STASH_PATHS, MODEL_INVOKED), BLOCK)
+
 print()
 if fails:
     print(f"{len(fails)} FAILURE(S):")
