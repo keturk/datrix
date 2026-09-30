@@ -47,8 +47,13 @@ from shared.deploy_test_aggregate_writer import DeployTestAggregateWriter  # noq
 from shared.deploy_test_log_writer import DeployTestLogWriter  # noqa: E402
 from shared.generated_test_log_writer import GeneratedTestLogWriter  # noqa: E402
 from shared.logging_utils import ColorCodes, colorize  # noqa: E402
-from shared.ollama_utils import OLLAMA_DEFAULT_URL  # noqa: E402
-from shared.ollama_utils import call_ollama as _call_ollama  # noqa: E402
+from shared.local_llm import (  # noqa: E402
+    ChatRequest,
+    LocalLlmSettings,
+    add_local_llm_arguments,
+    advisory_text,
+    local_llm_settings,
+)
 from shared.registered_targets import registered_language_names  # noqa: E402
 from shared.test_projects import (  # noqa: E402
     get_default_output_path,
@@ -59,11 +64,8 @@ from shared.venv import get_datrix_root, get_venv_python  # noqa: E402
 # Global set to track all active subprocesses
 _active_processes = set()
 _process_lock = threading.Lock()
-DEFAULT_LLM_MODEL = "qwen3-coder:30b-ctx32k"
-DEFAULT_LLM_TIMEOUT_SECONDS = 180
 DEFAULT_LLM_NUM_PREDICT = 4096
 DEFAULT_LLM_TEMPERATURE = 0.1
-DEFAULT_LLM_KEEP_ALIVE = "10m"
 DEFAULT_LLM_CLUSTER_LIMIT = 12
 
 
@@ -437,12 +439,9 @@ def _run_llm_post_run_summary(
     paths: dict[str, Path],
     failed_steps: list[str],
     limit: int,
-    ollama_url: str,
-    model: str,
-    timeout_seconds: int,
+    settings: LocalLlmSettings,
     num_predict: int,
     temperature: float,
-    keep_alive: str,
 ) -> str:
     """Run advisory local LLM summary over latest aggregate test indexes."""
     summaries = [
@@ -474,24 +473,18 @@ def _run_llm_post_run_summary(
             indent=2,
         ),
     ])
-    response = _call_ollama(
-        "You are a Datrix generated-test triage assistant. You produce advisory markdown only.",
-        prompt,
-        ollama_url=ollama_url,
-        ollama_model=model,
-        timeout=timeout_seconds,
-        num_predict=num_predict,
+    request = ChatRequest(
+        system="You are a Datrix generated-test triage assistant. You produce advisory markdown only.",
+        user=prompt,
         temperature=temperature,
-        keep_alive=keep_alive,
+        max_tokens=num_predict,
     )
-    if response is None:
-        return "LLM post-run summary failed: Ollama returned no response."
-    return response.strip()
+    return advisory_text(settings, request, "LLM post-run summary")
 
 
 def _print_llm_post_run_summary(args: argparse.Namespace, paths: dict[str, Path], failed_steps: list[str]) -> None:
     """Print an optional advisory LLM post-run summary."""
-    if not getattr(args, "llm_summary", False):
+    if not args.llm_summary:
         return
     print()
     print_info("---")
@@ -501,12 +494,9 @@ def _print_llm_post_run_summary(args: argparse.Namespace, paths: dict[str, Path]
         paths,
         failed_steps,
         args.llm_limit,
-        args.ollama_url,
-        args.llm_model,
-        args.llm_timeout,
+        local_llm_settings(args),
         args.llm_num_predict,
         args.llm_temperature,
-        args.llm_keep_alive,
     )
     print(text, flush=True)
 
@@ -3130,12 +3120,9 @@ Examples:
     parser.add_argument("--debug", action="store_true", help="Enable debug logging (DEBUG level instead of INFO)")
     parser.add_argument("--llm-summary", action="store_true", help="Print advisory local LLM post-run summary from aggregate indexes")
     parser.add_argument("--llm-limit", type=int, default=DEFAULT_LLM_CLUSTER_LIMIT, help=f"Maximum clusters/projects per aggregate index for LLM summary (default: {DEFAULT_LLM_CLUSTER_LIMIT})")
-    parser.add_argument("--ollama-url", default=OLLAMA_DEFAULT_URL, help=f"Ollama server URL (default: {OLLAMA_DEFAULT_URL})")
-    parser.add_argument("--llm-model", default=DEFAULT_LLM_MODEL, help=f"Local LLM model (default: {DEFAULT_LLM_MODEL})")
-    parser.add_argument("--llm-timeout", type=int, default=DEFAULT_LLM_TIMEOUT_SECONDS, help=f"Ollama timeout seconds (default: {DEFAULT_LLM_TIMEOUT_SECONDS})")
-    parser.add_argument("--llm-num-predict", type=int, default=DEFAULT_LLM_NUM_PREDICT, help=f"Ollama max generated tokens (default: {DEFAULT_LLM_NUM_PREDICT})")
-    parser.add_argument("--llm-temperature", type=float, default=DEFAULT_LLM_TEMPERATURE, help=f"Ollama temperature (default: {DEFAULT_LLM_TEMPERATURE})")
-    parser.add_argument("--llm-keep-alive", default=DEFAULT_LLM_KEEP_ALIVE, help=f"Ollama keep_alive (default: {DEFAULT_LLM_KEEP_ALIVE})")
+    parser.add_argument("--llm-num-predict", type=int, default=DEFAULT_LLM_NUM_PREDICT, help=f"Max generated tokens (default: {DEFAULT_LLM_NUM_PREDICT})")
+    parser.add_argument("--llm-temperature", type=float, default=DEFAULT_LLM_TEMPERATURE, help=f"Sampling temperature (default: {DEFAULT_LLM_TEMPERATURE})")
+    add_local_llm_arguments(parser)
     args = parser.parse_args()
 
     # --platform now carries only the runtime segment. The provider segment of

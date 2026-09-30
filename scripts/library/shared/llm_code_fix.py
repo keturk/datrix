@@ -1,106 +1,54 @@
-"""Shared Ollama utilities for LLM-assisted code quality tools.
+"""Shared machinery for scripts that ask a local model to rewrite Python code.
 
-Used by: metrics/complexity.py, metrics/error_messages.py
+Used by: metrics/complexity.py, metrics/error_messages.py, metrics/test_gen.py
 
-Provides common infrastructure for calling a local Ollama server, parsing
-LLM responses, extracting file context for prompts, validating fixes on disk
-(ruff + pytest), and managing indentation.
+Provides parsing of a model's code answer, file context for prompts, verification of a
+rewrite on disk (ruff + pytest, reverting on failure), and indentation handling. Talking
+to the model servers themselves is ``shared.local_llm``.
 """
 
 from __future__ import annotations
 
 import ast
-import json
+import hashlib
 import logging
 import re
 import subprocess
-import urllib.error
-import urllib.request
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# --- Configuration ---
-OLLAMA_DEFAULT_URL = "http://10.94.0.100:11434"
-OLLAMA_DEFAULT_MODEL = "qwen3-coder-cline:latest"
-OLLAMA_TIMEOUT_SECONDS = 300
-OLLAMA_DEFAULT_NUM_PREDICT = 32768
-OLLAMA_MAX_FIX_RETRIES = 3
+MAX_FIX_RETRIES = 3
 
 PYTEST_TIMEOUT_SECONDS = 600
+RUFF_TIMEOUT_SECONDS = 30
+# Ruff's stderr warning for a file it could not read; it still exits 0 after it.
+RUFF_UNREAD_FILE_MARKER = "Failed to lint"
+
+# Verification outcomes callers branch on.
+FILE_MODIFIED = "file_modified"
+TEST_FAILURE = "test_failure"
 
 _CONTEXT_MAX_IMPORT_LINES = 80
 _CONTEXT_MAX_INIT_LINES = 15
 _CONTEXT_MAX_CONSTANT_LINES = 20
 _CONTEXT_MAX_METHODS = 30
 
-
-# --- Ollama API ---
-
-
-def call_ollama(
-    system_prompt: str,
-    user_prompt: str,
-    ollama_url: str = OLLAMA_DEFAULT_URL,
-    ollama_model: str = OLLAMA_DEFAULT_MODEL,
-    timeout: int = OLLAMA_TIMEOUT_SECONDS,
-    num_predict: int = OLLAMA_DEFAULT_NUM_PREDICT,
-    temperature: float = 0.3,
-    keep_alive: str | None = None,
-) -> str | None:
-    """POST to Ollama /api/chat endpoint. Returns response text or None on error."""
-    body = {
-        "model": ollama_model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "stream": False,
-        "options": {
-            "temperature": temperature,
-            "num_predict": num_predict,
-        },
-    }
-    if keep_alive:
-        body["keep_alive"] = keep_alive
-    payload = json.dumps(body).encode("utf-8")
-
-    req = urllib.request.Request(
-        f"{ollama_url}/api/chat",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.URLError as e:
-        logger.error("ollama_connection_failed url=%s error=%s", ollama_url, e)
-        return None
-    except TimeoutError:
-        logger.error("ollama_timeout seconds=%d", timeout)
-        return None
-
-    content: str = data["message"]["content"]
-    return content
+_CODE_FENCE_PATTERN = re.compile(r"```(?:python)?\s*\n(.*?)```", flags=re.DOTALL)
 
 
-def parse_ollama_response(response: str) -> str | None:
-    """Extract Python code from Ollama response.
+def parse_code_response(response: str) -> str | None:
+    """Extract Python code from a model answer (reasoning already stripped).
 
-    Strips <think> tags, markdown code fences, and leading/trailing whitespace.
-    Returns None if no valid code found.
+    Takes the first fenced block, or the whole answer when there is no fence. Returns
+    None when nothing is left -- a failed attempt the caller retries with feedback.
     """
-    cleaned = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
-    code_match = re.search(r"```(?:python)?\s*\n(.*?)```", cleaned, flags=re.DOTALL)
-    if code_match:
-        code = code_match.group(1).strip()
-    else:
-        code = cleaned.strip()
-
+    code_match = _CODE_FENCE_PATTERN.search(response)
+    code = code_match.group(1).strip() if code_match else response.strip()
     if not code:
         return None
-
-    # Normalize to LF — Ollama may return CRLF depending on model training data.
+    # Normalize to LF -- a model may answer with CRLF depending on its training data.
     return code.replace("\r\n", "\n")
 
 
@@ -265,15 +213,14 @@ def apply_and_verify_on_disk(
     """Write fixed content to disk, run ruff check, optionally run pytest.
 
     Reverts to original content on failure.
-    Returns (success, error_message).
+    Returns (success, error_message); error_message is FILE_MODIFIED when the file
+    changed under the run, TEST_FAILURE when the tests failed, else the ruff output.
     """
-    import hashlib
-
     current_content = file_path.read_text(encoding="utf-8")
     current_hash = hashlib.sha256(current_content.encode("utf-8")).hexdigest()
     if current_hash != original_hash:
         logger.warning("file_modified_during_processing file=%s", file_path)
-        return False, "file_modified"
+        return False, FILE_MODIFIED
 
     file_path.write_text(fixed_content, encoding="utf-8", newline="\n")
 
@@ -288,36 +235,47 @@ def apply_and_verify_on_disk(
         if not test_ok:
             logger.info("reverting_due_to_test_failures file=%s", file_path)
             file_path.write_text(original_content, encoding="utf-8", newline="\n")
-            return False, "test_failure"
+            return False, TEST_FAILURE
 
     return True, ""
 
 
 def run_ruff_check(file_path: Path) -> tuple[bool, str]:
-    """Run ruff check --select F821 (undefined names). Returns (passed, output)."""
+    """Run ruff check --select F821 (undefined names). Returns (passed, output).
+
+    A check that cannot run is a failed check: a rewrite is kept only when ruff
+    actually passed it. Ruff reports a file it could not read as a warning and still
+    exits 0 ("All checks passed!"), so that warning is a failure here.
+    """
+    if not file_path.is_file():
+        return False, f"ruff check cannot run: {file_path} is not a file"
     try:
         result = subprocess.run(
-            ["ruff", "check", "--select", "F821", str(file_path)],
+            [sys.executable, "-m", "ruff", "check", "--select", "F821", str(file_path)],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=RUFF_TIMEOUT_SECONDS,
         )
-    except FileNotFoundError:
-        return True, ""
     except subprocess.TimeoutExpired:
-        return True, ""
+        return False, f"ruff check timed out after {RUFF_TIMEOUT_SECONDS}s on {file_path}"
+    if RUFF_UNREAD_FILE_MARKER in result.stderr:
+        return False, result.stderr.strip()
     if result.returncode != 0:
-        details = result.stdout.strip()
-        return False, details
+        details = (result.stdout or result.stderr).strip()
+        return False, details or f"ruff check exited {result.returncode} on {file_path}"
     return True, ""
 
 
 def run_pytest(project_root: Path) -> tuple[bool, str]:
-    """Run pytest with fail-fast, no coverage. Returns (passed, output)."""
+    """Run pytest with fail-fast, no coverage. Returns (passed, output).
+
+    A test run that cannot start or finish is a failed run: a rewrite is kept only
+    when the tests actually passed.
+    """
     try:
         result = subprocess.run(
             [
-                "python", "-m", "pytest", "tests/", "-x", "-q", "--tb=short",
+                sys.executable, "-m", "pytest", "tests/", "-x", "-q", "--tb=short",
                 "--no-cov", "--override-ini=addopts=",
             ],
             cwd=str(project_root),
@@ -325,12 +283,10 @@ def run_pytest(project_root: Path) -> tuple[bool, str]:
             text=True,
             timeout=PYTEST_TIMEOUT_SECONDS,
         )
-    except FileNotFoundError:
-        return True, ""
     except subprocess.TimeoutExpired:
         return False, f"Tests timed out after {PYTEST_TIMEOUT_SECONDS}s"
     if result.returncode != 0:
-        output = result.stdout.strip()
+        output = (result.stdout or result.stderr).strip()
         return False, output
     return True, ""
 

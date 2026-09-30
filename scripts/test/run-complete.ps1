@@ -80,23 +80,21 @@
 .PARAMETER LlmLimit
  Maximum clusters/projects per aggregate index for advisory LLM summary. Default: 12.
 
-.PARAMETER OllamaUrl
- Ollama server URL for advisory LLM summary.
+.PARAMETER LocalMachines
+ Machines to search for local model servers, in preference order. Omit to search the
+ default list in library/shared/local_llm.py.
 
 .PARAMETER LlmModel
- Local LLM model for advisory summary.
+ Models to use for advisory summary, best first. Omit to use any model already in memory.
 
 .PARAMETER LlmTimeout
- Ollama request timeout in seconds for advisory summary.
+ Request timeout in seconds for advisory summary.
 
 .PARAMETER LlmNumPredict
- Ollama max generated tokens for advisory summary.
+ Max generated tokens for advisory summary.
 
 .PARAMETER LlmTemperature
- Ollama temperature for advisory summary.
-
-.PARAMETER LlmKeepAlive
- Ollama keep_alive value for advisory summary.
+ Sampling temperature for advisory summary.
 
 .EXAMPLE
  .\run-complete.ps1 "examples/02-features/01-core-data-modeling/entities/system.dtrx" -L python
@@ -188,12 +186,11 @@ param(
  [switch]$DebugLogging,
  [switch]$LlmSummary,
  [int]$LlmLimit = 12,
- [string]$OllamaUrl = "http://10.94.0.100:11434",
- [string]$LlmModel = "qwen3-coder:30b-ctx32k",
+ [string[]]$LocalMachines = @(),
+ [string[]]$LlmModel = @(),
  [int]$LlmTimeout = 180,
  [int]$LlmNumPredict = 4096,
- [double]$LlmTemperature = 0.1,
- [string]$LlmKeepAlive = "10m"
+ [double]$LlmTemperature = 0.1
 )
 
 # Color output functions
@@ -515,13 +512,10 @@ if ($Rerun) {
    $singleArgs += @(
     "--llm-summary",
     "--llm-limit", $LlmLimit,
-    "--ollama-url", $OllamaUrl,
-    "--llm-model", $LlmModel,
-    "--llm-timeout", $LlmTimeout,
     "--llm-num-predict", $LlmNumPredict,
-    "--llm-temperature", $LlmTemperature,
-    "--llm-keep-alive", $LlmKeepAlive
+    "--llm-temperature", $LlmTemperature
    )
+   $singleArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
   }
 
   Write-Info "Running: $pythonExe -u $($singleArgs -join ' ')"
@@ -651,13 +645,10 @@ if ($LlmSummary) {
  $pythonArgs += @(
   "--llm-summary",
   "--llm-limit", $LlmLimit,
-  "--ollama-url", $OllamaUrl,
-  "--llm-model", $LlmModel,
-  "--llm-timeout", $LlmTimeout,
   "--llm-num-predict", $LlmNumPredict,
-  "--llm-temperature", $LlmTemperature,
-  "--llm-keep-alive", $LlmKeepAlive
+  "--llm-temperature", $LlmTemperature
  )
+ $pythonArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
 }
 
 # Set environment variable for fresh build mode (deploy tests will use --no-cache)

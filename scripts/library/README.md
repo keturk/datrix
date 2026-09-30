@@ -6,6 +6,7 @@ Python implementations called by PowerShell wrapper scripts.
 
 ```
 library/
+├── code_index/ # Per-machine code index: definitions, references, search, logic-map markers
 ├── dev/ # Development tools
 ├── metrics/ # Code metrics: Radon, Vulture, Ruff, duplicate-code, Bandit
 ├── review/ # Task-file review tooling (Tier 1/2 reviewer + apply-reviews prep)
@@ -28,6 +29,23 @@ Development tool implementations.
 | `gendsl_census.py` | `dev/gendsl-census.ps1` | Per-domain genDSL census + double-emit offender detection |
 | `evaluate_generated_scan.py` | `dev/evaluate-generated-scan.ps1` | Project-level generated-output scan for `/evaluate-generated` (inventory, manifests, infra checks, prompts) |
 | `evaluate_service_scan.py` | `dev/evaluate-service-scan.ps1` | Service-level scan for `/evaluate-generated-service` (DSL inventory, manifest set-diff, artifact existence, dead-code candidates) |
+| `code_index_cli.py` | `dev/code-index.ps1` | Code index queries (definitions, references, outline, search, logic-map markers, status, summaries) |
+| `code_index_mcp.py` | (registered with Claude Code by `code-index.ps1 -Setup`) | The code index as a stdio MCP server; standard library only |
+| `logic_map.py` | (library) | Logic-map marker syntax, parser, and the `markers.db` writer the code index calls |
+
+## code_index/
+
+The code index, one per development machine, kept at `<workspace>/.code-index/` and refreshed incrementally before every query. See `dev/quick-reference.md` § `dev\code-index.ps1`.
+
+| File | Description |
+|------|-------------|
+| `sources.py` | Configuration (`config/code-index.json`), the git-visible file set, module names |
+| `extract.py` | One file's definitions, imports, references and markers, from its syntax tree |
+| `store.py` | The `index.db` schema and per-file writes; `summaries.db`, which survives rebuilds |
+| `refresh.py` | Incremental refresh (size/mtime, then hash) and the `markers.db` rewrite |
+| `queries.py` | Definitions, import-resolved references, outline, full-text search, canonical markers, status |
+| `summaries.py` | Local-model module summaries, cached by content hash (run only when asked) |
+| `session.py` | Open the workspace's index |
 
 ## shared/
 
@@ -68,7 +86,7 @@ Test execution utilities.
 | `status_tests.py` | `test/status-tests.ps1` | Test status reporting |
 | `status_unit_tests.py` | `test/status-unit-tests.ps1` | Running test status |
 | `status_deploy_tests.py` | `test/status-deploy-tests.ps1` | Deployment test status |
-| `collect_failure_data.py` | `test/collect-failure-data.ps1` | Per-cluster failure bundle (`failure-data.json`) from a structured run dir; supports package, generated-unit, and deploy index schemas |
+| `collect_failure_data.py` | `test/collect-failure-data.ps1` | Failure bundle (`failure-data.json`) from a structured run dir: clusters grouped into families with one traceback tail each, capped messages, advisory local-model hints; supports package, generated-unit, and deploy index schemas |
 | `extract_warnings.py` | `test/extract-warnings.ps1` | Deduplicated pytest warnings (`warnings.json`) parsed from a run's `full.log` |
 | `classify_run_delta.py` | `test/classify-run-delta.ps1` | SUCCESS/PARTIAL/NO_CHANGE/REGRESSION verdict (`run-delta.json`) between two runs of one package |
 | `gate_verdict.py` | `test/gate-verdict.ps1` | GREEN/RED aggregate verdict over packages' newest runs (fail-loud on missing/in-progress results) |

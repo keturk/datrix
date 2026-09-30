@@ -1,65 +1,55 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Repo-level gate absorbing the shared-library test coverage orphaned by the
- datrix showcase repo's no-pytest-suite boundary.
+ Repo-level gate for the code index and its entry points (code-index-gate.py).
 
 .DESCRIPTION
- Runs shared-library-gate.py, which re-expresses every distinct behavior class
- from the 8 orphaned pytest files under scripts/library/shared/tests/ as plain
- Python checks (no pytest, no mocks, real tempfile.TemporaryDirectory()
- fixtures). See the .py file's module docstring for the full list of modules
- covered.
+ Activates the Datrix virtual environment and runs code-index-gate.py, which builds real
+ workspaces of git repositories in temporary directories and checks the code index over them:
+ extraction, incremental refresh, git visibility and excludes, import-resolved references,
+ the logic-map rewrite, search, canonical lookup, model summaries (against a real loopback
+ model server), and the MCP server over its standard streams.
 
  Exit codes:
    0 = every check passed
-   1 = at least one check failed
+   1 = at least one check (or the harness self-test) failed
    2 = usage error
 
-.PARAMETER HarnessSelfTest
- Run only the harness self-test: register one deliberately-failing dummy
- check and confirm the harness reports it FAILED with a nonzero exit. Proves
- the pass/fail mechanism itself cannot swallow a failure.
-
 .PARAMETER Only
- Run only the checks whose name starts with this prefix (e.g. check_local_llm),
- for a change confined to one shared module.
+ Run only the checks whose function name starts with this prefix (e.g. check_mcp).
+
+.PARAMETER HarnessSelfTest
+ Run one intentionally-failing dummy check and confirm it is reported [FAIL] (proves the harness
+ is not vacuous).
 
 .PARAMETER Dbg
- Enable debug logging (prints the python executable, script path, and arguments).
+ Print the python invocation before running.
 
 .EXAMPLE
- .\shared-library-gate.ps1
- Run every shared-library behavior check; exit 0 only if all pass.
+ .\code-index-gate.ps1
 
 .EXAMPLE
- .\shared-library-gate.ps1 -HarnessSelfTest
- Prove the pass/fail harness itself can detect and report a failure.
+ .\code-index-gate.ps1 -Only check_references
 #>
 
 [CmdletBinding()]
 param(
-    [Parameter()]
-    [switch]$HarnessSelfTest,
-
-    [Parameter()]
-    [string]$Only = "",
-
-    [Parameter()]
-    [switch]$Dbg
+    [Parameter()] [string]$Only = "",
+    [Parameter()] [switch]$HarnessSelfTest,
+    [Parameter()] [switch]$Dbg
 )
 
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "shared-library-gate.py"
+$pythonScript = Join-Path $scriptDir "code-index-gate.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
 if (-not (Test-Path $pythonScript)) {
-    Write-Error "Error: shared-library-gate.py not found at: $pythonScript"
+    Write-Host "Error: code-index-gate.py not found at: $pythonScript" -ForegroundColor Red
     exit 2
 }
 
@@ -92,16 +82,12 @@ try {
 
     if ($Dbg) {
         Write-Host "Python executable: $pythonExe" -ForegroundColor Cyan
-        Write-Host "Python script: $pythonScript" -ForegroundColor Cyan
         Write-Host "Arguments: $($pythonArgs -join ' ')" -ForegroundColor Cyan
         Write-Host ""
     }
 
     & $pythonExe @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    exit $exitCode
-
+    exit $LASTEXITCODE
 } catch {
     Write-Host ""
     Write-Host "Error occurred:" -ForegroundColor Red

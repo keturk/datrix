@@ -8,6 +8,26 @@
  Resolves the representative entry of every error/failure cluster in the
  run's index.json, embeds the tail of its detail log and a ready-to-run
  single-test command, and writes failure-data.json into the run directory.
+ Clusters sharing one pattern are grouped into families (one traceback tail
+ each), long error messages are cut with a pointer to their log_file, and the
+ first -LlmHintLimit families get an advisory hint from a local model server
+ (library/shared/local_llm.py). A hint is a hypothesis to verify, never a verdict.
+
+.PARAMETER NoLlmHints
+ Write no local-model hints (families and message caps still apply).
+
+.PARAMETER LlmHintLimit
+ Families, errors first, that get a hint (default 5; 0 writes none).
+
+.PARAMETER LocalMachines
+ Machines to search for model servers, in preference order. Omit to search the
+ default list in library/shared/local_llm.py.
+
+.PARAMETER LlmModel
+ Models to use for hints, best first. Omit to use any model already in memory.
+
+.PARAMETER LlmTimeout
+ Request timeout in seconds for each hint (default 120).
 
 .PARAMETER Path
  Run directory or index.json path (alternative to -Project).
@@ -47,6 +67,16 @@ param(
 
  [switch]$SelfTest,
 
+ [switch]$NoLlmHints,
+
+ [int]$LlmHintLimit = 5,
+
+ [string[]]$LocalMachines = @(),
+
+ [string[]]$LlmModel = @(),
+
+ [int]$LlmTimeout = 120,
+
  [switch]$Dbg
 )
 
@@ -62,6 +92,7 @@ $PythonScript = Join-Path $libraryDir "test\collect_failure_data.py"
 # Import common modules
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
 function Invoke-Cleanup {
@@ -91,7 +122,9 @@ try {
  } else {
   if ($Path) { $pythonArgs += $Path }
   if ($Project) { $pythonArgs += @("--project", $Project) }
-  $pythonArgs += @("--max-log-lines", "$MaxLogLines")
+  $pythonArgs += @("--max-log-lines", "$MaxLogLines", "--llm-hint-limit", "$LlmHintLimit")
+  if ($NoLlmHints) { $pythonArgs += "--no-llm-hints" }
+  $pythonArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
  }
  if ($Dbg) { $pythonArgs += "--debug" }
 
