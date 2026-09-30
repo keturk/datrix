@@ -394,16 +394,53 @@ def _build_endpoint_operation(
     return operation
 
 
-def build_openapi_spec(service: Service, rest_api: RestApi, app: Application) -> dict[str, object]:
-    """Build an OpenAPI 3.1 specification dict.
+def _add_rest_api_paths(
+    paths: dict[str, dict[str, object]],
+    owners: dict[tuple[str, str], str],
+    rest_api: RestApi,
+    exc_index: dict[str, ExceptionDeclaration],
+) -> None:
+    """Add every visible endpoint of *rest_api* to *paths*.
+
+    *owners* maps each ``(path, method)`` already added to the ``rest_api``
+    that declared it, so an operation two blocks both declare is refused
+    rather than silently overwritten.
+    """
+    api_name = str(rest_api.name)
+    for endpoint in rest_api.endpoints.values():
+        if endpoint.is_hidden:
+            continue
+        path = endpoint.full_path or endpoint.path or "/"
+        method = endpoint.method.lower()
+        key = (path, method)
+        if key in owners:
+            raise ValueError(
+                f"OpenAPI: {method.upper()} {path} is declared by both rest_api "
+                f"'{owners[key]}' and rest_api '{api_name}' of one service. Expected one "
+                "operation per path and method; rename or remove one of the endpoints."
+            )
+        owners[key] = api_name
+        paths.setdefault(path, {})[method] = _build_endpoint_operation(endpoint, exc_index)
+
+
+def build_openapi_spec(service: Service, app: Application) -> dict[str, object]:
+    """Build one OpenAPI 3.1 specification dict for every ``rest_api`` of *service*.
+
+    A service's ``rest_api`` blocks (typically one per ``.dtrx`` file of a
+    multi-file service) share its host, entities and exceptions, so they are
+    one document: every block's paths under one ``paths`` map.
 
     Args:
-        service: Service that owns the REST API.
-        rest_api: The REST API block to document.
+        service: Service whose REST APIs to document.
         app: Analyzed application (used for exception import visibility).
 
     Returns:
         Complete OpenAPI 3.1 specification as a dict (ready for YAML serialization).
+
+    Raises:
+        ValueError: *service* is not one of *app*'s services, two ``rest_api``
+            blocks declare the same path and method, or an endpoint throws an
+            undeclared exception.
     """
     if not any(s is service for s in app.services.values()):
         raise ValueError(
@@ -413,16 +450,9 @@ def build_openapi_spec(service: Service, rest_api: RestApi, app: Application) ->
     exc_index = _exception_index_for_service(service)
 
     paths: dict[str, dict[str, object]] = {}
-
-    for endpoint in rest_api.endpoints.values():
-        if endpoint.is_hidden:
-            continue
-        path = endpoint.full_path or endpoint.path or "/"
-        method = endpoint.method.lower()
-
-        if path not in paths:
-            paths[path] = {}
-        paths[path][method] = _build_endpoint_operation(endpoint, exc_index)
+    owners: dict[tuple[str, str], str] = {}
+    for rest_api in service.rest_apis.values():
+        _add_rest_api_paths(paths, owners, rest_api, exc_index)
 
     # Collect entity schemas + exception error schemas
     schemas: dict[str, object] = {}
@@ -478,41 +508,82 @@ def _build_event_message(event: Event) -> dict[str, object]:
     return {"payload": payload}
 
 
-def build_asyncapi_spec(
-    service: Service,
+def _add_operation(
+    operations: dict[str, object], op_id: str, operation: dict[str, object], origin: str
+) -> None:
+    """Add *operation* under *op_id*, refusing a second operation with that id."""
+    if op_id in operations:
+        raise ValueError(
+            f"AsyncAPI: operation id '{op_id}' ({origin}) is already declared by another "
+            f"operation of this service: {operations[op_id]}. Expected one operation per "
+            "id; rename the event or handler so the ids differ."
+        )
+    operations[op_id] = operation
+
+
+def _add_pubsub_block_channels(
+    channels: dict[str, object],
+    operations: dict[str, object],
+    owners: dict[str, str],
     pubsub_block: PubsubBlock,
-) -> dict[str, object]:
-    """Build an AsyncAPI 3.0 specification dict.
+) -> None:
+    """Add every topic of *pubsub_block* as a channel, plus its publish operations.
 
-    Args:
-        service: Service that owns the pubsub block.
-        pubsub_block: The PubSub block to document.
-
-    Returns:
-        Complete AsyncAPI 3.0 specification as a dict (ready for YAML serialization).
+    *owners* maps each channel already added to the pubsub block that declared
+    it, so a topic two blocks both declare is refused rather than overwritten.
     """
-    channels: dict[str, object] = {}
-    operations: dict[str, object] = {}
-
+    block_name = str(pubsub_block.name)
     for topic in pubsub_block.topics.values():
         topic_name = str(topic.name)
+        if topic_name in owners:
+            raise ValueError(
+                f"AsyncAPI: topic '{topic_name}' is declared by both pubsub block "
+                f"'{owners[topic_name]}' and pubsub block '{block_name}' of one service. "
+                "Expected one channel per topic; rename one of the topics."
+            )
+        owners[topic_name] = block_name
         messages: dict[str, object] = {}
 
         for event in topic.events.values():
             event_name = str(event.name)
             messages[event_name] = _build_event_message(event)
-
-            # Publish operation
-            op_id = f"publish{event_name}"
-            operations[op_id] = {
-                "action": "send",
-                "channel": {"$ref": f"#/channels/{topic_name}"},
-            }
+            _add_operation(
+                operations,
+                f"publish{event_name}",
+                {"action": "send", "channel": {"$ref": f"#/channels/{topic_name}"}},
+                f"publish of event '{event_name}' on topic '{topic_name}'",
+            )
 
         channels[topic_name] = {
             "address": topic_name,
             "messages": messages,
         }
+
+
+def build_asyncapi_spec(service: Service) -> dict[str, object]:
+    """Build one AsyncAPI 3.0 specification dict for every pubsub block of *service*.
+
+    A service's pubsub blocks share its broker identity and its subscriptions,
+    so they are one document: every block's topics as channels, every published
+    event as a ``send`` operation, and every subscription handler once as a
+    ``receive`` operation.
+
+    Args:
+        service: Service whose pubsub blocks to document.
+
+    Returns:
+        Complete AsyncAPI 3.0 specification as a dict (ready for YAML serialization).
+
+    Raises:
+        ValueError: Two pubsub blocks declare the same topic, or two operations
+            resolve to the same operation id.
+    """
+    channels: dict[str, object] = {}
+    operations: dict[str, object] = {}
+    owners: dict[str, str] = {}
+
+    for pubsub_block in service.pubsub_blocks.values():
+        _add_pubsub_block_channels(channels, operations, owners, pubsub_block)
 
     # Subscription operations (subscriptions belong on Service, not PubsubBlock)
     for subscription in service.iter_subscriptions_including_serverless():
@@ -520,11 +591,12 @@ def build_asyncapi_spec(
         for handler in subscription.handlers:
             event_name = handler.event_name()
             if event_name:
-                op_id = f"on{event_name}"
-                operations[op_id] = {
-                    "action": "receive",
-                    "channel": {"$ref": f"#/channels/{sub_name}"},
-                }
+                _add_operation(
+                    operations,
+                    f"on{event_name}",
+                    {"action": "receive", "channel": {"$ref": f"#/channels/{sub_name}"}},
+                    f"handler of event '{event_name}' in subscription '{sub_name}'",
+                )
 
     spec: dict[str, object] = {
         "asyncapi": "3.0.0",
