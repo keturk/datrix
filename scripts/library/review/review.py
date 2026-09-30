@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Task Review System Orchestrator.
 
-Coordinates Tier 1 (local Ollama reviewer) and optional Tier 2 (Codex reviewer)
-to review task files before execution.
+Coordinates Tier 1 (a local model, discovered on the network by shared.local_llm) and
+optional Tier 2 (Codex reviewer) to review task files before execution.
 
 Usage:
   python review.py --phase 05
@@ -17,8 +17,6 @@ import json
 import logging
 import re
 import sys
-import urllib.error
-import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -26,6 +24,19 @@ try:
     import tomllib  # Python 3.11+
 except ImportError:
     import tomli as tomllib  # type: ignore
+
+_LIBRARY_DIR = Path(__file__).resolve().parent.parent
+if str(_LIBRARY_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIBRARY_DIR))
+
+from shared.local_llm import (  # noqa: E402
+    ChatRequest,
+    LocalLlmPool,
+    LocalLlmReply,
+    LocalLlmUnavailable,
+    add_local_llm_arguments,
+    local_llm_settings,
+)
 
 # Local imports
 try:
@@ -59,47 +70,39 @@ def load_config(config_path: Path) -> dict:
         return tomllib.load(f)
 
 
-def call_ollama(
-    prompt: str,
-    ollama_url: str,
-    model: str,
-    timeout: int = 300,
-) -> str | None:
-    """Call Ollama API. Returns response text or None on error."""
-    system_msg = (
-        "You are a task file reviewer. You review task files for defects. "
-        "You output ONLY a JSON object with keys: schema_version, source, model, "
-        "scope, target, generated_at, verdict, findings, summary. "
-        "Your response must start with { and end with }. No other text."
-    )
-    payload = json.dumps(
-        {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_msg},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-            "options": {"temperature": 0.3, "num_predict": 32768},
-        }
-    ).encode("utf-8")
+# Tier 1 request shape. Structured JSON output for a long task file needs room to
+# answer and time to produce it.
+REVIEW_SYSTEM_PROMPT = (
+    "You are a task file reviewer. You review task files for defects. "
+    "You output ONLY a JSON object with keys: schema_version, source, model, "
+    "scope, target, generated_at, verdict, findings, summary. "
+    "Your response must start with { and end with }. No other text."
+)
+REVIEW_TEMPERATURE = 0.3
+REVIEW_MAX_TOKENS = 32768
+REVIEW_GENERATE_TIMEOUT_MS = 180000
+# A local model's answer that does not parse as a review is asked for again; a server
+# that fails outright is dropped by the pool and the next one answers instead.
+REVIEW_ATTEMPTS = 3
 
-    req = urllib.request.Request(
-        f"{ollama_url}/api/chat",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
+# Exit codes. Only EXIT_CLEAN means a complete review found nothing blocking; every
+# review that did not fully happen exits non-zero so it can never pass as a clean one.
+EXIT_CLEAN = 0
+EXIT_BLOCKING = 1
+EXIT_ALL_PARSE_FAILED = 2
+EXIT_NO_LOCAL_MODEL = 3
+EXIT_TIER2_MISSING = 4
 
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data["message"]["content"]
-    except urllib.error.URLError as e:
-        logger.error("ollama_connection_failed url=%s error=%s", ollama_url, e)
-        return None
-    except TimeoutError:
-        logger.error("ollama_timeout seconds=%d", timeout)
-        return None
+
+def request_review(prompt: str, pool: LocalLlmPool, context_window: int) -> LocalLlmReply:
+    """Ask a local model for a review. Raises LocalLlmUnavailable when no server can answer."""
+    return pool.chat(ChatRequest(
+        system=REVIEW_SYSTEM_PROMPT,
+        user=prompt,
+        temperature=REVIEW_TEMPERATURE,
+        max_tokens=REVIEW_MAX_TOKENS,
+        context_window=context_window,
+    ))
 
 
 _REVIEW_KEYS = {"verdict", "findings", "schema_version", "summary"}
@@ -220,18 +223,10 @@ def dump_raw_response(
 
 
 def parse_model_response(response: str, model: str) -> dict | None:
-    """Parse model response, handling model-specific quirks.
-
-    Strips <think> blocks (deepseek-r1, qwen3) before JSON extraction.
-    """
-    cleaned = response
-    # Strip thinking blocks used by reasoning models (deepseek-r1, qwen3)
-    if "</think>" in cleaned:
-        cleaned = cleaned.split("</think>")[-1].strip()
-
-    result = extract_json_from_response(cleaned)
+    """Parse a model answer (reasoning already stripped by shared.local_llm) as a review."""
+    result = extract_json_from_response(response)
     if result is None:
-        logger.warning("parse_failed model=%s response_length=%d", model, len(cleaned))
+        logger.warning("parse_failed model=%s response_length=%d", model, len(response))
     return result
 
 
@@ -427,7 +422,7 @@ def build_reviewer_prompt(
     context: dict[str, str],
     prompt_template_path: Path,
     canonical_modules_digest: dict[str, list[str]],
-    model_name: str = "qwen2.5-coder:14b",
+    model_name: str,
 ) -> str:
     """Build the LLM reviewer prompt for subjective checks only.
 
@@ -522,11 +517,15 @@ def review_task_with_retry(
     config: dict,
     prompt_template_path: Path,
     canonical_modules_digest: dict[str, list[str]],
+    pool: LocalLlmPool,
 ) -> ReviewResult:
-    """Review a task: deterministic checks + LLM subjective checks."""
+    """Review a task: deterministic checks + LLM subjective checks.
+
+    Raises LocalLlmUnavailable when no local server can answer.
+    """
     task_content = context["task_content"]
     task_name = task_path.name
-    primary_model = config["tier1"]["primary_model"]
+    context_window = config["tier1"]["context_window"]
 
     # Phase 1: Deterministic structural validation (no false positives)
     structure_findings = validate_task_structure(task_content, task_name)
@@ -534,52 +533,24 @@ def review_task_with_retry(
 
     # Phase 2: LLM subjective checks (ambiguity, module refs, test coverage)
     llm_findings: list[Finding] = []
-    prompt = build_reviewer_prompt(
-        task_path, context, prompt_template_path, canonical_modules_digest,
-        model_name=primary_model,
-    )
-
-    primary_timeout = config["tier1"].get("target_latency_seconds", 120)
-    fallback_timeout = config["tier1"].get("fallback_latency_seconds", 180)
-
     llm_result_dict = None
+    model_used = pool.activate().model
 
-    # Try primary model
-    for attempt in range(1, 3):  # 2 attempts
-        logger.info("tier1_attempt model=%s attempt=%d", primary_model, attempt)
-        response = call_ollama(
-            prompt,
-            config["tier1"]["endpoint"],
-            primary_model,
-            timeout=primary_timeout,
-        )
-
-        if response:
-            llm_result_dict = parse_model_response(response, primary_model)
-            if llm_result_dict:
-                break
-            else:
-                dump_raw_response(response, task_path, primary_model, attempt)
-
-    # Fallback to secondary model if primary failed
-    if not llm_result_dict:
-        fallback_model = config["tier1"]["fallback_model"]
-        logger.info("falling_back_to_model model=%s", fallback_model)
-        fallback_prompt = build_reviewer_prompt(
+    for attempt in range(1, REVIEW_ATTEMPTS + 1):
+        # The prompt names the model it expects to answer, so it is rebuilt for
+        # whichever model the pool is on now -- a failover can change it.
+        model_used = pool.activate().model
+        prompt = build_reviewer_prompt(
             task_path, context, prompt_template_path, canonical_modules_digest,
-            model_name=fallback_model,
+            model_name=model_used,
         )
-        response = call_ollama(
-            fallback_prompt,
-            config["tier1"]["endpoint"],
-            fallback_model,
-            timeout=fallback_timeout,
-        )
-
-        if response:
-            llm_result_dict = parse_model_response(response, fallback_model)
-            if not llm_result_dict:
-                dump_raw_response(response, task_path, fallback_model, 1)
+        logger.info("tier1_attempt model=%s attempt=%d", model_used, attempt)
+        reply = request_review(prompt, pool, context_window)
+        model_used = reply.host.model
+        llm_result_dict = parse_model_response(reply.text, model_used)
+        if llm_result_dict:
+            break
+        dump_raw_response(reply.text, task_path, model_used, attempt)
 
     # Extract LLM findings, filtering out "Required Sections" category
     # (those are handled deterministically above — LLM has false positives there)
@@ -630,10 +601,9 @@ def review_task_with_retry(
     ]
 
     verdict = _compute_verdict(all_findings)
-    model_used = primary_model
     if not llm_result_dict:
         logger.warning("llm_review_failed task=%s (deterministic checks only)", task_path)
-        model_used = f"{primary_model} (deterministic only)"
+        model_used = f"{model_used} (deterministic only)"
 
     # Build summary
     summary_parts: list[str] = []
@@ -677,9 +647,13 @@ def review_phase(
     config: dict,
     prompt_template_path: Path,
     canonical_modules_digest: dict[str, list[str]],
+    pool: LocalLlmPool,
     verify_mode: bool = False,
 ) -> list[ReviewResult]:
-    """Review all tasks in a phase sequentially."""
+    """Review all tasks in a phase sequentially.
+
+    Raises LocalLlmUnavailable when no local server can answer.
+    """
     tasks = discover_phase_tasks(phase_num, config)
     logger.info("discovered_tasks phase=%d count=%d", phase_num, len(tasks))
 
@@ -695,7 +669,7 @@ def review_phase(
 
         context = resolve_task_context(task_path, config)
         result = review_task_with_retry(
-            task_path, context, config, prompt_template_path, canonical_modules_digest
+            task_path, context, config, prompt_template_path, canonical_modules_digest, pool
         )
 
         # Write artifact
@@ -708,16 +682,6 @@ def review_phase(
         results.append(result)
 
     return results
-
-
-def check_ollama_reachable(config: dict) -> bool:
-    """Ping Ollama to verify it's reachable."""
-    try:
-        req = urllib.request.Request(f"{config['tier1']['endpoint']}/api/tags")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status == 200
-    except (urllib.error.URLError, TimeoutError):
-        return False
 
 
 def write_review_artifact(result: ReviewResult, output_path: Path) -> None:
@@ -759,6 +723,7 @@ def main() -> int:
         action="store_true",
         help="Run Tier 2 after Tier 1 as quality gate",
     )
+    add_local_llm_arguments(parser, generate_timeout_ms=REVIEW_GENERATE_TIMEOUT_MS)
 
     args = parser.parse_args()
 
@@ -774,23 +739,34 @@ def main() -> int:
     canonical_modules_digest = load_or_build_cache(cache_path, datrix_root)
     logger.info("canonical_modules_loaded packages=%d", len(canonical_modules_digest))
 
-    # Check Ollama reachable
-    if not check_ollama_reachable(config):
-        if args.codex or args.codex_on_threshold or args.codex_phase_gate:
-            logger.warning("ollama_unreachable_skipping_tier1")
-            print("Ollama unreachable. Skipping Tier 1.")
-            # Tier 2 (Codex) is a separate reviewer and does not need Ollama.
-            return 0
-        else:
-            logger.error("ollama_unreachable_no_fallback")
-            print("ERROR: Ollama unreachable. Exiting.")
-            return 3
+    pool = LocalLlmPool(local_llm_settings(args))
+    try:
+        return _run_review(args, config, prompt_template_path, canonical_modules_digest, pool)
+    except LocalLlmUnavailable as exc:
+        # Tier 2 reviews Tier 1's artifacts, so without Tier 1 neither tier runs -- a
+        # --codex flag does not make a review happen, and exit 0 would read as a clean one.
+        logger.error("local_llm_unavailable_no_review error=%s", exc)
+        print(f"ERROR: No local model server can answer, so no review ran (Tier 2 reviews Tier 1's "
+              f"output and cannot run without it). {exc}")
+        return EXIT_NO_LOCAL_MODEL
+
+
+def _run_review(
+    args: argparse.Namespace,
+    config: dict,
+    prompt_template_path: Path,
+    canonical_modules_digest: dict[str, list[str]],
+    pool: LocalLlmPool,
+) -> int:
+    """Run Tier 1 (and Tier 2 when due). Raises LocalLlmUnavailable when no server can answer."""
+    # Tier 1 needs a model before any task is read: fail here, not after the first task.
+    pool.activate()
 
     if args.task:
         logger.info("reviewing_single_task path=%s", args.task)
         context = resolve_task_context(args.task, config)
         result = review_task_with_retry(
-            args.task, context, config, prompt_template_path, canonical_modules_digest
+            args.task, context, config, prompt_template_path, canonical_modules_digest, pool
         )
 
         output_path = args.task.with_suffix(".review.local.json")
@@ -800,7 +776,7 @@ def main() -> int:
         print(f"Verdict: {result.verdict}")
         if result.findings:
             print(f"Findings: {len(result.findings)}")
-        return 0 if result.verdict in ("pass", "warnings_only") else 1
+        return EXIT_CLEAN if result.verdict in ("pass", "warnings_only") else EXIT_BLOCKING
 
     if args.phase:
         logger.info("reviewing_phase phase=%d", args.phase)
@@ -809,6 +785,7 @@ def main() -> int:
             config,
             prompt_template_path,
             canonical_modules_digest,
+            pool,
             verify_mode=args.verify,
         )
 
@@ -817,6 +794,7 @@ def main() -> int:
         should_run_tier2 = should_escalate_to_tier2(
             results, config, manual_override=manual_codex
         )
+        tier2_missing = False
 
         if should_run_tier2:
             logger.info("tier2_escalation_triggered phase=%d", args.phase)
@@ -841,7 +819,9 @@ def main() -> int:
                 print(f"Verdict: {tier2_result.verdict}")
                 print(f"Additional findings: {len(tier2_result.findings)}")
             else:
-                print("\nTier 2 review failed or rate-limited. See logs.")
+                print("\nERROR: Tier 2 was due but failed or was rate-limited, so the phase review is "
+                      "incomplete. See logs, then re-run.")
+                tier2_missing = True
         else:
             logger.info("tier2_skipped phase=%d", args.phase)
 
@@ -866,10 +846,12 @@ def main() -> int:
 
         if parse_failure_count == len(results) and len(results) > 0:
             print("\nWARNING: ALL tasks failed to parse. Review infrastructure issue.")
-            return 2
+            return EXIT_ALL_PARSE_FAILED
         if blocking_count > 0:
-            return 1
-        return 0
+            return EXIT_BLOCKING
+        if tier2_missing:
+            return EXIT_TIER2_MISSING
+        return EXIT_CLEAN
 
 
 if __name__ == "__main__":

@@ -35,23 +35,21 @@
 .PARAMETER LlmLimit
  Maximum duplicate groups to include in the advisory LLM refactor plan. Default: 20.
 
-.PARAMETER OllamaUrl
- Ollama server URL for advisory LLM refactor plan.
+.PARAMETER LocalMachines
+ Machines to search for local model servers, in preference order. Omit to search the
+ default list in library/shared/local_llm.py.
 
 .PARAMETER LlmModel
- Local LLM model for advisory refactor plan.
+ Models to use for advisory refactor plan, best first. Omit to use any model already in memory.
 
 .PARAMETER LlmTimeout
- Ollama request timeout in seconds for advisory refactor plan.
+ Request timeout in seconds for advisory refactor plan.
 
 .PARAMETER LlmNumPredict
- Ollama max generated tokens for advisory refactor plan.
+ Max generated tokens for advisory refactor plan.
 
 .PARAMETER LlmTemperature
- Ollama temperature for advisory refactor plan.
-
-.PARAMETER LlmKeepAlive
- Ollama keep_alive value for advisory refactor plan.
+ Sampling temperature for advisory refactor plan.
 
 .EXAMPLE
  .\duplicate.ps1 datrix-common
@@ -75,12 +73,11 @@ param(
  [switch]$VerboseOutput,
  [switch]$LlmRefactorPlan,
  [int]$LlmLimit = 20,
- [string]$OllamaUrl = "http://10.94.0.100:11434",
- [string]$LlmModel = "qwen3-coder:30b-ctx32k",
+ [string[]]$LocalMachines = @(),
+ [string[]]$LlmModel = @(),
  [int]$LlmTimeout = 180,
  [int]$LlmNumPredict = 4096,
- [double]$LlmTemperature = 0.1,
- [string]$LlmKeepAlive = "10m"
+ [double]$LlmTemperature = 0.1
 )
 
 $ErrorActionPreference = "Stop"
@@ -180,13 +177,10 @@ try {
  $projectArgs += @(
  "--llm-refactor-plan",
  "--llm-limit", $LlmLimit,
- "--ollama-url", $OllamaUrl,
- "--llm-model", $LlmModel,
- "--llm-timeout", $LlmTimeout,
  "--llm-num-predict", $LlmNumPredict,
- "--llm-temperature", $LlmTemperature,
- "--llm-keep-alive", $LlmKeepAlive
+ "--llm-temperature", $LlmTemperature
  )
+ $projectArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
  }
 
  & python @projectArgs
@@ -210,13 +204,10 @@ try {
  $projectArgs += @(
  "--llm-refactor-plan",
  "--llm-limit", $LlmLimit,
- "--ollama-url", $OllamaUrl,
- "--llm-model", $LlmModel,
- "--llm-timeout", $LlmTimeout,
  "--llm-num-predict", $LlmNumPredict,
- "--llm-temperature", $LlmTemperature,
- "--llm-keep-alive", $LlmKeepAlive
+ "--llm-temperature", $LlmTemperature
  )
+ $projectArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
  }
 
  & python @projectArgs

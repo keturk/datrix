@@ -3,7 +3,18 @@
 
 Reads a run directory's index.json, resolves the representative entry of
 every error cluster and failure cluster, embeds the tail of its detail log,
-and writes ``failure-data.json`` into the run directory. Supports all three
+and writes ``failure-data.json`` into the run directory.
+
+The bundle is what an agent reads first, so it is kept small without losing
+anything: clusters sharing one normalized pattern form a *family* and only the
+family's first cluster carries a traceback tail; an error message longer than
+the cap is cut with a pointer to its ``log_file``, which holds it whole. Each of
+the first ``--llm-hint-limit`` families then gets an advisory hint from a local
+model (``shared.local_llm``) that is given the traceback, the message and the
+source around the traceback's in-workspace frames -- the code an agent would
+otherwise open first. A hint is a hypothesis to verify, never a verdict.
+
+Supports all three
 structured index schemas: the package schema (structured_log_writer), the
 generated-project unit schema (generated_test_log_writer, which adds
 codegen_hint/generated_file), and the deploy-test schema
@@ -27,6 +38,8 @@ import json
 import logging
 import re
 import sys
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -43,6 +56,15 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
+from shared.local_llm import (  # noqa: E402
+    ADVISORY_UNAVAILABLE_SOURCE,
+    ChatRequest,
+    LocalLlmPool,
+    LocalLlmSettings,
+    LocalLlmUnavailable,
+    add_local_llm_arguments,
+    local_llm_settings,
+)
 from shared.package_suites import (  # noqa: E402
     NODE_MANIFEST_NAME,
     NODE_TEST_SCRIPT_KEY,
@@ -55,7 +77,8 @@ from test.status_tests import parse_timestamp_from_log_file  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_VERSION = 1
+# 2: families, hints, capped error messages.
+_SCHEMA_VERSION = 2
 _OUTPUT_FILENAME = "failure-data.json"
 _INDEX_JSON_NAME = "index.json"
 _FULL_LOG_NAME = "full.log"
@@ -63,6 +86,42 @@ _RUN_DIR_PREFIX = "test-results-"
 _DEFAULT_MAX_LOG_LINES = 60
 _EXIT_OK = 0
 _EXIT_USAGE = 2
+
+# An error message is also written whole to the entry's log_file, so the bundle
+# carries only its head. One semantic-baseline assertion once put 36 KB -- a
+# quarter of a 16-cluster bundle -- into this one field.
+_MAX_MESSAGE_LINES = 20
+_MAX_MESSAGE_CHARS = 2000
+
+# Advisory hints: how many families get one (the fix playbooks split a session
+# past five clusters, so a sixth hint would not be read in this session), how
+# many requests run at once, and the size of each answer.
+_DEFAULT_LLM_HINT_LIMIT = 5
+_LLM_HINT_WORKERS = 4
+_LLM_HINT_MAX_TOKENS = 300
+_LLM_HINT_TEMPERATURE = 0.1
+_LLM_HINT_TIMEOUT_MS = 120000
+_HINT_SKIPPED_SOURCE = "skipped"
+
+# Source given to the hint model per family: this many in-workspace traceback
+# frames (deepest first), each with this many lines either side of the frame.
+_HINT_MAX_FRAMES = 3
+_HINT_CONTEXT_LINES = 12
+_HINT_TAIL_LINES = 40
+
+# Traceback frame shapes: CPython's long form and pytest's short "path:line:" form.
+_PY_FRAME = re.compile(r'File "(?P<path>[^"]+)", line (?P<line>\d+)')
+_PYTEST_FRAME = re.compile(r"^(?P<path>[\w./\\:-]+\.py):(?P<line>\d+):", re.MULTILINE)
+# Path segments that mark third-party code, never a defect site to show.
+_THIRD_PARTY_SEGMENTS = frozenset({"site-packages", ".venv", "lib"})
+
+_HINT_SYSTEM_PROMPT = (
+    "You triage one family of test failures in the Datrix code generator. Use ONLY the "
+    "error message, traceback and source excerpts given. Answer in at most 80 words, "
+    "plain text, no code: (1) the most likely defect site as file:line taken from the "
+    "excerpts, or 'undetermined' if the evidence does not point to one; (2) the probable "
+    "cause in one sentence; (3) the first thing to check. Never invent a file or line."
+)
 
 # pytest warnings-summary section header (same shape extract_warnings.py parses)
 _WARNINGS_HEADER = re.compile(r"^=+\s+warnings summary(?:\s+\(final\))?\s+=+\s*$")
@@ -321,6 +380,25 @@ def _read_log_tail(log_path: Path, max_lines: int) -> str:
     return "\n".join(lines[-max_lines:])
 
 
+def _cap_message(message: str) -> tuple[str, bool]:
+    """Keep a message's head; say how much was cut and where the whole of it is.
+
+    Returns (message, truncated). The entry's log_file carries the full message, so
+    the cut loses nothing an agent cannot read on demand.
+    """
+    lines = message.splitlines()
+    if len(lines) <= _MAX_MESSAGE_LINES and len(message) <= _MAX_MESSAGE_CHARS:
+        return message, False
+    head = "\n".join(lines[:_MAX_MESSAGE_LINES])[:_MAX_MESSAGE_CHARS]
+    kept_lines = head.count("\n") + 1
+    omitted = max(len(lines) - kept_lines, 0)
+    return (
+        f"{head}\n... [message cut: {omitted} more line(s), {len(message) - len(head)} more "
+        f"character(s) -- the whole message is in this entry's log_file]",
+        True,
+    )
+
+
 # Optional per-entry context fields copied verbatim onto the representative
 # when present (deploy-test schema: infra errors have phase/container; test
 # failures have phase/failure_type).
@@ -357,7 +435,10 @@ def _representative_payload(
         else:
             payload["file"] = None
     payload["error_type"] = _require_str(entry, "error_type", where)
-    payload["error_message"] = _require_str(entry, "error_message", where)
+    message, truncated = _cap_message(_require_str(entry, "error_message", where))
+    payload["error_message"] = message
+    if truncated:
+        payload["error_message_truncated"] = True
     for optional_key in _OPTIONAL_ENTRY_FIELDS:
         if optional_key in entry and entry[optional_key] is not None:
             payload[optional_key] = entry[optional_key]
@@ -500,6 +581,183 @@ def _build_clusters(ctx: _RunContext, index: dict[str, object]) -> list[dict[str
                 _cluster_payload(ctx, cluster, kind, ids_key, rep_key, by_kind[kind])
             )
     return clusters
+
+
+# ---------------------------------------------------------------------------
+# Families: clusters one normalized pattern produced
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _Family:
+    """Clusters sharing one (kind, normalized pattern), and the hint written for them."""
+
+    family_id: int
+    kind: str
+    pattern: str
+    head: dict[str, object]
+    head_representative: dict[str, object]
+    cluster_ids: list[int]
+    test_count: int
+    hint: dict[str, str]
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "family_id": self.family_id,
+            "kind": self.kind,
+            "pattern": self.pattern,
+            "cluster_ids": self.cluster_ids,
+            "test_count": self.test_count,
+            "hint": self.hint,
+        }
+
+
+def _representative_of(cluster: dict[str, object]) -> dict[str, object]:
+    representative = cluster["representative"]
+    if not isinstance(representative, dict):
+        raise TypeError(f"cluster {cluster['cluster_id']} representative is not an object")
+    return representative
+
+
+def _group_families(clusters: list[dict[str, object]]) -> list[_Family]:
+    """Group clusters by (kind, pattern); give every cluster its family_id.
+
+    The index writers cluster by pattern AND source location, so one assertion
+    raised from five tests is five clusters with five near-identical tails. Only
+    the family's first cluster keeps its tail; the others name that cluster in
+    ``traceback_tail_in_cluster`` and keep their own ``log_file``.
+
+    Returns the families in first-seen order (errors first, as the clusters are).
+    """
+    families: dict[tuple[str, str], _Family] = {}
+    for cluster in clusters:
+        key = (str(cluster["kind"]), str(cluster["pattern"]))
+        cluster_id = int(str(cluster["cluster_id"]))
+        count = int(str(cluster["count"]))
+        if key not in families:
+            families[key] = _Family(
+                family_id=len(families) + 1,
+                kind=key[0],
+                pattern=key[1],
+                head=cluster,
+                head_representative=_representative_of(cluster),
+                cluster_ids=[],
+                test_count=0,
+                hint={"source": _HINT_SKIPPED_SOURCE, "text": "not requested"},
+            )
+        family = families[key]
+        cluster["family_id"] = family.family_id
+        family.cluster_ids.append(cluster_id)
+        family.test_count += count
+        representative = _representative_of(cluster)
+        if family.head is not cluster and representative["traceback_tail"] is not None:
+            representative["traceback_tail"] = None
+            representative["traceback_tail_in_cluster"] = family.head["cluster_id"]
+    return list(families.values())
+
+
+def _frame_paths(tail: str, ctx: _RunContext) -> list[tuple[Path, int]]:
+    """In-workspace (file, line) frames named in a traceback, deepest first, deduplicated.
+
+    A relative path resolves against the project root. A frame outside the
+    workspace, in third-party code, or naming a file that is not there is skipped:
+    the hint model is shown only source that exists in this tree.
+    """
+    workspace = ctx.workspace.resolve()
+    frames: list[tuple[Path, int]] = []
+    matches = [*_PY_FRAME.finditer(tail), *_PYTEST_FRAME.finditer(tail)]
+    for match in sorted(matches, key=lambda m: m.start(), reverse=True):
+        raw = Path(match.group("path"))
+        path = (raw if raw.is_absolute() else ctx.workspace / ctx.project / raw).resolve()
+        if not path.is_relative_to(workspace) or not path.is_file():
+            continue
+        if _THIRD_PARTY_SEGMENTS & {part.lower() for part in path.relative_to(workspace).parts}:
+            continue
+        frame = (path, int(match.group("line")))
+        if frame not in frames:
+            frames.append(frame)
+        if len(frames) == _HINT_MAX_FRAMES:
+            break
+    return frames
+
+
+def _source_excerpt(path: Path, line: int, workspace: Path) -> str:
+    """Numbered lines around ``line``, headed by the workspace-relative path."""
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    start = max(line - 1 - _HINT_CONTEXT_LINES, 0)
+    end = min(line + _HINT_CONTEXT_LINES, len(lines))
+    rel = path.relative_to(workspace.resolve()).as_posix()
+    body = "\n".join(
+        f"{number:>5}{'>' if number == line else ' '} {text}"
+        for number, text in enumerate(lines[start:end], start=start + 1)
+    )
+    return f"--- {rel}:{line}\n{body}"
+
+
+def _hint_prompt(family: _Family, ctx: _RunContext) -> str:
+    """The user prompt for one family: what failed, where, and the code around it."""
+    representative = family.head_representative
+    tail = str(representative["traceback_tail"] or "")
+    tail_lines = tail.splitlines()[-_HINT_TAIL_LINES:]
+    excerpts = [_source_excerpt(path, line, ctx.workspace) for path, line in _frame_paths(tail, ctx)]
+    return "\n".join([
+        f"Project: {ctx.project}",
+        f"Family pattern ({family.test_count} test(s) in {len(family.cluster_ids)} cluster(s)): "
+        f"{family.pattern}",
+        f"Representative test: {representative.get('test_id')}",
+        f"Test location: {family.head['source_location']}",
+        "",
+        "Error message:",
+        str(representative["error_message"]),
+        "",
+        f"Traceback (last {len(tail_lines)} lines):",
+        *tail_lines,
+        "",
+        "Source excerpts (deepest frame first; '>' marks the frame line):",
+        *(excerpts or ["(no in-workspace frame found in the traceback)"]),
+    ])
+
+
+def _hint_for(family: _Family, ctx: _RunContext, pool: LocalLlmPool) -> dict[str, str]:
+    """One family's hint, or a hint saying no local server could answer."""
+    try:
+        reply = pool.chat(ChatRequest(
+            system=_HINT_SYSTEM_PROMPT,
+            user=_hint_prompt(family, ctx),
+            temperature=_LLM_HINT_TEMPERATURE,
+            max_tokens=_LLM_HINT_MAX_TOKENS,
+        ))
+    except LocalLlmUnavailable as exc:
+        return {"source": ADVISORY_UNAVAILABLE_SOURCE, "text": str(exc)}
+    return {"source": reply.host.label(), "text": reply.text}
+
+
+def _attach_hints(
+    families: list[_Family],
+    ctx: _RunContext,
+    settings: LocalLlmSettings | None,
+    limit: int,
+) -> str:
+    """Give the first ``limit`` families an advisory hint; return a one-line status.
+
+    ``settings`` None means hints were switched off. Families past the limit, and
+    any family no local server could answer for, carry a hint whose ``source`` says
+    why it has no model text -- a missing hint is never silent.
+    """
+    if settings is None or limit == 0 or not families:
+        return "hints: off"
+    wanted = families[:limit]
+    pool = LocalLlmPool(settings)
+    with ThreadPoolExecutor(max_workers=_LLM_HINT_WORKERS) as executor:
+        hints = list(executor.map(lambda family: _hint_for(family, ctx, pool), wanted))
+    for family, hint in zip(wanted, hints):
+        family.hint = hint
+    answered = sorted({hint["source"] for hint in hints if hint["source"] != ADVISORY_UNAVAILABLE_SOURCE})
+    if not answered:
+        return "hints: unavailable (no local model server answered)"
+    unanswered = sum(1 for hint in hints if hint["source"] == ADVISORY_UNAVAILABLE_SOURCE)
+    suffix = f", {unanswered} unavailable" if unanswered else ""
+    return f"hints: {len(wanted) - unanswered} of {len(families)} famil(ies) from {'; '.join(answered)}{suffix}"
 
 
 # ---------------------------------------------------------------------------
@@ -807,6 +1065,126 @@ def _run_command_shape_self_test() -> int:
     return failures
 
 
+def _self_test_cluster(cluster_id: int, kind: str, pattern: str, tail: str) -> dict[str, object]:
+    return {
+        "cluster_id": cluster_id,
+        "kind": kind,
+        "pattern": pattern,
+        "count": 1,
+        "source_location": "tests/test_x.py:1",
+        "representative": {"test_id": f"t{cluster_id}", "error_message": "m", "traceback_tail": tail},
+    }
+
+
+def _check_message_cap() -> list[str]:
+    problems: list[str] = []
+    short = "line one\nline two\n"
+    if _cap_message(short) != (short, False):
+        problems.append("a message within the caps was altered")
+    long_message = "\n".join(f"diff line {n}" for n in range(300))
+    capped, truncated = _cap_message(long_message)
+    if not truncated or len(capped.splitlines()) != _MAX_MESSAGE_LINES + 1 or "log_file" not in capped:
+        problems.append("a 300-line message was not cut to the line cap with a log_file pointer")
+    wide, wide_truncated = _cap_message("x" * (_MAX_MESSAGE_CHARS * 3))
+    if not wide_truncated or len(wide.splitlines()[0]) != _MAX_MESSAGE_CHARS:
+        problems.append("a one-line message over the character cap was not cut")
+    return problems
+
+
+def _check_families() -> list[str]:
+    problems: list[str] = []
+    clusters = [
+        _self_test_cluster(1, "failure", "drifted *", "tail one"),
+        _self_test_cluster(2, "failure", "other *", "tail two"),
+        _self_test_cluster(3, "failure", "drifted *", "tail three"),
+        _self_test_cluster(4, "error", "drifted *", "tail four"),
+    ]
+    families = _group_families(clusters)
+    if [(f.kind, f.cluster_ids) for f in families] != [("failure", [1, 3]), ("failure", [2]), ("error", [4])]:
+        problems.append(f"families grouped wrongly: {[(f.kind, f.cluster_ids) for f in families]}")
+    third = _representative_of(clusters[2])
+    if third["traceback_tail"] is not None or third.get("traceback_tail_in_cluster") != 1:
+        problems.append("a family's second cluster kept its tail or does not point at the head cluster")
+    if _representative_of(clusters[0])["traceback_tail"] != "tail one":
+        problems.append("a family's head cluster lost its tail")
+    if [c["family_id"] for c in clusters] != [1, 2, 1, 3]:
+        problems.append(f"family_id not stamped on clusters: {[c['family_id'] for c in clusters]}")
+    return problems
+
+
+def _check_frame_paths() -> list[str]:
+    import tempfile
+
+    problems: list[str] = []
+    with tempfile.TemporaryDirectory() as raw_dir:
+        workspace = Path(raw_dir)
+        module = workspace / "datrix-fixture" / "src" / "mod.py"
+        module.parent.mkdir(parents=True)
+        module.write_text("\n".join(f"value_{n} = {n}" for n in range(1, 41)) + "\n", encoding="utf-8")
+        vendored = workspace / ".venv" / "Lib" / "site-packages" / "pkg.py"
+        vendored.parent.mkdir(parents=True)
+        vendored.write_text("x = 1\n", encoding="utf-8")
+        ctx = _RunContext(run_dir=workspace, workspace=workspace, project="datrix-fixture",
+                          max_log_lines=_DEFAULT_MAX_LOG_LINES)
+        tail = "\n".join([
+            f'  File "{vendored}", line 1, in call',
+            '  File "C:\\\\elsewhere\\\\outside.py", line 9, in far',
+            "src/mod.py:20: AssertionError",
+        ])
+        frames = _frame_paths(tail, ctx)
+        if frames != [(module.resolve(), 20)]:
+            problems.append(f"frames should be only the in-workspace, non-vendored one; got {frames}")
+        excerpt = _source_excerpt(module.resolve(), 20, workspace)
+        if "datrix-fixture/src/mod.py:20" not in excerpt or "   20> value_20 = 20" not in excerpt:
+            problems.append(f"excerpt lacks the relative header or the marked frame line:\n{excerpt}")
+    return problems
+
+
+def _check_hints_without_a_server() -> list[str]:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        closed = int(sock.getsockname()[1])
+    settings = LocalLlmSettings(machines=("127.0.0.1",), reachable_timeout_ms=1000,
+                                ollama_port=closed, openai_ports=(closed,))
+    families = _group_families([_self_test_cluster(n, "failure", f"p{n}", "tail") for n in (1, 2)])
+    ctx = _RunContext(run_dir=Path("."), workspace=Path("."), project="p", max_log_lines=1)
+    status = _attach_hints(families, ctx, settings, limit=1)
+    problems: list[str] = []
+    if "unavailable" not in status:
+        problems.append(f"status must say hints were unavailable, got {status!r}")
+    if families[0].hint["source"] != ADVISORY_UNAVAILABLE_SOURCE or "--local-machine" not in families[0].hint["text"]:
+        problems.append(f"the requested family's hint must say why it is missing: {families[0].hint}")
+    if families[1].hint["source"] != _HINT_SKIPPED_SOURCE:
+        problems.append(f"a family past the limit must be marked skipped: {families[1].hint}")
+    if _attach_hints(families, ctx, None, limit=5) != "hints: off":
+        problems.append("hints switched off must report 'hints: off'")
+    return problems
+
+
+#: (name, check) -- each returns the problems it found; empty means OK.
+_SELF_TEST_BUNDLE_CHECKS: tuple[tuple[str, Callable[[], list[str]]], ...] = (
+    ("error messages are capped with a pointer to log_file", _check_message_cap),
+    ("clusters sharing a pattern form one family with one tail", _check_families),
+    ("hint frames are in-workspace, non-vendored, with marked excerpts", _check_frame_paths),
+    ("hints say why they are missing when no server answers", _check_hints_without_a_server),
+)
+
+
+def _run_bundle_self_test() -> int:
+    """Run the bundle-shape checks; return the number that failed."""
+    failures = 0
+    for name, check in _SELF_TEST_BUNDLE_CHECKS:
+        problems = check()
+        if problems:
+            print(f"[FAIL] {name}: {'; '.join(problems)}")
+            failures += 1
+        else:
+            print(f"[OK] {name}")
+    return failures
+
+
 def _run_self_test() -> int:
     """Parse one minimal index per supported writer shape; report OK/FAIL per case.
 
@@ -874,11 +1252,14 @@ def _run_self_test() -> int:
             failures += 1
 
     failures += _run_command_shape_self_test()
+    failures += _run_bundle_self_test()
 
     if failures:
         print(f"SELF-TEST FAILED: {failures} case(s)")
         return _EXIT_USAGE
-    total_cases = len(_SELF_TEST_INDEXES) + len(_SELF_TEST_COMMAND_CASES) + 2
+    total_cases = (
+        len(_SELF_TEST_INDEXES) + len(_SELF_TEST_COMMAND_CASES) + len(_SELF_TEST_BUNDLE_CHECKS) + 2
+    )
     print(f"SELF-TEST PASSED: {total_cases} case(s)")
     return _EXIT_OK
 
@@ -907,8 +1288,23 @@ def _parse_args() -> argparse.Namespace:
         default=_DEFAULT_MAX_LOG_LINES,
         help=f"Tail lines of each representative log to embed (default {_DEFAULT_MAX_LOG_LINES})",
     )
+    parser.add_argument(
+        "--no-llm-hints",
+        action="store_true",
+        help="Write no advisory local-model hints (families and message caps still apply)",
+    )
+    parser.add_argument(
+        "--llm-hint-limit",
+        type=int,
+        default=_DEFAULT_LLM_HINT_LIMIT,
+        help=f"Families (in order, errors first) that get a hint (default {_DEFAULT_LLM_HINT_LIMIT})",
+    )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    return parser.parse_args()
+    add_local_llm_arguments(parser, generate_timeout_ms=_LLM_HINT_TIMEOUT_MS)
+    args = parser.parse_args()
+    if args.llm_hint_limit < 0:
+        parser.error(f"--llm-hint-limit must be 0 or more, got {args.llm_hint_limit}; 0 writes no hints.")
+    return args
 
 
 def _configure_logging(debug: bool) -> None:
@@ -964,6 +1360,9 @@ def _run(args: argparse.Namespace) -> int:
         max_log_lines=args.max_log_lines,
     )
     clusters = _build_clusters(ctx, index)
+    families = _group_families(clusters)
+    settings = None if args.no_llm_hints else local_llm_settings(args)
+    hint_status = _attach_hints(families, ctx, settings, args.llm_hint_limit)
 
     payload: dict[str, object] = {
         "schema_version": _SCHEMA_VERSION,
@@ -975,6 +1374,8 @@ def _run(args: argparse.Namespace) -> int:
         "total_clusters": len(clusters),
         "warnings_section_present": _warnings_section_present(run_dir),
         "max_log_lines": args.max_log_lines,
+        "total_families": len(families),
+        "families": [family.to_json() for family in families],
         "clusters": clusters,
     }
     if "failed_phase" in index:
@@ -984,7 +1385,10 @@ def _run(args: argparse.Namespace) -> int:
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
-    print(f"{error_count} errors, {failed_count} failures in {len(clusters)} clusters")
+    print(
+        f"{error_count} errors, {failed_count} failures in {len(clusters)} clusters "
+        f"({len(families)} families; {hint_status})"
+    )
     print(f"Details: {output_path}")
     return _EXIT_OK
 

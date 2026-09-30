@@ -1,52 +1,29 @@
-#!/usr/bin/env python3
-"""Extract logic markers from Python source into a SQLite database.
+"""Logic-map markers: their comment syntax, their parser, and the markers.db writer.
 
-Scans Python files for specially formatted comment markers (@canonical, @pattern,
-@boundary, @invariant) and stores them in a queryable SQLite database.
-This enables AI agents to look up canonical implementations, approved patterns,
-system boundaries, and invariants before writing code.
+Python source carries specially formatted comment markers (@canonical, @pattern,
+@boundary, @invariant, @test-rule) declaring canonical implementations, approved
+patterns, system boundaries, invariants and conformance rules. The code index
+(``code_index``) extracts them with ``parse_markers`` on every refresh and rewrites
+``.logic-map/markers.db`` with ``build_database`` whenever they changed, so that database
+is exactly as fresh as the index. Agents query markers through the index's
+``find_canonical`` (MCP tool, or ``code-index.ps1 -Canonical``).
 
 Marker syntax::
 
     # @canonical(topic/subtopic): One-line summary
     # Extended description lines.
-    # @rule: A constraint that must hold
+    # @rule: A constraint that must hold, which may wrap
+    # onto the following comment lines
     # @anti-pattern: What NOT to do
     # @see: related-topic/subtopic
-
-Supported marker kinds: canonical, pattern, boundary, invariant.
-
-Usage:
-    python scripts/library/dev/logic_map.py --all
-    python scripts/library/dev/logic_map.py datrix-common --src
-    python scripts/library/dev/logic_map.py datrix-common datrix-language --tests
-
-    Or use the PowerShell wrapper:
-        .\\scripts\\dev\\logic-map.ps1 -All
-        .\\scripts\\dev\\logic-map.ps1 datrix-common -Src
 """
 
 from __future__ import annotations
 
-import argparse
-import io
 import re
 import sqlite3
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-
-if sys.platform == "win32" and __name__ == "__main__":
-    if hasattr(sys.stdout, "buffer"):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    if hasattr(sys.stderr, "buffer"):
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-
-_library_dir = Path(__file__).resolve().parent.parent
-if _library_dir.exists() and str(_library_dir) not in sys.path:
-    sys.path.insert(0, str(_library_dir))
-
-from shared.venv import get_datrix_root  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Marker kinds
@@ -132,55 +109,55 @@ class _BlockParts:
     dimensions: list[tuple[str, str]] = field(default_factory=list)
     differs: list[str] = field(default_factory=list)
     next_index: int = 0
+    # The free-text directive list a plain continuation line extends: a ``@rule:``,
+    # ``@anti-pattern:``, ``@behavior:`` or ``@differs:`` wraps onto the lines after it
+    # until the next directive. None before any such directive (plain lines are then
+    # description) and after ``@see:``/``@dim:``, whose values are single tokens.
+    wrapping: list[str] | None = None
 
 
 def _apply_directive(bline: str, parts: _BlockParts) -> None:
     """Route a single comment line to the matching block bucket.
 
     Specific directives are matched before the generic continuation fallback so a
-    ``# @dim: ...`` line is never swallowed as description text.
+    ``# @dim: ...`` line is never swallowed as description text. A plain line after a
+    free-text directive continues that directive's text.
 
     Args:
         bline: Stripped comment line.
         parts: Accumulator mutated in place.
     """
-    rule_m = _RULE_RE.match(bline)
-    if rule_m:
-        parts.rules.append(rule_m.group(1).strip())
-        return
-
-    ap_m = _ANTI_PATTERN_RE.match(bline)
-    if ap_m:
-        parts.anti_patterns.append(ap_m.group(1).strip())
-        return
-
-    behavior_m = _BEHAVIOR_RE.match(bline)
-    if behavior_m:
-        parts.behavior_parts.append(behavior_m.group(1).strip())
-        return
-
-    differs_m = _DIFFERS_RE.match(bline)
-    if differs_m:
-        parts.differs.append(differs_m.group(1).strip())
-        return
+    wrapping_directives = (
+        (_RULE_RE, parts.rules),
+        (_ANTI_PATTERN_RE, parts.anti_patterns),
+        (_BEHAVIOR_RE, parts.behavior_parts),
+        (_DIFFERS_RE, parts.differs),
+    )
+    for pattern, bucket in wrapping_directives:
+        match = pattern.match(bline)
+        if match:
+            bucket.append(match.group(1).strip())
+            parts.wrapping = bucket
+            return
 
     see_m = _SEE_RE.match(bline)
     if see_m:
         parts.see_refs.append(see_m.group(1).strip())
+        parts.wrapping = None
         return
 
     dim_m = _DIM_RE.match(bline)
     if dim_m:
         parts.dimensions.append((dim_m.group(1).strip(), dim_m.group(2).strip()))
+        parts.wrapping = None
         return
 
     cont_m = _CONTINUATION_RE.match(bline)
-    if cont_m:
-        parts.description_parts.append(cont_m.group(1))
+    text = cont_m.group(1) if cont_m else bline.lstrip("# ")
+    if parts.wrapping is not None and text.strip():
+        parts.wrapping[-1] = f"{parts.wrapping[-1]} {text.strip()}"
         return
-
-    # Unrecognized comment line — treat as description
-    parts.description_parts.append(bline.lstrip("# "))
+    parts.description_parts.append(text)
 
 
 def _collect_block(lines: list[str], start: int, total: int) -> _BlockParts:
@@ -492,173 +469,3 @@ def build_database(db_path: Path, markers: list[Marker]) -> None:
         conn.commit()
     finally:
         conn.close()
-
-
-# ---------------------------------------------------------------------------
-# Reporting
-# ---------------------------------------------------------------------------
-
-def print_summary(markers: list[Marker], db_path: Path, scan_pairs: list[tuple[str, Path]]) -> None:
-    """Print a summary of the extraction to stdout.
-
-    Args:
-        markers: All extracted markers.
-        db_path: Path to the generated database.
-        scan_pairs: The (project, directory) pairs that were scanned.
-    """
-    by_kind: dict[str, int] = {}
-    for m in markers:
-        by_kind[m.kind] = by_kind.get(m.kind, 0) + 1
-
-    unique_projects = sorted({name for name, _ in scan_pairs})
-    total_rules = sum(len(m.rules) for m in markers)
-    total_anti_patterns = sum(len(m.anti_patterns) for m in markers)
-    total_dimensions = sum(len(m.dimensions) for m in markers)
-    unique_topics = sorted({m.topic for m in markers})
-
-    print()
-    print("=" * 60)
-    print("LOGIC MAP SUMMARY")
-    print("=" * 60)
-    print(f"  Database:        {db_path}")
-    print(f"  Projects:        {', '.join(unique_projects)}")
-    print(f"  Total markers:   {len(markers)}")
-    for kind in sorted(by_kind):
-        print(f"    {kind}: {by_kind[kind]}")
-    print(f"  Rules:           {total_rules}")
-    print(f"  Anti-patterns:   {total_anti_patterns}")
-    print(f"  Dimensions:      {total_dimensions}")
-    print(f"  Unique topics:   {len(unique_topics)}")
-    if unique_topics:
-        for topic in unique_topics:
-            print(f"    - {topic}")
-    print()
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-def main() -> int:
-    """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description="Extract logic markers from Python source into a SQLite database.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
-    )
-    parser.add_argument(
-        "projects",
-        nargs="*",
-        help="Project names (e.g. datrix-common datrix-language)",
-    )
-    parser.add_argument(
-        "--all", "-a",
-        action="store_true",
-        dest="scan_all",
-        help="Scan every datrix* project under the monorepo root",
-    )
-    parser.add_argument(
-        "--src",
-        action="store_true",
-        help="Scan only each project's src/ tree (combine with --tests to scan both)",
-    )
-    parser.add_argument(
-        "--tests",
-        action="store_true",
-        help="Scan only each project's tests/ tree (combine with --src to scan both)",
-    )
-    parser.add_argument(
-        "--debug", "-d",
-        action="store_true",
-        help="Enable debug output",
-    )
-    args = parser.parse_args()
-
-    if not args.projects and not args.scan_all:
-        parser.print_help()
-        print("\nProvide project names or use --all.", file=sys.stderr)
-        return 1
-
-    # Resolve scope flags
-    if args.src and not args.tests:
-        include_src, include_tests = True, False
-    elif args.tests and not args.src:
-        include_src, include_tests = False, True
-    else:
-        include_src, include_tests = True, True
-
-    try:
-        datrix_root = get_datrix_root()
-    except FileNotFoundError:
-        print("ERROR: Could not find Datrix root directory", file=sys.stderr)
-        return 1
-
-    try:
-        scan_pairs = resolve_scan_paths(
-            datrix_root,
-            args.projects,
-            args.scan_all,
-            include_src=include_src,
-            include_tests=include_tests,
-        )
-    except FileNotFoundError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
-
-    if not scan_pairs:
-        print("No src/ or tests/ directories found to scan.")
-        return 0
-
-    # Scan all files and extract markers
-    all_markers: list[Marker] = []
-    seen_dirs: set[Path] = set()
-    files_scanned = 0
-
-    for _project_name, directory in scan_pairs:
-        resolved = directory.resolve()
-        if resolved in seen_dirs:
-            continue
-        seen_dirs.add(resolved)
-        if not resolved.is_dir():
-            continue
-
-        py_files = iter_python_files(resolved)
-        for py_file in py_files:
-            files_scanned += 1
-            try:
-                text = py_file.read_text(encoding="utf-8-sig", errors="replace")
-            except OSError as exc:
-                print(f"Warning: could not read {py_file}: {exc}", file=sys.stderr)
-                continue
-
-            try:
-                rel = str(py_file.resolve().relative_to(datrix_root.resolve())).replace("\\", "/")
-            except ValueError:
-                rel = str(py_file.resolve()).replace("\\", "/")
-
-            file_lines = text.splitlines()
-            file_markers = parse_markers(file_lines, rel)
-
-            if args.debug and file_markers:
-                print(f"  [DEBUG] {rel}: {len(file_markers)} marker(s)", file=sys.stderr)
-
-            all_markers.extend(file_markers)
-
-    print(f"Scanned {files_scanned} file(s) across {len(seen_dirs)} director(ies).", flush=True)
-
-    # Build database
-    db_path = datrix_root / ".logic-map" / "markers.db"
-    build_database(db_path, all_markers)
-
-    print_summary(all_markers, db_path, scan_pairs)
-
-    if not all_markers:
-        print("[OK] No markers found. Database created (empty).")
-    else:
-        print(f"[OK] Logic map built: {db_path}")
-
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

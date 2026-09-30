@@ -43,7 +43,7 @@ Looks up canonical Datrix module import paths for common classes and utilities. 
 
 ### `/logic-map`
 
-Queries, adds, and maintains canonical implementation markers in source code. Markers live in a SQLite database at `d:/datrix/.logic-map/markers.db`.
+Queries, adds, and maintains canonical implementation markers in source code. The code index extracts them and keeps `d:/datrix/.logic-map/markers.db` current.
 
 **Marker types:**
 - `@canonical` — source-of-truth implementation
@@ -51,7 +51,7 @@ Queries, adds, and maintains canonical implementation markers in source code. Ma
 - `@boundary` — data transformation point
 - `@invariant` — system-wide rule
 
-**Related scripts:** `logic-map.ps1`, `logic-map-report.ps1`
+**Related scripts:** `code-index.ps1`, `logic-map-report.ps1`
 
 ### `/fix`
 

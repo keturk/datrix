@@ -538,7 +538,7 @@ def language_domain_declarations(language: str) -> DomainDeclarations:
     from datrix_codegen_kernel.parity.derived_declarations import (
         derive_domain_declarations,
     )
-    from datrix_codegen_common.testkit.gates.domain_self_consistency import (
+    from datrix_testing.conformance.domain_self_consistency import (
         DomainDeclaringPlugin,
     )
     from datrix_codegen_kernel.generation.discovery import get_language_plugin

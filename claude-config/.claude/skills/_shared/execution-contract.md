@@ -597,7 +597,7 @@ you touched (paths relative to `d:/datrix/datrix/scripts/`):
 | Docs drift | `dev/check-docs.ps1`, `test/check-docs-conformance.ps1` |
 | Generated-output preservation | A test in the owning package rendering the construct and asserting its output (no stored snapshot exists — `datrix/docs/architecture/generated-output-stability.md`); cross-language presence: `test/artifact-role-parity-gate.ps1` over a complete local `.generated/` corpus |
 | Realization / parity holes | `test/block-realization-parity-gate.ps1`, `test/standing-conformance-gate.ps1`, `test/supported-domain-parity-gate.ps1`, `test/observability-axis-parity-gate.ps1`, `test/gendsl-corpus-resolution-gate.ps1` |
-| Duplicate logic | `dev/logic-map.ps1` + a `markers.db` query (CLAUDE.md § Logic Map) |
+| Duplicate logic | code-index `find_canonical` / `find_symbol` (MCP tools, or `dev/code-index.ps1 -Canonical` / `-Symbol`) |
 
 Full selection rules: `_shared/verification-strategy.md`. **Never run a standalone type-checker** —
 `mypy` and equivalents are not part of verification here (CLAUDE.md § Running Python).

@@ -6,20 +6,18 @@ disable-model-invocation: true
 
 # Logic Map
 
-A system of marked comments in source code documenting canonical implementations, approved patterns, system boundaries, and invariants. Markers are extracted into a SQLite database at `d:/datrix/.logic-map/markers.db`.
+A system of marked comments in source code documenting canonical implementations, approved patterns, system boundaries, and invariants. The code index extracts them on every refresh and rewrites `d:/datrix/.logic-map/markers.db` whenever they change, so the database is always as fresh as the index; there is nothing to rebuild by hand.
 
 ## Query Before Writing New Code
 
+Use the code-index MCP tool `find_canonical` (topic path, topic segment, or words), or from a shell:
+
 ```bash
-# Query by topic
-sqlite3 d:/datrix/.logic-map/markers.db "SELECT topic, summary, file, line FROM markers WHERE topic LIKE '%text%'"
-
-# Check for canonical implementations in a domain
-sqlite3 d:/datrix/.logic-map/markers.db "SELECT topic, summary FROM markers WHERE kind='canonical' AND topic LIKE '%parser%'"
-
-# Find approved patterns
-sqlite3 d:/datrix/.logic-map/markers.db "SELECT topic, summary FROM markers WHERE kind='pattern'"
+powershell -File "d:/datrix/datrix/scripts/dev/code-index.ps1" -Canonical text/to-snake
+powershell -File "d:/datrix/datrix/scripts/dev/code-index.ps1" -Canonical parser
 ```
+
+For ad-hoc SQL (the Rule Matrix query below), refresh first with `code-index.ps1 -Refresh`, then query `markers.db`.
 
 ## When to Add Markers
 
@@ -77,9 +75,8 @@ The `logic-map-report.ps1` report renders a **Rule Matrix** section (one pivot t
 
 | Task | Command |
 |------|---------|
-| Rebuild all | `powershell -File "d:/datrix/datrix/scripts/dev/logic-map.ps1" -All` |
-| Rebuild one project | `powershell -File "d:/datrix/datrix/scripts/dev/logic-map.ps1" datrix-language` |
-| Rebuild src only | `powershell -File "d:/datrix/datrix/scripts/dev/logic-map.ps1" -All -Src` |
+| Query markers | `powershell -File "d:/datrix/datrix/scripts/dev/code-index.ps1" -Canonical <topic>` |
+| Refresh index + markers.db | `powershell -File "d:/datrix/datrix/scripts/dev/code-index.ps1" -Refresh` |
 | Readable report | `powershell -File "d:/datrix/datrix/scripts/dev/logic-map-report.ps1"` |
 | Report to path | `powershell -File "d:/datrix/datrix/scripts/dev/logic-map-report.ps1" -Output docs/logic-map.md` |
 
@@ -87,7 +84,8 @@ The `logic-map-report.ps1` report renders a **Rule Matrix** section (one pivot t
 
 - When modifying a marked function, **update the marker** if behavior changes
 - When deleting marked code, **remove the marker**
-- After changes, rebuild: `powershell -File "d:/datrix/datrix/scripts/dev/logic-map.ps1" -All`
+- A `@rule:`/`@anti-pattern:` may wrap onto following comment lines; they belong to it until the next directive
+- The next code-index query picks changes up; no rebuild step exists
 
 ## Anti-Patterns
 

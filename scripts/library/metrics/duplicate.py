@@ -30,19 +30,17 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from shared.ollama_utils import (  # noqa: E402
-    OLLAMA_DEFAULT_URL,
-)
-from shared.ollama_utils import (  # noqa: E402
-    call_ollama as _call_ollama,
+from shared.local_llm import (  # noqa: E402
+    ChatRequest,
+    LocalLlmSettings,
+    add_local_llm_arguments,
+    advisory_text,
+    local_llm_settings,
 )
 
 DEFAULT_MIN_LINES = 4
-DEFAULT_LLM_MODEL = "qwen3-coder:30b-ctx32k"
-DEFAULT_LLM_TIMEOUT_SECONDS = 180
 DEFAULT_LLM_NUM_PREDICT = 4096
 DEFAULT_LLM_TEMPERATURE = 0.1
-DEFAULT_LLM_KEEP_ALIVE = "10m"
 DEFAULT_LLM_GROUP_LIMIT = 20
 
 _DUPLICATE_START_RE = re.compile(
@@ -165,12 +163,9 @@ def _run_llm_refactor_plan(
     min_lines: int,
     include_tests: bool,
     limit: int,
-    ollama_url: str,
-    model: str,
-    timeout_seconds: int,
+    settings: LocalLlmSettings,
     num_predict: int,
     temperature: float,
-    keep_alive: str,
 ) -> str:
     """Run advisory local LLM planning over duplicate-code groups."""
     prompt = _build_llm_refactor_prompt(
@@ -180,23 +175,16 @@ def _run_llm_refactor_plan(
         include_tests,
         limit,
     )
-    system_prompt = (
-        "You are reviewing duplicate-code findings for refactor planning. "
-        "You do not edit files or override Pylint. You produce advisory markdown only."
-    )
-    response = _call_ollama(
-        system_prompt,
-        prompt,
-        ollama_url=ollama_url,
-        ollama_model=model,
-        timeout=timeout_seconds,
-        num_predict=num_predict,
+    request = ChatRequest(
+        system=(
+            "You are reviewing duplicate-code findings for refactor planning. "
+            "You do not edit files or override Pylint. You produce advisory markdown only."
+        ),
+        user=prompt,
         temperature=temperature,
-        keep_alive=keep_alive,
+        max_tokens=num_predict,
     )
-    if response is None:
-        return "LLM refactor plan failed: Ollama returned no response."
-    return response.strip()
+    return advisory_text(settings, request, "LLM refactor plan")
 
 
 def _ensure_utf8_stdio() -> None:
@@ -256,45 +244,20 @@ def main() -> int:
         help=f"Maximum duplicate groups to include in LLM plan (default: {DEFAULT_LLM_GROUP_LIMIT}).",
     )
     parser.add_argument(
-        "--ollama-url",
-        type=str,
-        default=OLLAMA_DEFAULT_URL,
-        help=f"Ollama server URL (default: {OLLAMA_DEFAULT_URL}).",
-    )
-    parser.add_argument(
-        "--llm-model",
-        type=str,
-        default=DEFAULT_LLM_MODEL,
-        help=f"Local LLM model for advisory plan (default: {DEFAULT_LLM_MODEL}).",
-    )
-    parser.add_argument(
-        "--llm-timeout",
-        type=int,
-        default=DEFAULT_LLM_TIMEOUT_SECONDS,
-        metavar="SECONDS",
-        help=f"Ollama request timeout for LLM plan (default: {DEFAULT_LLM_TIMEOUT_SECONDS}).",
-    )
-    parser.add_argument(
         "--llm-num-predict",
         type=int,
         default=DEFAULT_LLM_NUM_PREDICT,
         metavar="N",
-        help=f"Ollama max generated tokens for LLM plan (default: {DEFAULT_LLM_NUM_PREDICT}).",
+        help=f"Max generated tokens for LLM plan (default: {DEFAULT_LLM_NUM_PREDICT}).",
     )
     parser.add_argument(
         "--llm-temperature",
         type=float,
         default=DEFAULT_LLM_TEMPERATURE,
         metavar="FLOAT",
-        help=f"Ollama temperature for LLM plan (default: {DEFAULT_LLM_TEMPERATURE}).",
+        help=f"Sampling temperature for LLM plan (default: {DEFAULT_LLM_TEMPERATURE}).",
     )
-    parser.add_argument(
-        "--llm-keep-alive",
-        type=str,
-        default=DEFAULT_LLM_KEEP_ALIVE,
-        metavar="DURATION",
-        help=f"Ollama keep_alive for LLM plan (default: {DEFAULT_LLM_KEEP_ALIVE}).",
-    )
+    add_local_llm_arguments(parser)
 
     args = parser.parse_args()
     _ensure_utf8_stdio()
@@ -393,12 +356,9 @@ def main() -> int:
                 min_lines,
                 args.tests,
                 args.llm_limit,
-                args.ollama_url,
-                args.llm_model,
-                args.llm_timeout,
+                local_llm_settings(args),
                 args.llm_num_predict,
                 args.llm_temperature,
-                args.llm_keep_alive,
             )
             print(plan)
 

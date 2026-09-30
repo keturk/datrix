@@ -683,7 +683,8 @@ def _check_build_reviewer_prompt_orders_task_content_before_template() -> None:
         }
 
         prompt = build_reviewer_prompt(
-            task_file, context, prompt_template_file, canonical_modules_digest
+            task_file, context, prompt_template_file, canonical_modules_digest,
+            model_name="gate-model:1b",
         )
 
         assert "# Reviewer Prompt Template" in prompt

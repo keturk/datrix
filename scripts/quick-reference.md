@@ -134,8 +134,9 @@ Most scripts support:
 | Metrics scripts | `scripts/metrics/` |
 | Anti-pattern scanners | `scripts/dev/libcst.ps1`, `scripts/dev/semgrep.ps1`, `scripts/dev/ast-grep.ps1` |
 | ConfigDSL lint/format | `scripts/dev/config-linter.ps1` |
-| Logic map database | `d:\datrix\.logic-map\markers.db` |
-| Logic map scripts | `scripts/dev/logic-map.ps1`, `scripts/dev/logic-map-report.ps1` |
+| Code index (per machine) | `d:\datrix\.code-index\` — built and refreshed by `scripts/dev/code-index.ps1` (set up each machine once with `-Setup`) |
+| Logic map database | `d:\datrix\.logic-map\markers.db` — rewritten by the code index whenever markers change |
+| Logic map scripts | `scripts/dev/code-index.ps1 -Canonical`, `scripts/dev/logic-map-report.ps1` |
 | Python implementations | `scripts/library/` |
 | Cleanup utilities | `scripts/common/CleanupUtils.psm1` |
 | Shared helpers | `scripts/common/DatrixScriptCommon.psm1` |

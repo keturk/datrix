@@ -23,8 +23,13 @@ library_dir = Path(__file__).resolve().parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
-from shared.ollama_utils import OLLAMA_DEFAULT_URL  # noqa: E402
-from shared.ollama_utils import call_ollama as _call_ollama  # noqa: E402
+from shared.local_llm import (  # noqa: E402
+    ChatRequest,
+    LocalLlmSettings,
+    add_local_llm_arguments,
+    advisory_text,
+    local_llm_settings,
+)
 
 # Configure UTF-8 encoding for stdout/stderr on Windows
 if sys.platform == "win32":
@@ -33,11 +38,8 @@ if sys.platform == "win32":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-DEFAULT_LLM_MODEL = "qwen3-coder:30b-ctx32k"
-DEFAULT_LLM_TIMEOUT_SECONDS = 180
 DEFAULT_LLM_NUM_PREDICT = 4096
 DEFAULT_LLM_TEMPERATURE = 0.1
-DEFAULT_LLM_KEEP_ALIVE = "10m"
 DEFAULT_LLM_GROUP_LIMIT = 10
 
 
@@ -383,32 +385,21 @@ def _run_llm_triage(
     failures: list[Failure],
     groups: dict[str, list[Failure]],
     limit: int,
-    ollama_url: str,
-    model: str,
-    timeout_seconds: int,
+    settings: LocalLlmSettings,
     num_predict: int,
     temperature: float,
-    keep_alive: str,
 ) -> str:
     """Run advisory local LLM triage over deterministic failure groups."""
-    prompt = _build_llm_triage_prompt(log_path, format_name, failures, groups, limit)
-    system_prompt = (
-        "You are a Datrix failure triage assistant. You do not modify files or "
-        "decide pass/fail. You produce advisory markdown only."
-    )
-    response = _call_ollama(
-        system_prompt,
-        prompt,
-        ollama_url=ollama_url,
-        ollama_model=model,
-        timeout=timeout_seconds,
-        num_predict=num_predict,
+    request = ChatRequest(
+        system=(
+            "You are a Datrix failure triage assistant. You do not modify files or "
+            "decide pass/fail. You produce advisory markdown only."
+        ),
+        user=_build_llm_triage_prompt(log_path, format_name, failures, groups, limit),
         temperature=temperature,
-        keep_alive=keep_alive,
+        max_tokens=num_predict,
     )
-    if response is None:
-        return "LLM triage failed: Ollama returned no response."
-    return response.strip()
+    return advisory_text(settings, request, "LLM triage")
 
 
 def main() -> int:
@@ -423,12 +414,9 @@ def main() -> int:
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
     parser.add_argument("--llm-summary", action="store_true", help="Append advisory local LLM triage summary")
     parser.add_argument("--llm-limit", type=int, default=DEFAULT_LLM_GROUP_LIMIT, help=f"Maximum failure groups to include in LLM summary (default: {DEFAULT_LLM_GROUP_LIMIT})")
-    parser.add_argument("--ollama-url", default=OLLAMA_DEFAULT_URL, help=f"Ollama server URL (default: {OLLAMA_DEFAULT_URL})")
-    parser.add_argument("--llm-model", default=DEFAULT_LLM_MODEL, help=f"Local LLM model (default: {DEFAULT_LLM_MODEL})")
-    parser.add_argument("--llm-timeout", type=int, default=DEFAULT_LLM_TIMEOUT_SECONDS, help=f"Ollama timeout seconds (default: {DEFAULT_LLM_TIMEOUT_SECONDS})")
-    parser.add_argument("--llm-num-predict", type=int, default=DEFAULT_LLM_NUM_PREDICT, help=f"Ollama max generated tokens (default: {DEFAULT_LLM_NUM_PREDICT})")
-    parser.add_argument("--llm-temperature", type=float, default=DEFAULT_LLM_TEMPERATURE, help=f"Ollama temperature (default: {DEFAULT_LLM_TEMPERATURE})")
-    parser.add_argument("--llm-keep-alive", default=DEFAULT_LLM_KEEP_ALIVE, help=f"Ollama keep_alive (default: {DEFAULT_LLM_KEEP_ALIVE})")
+    parser.add_argument("--llm-num-predict", type=int, default=DEFAULT_LLM_NUM_PREDICT, help=f"Max generated tokens (default: {DEFAULT_LLM_NUM_PREDICT})")
+    parser.add_argument("--llm-temperature", type=float, default=DEFAULT_LLM_TEMPERATURE, help=f"Sampling temperature (default: {DEFAULT_LLM_TEMPERATURE})")
+    add_local_llm_arguments(parser)
 
     args = parser.parse_args()
 
@@ -473,12 +461,9 @@ def main() -> int:
             failures,
             groups,
             args.llm_limit,
-            args.ollama_url,
-            args.llm_model,
-            args.llm_timeout,
+            local_llm_settings(args),
             args.llm_num_predict,
             args.llm_temperature,
-            args.llm_keep_alive,
         )
         report += (
             "\n\n---\n\n## Local LLM Advisory Triage\n\n"

@@ -22,23 +22,21 @@
 .PARAMETER LlmLimit
     Maximum feature/project rows to include in advisory LLM summary. Default: 40.
 
-.PARAMETER OllamaUrl
-    Ollama server URL for advisory LLM summary.
+.PARAMETER LocalMachines
+    Machines to search for local model servers, in preference order. Omit to search the
+    default list in library/shared/local_llm.py.
 
 .PARAMETER LlmModel
-    Local LLM model for advisory summary.
+    Models to use for advisory summary, best first. Omit to use any model already in memory.
 
 .PARAMETER LlmTimeout
-    Ollama request timeout in seconds for advisory summary.
+    Request timeout in seconds for advisory summary.
 
 .PARAMETER LlmNumPredict
-    Ollama max generated tokens for advisory summary.
+    Max generated tokens for advisory summary.
 
 .PARAMETER LlmTemperature
-    Ollama temperature for advisory summary.
-
-.PARAMETER LlmKeepAlive
-    Ollama keep_alive value for advisory summary.
+    Sampling temperature for advisory summary.
 
 .EXAMPLE
     .\compare-generated.ps1
@@ -55,12 +53,11 @@ param(
     [string]$Report = "generated-comparison-report.md",
     [switch]$LlmSummary,
     [int]$LlmLimit = 40,
-    [string]$OllamaUrl = "http://10.94.0.100:11434",
-    [string]$LlmModel = "qwen3-coder:30b-ctx32k",
+    [string[]]$LocalMachines = @(),
+    [string[]]$LlmModel = @(),
     [int]$LlmTimeout = 180,
     [int]$LlmNumPredict = 4096,
-    [double]$LlmTemperature = 0.1,
-    [string]$LlmKeepAlive = "10m"
+    [double]$LlmTemperature = 0.1
 )
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -69,6 +66,7 @@ $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scr
 $pythonScript = Join-Path $libraryDir "dev\compare_generated.py"
 
 . (Join-Path $commonDir "venv.ps1")
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 
 if (-not (Test-Path $pythonScript)) {
     Write-Error "compare_generated.py not found at: $pythonScript"
@@ -100,13 +98,10 @@ try {
         $pyArgs += @(
             "--llm-summary",
             "--llm-limit", $LlmLimit,
-            "--ollama-url", $OllamaUrl,
-            "--llm-model", $LlmModel,
-            "--llm-timeout", $LlmTimeout,
             "--llm-num-predict", $LlmNumPredict,
-            "--llm-temperature", $LlmTemperature,
-            "--llm-keep-alive", $LlmKeepAlive
+            "--llm-temperature", $LlmTemperature
         )
+        $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
     }
     & $pythonExe $pythonScript @pyArgs
     $exitCode = $LASTEXITCODE

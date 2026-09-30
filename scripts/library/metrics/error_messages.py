@@ -29,28 +29,36 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from shared.ollama_utils import (  # noqa: E402
-    OLLAMA_DEFAULT_MODEL,
-    OLLAMA_DEFAULT_URL,
-    OLLAMA_MAX_FIX_RETRIES,
+from shared.llm_code_fix import (  # noqa: E402
+    MAX_FIX_RETRIES,
 )
-from shared.ollama_utils import (  # noqa: E402
+from shared.llm_code_fix import (  # noqa: E402
     apply_and_verify_on_disk as _apply_and_verify_on_disk_shared,
 )
-from shared.ollama_utils import (  # noqa: E402
+from shared.llm_code_fix import (  # noqa: E402
     build_retry_feedback as _build_retry_feedback_shared,
 )
-from shared.ollama_utils import (  # noqa: E402
-    call_ollama as _call_ollama_shared,
+from shared.llm_code_fix import (  # noqa: E402
+    parse_code_response as _parse_code_response_shared,
 )
-from shared.ollama_utils import (  # noqa: E402
-    parse_ollama_response as _parse_ollama_response_shared,
+from shared.local_llm import (  # noqa: E402
+    ChatRequest,
+    LocalLlmPool,
+    LocalLlmUnavailable,
+    add_local_llm_arguments,
+    local_llm_settings,
 )
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MIN_SCORE = 2
 DEFAULT_IGNORE_DIRS = ("tests", "test", "__pycache__", ".git")
+
+# One fix request: generous output and time, because the model rewrites a whole raise
+# statement and may reason about it first.
+FIX_GENERATE_TIMEOUT_MS = 300000
+FIX_MAX_TOKENS = 32768
+FIX_TEMPERATURE = 0.3
 
 # Blocks excluded from scoring (path_substring, function_name).
 # A site is excluded when the file path contains the first element AND the
@@ -737,21 +745,23 @@ def _truncate_message(message: str, max_len: int = 60) -> str:
     return msg
 
 
-# --- Ollama fix pipeline ---
+# --- Local-model fix pipeline ---
 
 
 
 def run_fix(
     project_root: Path,
+    pool: LocalLlmPool,
     min_score: int = DEFAULT_MIN_SCORE,
     fix_all: bool = False,
     run_tests: bool = False,
-    max_retries: int = OLLAMA_MAX_FIX_RETRIES,
-    ollama_url: str = OLLAMA_DEFAULT_URL,
-    ollama_model: str = OLLAMA_DEFAULT_MODEL,
+    max_retries: int = MAX_FIX_RETRIES,
     ignore_path_contains_all: list[str] | None = None,
 ) -> int:
-    """Fix error message violations using Ollama. Returns exit code."""
+    """Fix error message violations using a local model. Returns exit code.
+
+    Raises LocalLlmUnavailable when no server can answer.
+    """
     targets = _collect_fix_targets(project_root, min_score, ignore_path_contains_all)
     if not targets:
         print("No error message violations found. Nothing to fix.", file=sys.stderr)
@@ -762,8 +772,7 @@ def run_fix(
 
     for site in targets:
         success = _attempt_fix_error_site(
-            site, project_root, max_retries, run_tests, ollama_url, ollama_model,
-            min_score,
+            site, project_root, max_retries, run_tests, pool, min_score,
         )
         if success:
             fixed_count += 1
@@ -820,8 +829,7 @@ def _attempt_fix_error_site(
     project_root: Path,
     max_retries: int,
     run_tests: bool,
-    ollama_url: str,
-    ollama_model: str,
+    pool: LocalLlmPool,
     min_score: int,
 ) -> bool:
     """Attempt to fix a single error site. Returns True on success."""
@@ -852,18 +860,17 @@ def _attempt_fix_error_site(
     for attempt in range(1, max_retries + 1):
         if attempt > 1:
             print(f"  Retry {attempt}/{max_retries}...", file=sys.stderr)
-        print(f"  Sending to Ollama ({ollama_model})...", file=sys.stderr)
+        print(f"  Sending to {pool.activate().label()}...", file=sys.stderr)
 
         fixed_content, error_msg = _attempt_single_fix(
-            site, file_content, project_root, ollama_url, ollama_model,
-            retry_feedback,
+            site, file_content, project_root, pool, retry_feedback,
         )
 
         if fixed_content is None:
             print(f"  Fix attempt failed: {error_msg}", file=sys.stderr)
             if attempt < max_retries:
                 retry_feedback = _build_retry_feedback(
-                    error_msg or "Unknown error", attempt,
+                    error_msg or "Unknown error", attempt, max_retries,
                 )
                 continue
             print(f"  All {max_retries} attempt(s) failed.", file=sys.stderr)
@@ -877,7 +884,7 @@ def _attempt_fix_error_site(
             print(f"  Validation failed: {validation_error}", file=sys.stderr)
             if attempt < max_retries:
                 retry_feedback = _build_retry_feedback(
-                    validation_error or "Validation failed", attempt,
+                    validation_error or "Validation failed", attempt, max_retries,
                 )
                 continue
             print(f"  All {max_retries} attempt(s) failed.", file=sys.stderr)
@@ -893,7 +900,7 @@ def _attempt_fix_error_site(
                 return False
             print(f"  Disk verification failed: {disk_error}", file=sys.stderr)
             if attempt < max_retries:
-                retry_feedback = _build_retry_feedback(disk_error, attempt)
+                retry_feedback = _build_retry_feedback(disk_error, attempt, max_retries)
                 continue
             print(f"  All {max_retries} attempt(s) failed.", file=sys.stderr)
             return False
@@ -911,11 +918,10 @@ def _attempt_single_fix(
     site: ErrorSite,
     file_content: str,
     project_root: Path,
-    ollama_url: str,
-    ollama_model: str,
+    pool: LocalLlmPool,
     retry_feedback: str | None = None,
 ) -> tuple[str | None, str | None]:
-    """Single Ollama call. Returns (fixed_content, error_message)."""
+    """Single model call. Returns (fixed_content, error_message)."""
     raise_statement = _extract_raise_statement(file_content, site.line_number)
     if not raise_statement:
         return None, "Could not extract raise statement"
@@ -928,13 +934,15 @@ def _attempt_single_fix(
         site, file_context, raise_statement, retry_feedback,
     )
 
-    response = _call_ollama_shared(system_prompt, user_prompt, ollama_url, ollama_model)
-    if response is None:
-        return None, "Ollama returned no response"
-
-    replacement = _parse_ollama_response_shared(response)
+    reply = pool.chat(ChatRequest(
+        system=system_prompt,
+        user=user_prompt,
+        temperature=FIX_TEMPERATURE,
+        max_tokens=FIX_MAX_TOKENS,
+    ))
+    replacement = _parse_code_response_shared(reply.text)
     if replacement is None:
-        return None, "Could not parse code from Ollama response"
+        return None, "Could not parse code from the model response"
 
     # Apply replacement to file content
     fixed_content = _apply_replacement(
@@ -1253,9 +1261,9 @@ def _apply_and_verify_on_disk(
     return success, error_details
 
 
-def _build_retry_feedback(error: str, attempt: int) -> str:
+def _build_retry_feedback(error: str, attempt: int, max_retries: int) -> str:
     """Build feedback message for retry attempt with error-message-specific guidance."""
-    base = _build_retry_feedback_shared(error, attempt, OLLAMA_MAX_FIX_RETRIES)
+    base = _build_retry_feedback_shared(error, attempt, max_retries)
     return (
         f"{base}\n"
         "Remember:\n"
@@ -1314,7 +1322,7 @@ def main() -> None:
     parser.add_argument(
         "--fix",
         action="store_true",
-        help="Fix the worst error message violation using local Ollama.",
+        help="Fix the worst error message violation using a local model.",
     )
     parser.add_argument(
         "--fix-all",
@@ -1329,22 +1337,11 @@ def main() -> None:
     parser.add_argument(
         "--max-retries",
         type=int,
-        default=OLLAMA_MAX_FIX_RETRIES,
+        default=MAX_FIX_RETRIES,
         metavar="N",
-        help=f"Max Ollama retry attempts per violation (default: {OLLAMA_MAX_FIX_RETRIES}).",
+        help=f"Max model attempts per violation (default: {MAX_FIX_RETRIES}).",
     )
-    parser.add_argument(
-        "--ollama-url",
-        type=str,
-        default=OLLAMA_DEFAULT_URL,
-        help=f"Ollama server URL (default: {OLLAMA_DEFAULT_URL}).",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default=OLLAMA_DEFAULT_MODEL,
-        help=f"Ollama model name (default: {OLLAMA_DEFAULT_MODEL}).",
-    )
+    add_local_llm_arguments(parser, generate_timeout_ms=FIX_GENERATE_TIMEOUT_MS)
 
     args = parser.parse_args()
     project_root = args.project_root.resolve()
@@ -1369,16 +1366,19 @@ def main() -> None:
                 file=sys.stderr,
             )
             sys.exit(1)
-        exit_code = run_fix(
-            project_root,
-            min_score=args.min_score,
-            fix_all=args.fix_all,
-            run_tests=args.test,
-            max_retries=args.max_retries,
-            ollama_url=args.ollama_url,
-            ollama_model=args.model,
-            ignore_path_contains_all=ignore_path_contains_all,
-        )
+        try:
+            exit_code = run_fix(
+                project_root,
+                LocalLlmPool(local_llm_settings(args)),
+                min_score=args.min_score,
+                fix_all=args.fix_all,
+                run_tests=args.test,
+                max_retries=args.max_retries,
+                ignore_path_contains_all=ignore_path_contains_all,
+            )
+        except LocalLlmUnavailable as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(2)
     elif args.mode == "check":
         exit_code = run_check(
             project_root, args.min_score, ignore_path_contains_all, args.show_excluded

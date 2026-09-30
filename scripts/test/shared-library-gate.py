@@ -30,6 +30,12 @@ Modules covered (7 full files + 3 classes of an 8th):
                                         READ ONLY; directory-creation/uniqueness classes are already covered far
                                         more rigorously by test-specific-selection-gate.ps1's
                                         run_dir_exclusivity_check and are deliberately NOT re-covered here)
+    shared.local_llm                  (discovery, candidate order, request shapes, readiness, failover and
+                                        the no-server outcome -- against real HTTP servers on loopback)
+    shared.llm_code_fix               (code-answer parsing; a verification that cannot run fails closed)
+
+``--only PREFIX`` runs just the checks whose name starts with PREFIX (e.g.
+``check_local_llm``), for a change confined to one module.
 
 Harness convention
 ------------------
@@ -61,10 +67,13 @@ import io
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
+import threading
 from collections.abc import Callable
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -95,6 +104,28 @@ from shared.generated_test_log_writer import (  # noqa: E402
     GeneratedTestLogWriter,
     _extract_import_chain,
     normalize_error_message,
+)
+from shared.llm_code_fix import (  # noqa: E402
+    parse_code_response,
+    run_ruff_check,
+)
+from shared.local_llm import (  # noqa: E402
+    ADVISORY_UNAVAILABLE_SOURCE,
+    LOCAL_API_OLLAMA,
+    OLLAMA_LOAD_PREFERENCE,
+    ChatRequest,
+    LocalCandidate,
+    LocalHost,
+    LocalLlmPool,
+    LocalLlmSettings,
+    LocalLlmUnavailable,
+    advisory_reply,
+    discover_candidates,
+    ollama_chat_body,
+    openai_chat_body,
+    parse_local_machine,
+    strip_reasoning,
+    survey_ollama,
 )
 from shared.logging_utils import LogConfig, TeeLogger, cleanup_old_logs  # noqa: E402
 from shared.structured_log_writer import (  # noqa: E402
@@ -3976,6 +4007,256 @@ def _set_mtime(path: Path, mtime: float) -> None:
 
 
 # ===========================================================================
+# shared.local_llm -- real HTTP servers on loopback, no stand-ins
+# ===========================================================================
+
+_LOOPBACK = "127.0.0.1"
+
+# (method, path, JSON body or None) -> (HTTP status, JSON payload)
+_Responder = Callable[[str, str, "dict[str, object] | None"], "tuple[int, object]"]
+
+
+class _ModelServer:
+    """A real HTTP server on an ephemeral loopback port answering like a model server.
+
+    ``respond`` decides every answer; every request is recorded so a check can assert
+    what the client actually sent.
+    """
+
+    def __init__(self, respond: _Responder) -> None:
+        self.requests: list[tuple[str, str, dict[str, object] | None]] = []
+        recorder = self.requests
+
+        class _Handler(BaseHTTPRequestHandler):
+            def _answer(self, method: str) -> None:
+                length = int(self.headers["Content-Length"]) if "Content-Length" in self.headers else 0
+                body = json.loads(self.rfile.read(length).decode("utf-8")) if length else None
+                recorder.append((method, self.path, body))
+                status, payload = respond(method, self.path, body)
+                data = json.dumps(payload).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_GET(self) -> None:  # noqa: N802 -- http.server's dispatch name
+                self._answer("GET")
+
+            def do_POST(self) -> None:  # noqa: N802 -- http.server's dispatch name
+                self._answer("POST")
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+                return
+
+        self._httpd = ThreadingHTTPServer((_LOOPBACK, 0), _Handler)
+        self.port = int(self._httpd.server_address[1])
+        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+
+    def __enter__(self) -> _ModelServer:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._httpd.shutdown()
+        self._httpd.server_close()
+
+    def posts_to(self, path: str) -> list[dict[str, object]]:
+        return [body for method, p, body in self.requests if method == "POST" and p == path and body is not None]
+
+
+def _closed_port() -> int:
+    """A loopback port nothing listens on: bound, read, released."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((_LOOPBACK, 0))
+        return int(sock.getsockname()[1])
+
+
+def _openai_server(model: str, answer: str, fail_generation: bool = False) -> _ModelServer:
+    """An OpenAI-compatible server listing ``model``; a one-token readiness request always succeeds."""
+
+    def respond(method: str, path: str, body: dict[str, object] | None) -> tuple[int, object]:
+        if method == "GET" and path == "/v1/models":
+            return 200, {"data": [{"id": model}]}
+        if method == "POST" and path == "/v1/chat/completions" and body is not None:
+            if body.get("max_tokens") == 1:
+                return 200, {"choices": [{"message": {"content": "pong"}}]}
+            if fail_generation:
+                return 500, {"error": "engine died"}
+            return 200, {"choices": [{"message": {"content": answer}, "finish_reason": "stop"}]}
+        return 404, {"error": "not found"}
+
+    return _ModelServer(respond)
+
+
+def _settings_for(openai_ports: tuple[int, ...], ollama_port: int, models: tuple[str, ...] = ()) -> LocalLlmSettings:
+    return LocalLlmSettings(
+        machines=(_LOOPBACK,),
+        models=models,
+        reachable_timeout_ms=2000,
+        load_timeout_ms=5000,
+        generate_timeout_ms=5000,
+        ollama_port=ollama_port,
+        openai_ports=openai_ports,
+    )
+
+
+def check_local_llm_strip_reasoning() -> None:
+    assert strip_reasoning("<think>plan</think>\nanswer") == "answer"
+    assert strip_reasoning("reasoning spilled</think> answer") == "answer", "a stray close tag must drop what precedes it"
+    assert strip_reasoning("<think>a</think>x<think>b</think>y") == "xy"
+    assert strip_reasoning("  plain  ") == "plain"
+
+
+def check_local_llm_rejects_a_machine_with_scheme_or_port() -> None:
+    assert parse_local_machine(" 10.94.0.101 ") == "10.94.0.101"
+    for bad in ("http://10.94.0.101", "10.94.0.101:11434", "", "host name"):
+        try:
+            parse_local_machine(bad)
+        except argparse.ArgumentTypeError as exc:
+            assert "bare host name" in str(exc), f"error for {bad!r} does not say what is expected: {exc}"
+        else:
+            raise AssertionError(f"parse_local_machine accepted {bad!r}")
+
+
+def check_local_llm_request_bodies_carry_think_schema_and_context() -> None:
+    schema: dict[str, object] = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+    request = ChatRequest(system="s", user="u", temperature=0.2, max_tokens=64, context_window=8192, json_schema=schema)
+    thinking = LocalCandidate(LocalHost(LOCAL_API_OLLAMA, "http://x:11434", "reasoner:1b"), thinking=True, resident=True)
+    plain = LocalCandidate(LocalHost(LOCAL_API_OLLAMA, "http://x:11434", "coder:1b"), thinking=False, resident=True)
+
+    body = ollama_chat_body(thinking, request, "30m")
+    assert body["think"] is False, "a thinking-capable Ollama model must be told the caller's think choice"
+    assert body["format"] == schema
+    assert body["options"] == {"temperature": 0.2, "num_predict": 64, "num_ctx": 8192}
+    assert "think" not in ollama_chat_body(plain, request, "30m"), (
+        "think sent to a model without the thinking capability is an Ollama error"
+    )
+
+    openai = openai_chat_body("m", request)
+    assert openai["max_tokens"] == 64
+    assert openai["chat_template_kwargs"] == {"enable_thinking": False}
+    assert openai["response_format"] == {"type": "json_schema", "json_schema": {"name": "response", "schema": schema}}
+    assert "num_ctx" not in json.dumps(openai), "an OpenAI-compatible server fixes its context at start"
+
+
+def check_local_llm_survey_ollama_orders_resident_then_preferred_loadable() -> None:
+    preferred = OLLAMA_LOAD_PREFERENCE[0]
+
+    def respond(method: str, path: str, body: dict[str, object] | None) -> tuple[int, object]:
+        if path == "/api/tags":
+            return 200, {"models": [
+                {"name": "loaded:7b", "capabilities": ["completion", "thinking"]},
+                {"name": preferred, "capabilities": ["completion"]},
+                {"name": "other:3b", "capabilities": ["completion"]},
+                {"name": "embedder:latest", "capabilities": ["embedding"]},
+            ]}
+        if path == "/api/ps":
+            return 200, {"models": [{"name": "loaded:7b"}, {"name": "embedder:latest"}]}
+        return 404, {}
+
+    with _ModelServer(respond) as server:
+        base = f"http://{_LOOPBACK}:{server.port}"
+        default = survey_ollama(base, _settings_for((), server.port))
+        assert [(c.host.model, c.resident, c.thinking) for c in default.candidates] == [
+            ("loaded:7b", True, True),
+            (preferred, False, False),
+        ], f"default survey: resident answering models, then the load preference; got {default.candidates}"
+
+        pinned = survey_ollama(base, _settings_for((), server.port, models=("other:3b",)))
+        assert [(c.host.model, c.resident) for c in pinned.candidates] == [("other:3b", False)], (
+            f"a named model must be the only candidate, loadable when installed; got {pinned.candidates}"
+        )
+
+
+def check_local_llm_openai_server_suppresses_ollama_load() -> None:
+    preferred = OLLAMA_LOAD_PREFERENCE[0]
+
+    def ollama(method: str, path: str, body: dict[str, object] | None) -> tuple[int, object]:
+        if path == "/api/tags":
+            return 200, {"models": [{"name": preferred, "capabilities": ["completion"]}]}
+        if path == "/api/ps":
+            return 200, {"models": []}
+        return 404, {}
+
+    with _ModelServer(ollama) as ollama_server, _openai_server("served:8b", "x") as openai_server:
+        candidates = discover_candidates(
+            _settings_for((openai_server.port,), ollama_server.port), [].append,
+        )
+    assert [(c.host.model, c.resident) for c in candidates] == [("served:8b", True)], (
+        "no Ollama load may be offered on a machine whose GPU an OpenAI-compatible server holds; "
+        f"got {candidates}"
+    )
+
+
+def check_local_llm_pool_fails_over_to_the_next_server() -> None:
+    lines: list[str] = []
+    with _openai_server("model-a", "from a", fail_generation=True) as a, _openai_server("model-b", "from b") as b:
+        pool = LocalLlmPool(_settings_for((a.port, b.port), _closed_port()), report=lines.append)
+        request = ChatRequest(system="s", user="u", temperature=0.0, max_tokens=16)
+
+        first = pool.chat(request)
+        assert (first.text, first.host.model) == ("from b", "model-b"), f"expected failover to model-b, got {first}"
+        a_generations = [p for p in a.posts_to("/v1/chat/completions") if p.get("max_tokens") != 1]
+        assert len(a_generations) == 1, f"model-a must have been tried once before failover, saw {len(a_generations)}"
+
+        second = pool.chat(request)
+        assert second.host.model == "model-b"
+        assert len([p for p in a.posts_to("/v1/chat/completions") if p.get("max_tokens") != 1]) == 1, (
+            "a failed server must be dropped for the rest of the run, not retried"
+        )
+    assert any("model-a" in line and "failed" in line for line in lines), f"the failover was not reported: {lines}"
+
+
+def check_local_llm_pool_treats_an_empty_answer_as_a_failure() -> None:
+    with _openai_server("thinker", "<think>only reasoning</think>") as server:
+        pool = LocalLlmPool(_settings_for((server.port,), _closed_port()), report=[].append)
+        try:
+            pool.chat(ChatRequest(system="s", user="u", temperature=0.0))
+        except LocalLlmUnavailable as exc:
+            assert "empty answer" in str(exc), f"the last failure must name the empty answer: {exc}"
+        else:
+            raise AssertionError("an answer that is only reasoning must not be returned as text")
+    assert pool.is_exhausted()
+
+
+def check_local_llm_pool_raises_when_no_server_answers() -> None:
+    settings = _settings_for((_closed_port(),), _closed_port())
+    try:
+        LocalLlmPool(settings, report=[].append).activate()
+    except LocalLlmUnavailable as exc:
+        assert _LOOPBACK in str(exc) and "--local-machine" in str(exc), f"message must name the search and the fix: {exc}"
+    else:
+        raise AssertionError("activate() must raise when no server answers")
+
+    advisory = advisory_reply(settings, ChatRequest(system="s", user="u", temperature=0.0), "LLM triage")
+    assert advisory.source == ADVISORY_UNAVAILABLE_SOURCE
+    assert advisory.text.startswith("LLM triage unavailable: No local model server could answer")
+
+
+# ===========================================================================
+# shared.llm_code_fix
+# ===========================================================================
+
+
+def check_llm_code_fix_parses_fenced_and_bare_code() -> None:
+    assert parse_code_response("Here:\n```python\ndef f():\r\n    return 1\n```\nDone") == "def f():\n    return 1"
+    assert parse_code_response("x = 1") == "x = 1"
+    assert parse_code_response("   ") is None
+
+
+def check_llm_code_fix_ruff_check_fails_closed() -> None:
+    with TemporaryDirectory(prefix="llm-code-fix-") as tmp:
+        missing = Path(tmp) / "absent.py"
+        ok, details = run_ruff_check(missing)
+        assert not ok, "a ruff check that could not check the file must not pass the rewrite"
+        assert details, "a failed ruff check must say why"
+        good = Path(tmp) / "good.py"
+        good.write_text("VALUE = 1\n", encoding="utf-8")
+        assert run_ruff_check(good) == (True, ""), "a clean file must pass (proves the check is not always-false)"
+
+
+# ===========================================================================
 # Harness self-test (non-vacuity proof for the pass/fail mechanism itself)
 # ===========================================================================
 
@@ -4086,6 +4367,18 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_logging_utils_write_content_appears_in_full_log,
     check_logging_utils_cleanup_keeps_most_recent_directories,
     check_logging_utils_cleanup_age_based_and_nonexistent_dir,
+    # shared.local_llm
+    check_local_llm_strip_reasoning,
+    check_local_llm_rejects_a_machine_with_scheme_or_port,
+    check_local_llm_request_bodies_carry_think_schema_and_context,
+    check_local_llm_survey_ollama_orders_resident_then_preferred_loadable,
+    check_local_llm_openai_server_suppresses_ollama_load,
+    check_local_llm_pool_fails_over_to_the_next_server,
+    check_local_llm_pool_treats_an_empty_answer_as_a_failure,
+    check_local_llm_pool_raises_when_no_server_answers,
+    # shared.llm_code_fix
+    check_llm_code_fix_parses_fenced_and_bare_code,
+    check_llm_code_fix_ruff_check_fails_closed,
 ]
 
 
@@ -4101,17 +4394,34 @@ def main() -> int:
         action="store_true",
         help="Run only the harness self-test (a deliberately-failing dummy check).",
     )
+    parser.add_argument(
+        "--only",
+        metavar="PREFIX",
+        help="Run only the checks whose function name starts with PREFIX (e.g. check_local_llm).",
+    )
     args = parser.parse_args()
 
     if args.harness_self_test:
         return 0 if harness_self_test() else 1
 
-    print(f"Running {len(_ALL_CHECKS)} shared-library behavior checks...\n")
-    passed = run_checks(_ALL_CHECKS)
+    checks = _ALL_CHECKS
+    if args.only:
+        checks = [check for check in _ALL_CHECKS if check.__name__.startswith(args.only)]
+        if not checks:
+            prefixes = sorted({"_".join(c.__name__.split("_")[:3]) for c in _ALL_CHECKS})
+            print(
+                f"Error: no check name starts with {args.only!r}. Check-name prefixes: "
+                f"{', '.join(prefixes)}. Pass one of them to --only.",
+                file=sys.stderr,
+            )
+            return 2
+
+    print(f"Running {len(checks)} shared-library behavior checks...\n")
+    passed = run_checks(checks)
 
     print()
     if passed:
-        print(f"{_GREEN}GATE PASSED{_RESET}: all {len(_ALL_CHECKS)} shared-library behavior checks passed.")
+        print(f"{_GREEN}GATE PASSED{_RESET}: all {len(checks)} shared-library behavior checks passed.")
         return 0
     print(f"{_RED}GATE FAILED{_RESET}: see the failures above.")
     return 1

@@ -87,7 +87,7 @@ from typing import Final, cast
 
 from datrix_codegen_kernel.parity.domain_declaration import DomainDeclaration
 from datrix_codegen_common.parity.domain_registry import SHARED_CONTEXT_TYPES
-from datrix_codegen_common.testkit.gates.domain_self_consistency import (
+from datrix_testing.conformance.domain_self_consistency import (
     DomainDeclaringPlugin,
 )
 from datrix_codegen_kernel.generation.discovery import get_language_plugin

@@ -24,8 +24,13 @@ library_dir = Path(__file__).resolve().parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
-from shared.ollama_utils import OLLAMA_DEFAULT_URL  # noqa: E402
-from shared.ollama_utils import call_ollama as _call_ollama  # noqa: E402
+from shared.local_llm import (  # noqa: E402
+    ChatRequest,
+    LocalLlmSettings,
+    add_local_llm_arguments,
+    advisory_text,
+    local_llm_settings,
+)
 from shared.venv import get_datrix_root  # noqa: E402
 
 # Default path exclusions (dirs/files to skip when scanning)
@@ -34,11 +39,8 @@ EXCLUDE_DIRS = frozenset({
     ".pytest_cache", ".mypy_cache", "node_modules", ".venv",
 })
 EXCLUDE_FILE_SUFFIXES = frozenset({".pyc", ".pyo", ".egg-info"})
-DEFAULT_LLM_MODEL = "qwen3-coder:30b-ctx32k"
-DEFAULT_LLM_TIMEOUT_SECONDS = 180
 DEFAULT_LLM_NUM_PREDICT = 4096
 DEFAULT_LLM_TEMPERATURE = 0.1
-DEFAULT_LLM_KEEP_ALIVE = "10m"
 DEFAULT_LLM_FEATURE_LIMIT = 40
 
 # Feature registry: id -> { "name", "patterns", "description" }
@@ -453,12 +455,9 @@ def _run_llm_summary(
     file_count_current: int,
     file_count_saved: int,
     limit: int,
-    ollama_url: str,
-    model: str,
-    timeout_seconds: int,
+    settings: LocalLlmSettings,
     num_predict: int,
     temperature: float,
-    keep_alive: str,
 ) -> str:
     """Run advisory local LLM summary over deterministic generated comparison."""
     prompt = _build_llm_summary_prompt(
@@ -470,19 +469,13 @@ def _run_llm_summary(
         file_count_saved,
         limit,
     )
-    response = _call_ollama(
-        "You are a Datrix generated-output comparison reviewer. You produce advisory markdown only.",
-        prompt,
-        ollama_url=ollama_url,
-        ollama_model=model,
-        timeout=timeout_seconds,
-        num_predict=num_predict,
+    request = ChatRequest(
+        system="You are a Datrix generated-output comparison reviewer. You produce advisory markdown only.",
+        user=prompt,
         temperature=temperature,
-        keep_alive=keep_alive,
+        max_tokens=num_predict,
     )
-    if response is None:
-        return "LLM generated comparison summary failed: Ollama returned no response."
-    return response.strip()
+    return advisory_text(settings, request, "LLM generated comparison summary")
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -508,12 +501,9 @@ def main() -> int:
     )
     parser.add_argument("--llm-summary", action="store_true", help="Append advisory local LLM summary to the report")
     parser.add_argument("--llm-limit", type=int, default=DEFAULT_LLM_FEATURE_LIMIT, help=f"Maximum feature/project rows for LLM summary (default: {DEFAULT_LLM_FEATURE_LIMIT})")
-    parser.add_argument("--ollama-url", default=OLLAMA_DEFAULT_URL, help=f"Ollama server URL (default: {OLLAMA_DEFAULT_URL})")
-    parser.add_argument("--llm-model", default=DEFAULT_LLM_MODEL, help=f"Local LLM model (default: {DEFAULT_LLM_MODEL})")
-    parser.add_argument("--llm-timeout", type=int, default=DEFAULT_LLM_TIMEOUT_SECONDS, help=f"Ollama timeout seconds (default: {DEFAULT_LLM_TIMEOUT_SECONDS})")
-    parser.add_argument("--llm-num-predict", type=int, default=DEFAULT_LLM_NUM_PREDICT, help=f"Ollama max generated tokens (default: {DEFAULT_LLM_NUM_PREDICT})")
-    parser.add_argument("--llm-temperature", type=float, default=DEFAULT_LLM_TEMPERATURE, help=f"Ollama temperature (default: {DEFAULT_LLM_TEMPERATURE})")
-    parser.add_argument("--llm-keep-alive", default=DEFAULT_LLM_KEEP_ALIVE, help=f"Ollama keep_alive (default: {DEFAULT_LLM_KEEP_ALIVE})")
+    parser.add_argument("--llm-num-predict", type=int, default=DEFAULT_LLM_NUM_PREDICT, help=f"Max generated tokens (default: {DEFAULT_LLM_NUM_PREDICT})")
+    parser.add_argument("--llm-temperature", type=float, default=DEFAULT_LLM_TEMPERATURE, help=f"Sampling temperature (default: {DEFAULT_LLM_TEMPERATURE})")
+    add_local_llm_arguments(parser)
     args = parser.parse_args()
 
     try:
@@ -567,12 +557,9 @@ def main() -> int:
             file_count_current,
             file_count_saved,
             args.llm_limit,
-            args.ollama_url,
-            args.llm_model,
-            args.llm_timeout,
+            local_llm_settings(args),
             args.llm_num_predict,
             args.llm_temperature,
-            args.llm_keep_alive,
         )
         with open(report_path, "a", encoding="utf-8") as f:
             f.write(

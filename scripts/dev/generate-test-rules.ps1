@@ -5,12 +5,12 @@
 
 .DESCRIPTION
     Walks each package's tests/ tree, finds un-annotated test functions, and asks a
-    local Ollama model whether each test encodes a cross-target conformance rule. In the
+    local model whether each test encodes a cross-target conformance rule. In the
     default (propose) mode it writes reviewable proposals under
     .test-output/test-rules/<package>.json (+ a .md preview) and touches no source. Re-run
     with -Apply to insert the reviewed @test-rule markers above the test functions.
 
-    The markers feed the logic-map Rule Matrix (logic-map.ps1 / logic-map-report.ps1).
+    The markers feed the logic-map Rule Matrix (code-index.ps1 -Canonical / logic-map-report.ps1).
     Runs are resumable: already-annotated functions and already-proposed functions are
     skipped, so you can build the map incrementally.
 
@@ -26,10 +26,12 @@
     Insert reviewed proposals into the test files (default: propose only).
 
 .PARAMETER Model
-    Ollama model name (default: exaone-deep:32b).
+    Model to annotate with (default: exaone-deep:32b). Any searched machine serving it is
+    used; it also names the proposal set -Apply and -Review read.
 
-.PARAMETER Endpoint
-    Ollama base URL (default: http://10.94.0.100:11434).
+.PARAMETER LocalMachines
+    Machines to search for a server running -Model, in preference order. Omit to search
+    the default list in library/shared/local_llm.py.
 
 .PARAMETER Parallel
     Concurrent LLM calls (default: 4).
@@ -66,7 +68,7 @@ param(
 
     [string]$Model,
 
-    [string]$Endpoint,
+    [string[]]$LocalMachines = @(),
 
     [int]$Parallel,
 
@@ -149,8 +151,8 @@ try {
     if ($Model) {
         $pyArgs += "--model", $Model
     }
-    if ($Endpoint) {
-        $pyArgs += "--endpoint", $Endpoint
+    foreach ($machine in $LocalMachines) {
+        $pyArgs += "--local-machine", $machine
     }
     if ($PSBoundParameters.ContainsKey('Parallel')) {
         $pyArgs += "--parallel", $Parallel

@@ -17,7 +17,7 @@ when the work calls for it. Read the doc — do not act from memory of it.
 | touch auth, secrets, TLS, input handling, permissions, crypto, or an emitted default | execution-contract §13 |
 | feel pressure to ship a smaller change than the defect deserves | execution-contract §14 |
 | call any repo script | `datrix/scripts/quick-reference.md` |
-| implement significant new logic | query `d:/datrix/.logic-map/markers.db` |
+| implement significant new logic, or look for a definition or its uses | code-index MCP tools (`find_canonical`, `find_symbol`, `find_references`, `outline`, `search`); no MCP → `datrix/scripts/dev/code-index.ps1` |
 
 **Architecture:** `datrix/docs/architecture/architecture-cheat-sheet.md`,
 `design-principles-cheat-sheet.md`, then `architecture-overview.md` (index).

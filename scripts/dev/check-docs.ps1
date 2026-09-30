@@ -36,23 +36,21 @@
 .PARAMETER LlmLimit
     Maximum findings to include in advisory LLM suggestions. Default: 25.
 
-.PARAMETER OllamaUrl
-    Ollama server URL for advisory LLM suggestions.
+.PARAMETER LocalMachines
+    Machines to search for local model servers, in preference order. Omit to search the
+    default list in library/shared/local_llm.py.
 
 .PARAMETER LlmModel
-    Local LLM model for advisory suggestions.
+    Models to use for advisory suggestions, best first. Omit to use any model already in memory.
 
 .PARAMETER LlmTimeout
-    Ollama request timeout in seconds for advisory suggestions.
+    Request timeout in seconds for advisory suggestions.
 
 .PARAMETER LlmNumPredict
-    Ollama max generated tokens for advisory suggestions.
+    Max generated tokens for advisory suggestions.
 
 .PARAMETER LlmTemperature
-    Ollama temperature for advisory suggestions.
-
-.PARAMETER LlmKeepAlive
-    Ollama keep_alive value for advisory suggestions.
+    Sampling temperature for advisory suggestions.
 
 .EXAMPLE
     .\check-docs.ps1
@@ -88,10 +86,10 @@ param(
     [int]$LlmLimit = 25,
 
     [Parameter()]
-    [string]$OllamaUrl = "http://10.94.0.100:11434",
+    [string[]]$LocalMachines = @(),
 
     [Parameter()]
-    [string]$LlmModel = "qwen3-coder:30b-ctx32k",
+    [string[]]$LlmModel = @(),
 
     [Parameter()]
     [int]$LlmTimeout = 180,
@@ -100,10 +98,7 @@ param(
     [int]$LlmNumPredict = 4096,
 
     [Parameter()]
-    [double]$LlmTemperature = 0.1,
-
-    [Parameter()]
-    [string]$LlmKeepAlive = "10m"
+    [double]$LlmTemperature = 0.1
 )
 
 $ErrorActionPreference = "Stop"
@@ -114,6 +109,7 @@ $pythonScript = Join-Path $libraryDir "dev\check_docs.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 . (Join-Path $commonDir "venv.ps1")
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 
 if (-not (Test-Path $pythonScript)) {
     Write-Error "check_docs.py not found at $pythonScript"
@@ -167,13 +163,10 @@ try {
         $pyArgs += @(
             "--llm-suggest",
             "--llm-limit", $LlmLimit,
-            "--ollama-url", $OllamaUrl,
-            "--llm-model", $LlmModel,
-            "--llm-timeout", $LlmTimeout,
             "--llm-num-predict", $LlmNumPredict,
-            "--llm-temperature", $LlmTemperature,
-            "--llm-keep-alive", $LlmKeepAlive
+            "--llm-temperature", $LlmTemperature
         )
+        $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
     }
 
     & $pythonExe $pythonScript @pyArgs

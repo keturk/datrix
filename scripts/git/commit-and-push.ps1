@@ -33,8 +33,8 @@ can answer.
 
 .PARAMETER LocalMachines
 Machines (host name or IP address) to search for model servers, in preference
-order. Omit to search the default list in commit-and-push.py (--help shows it):
-the Dell T5820 and T7920 (RTX 3090) and the ASUS GX10.
+order. Omit to search the default list in library/shared/local_llm.py (--help
+shows it): the Dell T5820 and T7920 (RTX 3090) and the ASUS GX10.
 
 .PARAMETER LocalTimeoutMs
 HTTP timeout (ms) for each local generate request, with the model already loaded.
@@ -185,8 +185,8 @@ $pyArgs = @(
     '--max-commits-per-repo', $MaxCommitsPerRepo
 )
 
-# The default machine list lives only in commit-and-push.py; it is overridden only when
-# -LocalMachines is passed.
+# The default machine list lives only in library/shared/local_llm.py; it is overridden
+# only when -LocalMachines is passed.
 foreach ($localMachine in $LocalMachines) {
     $pyArgs += @('--local-machine', $localMachine)
 }

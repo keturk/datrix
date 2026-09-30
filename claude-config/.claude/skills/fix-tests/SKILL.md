@@ -71,24 +71,24 @@ After reading the failures:
    powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" "{run-dir}"        # or:
    powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" -Project {package}
    ```
-2. **Read the produced `failure-data.json`.** This gives you total counts, every error/failure cluster with its representative (traceback tail embedded), and a ready-to-run `test_command` per cluster. Do NOT read `index.json`'s failure arrays or `full.log` for triage.
-3. **Present the clusters to the user:**
+2. **Read the produced `failure-data.json`.** This gives you total counts, `families` (clusters sharing one normalized pattern — one root cause until proven otherwise), every error/failure cluster with its representative, and a ready-to-run `test_command` per cluster. Only a family's first cluster embeds `traceback_tail`; the rest point to it with `traceback_tail_in_cluster`. A family's `hint` is an advisory local-model hypothesis (defect site, cause, first check) — use it to choose what to open first, confirm it in the code before editing, never cite it as the root cause; `source: "unavailable"`/`"skipped"` means there is none. Do NOT read `index.json`'s failure arrays or `full.log` for triage.
+3. **Present the families to the user:**
    ```
-   Found {N} test failures from {M} clusters:
+   Found {N} test failures from {M} clusters in {F} families:
 
-   Cluster 1: {pattern} @ {source_location} — {count} failures
-     Representative: {test_id}
-   Cluster 2: {pattern} @ {source_location} — {count} failures
-     Representative: {test_id}
+   Family 1: {pattern} — {test_count} failures in clusters {cluster_ids}
+     Representative: {test_id} @ {source_location}
+   Family 2: {pattern} — {test_count} failures in clusters {cluster_ids}
+     Representative: {test_id} @ {source_location}
 
-   Starting with Cluster 1.
+   Starting with Family 1.
    ```
 4. **Legacy fallback (any of: no `index.json`, `"result": "INCOMPLETE"`, or an unrecognized `schema_version` — `collect-failure-data.ps1` fails loud in these cases):** the run has no usable structured data — triage `full.log` with the triage script instead of reading it:
    ```bash
    powershell -File "d:/datrix/datrix/scripts/dev/triage-failures.ps1" "{run-dir}/full.log" -Format pytest -OutputFile "D:\datrix\.test-output\fix-tests-triage.md"
    ```
    Read the triage report; Grep `full.log` only for representative detail it lacks. This same fallback applies throughout the rest of this workflow wherever structured data would otherwise be used.
-5. Prioritize: error clusters first (import/collection errors block other tests), then failure clusters by count descending. (`failure-data.json` already lists error clusters first.)
+5. Prioritize: error families first (import/collection errors block other tests), then failure families by `test_count` descending. (`failure-data.json` already lists error families and clusters first.)
 
 ### Phase 2: Fix Loop (repeat for each root cause)
 
@@ -96,7 +96,7 @@ For each root cause, follow this strict sequence:
 
 #### Step A: Read Before Fixing
 
-1. Start from the cluster's `representative.traceback_tail` in `failure-data.json`; read the full `failures/{NNN}-{name}.txt` (the representative's `log_file`) only if the tail is insufficient
+1. Start from the family head's `representative.traceback_tail` in `failure-data.json` (and the family `hint`, if any, as a where-to-look-first hypothesis); read the full `failures/{NNN}-{name}.txt` (the representative's `log_file`) only if the tail is insufficient or the `error_message` is marked `[message cut: ...]`
 2. This gives you the full traceback, captured stdout/stderr, and the cluster assignment
 3. Read the source file at the `source_location` indicated in the cluster
 4. Read the test file to understand what the test expects

@@ -21,6 +21,10 @@
  check and confirm the harness reports it FAILED with a nonzero exit. Proves
  the pass/fail mechanism itself cannot swallow a failure.
 
+.PARAMETER Only
+ Run only the checks whose name starts with this prefix (e.g. check_local_llm),
+ for a change confined to one shared module.
+
 .PARAMETER Dbg
  Enable debug logging (prints the python executable, script path, and arguments).
 
@@ -37,6 +41,9 @@
 param(
     [Parameter()]
     [switch]$HarnessSelfTest,
+
+    [Parameter()]
+    [string]$Only = "",
 
     [Parameter()]
     [switch]$Dbg
@@ -81,6 +88,7 @@ try {
 
     $pythonArgs = @($pythonScript)
     if ($HarnessSelfTest) { $pythonArgs += "--harness-self-test" }
+    if ($Only) { $pythonArgs += @("--only", $Only) }
 
     if ($Dbg) {
         Write-Host "Python executable: $pythonExe" -ForegroundColor Cyan

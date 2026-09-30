@@ -27,9 +27,10 @@
  Maximum cyclomatic and cognitive complexity allowed per block (mode=check). Default: 15.
 
 .PARAMETER Fix
- Fix the worst complexity violation using local Ollama (mode=check only).
- Sends the offending function to Ollama for refactoring, validates the result,
- and overwrites the function if the file is unchanged. Exits after first successful fix.
+ Fix the worst complexity violation using a local model (mode=check only).
+ Sends the offending function to the first local model server that answers
+ (library/shared/local_llm.py), validates the result, and overwrites the function if
+ the file is unchanged. Exits after first successful fix.
  If a fix fails (syntax error, undefined names, test failure), reverts and tries the next.
 
 .PARAMETER FixAll
@@ -41,26 +42,24 @@
  Run pytest after fix to verify correctness; revert if tests fail. Use with -Fix/-FixAll.
 
 .PARAMETER MaxRetries
- Maximum number of Ollama retry attempts per violation (default: 3). Use with -Fix.
+ Maximum number of model attempts per violation (default: 3). Use with -Fix.
  On each retry, the LLM receives feedback about why the previous attempt failed.
 
-.PARAMETER OllamaUrl
- Ollama server URL used for -Fix/-FixAll.
+.PARAMETER LocalMachines
+ Machines to search for local model servers, in preference order, for -Fix/-FixAll.
+ Omit to search the default list in library/shared/local_llm.py.
 
 .PARAMETER Model
- Ollama model used for -Fix/-FixAll. Default: qwen3-coder:30b-ctx32k.
+ Models to use for -Fix/-FixAll, best first. Omit to use any model already in memory.
 
-.PARAMETER OllamaTimeout
- Ollama request timeout in seconds for each refactor attempt. Default: 180.
+.PARAMETER LlmTimeout
+ Request timeout in seconds for each refactor attempt. Default: 180.
 
-.PARAMETER OllamaNumPredict
+.PARAMETER LlmNumPredict
  Maximum generated tokens per refactor attempt. Default: 4096.
 
-.PARAMETER OllamaTemperature
+.PARAMETER LlmTemperature
  Sampling temperature for refactor attempts. Default: 0.1.
-
-.PARAMETER OllamaKeepAlive
- How long Ollama should keep the model loaded between refactor attempts. Default: 10m.
 
 .PARAMETER MaxContextChars
  Maximum file-context characters included in each prompt. The target function is always sent in full. Default: 8000.
@@ -88,7 +87,7 @@
 
 .EXAMPLE
  .\complexity.ps1 datrix-common -Fix
- Fix the worst complexity violation in datrix-common using Ollama.
+ Fix the worst complexity violation in datrix-common using a local model.
 
 .EXAMPLE
  .\complexity.ps1 datrix-common -Fix -Test
@@ -113,12 +112,11 @@ param(
  [switch]$FixAll,
  [switch]$Test,
  [int]$MaxRetries = 3,
- [string]$OllamaUrl = "http://10.94.0.100:11434",
- [string]$Model = "qwen3-coder:30b-ctx32k",
- [int]$OllamaTimeout = 180,
- [int]$OllamaNumPredict = 4096,
- [double]$OllamaTemperature = 0.1,
- [string]$OllamaKeepAlive = "10m",
+ [string[]]$LocalMachines = @(),
+ [string[]]$Model = @(),
+ [int]$LlmTimeout = 180,
+ [int]$LlmNumPredict = 4096,
+ [double]$LlmTemperature = 0.1,
  [int]$MaxContextChars = 8000,
  [switch]$StopOnError,
  [switch]$VerboseOutput,
@@ -198,12 +196,13 @@ try {
  Write-Host "Parameters:" -ForegroundColor Yellow
  Write-Host " -Mode check | cc | raw | halstead | mi (default: check)" -ForegroundColor Gray
  Write-Host " -Max Max cyclomatic and cognitive complexity for mode=check (default: 15)" -ForegroundColor Gray
- Write-Host " -Fix Fix worst violation via Ollama (mode=check only)" -ForegroundColor Gray
+ Write-Host " -Fix Fix worst violation via a local model (mode=check only)" -ForegroundColor Gray
  Write-Host " -FixAll Fix ALL violations (implies -Fix), continue after each success" -ForegroundColor Gray
  Write-Host " -Test Run pytest after fix; revert if tests fail (use with -Fix/-FixAll)" -ForegroundColor Gray
- Write-Host " -MaxRetries Max Ollama retry attempts per violation (default: 3, use with -Fix)" -ForegroundColor Gray
- Write-Host " -Model Ollama model for fixes (default: qwen3-coder:30b-ctx32k)" -ForegroundColor Gray
- Write-Host " -OllamaNumPredict Max generated tokens per attempt (default: 4096)" -ForegroundColor Gray
+ Write-Host " -MaxRetries Max model attempts per violation (default: 3, use with -Fix)" -ForegroundColor Gray
+ Write-Host " -LocalMachines Machines to search for model servers (default: shared list)" -ForegroundColor Gray
+ Write-Host " -Model Models for fixes, best first (default: any model in memory)" -ForegroundColor Gray
+ Write-Host " -LlmNumPredict Max generated tokens per attempt (default: 4096)" -ForegroundColor Gray
  Write-Host " -MaxContextChars Max file-context chars per prompt (default: 8000)" -ForegroundColor Gray
  Write-Host " -All Run for all datrix-* projects" -ForegroundColor Gray
  Write-Host " -StopOnError Stop on first project failure" -ForegroundColor Gray
@@ -289,12 +288,9 @@ try {
    $projectArgs += "--fix"
    if ($FixAll) { $projectArgs += "--fix-all" }
    if ($MaxRetries -ne 3) { $projectArgs += "--max-retries", $MaxRetries }
-   $projectArgs += "--ollama-url", $OllamaUrl
-   $projectArgs += "--model", $Model
-   $projectArgs += "--ollama-timeout", $OllamaTimeout
-   $projectArgs += "--ollama-num-predict", $OllamaNumPredict
-   $projectArgs += "--ollama-temperature", $OllamaTemperature
-   $projectArgs += "--ollama-keep-alive", $OllamaKeepAlive
+   $projectArgs += "--llm-num-predict", $LlmNumPredict
+   $projectArgs += "--llm-temperature", $LlmTemperature
+   $projectArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $Model -LlmTimeoutSeconds $LlmTimeout
    $projectArgs += "--max-context-chars", $MaxContextChars
  }
  if ($Test) { $projectArgs += "--test" }

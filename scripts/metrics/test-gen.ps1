@@ -28,10 +28,13 @@ Include only functions where uncovered/total lines > ratio (default: 0.5).
  Approximate prompt token budget before warnings are emitted (default: 6000).
 .PARAMETER VerbosePrompts
  Print generated prompts for debugging.
-.PARAMETER OllamaUrl
- Ollama server URL used for generation (default: http://10.94.0.100:11434).
+.PARAMETER LocalMachines
+ Machines to search for local model servers, in preference order. Omit to search the
+ default list in library/shared/local_llm.py.
 .PARAMETER Model
- Override the Ollama model used for generation (default: qwen3-coder-cline:latest).
+ Models to use for generation, best first. Omit to use any model already in memory.
+.PARAMETER LlmTimeout
+ Request timeout in seconds for each generation attempt (default: 300).
 .PARAMETER StopOnError
 Stop after first project failure.
 .PARAMETER VerboseOutput
@@ -51,8 +54,9 @@ param(
  [double]$MinUncoveredRatio = 0.5,
  [int]$MaxPromptTokens = 6000,
  [switch]$VerbosePrompts,
- [string]$OllamaUrl = "http://10.94.0.100:11434",
- [string]$Model,
+ [string[]]$LocalMachines = @(),
+ [string[]]$Model = @(),
+ [int]$LlmTimeout = 300,
  [switch]$StopOnError,
  [switch]$VerboseOutput
 )
@@ -114,7 +118,8 @@ try {
    Write-Host "Running test-gen for $project (mode=$Mode)" -ForegroundColor Cyan
   }
   $projectRoot = Join-Path $workspaceRoot $project
-  $args = @(
+  # Not $args: that is PowerShell's automatic variable for unbound arguments.
+  $pyArgs = @(
    $libraryScript,
    "--project-root", $projectRoot,
    "--mode", $Mode,
@@ -123,18 +128,13 @@ try {
    "--max-prompt-tokens", $MaxPromptTokens
   )
   if ($TargetFunction) {
-   $args += "--target-function", $TargetFunction
+   $pyArgs += "--target-function", $TargetFunction
   }
-  if ($OllamaUrl) {
-   $args += "--ollama-url", $OllamaUrl
-  }
-  if ($Model) {
-   $args += "--model", $Model
-  }
+  $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $Model -LlmTimeoutSeconds $LlmTimeout
   if ($VerbosePrompts) {
-   $args += "--verbose-prompts"
+   $pyArgs += "--verbose-prompts"
   }
-  & python @args
+  & python @pyArgs
   $exitCode = $LASTEXITCODE
   $results[$project] = ($exitCode -eq 0)
   if ($exitCode -eq 0) {

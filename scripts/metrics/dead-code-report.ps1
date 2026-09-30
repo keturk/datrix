@@ -35,23 +35,21 @@ every datrix-* package discovered on disk with a pyproject.toml (except datrix) 
 .PARAMETER LlmLimit
  Maximum findings to include in the advisory LLM review. Default: 30.
 
-.PARAMETER OllamaUrl
- Ollama server URL for advisory LLM review.
+.PARAMETER LocalMachines
+ Machines to search for local model servers, in preference order. Omit to search the
+ default list in library/shared/local_llm.py.
 
 .PARAMETER LlmModel
- Local LLM model for advisory review.
+ Models to use for advisory review, best first. Omit to use any model already in memory.
 
 .PARAMETER LlmTimeout
- Ollama request timeout in seconds for advisory review.
+ Request timeout in seconds for advisory review.
 
 .PARAMETER LlmNumPredict
- Ollama max generated tokens for advisory review.
+ Max generated tokens for advisory review.
 
 .PARAMETER LlmTemperature
- Ollama temperature for advisory review.
-
-.PARAMETER LlmKeepAlive
- Ollama keep_alive value for advisory review.
+ Sampling temperature for advisory review.
 
 .PARAMETER Quiet
  Only write to -OutputPath (if set); do not print to console.
@@ -78,12 +76,11 @@ param(
  [switch]$Raw,
  [switch]$LlmReview,
  [int]$LlmLimit = 30,
- [string]$OllamaUrl = "http://10.94.0.100:11434",
- [string]$LlmModel = "qwen3-coder:30b-ctx32k",
+ [string[]]$LocalMachines = @(),
+ [string[]]$LlmModel = @(),
  [int]$LlmTimeout = 180,
  [int]$LlmNumPredict = 4096,
  [double]$LlmTemperature = 0.1,
- [string]$LlmKeepAlive = "10m",
  [switch]$Quiet
 )
 
@@ -151,13 +148,10 @@ try {
   $pyArgs += @(
    "--llm-review",
    "--llm-limit", $LlmLimit,
-   "--ollama-url", $OllamaUrl,
-   "--llm-model", $LlmModel,
-   "--llm-timeout", $LlmTimeout,
    "--llm-num-predict", $LlmNumPredict,
-   "--llm-temperature", $LlmTemperature,
-   "--llm-keep-alive", $LlmKeepAlive
+   "--llm-temperature", $LlmTemperature
   )
+  $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
  }
 
  if ($OutputPath) {

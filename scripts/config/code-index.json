@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "What the code index (scripts/library/code_index, wrapped by scripts/dev/code-index.ps1 and served",
+    "to agents by scripts/library/dev/code_index_mcp.py) covers. The index indexes every Python file git",
+    "sees in each repository at the workspace root (tracked, plus untracked files no .gitignore excludes),",
+    "minus 'exclude'. Every pattern is an fnmatch pattern over the workspace-relative path with forward",
+    "slashes, in which '*' also matches '/'.",
+    "'exclude': files never indexed -- checked-in generated output is not framework source.",
+    "'module_roots': directories a dotted module name is computed from (the nearest matching ancestor",
+    "wins; a file under none takes its repository as the root). They are where the code is imported from:",
+    "each package's src/, and the script trees that put their own directory on sys.path.",
+    "'summarize': files a local model is asked to summarize by code-index.ps1 -Summarize."
+  ],
+  "exclude": [
+    "datrix/examples/*"
+  ],
+  "module_roots": [
+    "*/src",
+    "datrix/scripts/library",
+    "datrix/claude-config/.claude/hooks"
+  ],
+  "summarize": [
+    "*/src/*",
+    "datrix/scripts/library/*"
+  ]
+}

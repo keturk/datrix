@@ -22,18 +22,24 @@ python scripts/library/review/review.py --phase 43 --codex-phase-gate
 
 # Re-review after fixes (manual verification)
 python scripts/library/review/review.py --phase 43 --verify
+
+# Narrow where Tier 1 runs (each flag repeatable, preference order)
+python scripts/library/review/review.py --phase 43 --local-machine 10.94.0.102 --local-model qwen3-coder:30b
 ```
+
+Tier 1 runs on the first local model server `library/shared/local_llm.py` finds (Ollama, vLLM or llama-server), failing over to the next.
 
 ## Exit Codes
 
-- `0` — Pass (or warnings only)
+- `0` — A complete review found nothing blocking (pass or warnings only)
 - `1` — Blocking findings
-- `2` — Parse failures
-- `3` — Infrastructure errors
+- `2` — Every task's review failed to parse
+- `3` — No local model server answered, so no review ran. `--codex*` does not change this: Tier 2 reviews Tier 1's output and cannot run without it.
+- `4` — Tier 2 was due (forced, threshold, or phase gate) but failed or was rate-limited; the phase review is incomplete
 
 ## Config
 
-`scripts/review/config.toml` — Edit tier1 endpoint, tier2 mode, thresholds
+`scripts/review/config.toml` — Edit tier1 context window, tier2 mode, thresholds
 
 ## Files Created
 

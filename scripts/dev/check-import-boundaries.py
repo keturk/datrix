@@ -14,8 +14,15 @@ datrix.extensions -- datrix_common, datrix_codegen_common, and datrix_cli
 today, never a hardcoded list) for known closed-world target-identity
 identifiers PLUS a platform-token identifier/module-name shape match
 (mirrors the G2 language-token shape match, minus the "local" collision --
-see _platform_token_vocabulary) and fails if any file's count increases past
-its frozen baseline (scripts/config/target-literal-baseline.toml).
+see _platform_token_vocabulary) PLUS a key/comparand/.get()/dict-key/
+match-value literal-equality shape, an isinstance/issubclass type-check
+shape, and an import-module-path shape -- each of these three newer kinds
+scoped to the registered languages-union-platforms vocabulary INCLUDING
+"local" (see _target_literal_vocabulary) and each carrying an own-language
+exclusion for a language-core package's own served language (see
+LANGUAGE_CORE_PACKAGES / _is_own_language_excluded) -- and fails if any
+file's count increases past its frozen baseline
+(scripts/config/target-literal-baseline.toml).
 --update-baseline recomputes and overwrites that baseline.
 
 Also implements the I6 successor ratchet (invariant I6, DI-4/DI-5):
@@ -151,11 +158,38 @@ different -- or nothing -- on a clone is removed entirely wherever found,
 never grandfathered. --update-baseline has no effect on this check (there
 is nothing to seed).
 
+Also implements the re-export-facade ratchet: opt-in via
+--check-reexport-facades, it AST-scans every discovered package's `src/`
+and `tests/` trees, every `.py` file under this repo's own `datrix/scripts/`
+tree, and every `.py` file under `datrix/claude-config/.claude/hooks/` (if
+any), for a name that has a second, redundant import path on top of its
+real, single home -- a re-export facade -- reporting four shapes, all
+attributed to the PROVIDING module (the module through which the second
+path runs), never to the file where a consumer statement happens to
+appear: a module whose top-level `from <datrix module> import N` binds a
+name listed in its own `__all__` or imported as `N as N` while the module
+does not itself define N (provider side); any `from M import N` anywhere
+in a scanned file where M is a Datrix module that does not define N and N
+is not itself a submodule of M (consumer side); a `pyproject.toml`
+`[project.entry-points.*]` value naming an attribute its target module
+does not define (entry-point side); and a `from M import N` whose M does
+not resolve to any module on disk at all (unresolved). The baseline is
+decrease-only and keyed by the providing module -- its relative file path
+when it resolves to a real file, or, only for the unresolved shape, the
+dotted module path itself -- with one combined count per key. Fails if any
+key's count increases past its frozen baseline
+(scripts/config/reexport-facade-baseline.toml). --update-baseline
+(combined with --check-reexport-facades) recomputes and overwrites that
+baseline. `--facade-module`/`--consumer-package` (repeatable) narrow the
+`--verbose` per-site worklist to one providing module or one repo.
+
 Self-test (--self-test): proves the rule model (the manifest-discovered
 generator taxonomy, build_boundary_rules over it, the allowed-
 subtree carve-outs), the AST scanners (provider-conditional,
 function-level-import, shared-vocabulary, shared-target-name,
-own-target-name, cross-package-vocabulary, design-label), and the ratchet comparators are non-vacuous --
+own-target-name, cross-package-vocabulary, design-label, target-literal,
+re-export-facade),
+and the ratchet comparators are non-vacuous --
 including a real mutation-based CLI proof (plants a
 regression in an isolated fixture monorepo, proves the CLI detects it,
 proves it clears on revert). The self-test runs automatically as step 1 of
@@ -171,13 +205,13 @@ Exit codes:
     0: Clean (no violations) or --warn mode
     1: Violations found in fail mode (import-boundary and/or I1/I6/function-
        level-import/shared-vocabulary/shared-target-name/own-target-name/
-       cross-package-vocabulary ratchets, or the design-label check), or a
-       self-test failure
+       cross-package-vocabulary/re-export-facade ratchets, or the
+       design-label check), or a self-test failure
     2: Usage error, configuration error, or (with --check-target-literals,
        --check-provider-conditionals, --check-function-level-imports,
        --check-shared-vocabulary, --check-shared-target-names,
-       --check-own-target-names, or --check-cross-package-vocabulary) a
-       missing baseline file
+       --check-own-target-names, --check-cross-package-vocabulary, or
+       --check-reexport-facades) a missing baseline file
 """
 
 from __future__ import annotations
@@ -185,6 +219,7 @@ from __future__ import annotations
 import argparse
 import ast
 import enum
+import functools
 import importlib
 import json
 import re
@@ -228,28 +263,11 @@ class BoundaryRule:
     starts with one of ``allowed_subtrees`` -- used where a package may reach
     a narrow, reviewed part of an otherwise-forbidden package (the test
     harness's kernel import).
-
-    ``test_only_subtrees`` admits a subtree in the package's test trees
-    (``tests/``, ``fixtures/``, ``helpers/``) and nowhere else: a subtree the
-    package takes only through a declared dev extra, never at runtime. An
-    import of it from ``src/`` is still a violation.
     """
 
     forbidden_prefixes: tuple[str, ...]
     allowed_subtrees: frozenset[str] = frozenset()
-    test_only_subtrees: frozenset[str] = frozenset()
 
-
-# The language layer's conformance testkit: the fixture language, the fixture
-# platform and client, and the realization / dispatch-ladder / domain
-# self-consistency gates each target package runs against itself. Platforms,
-# SQL and component take it through the ``datrix-codegen-common[testkit]`` dev
-# extra, so their TESTS may import it -- and only their tests: production code
-# in those packages depends on the kernel alone and may import nothing from
-# datrix_codegen_common.
-TARGET_TEST_ONLY_CODEGEN_COMMON_SUBTREES: frozenset[str] = frozenset(
-    {"datrix_codegen_common.testkit"}
-)
 
 # Language-core packages: a package holding one language's transpiler core,
 # language profile and web-client mechanics, split out of that language's
@@ -641,8 +659,9 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
         # language generator: every target-neutral fact it consumes (the GenDSL engine,
         # the migration adapter protocol and chain model, the parity declaration types,
         # the pure-SQL index facts) lives in datrix_codegen_kernel, which it depends on
-        # instead. Only its tests may reach the language layer's conformance testkit,
-        # which it takes as a dev extra.
+        # instead. Its tests use the target-neutral conformance kit in datrix_testing --
+        # datrix_codegen_common is forbidden identically in src/ and tests/, with no
+        # test-only exception.
         "datrix_codegen_sql": BoundaryRule(
             forbidden_prefixes=(
                 *language_packages,
@@ -650,18 +669,18 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
                 "datrix_codegen_common",
                 "datrix_cli",
             ),
-            test_only_subtrees=TARGET_TEST_ONLY_CODEGEN_COMMON_SUBTREES,
         ),
         # Component generator: forbidden from every language package, from the whole of
         # datrix_codegen_common, and from datrix_cli. Component is a language-agnostic
         # scaffolding generator: the GenDSL engine, the serverless plan and the NoSQL
         # collection facts it consumes live in datrix_codegen_kernel, which it depends
-        # on instead. Only its tests may reach the conformance testkit (dev extra).
+        # on instead. Its tests use the target-neutral conformance kit in datrix_testing --
+        # datrix_codegen_common is forbidden identically in src/ and tests/, with no
+        # test-only exception.
         "datrix_codegen_component": BoundaryRule(
             forbidden_prefixes=(
                 *language_packages, *language_cores, "datrix_codegen_common", "datrix_cli",
             ),
-            test_only_subtrees=TARGET_TEST_ONLY_CODEGEN_COMMON_SUBTREES,
         ),
         # Client-target generators: forbidden from every backend language generator, from every
         # other client target, and from datrix_cli -- a frontend client target is not a language
@@ -688,8 +707,9 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
         # target-neutral service they consume (the GenDSL engine, the provider library,
         # pooling, secrets, seed planning, dashboards, the serverless and replayable-
         # ingestion plans, the shared enums) lives in datrix_codegen_kernel, which they
-        # depend on instead. Only their tests may reach the language layer's
-        # conformance testkit, which they take as a dev extra.
+        # depend on instead. Their tests use the target-neutral conformance kit in
+        # datrix_testing -- datrix_codegen_common is forbidden identically in src/ and
+        # tests/, with no test-only exception.
         #
         # SIBLING PLATFORM PLUGINS ARE FORBIDDEN TOO. Each platform
         # forbids every OTHER platform. This edge was once missing from every
@@ -711,7 +731,6 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
                     *_siblings(platform, platform_packages),
                     "datrix_cli",
                 ),
-                test_only_subtrees=TARGET_TEST_ONLY_CODEGEN_COMMON_SUBTREES,
             )
             for platform in platform_packages
         },
@@ -875,6 +894,15 @@ _PLATFORM_TOKEN_EXCLUSIONS: frozenset[str] = frozenset({"local"})
 def _platform_token_vocabulary() -> frozenset[str]:
     """Registered platform tokens, minus the English-word collision(s)."""
     return frozenset(registered_platform_names()) - _PLATFORM_TOKEN_EXCLUSIONS
+
+
+def _target_literal_vocabulary() -> frozenset[str]:
+    """Registered language names union registered platform names, INCLUDING
+    "local" (unlike _platform_token_vocabulary, which excludes it as an
+    English-word collision for the identifier-segment shape). In a str-equality/
+    key/isinstance/import-path position "local" is a target identity, not
+    English prose, and the measured collision count for these new kinds is 0."""
+    return frozenset(registered_language_names()) | frozenset(registered_platform_names())
 
 
 # ---------------------------------------------------------------------------
@@ -1250,12 +1278,16 @@ class TargetLiteralHit:
         "enum_member_qualified",
         "platform_token_identifier",
         "platform_token_module_name",
+        "target_name_literal",
+        "target_type_check",
+        "target_module_import",
     ]
-    # The registered platform token *identifier* carries as a segment (or
-    # a matched dotted-path segment / path component). Populated only for
-    # the two platform_token_* kinds -- the frozen-name matches
-    # (central_table_name / enum_member_qualified) match an exact known
-    # name, not a segment, so they carry no "matched" vocabulary member.
+    # The registered target token *identifier* carries as a segment, is
+    # exactly equal to, or (for target_module_import) appears as a dotted-
+    # path segment of. Populated for the two platform_token_* kinds and the
+    # three target_* kinds -- the frozen-name matches (central_table_name /
+    # enum_member_qualified) match an exact known name, not a vocabulary
+    # member, so they carry no "matched" vocabulary member.
     matched_target: str | None = None
 
 
@@ -1451,15 +1483,12 @@ def scan_package_for_violations(
         if optional_dir.exists() and optional_dir.is_dir():
             scan_dirs.append(optional_dir)
 
-    # Walk all .py files under all scan directories. src/ is held to
-    # allowed_subtrees alone; the test trees additionally admit the rule's
-    # test_only_subtrees (a subtree the package takes only as a dev extra).
+    # Walk all .py files under all scan directories, all held to the same
+    # allowed_subtrees -- src/, tests/, fixtures/ and helpers/ alike. There is
+    # no test-tree carve-out: a subtree forbidden in production code is
+    # forbidden in tests too.
+    permitted_subtrees = rule.allowed_subtrees
     for scan_dir in scan_dirs:
-        permitted_subtrees = (
-            rule.allowed_subtrees
-            if scan_dir == package_info.src_dir
-            else rule.allowed_subtrees | rule.test_only_subtrees
-        )
         for py_file in scan_dir.rglob("*.py"):
             if verbose:
                 rel_path = py_file.relative_to(monorepo_root)
@@ -1476,7 +1505,7 @@ def scan_package_for_violations(
                     file=sys.stderr,
                 )
                 sys.exit(2)
-            except OSError as e:
+            except (OSError, UnicodeDecodeError) as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
                     f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
@@ -1676,12 +1705,239 @@ def _platform_token_module_name_hits(
     return hits
 
 
+# ---------------------------------------------------------------------------
+# Target-Literal Ratchet -- key/comparand/isinstance/import-path shapes
+#
+# The pre-existing target-literal kinds above match a frozen central-table/
+# enum-member name list plus a declaration/type-reference identifier shape.
+# They miss a target name used as a dict key, a `.get()` argument, an
+# `==`/`in` comparand, an `isinstance`/`issubclass` class argument, or a
+# dotted import-module segment -- real target-identity leaks a shared layer
+# must not carry, in positions the identifier-shape match never visits. The
+# three kinds below close that gap, scoped to exactly the AST positions
+# enumerated in each kind's docstring -- never a generic "any string near a
+# vocabulary word" scan, which would flag every docstring and log message.
+
+
+def _owning_package_import_root(file_path: Path, monorepo_root: Path) -> str | None:
+    """The import-root directory name (e.g. ``datrix_codegen_typescript_core``)
+    that *file_path* lives under, resolved via *monorepo_root*-relative path
+    segments only -- the same ``<package-dir>/src/<import-root>/...`` layout
+    ``_platform_token_module_name_hits`` already assumes, never a substring
+    match on the path string. Returns ``None`` when the path does not have
+    at least that three-segment prefix (never expected for a file this
+    scanner actually reaches, since every caller iterates a discovered
+    package's own ``src_dir``).
+    """
+    rel_parts = file_path.relative_to(monorepo_root).parts
+    if len(rel_parts) < 3 or rel_parts[1] != "src":
+        return None
+    return rel_parts[2]
+
+
+def _language_core_own_language_names() -> dict[str, str]:
+    """Map each ``LANGUAGE_CORE_PACKAGES`` key (a language-core library's own
+    import root, e.g. ``datrix_codegen_typescript_core``) to the registered
+    language name of the backend package it serves (e.g. ``typescript``),
+    read live from ``entry_point_module_roots(AXIS_LANGUAGES)`` (inverted) --
+    never a hardcoded core-package-to-language literal.
+
+    Returns:
+        ``{core import root: served language's registered name}``.
+
+    Raises:
+        ValueError: A ``LANGUAGE_CORE_PACKAGES`` value names a backend import
+            root with no matching installed ``datrix.languages`` entry
+            point -- a real configuration inconsistency between the mapping
+            and the installed distributions, never silently skipped.
+    """
+    import_root_to_language = {
+        import_root: language_name
+        for language_name, import_root in entry_point_module_roots(AXIS_LANGUAGES).items()
+    }
+    served: dict[str, str] = {}
+    for core_import_root, backend_import_root in LANGUAGE_CORE_PACKAGES.items():
+        language_name = import_root_to_language.get(backend_import_root)
+        if language_name is None:
+            raise ValueError(
+                f"LANGUAGE_CORE_PACKAGES entry {core_import_root!r} names backend "
+                f"import root {backend_import_root!r}, which has no matching "
+                f"installed 'datrix.languages' entry point. Installed entry-point "
+                f"import roots: {sorted(import_root_to_language)}. Fix: verify the "
+                f"backend package is installed into the active environment and its "
+                f"pyproject.toml entry-point module path matches "
+                f"{backend_import_root!r}."
+            )
+        served[core_import_root] = language_name
+    return served
+
+
+def _is_own_language_excluded(
+    file_path: Path, monorepo_root: Path, matched_target: str
+) -> bool:
+    """True when *matched_target* names the language whose own core package
+    *file_path* lives under (``LANGUAGE_CORE_PACKAGES``) -- e.g. a
+    "typescript" hit inside ``datrix_codegen_typescript_core`` is that
+    language's own home, not a target-identity leak. Scoped ONLY to the
+    three new target-literal kinds; the two pre-existing
+    platform-token kinds keep their own, separate
+    ``_PLATFORM_TOKEN_EXCLUSIONS`` mechanism and never call this.
+    """
+    owning_root = _owning_package_import_root(file_path, monorepo_root)
+    if owning_root is None or owning_root not in LANGUAGE_CORE_PACKAGES:
+        return False
+    served_language = _language_core_own_language_names()[owning_root]
+    return matched_target.casefold() == served_language.casefold()
+
+
+def _target_name_literal_compare_hits(
+    node: ast.Compare, target_literal_names: frozenset[str]
+) -> list[tuple[str, int]]:
+    """``(value, line_number)`` for every string constant exactly equal to a
+    *target_literal_names* member appearing as the left/right operand of an
+    ``Eq``/``NotEq``/``In``/``NotIn`` comparison, plus every element of a
+    ``List``/``Tuple``/``Set`` right operand of an ``In``/``NotIn`` (e.g.
+    ``x in ("python", "typescript")`` yields two hits).
+    """
+    hits: list[tuple[str, int]] = []
+
+    def _record(candidate: ast.expr) -> None:
+        if isinstance(candidate, ast.Constant) and isinstance(candidate.value, str):
+            if candidate.value in target_literal_names:
+                hits.append((candidate.value, candidate.lineno))
+
+    prior: ast.expr = node.left
+    for op, comparand in zip(node.ops, node.comparators, strict=True):
+        if isinstance(op, (ast.Eq, ast.NotEq, ast.In, ast.NotIn)):
+            _record(prior)
+            _record(comparand)
+            if isinstance(op, (ast.In, ast.NotIn)) and isinstance(
+                comparand, (ast.List, ast.Tuple, ast.Set)
+            ):
+                for element in comparand.elts:
+                    _record(element)
+        prior = comparand
+    return hits
+
+
+def _target_name_literal_hits(
+    tree: ast.Module, target_literal_names: frozenset[str]
+) -> list[tuple[str, int]]:
+    """``(value, line_number)`` for every string constant exactly equal to a
+    *target_literal_names* member in one of five positions: a
+    ``Compare``'s ``Eq``/``NotEq``/``In``/``NotIn`` operand (see
+    ``_target_name_literal_compare_hits``), an ``ast.Subscript`` slice
+    (``m["azure"]``), the first positional argument of a ``.get(...)`` call
+    (``configs.get("azure")``), an ``ast.Dict`` key (dict-display key), or
+    the pattern value of an ``ast.MatchValue`` inside a ``match`` statement.
+
+    Fails closed by construction: a string constant anywhere else (a
+    docstring, a ``logger.*``/``logging.*`` call argument, a plain
+    assignment RHS, an f-string literal segment) is never visited by any of
+    the five branches below, so it is never a hit -- there is no generic
+    "any string equal to a vocabulary word" fallback.
+    """
+    hits: list[tuple[str, int]] = []
+
+    def _record(candidate: ast.expr) -> None:
+        if isinstance(candidate, ast.Constant) and isinstance(candidate.value, str):
+            if candidate.value in target_literal_names:
+                hits.append((candidate.value, candidate.lineno))
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare):
+            hits.extend(_target_name_literal_compare_hits(node, target_literal_names))
+        elif isinstance(node, ast.Subscript):
+            _record(node.slice)
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+        ):
+            _record(node.args[0])
+        elif isinstance(node, ast.Dict):
+            for key in node.keys:
+                if key is not None:
+                    _record(key)
+        elif isinstance(node, ast.MatchValue):
+            _record(node.value)
+
+    return hits
+
+
+def _target_type_check_hits(
+    tree: ast.Module, target_literal_names: frozenset[str]
+) -> list[tuple[str, int, str]]:
+    """``(identifier, line_number, matched_target)`` for every
+    ``isinstance``/``issubclass`` call whose second argument (or a ``Tuple``
+    element of it) is a type expression carrying a *target_literal_names*
+    token as an identifier segment (``_identifier_carries_target_name``).
+
+    Reuses ``_identifiers_in_type_expression`` -- the same type-expression
+    walk the pre-existing ``platform_token_identifier`` kind already applies
+    to ``isinstance``/``issubclass`` arguments -- against the full
+    languages-union-platforms vocabulary rather than the platform-only one,
+    so a language-named class (``isinstance(c, PythonRuntimeConfig)``) is
+    caught here even though it is invisible to the platform-scoped kind.
+    """
+    hits: list[tuple[str, int, str]] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+            continue
+        if node.func.id not in _TYPE_REFERENCE_CALL_NAMES:
+            continue
+        for call_arg in node.args[1:]:
+            for identifier, lineno in _identifiers_in_type_expression(call_arg):
+                matched = _identifier_carries_target_name(identifier, target_literal_names)
+                if matched is not None:
+                    hits.append((identifier, lineno, matched))
+    return hits
+
+
+def _target_module_import_hits(
+    tree: ast.Module, target_literal_names: frozenset[str]
+) -> list[tuple[str, int, str]]:
+    """``(dotted module path, line_number, matched_target)`` for every
+    ``ast.ImportFrom``/``ast.Import`` node whose dotted module path
+    (``node.module`` for ``ImportFrom``, each ``alias.name`` for ``Import``)
+    has a ``.``-split segment exactly equal to a *target_literal_names*
+    member (``from datrix_common.config.platform.docker import X`` yields
+    one hit naming ``docker``). Exact per-segment string equality only --
+    unlike the identifier-shape kinds, a module path is never re-split on
+    ``_``/camelCase, so ``datrix_codegen_python`` (one dotted segment) is
+    not itself a hit. One hit per qualifying module path -- the first
+    matching segment -- since a single import statement is one occurrence
+    of the shape.
+    """
+    hits: list[tuple[str, int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module is None:
+                continue
+            module_paths = [node.module]
+        elif isinstance(node, ast.Import):
+            module_paths = [alias.name for alias in node.names]
+        else:
+            continue
+
+        for module_path in module_paths:
+            for segment in module_path.split("."):
+                if segment in target_literal_names:
+                    hits.append((module_path, node.lineno, segment))
+                    break
+    return hits
+
+
 def scan_file_for_target_literals(
-    file_path: Path, monorepo_root: Path, platform_names: frozenset[str]
+    file_path: Path,
+    monorepo_root: Path,
+    platform_names: frozenset[str],
+    target_literal_names: frozenset[str],
 ) -> list[TargetLiteralHit]:
     """AST-walk *file_path* for target-literal identifiers.
 
-    Four match kinds:
+    Seven match kinds:
       - ``central_table_name``: any ``ast.Name``/``ast.ClassDef``/``ast.FunctionDef``
         (or ``ast.AsyncFunctionDef``) whose identifier is exactly one of
         ``TARGET_LITERAL_CENTRAL_NAMES`` (definition sites AND reference sites
@@ -1703,16 +1959,41 @@ def scan_file_for_target_literals(
         dotted-module-path-shaped string literal assigned at module-/class-
         level scope carries a registered platform token -- see
         ``_platform_token_module_name_hits`` / ``_platform_token_module_path_string_hits``.
+      - ``target_name_literal``: a string constant exactly equal to a
+        ``_target_literal_vocabulary()`` member (registered language names
+        UNION registered platform names, INCLUDING ``"local"``) in a
+        comparison/key/``.get()``/dict-key/match-value position -- see
+        ``_target_name_literal_hits``.
+      - ``target_type_check``: an ``isinstance``/``issubclass`` call whose
+        class argument carries a ``_target_literal_vocabulary()`` token as
+        an identifier segment -- see ``_target_type_check_hits``.
+      - ``target_module_import``: an ``ast.ImportFrom``/``ast.Import`` node
+        whose dotted module path has a ``.``-split segment exactly equal to
+        a ``_target_literal_vocabulary()`` member -- see
+        ``_target_module_import_hits``.
+
+    The three new kinds above are dropped for a file inside a
+    ``LANGUAGE_CORE_PACKAGES`` package when the matched token names that
+    package's own served language (``_is_own_language_excluded``). The two
+    pre-existing platform-token kinds are unaffected; they keep their own,
+    separate ``_PLATFORM_TOKEN_EXCLUSIONS`` mechanism.
 
     Args:
         file_path: Path to Python source file.
-        monorepo_root: Monorepo root, for the module-name-from-path match.
+        monorepo_root: Monorepo root, for the module-name-from-path match and
+            the own-language exclusion's package resolution.
         platform_names: Registered platform tokens minus the "local"
-            English-word collision, from ``_platform_token_vocabulary()``.
+            English-word collision, from ``_platform_token_vocabulary()`` --
+            feeds the two pre-existing platform-token kinds only.
+        target_literal_names: Registered language names UNION registered
+            platform names, INCLUDING "local", from
+            ``_target_literal_vocabulary()`` -- feeds the three new kinds
+            only.
 
     Returns:
         List of hits found in the file, in AST-walk order (the two
-        platform-token kinds are appended after the frozen-name-match walk).
+        pre-existing platform-token kinds, then the three new kinds, are
+        appended after the frozen-name-match walk).
 
     Raises:
         SyntaxError: propagated from ast.parse (caller decides how to report).
@@ -1822,6 +2103,49 @@ def scan_file_for_target_literals(
             )
         )
 
+    for value, line_number in _target_name_literal_hits(tree, target_literal_names):
+        if _is_own_language_excluded(file_path, monorepo_root, value):
+            continue
+        hits.append(
+            TargetLiteralHit(
+                file_path=file_path,
+                line_number=line_number,
+                identifier=value,
+                kind="target_name_literal",
+                matched_target=value,
+            )
+        )
+
+    for identifier, line_number, matched in _target_type_check_hits(
+        tree, target_literal_names
+    ):
+        if _is_own_language_excluded(file_path, monorepo_root, matched):
+            continue
+        hits.append(
+            TargetLiteralHit(
+                file_path=file_path,
+                line_number=line_number,
+                identifier=identifier,
+                kind="target_type_check",
+                matched_target=matched,
+            )
+        )
+
+    for module_path, line_number, matched in _target_module_import_hits(
+        tree, target_literal_names
+    ):
+        if _is_own_language_excluded(file_path, monorepo_root, matched):
+            continue
+        hits.append(
+            TargetLiteralHit(
+                file_path=file_path,
+                line_number=line_number,
+                identifier=module_path,
+                kind="target_module_import",
+                matched_target=matched,
+            )
+        )
+
     return hits
 
 
@@ -1846,6 +2170,7 @@ def scan_target_literals(
     """
     results: dict[Path, list[TargetLiteralHit]] = {}
     platform_names = _platform_token_vocabulary()
+    target_literal_names = _target_literal_vocabulary()
 
     for package_name in shared_packages:
         package_info = packages.get(package_name)
@@ -1854,7 +2179,9 @@ def scan_target_literals(
 
         for py_file in package_info.src_dir.rglob("*.py"):
             try:
-                hits = scan_file_for_target_literals(py_file, monorepo_root, platform_names)
+                hits = scan_file_for_target_literals(
+                    py_file, monorepo_root, platform_names, target_literal_names
+                )
             except SyntaxError as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
@@ -1864,7 +2191,7 @@ def scan_target_literals(
                     file=sys.stderr,
                 )
                 sys.exit(2)
-            except OSError as e:
+            except (OSError, UnicodeDecodeError) as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
                     f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
@@ -2135,7 +2462,7 @@ def scan_provider_conditionals(
                     file=sys.stderr,
                 )
                 sys.exit(2)
-            except OSError as e:
+            except (OSError, UnicodeDecodeError) as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
                     f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
@@ -2306,7 +2633,7 @@ def scan_shared_package_provider_literals(
                     file=sys.stderr,
                 )
                 sys.exit(2)
-            except OSError as e:
+            except (OSError, UnicodeDecodeError) as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
                     f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
@@ -2372,6 +2699,26 @@ def _scan_file_for_design_labels(file_path: Path) -> list[tuple[int, str]]:
     return hits
 
 
+def _scan_file_for_design_labels_or_exit(
+    source_file: Path, monorepo_root: Path
+) -> list[tuple[int, str]]:
+    """Wrap ``_scan_file_for_design_labels`` with the same clean failure shape
+    every other ratchet's policed-file read gets: a read failure -- including
+    a non-UTF-8 file -- names the file and exits 2 rather than crashing
+    uncaught (this scanner has no ast.parse step, so OSError/UnicodeDecodeError
+    is the only failure mode)."""
+    try:
+        return _scan_file_for_design_labels(source_file)
+    except (OSError, UnicodeDecodeError) as e:
+        rel_path = source_file.relative_to(monorepo_root)
+        print(
+            f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
+            f"cannot be read would escape this scan; resolve the read error.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+
 def scan_design_labels(
     packages: dict[str, PackageInfo], monorepo_root: Path
 ) -> dict[Path, list[tuple[int, str]]]:
@@ -2401,7 +2748,7 @@ def scan_design_labels(
                 continue
             for pattern in ("*.py", "*.j2"):
                 for source_file in scan_root.rglob(pattern):
-                    hits = _scan_file_for_design_labels(source_file)
+                    hits = _scan_file_for_design_labels_or_exit(source_file, monorepo_root)
                     if hits:
                         results[source_file] = hits
 
@@ -2410,7 +2757,7 @@ def scan_design_labels(
         if not scan_root.exists():
             continue
         for source_file in scan_root.rglob("*.py"):
-            hits = _scan_file_for_design_labels(source_file)
+            hits = _scan_file_for_design_labels_or_exit(source_file, monorepo_root)
             if hits:
                 results[source_file] = hits
 
@@ -2506,7 +2853,7 @@ def _scan_one_policed_file_for_function_level_imports(
             file=sys.stderr,
         )
         sys.exit(2)
-    except OSError as e:
+    except (OSError, UnicodeDecodeError) as e:
         rel_path = py_file.relative_to(monorepo_root)
         print(
             f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
@@ -3361,7 +3708,7 @@ def scan_shared_vocabulary(
                     file=sys.stderr,
                 )
                 sys.exit(2)
-            except OSError as e:
+            except (OSError, UnicodeDecodeError) as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
                     f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
@@ -3790,7 +4137,7 @@ def scan_shared_target_names(
                     file=sys.stderr,
                 )
                 sys.exit(2)
-            except OSError as e:
+            except (OSError, UnicodeDecodeError) as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
                     f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
@@ -4067,7 +4414,7 @@ def scan_own_target_names(
                     file=sys.stderr,
                 )
                 sys.exit(2)
-            except OSError as e:
+            except (OSError, UnicodeDecodeError) as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
                     f"ERROR: Failed to read {rel_path} - {e}. A policed file that cannot "
@@ -4413,7 +4760,7 @@ def scan_cross_package_vocabulary(
                     file=sys.stderr,
                 )
                 sys.exit(2)
-            except OSError as e:
+            except (OSError, UnicodeDecodeError) as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
                     f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
@@ -4595,6 +4942,707 @@ def check_cross_package_vocabulary_ratchet(
     return messages
 
 
+# ---------------------------------------------------------------------------
+# Re-export facade ratchet: a name has exactly one import path.
+#
+# Opt-in via --check-reexport-facades, it AST-scans every discovered
+# package's src/ and tests/ trees (discover_packages() -- the same set every
+# other whole-workspace ratchet in this file uses), every .py file under this
+# repo's own datrix/scripts/ tree, and every .py file under
+# datrix/claude-config/.claude/hooks/ (if any), for two shapes of re-export
+# facade -- a name with a second, redundant import path on top of its real,
+# single home -- both attributed to the PROVIDING module (the module through
+# which the second path runs), never to the file where a consumer statement
+# happens to appear:
+#
+# 1. Provider side. A module whose top-level `from <datrix module> import N`
+#    binds a name N that is listed in the module's own __all__, or imported
+#    as `N as N`, while the module does not itself define N ("defines" means
+#    a top-level def/class/assignment target, including under a top-level
+#    if/try -- an if is walked on both branches unconditionally, so a name
+#    defined only under `if TYPE_CHECKING: ... else: ...` still counts as
+#    defined).
+# 2. Consumer side. Any `from M import N` anywhere in a scanned file (not
+#    only at module top) where M is a Datrix module that does not define N,
+#    and N does not itself resolve to a submodule of M (`from pkg import
+#    submodule` is a normal package traversal, never a facade hit).
+#
+# Every `[project.entry-points.*]` value shaped "module.path:attr" in a
+# discovered package's pyproject.toml is a site too: an attr the module does
+# not define is a hit attributed to module.path.
+#
+# A `from M import N` where M is a dotted path under a Datrix import root
+# that resolves to no module on disk at all is ALSO a hit -- once a facade's
+# __all__ is emptied and its consumers are rewritten one at a time, this is
+# what proves every rewritten import lands on something that actually
+# exists, rather than silently accepting any string.
+#
+# The baseline is decrease-only and keyed by the PROVIDING module -- its own
+# relative file path when it resolves to a real file, or (only for the
+# unresolved-import shape, where by definition no such file exists) the
+# dotted module path itself -- with one COMBINED count per key across all
+# four shapes. --update-baseline recomputes and overwrites it.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ReexportFacadeHit:
+    """One occurrence of a re-export facade, attributed to the PROVIDING
+    module.
+
+    ``providing_module`` doubles as the baseline key: the module's own
+    relative file path when it resolves to a real file on disk, or -- only
+    for an "unresolved" hit, where by definition no such file exists -- the
+    dotted module path that failed to resolve. ``providing_module_dotted``
+    is the same module's dotted import path when known (always known for
+    consumer/entry-point/unresolved hits; known for a provider hit only when
+    the scanned file is itself part of a discovered package's ``src/``
+    tree), used solely to let ``-FacadeModule`` filter by dotted name.
+    """
+
+    providing_module: str
+    kind: Literal["provider", "consumer", "entry_point", "unresolved"]
+    name: str
+    site_file: Path
+    site_line: int
+    defining_module: str | None = None
+    providing_module_dotted: str | None = None
+
+
+@dataclass(frozen=True)
+class _ResolvedDatrixModule:
+    """A Datrix dotted module path resolved to the real file that defines
+    it -- either an ordinary module (``foo/bar.py``) or a package
+    (``foo/bar/__init__.py``, ``is_package=True``)."""
+
+    file_path: Path
+    is_package: bool
+
+
+_DATRIX_MODULE_ROOT_PREFIX = "datrix"
+
+
+def _is_datrix_module_path(dotted_module: str) -> bool:
+    """True when *dotted_module*'s root segment looks like a Datrix package
+    import root (``datrix_common``, ``datrix_codegen_kernel``, ...) --
+    scopes the re-export-facade scan to Datrix's own module graph, excluding
+    every third-party and standard-library import."""
+    return dotted_module.split(".", 1)[0].startswith(_DATRIX_MODULE_ROOT_PREFIX)
+
+
+def _resolve_datrix_module(
+    dotted_module: str, packages: dict[str, PackageInfo]
+) -> _ResolvedDatrixModule | None:
+    """Resolve *dotted_module* to the real file that defines it, or
+    ``None`` if its root package is not discovered or the path does not
+    exist on disk under that package's ``src/`` tree."""
+    segments = dotted_module.split(".")
+    package_info = packages.get(segments[0])
+    if package_info is None:
+        return None
+    remainder = segments[1:]
+    target_dir = package_info.src_dir.joinpath(*remainder)
+    if remainder:
+        module_file = target_dir.with_suffix(".py")
+        if module_file.is_file():
+            return _ResolvedDatrixModule(file_path=module_file, is_package=False)
+    package_init = target_dir / "__init__.py"
+    if package_init.is_file():
+        return _ResolvedDatrixModule(file_path=package_init, is_package=True)
+    return None
+
+
+def _is_submodule_member(resolved: _ResolvedDatrixModule, name: str) -> bool:
+    """True when *name* is itself an importable submodule/subpackage of the
+    resolved package -- a plain package traversal (`from pkg import
+    submodule`), never a facade hit."""
+    if not resolved.is_package:
+        return False
+    package_dir = resolved.file_path.parent
+    return (package_dir / f"{name}.py").is_file() or (
+        package_dir / name / "__init__.py"
+    ).is_file()
+
+
+def _dotted_module_name_for_file(
+    file_path: Path, packages: dict[str, PackageInfo]
+) -> str | None:
+    """The dotted Datrix module path a ``src/`` file corresponds to, for the
+    provider-side shape's ``-FacadeModule`` filter/display name -- ``None``
+    for a file outside every discovered package's ``src/`` tree (a
+    ``datrix/scripts/*.py`` utility or a ``tests/`` file has no importable
+    module identity of its own, so it is filtered by its relative file path
+    only)."""
+    for package_name, package_info in packages.items():
+        try:
+            relative = file_path.relative_to(package_info.src_dir)
+        except ValueError:
+            continue
+        parts = list(relative.parts)
+        if parts and parts[-1] == "__init__.py":
+            parts = parts[:-1]
+        elif parts and parts[-1].endswith(".py"):
+            parts[-1] = parts[-1][: -len(".py")]
+        return ".".join([package_name, *parts]) if parts else package_name
+    return None
+
+
+def _assignment_target_names(target: ast.expr) -> set[str]:
+    """Every ``Name`` id bound by an assignment target, including nested
+    tuple/list/starred unpacking."""
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        names: set[str] = set()
+        for elt in target.elts:
+            names.update(_assignment_target_names(elt))
+        return names
+    if isinstance(target, ast.Starred):
+        return _assignment_target_names(target.value)
+    return set()
+
+
+def _collect_top_level_defined_names(body: list[ast.stmt]) -> set[str]:
+    """Every name *body* DEFINES at its own top level: a ``def``/``class``,
+    or an assignment target -- including under an ``if``/``try`` (both
+    branches of every ``if`` are walked unconditionally, which is what makes
+    a name defined only under ``if TYPE_CHECKING: ... else: ...`` still
+    count as defined, with no special-casing of that one condition)."""
+    names: set[str] = set()
+    for stmt in body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(stmt.name)
+        elif isinstance(stmt, ast.Assign):
+            for target in stmt.targets:
+                names.update(_assignment_target_names(target))
+        elif isinstance(stmt, ast.AnnAssign) and stmt.target is not None:
+            names.update(_assignment_target_names(stmt.target))
+        elif isinstance(stmt, ast.AugAssign):
+            names.update(_assignment_target_names(stmt.target))
+        elif isinstance(stmt, ast.If):
+            names.update(_collect_top_level_defined_names(stmt.body))
+            names.update(_collect_top_level_defined_names(stmt.orelse))
+        elif isinstance(stmt, ast.Try):
+            names.update(_collect_top_level_defined_names(stmt.body))
+            for handler in stmt.handlers:
+                names.update(_collect_top_level_defined_names(handler.body))
+            names.update(_collect_top_level_defined_names(stmt.orelse))
+            names.update(_collect_top_level_defined_names(stmt.finalbody))
+    return names
+
+
+@dataclass(frozen=True)
+class _ModuleFacadeInfo:
+    """Everything the re-export-facade scan needs about one already-parsed
+    module: the names it defines at its own top level, the names listed in
+    its own ``__all__``, and every top-level ``from <datrix module> import
+    N`` it declares (bound name -> (source module, source name, is a self
+    alias), plus the reporting line for each bound name)."""
+
+    defined_names: frozenset[str]
+    all_names: frozenset[str]
+    datrix_imports: dict[str, tuple[str, str, bool]]
+    import_lines: dict[str, int]
+
+
+@functools.lru_cache(maxsize=None)
+def _parse_module_source(file_path: Path) -> ast.Module:
+    """Parse *file_path* once; every re-export-facade helper below shares
+    this single cached parse instead of re-reading the file."""
+    source = file_path.read_text(encoding="utf-8-sig")
+    return ast.parse(source, filename=str(file_path))
+
+
+@functools.lru_cache(maxsize=None)
+def _analyze_module_file(file_path: Path) -> _ModuleFacadeInfo:
+    """Compute *file_path*'s ``_ModuleFacadeInfo`` from its top-level
+    statements only -- "defines" and "declares __all__" are both top-level
+    facts by the check's own definition."""
+    tree = _parse_module_source(file_path)
+    defined_names = frozenset(_collect_top_level_defined_names(tree.body))
+    all_names: set[str] = set()
+    datrix_imports: dict[str, tuple[str, str, bool]] = {}
+    import_lines: dict[str, int] = {}
+    for stmt in tree.body:
+        if (
+            isinstance(stmt, ast.ImportFrom)
+            and stmt.module is not None
+            and stmt.level == 0
+            and _is_datrix_module_path(stmt.module)
+        ):
+            for alias in stmt.names:
+                bound = alias.asname or alias.name
+                datrix_imports[bound] = (
+                    stmt.module,
+                    alias.name,
+                    alias.asname == alias.name,
+                )
+                import_lines[bound] = alias.lineno
+        elif isinstance(stmt, (ast.Assign, ast.AugAssign)):
+            targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+            targets_all = any(
+                isinstance(t, ast.Name) and t.id == "__all__" for t in targets
+            )
+            if targets_all and isinstance(stmt.value, (ast.List, ast.Tuple)):
+                for elt in stmt.value.elts:
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                        all_names.add(elt.value)
+    return _ModuleFacadeInfo(
+        defined_names=defined_names,
+        all_names=frozenset(all_names),
+        datrix_imports=datrix_imports,
+        import_lines=import_lines,
+    )
+
+
+def _resolve_defining_module(
+    module_dotted: str,
+    name: str,
+    packages: dict[str, PackageInfo],
+    _seen: frozenset[str] = frozenset(),
+) -> str | None:
+    """Follow *module_dotted*'s own re-export chain for *name* to the module
+    that actually defines it, for the ``-ShowFiles`` worklist report only --
+    never used for baseline attribution. Returns ``None`` on a cycle, an
+    unresolved link in the chain, or a dead end (the module neither defines
+    the name nor re-exports it further)."""
+    if module_dotted in _seen:
+        return None
+    resolved = _resolve_datrix_module(module_dotted, packages)
+    if resolved is None:
+        return None
+    info = _analyze_module_file(resolved.file_path)
+    if name in info.defined_names:
+        return module_dotted
+    next_hop = info.datrix_imports.get(name)
+    if next_hop is None:
+        return None
+    next_module, next_name, _self_aliased = next_hop
+    return _resolve_defining_module(
+        next_module, next_name, packages, _seen | {module_dotted}
+    )
+
+
+def _reexport_facade_scan_files(
+    packages: dict[str, PackageInfo], monorepo_root: Path
+) -> list[Path]:
+    """Every ``.py`` file the re-export-facade check scans: every discovered
+    package's ``src/`` and ``tests/`` trees, this repo's own
+    ``datrix/scripts/`` tree, and ``datrix/claude-config/.claude/hooks/`` (a
+    facade emptied later would otherwise break a script or a hook silently,
+    with no static warning from this check). Prints an informational note
+    when the hooks tree exists but nothing under it imports a Datrix
+    module -- confirmed by scanning it, never assumed."""
+    files: list[Path] = []
+    for package_info in packages.values():
+        files.extend(sorted(package_info.src_dir.rglob("*.py")))
+        tests_dir = package_info.root / "tests"
+        if tests_dir.is_dir():
+            files.extend(sorted(tests_dir.rglob("*.py")))
+    scripts_dir = monorepo_root / "datrix" / "scripts"
+    if scripts_dir.is_dir():
+        files.extend(sorted(scripts_dir.rglob("*.py")))
+    hooks_dir = monorepo_root / "datrix" / "claude-config" / ".claude" / "hooks"
+    if hooks_dir.is_dir():
+        hook_files = sorted(hooks_dir.rglob("*.py"))
+        files.extend(hook_files)
+        hooks_import_datrix = any(
+            isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and node.level == 0
+            and _is_datrix_module_path(node.module)
+            for hook_file in hook_files
+            for node in ast.walk(_parse_module_source(hook_file))
+        )
+        if hook_files and not hooks_import_datrix:
+            print(
+                f"Note: {len(hook_files)} file(s) under "
+                f"{hooks_dir.relative_to(monorepo_root)} were scanned for "
+                f"re-export facades; none imports a Datrix module.",
+                file=sys.stderr,
+            )
+    return files
+
+
+def _reexport_facade_provider_hits(
+    py_file: Path,
+    info: _ModuleFacadeInfo,
+    packages: dict[str, PackageInfo],
+    monorepo_root: Path,
+) -> list[ReexportFacadeHit]:
+    """The provider-side shape for one already-analyzed file: every bound
+    name it imports from a Datrix module and passes through -- via a
+    self-aliased import or its own ``__all__`` -- without defining it."""
+    hits: list[ReexportFacadeHit] = []
+    providing_module = str(py_file.relative_to(monorepo_root)).replace("\\", "/")
+    providing_module_dotted = _dotted_module_name_for_file(py_file, packages)
+    for bound_name, (_source_module, _source_name, self_aliased) in sorted(
+        info.datrix_imports.items()
+    ):
+        if bound_name in info.defined_names:
+            continue
+        if not (self_aliased or bound_name in info.all_names):
+            continue
+        hits.append(
+            ReexportFacadeHit(
+                providing_module=providing_module,
+                kind="provider",
+                name=bound_name,
+                site_file=py_file,
+                site_line=info.import_lines[bound_name],
+                providing_module_dotted=providing_module_dotted,
+            )
+        )
+    return hits
+
+
+def _reexport_facade_consumer_hits(
+    py_file: Path, packages: dict[str, PackageInfo], monorepo_root: Path
+) -> list[ReexportFacadeHit]:
+    """The consumer-side and unresolved-import shapes for one file: every
+    ``from M import N`` ANYWHERE in the file (module top or nested -- unlike
+    the provider-side shape, this one is not limited to module top), for
+    every M that is a Datrix module."""
+    hits: list[ReexportFacadeHit] = []
+    tree = _parse_module_source(py_file)
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and node.level == 0
+            and _is_datrix_module_path(node.module)
+        ):
+            continue
+        resolved = _resolve_datrix_module(node.module, packages)
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            site_line = alias.lineno
+            if resolved is None:
+                hits.append(
+                    ReexportFacadeHit(
+                        providing_module=node.module,
+                        kind="unresolved",
+                        name=alias.name,
+                        site_file=py_file,
+                        site_line=site_line,
+                        providing_module_dotted=node.module,
+                    )
+                )
+                continue
+            info = _analyze_module_file(resolved.file_path)
+            if alias.name in info.defined_names:
+                continue
+            if _is_submodule_member(resolved, alias.name):
+                continue
+            providing_module = str(
+                resolved.file_path.relative_to(monorepo_root)
+            ).replace("\\", "/")
+            defining_module = _resolve_defining_module(
+                node.module, alias.name, packages
+            )
+            hits.append(
+                ReexportFacadeHit(
+                    providing_module=providing_module,
+                    kind="consumer",
+                    name=alias.name,
+                    site_file=py_file,
+                    site_line=site_line,
+                    defining_module=defining_module,
+                    providing_module_dotted=node.module,
+                )
+            )
+    return hits
+
+
+def _reexport_facade_entry_point_targets(manifest: Path) -> list[tuple[str, str, str]]:
+    """Every ``(group, entry name, "module.path:attr")`` triple a package's
+    ``pyproject.toml`` declares under ``[project.entry-points.*]``."""
+    with manifest.open("rb") as handle:
+        data = tomllib.load(handle)
+    project = data.get("project")
+    groups = project.get("entry-points", {}) if isinstance(project, dict) else {}
+    if not isinstance(groups, dict):
+        return []
+    targets: list[tuple[str, str, str]] = []
+    for group, entries in groups.items():
+        if not isinstance(entries, dict):
+            continue
+        for entry_name, reference in entries.items():
+            if isinstance(reference, str) and ":" in reference:
+                targets.append((group, entry_name, reference))
+    return targets
+
+
+def _reexport_facade_entry_point_line(manifest_lines: list[str], reference: str) -> int:
+    """The 1-based line in *manifest_lines* naming *reference* verbatim, or
+    line 1 if the exact string cannot be found (never fails the scan over a
+    reporting nicety)."""
+    for line_number, line in enumerate(manifest_lines, start=1):
+        if reference in line:
+            return line_number
+    return 1
+
+
+def scan_reexport_facades(
+    packages: dict[str, PackageInfo],
+    monorepo_root: Path,
+) -> dict[str, list[ReexportFacadeHit]]:
+    """Scan every re-export-facade shape -- provider side, consumer side,
+    pyproject.toml entry points, and unresolved imports -- across the whole
+    scan scope, and group every hit by its PROVIDING module.
+
+    Args:
+        packages: Package name -> PackageInfo, as returned by discover_packages().
+        monorepo_root: Monorepo root for relative path reporting.
+
+    Returns:
+        Mapping of providing-module key (see ``ReexportFacadeHit``) -> hits
+        attributed to it (keys with zero hits omitted).
+    """
+    results: dict[str, list[ReexportFacadeHit]] = {}
+
+    def _add(hit: ReexportFacadeHit) -> None:
+        results.setdefault(hit.providing_module, []).append(hit)
+
+    for py_file in _reexport_facade_scan_files(packages, monorepo_root):
+        try:
+            info = _analyze_module_file(py_file)
+        except SyntaxError as e:
+            rel_path = py_file.relative_to(monorepo_root)
+            print(
+                f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
+                f"A policed file that cannot be parsed would escape this scan "
+                f"(a silent blind spot); fix its syntax or encoding.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        except (OSError, UnicodeDecodeError) as e:
+            rel_path = py_file.relative_to(monorepo_root)
+            print(
+                f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
+                f"cannot be read would escape this scan; resolve the read error.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+        for hit in _reexport_facade_provider_hits(py_file, info, packages, monorepo_root):
+            _add(hit)
+        for hit in _reexport_facade_consumer_hits(py_file, packages, monorepo_root):
+            _add(hit)
+
+    for package_name, package_info in sorted(packages.items()):
+        manifest = package_info.root / "pyproject.toml"
+        if not manifest.is_file():
+            continue
+        targets = _reexport_facade_entry_point_targets(manifest)
+        if not targets:
+            continue
+        try:
+            manifest_lines = manifest.read_text(encoding="utf-8-sig").splitlines()
+        except (OSError, UnicodeDecodeError) as e:
+            rel_path = manifest.relative_to(monorepo_root)
+            print(
+                f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
+                f"cannot be read would escape this scan; resolve the read error.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        for _group, _entry_name, reference in targets:
+            module_path, _, attr = reference.partition(":")
+            module_path = module_path.strip()
+            attr = attr.strip()
+            if not module_path or not attr or not _is_datrix_module_path(module_path):
+                continue
+            site_line = _reexport_facade_entry_point_line(manifest_lines, reference)
+            resolved = _resolve_datrix_module(module_path, packages)
+            if resolved is not None:
+                defined = _analyze_module_file(resolved.file_path).defined_names
+                if attr in defined:
+                    continue
+                providing_module = str(
+                    resolved.file_path.relative_to(monorepo_root)
+                ).replace("\\", "/")
+            else:
+                providing_module = module_path
+            _add(
+                ReexportFacadeHit(
+                    providing_module=providing_module,
+                    kind="entry_point",
+                    name=attr,
+                    site_file=manifest,
+                    site_line=site_line,
+                    providing_module_dotted=module_path,
+                )
+            )
+
+    return results
+
+
+def load_reexport_facade_baseline(baseline_path: Path) -> dict[str, int]:
+    """Load ``{providing_module_key: frozen_count}`` from the baseline TOML.
+
+    Args:
+        baseline_path: Path to the re-export-facade baseline TOML file.
+
+    Returns:
+        An empty dict if the file does not exist yet.
+    """
+    if not baseline_path.exists():
+        return {}
+
+    with baseline_path.open("rb") as f:
+        data = tomllib.load(f)
+
+    counts: dict[str, int] = {}
+    for entry in data.get("baseline", []):
+        if not isinstance(entry, dict):
+            continue
+
+        key = entry.get("file", "")
+        count = entry.get("count")
+
+        if key and isinstance(count, int):
+            counts[key] = count
+
+    return counts
+
+
+def write_reexport_facade_baseline(baseline_path: Path, counts: dict[str, int]) -> None:
+    """Write *counts* to the baseline TOML as ``[[baseline]] file=... count=...``
+    entries, sorted by key for deterministic diffs.
+
+    Args:
+        baseline_path: Path to the re-export-facade baseline TOML file to write.
+        counts: Mapping of providing-module key -> combined hit count.
+    """
+    header = (
+        "# Re-Export Facade Ratchet Baseline\n"
+        "#\n"
+        "# Frozen per-module counts of names that have a second import path\n"
+        "# through a facade -- a module that passes through a name it does\n"
+        "# not itself define, via its own __all__ or a self-aliased import\n"
+        "# (provider side); a `from M import N` anywhere that reaches through\n"
+        "# such a facade instead of the module that actually defines N\n"
+        "# (consumer side); a pyproject.toml entry point naming an attribute\n"
+        "# its target module does not define (entry-point side); or a\n"
+        "# `from M import N` whose M does not resolve to any module on disk\n"
+        "# at all (unresolved). Each entry's key is the PROVIDING module --\n"
+        "# its own relative file path when it resolves to a real file, or\n"
+        "# (only for the unresolved shape, where by definition no such file\n"
+        "# exists) the dotted module path that failed to resolve -- never\n"
+        "# the file where a consumer statement happens to appear, and its\n"
+        "# count combines every shape attributed to it.\n"
+        "#\n"
+        "# Any INCREASE in an entry's count fails\n"
+        "# datrix/scripts/dev/check-import-boundaries.py\n"
+        "# --check-reexport-facades. Decreases are always allowed and should\n"
+        "# be captured by re-running with --update-baseline once a later\n"
+        "# change rewrites a consumer to import from the module that\n"
+        "# actually defines the name, or empties a facade's __all__. A later\n"
+        "# migration drives every entry here to zero, one providing module\n"
+        "# at a time; once the last entry reaches zero this file is deleted,\n"
+        "# and the check becomes a hard zero with no baseline to consult.\n"
+        "#\n"
+        "# Format:\n"
+        "#   [[baseline]]\n"
+        '#   file = "path/relative/to/monorepo-root, forward slashes -- or,\n'
+        '#           for an unresolved-import entry, a dotted module path"\n'
+        "#   count = <int>\n"
+    )
+
+    lines = [header]
+    for key in sorted(counts.keys()):
+        lines.append("\n[[baseline]]\n")
+        lines.append(f'file = "{key}"\n')
+        lines.append(f"count = {counts[key]}\n")
+
+    baseline_path.parent.mkdir(parents=True, exist_ok=True)
+    baseline_path.write_text("".join(lines), encoding="utf-8")
+
+
+def check_reexport_facade_ratchet(
+    current_counts: dict[str, int],
+    baseline: dict[str, int],
+) -> list[str]:
+    """Compare *current_counts* against *baseline*; return one message per
+    providing module whose count INCREASED (baseline missing == baseline 0).
+    Never flags a decrease -- the ratchet only tightens.
+
+    Args:
+        current_counts: Providing-module key -> current hit count.
+        baseline: Providing-module key -> frozen baseline count.
+
+    Returns:
+        List of human-readable ratchet-failure messages, one per regressed
+        module, sorted by key.
+    """
+    messages: list[str] = []
+
+    for key in sorted(current_counts.keys()):
+        current = current_counts[key]
+        frozen = baseline.get(key, 0)
+        if current > frozen:
+            messages.append(
+                f"{key}: re-export-facade count increased from baseline "
+                f"{frozen} to {current}"
+            )
+    return messages
+
+
+def format_reexport_facade_worklist(
+    hits_by_module: dict[str, list[ReexportFacadeHit]],
+    monorepo_root: Path,
+    *,
+    facade_modules: frozenset[str] = frozenset(),
+    consumer_packages: frozenset[str] = frozenset(),
+) -> list[str]:
+    """The per-site worklist report for ``-ShowFiles``: one line per hit,
+    filtered by ``-FacadeModule``/``-ConsumerPackage`` when given.
+
+    Args:
+        hits_by_module: The scan result, as returned by
+            ``scan_reexport_facades``.
+        monorepo_root: Monorepo root, for the site file's relative path.
+        facade_modules: If non-empty, keep only hits whose providing module
+            matches one of these -- either the baseline-key form (a relative
+            file path, or a dotted path for an unresolved entry) or the
+            dotted form (``providing_module_dotted``).
+        consumer_packages: If non-empty, keep only hits whose site file
+            lives under one of these repo directory names.
+
+    Returns:
+        One formatted line per surviving hit, sorted by providing module
+        then site file then line.
+    """
+    lines: list[str] = []
+    for providing_module in sorted(hits_by_module):
+        for hit in sorted(
+            hits_by_module[providing_module], key=lambda h: (str(h.site_file), h.site_line)
+        ):
+            if facade_modules and not (
+                providing_module in facade_modules
+                or (
+                    hit.providing_module_dotted is not None
+                    and hit.providing_module_dotted in facade_modules
+                )
+            ):
+                continue
+            site_rel = str(hit.site_file.relative_to(monorepo_root)).replace("\\", "/")
+            if consumer_packages and site_rel.split("/", 1)[0] not in consumer_packages:
+                continue
+            defining_suffix = (
+                f" (defined by {hit.defining_module})"
+                if hit.kind == "consumer" and hit.defining_module
+                else ""
+            )
+            lines.append(
+                f"{providing_module} [{hit.kind}] {site_rel}:{hit.site_line} "
+                f"{hit.name}{defining_suffix}"
+            )
+    return lines
+
+
 def load_allowlist(allowlist_path: Path) -> list[AllowlistEntry]:
     """Load allowlist entries from TOML file.
 
@@ -4758,20 +5806,15 @@ def _rule_forbids(
     rules: dict[str, BoundaryRule],
     source_package: str,
     imported_module: str,
-    *,
-    in_tests: bool = False,
 ) -> bool:
     """True if any of source_package's forbidden_prefixes flags imported_module.
 
-    ``in_tests`` classifies the import as scan_package does for a file under the
-    package's test trees, where the rule's test_only_subtrees are also admitted.
+    The same ``allowed_subtrees`` applies whether the import lives in src/,
+    tests/, fixtures/, or helpers/ -- there is no test-only carve-out.
     """
     rule = rules[source_package]
-    permitted = (
-        rule.allowed_subtrees | rule.test_only_subtrees if in_tests else rule.allowed_subtrees
-    )
     return any(
-        is_forbidden_import(source_package, imported_module, prefix, permitted)
+        is_forbidden_import(source_package, imported_module, prefix, rule.allowed_subtrees)
         for prefix in rule.forbidden_prefixes
     )
 
@@ -4823,38 +5866,37 @@ def _kernel_consumer_packages(taxonomy: GeneratorTaxonomy) -> tuple[str, ...]:
     return (*taxonomy.platform_packages, "datrix_codegen_sql", "datrix_codegen_component")
 
 
-def _self_test_allowed_denied_subtrees(
+def _self_test_no_testkit_carve_out(
     taxonomy: GeneratorTaxonomy, rules: dict[str, BoundaryRule]
 ) -> bool:
-    """Platforms, SQL and component are forbidden the language layer outright:
-    no rule carries a codegen-common carve-out, every formerly carved-out module
-    is flagged, the kernel home of each is admitted, and the conformance testkit
-    is admitted in the test trees only."""
-    _step("Self-test 1/19: platforms, SQL and component forbid datrix_codegen_common")
+    """Platforms, SQL and component forbid datrix_codegen_common in tests/
+    exactly as in src/ -- the test-only carve-out is gone, not merely absent
+    from allowed_subtrees. The derived datrix_testing rule forbids
+    datrix_codegen_common too (already true via its datrix_codegen_ wildcard
+    prefix -- this asserts the invariant explicitly rather than leaving it
+    implicit), and a real plant/observe/revert CLI proof shows a planted
+    testkit import in a platform's test tree is reported by the default
+    (unratcheted) boundary scan."""
+    _step(
+        "Self-test 1/25: platforms, SQL and component forbid "
+        "datrix_codegen_common in tests/ exactly as in src/"
+    )
     ok = True
 
     for source in _kernel_consumer_packages(taxonomy):
         rule = rules[source]
         ok &= _check(
-            f"{source} carries no allowed_subtrees (the codegen-common carve-out is gone)",
+            f"{source} carries no allowed_subtrees",
             rule.allowed_subtrees == frozenset(),
         )
         ok &= _check(
-            f"{source} admits exactly the conformance testkit in its test trees",
-            rule.test_only_subtrees == frozenset({"datrix_codegen_common.testkit"}),
-        )
-        ok &= _check(
-            f"{source} forbids datrix_codegen_common itself",
+            f"{source} forbids datrix_codegen_common",
             _rule_forbids(rules, source, "datrix_codegen_common"),
         )
         for imported in _FORMER_CARVE_OUT_MODULES:
             ok &= _check(
-                f"former carve-out forbidden in src/: {source} -> {imported}",
+                f"former carve-out forbidden: {source} -> {imported}",
                 _rule_forbids(rules, source, imported),
-            )
-            ok &= _check(
-                f"former carve-out forbidden in tests/: {source} -> {imported}",
-                _rule_forbids(rules, source, imported, in_tests=True),
             )
         for imported in _KERNEL_TARGET_MODULES:
             ok &= _check(
@@ -4862,15 +5904,15 @@ def _self_test_allowed_denied_subtrees(
                 not _rule_forbids(rules, source, imported),
             )
         ok &= _check(
-            f"conformance testkit forbidden in src/: {source} -> "
+            f"conformance testkit forbidden -- no carve-out: {source} -> "
             "datrix_codegen_common.testkit.gates",
             _rule_forbids(rules, source, "datrix_codegen_common.testkit.gates"),
         )
         ok &= _check(
-            f"conformance testkit admitted in tests/: {source} -> "
-            "datrix_codegen_common.testkit.gates",
-            not _rule_forbids(
-                rules, source, "datrix_codegen_common.testkit.gates", in_tests=True
+            "a named former-carve-out module is forbidden: "
+            f"{source} -> datrix_codegen_common.testkit.gates.dispatch_ladder",
+            _rule_forbids(
+                rules, source, "datrix_codegen_common.testkit.gates.dispatch_ladder"
             ),
         )
 
@@ -4886,35 +5928,87 @@ def _self_test_allowed_denied_subtrees(
     ):
         ok &= _check(
             f"language-layer/language import flagged: {platform_source} -> {imported}",
-            _rule_forbids(rules, platform_source, imported, in_tests=True),
+            _rule_forbids(rules, platform_source, imported),
         )
+
+    ok &= _check(
+        "the derived datrix_testing rule forbids datrix_codegen_common "
+        "(already true via its datrix_codegen_ wildcard prefix)",
+        _rule_forbids(rules, "datrix_testing", "datrix_codegen_common"),
+    )
+
+    ok &= _self_test_platform_test_tree_testkit_forbidden()
 
     return ok
 
 
+def _self_test_platform_test_tree_testkit_forbidden() -> bool:
+    """Real plant/observe/revert CLI proof (the design's specific acceptance
+    case): an isolated fixture monorepo with one platform-classified package
+    carrying a test file that imports the conformance testkit is reported by
+    the default, unratcheted import-boundary scan -- the carve-out that used
+    to admit this import from a test tree is gone, so a platform's tests/ is
+    held to the same forbidden set as its src/."""
+    ok = True
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"no-testkit-carveout-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        _self_test_write_manifest(
+            tmp_root, "datrix-codegen-aws", "datrix_codegen_aws",
+            entry_point_groups={PLATFORMS_ENTRY_POINT_GROUP: {"aws": "AwsPlatform"}},
+        )
+        package_src = tmp_root / "datrix-codegen-aws" / "src" / "datrix_codegen_aws"
+        package_src.mkdir(parents=True, exist_ok=True)
+        (package_src / "__init__.py").write_text("", encoding="utf-8")
+        tests_dir = tmp_root / "datrix-codegen-aws" / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        test_file = tests_dir / "test_dispatch_ladder.py"
+
+        test_file.write_text(
+            "from datrix_codegen_common.testkit.gates.dispatch_ladder import X\n",
+            encoding="utf-8",
+        )
+        violating_result = _self_test_run_boundary_cli(tmp_root)
+        ok &= _check(
+            "a planted platform-test testkit import is reported by the default "
+            f"scan (no carve-out), got exit {violating_result.returncode}",
+            violating_result.returncode == 1,
+        )
+        combined = violating_result.stdout + violating_result.stderr
+        ok &= _check(
+            "the failure names datrix_codegen_common and the planted test file",
+            "datrix_codegen_common" in combined
+            and "test_dispatch_ladder.py" in combined,
+        )
+
+        test_file.write_text(
+            "def test_noop() -> None:\n    assert True\n", encoding="utf-8"
+        )
+        fixed_result = _self_test_run_boundary_cli(tmp_root)
+        ok &= _check(
+            "removing the testkit import clears the failure, got exit "
+            f"{fixed_result.returncode}",
+            fixed_result.returncode == 0,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+    return ok
+
+
 def _self_test_dotted_precision_and_carveout(rules: dict[str, BoundaryRule]) -> bool:
-    """Subtree matching is exact-or-child (not raw prefix), and the carve-out
-    never leaks to a package that did not opt in."""
-    _step("Self-test 2/19: dotted-boundary precision and carve-out non-leakage")
+    """Subtree matching is exact-or-child (not raw prefix), and the one
+    surviving carve-out (datrix_testing's kernel allowed_subtrees) never
+    leaks to a package that did not opt in."""
+    _step("Self-test 2/25: dotted-boundary precision and kernel-carve-out non-leakage")
     ok = True
     platform_source = "datrix_codegen_aws"
-
     ok &= _check(
-        "'testkit_other' is NOT a child of 'testkit' -> forbidden even in tests/",
-        _rule_forbids(
-            rules, platform_source, "datrix_codegen_common.testkit_other", in_tests=True
+        "the retired testkit carve-out leaves both forms forbidden: 'testkit_other' "
+        f"and 'testkit.fixtures.fixturelang' -> {platform_source}",
+        _rule_forbids(rules, platform_source, "datrix_codegen_common.testkit_other")
+        and _rule_forbids(
+            rules, platform_source, "datrix_codegen_common.testkit.fixtures.fixturelang"
         ),
-    )
-    ok &= _check(
-        "'testkit.fixtures.harness' IS a child of 'testkit' -> allowed in tests/",
-        not _rule_forbids(
-            rules, platform_source, "datrix_codegen_common.testkit.fixtures.harness",
-            in_tests=True,
-        ),
-    )
-    ok &= _check(
-        "the test-only carve-out never admits the same subtree in src/",
-        _rule_forbids(rules, platform_source, "datrix_codegen_common.testkit.fixtures.harness"),
     )
     web_source = "datrix_codegen_angular"
     ok &= _check(
@@ -4939,11 +6033,6 @@ def _self_test_dotted_precision_and_carveout(rules: dict[str, BoundaryRule]) -> 
     ok &= _check(
         "datrix_codegen_common itself still forbids datrix_codegen_python",
         _rule_forbids(rules, "datrix_codegen_common", "datrix_codegen_python"),
-    )
-    ok &= _check(
-        "datrix_codegen_python carries no test-only carve-out (it depends on the "
-        "language layer outright; nothing to leak)",
-        rules["datrix_codegen_python"].test_only_subtrees == frozenset(),
     )
 
     # The generation kernel sits on the core alone: the language layer is
@@ -4980,7 +6069,7 @@ def _self_test_dotted_precision_and_carveout(rules: dict[str, BoundaryRule]) -> 
 def _self_test_sql_and_component_coverage(rules: dict[str, BoundaryRule]) -> bool:
     """The rule table covers datrix_codegen_sql and datrix_codegen_component,
     each enforcing the sibling-language prohibition absolutely."""
-    _step("Self-test 3/19: SQL and Component boundary rule coverage")
+    _step("Self-test 3/25: SQL and Component boundary rule coverage")
     ok = True
 
     ok &= _check(
@@ -5239,7 +6328,7 @@ def _self_test_platform_to_platform_prohibition(
     monorepo must classify exactly as its manifests say.
     """
     _step(
-        "Self-test 4/19: taxonomy discovery + platform -> sibling-platform "
+        "Self-test 4/25: taxonomy discovery + platform -> sibling-platform "
         "import prohibition"
     )
     ok = True
@@ -5365,7 +6454,7 @@ def _self_test_platform_cli_non_vacuity() -> bool:
     clears (exit 0) -- i.e. the rule flags the defect and permits the fix.
     """
     _step(
-        "Self-test 9/19: platform -> platform CLI mutation non-vacuity "
+        "Self-test 10/25: platform -> platform CLI mutation non-vacuity "
         "(plant a real aws -> docker import, prove detection, prove the shared-layer fix clears it)"
     )
     ok = True
@@ -5408,23 +6497,29 @@ def _self_test_platform_cli_non_vacuity() -> bool:
 
 
 _TESTKIT_IMPORT_LINE: str = (
-    "from datrix_codegen_common.testkit.gates import dispatch_ladder  # noqa: F401\n"
+    "from datrix_codegen_common.testkit.gates import closed_compilation  # noqa: F401\n"
 )
 
 
 def _self_test_platform_testkit_scope(tmp_root: Path, module_path: Path) -> bool:
-    """The conformance testkit is admitted in a platform's tests and nowhere
-    else: the same import exits 0 from ``tests/`` and 1 from ``src/``."""
+    """The conformance testkit is forbidden to a platform in tests/ exactly
+    as in src/ -- there is no test-only carve-out: the same import exits 1
+    from both trees."""
     ok = True
     tests_dir = tmp_root / "datrix-codegen-aws" / "tests"
     tests_dir.mkdir(parents=True, exist_ok=True)
     (tests_dir / "test_kit.py").write_text(_TESTKIT_IMPORT_LINE, encoding="utf-8")
     tests_result = _self_test_run_boundary_cli(tmp_root)
     ok &= _check(
-        "a platform TEST importing the conformance testkit exits 0, got "
-        f"{tests_result.returncode}",
-        tests_result.returncode == 0,
+        "a platform TEST importing the conformance testkit exits 1 -- no "
+        f"carve-out, got {tests_result.returncode}",
+        tests_result.returncode == 1,
     )
+    ok &= _check(
+        "the tests/ failure names datrix_codegen_common",
+        "datrix_codegen_common" in tests_result.stdout + tests_result.stderr,
+    )
+    (tests_dir / "test_kit.py").unlink()
     clean_source = module_path.read_text(encoding="utf-8")
     module_path.write_text(_TESTKIT_IMPORT_LINE + clean_source, encoding="utf-8")
     src_result = _self_test_run_boundary_cli(tmp_root)
@@ -5504,7 +6599,7 @@ def _self_test_provider_literal_cli_non_vacuity() -> bool:
     monorepo rather than the real committed baseline.
     """
     _step(
-        "Self-test 10/19: provider-literal ratchet CLI mutation non-vacuity "
+        "Self-test 11/25: provider-literal ratchet CLI mutation non-vacuity "
         '(plant a real == "azure" conditional, prove detection, prove it clears on revert)'
     )
     ok = True
@@ -5599,7 +6694,7 @@ def _self_test_shared_package_provider_literal_cli_non_vacuity() -> bool:
     required NEGATIVE acceptance proof for D6.1's shared-package half.
     """
     _step(
-        "Self-test 11/19: shared-package provider-literal zero-tolerance CLI "
+        "Self-test 12/25: shared-package provider-literal zero-tolerance CLI "
         'mutation non-vacuity (plant a real == "azure" conditional in '
         "datrix-common, prove detection, prove it clears on revert)"
     )
@@ -5665,7 +6760,7 @@ def _self_test_shared_vocabulary_scanner() -> bool:
     shape's bare-literal redeclaration is detected while its importing form
     is not."""
     _step(
-        "Self-test 12/19: shared-vocabulary scanner (detection + exemption "
+        "Self-test 13/25: shared-vocabulary scanner (detection + exemption "
         "non-vacuity, Enum and non-Enum canonical sources alike)"
     )
     ok = True
@@ -6059,7 +7154,7 @@ def _self_test_shared_vocabulary_cli_non_vacuity() -> bool:
     fixture file.
     """
     _step(
-        "Self-test 13/19: shared-vocabulary ratchet CLI mutation non-vacuity "
+        "Self-test 14/25: shared-vocabulary ratchet CLI mutation non-vacuity "
         "(fixture importing QueryTerminal exits 0; redeclaring its four "
         "members as bare literals exits 1; reverting clears it -- plus one "
         "mutate/detect/revert cycle per non-Enum canonical vocabulary)"
@@ -6146,7 +7241,7 @@ def _self_test_shared_target_name_scanner() -> bool:
     design, and the full scanner does not flag a bare local variable inside
     a function body but DOES detect a plain module-level constant via the
     scoped Assign path."""
-    _step("Self-test 14/19: shared-target-name scanner (segment matching + non-flood proof)")
+    _step("Self-test 15/25: shared-target-name scanner (segment matching + non-flood proof)")
     ok = True
 
     # Synthetic vocabulary: "java" is kept only as the short name whose
@@ -6344,7 +7439,7 @@ def _self_test_shared_target_name_cli_non_vacuity() -> bool:
     proves it clears.
     """
     _step(
-        "Self-test 15/19: shared-target-name ratchet CLI mutation non-vacuity "
+        "Self-test 16/25: shared-target-name ratchet CLI mutation non-vacuity "
         "('class PythonFooSlice' exits 1; 'class FooSliceProtocol' exits 0)"
     )
     ok = True
@@ -6391,7 +7486,7 @@ def _self_test_provider_conditional_scanner() -> bool:
     conditional shape (ProviderId-shaped, deployment-provider-value, match/case,
     and -- added by this task -- the two D5 provider-literal sub-patterns) and
     excludes every look-alike that must not ratchet."""
-    _step("Self-test 5/19: provider-conditional AST scanner (detection + exclusion)")
+    _step("Self-test 5/25: provider-conditional AST scanner (detection + exclusion)")
     ok = True
     provider_ids = registered_platform_names()
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"provider-scanner-{uuid.uuid4().hex}"
@@ -6541,7 +7636,7 @@ def _self_test_function_level_import_scanner() -> bool:
     """scan_file_for_function_level_imports counts zero for module-top
     imports and exactly one for each nested (function/TYPE_CHECKING/
     try-except) import."""
-    _step("Self-test 6/19: function-level-import AST scanner")
+    _step("Self-test 6/25: function-level-import AST scanner")
     ok = True
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"fli-scanner-{uuid.uuid4().hex}"
     scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -6583,7 +7678,7 @@ def _self_test_function_level_import_scanner() -> bool:
 def _self_test_ratchets() -> bool:
     """All three ratchet comparators fire on any per-file increase, never on
     a decrease, and treat a baseline-absent file as baseline 0."""
-    _step("Self-test 7/19: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
+    _step("Self-test 7/25: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
     ok = True
 
     clean = check_provider_conditional_ratchet(
@@ -6832,7 +7927,7 @@ def _self_test_cli_non_vacuity() -> bool:
     temporarily-mutated fixture tree -- never a simulated one, and never the
     real datrix-common source tree."""
     _step(
-        "Self-test 8/19: function-level-import CLI mutation non-vacuity "
+        "Self-test 8/25: function-level-import CLI mutation non-vacuity "
         "(plant a real regression, prove detection, prove it clears on revert)"
     )
     ok = True
@@ -6880,7 +7975,7 @@ def _self_test_function_level_scope_and_entries() -> bool:
     entry each fails the flag and clears when removed. ``--update-baseline``
     refuses to raise a count and lowers one, keeping its reason."""
     _step(
-        "Self-test 8b/19: function-level-import scope (every policed package, "
+        "Self-test 9/25: function-level-import scope (every policed package, "
         "tracked moved modules) and fail-closed baseline entries"
     )
     ok = True
@@ -6985,7 +8080,7 @@ def _self_test_cross_package_vocabulary_scanner() -> bool:
     EnumClass.MEMBER references, and DOES recognize a bare tuple literal as
     a candidate container shape."""
     _step(
-        "Self-test 16/19: cross-package-vocabulary scanner (cross-package "
+        "Self-test 17/25: cross-package-vocabulary scanner (cross-package "
         "duplicate detection + same-package/qualified-enum/uniqueness "
         "exemptions + bare-tuple recognition)"
     )
@@ -7185,7 +8280,7 @@ def _self_test_cross_package_vocabulary_cli_non_vacuity() -> bool:
     the scanner-level self-test, ``_self_test_cross_package_vocabulary_scanner``,
     which this CLI proof complements with a real subprocess round-trip)."""
     _step(
-        "Self-test 17/19: cross-package-vocabulary ratchet CLI mutation "
+        "Self-test 18/25: cross-package-vocabulary ratchet CLI mutation "
         "non-vacuity (two non-overlapping fixture packages exit 0; "
         "redeclaring alpha's set in beta exits 1; reverting clears it; a "
         "written D9 reason survives --update-baseline and a vanished "
@@ -7353,7 +8448,7 @@ def _self_test_own_target_name_cli_non_vacuity() -> bool:
     delta), then reverts and proves it clears.
     """
     _step(
-        "Self-test 18/19: own-target-name ratchet (scanner shape, ratchet "
+        "Self-test 19/25: own-target-name ratchet (scanner shape, ratchet "
         "comparator, baseline round-trip, and CLI mutation non-vacuity: "
         "'build_python_thing' exits 1; 'build_thing' exits 0)"
     )
@@ -7510,7 +8605,7 @@ def _self_test_design_label_cli_non_vacuity() -> bool:
     be a hit the moment this file is scanned by the check being tested.
     """
     _step(
-        "Self-test 19/19: design-label scanner mutation non-vacuity (plant a "
+        "Self-test 20/25: design-label scanner mutation non-vacuity (plant a "
         "label, prove detection, prove it clears on revert)"
     )
     ok = True
@@ -7551,7 +8646,7 @@ def _self_test_shared_package_classification_fixture() -> bool:
     entry-point group, even with no ``src/`` tree at all to scan (the
     fail-loud check fires from the manifest walk alone)."""
     _step(
-        "Self-test 20/21: shared-package classification (derivation "
+        "Self-test 21/25: shared-package classification (derivation "
         "excludes/includes correctly; fail-loud on an unclassifiable package)"
     )
     ok = True
@@ -7665,7 +8760,7 @@ def _self_test_platform_token_scanner() -> bool:
     clears on revert), mirroring the G2 shared-target-name ratchet's own
     CLI-mutation non-vacuity shape rather than an in-process call alone."""
     _step(
-        "Self-test 21/21: platform-token identifier/module-name shape match "
+        "Self-test 22/25: platform-token identifier/module-name shape match "
         "(direct scanner assertions + CLI mutation non-vacuity)"
     )
     ok = True
@@ -7674,12 +8769,15 @@ def _self_test_platform_token_scanner() -> bool:
     scratch_dir.mkdir(parents=True, exist_ok=True)
     try:
         platform_names = _platform_token_vocabulary()
+        target_literal_names = _target_literal_vocabulary()
 
         azure_file = scratch_dir / "azure_thing.py"
         azure_file.write_text(
             "def build_azure_thing() -> None:\n    return None\n", encoding="utf-8"
         )
-        azure_hits = scan_file_for_target_literals(azure_file, scratch_dir, platform_names)
+        azure_hits = scan_file_for_target_literals(
+            azure_file, scratch_dir, platform_names, target_literal_names
+        )
         ok &= _check(
             "build_azure_thing() is a platform_token_identifier hit naming 'azure'",
             any(
@@ -7690,7 +8788,9 @@ def _self_test_platform_token_scanner() -> bool:
 
         local_file = scratch_dir / "local_helper.py"
         local_file.write_text("local_cache: dict = {}\n", encoding="utf-8")
-        local_hits = scan_file_for_target_literals(local_file, scratch_dir, platform_names)
+        local_hits = scan_file_for_target_literals(
+            local_file, scratch_dir, platform_names, target_literal_names
+        )
         ok &= _check(
             "a module-level 'local_cache' declaration produces ZERO hits -- "
             "'local' is excluded from the platform-token vocabulary",
@@ -7702,7 +8802,7 @@ def _self_test_platform_token_scanner() -> bool:
         module_name_file = module_name_dir / "azure_naming.py"
         module_name_file.write_text("VALUE = 1\n", encoding="utf-8")
         module_name_hits = scan_file_for_target_literals(
-            module_name_file, scratch_dir, platform_names
+            module_name_file, scratch_dir, platform_names, target_literal_names
         )
         ok &= _check(
             "deployment/azure_naming.py is a platform_token_module_name hit naming 'azure'",
@@ -7762,6 +8862,593 @@ def _self_test_platform_token_scanner() -> bool:
     return ok
 
 
+def _self_test_target_literal_new_kinds() -> bool:
+    """The key/comparand/isinstance/import-path target-literal shapes:
+    direct scanner assertions for every one-hit and zero-hit case the design
+    enumerates, the own-language exclusion holding for all three new kinds
+    inside a language-core package and NOT holding for an ordinary shared
+    package -- PLUS a real CLI mutation proof (plant a bare `== "python"`
+    comparison in a derived shared-package fixture, prove the ratchet
+    fires, prove it clears on revert), reusing
+    ``_self_test_platform_token_build_fixture_monorepo`` /
+    ``_self_test_platform_token_run_cli`` (the fixture shape is generic to
+    any target-literal-ratchet mutation, not specific to the platform-token
+    kinds)."""
+    _step(
+        "Self-test 23/25: target-literal key/comparand/isinstance/import-path "
+        "shapes (direct scanner assertions + own-language exclusion + CLI "
+        "mutation non-vacuity)"
+    )
+    ok = True
+
+    scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"target-literal-new-kinds-{uuid.uuid4().hex}"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        platform_names = _platform_token_vocabulary()
+        target_literal_names = _target_literal_vocabulary()
+        new_kinds = ("target_name_literal", "target_type_check", "target_module_import")
+
+        def _scan(relative_name: str, source: str) -> list[TargetLiteralHit]:
+            file_path = scratch_dir / relative_name
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(source, encoding="utf-8")
+            return scan_file_for_target_literals(
+                file_path, scratch_dir, platform_names, target_literal_names
+            )
+
+        # One-hit cases.
+        get_hits = _scan("dot_get.py", 'def f(configs):\n    return configs.get("azure")\n')
+        ok &= _check(
+            "configs.get('azure') is one target_name_literal hit naming 'azure'",
+            sum(
+                1
+                for h in get_hits
+                if h.kind == "target_name_literal" and h.matched_target == "azure"
+            )
+            == 1,
+        )
+
+        eq_hits = _scan(
+            "eq_compare.py", 'def f(language):\n    return language.value == "python"\n'
+        )
+        ok &= _check(
+            "language.value == 'python' is one target_name_literal hit naming 'python'",
+            sum(
+                1
+                for h in eq_hits
+                if h.kind == "target_name_literal" and h.matched_target == "python"
+            )
+            == 1,
+        )
+
+        in_hits = _scan(
+            "in_compare.py", 'def f(x):\n    return x in ("python", "typescript")\n'
+        )
+        ok &= _check(
+            'x in ("python", "typescript") is exactly two target_name_literal hits',
+            sum(1 for h in in_hits if h.kind == "target_name_literal") == 2,
+        )
+
+        subscript_hits = _scan("subscript.py", 'def f(m):\n    return m["docker"]\n')
+        ok &= _check(
+            "m['docker'] is one target_name_literal hit naming 'docker'",
+            sum(
+                1
+                for h in subscript_hits
+                if h.kind == "target_name_literal" and h.matched_target == "docker"
+            )
+            == 1,
+        )
+
+        dict_hits = _scan("dict_key.py", 'VALUE = {"typescript": 1}\n')
+        ok &= _check(
+            "{'typescript': 1} is one target_name_literal hit naming 'typescript'",
+            sum(
+                1
+                for h in dict_hits
+                if h.kind == "target_name_literal" and h.matched_target == "typescript"
+            )
+            == 1,
+        )
+
+        isinstance_hits = _scan(
+            "isinstance_azure.py",
+            "class AzurePlatformConfig:\n    pass\n\n\n"
+            "def f(c):\n    return isinstance(c, AzurePlatformConfig)\n",
+        )
+        ok &= _check(
+            "isinstance(c, AzurePlatformConfig) is one target_type_check hit naming 'azure'",
+            sum(
+                1
+                for h in isinstance_hits
+                if h.kind == "target_type_check" and h.matched_target == "azure"
+            )
+            == 1,
+        )
+
+        import_hits = _scan(
+            "module_import.py", "from datrix_common.config.platform.docker import X\n"
+        )
+        ok &= _check(
+            "importing datrix_common.config.platform.docker is one "
+            "target_module_import hit naming 'docker'",
+            sum(
+                1
+                for h in import_hits
+                if h.kind == "target_module_import" and h.matched_target == "docker"
+            )
+            == 1,
+        )
+
+        # Zero-hit cases.
+        docstring_hits = _scan("docstring.py", '"""Mentions python in prose, not code."""\n')
+        ok &= _check(
+            "a module docstring mentioning 'python' produces ZERO new-kind hits",
+            not any(h.kind in new_kinds for h in docstring_hits),
+        )
+
+        log_hits = _scan(
+            "log_call.py",
+            "import logging\n\nlogger = logging.getLogger(__name__)\n\n\n"
+            'def f():\n    logger.info("python")\n',
+        )
+        ok &= _check(
+            "logger.info('python') produces ZERO new-kind hits",
+            not any(h.kind in new_kinds for h in log_hits),
+        )
+
+        substring_hits = _scan("substring_compare.py", 'def f(x):\n    return "pythonic" == x\n')
+        ok &= _check(
+            "'pythonic' == x produces ZERO hits -- substring, not exact equality",
+            not any(h.kind in new_kinds for h in substring_hits),
+        )
+
+        isinstance_base_hits = _scan(
+            "isinstance_base.py",
+            "class BasePlatformConfig:\n    pass\n\n\n"
+            "def f(c):\n    return isinstance(c, BasePlatformConfig)\n",
+        )
+        ok &= _check(
+            "isinstance(c, BasePlatformConfig) produces ZERO target_type_check hits "
+            "-- no vocabulary token as a segment",
+            not any(h.kind == "target_type_check" for h in isinstance_base_hits),
+        )
+
+        import_base_hits = _scan(
+            "module_import_base.py", "from datrix_common.config.platform.base import X\n"
+        )
+        ok &= _check(
+            "importing datrix_common.config.platform.base produces ZERO "
+            "target_module_import hits -- 'base' is not a vocabulary member",
+            not any(h.kind == "target_module_import" for h in import_base_hits),
+        )
+
+        # Own-language exclusion: the SAME content, once inside
+        # datrix_codegen_typescript_core (excluded) and once inside an
+        # ordinary shared package (not excluded), for all three new kinds.
+        core_source = (
+            "class TypescriptPlatformConfig:\n    pass\n\n\n"
+            "def f(configs, c):\n"
+            '    configs.get("typescript")\n'
+            "    isinstance(c, TypescriptPlatformConfig)\n"
+            "    from datrix_common.config.platform.typescript import X\n"
+        )
+        core_file = (
+            scratch_dir
+            / "datrix-codegen-typescript-core"
+            / "src"
+            / "datrix_codegen_typescript_core"
+            / "own_language.py"
+        )
+        core_file.parent.mkdir(parents=True, exist_ok=True)
+        core_file.write_text(core_source, encoding="utf-8")
+        core_hits = scan_file_for_target_literals(
+            core_file, scratch_dir, platform_names, target_literal_names
+        )
+        ok &= _check(
+            "a 'typescript' hit of all three new kinds is suppressed inside "
+            "datrix_codegen_typescript_core (own-language exclusion)",
+            not any(
+                h.kind in new_kinds and h.matched_target == "typescript" for h in core_hits
+            ),
+        )
+
+        other_file = scratch_dir / "datrix-common" / "src" / "datrix_common" / "own_language.py"
+        other_file.parent.mkdir(parents=True, exist_ok=True)
+        other_file.write_text(core_source, encoding="utf-8")
+        other_hits = scan_file_for_target_literals(
+            other_file, scratch_dir, platform_names, target_literal_names
+        )
+        ok &= _check(
+            "the SAME 'typescript' hits are NOT suppressed inside any other package",
+            sum(
+                1
+                for h in other_hits
+                if h.kind in new_kinds and h.matched_target == "typescript"
+            )
+            == 3,
+        )
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"target-literal-new-kinds-cli-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        module_path = _self_test_platform_token_build_fixture_monorepo(tmp_root)
+
+        clean_result = _self_test_platform_token_run_cli(tmp_root)
+        ok &= _check(
+            f"clean shared-package fixture exits 0, got {clean_result.returncode}",
+            clean_result.returncode == 0,
+        )
+
+        module_path.write_text(
+            'def resolve_something(language) -> bool:\n    return language == "python"\n',
+            encoding="utf-8",
+        )
+        failing_result = _self_test_platform_token_run_cli(tmp_root)
+        ok &= _check(
+            f"planted == 'python' comparison exits 1, got {failing_result.returncode}",
+            failing_result.returncode == 1,
+        )
+        ok &= _check(
+            "failure output names the mutated file",
+            "sample_platform_neutral.py" in failing_result.stdout,
+        )
+        ok &= _check(
+            "failure output names the exact count delta (0 -> 1)",
+            "increased from baseline 0 to 1" in failing_result.stdout,
+        )
+
+        module_path.write_text(
+            "def resolve_something() -> None:\n    return None\n", encoding="utf-8"
+        )
+        reverted_result = _self_test_platform_token_run_cli(tmp_root)
+        ok &= _check(
+            f"reverting the mutation clears the failure, got exit {reverted_result.returncode}",
+            reverted_result.returncode == 0,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+    return ok
+
+
+def _self_test_reexport_facade_build_fixture_monorepo(tmp_root: Path) -> Path:
+    """Build a minimal isolated monorepo: one fixture package
+    (``datrix-codegen-fixture``) with a clean ``__init__.py`` (defines
+    nothing, re-exports nothing) and a ``sub.py`` defining ``VALUE``, plus a
+    re-export-facade baseline TOML freezing the package's ``__init__.py`` at
+    count 0. Registers a ``datrix.languages`` entry point so the scanner
+    classifies it (a discovered package with no rule at all stops the scan
+    by design). Returns the ``__init__.py`` path."""
+    _self_test_write_manifest(
+        tmp_root,
+        "datrix-codegen-fixture",
+        "datrix_codegen_fixture",
+        entry_point_groups={
+            LANGUAGES_ENTRY_POINT_GROUP: {"fixture": "FixtureLanguagePlugin"}
+        },
+    )
+    fixture_src = tmp_root / "datrix-codegen-fixture" / "src" / "datrix_codegen_fixture"
+    fixture_src.mkdir(parents=True, exist_ok=True)
+    init_path = fixture_src / "__init__.py"
+    init_path.write_text('"""Fixture package."""\n', encoding="utf-8")
+    (fixture_src / "sub.py").write_text("VALUE = 1\n", encoding="utf-8")
+    # The manifest's own entry point (module=<import_package>.plugin) must
+    # resolve to a real module defining the referenced attribute, or the
+    # entry-point shape would itself flag a hit and break the "clean"
+    # baseline this fixture is meant to establish.
+    (fixture_src / "plugin.py").write_text(
+        "class FixtureLanguagePlugin:\n    pass\n", encoding="utf-8"
+    )
+
+    config_dir = tmp_root / "datrix" / "scripts" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "reexport-facade-baseline.toml").write_text(
+        "[[baseline]]\n"
+        'file = "datrix-codegen-fixture/src/datrix_codegen_fixture/__init__.py"\n'
+        "count = 0\n",
+        encoding="utf-8",
+    )
+    return init_path
+
+
+def _self_test_reexport_facade_run_cli(
+    tmp_root: Path, *extra_args: str
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--base-dir",
+            str(tmp_root),
+            "--check-reexport-facades",
+            "--skip-auto-self-test",
+            *extra_args,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _self_test_reexport_facade_scanner() -> bool:
+    """Direct scanner assertions for the re-export-facade check's exactly-
+    one-hit and zero-hit cases, PLUS a real CLI mutation proof (plant a
+    provider-side facade in a fixture package, prove the ratchet fires and
+    names the exact delta, prove it clears on revert), PLUS a
+    ``-FacadeModule``/``-ConsumerPackage``-filtered ``-ShowFiles`` run
+    proving the worklist prints the planted sites with the consumer hit's
+    resolved defining module."""
+    _step(
+        "Self-test 24/25: re-export-facade scanner (provider/consumer/"
+        "entry-point/unresolved shapes, TYPE_CHECKING definition, submodule "
+        "exemption) + CLI mutation non-vacuity + filtered worklist"
+    )
+    ok = True
+
+    scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"reexport-facade-scanner-{uuid.uuid4().hex}"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        fixture_src = scratch_dir / "datrix_fixture"
+        pkg_dir = fixture_src / "pkg"
+        pkg_dir.mkdir(parents=True, exist_ok=True)
+        (pkg_dir / "__init__.py").write_text(
+            "from datrix_fixture.pkg.sub import X\n\n__all__ = ['X']\n", encoding="utf-8"
+        )
+        (pkg_dir / "sub.py").write_text("X = 1\n", encoding="utf-8")
+        packages = {
+            "datrix_fixture": PackageInfo(
+                name="datrix_fixture", root=scratch_dir, src_dir=fixture_src
+            )
+        }
+
+        def _provider_hits(relative_name: str, source: str) -> list[ReexportFacadeHit]:
+            file_path = scratch_dir / relative_name
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(source, encoding="utf-8")
+            _analyze_module_file.cache_clear()
+            _parse_module_source.cache_clear()
+            info = _analyze_module_file(file_path)
+            return _reexport_facade_provider_hits(file_path, info, packages, scratch_dir)
+
+        # One-hit case: __all__ = ["X"] + from a.b import X.
+        all_hits = _provider_hits(
+            "one_all.py", "from datrix_fixture.pkg.sub import X\n\n__all__ = ['X']\n"
+        )
+        ok &= _check(
+            "__all__ = ['X'] + from ...sub import X is exactly one provider hit",
+            len(all_hits) == 1 and all_hits[0].kind == "provider" and all_hits[0].name == "X",
+        )
+
+        # One-hit case: from a.b import X as X.
+        self_alias_hits = _provider_hits(
+            "one_self_alias.py", "from datrix_fixture.pkg.sub import X as X\n"
+        )
+        ok &= _check(
+            "from ...sub import X as X is exactly one provider hit",
+            len(self_alias_hits) == 1 and self_alias_hits[0].kind == "provider",
+        )
+
+        # Zero-hit case: imports X and uses it without listing it in __all__.
+        unlisted_hits = _provider_hits(
+            "zero_unlisted.py", "from datrix_fixture.pkg.sub import X\n\nprint(X)\n"
+        )
+        ok &= _check(
+            "importing X and using it without __all__/self-alias is zero provider hits",
+            unlisted_hits == [],
+        )
+
+        # Zero-hit case: a name defined under if TYPE_CHECKING: ... else: ...
+        # despite also being self-aliased from an external module.
+        type_checking_hits = _provider_hits(
+            "zero_type_checking.py",
+            "from typing import TYPE_CHECKING\n"
+            "from datrix_fixture.pkg.sub import X as X\n\n"
+            "if TYPE_CHECKING:\n"
+            "    class X:\n"
+            "        pass\n"
+            "else:\n"
+            "    class X:\n"
+            "        pass\n",
+        )
+        ok &= _check(
+            "a name defined under if TYPE_CHECKING: ... else: ... is zero "
+            "provider hits even when self-aliased",
+            type_checking_hits == [],
+        )
+
+        # One-hit case (consumer side): from pkg import X where pkg/__init__
+        # only imports X (never defines it) -- resolves the defining module
+        # through the re-export chain to pkg.sub.
+        consumer_file = scratch_dir / "consumer.py"
+        consumer_file.write_text("from datrix_fixture.pkg import X\n", encoding="utf-8")
+        _parse_module_source.cache_clear()
+        consumer_hits = _reexport_facade_consumer_hits(consumer_file, packages, scratch_dir)
+        ok &= _check(
+            "from pkg import X where pkg/__init__ only imports X is exactly "
+            "one consumer hit, resolved to the module that actually defines it",
+            len(consumer_hits) == 1
+            and consumer_hits[0].kind == "consumer"
+            and consumer_hits[0].providing_module
+            == "datrix_fixture/pkg/__init__.py"
+            and consumer_hits[0].defining_module == "datrix_fixture.pkg.sub",
+        )
+
+        # Zero-hit case: from pkg import submodule is a normal traversal.
+        submodule_file = scratch_dir / "submodule_consumer.py"
+        submodule_file.write_text("from datrix_fixture.pkg import sub\n", encoding="utf-8")
+        _parse_module_source.cache_clear()
+        submodule_hits = _reexport_facade_consumer_hits(
+            submodule_file, packages, scratch_dir
+        )
+        ok &= _check(
+            "from pkg import submodule is zero consumer hits (submodule exemption)",
+            submodule_hits == [],
+        )
+
+        # Unresolved-import case: the module segment does not exist on disk.
+        unresolved_file = scratch_dir / "unresolved_consumer.py"
+        unresolved_file.write_text(
+            "from datrix_fixture.no_such_module import X\n", encoding="utf-8"
+        )
+        _parse_module_source.cache_clear()
+        unresolved_hits = _reexport_facade_consumer_hits(
+            unresolved_file, packages, scratch_dir
+        )
+        ok &= _check(
+            "an import of a module that resolves to nothing on disk is one "
+            "unresolved hit",
+            len(unresolved_hits) == 1
+            and unresolved_hits[0].kind == "unresolved"
+            and unresolved_hits[0].providing_module == "datrix_fixture.no_such_module",
+        )
+    finally:
+        _analyze_module_file.cache_clear()
+        _parse_module_source.cache_clear()
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"reexport-facade-cli-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        init_path = _self_test_reexport_facade_build_fixture_monorepo(tmp_root)
+        clean_source = init_path.read_text(encoding="utf-8")
+
+        clean_result = _self_test_reexport_facade_run_cli(tmp_root)
+        ok &= _check(
+            f"clean fixture package exits 0, got {clean_result.returncode}",
+            clean_result.returncode == 0,
+        )
+
+        init_path.write_text(
+            "from datrix_codegen_fixture.sub import VALUE\n\n__all__ = ['VALUE']\n",
+            encoding="utf-8",
+        )
+        failing_result = _self_test_reexport_facade_run_cli(tmp_root)
+        ok &= _check(
+            f"planted provider-side facade exits 1, got {failing_result.returncode}",
+            failing_result.returncode == 1,
+        )
+        ok &= _check(
+            "failure output names the mutated file",
+            "__init__.py" in failing_result.stdout,
+        )
+        ok &= _check(
+            "failure output names the exact count delta (0 -> 1)",
+            "increased from baseline 0 to 1" in failing_result.stdout,
+        )
+
+        init_path.write_text(clean_source, encoding="utf-8")
+        reverted_result = _self_test_reexport_facade_run_cli(tmp_root)
+        ok &= _check(
+            f"reverting the mutation clears the failure, got exit {reverted_result.returncode}",
+            reverted_result.returncode == 0,
+        )
+
+        # Filtered worklist: plant the same provider-side facade AND a
+        # consumer that imports through it, then prove -ShowFiles
+        # -FacadeModule prints both sites, the consumer line naming the
+        # module that actually defines the name.
+        init_path.write_text(
+            "from datrix_codegen_fixture.sub import VALUE\n\n__all__ = ['VALUE']\n",
+            encoding="utf-8",
+        )
+        fixture_src_dir = tmp_root / "datrix-codegen-fixture" / "src" / "datrix_codegen_fixture"
+        consumer_path = fixture_src_dir / "consumer.py"
+        consumer_path.write_text(
+            "from datrix_codegen_fixture import VALUE\n", encoding="utf-8"
+        )
+        worklist_result = _self_test_reexport_facade_run_cli(
+            tmp_root,
+            "--verbose",
+            "--facade-module",
+            "datrix_codegen_fixture",
+        )
+        ok &= _check(
+            "the filtered worklist prints the planted provider hit",
+            "[provider]" in worklist_result.stdout and "VALUE" in worklist_result.stdout,
+        )
+        ok &= _check(
+            "the filtered worklist prints the consumer hit with its "
+            "resolved defining module",
+            "[consumer]" in worklist_result.stdout
+            and "(defined by datrix_codegen_fixture.sub)" in worklist_result.stdout,
+        )
+
+        consumer_package_result = _self_test_reexport_facade_run_cli(
+            tmp_root,
+            "--verbose",
+            "--consumer-package",
+            "datrix-codegen-fixture",
+        )
+        ok &= _check(
+            "-ConsumerPackage matching the site's own repo keeps its line",
+            "consumer.py" in consumer_package_result.stdout,
+        )
+
+        consumer_path.unlink()
+        init_path.write_text(clean_source, encoding="utf-8")
+        final_result = _self_test_reexport_facade_run_cli(tmp_root)
+        ok &= _check(
+            f"removing both mutations clears the failure, got exit {final_result.returncode}",
+            final_result.returncode == 0,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+    return ok
+
+
+def _self_test_non_utf8_source_handling() -> bool:
+    """A non-UTF-8 ``.py`` file under a scanned tree is reported by path and
+    exits 2, exactly like every other unreadable/unparseable file -- never an
+    uncaught ``UnicodeDecodeError`` traceback. ``UnicodeDecodeError`` is a
+    ``ValueError`` subclass, so a bare ``except (SyntaxError, OSError)`` does
+    not catch it; every policed-file read site widens its ``OSError`` clause
+    to ``(OSError, UnicodeDecodeError)`` so a stray non-UTF-8 file fails
+    closed with the same clean message every other bad file gets, instead of
+    crashing the whole scan."""
+    _step(
+        "Self-test 25/25: a non-UTF-8 source file is reported by path, "
+        "never an uncaught crash"
+    )
+    ok = True
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"non-utf8-source-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        _self_test_write_manifest(
+            tmp_root, "datrix-codegen-aws", "datrix_codegen_aws",
+            entry_point_groups={PLATFORMS_ENTRY_POINT_GROUP: {"aws": "AwsPlatform"}},
+        )
+        package_src = tmp_root / "datrix-codegen-aws" / "src" / "datrix_codegen_aws"
+        package_src.mkdir(parents=True, exist_ok=True)
+        (package_src / "__init__.py").write_text("", encoding="utf-8")
+        bad_file = package_src / "bad_encoding.py"
+        # A lone UTF-8 continuation byte (0x80) is invalid at every position --
+        # guaranteed to raise UnicodeDecodeError, never silently decode.
+        bad_file.write_bytes(b"# \x80 not valid utf-8\n")
+
+        result = _self_test_run_boundary_cli(tmp_root)
+        combined = result.stdout + result.stderr
+        ok &= _check(
+            f"a non-UTF-8 .py file exits 2 (clean, fail-closed), got {result.returncode}",
+            result.returncode == 2,
+        )
+        ok &= _check(
+            "the failure names the unreadable file by path rather than crashing",
+            "bad_encoding.py" in combined and "Failed to read" in combined,
+        )
+        ok &= _check(
+            "no uncaught traceback reaches the output",
+            "Traceback (most recent call last)" not in combined,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+    return ok
+
+
 def run_self_test() -> bool:
     """Run every self-test check; return True iff all passed.
 
@@ -7777,7 +9464,7 @@ def run_self_test() -> bool:
         print(f"{_RED}[FAIL]{_RESET} cannot discover the real repository's taxonomy: {e}")
         return False
     results = [
-        _self_test_allowed_denied_subtrees(taxonomy, rules),
+        _self_test_no_testkit_carve_out(taxonomy, rules),
         _self_test_dotted_precision_and_carveout(rules),
         _self_test_sql_and_component_coverage(rules),
         _self_test_platform_to_platform_prohibition(taxonomy, rules),
@@ -7799,6 +9486,9 @@ def run_self_test() -> bool:
         _self_test_design_label_cli_non_vacuity(),
         _self_test_shared_package_classification_fixture(),
         _self_test_platform_token_scanner(),
+        _self_test_target_literal_new_kinds(),
+        _self_test_reexport_facade_scanner(),
+        _self_test_non_utf8_source_handling(),
     ]
     print()
     if all(results):
@@ -7939,6 +9629,45 @@ def main() -> int:
             "number -- those numbered files are gitignored and renumbered "
             "independently per machine, so a surviving reference is a "
             "dangling pointer. Hard zero, no baseline: any hit fails."
+        ),
+    )
+    parser.add_argument(
+        "--check-reexport-facades",
+        action="store_true",
+        help=(
+            "Run the re-export-facade ratchet check in addition to the "
+            "import-boundary check. Fails when a name has a second import "
+            "path through a facade: a module that passes through a name it "
+            "does not itself define via its own __all__ or a self-aliased "
+            "import (provider side); a from-M-import-N anywhere that "
+            "reaches through such a facade instead of the module that "
+            "actually defines N (consumer side); a pyproject.toml entry "
+            "point naming an attribute its target module does not define; "
+            "or an import whose module resolves to nothing on disk at all. "
+            "Compares current per-providing-module counts against the "
+            "frozen baseline at scripts/config/reexport-facade-baseline.toml."
+        ),
+    )
+    parser.add_argument(
+        "--facade-module",
+        action="append",
+        default=[],
+        metavar="MODULE",
+        help=(
+            "With --check-reexport-facades --verbose, narrow the printed "
+            "per-site worklist to hits attributed to this providing module "
+            "(dotted module path, or its relative file path). Repeatable."
+        ),
+    )
+    parser.add_argument(
+        "--consumer-package",
+        action="append",
+        default=[],
+        metavar="REPO",
+        help=(
+            "With --check-reexport-facades --verbose, narrow the printed "
+            "per-site worklist to hits whose site lives under this repo "
+            "directory name (e.g. datrix-codegen-python). Repeatable."
         ),
     )
     parser.add_argument(
@@ -8125,6 +9854,11 @@ def main() -> int:
     # --check-own-target-names.
     own_target_name_baseline_path = (
         monorepo_root / "datrix" / "scripts" / "config" / "own-target-name-baseline.toml"
+    )
+    # Re-export-facade ratchet (exactly one import path per symbol) — opt-in
+    # via --check-reexport-facades.
+    reexport_facade_baseline_path = (
+        monorepo_root / "datrix" / "scripts" / "config" / "reexport-facade-baseline.toml"
     )
 
     # D6.1 shared-package zero-tolerance check (distinct from the I6
@@ -8316,6 +10050,19 @@ def main() -> int:
             )
             updated_any = True
 
+        if args.check_reexport_facades:
+            reexport_facade_hits_by_module = scan_reexport_facades(packages, monorepo_root)
+            current_counts = {
+                key: len(hits) for key, hits in reexport_facade_hits_by_module.items()
+            }
+            write_reexport_facade_baseline(reexport_facade_baseline_path, current_counts)
+            print(
+                f"Updated re-export-facade baseline: {len(current_counts)} providing "
+                f"module(s) recorded at "
+                f"{reexport_facade_baseline_path.relative_to(monorepo_root)}"
+            )
+            updated_any = True
+
         if args.check_target_literals or not (
             args.check_provider_conditionals
             or args.check_function_level_imports
@@ -8323,6 +10070,7 @@ def main() -> int:
             or args.check_shared_target_names
             or args.check_cross_package_vocabulary
             or args.check_own_target_names
+            or args.check_reexport_facades
         ):
             target_literal_hits_by_file = scan_target_literals(
                 packages, monorepo_root, shared_packages
@@ -8539,6 +10287,42 @@ def main() -> int:
             own_target_name_current_counts, baseline
         )
 
+    reexport_facade_messages: list[str] = []
+    reexport_facade_hits_by_module: dict[str, list[ReexportFacadeHit]] = {}
+    if args.check_reexport_facades:
+        if not reexport_facade_baseline_path.exists():
+            print(
+                f"Error: re-export-facade baseline not found at "
+                f"{reexport_facade_baseline_path}. Run "
+                f"'check-import-boundaries.py --check-reexport-facades --update-baseline' "
+                f"first to freeze the initial baseline.",
+                file=sys.stderr,
+            )
+            return 2
+
+        reexport_facade_baseline = load_reexport_facade_baseline(
+            reexport_facade_baseline_path
+        )
+        reexport_facade_hits_by_module = scan_reexport_facades(packages, monorepo_root)
+        reexport_facade_current_counts = {
+            key: len(hits) for key, hits in reexport_facade_hits_by_module.items()
+        }
+        reexport_facade_messages = check_reexport_facade_ratchet(
+            reexport_facade_current_counts, reexport_facade_baseline
+        )
+
+        if args.verbose:
+            worklist = format_reexport_facade_worklist(
+                reexport_facade_hits_by_module,
+                monorepo_root,
+                facade_modules=frozenset(args.facade_module),
+                consumer_packages=frozenset(args.consumer_package),
+            )
+            print(f"Re-export-facade worklist ({len(worklist)} site(s)):")
+            for line in worklist:
+                print(line)
+            print()
+
     # Report violations / ratchet failures
     if (
         non_allowlisted_violations
@@ -8551,6 +10335,7 @@ def main() -> int:
         or cross_package_vocabulary_messages
         or own_target_name_messages
         or design_label_messages
+        or reexport_facade_messages
     ):
         mode = "Warning" if args.warn else "Error"
 
@@ -8645,6 +10430,15 @@ def main() -> int:
                 print(message)
             print()
 
+        if reexport_facade_messages:
+            print(
+                f"{mode}: re-export-facade ratchet failed for "
+                f"{len(reexport_facade_messages)} providing module(s):\n"
+            )
+            for message in reexport_facade_messages:
+                print(message)
+            print()
+
         if args.warn:
             return 0
         return 1
@@ -8695,6 +10489,10 @@ def main() -> int:
         if args.check_own_target_names:
             print(
                 "No I4 own-target-name ratchet regressions found.", file=sys.stderr
+            )
+        if args.check_reexport_facades:
+            print(
+                "No re-export-facade ratchet regressions found.", file=sys.stderr
             )
 
     return 0

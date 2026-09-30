@@ -794,7 +794,7 @@ All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrat
 - **Never pass `-NoSave` or `-VerboseOutput` to `test.ps1`** — `-NoSave` hides the saved progress Jon reads; `-VerboseOutput` burns tokens for no benefit. Run with neither flag and read `index.json` for results. The hook hard-blocks both flags. This applies to the orchestrator's own gate/specific runs **and** every spawned agent.
 - **Never run `mypy`** (or any standalone type-checker) in this workflow — neither the orchestrator nor its agents. Code must be fully type-hinted, but type correctness is covered by the targeted tests; a separate mypy run only burns tokens/turns.
 - **VERIFIED_AGAINST_QUICK_REFERENCE** — include in all Bash descriptions for script invocations
-- **Logic map** — check `d:/datrix/.logic-map/markers.db` before modifying code with markers
+- **Logic map** — check markers (code-index MCP `find_canonical`, or `code-index.ps1 -Canonical`) before modifying code with markers
 - **Project domain isolation** — no customer/project domain language in framework packages
 
 ## Decision Escalation Protocol

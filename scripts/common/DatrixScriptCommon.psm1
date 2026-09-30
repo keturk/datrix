@@ -329,6 +329,43 @@ for name in sorted(e.name for e in m.entry_points(group=sys.argv[1])):
  return @($output | Where-Object { $_.Trim() -ne "" })
 }
 
+function Get-DatrixLocalLlmArguments {
+ <#
+ .SYNOPSIS
+ Build the shared local-model flags (library/shared/local_llm.py) for a Python script.
+
+ .DESCRIPTION
+ Every script that asks a local model for text searches the same machines through
+ shared/local_llm.py. The default machine list and the model preference live only there;
+ they are overridden only when -LocalMachines / -LlmModel carry values.
+
+ .PARAMETER LocalMachines
+ Machines (host name or IP address) to search, in preference order. Empty = the default list.
+
+ .PARAMETER LlmModel
+ Models to use, best first. Empty = any model already in memory, else the default load.
+
+ .PARAMETER LlmTimeoutSeconds
+ Timeout for each request to a ready model.
+ #>
+ [CmdletBinding()]
+ param(
+  [string[]]$LocalMachines = @(),
+  [string[]]$LlmModel = @(),
+  [Parameter(Mandatory = $true)]
+  [int]$LlmTimeoutSeconds
+ )
+
+ $llmArgs = @("--local-timeout-ms", ($LlmTimeoutSeconds * 1000))
+ foreach ($machine in $LocalMachines) {
+  $llmArgs += @("--local-machine", $machine)
+ }
+ foreach ($model in $LlmModel) {
+  $llmArgs += @("--local-model", $model)
+ }
+ return ,$llmArgs
+}
+
 Export-ModuleMember -Function @(
  "Get-DatrixWorkspaceRootFromScript",
  "ConvertTo-DatrixProjectName",
@@ -339,5 +376,6 @@ Export-ModuleMember -Function @(
  "Get-DatrixMonoProjectNames",
  "Get-DatrixInstalledPlatforms",
  "Get-DatrixInstalledLanguages",
- "Get-DatrixInstalledTargets"
+ "Get-DatrixInstalledTargets",
+ "Get-DatrixLocalLlmArguments"
 )

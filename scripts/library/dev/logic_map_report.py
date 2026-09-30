@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Dump the logic map SQLite database to a readable Markdown report.
 
-Reads .logic-map/markers.db and writes a grouped Markdown file for human review.
-The report includes all markers grouped by topic, with rules, anti-patterns,
-and cross-references.
+Refreshes the code index (which rewrites .logic-map/markers.db whenever the markers in
+source changed), then reads .logic-map/markers.db and writes a grouped Markdown file for
+human review. The report includes all markers grouped by topic, with rules,
+anti-patterns, and cross-references.
 
 Usage:
     python scripts/library/dev/logic_map_report.py
@@ -33,6 +34,8 @@ _library_dir = Path(__file__).resolve().parent.parent
 if _library_dir.exists() and str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
+from code_index.session import open_session  # noqa: E402
+from code_index.sources import LOGIC_MAP_DB, CodeIndexError  # noqa: E402
 from shared.venv import get_datrix_root  # noqa: E402
 
 # Kind display order and labels
@@ -386,14 +389,18 @@ def main() -> int:
         print("ERROR: Could not find Datrix root directory", file=sys.stderr)
         return 1
 
-    db_path = datrix_root / ".logic-map" / "markers.db"
-    if not db_path.exists():
-        print(
-            f"ERROR: Database not found at {db_path}\n"
-            "Run logic-map.ps1 -All first to build the database.",
-            file=sys.stderr,
-        )
+    # The code index owns markers.db: refreshing it rewrites the database whenever the
+    # markers in source changed, so the report never describes a stale tree.
+    try:
+        session = open_session(datrix_root)
+        try:
+            print(session.refresh().line(), flush=True)
+        finally:
+            session.close()
+    except CodeIndexError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+    db_path = datrix_root / LOGIC_MAP_DB
 
     markers = _load_markers(db_path)
     if not markers:

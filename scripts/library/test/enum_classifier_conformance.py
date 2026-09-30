@@ -167,7 +167,7 @@ def _registered_domain_names(specs: list[SubGeneratorSpec]) -> frozenset[str]:
     """Domain ids a plugin's sub-generator specs register.
 
     Mirrors the two sanctioned registration shapes documented by
-    `datrix_codegen_common.testkit.gates.domain_self_consistency.registered_orchestrator_domains`
+    `datrix_testing.conformance.domain_self_consistency.registered_orchestrator_domains`
     (a string `cls.DOMAIN` class attribute, or a GenDSL-compiled `DomainDefinition` under
     `spec.extras["domain"]`) -- WITHOUT that gate's `SHARED_CONTEXT_TYPES` scoping, since `"enum"`
     is deliberately outside that 39-domain shared-context-type registry (it is not one of the rich
