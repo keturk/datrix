@@ -20,7 +20,7 @@
  Minimum quality score for check mode (0-4). Default: 2.
 
 .PARAMETER Fix
- Fix the worst error-message violation using local Ollama (check mode only).
+ Fix the worst error-message violation using a local model (check mode only).
 
 .PARAMETER FixAll
  Fix ALL violations, not just the worst. Implies -Fix.
@@ -29,7 +29,17 @@
  Run pytest after each fix to verify; revert if tests fail (-Fix/-FixAll only).
 
 .PARAMETER MaxRetries
- Max Ollama retry attempts per violation. Default: 3.
+ Max model attempts per violation. Default: 3.
+
+.PARAMETER LocalMachines
+ Machines to search for local model servers, in preference order, for -Fix/-FixAll.
+ Omit to search the default list in library/shared/local_llm.py.
+
+.PARAMETER Model
+ Models to use for -Fix/-FixAll, best first. Omit to use any model already in memory.
+
+.PARAMETER LlmTimeout
+ Request timeout in seconds for each fix attempt. Default: 300.
 
 .PARAMETER StopOnError
  Stop on first project failure instead of continuing.
@@ -71,6 +81,9 @@ param(
  [switch]$FixAll,
  [switch]$Test,
  [int]$MaxRetries = 3,
+ [string[]]$LocalMachines = @(),
+ [string[]]$Model = @(),
+ [int]$LlmTimeout = 300,
  [switch]$StopOnError,
  [switch]$VerboseOutput,
  [switch]$Dbg
@@ -192,6 +205,7 @@ try {
    $projectArgs += "--fix"
    if ($FixAll) { $projectArgs += "--fix-all" }
    if ($MaxRetries -ne 3) { $projectArgs += "--max-retries", $MaxRetries }
+   $projectArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $Model -LlmTimeoutSeconds $LlmTimeout
  }
  if ($Test) { $projectArgs += "--test" }
 

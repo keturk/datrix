@@ -18,7 +18,7 @@ Code metrics and linting for Datrix Python packages: Radon (complexity, raw, Hal
 | `duplicate.ps1` | Run Pylint duplicate-code detection (R0801) |
 | `bandit.ps1` | Run Bandit security scanner |
 | `coverage.ps1` | Run pytest with coverage and show coverage details |
-| `test-gen.ps1` | Coverage-driven unit test generation via local Ollama |
+| `test-gen.ps1` | Coverage-driven unit test generation via a local model |
 
 ## complexity.ps1
 
@@ -248,7 +248,7 @@ Uses [scripts/library/metrics/coverage.py](../library/metrics/coverage.py) and [
 
 ## test-gen.ps1
 
-Uses [scripts/library/metrics/test_gen.py](../library/metrics/test_gen.py), [pytest-cov](https://github.com/pytest-dev/pytest-cov), [Ruff](https://github.com/astral-sh/ruff), and a local Ollama server. It runs project coverage, ranks uncovered functions, and can generate `_generated` pytest files under `tests/unit/`. Generated files are kept only after target-reference checks, Ruff auto-fix/check, the generated test file, and the full project test suite pass; failing generated files are deleted.
+Uses [scripts/library/metrics/test_gen.py](../library/metrics/test_gen.py), [pytest-cov](https://github.com/pytest-dev/pytest-cov), [Ruff](https://github.com/astral-sh/ruff), and a local model server found by [library/shared/local_llm.py](../library/shared/local_llm.py) (Ollama, vLLM or llama-server on any searched machine, failing over to the next). It runs project coverage, ranks uncovered functions, and can generate `_generated` pytest files under `tests/unit/`. Generated files are kept only after target-reference checks, Ruff auto-fix/check, the generated test file, and the full project test suite pass; failing generated files are deleted.
 
 **Modes:** `report` lists ranked candidates, `generate` creates one validated test file, and `generate-all` attempts every matching candidate. Generation modes print an `Added tests` summary for the files that were kept and a summary of generated, skipped, and failed candidates.
 
@@ -262,7 +262,7 @@ The tool writes a per-project manifest at `D:\datrix\.test-output\test-gen\<proj
 .\scripts\metrics\test-gen.ps1 datrix-common -GenerateAll -MaxRetries 3
 .\scripts\metrics\test-gen.ps1 datrix-common -Generate -TargetFunction "validate_external"
 .\scripts\metrics\test-gen.ps1 datrix-common -Generate -TargetFunction "Parser.validate_external"
-.\scripts\metrics\test-gen.ps1 datrix-common -Generate -OllamaUrl "http://10.94.0.100:11434" -Model "qwen3-coder-cline:latest"
+.\scripts\metrics\test-gen.ps1 datrix-common -Generate -LocalMachines 10.94.0.101 -Model "qwen3-coder:30b-ctx32k"
 .\scripts\metrics\test-gen.ps1 datrix-common -Generate -VerbosePrompts -MaxPromptTokens 4000
 .\scripts\metrics\test-gen.ps1 -All -Mode report
 ```
@@ -277,12 +277,13 @@ The tool writes a per-project manifest at `D:\datrix\.test-output\test-gen\<proj
 | `-Generate` | Shortcut for `-Mode generate` |
 | `-GenerateAll` | Shortcut for `-Mode generate-all` |
 | `-TargetFunction` | Bare function name, `Class.method`, `module.function`, or the full candidate id printed by report mode. Ambiguous bare names fail in generate mode. |
-| `-MaxRetries` | Maximum Ollama retries per generated test (default: 3) |
+| `-MaxRetries` | Maximum model attempts per generated test (default: 3) |
 | `-MinUncoveredRatio` | Include functions where uncovered/total lines is greater than this ratio (default: 0.5) |
 | `-MaxPromptTokens` | Approximate prompt token budget before warnings are emitted (default: 6000) |
 | `-VerbosePrompts` | Print generated prompts for debugging |
-| `-OllamaUrl` | Ollama server URL (default: `http://10.94.0.100:11434`) |
-| `-Model` | Override the Ollama model (default: `qwen3-coder-cline:latest`) |
+| `-LocalMachines` | Machines to search for model servers, in preference order (default: the list in `library/shared/local_llm.py`) |
+| `-Model` | Models to use, best first (default: any model already in memory) |
+| `-LlmTimeout` | Request timeout in seconds per generation attempt (default: 300) |
 | `-StopOnError` | Stop on first project failure |
 | `-VerboseOutput` | Verbose wrapper output |
 

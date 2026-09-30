@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Coverage-driven unit test generation for Datrix projects using Ollama.
+"""Coverage-driven unit test generation for Datrix projects using a local model.
 
 Modes:
 - report: list uncovered functions ranked by priority
@@ -23,14 +23,22 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-_ollama_utils = importlib.import_module("shared.ollama_utils")
-OLLAMA_DEFAULT_MODEL = str(_ollama_utils.OLLAMA_DEFAULT_MODEL)
-OLLAMA_DEFAULT_URL = str(_ollama_utils.OLLAMA_DEFAULT_URL)
-call_ollama = _ollama_utils.call_ollama
-parse_ollama_response = _ollama_utils.parse_ollama_response
+from shared.llm_code_fix import parse_code_response  # noqa: E402
+from shared.local_llm import (  # noqa: E402
+    ChatRequest,
+    LocalLlmPool,
+    LocalLlmUnavailable,
+    add_local_llm_arguments,
+    local_llm_settings,
+)
 
 _venv_utils = importlib.import_module("shared.venv")
 get_datrix_root = _venv_utils.get_datrix_root
+
+# One generation request: a whole test module may come back, after reasoning.
+GENERATE_TIMEOUT_MS = 300000
+GENERATE_MAX_TOKENS = 32768
+GENERATE_TEMPERATURE = 0.3
 
 DEFAULT_UNCOVERED_RATIO = 0.5
 DEFAULT_MAX_RETRIES = 3
@@ -1109,8 +1117,7 @@ def _try_generate_for_candidate(
     max_retries: int,
     max_prompt_tokens: int,
     verbose_prompts: bool,
-    ollama_url: str,
-    model: str,
+    pool: LocalLlmPool,
 ) -> GenerationResult:
     if _is_candidate_already_generated(project_root, manifest, candidate):
         return GenerationResult(
@@ -1152,19 +1159,15 @@ def _try_generate_for_candidate(
         else:
             prompt = prompt_base
 
-        response = call_ollama(
-            SYSTEM_PROMPT,
-            prompt,
-            ollama_url=ollama_url,
-            ollama_model=model,
-        )
-        if response is None:
-            retry_feedback = "Ollama returned no response."
-            continue
-
-        parsed = parse_ollama_response(response)
+        reply = pool.chat(ChatRequest(
+            system=SYSTEM_PROMPT,
+            user=prompt,
+            temperature=GENERATE_TEMPERATURE,
+            max_tokens=GENERATE_MAX_TOKENS,
+        ))
+        parsed = parse_code_response(reply.text)
         if parsed is None:
-            retry_feedback = "Could not parse Python code fence from Ollama response."
+            retry_feedback = "Could not parse Python code fence from the model response."
             continue
 
         ok, detail = _validate_generated_test(
@@ -1179,7 +1182,7 @@ def _try_generate_for_candidate(
                 manifest,
                 candidate,
                 output_path,
-                model,
+                reply.host.model,
             )
             return GenerationResult(
                 candidate=candidate,
@@ -1301,18 +1304,7 @@ def main() -> int:
             f"(default: {DEFAULT_UNCOVERED_RATIO})."
         ),
     )
-    parser.add_argument(
-        "--ollama-url",
-        type=str,
-        default=OLLAMA_DEFAULT_URL,
-        help=f"Ollama URL (default: {OLLAMA_DEFAULT_URL}).",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default=OLLAMA_DEFAULT_MODEL,
-        help=f"Ollama model (default: {OLLAMA_DEFAULT_MODEL}).",
-    )
+    add_local_llm_arguments(parser, generate_timeout_ms=GENERATE_TIMEOUT_MS)
     parser.add_argument(
         "--max-prompt-tokens",
         type=int,
@@ -1371,7 +1363,22 @@ def main() -> int:
         return 0
 
     manifest = _load_manifest(project_root)
+    pool = LocalLlmPool(local_llm_settings(args))
+    try:
+        return _run_generation(args, project_root, candidates, manifest, pool)
+    except LocalLlmUnavailable as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
 
+
+def _run_generation(
+    args: argparse.Namespace,
+    project_root: Path,
+    candidates: list[FunctionCandidate],
+    manifest: dict[str, object],
+    pool: LocalLlmPool,
+) -> int:
+    """Run generate or generate-all mode. Raises LocalLlmUnavailable when no server can answer."""
     if args.mode == "generate":
         if args.target_function is not None and len(candidates) > 1:
             print(
@@ -1394,8 +1401,7 @@ def main() -> int:
             max_retries=args.max_retries,
             max_prompt_tokens=args.max_prompt_tokens,
             verbose_prompts=args.verbose_prompts,
-            ollama_url=args.ollama_url,
-            model=args.model,
+            pool=pool,
         )
         if result.success:
             print(
@@ -1426,8 +1432,7 @@ def main() -> int:
             max_retries=args.max_retries,
             max_prompt_tokens=args.max_prompt_tokens,
             verbose_prompts=args.verbose_prompts,
-            ollama_url=args.ollama_url,
-            model=args.model,
+            pool=pool,
         )
         if result.success:
             success_count += 1

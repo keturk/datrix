@@ -34,22 +34,25 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from shared.ollama_utils import (  # noqa: E402
-    OLLAMA_DEFAULT_URL,
-    OLLAMA_MAX_FIX_RETRIES,
-    parse_ollama_response,
+from shared.llm_code_fix import (  # noqa: E402
+    MAX_FIX_RETRIES,
+    parse_code_response,
 )
-from shared.ollama_utils import (  # noqa: E402
+from shared.llm_code_fix import (  # noqa: E402
     apply_and_verify_on_disk as _apply_and_verify_on_disk_shared,
 )
-from shared.ollama_utils import (  # noqa: E402
-    call_ollama as _call_ollama_raw,
-)
-from shared.ollama_utils import (  # noqa: E402
+from shared.llm_code_fix import (  # noqa: E402
     detect_indent as _detect_indent,
 )
-from shared.ollama_utils import (  # noqa: E402
+from shared.llm_code_fix import (  # noqa: E402
     extract_file_context as _extract_file_context,
+)
+from shared.local_llm import (  # noqa: E402
+    ChatRequest,
+    LocalLlmPool,
+    LocalLlmUnavailable,
+    add_local_llm_arguments,
+    local_llm_settings,
 )
 
 try:
@@ -71,12 +74,9 @@ except ImportError:
 
 DEFAULT_MAX_COMPLEXITY = 15
 DEFAULT_IGNORE_DIRS = ("tests", "test", "__pycache__", ".git")
-DEFAULT_COMPLEXITY_OLLAMA_MODEL = "qwen3-coder:30b-ctx32k"
-DEFAULT_COMPLEXITY_OLLAMA_NUM_PREDICT = 4096
-DEFAULT_COMPLEXITY_OLLAMA_TIMEOUT_SECONDS = 180
-DEFAULT_COMPLEXITY_OLLAMA_TEMPERATURE = 0.1
+DEFAULT_COMPLEXITY_LLM_NUM_PREDICT = 4096
+DEFAULT_COMPLEXITY_LLM_TEMPERATURE = 0.1
 DEFAULT_COMPLEXITY_CONTEXT_CHARS = 8000
-DEFAULT_COMPLEXITY_OLLAMA_KEEP_ALIVE = "10m"
 
 # Blocks excluded from cognitive check (path_substring, function_name).
 EXCLUDED_COGNITIVE_BLOCKS: list[tuple[str, str]] = [
@@ -380,7 +380,7 @@ def get_function_line_range(
 
 
 def _build_system_prompt(complexity_type: str) -> str:
-    """Build a system prompt for the Ollama refactoring request."""
+    """Build a system prompt for the local-model refactoring request."""
     if complexity_type == "cyclomatic":
         metric_explanation = (
             "Cyclomatic complexity counts linearly independent paths through code. "
@@ -632,22 +632,23 @@ def _effective_num_predict(function_source: str, configured_num_predict: int) ->
     return configured_num_predict
 
 
-def call_ollama(
+def request_refactor(
     function_source: str,
     func_name: str,
     complexity_type: str,
     complexity_value: int,
     max_complexity: int,
-    ollama_url: str,
-    model: str,
-    timeout_seconds: int,
+    pool: LocalLlmPool,
     num_predict: int,
     temperature: float,
-    keep_alive: str,
     file_context: str = "",
     retry_feedback: str | None = None,
-) -> str:
-    """Send function to Ollama for complexity reduction. Return fixed source."""
+) -> str | None:
+    """Ask a local model to reduce the function's complexity.
+
+    Returns the replacement code, or None when the answer holds no code block (a failed
+    attempt, retried with feedback). Raises LocalLlmUnavailable when no server can answer.
+    """
     indent_count = len(_detect_indent(function_source))
     system_prompt = _build_system_prompt(complexity_type)
 
@@ -679,38 +680,24 @@ def call_ollama(
     parts.append(f"\nFunction to refactor:\n```python\n{function_source}```")
     user_prompt = "\n".join(parts)
 
-    response = _call_ollama_raw(
-        system_prompt, user_prompt, ollama_url, model,
-        timeout=timeout_seconds,
-        num_predict=_effective_num_predict(function_source, num_predict),
+    reply = pool.chat(ChatRequest(
+        system=system_prompt,
+        user=user_prompt,
         temperature=temperature,
-        keep_alive=keep_alive,
-    )
-    if response is None:
-        raise RuntimeError(
-            f"Failed to get response from Ollama at {ollama_url}"
-        )
-
-    result = parse_ollama_response(response)
-    if result is None:
-        raise RuntimeError("Could not parse code from Ollama response")
-    return result
+        max_tokens=_effective_num_predict(function_source, num_predict),
+    ))
+    return parse_code_response(reply.text)
 
 
-
-
-def _attempt_single_ollama_fix(
+def _attempt_single_llm_fix(
     func_source: str,
     func_name: str,
     comp_type: str,
     complexity: int,
     max_complexity: int,
-    ollama_url: str,
-    model: str,
-    timeout_seconds: int,
+    pool: LocalLlmPool,
     num_predict: int,
     temperature: float,
-    keep_alive: str,
     file_context: str,
     original_indent: str,
     lines: list[str],
@@ -718,18 +705,19 @@ def _attempt_single_ollama_fix(
     end: int,
     retry_feedback: str | None,
 ) -> tuple[str | None, str | None, list[tuple[str, int]], str]:
-    """Run one Ollama attempt and validate in-memory.
+    """Run one model attempt and validate in-memory.
 
     Returns (new_content_or_none, error_message_or_none, complexities, fixed_source).
-    On Ollama connection errors, raises RuntimeError.
+    Raises LocalLlmUnavailable when no server can answer.
     """
-    fixed_source = call_ollama(
+    fixed_source = request_refactor(
         func_source, func_name, comp_type, complexity,
-        max_complexity, ollama_url, model,
-        timeout_seconds, num_predict, temperature, keep_alive,
+        max_complexity, pool, num_predict, temperature,
         file_context=file_context,
         retry_feedback=retry_feedback,
     )
+    if fixed_source is None:
+        return None, "The answer held no Python code block.", [], ""
     fixed_source = _normalize_replacement_block(fixed_source, original_indent)
     if not fixed_source.endswith("\n"):
         fixed_source += "\n"
@@ -757,19 +745,20 @@ def _attempt_fix_violation(
     complexity: int,
     comp_type: str,
     max_complexity: int,
-    ollama_url: str,
-    model: str,
-    timeout_seconds: int,
+    pool: LocalLlmPool,
     num_predict: int,
     temperature: float,
-    keep_alive: str,
     max_context_chars: int,
     verbose: bool,
     unit_tests: bool,
     project_root: Path,
     max_retries: int,
 ) -> bool:
-    """Attempt to fix a single violation with retries. Return True if fixed."""
+    """Attempt to fix a single violation with retries. Return True if fixed.
+
+    Raises LocalLlmUnavailable when no server can answer: every later violation would
+    fail the same way, so the run stops rather than reporting each one as unfixable.
+    """
     node = find_function_node(source, func_name, lineno)
     if node is None:
         if verbose:
@@ -803,18 +792,13 @@ def _attempt_fix_violation(
     for attempt in range(1, max_retries + 1):
         if attempt > 1:
             print(f"  Retry {attempt}/{max_retries}...", file=sys.stderr)
-        print(f"  Sending to Ollama ({model})...", file=sys.stderr)
+        print(f"  Sending to {pool.activate().label()}...", file=sys.stderr)
 
-        try:
-            new_content, error_msg, complexities, failed_source = _attempt_single_ollama_fix(
-                func_source, func_name, comp_type, complexity, max_complexity,
-                ollama_url, model, timeout_seconds, num_predict, temperature,
-                keep_alive, file_context, original_indent,
-                lines, start, end, retry_feedback,
-            )
-        except RuntimeError as e:
-            print(f"  Ollama error: {e}", file=sys.stderr)
-            return False
+        new_content, error_msg, complexities, failed_source = _attempt_single_llm_fix(
+            func_source, func_name, comp_type, complexity, max_complexity,
+            pool, num_predict, temperature, file_context, original_indent,
+            lines, start, end, retry_feedback,
+        )
 
         if new_content is None:
             _log_validation_failure(error_msg, complexities, comp_type, max_complexity)
@@ -948,23 +932,21 @@ def run_fix(
     ignore_dirs: tuple[str, ...],
     verbose: bool,
     ignore_path_contains_all: tuple[str, ...] | None,
-    ollama_url: str,
-    model: str,
-    timeout_seconds: int,
+    pool: LocalLlmPool,
     num_predict: int,
     temperature: float,
-    keep_alive: str,
     max_context_chars: int,
     unit_tests: bool = False,
-    max_retries: int = OLLAMA_MAX_FIX_RETRIES,
+    max_retries: int = MAX_FIX_RETRIES,
     fix_all: bool = False,
 ) -> int:
-    """Fix complexity violations using Ollama. Return exit code.
+    """Fix complexity violations using a local model. Return exit code.
 
     Tries violations from worst to least complex, with up to max_retries
-    Ollama attempts per violation. On any failure (Ollama error, syntax error,
-    complexity still too high, ruff check, or test failure), reverts the file
-    and moves to the next violation.
+    model attempts per violation. On any failure (no code in the answer, syntax
+    error, complexity still too high, ruff check, or test failure), reverts the
+    file and moves to the next violation. Raises LocalLlmUnavailable when no
+    server can answer.
 
     With fix_all=False (default), exits after the first successful fix.
     With fix_all=True, continues fixing all violations. After a file is
@@ -995,8 +977,7 @@ def run_fix(
 
         if _attempt_fix_violation(
             file_path, source, func_name, lineno, complexity, comp_type,
-            max_complexity, ollama_url, model,
-            timeout_seconds, num_predict, temperature, keep_alive,
+            max_complexity, pool, num_predict, temperature,
             max_context_chars,
             verbose, unit_tests,
             project_root, max_retries,
@@ -1024,8 +1005,7 @@ def run_fix(
                 continue
             if _attempt_fix_violation(
                 file_path, source, func_name, lineno, complexity, comp_type,
-                max_complexity, ollama_url, model,
-                timeout_seconds, num_predict, temperature, keep_alive,
+                max_complexity, pool, num_predict, temperature,
                 max_context_chars,
                 verbose, unit_tests,
                 project_root, max_retries,
@@ -1216,7 +1196,7 @@ def main() -> int:
     parser.add_argument(
     "--fix",
     action="store_true",
-    help="Fix the worst complexity violation using local Ollama (mode=check only).",
+    help="Fix the worst complexity violation using a local model (mode=check only).",
     )
     parser.add_argument(
     "--fix-all",
@@ -1224,57 +1204,26 @@ def main() -> int:
     help="Fix ALL violations (not just the first). Implies --fix.",
     )
     parser.add_argument(
-    "--ollama-url",
-    type=str,
-    default=OLLAMA_DEFAULT_URL,
-    help=f"Ollama server URL (default: {OLLAMA_DEFAULT_URL}).",
-    )
-    parser.add_argument(
-    "--model",
-    type=str,
-    default=DEFAULT_COMPLEXITY_OLLAMA_MODEL,
-    help=f"Ollama model name (default: {DEFAULT_COMPLEXITY_OLLAMA_MODEL}).",
-    )
-    parser.add_argument(
-    "--ollama-timeout",
+    "--llm-num-predict",
     type=int,
-    default=DEFAULT_COMPLEXITY_OLLAMA_TIMEOUT_SECONDS,
-    metavar="SECONDS",
-    help=(
-        "Ollama request timeout in seconds "
-        f"(default: {DEFAULT_COMPLEXITY_OLLAMA_TIMEOUT_SECONDS})."
-    ),
-    )
-    parser.add_argument(
-    "--ollama-num-predict",
-    type=int,
-    default=DEFAULT_COMPLEXITY_OLLAMA_NUM_PREDICT,
+    default=DEFAULT_COMPLEXITY_LLM_NUM_PREDICT,
     metavar="N",
     help=(
-        "Ollama max generated tokens per refactor attempt "
-        f"(default: {DEFAULT_COMPLEXITY_OLLAMA_NUM_PREDICT})."
+        "Max generated tokens per refactor attempt "
+        f"(default: {DEFAULT_COMPLEXITY_LLM_NUM_PREDICT})."
     ),
     )
     parser.add_argument(
-    "--ollama-temperature",
+    "--llm-temperature",
     type=float,
-    default=DEFAULT_COMPLEXITY_OLLAMA_TEMPERATURE,
+    default=DEFAULT_COMPLEXITY_LLM_TEMPERATURE,
     metavar="FLOAT",
     help=(
-        "Ollama sampling temperature "
-        f"(default: {DEFAULT_COMPLEXITY_OLLAMA_TEMPERATURE})."
+        "Sampling temperature "
+        f"(default: {DEFAULT_COMPLEXITY_LLM_TEMPERATURE})."
     ),
     )
-    parser.add_argument(
-    "--ollama-keep-alive",
-    type=str,
-    default=DEFAULT_COMPLEXITY_OLLAMA_KEEP_ALIVE,
-    metavar="DURATION",
-    help=(
-        "How long Ollama should keep the model loaded between attempts "
-        f"(default: {DEFAULT_COMPLEXITY_OLLAMA_KEEP_ALIVE})."
-    ),
-    )
+    add_local_llm_arguments(parser)
     parser.add_argument(
     "--max-context-chars",
     type=int,
@@ -1294,9 +1243,9 @@ def main() -> int:
     parser.add_argument(
     "--max-retries",
     type=int,
-    default=OLLAMA_MAX_FIX_RETRIES,
+    default=MAX_FIX_RETRIES,
     metavar="N",
-    help=f"Max Ollama retry attempts per violation (default: {OLLAMA_MAX_FIX_RETRIES}).",
+    help=f"Max model attempts per violation (default: {MAX_FIX_RETRIES}).",
     )
 
     args = parser.parse_args()
@@ -1323,23 +1272,24 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        return run_fix(
-            project_root,
-            max_complexity=args.max,
-            ignore_dirs=ignore_dirs,
-            verbose=verbose,
-            ignore_path_contains_all=ignore_path_contains_all,
-            ollama_url=args.ollama_url,
-            model=args.model,
-            timeout_seconds=args.ollama_timeout,
-            num_predict=args.ollama_num_predict,
-            temperature=args.ollama_temperature,
-            keep_alive=args.ollama_keep_alive,
-            max_context_chars=args.max_context_chars,
-            unit_tests=args.test,
-            max_retries=args.max_retries,
-            fix_all=args.fix_all,
-        )
+        try:
+            return run_fix(
+                project_root,
+                max_complexity=args.max,
+                ignore_dirs=ignore_dirs,
+                verbose=verbose,
+                ignore_path_contains_all=ignore_path_contains_all,
+                pool=LocalLlmPool(local_llm_settings(args)),
+                num_predict=args.llm_num_predict,
+                temperature=args.llm_temperature,
+                max_context_chars=args.max_context_chars,
+                unit_tests=args.test,
+                max_retries=args.max_retries,
+                fix_all=args.fix_all,
+            )
+        except LocalLlmUnavailable as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
 
     if args.mode == "check":
         cc_violations = run_check(

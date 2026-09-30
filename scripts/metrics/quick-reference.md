@@ -19,18 +19,20 @@ Radon metrics: cyclomatic complexity, cognitive complexity, raw, Halstead, maint
 | **Raw metrics** | `.\metrics\complexity.ps1 datrix-common -Mode raw` | SLOC, comments, blanks |
 | **Halstead metrics** | `.\metrics\complexity.ps1 -All -Mode halstead` | Halstead complexity |
 | **Maintainability index** | `.\metrics\complexity.ps1 datrix-common -Mode mi` | MI score per file |
-| **Fix with Ollama** | `.\metrics\complexity.ps1 datrix-common -Fix` | Fix worst violation (mode=check only) |
+| **Fix with a local model** | `.\metrics\complexity.ps1 datrix-common -Fix` | Fix worst violation (mode=check only) |
 | **Fix + test** | `.\metrics\complexity.ps1 datrix-common -Fix -Test` | Fix and verify with pytest |
 | **Stop on first fail** | `.\metrics\complexity.ps1 -All -StopOnError` | Stop on first failure |
 | **Verbose** | `.\metrics\complexity.ps1 datrix-common -VerboseOutput` | Verbose output |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|cc\|raw\|halstead\|mi, default: check), `-Max` (default: 15), `-Fix`, `-Test` (with -Fix), `-StopOnError`, `-VerboseOutput`, `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|cc\|raw\|halstead\|mi, default: check), `-Max` (default: 15), `-Fix`, `-FixAll`, `-Test` (with -Fix), `-MaxRetries` (default: 3), `-LocalMachines` (default: the list in `library/shared/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-MaxContextChars` (default: 8000), `-StopOnError`, `-VerboseOutput`, `-Dbg`
+
+Every `-Fix`/LLM mode in this category searches the local machines through `library/shared/local_llm.py`: Ollama, vLLM and llama-server are discovered, models already in memory are used first, and a server that fails hands over to the next.
 
 ---
 
 ## `metrics\error-messages.ps1`
 
-Error message quality checker: detects substandard error messages (missing context, suggestions, valid options) via AST-based scoring, with optional Ollama-powered auto-fix.
+Error message quality checker: detects substandard error messages (missing context, suggestions, valid options) via AST-based scoring, with optional local-model auto-fix.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -38,12 +40,12 @@ Error message quality checker: detects substandard error messages (missing conte
 | **Check all** | `.\metrics\error-messages.ps1 -All` | All projects |
 | **Stricter threshold** | `.\metrics\error-messages.ps1 -All -MinScore 3` | Higher minimum score |
 | **Report (audit)** | `.\metrics\error-messages.ps1 datrix-common -Mode report` | List all error sites with scores |
-| **Fix with Ollama** | `.\metrics\error-messages.ps1 datrix-common -Fix` | Fix worst violation |
+| **Fix with a local model** | `.\metrics\error-messages.ps1 datrix-common -Fix` | Fix worst violation |
 | **Fix all** | `.\metrics\error-messages.ps1 datrix-common -FixAll -Test` | Fix all violations with test verification |
 | **Stop on first fail** | `.\metrics\error-messages.ps1 -All -StopOnError` | Stop on first failure |
 | **Verbose** | `.\metrics\error-messages.ps1 datrix-common -VerboseOutput` | Verbose output |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|report, default: check), `-MinScore` (default: 2), `-Fix`, `-FixAll`, `-Test` (with -Fix/-FixAll), `-MaxRetries` (default: 3), `-StopOnError`, `-VerboseOutput`, `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|report, default: check), `-MinScore` (default: 2), `-Fix`, `-FixAll`, `-Test` (with -Fix/-FixAll), `-MaxRetries` (default: 3), `-LocalMachines`, `-Model`, `-LlmTimeout` (default: 300), `-StopOnError`, `-VerboseOutput`, `-Dbg`
 
 ---
 
@@ -80,7 +82,7 @@ Two-pass Vulture dead-code report: classifies findings as "never referenced" or 
 | **Raw (no filters)** | `.\metrics\dead-code-report.ps1 -All -Raw` | Disable false-positive filters |
 | **Quiet** | `.\metrics\dead-code-report.ps1 -All -OutputPath report.md -Quiet` | Only write to file |
 
-**Parameters:** `-Projects` (positional, variadic; package names or folder paths), `-All`, `-MinConfidence` (60-100, default: 60), `-Output` (text\|json), `-OutputPath`, `-VerboseOutput`, `-Raw`, `-Quiet`
+**Parameters:** `-Projects` (positional, variadic; package names or folder paths), `-All`, `-MinConfidence` (60-100, default: 60), `-Output` (text\|json), `-OutputPath`, `-VerboseOutput`, `-Raw`, `-LlmReview`, `-LlmLimit` (default: 30), `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-Quiet`
 
 ---
 
@@ -135,7 +137,7 @@ Pylint duplicate-code detection (R0801).
 | **Include tests** | `.\metrics\duplicate.ps1 datrix-common -Tests` | Also scan tests/ |
 | **Stop on fail** | `.\metrics\duplicate.ps1 -All -StopOnError` | Stop on first failure |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mono` (mutually exclusive with -All), `-MinLines` (default: 4 for a single project; multi-root/`-Mono` runs default to 30 unless `-MinLines` is explicitly passed), `-Tests`, `-StopOnError`, `-VerboseOutput`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mono` (mutually exclusive with -All), `-MinLines` (default: 4 for a single project; multi-root/`-Mono` runs default to 30 unless `-MinLines` is explicitly passed), `-Tests`, `-StopOnError`, `-VerboseOutput`, `-LlmRefactorPlan`, `-LlmLimit` (default: 20), `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1)
 
 ---
 
@@ -158,7 +160,7 @@ Pytest coverage reports via pytest-cov.
 
 ## `metrics\test-gen.ps1`
 
-Coverage-driven unit test generation via local Ollama. Finds uncovered functions from coverage JSON, ranks candidates, and can generate validated `_generated` test files. Generated files are kept only after target-reference checks, Ruff auto-fix/check, the generated test file, and the full project test suite pass; failures are deleted. Prompts are compacted for local models with selective imports, summarized related tests, minimal class context, target literals/attributes, and short retry prompts. Successful generated tests are tracked in `D:\datrix\.test-output\test-gen\<project>\test-gen-manifest.json` — outside the package repo — and already tracked/output-existing candidates are skipped.
+Coverage-driven unit test generation via a local model. Finds uncovered functions from coverage JSON, ranks candidates, and can generate validated `_generated` test files. Generated files are kept only after target-reference checks, Ruff auto-fix/check, the generated test file, and the full project test suite pass; failures are deleted. Prompts are compacted for local models with selective imports, summarized related tests, minimal class context, target literals/attributes, and short retry prompts. Successful generated tests are tracked in `D:\datrix\.test-output\test-gen\<project>\test-gen-manifest.json` — outside the package repo — and already tracked/output-existing candidates are skipped.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -166,11 +168,11 @@ Coverage-driven unit test generation via local Ollama. Finds uncovered functions
 | **Generate top candidate** | `.\metrics\test-gen.ps1 datrix-common -Generate` | Generate, validate, run project tests, and print added tests |
 | **Generate all candidates** | `.\metrics\test-gen.ps1 datrix-common -GenerateAll -MaxRetries 3` | Attempt generation for all ranked functions; summary includes generated, skipped, and failed |
 | **Target specific function** | `.\metrics\test-gen.ps1 datrix-common -Generate -TargetFunction "validate_external"` | Generate for one named function; use `Class.method`, `module.function`, or the report candidate id when a bare name is ambiguous |
-| **Custom Ollama model** | `.\metrics\test-gen.ps1 datrix-common -Generate -Model "qwen3-coder-cline:latest"` | Override the model used for generation; default URL is `http://10.94.0.100:11434` |
+| **Pin a model** | `.\metrics\test-gen.ps1 datrix-common -Generate -Model "qwen3-coder:30b-ctx32k"` | Use only this model, on any searched machine serving it |
 | **Debug prompts** | `.\metrics\test-gen.ps1 datrix-common -Generate -VerbosePrompts -MaxPromptTokens 4000` | Print prompts and warn above the token budget |
 | **All projects report** | `.\metrics\test-gen.ps1 -All -Mode report` | Report candidates for all projects |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (report\|generate\|generate-all, default: report), `-Generate`, `-GenerateAll`, `-TargetFunction`, `-MaxRetries` (default: 3), `-MinUncoveredRatio` (default: 0.5), `-MaxPromptTokens` (default: 6000), `-VerbosePrompts`, `-OllamaUrl` (default: `http://10.94.0.100:11434`), `-Model` (default: `qwen3-coder-cline:latest`), `-StopOnError`, `-VerboseOutput`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (report\|generate\|generate-all, default: report), `-Generate`, `-GenerateAll`, `-TargetFunction`, `-MaxRetries` (default: 3), `-MinUncoveredRatio` (default: 0.5), `-MaxPromptTokens` (default: 6000), `-VerbosePrompts`, `-LocalMachines` (default: the list in `library/shared/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 300), `-StopOnError`, `-VerboseOutput`
 
 ---
 
