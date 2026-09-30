@@ -29,23 +29,21 @@
 .PARAMETER LlmLimit
     Maximum findings to include in advisory LLM triage. Default: 30.
 
-.PARAMETER OllamaUrl
-    Ollama server URL for advisory LLM triage.
+.PARAMETER LocalMachines
+    Machines to search for local model servers, in preference order. Omit to search the
+    default list in library/shared/local_llm.py.
 
 .PARAMETER LlmModel
-    Local LLM model for advisory triage.
+    Models to use for advisory triage, best first. Omit to use any model already in memory.
 
 .PARAMETER LlmTimeout
-    Ollama request timeout in seconds for advisory triage.
+    Request timeout in seconds for advisory triage.
 
 .PARAMETER LlmNumPredict
-    Ollama max generated tokens for advisory triage.
+    Max generated tokens for advisory triage.
 
 .PARAMETER LlmTemperature
-    Ollama temperature for advisory triage.
-
-.PARAMETER LlmKeepAlive
-    Ollama keep_alive value for advisory triage.
+    Sampling temperature for advisory triage.
 
 .EXAMPLE
     .\audit.ps1 -Report examples-generated-audit-report.md
@@ -63,12 +61,11 @@ param(
     [switch]$FailOnPlaceholders,
     [switch]$LlmTriage,
     [int]$LlmLimit = 30,
-    [string]$OllamaUrl = "http://10.94.0.100:11434",
-    [string]$LlmModel = "qwen3-coder:30b-ctx32k",
+    [string[]]$LocalMachines = @(),
+    [string[]]$LlmModel = @(),
     [int]$LlmTimeout = 180,
     [int]$LlmNumPredict = 4096,
-    [double]$LlmTemperature = 0.1,
-    [string]$LlmKeepAlive = "10m"
+    [double]$LlmTemperature = 0.1
 )
 
 # Show usage when no parameters provided (mimic compile.ps1)
@@ -95,6 +92,7 @@ $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scr
 $pythonScript = Join-Path $libraryDir "dev\audit_generated.py"
 
 . (Join-Path $commonDir "venv.ps1")
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 
 if (-not (Test-Path $pythonScript)) {
     Write-Error "audit_generated.py not found at: $pythonScript"
@@ -125,13 +123,10 @@ try {
         $pyArgs += @(
             "--llm-triage",
             "--llm-limit", $LlmLimit,
-            "--ollama-url", $OllamaUrl,
-            "--llm-model", $LlmModel,
-            "--llm-timeout", $LlmTimeout,
             "--llm-num-predict", $LlmNumPredict,
-            "--llm-temperature", $LlmTemperature,
-            "--llm-keep-alive", $LlmKeepAlive
+            "--llm-temperature", $LlmTemperature
         )
+        $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
     }
 
     & $pythonExe $pythonScript @pyArgs

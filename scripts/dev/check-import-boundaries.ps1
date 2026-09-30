@@ -122,6 +122,32 @@
  baseline file: any hit fails, and -UpdateBaseline has no effect on this
  check.
 
+.PARAMETER CheckReexportFacades
+ Run the re-export-facade ratchet check in addition to the import-boundary
+ check. Scans every discovered package's src/+tests/ trees, this repo's
+ own datrix/scripts/ tree, and datrix/claude-config/.claude/hooks/, for a
+ name that has a second import path through a facade: a module that
+ passes through a name it does not itself define via its own __all__ or a
+ self-aliased import (provider side); a from-M-import-N anywhere that
+ reaches through such a facade instead of the module that actually
+ defines N, and is not itself a submodule import (consumer side); a
+ pyproject.toml entry point naming an attribute its target module does
+ not define (entry-point side); or an import whose module resolves to
+ nothing on disk at all (unresolved). Every hit is attributed to the
+ PROVIDING module, never the file where a consumer statement happens to
+ appear. Compares current per-providing-module counts against the frozen
+ baseline at scripts/config/reexport-facade-baseline.toml.
+
+.PARAMETER FacadeModule
+ With -CheckReexportFacades -ShowFiles, narrow the printed per-site
+ worklist to hits attributed to this providing module (dotted module
+ path, or its relative file path). Repeatable.
+
+.PARAMETER ConsumerPackage
+ With -CheckReexportFacades -ShowFiles, narrow the printed per-site
+ worklist to hits whose site lives under this repo directory name (e.g.
+ datrix-codegen-python). Repeatable.
+
 .PARAMETER SelfTest
  Run only the self-test suite (rule-model, AST-scanner, and ratchet
  invariants, including a real mutation-based CLI non-vacuity proof) and
@@ -134,10 +160,11 @@
 
 .NOTES
  Every check invocation -- the default run and any -Check* run, i.e. every run
- without -UpdateBaseline or -SelfTest -- also runs the function-level-import
- and cross-package-vocabulary ratchets. The quality gate's
+ without -UpdateBaseline or -SelfTest -- also runs the function-level-import,
+ cross-package-vocabulary, and re-export-facade ratchets. The quality gate's
  -CheckTargetLiterals / -CheckProviderConditionals runs therefore fail on a new
- deferred import or a re-spelled vocabulary set, in the change that adds it.
+ deferred import, a re-spelled vocabulary set, or a new re-export facade, in
+ the change that adds it.
 
 .EXAMPLE
  .\check-import-boundaries.ps1
@@ -216,6 +243,18 @@
  Run the design-document label check (hard zero, no baseline)
 
 .EXAMPLE
+ .\check-import-boundaries.ps1 -CheckReexportFacades
+ Run the re-export-facade ratchet check against the frozen baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckReexportFacades -UpdateBaseline
+ Recompute and overwrite the frozen re-export-facade baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckReexportFacades -ShowFiles -FacadeModule datrix_common.errors
+ Print the per-site worklist for one providing module
+
+.EXAMPLE
  .\check-import-boundaries.ps1 -SelfTest
  Run only the self-test suite (rule model, scanners, ratchets, CLI mutation proof)
 #>
@@ -257,6 +296,15 @@ param(
 
     [Parameter()]
     [switch]$CheckDesignLabels,
+
+    [Parameter()]
+    [switch]$CheckReexportFacades,
+
+    [Parameter()]
+    [string[]]$FacadeModule = @(),
+
+    [Parameter()]
+    [string[]]$ConsumerPackage = @(),
 
     [Parameter()]
     [switch]$SelfTest,
@@ -312,15 +360,17 @@ try {
     $venvPath = Get-DatrixVenvPath
     $pythonExe = Join-Path $venvPath "Scripts\python.exe"
 
-    # The function-level-import and cross-package-vocabulary ratchets run on
-    # every check invocation -- the default run and every -Check* run alike --
-    # so a new deferred import or a re-spelled vocabulary fails the gate run in
-    # the change that introduces it, whichever other check that run asked for.
-    # Only a baseline update (which touches just the baselines it names) and a
+    # The function-level-import, cross-package-vocabulary, and re-export-
+    # facade ratchets run on every check invocation -- the default run and
+    # every -Check* run alike -- so a new deferred import, a re-spelled
+    # vocabulary, or a new re-export facade fails the gate run in the change
+    # that introduces it, whichever other check that run asked for. Only a
+    # baseline update (which touches just the baselines it names) and a
     # self-test-only run leave them to their explicit flags.
     if (-not $UpdateBaseline -and -not $SelfTest) {
         $CheckFunctionLevelImports = [switch]$true
         $CheckCrossPackageVocabulary = [switch]$true
+        $CheckReexportFacades = [switch]$true
     }
 
     # Build arguments for Python script
@@ -337,6 +387,9 @@ try {
     if ($CheckCrossPackageVocabulary) { $pythonArgs += "--check-cross-package-vocabulary" }
     if ($CheckOwnTargetNames) { $pythonArgs += "--check-own-target-names" }
     if ($CheckDesignLabels) { $pythonArgs += "--check-design-labels" }
+    if ($CheckReexportFacades) { $pythonArgs += "--check-reexport-facades" }
+    foreach ($module in $FacadeModule) { $pythonArgs += "--facade-module"; $pythonArgs += $module }
+    foreach ($repo in $ConsumerPackage) { $pythonArgs += "--consumer-package"; $pythonArgs += $repo }
     if ($SelfTest) { $pythonArgs += "--self-test" }
 
     # Debug output if requested

@@ -2,9 +2,9 @@
 """Generate ``@test-rule`` conformance annotations for test functions via a local LLM.
 
 Walks each package's ``tests/`` tree, finds un-annotated test functions, and asks a
-local Ollama model to decide whether the test encodes a cross-target *conformance
-rule* and, if so, to emit a structured marker (topic / dimensions / behavior /
-differs / see). Results are written as reviewable proposals; a second ``--apply``
+local model (the ``--model`` one, on whichever machine ``shared.local_llm`` finds it
+serving) to decide whether the test encodes a cross-target *conformance rule* and, if
+so, to emit a structured marker (topic / dimensions / behavior / differs / see). Results are written as reviewable proposals; a second ``--apply``
 run inserts the reviewed markers above the test functions.
 
 The markers feed the logic-map Rule Matrix (see logic_map.py / logic_map_report.py):
@@ -35,11 +35,8 @@ import ast
 import io
 import json
 import logging
-import sqlite3
 import sys
 import threading
-import urllib.error
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -55,6 +52,16 @@ _library_dir = Path(__file__).resolve().parent.parent
 if _library_dir.exists() and str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
+from code_index.queries import TEST_RULE_KIND, marker_topics  # noqa: E402
+from code_index.session import open_session  # noqa: E402
+from code_index.sources import CodeIndexError  # noqa: E402
+from shared.local_llm import (  # noqa: E402
+    ChatRequest,
+    LocalLlmPool,
+    LocalLlmUnavailable,
+    add_local_llm_arguments,
+    local_llm_settings,
+)
 from shared.venv import get_datrix_root  # noqa: E402
 
 from dev.logic_map import iter_python_files, resolve_scan_paths  # noqa: E402
@@ -65,11 +72,11 @@ LOG = logging.getLogger("generate_test_rules")
 # Defaults
 # ---------------------------------------------------------------------------
 
-DEFAULT_ENDPOINT = "http://10.94.0.100:11434"
 DEFAULT_MODEL = "exaone-deep:32b"
 DEFAULT_PARALLEL = 4
 DEFAULT_NUM_CTX = 32768
-DEFAULT_TIMEOUT_S = 240
+DEFAULT_TIMEOUT_MS = 240000
+ANNOTATION_TEMPERATURE = 0.1
 
 # Test directories excluded by default (slow / cross-cutting; few per-target rules).
 # Opt back in with --include-e2e / --include-integration, or target them via --path.
@@ -357,7 +364,7 @@ def already_annotated(lines: list[str], def_line: int) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# LLM client (Ollama)
+# LLM client (shared.local_llm)
 # ---------------------------------------------------------------------------
 
 def _extract_json_object(content: str) -> dict[str, object]:
@@ -377,51 +384,40 @@ def _extract_json_object(content: str) -> dict[str, object]:
     return obj
 
 
-def call_ollama(
-    endpoint: str,
-    model: str,
+def request_json(
+    pool: LocalLlmPool,
     user_prompt: str,
     *,
-    timeout: int,
     num_ctx: int,
     system: str = _SYSTEM_PROMPT,
     schema: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    """Call Ollama ``/api/chat`` with a JSON-schema-constrained response.
+    """Ask the pool's model for a JSON-schema-constrained answer.
 
     Args:
-        endpoint: Base URL, e.g. http://10.94.0.100:11434.
-        model: Ollama model name.
+        pool: Local model servers serving the run's model.
         user_prompt: The user message.
-        timeout: Socket timeout in seconds.
         num_ctx: Context window for the request.
         system: System prompt (defaults to the annotation prompt).
         schema: Response JSON schema (defaults to _RESPONSE_SCHEMA).
 
     Returns:
         Parsed response object matching the schema.
+
+    Raises:
+        LocalLlmUnavailable: no server can serve the model.
+        ValueError: the answer is not a JSON object (json.JSONDecodeError included).
     """
-    url = endpoint.rstrip("/") + "/api/chat"
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_prompt},
-        ],
-        "stream": False,
-        "format": schema if schema is not None else _RESPONSE_SCHEMA,
-        "options": {"temperature": 0.1, "num_ctx": num_ctx},
-    }
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    content = str(data.get("message", {}).get("content", ""))
-    return _extract_json_object(content)
+    reply = pool.chat(ChatRequest(
+        system=system,
+        user=user_prompt,
+        temperature=ANNOTATION_TEMPERATURE,
+        context_window=num_ctx,
+        json_schema=schema if schema is not None else _RESPONSE_SCHEMA,
+        # The default model reasons before answering; that reasoning is the point.
+        think=True,
+    ))
+    return _extract_json_object(reply.text)
 
 
 def build_user_prompt(pkg: str, rel: str, tf: TestFunc, known_topics: list[str]) -> str:
@@ -540,12 +536,11 @@ def consolidate_topics(proposals: list[Proposal], anchors: set[str], cfg: argpar
     if len(topics) < 2:
         return {}
     try:
-        result = call_ollama(
-            cfg.endpoint, cfg.model, _consolidation_prompt(topics, sorted(anchors)),
-            timeout=cfg.timeout, num_ctx=cfg.num_ctx,
-            system=_CONSOLIDATE_SYSTEM, schema=_CONSOLIDATE_SCHEMA,
+        result = request_json(
+            cfg.pool, _consolidation_prompt(topics, sorted(anchors)),
+            num_ctx=cfg.num_ctx, system=_CONSOLIDATE_SYSTEM, schema=_CONSOLIDATE_SCHEMA,
         )
-    except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError) as exc:
+    except (LocalLlmUnavailable, ValueError) as exc:
         LOG.warning("consolidation pass failed (%s); normalizing slugs only", exc)
         return {}
     merges = result.get("merges", [])
@@ -592,20 +587,18 @@ def apply_topic_map(proposals: list[Proposal], mapping: dict[str, str]) -> int:
 # Topic seeding
 # ---------------------------------------------------------------------------
 
-def seed_topics_from_db(datrix_root: Path) -> set[str]:
-    """Seed the topic vocabulary from existing test-rule markers in the logic map."""
-    db = datrix_root / ".logic-map" / "markers.db"
-    if not db.exists():
-        return set()
+def seed_topics_from_index(datrix_root: Path) -> set[str]:
+    """The topics of every test-rule marker in source, read from the freshly refreshed code index.
+
+    Raises CodeIndexError when the index cannot be refreshed: consolidating against a
+    missing vocabulary would silently mint duplicate topics.
+    """
+    session = open_session(datrix_root)
     try:
-        conn = sqlite3.connect(str(db))
-        try:
-            rows = conn.execute("SELECT DISTINCT topic FROM markers WHERE kind='test-rule'")
-            return {str(r[0]) for r in rows}
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        return set()
+        LOG.info(session.refresh().line())
+        return marker_topics(session.conn, TEST_RULE_KIND)
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -657,14 +650,17 @@ def _process_one(
     vocab: _Vocabulary,
     cfg: argparse.Namespace,
 ) -> Proposal:
-    """Annotate a single test function (one LLM call). Never raises."""
+    """Annotate a single test function (one LLM call).
+
+    An unusable answer becomes an error proposal. Raises LocalLlmUnavailable when no
+    server can serve the model: every remaining function would fail the same way, and
+    an error proposal is never retried on resume.
+    """
     try:
-        result = call_ollama(
-            cfg.endpoint, cfg.model,
-            build_user_prompt(pkg, rel, tf, vocab.snapshot()),
-            timeout=cfg.timeout, num_ctx=cfg.num_ctx,
+        result = request_json(
+            cfg.pool, build_user_prompt(pkg, rel, tf, vocab.snapshot()), num_ctx=cfg.num_ctx,
         )
-    except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError) as exc:
+    except ValueError as exc:
         LOG.warning("  %s :: %s -> error: %s", rel, tf.qualname, exc)
         return Proposal(file=rel, qualname=tf.qualname, name=tf.name,
                         def_line=tf.def_line, col=tf.col, applicable=False, error=str(exc))
@@ -774,21 +770,26 @@ def propose_package(
 
     completed = 0
     out_md = out_dir / f"{pkg}.md"
-    with ThreadPoolExecutor(max_workers=cfg.parallel) as pool:
-        futures = {pool.submit(_process_one, tf, pkg, rel, vocab, cfg): (rel, tf) for rel, tf in pending}
-        for fut in as_completed(futures):
-            prop = fut.result()
-            results.append(prop)
-            completed += 1
-            status = prop.topic if prop.applicable else ("ERROR" if prop.error else "skip")
-            LOG.info("  [%d/%d] %s :: %s -> %s", completed, len(pending),
-                     prop.file, prop.qualname, status)
-            if completed % _CHECKPOINT_EVERY == 0:
-                _write_proposals(out_json, results)
-                _write_preview(out_md, pkg, results, cfg)
-
-    _write_proposals(out_json, results)
-    _write_preview(out_md, pkg, results, cfg)
+    try:
+        with ThreadPoolExecutor(max_workers=cfg.parallel) as executor:
+            futures = {
+                executor.submit(_process_one, tf, pkg, rel, vocab, cfg): (rel, tf) for rel, tf in pending
+            }
+            for fut in as_completed(futures):
+                prop = fut.result()
+                results.append(prop)
+                completed += 1
+                status = prop.topic if prop.applicable else ("ERROR" if prop.error else "skip")
+                LOG.info("  [%d/%d] %s :: %s -> %s", completed, len(pending),
+                         prop.file, prop.qualname, status)
+                if completed % _CHECKPOINT_EVERY == 0:
+                    _write_proposals(out_json, results)
+                    _write_preview(out_md, pkg, results, cfg)
+    finally:
+        # Also on LocalLlmUnavailable: keep every answer already paid for, so a resume
+        # starts where this run stopped.
+        _write_proposals(out_json, results)
+        _write_preview(out_md, pkg, results, cfg)
     return results
 
 
@@ -914,7 +915,7 @@ def _write_preview(path: Path, pkg: str, proposals: list[Proposal], cfg: argpars
     lines = [
         f"# Test-rule proposals — {pkg}",
         "",
-        f"- Model: `{cfg.model}` @ `{cfg.endpoint}`",
+        f"- Model: `{cfg.model}` (searched {', '.join(cfg.pool.settings.machines)})",
         f"- Generated: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}",
         f"- Total functions examined: {len(proposals)}",
         f"- Applicable (will insert): {len(applicable)}",
@@ -970,9 +971,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                         help="Insert reviewed proposals into the test files (default: propose only)")
     parser.add_argument("--review", action="store_true",
                         help="Print a triage report of existing proposals (no LLM, no source changes)")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Ollama model (default: {DEFAULT_MODEL})")
-    parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT,
-                        help=f"Ollama base URL (default: {DEFAULT_ENDPOINT})")
+    parser.add_argument("--model", default=DEFAULT_MODEL,
+                        help=f"Model to annotate with, on any machine serving it; also names the "
+                             f"proposal set --apply/--review read (default: {DEFAULT_MODEL})")
     parser.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL,
                         help=f"Concurrent LLM calls (default: {DEFAULT_PARALLEL})")
     parser.add_argument("--limit", type=int, default=0,
@@ -991,9 +992,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                         help="Include tests/integration (excluded by default)")
     parser.add_argument("--num-ctx", type=int, default=DEFAULT_NUM_CTX, dest="num_ctx",
                         help=f"Model context window (default: {DEFAULT_NUM_CTX})")
-    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_S,
-                        help=f"Per-call timeout seconds (default: {DEFAULT_TIMEOUT_S})")
     parser.add_argument("--debug", "-d", action="store_true", help="Debug logging")
+    add_local_llm_arguments(parser, generate_timeout_ms=DEFAULT_TIMEOUT_MS, model_preference=False)
     return parser
 
 
@@ -1040,20 +1040,28 @@ def main() -> int:
         return _run_review(pairs, datrix_root, cfg)
     if cfg.apply:
         return _run_apply(pairs, datrix_root, cfg.model, cfg.filters)
-    return _run_propose(pairs, datrix_root, cfg)
+    cfg.pool = LocalLlmPool(local_llm_settings(cfg, models=(cfg.model,)))
+    try:
+        return _run_propose(pairs, datrix_root, cfg)
+    except LocalLlmUnavailable as exc:
+        LOG.error("Stopped: %s Proposals made so far are saved; re-run to resume.", exc)
+        return 1
+    except CodeIndexError as exc:
+        LOG.error("Stopped: the code index could not supply the existing test-rule topics: %s", exc)
+        return 1
 
 
 def _run_propose(pairs: list[tuple[str, Path]], datrix_root: Path, cfg: argparse.Namespace) -> int:
     """Propose phase across all resolved packages, then consolidate topics."""
-    seed = set() if cfg.no_seed else seed_topics_from_db(datrix_root)
-    vocab = _Vocabulary(seed)
+    anchors = seed_topics_from_index(datrix_root)
+    vocab = _Vocabulary(set() if cfg.no_seed else anchors)
     per_pkg: list[tuple[str, list[Proposal]]] = []
     for pkg, tests_dir in pairs:
         per_pkg.append((pkg, propose_package(pkg, tests_dir, datrix_root, vocab, cfg)))
 
     out_dir = _output_dir(datrix_root, cfg.model)
     if not cfg.no_consolidate:
-        _consolidate_and_rewrite(per_pkg, out_dir, datrix_root, cfg)
+        _consolidate_and_rewrite(per_pkg, out_dir, anchors, cfg)
 
     total_applicable = sum(1 for _, rs in per_pkg for p in rs if p.applicable)
     LOG.info("\n[OK] Proposals written under %s (%d applicable). Review, then re-run with --apply.",
@@ -1064,12 +1072,15 @@ def _run_propose(pairs: list[tuple[str, Path]], datrix_root: Path, cfg: argparse
 def _consolidate_and_rewrite(
     per_pkg: list[tuple[str, list[Proposal]]],
     out_dir: Path,
-    datrix_root: Path,
+    anchors: set[str],
     cfg: argparse.Namespace,
 ) -> None:
-    """Run the topic-consolidation pass over the whole run and re-write proposals."""
+    """Run the topic-consolidation pass over the whole run and re-write proposals.
+
+    ``anchors`` are the existing test-rule topics, used as canonical names even under
+    --no-seed.
+    """
     all_props = [p for _, rs in per_pkg for p in rs]
-    anchors = seed_topics_from_db(datrix_root)  # canonical anchors, even under --no-seed
     mapping = consolidate_topics(all_props, anchors, cfg)
     changed = apply_topic_map(all_props, mapping)  # also kebab-normalizes when mapping is empty
     LOG.info("Consolidation: %d merge rule(s), %d topic(s) rewritten", len(mapping), changed)
@@ -1158,7 +1169,8 @@ def _run_apply(pairs: list[tuple[str, Path]], datrix_root: Path, model: str, fil
         ins, skp = apply_package(pkg, datrix_root, model, filters)
         total_ins += ins
         total_skip += skp
-    LOG.info("\n[OK] Inserted %d marker(s); skipped %d. Rebuild: logic-map.ps1 -All",
+    LOG.info("\n[OK] Inserted %d marker(s); skipped %d. The code index picks them up on its next "
+             "refresh (any code-index.ps1 query), which rewrites .logic-map/markers.db.",
              total_ins, total_skip)
     return 0
 
