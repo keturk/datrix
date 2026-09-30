@@ -154,11 +154,11 @@ Before reading any logs, check if the test results directory contains structured
    ```bash
    powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" "{test-results-dir}"
    ```
-   It gives you counts, every error/failure cluster with normalized pattern, and each cluster's representative with traceback tail, `generated_file`, and `codegen_hint` — without reading `index.json`'s arrays by hand.
+   It gives you counts, `families` (clusters sharing one normalized pattern), every error/failure cluster, and each cluster's representative with `generated_file` and `codegen_hint` — without reading `index.json`'s arrays by hand. Only a family's first cluster embeds `traceback_tail` (the rest point to it via `traceback_tail_in_cluster`). A family's `hint` is an advisory local-model hypothesis about the defect site — a place to look first, confirmed in the generator/template before any fix, never cited as the root cause.
 2. Read from `index.json` only the small top-level `services` breakdown (per-service results); skip its `failures[]`/`clusters[]` arrays
 
 **End-of-phase assessment:**
-- Number of distinct clusters (each cluster = one probable root cause)
+- Number of distinct families (each family = one probable root cause; its clusters are the places it surfaced)
 - Which services/projects are affected per cluster
 - Codegen hints available (probable template/generator)
 - Whether this is an error cluster (import/collection issues) or failure cluster (assertion failures)
@@ -174,7 +174,7 @@ Before reading any logs, check if the test results directory contains structured
 
 For each error cluster in priority order (highest count first):
 
-1. Start from the representative's `traceback_tail` already embedded in `failure-data.json`; read the full **representative error file** at `errors/{NNN}-*.txt` (~30 lines each) only if the tail lacks context. Each file contains:
+1. Start from the family head's `traceback_tail` already embedded in `failure-data.json`; read the full **representative error file** at `errors/{NNN}-*.txt` (~30 lines each) only if the tail lacks context or the `error_message` is marked `[message cut: ...]`. Each file contains:
    - `SERVICE`: which service
    - `TEST`: which test file
    - `CLUSTER`: the normalized pattern

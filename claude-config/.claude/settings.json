@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "mcp__datrix-code-index",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/dev/generate.ps1\" -Domains -L python)",
       "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-python diff --stat 2>&1)",
       "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-aws diff --stat 2>&1)",
@@ -102,6 +103,15 @@
           {
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/track-mandatory-reads.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Grep|Glob|Read|Bash|PowerShell|mcp__datrix-code-index__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/record-search-usage.py\""
           }
         ]
       }

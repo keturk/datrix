@@ -20,7 +20,7 @@ Read the task file at the path above. It contains everything you need: files to 
 - Read ALL files listed in "Files to Review Before Starting"
 - Read existing code in files to be modified
 - Search for existing functions/utilities to reuse (DRY principle)
-- Check logic map markers in `d:/datrix/.logic-map/markers.db` before modifying marked code
+- Check logic map markers (code-index MCP `find_canonical`, or `datrix/scripts/dev/code-index.ps1 -Canonical <topic>`) before modifying marked code
 - **Ambiguity is not a blocker — it is a question you first try to answer yourself.** Read the design docs, the surrounding code, and existing patterns. Return `NEEDS_CONTEXT` **only** for a genuine B2 (two defensible designs, expensive to reverse, nothing in the docs settles it) or a missing user input you cannot derive — and when you do, state the options and **your recommendation**, never a bare question.
 
 ### 2. IMPLEMENT (Write Code)

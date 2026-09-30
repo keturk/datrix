@@ -35,7 +35,7 @@ disable-model-invocation: true
 - `datrix_codegen_python.generation.sample_values` → `select_sample_index`
 - `datrix_codegen_kernel.generation.registry` → `GeneratorDep`, `SubGeneratorSpec`
 - `datrix_codegen_kernel.generation.validation` → `require_mapped_type`, `validate_template_dir`, `require_deployment_field`
-- `datrix_codegen_common.generation.defaults` → `build_project_config`
+- `datrix_codegen_kernel.generation.project_defaults` → `build_project_config`
 - `datrix_cli.generation.file_writer` → `FileWriter`, `WriteResult`, `ConflictStrategy`
 - `datrix_codegen_common.generation.language_hooks` → `LanguageHooks`
 - `datrix_common.plugin.hook_outcome` → `HookOutcome`

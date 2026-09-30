@@ -129,8 +129,10 @@ rule 4), not part of verifying your fix.
 `triage-failures.ps1` parses the generate log and groups failures by likely root cause into a Markdown report:
 
 ```bash
-powershell -File "d:/datrix/datrix/scripts/dev/triage-failures.ps1" "{log-path}" -Format generate -OutputFile "D:\datrix\.test-output\generation-triage.md"
+powershell -File "d:/datrix/datrix/scripts/dev/triage-failures.ps1" "{log-path}" -Format generate -LlmSummary -OutputFile "D:\datrix\.test-output\generation-triage.md"
 ```
+
+The report ends with a **Local LLM Advisory Triage** section written by a local model server (searched by `library/shared/local_llm.py`; it says "unavailable" when none answered). It proposes a probable cause and first file per group — a hypothesis for what to open first, never a classification or root cause: Step 3's classification and Step 4's root cause come from the code you read.
 
 The triage report — not the raw log — is your working input. Never read a whole multi-project log into context; read only the block of the **one example you are currently working** (Step 1).
 

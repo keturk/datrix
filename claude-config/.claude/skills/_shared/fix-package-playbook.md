@@ -67,7 +67,8 @@ Each project (`datrix-*`) is its own independent git repository — commits and 
 Two scripts turn the run directory into compact structured JSON (read `datrix/scripts/test/quick-reference.md` before invoking; a pre-tool hook enforces this):
 
 ```bash
-# Cluster bundle: per-cluster representative traceback tail + ready-to-run test_command
+# Cluster bundle: families of clusters, one traceback tail per family, a ready-to-run
+# test_command per cluster, and an advisory local-model hint for the first 5 families
 powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" "{run-dir-or-index.json}"
 # → {run-dir}\failure-data.json
 
@@ -113,11 +114,12 @@ Inside the fix loop (Steps 2–8), never run a whole-package suite — verify ea
 
 ### Step 1: Parse Test Results (scripted)
 
-1. Run `collect-failure-data.ps1` on the provided path and read the resulting `failure-data.json` — it contains counts, every cluster (errors first), each cluster's representative with its traceback tail, and a ready `test_command`. Do NOT read `index.json`'s failure arrays or the `failures/` files directly for triage.
+1. Run `collect-failure-data.ps1` on the provided path and read the resulting `failure-data.json` — it contains counts, `families` (clusters sharing one normalized pattern, errors first), every cluster with its representative and a ready `test_command`. Do NOT read `index.json`'s failure arrays or the `failures/` files directly for triage.
 2. Triage from its `counts`: `error` > 0 → errors exist (fix first); `failed` > 0 → failures.
-3. Work per-cluster from the embedded representative `traceback_tail`. Read the representative's full `log_file` only when the tail is insufficient — never read every file in `failures/`.
-4. If `warnings_section_present` is true, run `extract-warnings.ps1` and read `warnings.json` (see above).
-5. **More than 5 distinct clusters (errors + failures combined) → STOP and propose splitting into multiple sessions.**
+3. **Work per family, not per cluster.** A family is one assertion or error raised from several tests, so it is one root cause until the evidence says otherwise. Only the family's first cluster carries `traceback_tail`; the others say `traceback_tail_in_cluster: {id}` and keep their own `log_file`. Read a representative's full `log_file` only when the tail is insufficient — never read every file in `failures/`. An `error_message` ending in `[message cut: ...]` is whole in that entry's `log_file`.
+4. **A family's `hint` is a hypothesis, not a finding.** When `hint.source` names a model, a local model read the traceback and the source around its frames and proposed a defect site and cause. Use it to decide what to open first, then confirm it against the code yourself before any edit — never edit on a hint alone, and never quote it as a root cause. `source: "unavailable"` (no local server answered) or `"skipped"` (past the hint limit) means work from the traceback as usual.
+5. If `warnings_section_present` is true, run `extract-warnings.ps1` and read `warnings.json` (see above).
+6. **More than 5 distinct families (errors + failures combined) → STOP and propose splitting into multiple sessions.**
 
 ### Step 2: Fix Errors first
 
@@ -207,7 +209,8 @@ If the root cause is in a different project, do NOT fix it directly. Report the 
 
 - **NO exploring the project structure** — read `.project-structure.md` and the context above; don't rediscover it
 - **NO hand-parsing what the scripts extract** — `collect-failure-data.ps1` and `extract-warnings.ps1` own the run-dir parsing; read their JSON
-- **NO reading every file in failures/** — cluster representatives only, and only when the embedded `traceback_tail` is insufficient
+- **NO reading every file in failures/** — family representatives only, and only when the embedded `traceback_tail` is insufficient
+- **NO editing on a hint** — a family `hint` says where to look first; the code you read says what is wrong
 - **NO whole-suite runs inside the fix loop** — verify individual tests per fix; one tag-based regression check (Step 9); then exactly one full suite of `{PACKAGE}` per pass (Step 10), never of another package
 - **NO cross-package fixes** — hand off via the other project's fix skill
 - **NO security downgrade to reach green** — no disabled/loosened auth, TLS, CORS, permission, or validation check; no hardcoded or logged secret; no fail-open guard; no widened permission. The control is the requirement (§13)

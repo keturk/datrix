@@ -26,7 +26,7 @@ dependency; it imports none of them, and no frontend target depends on the backe
 `datrix-codegen-kernel` holds the target-neutral generation framework
 (`datrix_codegen_kernel`: generator base classes, template engine, discovery, the shared
 route and runtime derivations, the deploy-script machinery, the GenDSL data model, the Seed
-datasets) and depends on `datrix-common` alone. Every generator, the language layer
+datasets) and depends on `datrix-common` and `datrix-migration`. Every generator, the language layer
 (`datrix-codegen-common`), the CLI and `datrix-testing` declare it as a runtime
 dependency; it loads no language-layer, generator, parser, semantic or CLI module.
 
@@ -36,8 +36,8 @@ a `dev` extra, never as a runtime dependency. The `pytest11` feature-tag plugin
 
 `datrix-migration` holds the RDBMS migration machinery (`datrix_migration`: schema
 snapshot, schema diff, change policy, revision ledger, state store) and depends on
-`datrix-common` alone. The CLI, the codegen layer and every RDBMS-emitting generator
-declare it as a runtime dependency.
+`datrix-common` alone. The CLI, the generation kernel, the codegen layer and every
+RDBMS-emitting generator declare it as a runtime dependency.
 
 `datrix-semantic` holds semantic analysis (`datrix_semantic`: the analyzer, its phase
 pipeline, every domain validator, synthesis, and auth-contract lowering) and depends on
