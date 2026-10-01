@@ -96,7 +96,12 @@ _PYDANTIC_BASES = frozenset({"BaseModel", "BaseSettings"})
 _VALIDATOR_DECORATORS = frozenset({
     "field_validator", "model_validator", "computed_field", "field_serializer",
 })
-_COMMAND_DECORATORS = frozenset({"command", "callback"})
+#: Decorators that register a module-level function with a registry, so the
+#: function is reached through that registry rather than by name: Typer's
+#: ``command``/``callback``, and genDSL's ``generator_definition`` (the
+#: compiler parses the decorated function's docstring into a registered
+#: ``GeneratorDefinition`` at import time; nothing ever calls it by name).
+_COMMAND_DECORATORS = frozenset({"command", "callback", "generator_definition"})
 
 
 class Finding(NamedTuple):
@@ -369,13 +374,28 @@ def _project_for_path(path_str: str, packages: dict[str, Path]) -> str | None:
     return None
 
 
+class DeadCodeError(RuntimeError):
+    """The dead-code scan cannot run as asked; the message says why."""
+
+
+# Vulture's exit codes for a completed scan: 0 = nothing found, 3 = dead code found. Any
+# other code (1 invalid input, 2 bad arguments, or Python's own 1 for "No module named
+# vulture") means no scan happened -- and reading its empty stdout as "no dead code" is
+# exactly the fail-open this module once had: every report was clean in a venv without
+# Vulture installed.
+_VULTURE_COMPLETED = frozenset({0, 3})
+
+
 def _run_vulture(
     paths: list[str],
     exclude_pattern: str,
     min_confidence: int,
     cwd: str,
 ) -> tuple[list[Finding], int]:
-    """Run Vulture with given paths and exclude; return (parsed findings, returncode)."""
+    """Run Vulture with given paths and exclude; return (parsed findings, returncode).
+
+    Raises DeadCodeError when Vulture did not complete a scan.
+    """
     cmd = [
         sys.executable,
         "-m",
@@ -392,6 +412,13 @@ def _run_vulture(
         text=True,
         cwd=cwd,
     )
+    if result.returncode not in _VULTURE_COMPLETED:
+        detail = (result.stderr or "").strip().splitlines()
+        raise DeadCodeError(
+            f"Vulture did not complete a scan (exit {result.returncode}): "
+            f"{detail[-1] if detail else 'no error output'}. If Vulture is missing, install it into the "
+            f"shared venv: {sys.executable} -m pip install vulture"
+        )
     findings: list[Finding] = []
     for line in (result.stdout or "").splitlines():
         f = _parse_line(line)
@@ -535,39 +562,34 @@ def _collect_paths(
     return paths
 
 
-def run_report(
+class DeadCodeResult(NamedTuple):
+    """Findings per project, each split into never referenced / only referenced by tests."""
+
+    by_project: dict[str, dict[str, list[Finding]]]
+    filtered_count: int
+
+
+def collect_dead_code(
     workspace_root: Path,
     project_names: list[str],
     min_confidence: int,
-    output_format: str,
-    verbose: bool,
+    verbose: bool = False,
     raw: bool = False,
-    llm_review: bool = False,
-    llm_limit: int = DEFAULT_LLM_FINDING_LIMIT,
-    llm_settings: LocalLlmSettings = LocalLlmSettings(),
-    llm_num_predict: int = DEFAULT_LLM_NUM_PREDICT,
-    llm_temperature: float = DEFAULT_LLM_TEMPERATURE,
-) -> int:
-    """Run two-pass Vulture, classify, and print report. Returns 0 on success."""
+) -> DeadCodeResult:
+    """Run two-pass Vulture over the named packages and classify every finding.
+
+    Raises DeadCodeError when no package matches or none has a src/ tree.
+    """
     packages = _discover_packages(workspace_root)
     if not packages:
-        print(
-            f"Error: no datrix-* packages found under {workspace_root}",
-            file=sys.stderr,
-        )
-        return 1
+        raise DeadCodeError(f"no datrix-* packages found under {workspace_root}")
 
     selected = [p for p in project_names if p in packages]
     missing = set(project_names) - set(packages.keys())
     if missing:
-        print(
-            f"Error: unknown package(s): {sorted(missing)}. Available: {sorted(packages.keys())}",
-            file=sys.stderr,
-        )
-        return 1
+        raise DeadCodeError(f"unknown package(s): {sorted(missing)}. Available: {sorted(packages.keys())}")
     if not selected:
-        print("Error: no projects selected.", file=sys.stderr)
-        return 1
+        raise DeadCodeError("no projects selected.")
 
     packages = {k: v for k, v in packages.items() if k in selected}
     project_roots = list(packages.values())
@@ -576,8 +598,7 @@ def run_report(
     # Pass 1: src only (exclude tests)
     paths_src_only = _collect_paths(packages, include_tests=False)
     if not paths_src_only:
-        print("Error: no src directories to scan.", file=sys.stderr)
-        return 1
+        raise DeadCodeError("no src directories to scan.")
     if verbose:
         print("Pass 1 (src only)...", file=sys.stderr)
     findings_src_only, _ = _run_vulture(
@@ -648,6 +669,28 @@ def run_report(
     for proj in by_project:
         for kind in ("never_referenced", "only_referenced_by_tests"):
             by_project[proj][kind].sort(key=lambda x: (x.file, x.line))
+    return DeadCodeResult(by_project, total_filtered if not raw else 0)
+
+
+def run_report(
+    workspace_root: Path,
+    project_names: list[str],
+    min_confidence: int,
+    output_format: str,
+    verbose: bool,
+    raw: bool = False,
+    llm_review: bool = False,
+    llm_limit: int = DEFAULT_LLM_FINDING_LIMIT,
+    llm_settings: LocalLlmSettings = LocalLlmSettings(),
+    llm_num_predict: int = DEFAULT_LLM_NUM_PREDICT,
+    llm_temperature: float = DEFAULT_LLM_TEMPERATURE,
+) -> int:
+    """Run two-pass Vulture, classify, and print report. Returns 0 on success."""
+    try:
+        by_project, total_filtered = collect_dead_code(workspace_root, project_names, min_confidence, verbose, raw)
+    except DeadCodeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
     llm_advisory = AdvisoryText("", ADVISORY_UNAVAILABLE_SOURCE)
     if llm_review:

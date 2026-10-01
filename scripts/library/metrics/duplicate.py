@@ -49,8 +49,28 @@ _DUPLICATE_START_RE = re.compile(
 _DUPLICATE_FILE_RE = re.compile(r"^==(.+):\[(\d+):(\d+)\]")
 
 
-def _parse_duplicate_groups(pylint_output: str) -> list[dict[str, object]]:
-    """Parse Pylint R0801 output into duplicate groups for advisory review."""
+class DuplicateScanError(RuntimeError):
+    """Pylint could not run the duplicate-code check; the message says why."""
+
+
+def run_pylint_duplicates(scan_paths: list[Path], min_lines: int, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Run Pylint's R0801 duplicate-code check over ``scan_paths``.
+
+    Raises DuplicateScanError when Pylint is not installed.
+    """
+    cmd = [sys.executable, "-m", "pylint", "--disable=all", "--enable=R0801",
+           f"--min-similarity-lines={min_lines}", *(str(path) for path in scan_paths)]
+    # Pylint R0801 embeds source snippets; Windows cp1252 stdout raises UnicodeEncodeError.
+    child_env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              cwd=str(cwd), env=child_env, check=False)
+    except FileNotFoundError as exc:
+        raise DuplicateScanError("pylint is not installed. Install with: pip install pylint") from exc
+
+
+def parse_duplicate_groups(pylint_output: str) -> list[dict[str, object]]:
+    """Parse Pylint R0801 output into duplicate groups."""
     groups: list[dict[str, object]] = []
     current: dict[str, object] | None = None
     current_lines: list[str] = []
@@ -305,34 +325,10 @@ def main() -> int:
 
     print(f"Effective min-similarity-lines: {min_lines}", file=sys.stderr)
 
-    cmd: list[str] = [
-        sys.executable,
-        "-m",
-        "pylint",
-        "--disable=all",
-        "--enable=R0801",
-        f"--min-similarity-lines={min_lines}",
-    ]
-    cmd.extend(str(path) for path in scan_paths)
-
-    cwd = str(project_roots[0])
-    # Pylint R0801 embeds source snippets; Windows cp1252 stdout raises UnicodeEncodeError.
-    child_env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=cwd,
-            env=child_env,
-        )
-    except FileNotFoundError:
-        print(
-            "Error: pylint is not installed. Install with: pip install pylint",
-            file=sys.stderr,
-        )
+        result = run_pylint_duplicates(scan_paths, min_lines, project_roots[0])
+    except DuplicateScanError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         return 2
 
     if result.returncode != 0:
@@ -344,7 +340,7 @@ def main() -> int:
         print(result.stdout, end="")
 
     if args.llm_refactor_plan:
-        groups = _parse_duplicate_groups(result.stdout or "")
+        groups = parse_duplicate_groups(result.stdout or "")
         print("\n---\n## Local LLM Advisory Refactor Plan\n")
         print("This section is advisory only. It does not change deterministic Pylint findings or authorize refactoring.\n")
         if not groups:
