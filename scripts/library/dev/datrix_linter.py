@@ -33,8 +33,8 @@ if TYPE_CHECKING:
     # inside _get_parser()/_get_analyzer() so `--help` and path discovery do not
     # pay the tree-sitter/semantic-analyzer import cost.
     from datrix_common.datrix_model.containers import Application
-    from datrix_semantic import SemanticAnalyzer
-    from datrix_language.parser import TreeSitterParser
+    from datrix_semantic.analyzer import SemanticAnalyzer
+    from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
 
 # ── UTF-8 stdout/stderr on Windows ──────────────────────────────────────────
 if sys.platform == "win32" and __name__ == "__main__":
@@ -188,7 +188,7 @@ class DatrixLinter:
 
     def _get_parser(self) -> TreeSitterParser:
         if self._parser is None:
-            from datrix_language.parser import TreeSitterParser
+            from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
             from datrix_language.registration import register_all
             self._dbg("Initialising TreeSitterParser + registering stdlib parser...")
             register_all()
@@ -198,7 +198,7 @@ class DatrixLinter:
 
     def _get_analyzer(self) -> SemanticAnalyzer:
         if self._analyzer is None:
-            from datrix_semantic import SemanticAnalyzer
+            from datrix_semantic.analyzer import SemanticAnalyzer
             self._analyzer = SemanticAnalyzer()
             self._dbg("SemanticAnalyzer ready.")
         return self._analyzer

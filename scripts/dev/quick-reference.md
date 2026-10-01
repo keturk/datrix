@@ -473,6 +473,30 @@ Queries never leave the machine. `-Summarize` is the exception, and it only runs
 
 **Agents:** the MCP server (`library/dev/code_index_mcp.py`, stdio, no socket) offers the same queries as the tools `find_symbol`, `find_references`, `outline`, `search`, `find_canonical` and `index_status`.
 
+### `dev\code-scan.ps1`
+
+**On-demand code-health scan: one ranked digest instead of four scanners' raw output.** By default it scans only the packages whose content changed since their last scan. It tracks this with the code index's file hashes, in `d:\datrix\.code-index\scan-state.json`; the first run covers everything. It runs on this machine and changes nothing but the report and the scan state. Every finding is written, by section and then by package, to `d:\datrix\reports\code-scan\code-scan-<timestamp>.md`, headed by a per-package count table. The console gets one progress line per stage, then one line with the totals and the report's path, so a reader opens just the sections it needs.
+
+| Section | Source | What the scan adds |
+|---|---|---|
+| Dead code: never used / used only by tests | two-pass Vulture (`metrics/dead_code_report.py`) | Each finding is checked against the code index across the whole workspace, so a use in another package refutes it. It is dropped if a Jinja template, a Python string (a `getattr` name, a dotted resolver path, genDSL text) or a `pyproject.toml` entry point names it. Unused imports are left to ruff. Classes and functions rank above fields. |
+| Too complex | cyclomatic + cognitive (`metrics/complexity.py`) | Merged, highest first |
+| Duplicated blocks | Pylint R0801 (`metrics/duplicate.py`) | Largest first |
+| Docs drift | `dev/check_docs.py` checks over each package's `docs/` | — |
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Changed packages** | `.\dev\code-scan.ps1` | Packages changed since their last scan |
+| **Named packages** | `.\dev\code-scan.ps1 datrix-common datrix-cli` | These, changed or not |
+| **By folder** | `.\datrix\scripts\dev\code-scan.ps1 .\datrix-cli\` | A package folder in any form: relative, absolute, trailing slash, or a path inside it |
+| **Everything** | `.\dev\code-scan.ps1 -All` | Every Python package (about 4 minutes) |
+
+**Parameters:** `-Package` (positional; names or folders), `-All`, `-MinConfidence` (Vulture, default 60), `-DuplicateMinLines` (default 6)
+
+**Exit codes:** 0 = digest written, or nothing changed since the last scan; 1 = the scan could not run (a missing tool such as Vulture, an unknown package, an unreadable scan state).
+
+**Needs** `vulture`, `pylint`, `radon` and `cognitive_complexity` in the shared venv. None is declared by any manifest, so install any that are missing with `D:\datrix\.venv\Scripts\python.exe -m pip install <name>`. A missing Vulture now fails the scan instead of reporting no dead code.
+
 ### `dev\logic-map-report.ps1`
 
 Refreshes the code index (which rewrites the logic map database if markers changed), then dumps the logic map SQLite database to a readable Markdown report for human verification.

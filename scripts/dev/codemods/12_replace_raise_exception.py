@@ -16,7 +16,7 @@ import sys
 import libcst as cst
 from bowler import Query
 
-ERROR_MODULE = "datrix_common.errors"
+ERROR_MODULE = "datrix_common.errors.transform"
 ERROR_CLASS = "TransformError"  # or ValueError, EntityNotFoundError, etc.
 
 

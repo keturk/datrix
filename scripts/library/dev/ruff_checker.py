@@ -41,8 +41,8 @@ except ImportError:
     print("ERROR: jinja2 is required. Install with: pip install jinja2", file=sys.stderr)
     sys.exit(1)
 
-from datrix_common.errors import UnmappedTypeError, UnsupportedTypeError
-from datrix_common.types import TypeRegistry
+from datrix_common.errors.type import UnmappedTypeError, UnsupportedTypeError
+from datrix_common.types.registry import TypeRegistry
 from datrix_common.utils.text import (
     to_camel_case,
     to_pascal_case,

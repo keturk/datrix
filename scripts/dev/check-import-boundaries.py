@@ -5059,9 +5059,13 @@ def _is_submodule_member(resolved: _ResolvedDatrixModule, name: str) -> bool:
     if not resolved.is_package:
         return False
     package_dir = resolved.file_path.parent
-    return (package_dir / f"{name}.py").is_file() or (
-        package_dir / name / "__init__.py"
-    ).is_file()
+    # Python module names are case-sensitive but a Windows/macOS filesystem
+    # is not, so `Crypto` would otherwise "exist" as `crypto.py`. Match the
+    # directory listing's own spelling instead of probing the path.
+    entries = {entry.name for entry in package_dir.iterdir()}
+    if f"{name}.py" in entries:
+        return True
+    return name in entries and (package_dir / name / "__init__.py").is_file()
 
 
 def _dotted_module_name_for_file(
@@ -9287,6 +9291,28 @@ def _self_test_reexport_facade_scanner() -> bool:
         ok &= _check(
             "from pkg import submodule is zero consumer hits (submodule exemption)",
             submodule_hits == [],
+        )
+
+        # One-hit case: a facade name that differs from a submodule's file
+        # stem only by case is NOT that submodule -- a case-insensitive
+        # filesystem must not exempt it.
+        case_pkg_dir = fixture_src / "pkg_case"
+        case_pkg_dir.mkdir(parents=True, exist_ok=True)
+        (case_pkg_dir / "__init__.py").write_text(
+            "from datrix_fixture.pkg_case.sub import Sub\n\n__all__ = ['Sub']\n",
+            encoding="utf-8",
+        )
+        (case_pkg_dir / "sub.py").write_text("Sub = 1\n", encoding="utf-8")
+        case_file = scratch_dir / "case_consumer.py"
+        case_file.write_text("from datrix_fixture.pkg_case import Sub\n", encoding="utf-8")
+        _parse_module_source.cache_clear()
+        case_hits = _reexport_facade_consumer_hits(case_file, packages, scratch_dir)
+        ok &= _check(
+            "from pkg import Sub where pkg also has sub.py is one consumer hit "
+            "(the submodule exemption is case-exact)",
+            len(case_hits) == 1
+            and case_hits[0].kind == "consumer"
+            and case_hits[0].defining_module == "datrix_fixture.pkg_case.sub",
         )
 
         # Unresolved-import case: the module segment does not exist on disk.

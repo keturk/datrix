@@ -41,8 +41,8 @@ try:
         sys.path.insert(0, str(datrix_language_src))
 
     from datrix_common.constants import DATRIX_FILE_EXTENSION
-    from datrix_common.errors import ParseError
-    from datrix_language.parser import TreeSitterParser
+    from datrix_common.errors.parse import ParseError
+    from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
     from datrix_language.parser.contextual_keywords import validate_contextual_keywords
 except ImportError as e:
     print(f"Error: Could not import Datrix parser: {e}", file=sys.stderr)

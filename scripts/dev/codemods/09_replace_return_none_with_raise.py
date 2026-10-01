@@ -20,7 +20,7 @@ import sys
 import libcst as cst
 from bowler import Query
 
-ERROR_MODULE = "datrix_common.errors"
+ERROR_MODULE = "datrix_common.errors.entity"
 ERROR_CLASS = "EntityNotFoundError"
 # Only in functions whose name matches this regex; None = all functions.
 FUNC_NAME_PATTERN: re.Pattern[str] | None = None  # e.g. re.compile(r"^get_|^find_")
