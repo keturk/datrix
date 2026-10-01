@@ -105,6 +105,15 @@ the job is bigger is grounds to **expand and continue**, never to stop. (Sole ex
 explicit `PARALLEL_WAVE: files are exclusive` dispatch → return `EXPANSION_REQUIRED` naming
 the files. That is not BLOCKED; it means "I know the fix and need the lock.")
 
+## No Nested Agents
+
+**A subagent never spawns subagents.** The session Jon talks to — an orchestrator running
+waves, a skill with a delegation strategy — may dispatch agents, sized per execution-contract
+§10. An agent that was itself dispatched may not dispatch more: a nested swarm multiplies
+token cost with no added coverage. Depth is one. If you are a subagent, do the work yourself,
+sequentially, and report any expansion to the dispatcher. `guard-no-nested-agents.py`
+refuses the `Agent`/`Task` tool for any caller that is a subagent, with no override.
+
 ## Enforced by the Harness
 
 These are blocks, not suggestions — each fires whether or not you remember this file, and
@@ -118,6 +127,7 @@ doing the wrong thing.
 | `Stop` | `checklist.py` | ending a turn with a mechanical checklist item unsatisfied (`.claude/checklists/*.json`) |
 | `Stop` | `gate-stop-exhaustion.py` | ending ANY turn on a context-exhaustion claim, a "remaining / still to fix / next up" handover section, a reported security downgrade (§13), or a reported expedient fix (§14) — inert when Jon asked you to stop or asked a question |
 | `SubagentStop` | `check-agent-report.py` | a subagent report ending on a dodge without a B1–B4 proof or filed task, or reporting a security downgrade / expedient fix (neither is lifted by a proof; §13's one exception is B3) |
+| `PreToolUse(Agent\|Task)` | `guard-no-nested-agents.py` | an `Agent`/`Task` call made from inside a subagent — depth is one; the orchestrating session may still dispatch |
 | `PreToolUse(Bash\|PowerShell)` | `guard-predeploy-analysis.py` | a deploy with no fresh seam census in `.tmp/predeploy/` (dry-run/`--what-if` forms are always allowed) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-full-suite-runs.py` | every whole-suite run — bare/multi-package `test.ps1`, `-All`, `-Rerun`, tier sweeps, every `affected-gate.ps1` sweep — for every agent, main session included; no override, no ticket (`-ListTags` and `-SelfTest` run no test and are allowed). Also **sweeps assembled from targeting flags**: more than 3 `-Tag` values, or `-Keyword` across several packages |
 | pytest collection | `datrix_common.testing.feature_tags` | a `-Tag`/`-Keyword` selection keeping more than 25% of a package's test tree (above 300 tests) — a full suite by instalments |
@@ -210,7 +220,7 @@ A subagent is a purchase; your own tool calls are spend too. Same exhaustible po
 Full text: execution-contract §10–§11.
 
 - **Do it yourself unless delegation pays.** Have the root cause at `file:line` and a small
-  change? Make the edit. A dispatch costs 100k–800k tokens.
+  change? Make the edit. A dispatch costs 100k–800k tokens. Agents never dispatch agents.
 - **Never run a whole test suite — no agent, no phase, no gate.** Run only the tests related
   to the code you changed: the files you touched (`-Specific`) and the feature tags of the
   behaviour you changed (`-Tag`), in every package that behaviour reaches. There is no
@@ -327,7 +337,7 @@ outcome — never submit it. An unproven BLOCKED is the second worst.**
 `/fix-vscode`,
 `/fix-codegen-{angular,aws,azure,common,component,docker,flutter,kernel,python,sql,typescript,typescript-core}`.
 
-**Jon types these — you cannot:** `/opus-work`, `/fable-work`, `/delegate`, `/imports`,
+**Jon types these — you cannot:** `/delegate`, `/imports`,
 `/logic-map`, `/fix`, `/scope`, `/codegen-review`, `/execute-tasks`,
 `/execute-tasks-parallel`, `/absorb-design`, `/verify-implementation`, `/resolve-conflicts`. They are
 `disable-model-invocation`: the Skill tool returns a hard error and forbids reproducing the

@@ -331,6 +331,17 @@ engineering judgment, exactly like correctness and scope — not a separate conc
 else. You cannot see the meter; that does not excuse you, because you can see every agent's reported
 token count and you can see how many you dispatched.
 
+### 10.0 Depth is one — agents never dispatch agents
+
+The session Jon talks to — an orchestrator running waves, a skill with a delegation strategy —
+may dispatch agents. **An agent that was itself dispatched may not dispatch more.** A nested
+fan-out multiplies token cost with no added coverage (one such child burned >140k tokens almost
+entirely on dispatch overhead) and fragments reporting. If you are a subagent, do the work
+yourself, sequentially, and report any expansion to the dispatcher. `guard-no-nested-agents.py`
+refuses the `Agent`/`Task` tool for any caller that is a subagent, with no override. Every
+dispatch brief you write as an orchestrator says so: `Do NOT spawn subagents. Do this work
+yourself, sequentially.`
+
 ### 10.1 Do it yourself unless delegation actually pays
 
 Before dispatching, ask: *do I already know the fix?* If you have the root cause at `file:line` and

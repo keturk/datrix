@@ -50,7 +50,7 @@ an agent's BLOCKED, and never relay one to the user unexamined.
 
 ## How to Escalate
 
-Spawn a subagent via the Agent tool:
+Spawn a subagent via the Agent tool (only the orchestrating session does this — a subagent that hits a decision does the rung-1/2 work itself and reports it):
 
 ```
 subagent_type: "general-purpose"

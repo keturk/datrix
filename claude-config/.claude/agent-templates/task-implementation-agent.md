@@ -23,6 +23,7 @@ Read the task file at the path above. It contains everything you need: files to 
 - To learn what a module or a set of files does, or where something happens in them, ask before reading them whole: local-model MCP `ask_files` (paths or a glob plus a question) returns a short answer citing `path:line`. It is a lead — read the cited lines (ranged Read) before relying on it. The files you will modify you still read yourself.
 - Check logic map markers (code-index MCP `find_canonical`, or `datrix/scripts/dev/code-index.ps1 -Canonical <topic>`) before modifying marked code
 - **Ambiguity is not a blocker — it is a question you first try to answer yourself.** Read the design docs, the surrounding code, and existing patterns. Return `NEEDS_CONTEXT` **only** for a genuine B2 (two defensible designs, expensive to reverse, nothing in the docs settles it) or a missing user input you cannot derive — and when you do, state the options and **your recommendation**, never a bare question.
+- **You are a subagent: do NOT spawn subagents.** Do this work yourself, sequentially. A nested fan-out multiplies token cost with no added coverage, and `guard-no-nested-agents.py` refuses the call anyway.
 
 ### 2. IMPLEMENT (Write Code)
 

@@ -31,6 +31,10 @@ Fable adjudicator has not already returned `F` on this exact question, **you are
 go back to rung 3.** The only exceptions are listed in §7 (they are narrow, and none of them is a
 technical or design judgment).
 
+**Only the orchestrating session spawns the adjudicator.** A subagent that hits a decision does rungs
+1–2 itself and reports the question to its dispatcher; it never spawns an adjudicator
+(`guard-no-nested-agents.py`).
+
 ---
 
 ## 1. The two entry doors — same ladder, different rung-1
@@ -224,6 +228,7 @@ Fill every section. An adjudicator given a thin packet returns a thin decision.
 ```
 You are the final decision-maker on a decision an automated task run cannot make for itself. Your
 decision is binding — the orchestrator will carry it out exactly. Decide; do not implement.
+Do NOT spawn subagents; decide from the packet and your own reads.
 
 WHAT KIND OF DECISION THIS IS: {CONFIRMED BLOCKER | DESIGN/TASK CONFLICT | UNOWNED INVARIANT SURFACE |
   AMBIGUOUS FIX SCOPE | ORDERING CONFLICT | RED GATE RECOVERY | OTHER — name it}

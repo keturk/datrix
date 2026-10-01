@@ -121,7 +121,6 @@ for other in ("/operationalize-design\n\nDOCUMENT: d:/x.md",
               "Base directory for this skill: d:\\datrix\\.claude\\skills\\operationalize-design",
               "/execute-tasks-parallel\n\nPHASE: 8",
               "/codegen-fix-loop",
-              "/opus-work fix the azure generator",
               "keep going, finish phase 8"):
     reset()
     prompt(other)

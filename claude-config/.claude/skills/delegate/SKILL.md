@@ -18,6 +18,8 @@ A subagent is a purchase drawn from a shared, exhaustible budget, not a free act
 **100k–800k tokens**; the same edit made directly costs a few tool calls. Binding detail:
 execution-contract §10.
 
+**Agents never dispatch agents.** Only this session dispatches; every brief you write ends with `Do NOT spawn subagents. Do this work yourself, sequentially.` (`guard-no-nested-agents.py` refuses the call from a subagent regardless.)
+
 **Do NOT dispatch when you already hold the answer.** If you have the root cause at `file:line` and
 the change is small and contained — a fixture, a config value, a doc correction, a known three-line
 fix, running a command and reading its output — **do it yourself**. Delegating work you have already

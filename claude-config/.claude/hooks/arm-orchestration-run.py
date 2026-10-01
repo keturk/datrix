@@ -53,7 +53,7 @@ _STATE_DIR: Final = os.path.join(_REPO_ROOT, ".claude", "hooks", ".state")
 
 # The ONE skill that arms the gate. Its contract is "finish every task", and it is the
 # only skill whose deliverable is tasks moving to COMPLETED. Every other skill — planning
-# (`/operationalize-design`, `/generate-tasks`), fix loops, `/opus-work` — either authors
+# (`/operationalize-design`, `/generate-tasks`), fix loops — either authors
 # tasks or does work the ledger cannot measure, and none of them may be held to a count
 # of resolved tasks.
 _RUN_SKILL: Final = "/task-orchestrator"
