@@ -22,7 +22,7 @@ from datrix_common.utils.text import extract_simple_name
 
 if TYPE_CHECKING:
     from datrix_common.datrix_model.containers import Application, Service
-    from datrix_common.types import DatrixType
+    from datrix_common.types.base import DatrixType
 
 logger = logging.getLogger(__name__)
 

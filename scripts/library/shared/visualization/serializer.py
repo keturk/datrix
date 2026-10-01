@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING
 from datrix_common.paths import ServicePaths
 
 if TYPE_CHECKING:
-    from datrix_common.datrix_model.api import Endpoint, RestApi
+    from datrix_common.datrix_model.api import RestApi
+    from datrix_common.datrix_model.callables import Endpoint
     from datrix_common.datrix_model.containers import Application, Service
     from datrix_common.datrix_model.entity import Entity, Field, Relationship
 

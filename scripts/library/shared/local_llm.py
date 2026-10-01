@@ -156,6 +156,9 @@ class LocalLlmSettings:
     load_timeout_ms: int = DEFAULT_LOAD_TIMEOUT_MS
     generate_timeout_ms: int = DEFAULT_GENERATE_TIMEOUT_MS
     keep_alive: str = DEFAULT_KEEP_ALIVE
+    # False offers only models already in memory: a caller that must answer within
+    # seconds (a Claude Code hook) can never wait out a multi-minute Ollama load.
+    allow_load: bool = True
     # Where servers listen on each machine. The standard ports; a test points these at
     # servers it started itself.
     ollama_port: int = OLLAMA_PORT
@@ -371,6 +374,8 @@ def discover_candidates(settings: LocalLlmSettings, report: Callable[[str], None
 
     candidates = [c for survey in found for c in survey.candidates]
     resident = sorted((c for c in candidates if c.resident), key=lambda c: _preference_rank(settings, c))
+    if not settings.allow_load:
+        return resident
     loadable = sorted((c for c in candidates if not c.resident), key=lambda c: _preference_rank(settings, c))
     return resident + loadable
 
