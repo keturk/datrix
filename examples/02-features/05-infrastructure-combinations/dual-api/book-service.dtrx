@@ -50,8 +50,9 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         resource bookDb.Category : auth(required, providers: [member]);
     }
 
-    // GraphQL API block - typed queries with relationship resolution
-    graphql_api BookGraphQL : basePath("/graphql"), rdbms(bookDb) {
+    // GraphQL API block - typed queries with relationship resolution; its auth(...) is the
+    // contract every query, mutation and subscription of the block runs under
+    graphql_api BookGraphQL : basePath("/graphql"), rdbms(bookDb), auth(required, providers: [member]) {
 
         // 'type' defines a GraphQL object type for query responses
         // Fields map to entity properties; nested types represent relationships
