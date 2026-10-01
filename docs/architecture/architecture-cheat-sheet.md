@@ -647,7 +647,7 @@ test asserts the resolved set is a subset of its rendered file.
 ## Framework HTTP Headers — One Registry, Declared Holes
 
 Every header Datrix itself mints on a generated service's wire — the trusted-caller token, the
-delegated-user envelope, the three rate-limit response headers, the inbound webhook secret and
+three rate-limit response headers, the inbound webhook secret and
 the outbound webhook delivery headers — is a cross-language contract with one home,
 `datrix_codegen_common.generation.http_headers` (`FRAMEWORK_HEADERS`, keyed by family; retired names
 under `RETIRED_HEADERS`). A language package spells a framework header with the exact registered
@@ -754,7 +754,7 @@ Change reach is computed per package, and the two shared layers were each one pa
 | I4 | Platforms, SQL and component never depend on the language layer | manifests; the platform and SQL subtree allowlists are deleted, not kept |
 | I5 | No frontend target depends on a backend language package | manifests; the web-client allowlist is deleted |
 | I6 | Every shared package is covered by the shared-layer ratchets | derived shared set; an unclassified package fails the scan |
-| I7 | Exactly one import path per symbol | per-move negative check; no facade survives a phase |
+| I7 | Exactly one import path per symbol | `powershell -File "d:/datrix/datrix/scripts/dev/check-import-boundaries.ps1" -CheckReexportFacades` — a standing hard zero with no baseline file (provider, consumer, entry-point and unresolved-import shapes; relative imports resolved), run on every invocation of the script that is not `-SelfTest`/`-UpdateBaseline`; `-UpdateBaseline` has no effect on it |
 | I8 | Behaviour preserved | tagged tests of every reached package, per phase |
 
 A module is placed by who uses it: the nearest package every consumer already depends on, plus everything a kernel module imports; a pure derivation over the model lives beside the model; a module holding a core fact beside an upper-layer one is split, never admitted whole. Tooling derives rather than lists: the shared set from entry-point registration, install order from declared dependencies, and a moved file keeps its path-keyed baseline entries as a rename.

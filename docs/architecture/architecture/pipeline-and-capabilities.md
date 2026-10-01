@@ -618,7 +618,7 @@ The parser and transformer produce an `IdentityBlock` AST node containing one `P
 
 Every externally reachable surface carries an explicit `auth(...)` contract (modes: `public`, `optional`, `required`, `service`, `webhook`); `auth(webhook)` endpoints additionally require a `verify(...)` contract that authenticates the external sender. Surfaces without an explicit `auth(...)` contract fail validation (IDN011). There is no block-level auth default: a `rest_api` or `graphql_api` header accepts only `basePath(...)`, `rdbms(...)` and `nosql(...)`, so every surface declares its own `auth(...)`.
 
-**Semantic validators:** IDN001–IDN027 (identity block / surface rules, including the API-key provider rules IDN020–IDN027), IDC001–IDC003 (config file rules). See [semantic-validators.md](../../../../datrix-semantic/docs/architecture/semantic-validators.md#identity-validation-idn001idn027).
+**Semantic validators:** IDN001–IDN029 (identity block / surface rules, including the API-key provider rules IDN020–IDN027, the closed `auth(...)` key set IDN028 and the principal-read rule IDN029 for bodies under `auth(public)` / `auth(webhook)`), IDC001–IDC003 (config file rules). See [semantic-validators.md](../../../../datrix-semantic/docs/architecture/semantic-validators.md#identity-validation-idn001idn029).
 
 #### Generator Layer
 
@@ -657,5 +657,5 @@ Full design decisions (DN1–DN82) and operationalization resolutions (OR1–OR2
 
 - [datrix-common/docs/architecture/identity.md](../../../../datrix-common/docs/architecture/identity.md) — AuthContract, provider config schema, provider plan (OR6), system entities, capability matrix, secret reference matrix
 - [datrix-language/docs/reference/access-levels.md](../../../../datrix-language/docs/reference/access-levels.md) — full `identity {}` / `auth(...)` / `verify(...)` DSL syntax
-- [datrix-semantic/docs/architecture/semantic-validators.md](../../../../datrix-semantic/docs/architecture/semantic-validators.md#identity-validation-idn001idn027) — IDN001–IDN027, IDC001–IDC003
+- [datrix-semantic/docs/architecture/semantic-validators.md](../../../../datrix-semantic/docs/architecture/semantic-validators.md#identity-validation-idn001idn029) — IDN001–IDN029, IDC001–IDC003
 - Platform-specific docs in each `datrix-codegen-*` repo under `docs/identity-*.md`
