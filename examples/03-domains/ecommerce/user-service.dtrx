@@ -12,6 +12,11 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         }
         provider platform config('config/identity/platform.dcfg') {
         }
+        // App-issued API keys for programmatic access; each key's scopes map to roles
+        provider customerKeys config('config/identity/customer-keys.dcfg') {
+            group "orders:read" as orderReader;
+            group "orders:write" as orderWriter;
+        }
     }
 
     enum UserRole {
@@ -89,6 +94,18 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
 
     struct LogoutRequest {
         Boolean? revokeAll = false;
+    }
+
+    struct IssueApiKeyRequest {
+        Array<String> scopes;
+        DateTime? expiresAt;
+    }
+
+    // The raw key is returned exactly once, in this response; only its hash is stored
+    struct IssueApiKeyResponse {
+        UUID id;
+        String apiKey;
+        String keyPrefix;
     }
 
     // Relational database block
@@ -199,6 +216,19 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
 
             // 'belongsTo ... : unique' enforces a one-to-one constraint
             belongsTo User : unique;
+        }
+
+        // Issued API keys. Only the SHA-256 hash of a key is stored;
+        // keyPrefix is display-only and never used to verify a key.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            String(12) keyPrefix;
+            Array<String> scopes;
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+            Integer rateLimit = 100;
         }
 
     }
@@ -366,6 +396,31 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
 
             user.passwordHash = Crypto.bcryptHash(request.newPassword);
             user.save();
+        }
+
+        // Issues a 256-bit API key for the signed-in customer
+        @path('/me/api-keys')
+        post issueApiKey(IssueApiKeyRequest request) : auth(required, providers: [identity]) -> IssueApiKeyResponse {
+            let String rawKey = Crypto.randomBytes(32);
+            let String hash = Crypto.sha256(rawKey);
+            let String prefix = rawKey.substring(0, 12);
+
+            // The key belongs to the caller's local identity; verification reports it as the principal
+            let ApiKey key = userDb.ApiKey.create({
+                keyHash: hash,
+                ownerId: Auth.userId(),
+                keyPrefix: prefix,
+                scopes: request.scopes,
+                isActive: true,
+                expiresAt: request.expiresAt,
+                rateLimit: 100
+            });
+
+            return {
+                id: key.id,
+                apiKey: rawKey,
+                keyPrefix: prefix
+            };
         }
 
         @path('/verify-email')

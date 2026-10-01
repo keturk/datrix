@@ -486,6 +486,64 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
             return productDb.Product.whereIn(id: request.ids).all();
         }
 
+        // Wire-contract routes: a Bytes route that declares no media type (it answers
+        // application/octet-stream), a Bytes? route that declares one, and a JSON route
+        // whose result can be null. Each returns deterministic content with no external
+        // dependency, so a cross-language wire comparison can call it against a freshly
+        // booted stack: an id that resolves to no product takes the null branch.
+        @path('/wire/blob')
+        get wireBlob() : auth(required, providers: [identity]) -> Bytes {
+            return "datrix-wire-contract".toBytes();
+        }
+
+        @path('/wire/image/:id')
+        @produces('image/png')
+        get wireImage(UUID id) : auth(required, providers: [identity]) -> Bytes? {
+            let Product? product = productDb.Product.find(id);
+            if (product == null) return null;
+            return product.name.toBytes();
+        }
+
+        @path('/wire/discount/:id')
+        get wireDiscount(UUID id) : auth(required, providers: [identity]) -> Percentage? {
+            let Product? product = productDb.Product.find(id);
+            if (product == null) return null;
+            if (product.discountPercent == 0) return null;
+            return product.discountPercent;
+        }
+
+    }
+
+    // The same three wire-contract response shapes served from a serverless block. A
+    // standalone serverless handler has no injected database session, so the nullable
+    // routes decide their answer from the path value instead of a lookup: the value
+    // "none" answers null, any other value answers content.
+    serverless wireHandlers {
+        @path('/wire-serverless/blob')
+        @name('WireBlob')
+        get() : auth(required, providers: [identity]) -> Bytes {
+            return "datrix-wire-contract".toBytes();
+        }
+
+        @path('/wire-serverless/image/:sku')
+        @name('WireImage')
+        @produces('image/png')
+        get(String sku) : auth(required, providers: [identity]) -> Bytes? {
+            if (sku == "none") {
+                return null;
+            }
+            return "datrix-wire-contract".toBytes();
+        }
+
+        @path('/wire-serverless/discount/:sku')
+        @name('WireDiscount')
+        get(String sku) : auth(required, providers: [identity]) -> Percentage? {
+            if (sku == "none") {
+                return null;
+            }
+            return 15;
+        }
+
     }
 
     test("validation rejects non-positive reservation quantity") {

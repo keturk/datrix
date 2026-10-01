@@ -76,9 +76,9 @@
     }
     storage store {
       provider = "minio";
-      flavor = "minio";
+      flavor = "garage";
       bucket = "product-images";
-      endpoint = "http://localhost:9000";
+      endpoint = "http://localhost:3900";
       region = "us-east-1";
     }
     jobs {
@@ -91,6 +91,19 @@
           schedule = "0 * * * *";
           timeout = 120s;
         }
+      }
+    }
+    // The wire-contract serverless block. On the container platform it is served by its
+    // own listener, which needs an explicit port; the aws and azure profiles replace this
+    // entry because Lambda and Functions route HTTP through the cloud gateway and take no port.
+    serverless wireHandlers {
+      flavor = "container";
+      port = 8014;
+      defaults {
+        timeout = 300;
+        memory = 512;
+      }
+      handlers {
       }
     }
     registration {
@@ -279,6 +292,14 @@
       region = "us-east-1";
       credentials = "iam";
     }
+    replace serverless wireHandlers {
+      defaults {
+        timeout = 300;
+        memory = 512;
+      }
+      handlers {
+      }
+    }
     strategy {
       rolling {
         maxUnavailable = "25%";
@@ -341,6 +362,14 @@
       flavor = "blob-storage";
       container = "product-images";
       credentials = "managed-identity";
+    }
+    replace serverless wireHandlers {
+      defaults {
+        timeout = 300;
+        memory = 512;
+      }
+      handlers {
+      }
     }
     strategy {
       rolling {

@@ -1,0 +1,56 @@
+// App-issued API-key identity provider for 'customerKeys'.
+// mode = self: the application issues and verifies this credential itself --
+// no target-native provider is provisioned for it on any platform.
+// Only the SHA-256 hash of each key is stored; the raw key is shown to its
+// owner once, at issuance, and never persisted.
+config identity customerKeys {
+  base {
+    provider = "apiKey";
+    mode = "self";
+    audience = "customer";
+    apiKey {
+      // Request header that carries the key. Never listed in any CORS
+      // allow-list: browsers do not send API keys.
+      header = "X-Customer-Api-Key";
+      store = "ecommerce.UserService";
+      storeBlock = "userDb";
+      entity = "ApiKey";
+      fields {
+        hash = "keyHash";
+        owner = "ownerId";
+        scopes = "scopes";
+        active = "isActive";
+        expiresAt = "expiresAt";
+        lastUsedAt = "lastUsedAt";
+        rateLimit = "rateLimit";
+      }
+      lastUsedResolutionSeconds = 60;
+      // Per-key request budget, counted in UserService's Redis cache block.
+      rateLimitWindowSeconds = 60;
+      rateLimitCache = "redis";
+      // Machine identity allowed to call the key-verification route.
+      serviceProviders = ["platform"];
+    }
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile staging as "stg" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+
+  profile aws as "aws" extends base {
+  }
+
+  profile azure as "azure" extends base {
+  }
+
+  profile azureVm as "azvm" extends base {
+  }
+}

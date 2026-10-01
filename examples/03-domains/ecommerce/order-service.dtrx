@@ -346,7 +346,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 
         // Paginated list endpoint with optional filtering
-        get orders(Int page = 1, Int perPage = 20, OrderStatus? status) : auth(required, providers: [identity]) -> PaginatedOrders {
+        get orders(Int page = 1, Int perPage = 20, OrderStatus? status) : auth(required, providers: [identity, customerKeys]) -> PaginatedOrders {
             let UUID customerId = Auth.user().id;
 
             let JSON query = orderDb.Order.where(customerId: customerId);

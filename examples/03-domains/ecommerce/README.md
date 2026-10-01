@@ -82,6 +82,30 @@ the same run, under the generated project's `clients/<target>/`. Both import the
 - **Tests.** The Storefront's three `test(...)` blocks generate one Vitest spec on Angular and
   one widget test on Flutter each.
 
+## Wire-Contract Routes
+
+[`product-service.dtrx`](product-service.dtrx) deliberately carries three response contracts
+that a cross-language wire comparison needs to exercise, each declared once in the
+`ProductAPI` block (service scope) and once in the `wireHandlers` `serverless` block:
+
+| Response contract | Service-scope route | Serverless route |
+|-------------------|---------------------|------------------|
+| A byte response that declares no media type, so it answers `application/octet-stream` | `GET /api/v1/products/wire/blob` | `GET /wire-serverless/blob` |
+| A nullable byte response that declares its media type (`@produces('image/png')`) | `GET /api/v1/products/wire/image/:id` | `GET /wire-serverless/image/:sku` |
+| A nullable JSON response (`Percentage?`) | `GET /api/v1/products/wire/discount/:id` | `GET /wire-serverless/discount/:sku` |
+
+- **No external state.** Every route returns deterministic content, so a freshly booted stack
+  answers it. The service-scope nullable routes answer null for an id that resolves to no
+  product; a standalone serverless handler has no database session, so its nullable routes
+  answer null for the path value `none` and content for any other value.
+- **Authenticated.** All six keep `auth(required, providers: [identity])`; a client presents a
+  token minted for the fixture.
+- **Not public API.** They exist so the generated browser client, the route manifest and a
+  live backend can be compared on the wire; they are not part of the shop's feature set.
+- **Config.** The `wireHandlers` block runs as its own container on the compose profiles, so
+  `config/product-service.dcfg` gives it a port in `base`; the `aws` and `azure` profiles replace
+  that entry, because Lambda and Azure Functions take HTTP through the cloud gateway and no port.
+
 ## Usage
 
 The target language is a generation parameter; the deployment target is selected
