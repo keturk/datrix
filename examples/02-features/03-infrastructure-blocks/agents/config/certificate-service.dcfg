@@ -35,8 +35,8 @@ config service credentials.CertificateService {
     }
     storage scans {
       provider = "minio";
-      flavor = "minio";
-      endpoint = "http://localhost:9000";
+      flavor = "garage";
+      endpoint = "http://localhost:3900";
       bucket = "certificates";
       region = "us-east-1";
     }

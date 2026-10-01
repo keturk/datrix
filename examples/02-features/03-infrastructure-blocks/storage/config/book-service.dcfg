@@ -35,8 +35,8 @@
     }
     storage media {
       provider = "minio";
-      flavor = "minio";
-      endpoint = "http://localhost:9000";
+      flavor = "garage";
+      endpoint = "http://localhost:3900";
       bucket = "media";
       region = "us-east-1";
     }

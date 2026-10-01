@@ -47,8 +47,8 @@
     }
     storage catalogArchive {
       provider = "minio";
-      flavor = "minio";
-      endpoint = "http://localhost:9000";
+      flavor = "garage";
+      endpoint = "http://localhost:3900";
       bucket = "catalog-archive";
       region = "us-east-1";
     }
