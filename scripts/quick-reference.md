@@ -135,6 +135,7 @@ Most scripts support:
 | Anti-pattern scanners | `scripts/dev/libcst.ps1`, `scripts/dev/semgrep.ps1`, `scripts/dev/ast-grep.ps1` |
 | ConfigDSL lint/format | `scripts/dev/config-linter.ps1` |
 | Code index (per machine) | `d:\datrix\.code-index\` — built and refreshed by `scripts/dev/code-index.ps1` (set up each machine once with `-Setup`) |
+| Local model servers (per machine) | `scripts/dev/local-llm.ps1` — `-Setup` puts the agents' local-model MCP tools in `d:\datrix\.mcp.json` and approves them, once per machine; `-Status`/`-Usage` show what answers and what used it (`d:\datrix\.local-llm\usage.jsonl`) |
 | Logic map database | `d:\datrix\.logic-map\markers.db` — rewritten by the code index whenever markers change |
 | Logic map scripts | `scripts/dev/code-index.ps1 -Canonical`, `scripts/dev/logic-map-report.ps1` |
 | Python implementations | `scripts/library/` |
