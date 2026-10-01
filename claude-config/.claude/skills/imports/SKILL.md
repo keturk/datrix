@@ -13,10 +13,11 @@ disable-model-invocation: true
 - `datrix_common.datrix_model.cqrs` → `CqrsBlock`, `View`
 - `datrix_common.datrix_model.api` → `RestApi`, `GraphqlApi`
 - `datrix_common.datrix_model.callables` → `Function`, `Endpoint`, `Command`, `Query`, `EventHandler`, `Parameter`, `AccessLevel`
-- `datrix_common.types` → `TypeRegistry`, `ScalarType`, `DatrixType`
+- `datrix_common.types.registry` → `TypeRegistry`
+- `datrix_common.types.base` → `ScalarType`, `DatrixType`
 - `datrix_semantic` → `SemanticAnalyzer`, `AnalysisResult`
 - `datrix_common.cross_service.contract` → `EndpointContract`, `get_cross_service_contract`
-- `datrix_common.rendering` → `render`, `RenderOptions`
+- `datrix_common.rendering` → `render`; `datrix_common.rendering.options` → `RenderOptions`
 - `datrix_common.config_resolution` → `resolve_service_configs`, `resolve_infrastructure_configs`
 - `datrix_language.parser` → `TreeSitterParser`
 - `datrix_codegen_kernel.generation.template_generator` → `TemplateGenerator`
@@ -48,9 +49,10 @@ disable-model-invocation: true
 - `datrix_common.paths` → `ServicePaths`
 - `datrix_common.config.codegen_context` → `CodegenContext`
 - `datrix_common.config.platform` → `BasePlatformConfig`, `DockerPlatformConfig`, `AwsPlatformConfig`, `AzurePlatformConfig`
-- `datrix_common.config.project` → `ProjectConfig`, `InfraImageCatalog`, `PlatformsConfig`
+- `datrix_common.config.project.models` → `ProjectConfig`, `InfraImageCatalog`, `PlatformsConfig`
 - `datrix_common.config.project.catalog` → `get_dependency_version`, `CatalogLookupError`
-- `datrix_common.config.datasource` → `BrokerEngine`, `CacheEngine`, `get_broker_engine`, `get_cache_engine`, `KAFKA`, `REDIS`, `all_broker_engines`, `all_cache_engines` (plus `rdbms_engine`, `nosql_engine`, models, loader)
+- `datrix_common.config.datasource.broker_engine` → `BrokerEngine`, `get_broker_engine`, `KAFKA`, `all_broker_engines`
+- `datrix_common.config.datasource.cache_engine` → `CacheEngine`, `get_cache_engine`, `REDIS`, `all_cache_engines` (plus `rdbms_engine`, `nosql_engine`, `models`)
 - `datrix_codegen_docker.secrets` → `SecretStore`, `generate_password`, `generate_secret_key`
 - `datrix_common.infra.registry` → `InfraRegistry`, `InfraGroup`, `InfraIdentity`
 - `datrix_testing.infra_constants` (test/dev extra only) → `RDBMS_DEPLOYMENT_DEFAULTS`, `CACHE_DEPLOYMENT_DEFAULTS`, `PUBSUB_DEPLOYMENT_DEFAULTS`, `NOSQL_DEPLOYMENT_DEFAULTS`

@@ -74,6 +74,29 @@ def _normalize(path: str) -> str:
     return path.replace("\\", "/").lower()
 
 
+def _is_tracked_by_git(raw_path: str) -> bool:
+    """True when *raw_path* is an existing file its git repository already tracks.
+
+    A scratch signature describes a file being CREATED; a tracked file is committed
+    source by definition (e.g. a CLI's `commands/check.py`), so editing it is never a
+    stray temp artifact. Any failure to answer (no git, not a repo, timeout) returns
+    False, so the name and extension checks still apply.
+    """
+    if not os.path.isfile(raw_path):
+        return False
+    directory, basename = os.path.split(os.path.abspath(raw_path))
+    try:
+        result = subprocess.run(
+            ["git", "-C", directory, "ls-files", "--error-unmatch", "--", basename],
+            capture_output=True,
+            timeout=_GIT_LS_FILES_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
 def _block(path: str, reason: str) -> None:
     sys.stderr.write(
         f"BLOCKED: refusing to write `{path}` — {reason}\n\n"

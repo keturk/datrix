@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import json
 import re
+from difflib import SequenceMatcher
 from typing import Final
 
 # "This isn't my work." Kept tight — the fuller list lives in the execution
@@ -311,6 +312,51 @@ def find_security_downgrade(text: str) -> str:
 def find_expedient(text: str) -> str:
     """First unquoted, un-negated 'this is the small version' claim, or ''."""
     return find_dodge(text, _EXPEDIENT_RE)
+
+
+def _collapse(text: str) -> str:
+    return " ".join(text.split())
+
+
+def quote_stands(text: str, quote: str, *, security: bool) -> bool:
+    """Whether a phrase another reader flagged is really said, unquoted and un-negated, in ``text``.
+
+    The gate for a second reader's verdict (``_local_judge``): its quote must appear
+    verbatim outside quoted and code spans, and survive the same negation suppressor
+    the patterns get -- plus, for a security claim, the remediation suppressor. A
+    verdict whose quote fails any of these never blocks: a reader that cannot point at
+    the words has not found them.
+    """
+    wanted = _collapse(quote).lower()
+    if len(wanted) < _MIN_QUOTE_CHARS:
+        return False
+    stripped = _collapse(strip_quoted(text))
+    lowered = stripped.lower()
+    start = lowered.find(wanted)
+    if start < 0:
+        # A reader copying a sentence slips a word ("am" -> "are", "I am" -> "I'm"). The
+        # longest run it shares with the turn anchors where it came from, and the stretch
+        # of the turn at that spot must match the whole quote almost exactly -- so the
+        # verdict stays tied to words that are really there.
+        match = SequenceMatcher(None, lowered, wanted, autojunk=False).find_longest_match(
+            0, len(lowered), 0, len(wanted))
+        if match.size < max(_MIN_QUOTE_CHARS, int(len(wanted) * _MIN_ANCHOR_SHARE)):
+            return False
+        start = max(0, match.a - match.b)
+        stretch = lowered[start : start + len(wanted)]
+        if SequenceMatcher(None, stretch, wanted, autojunk=False).ratio() < _MIN_QUOTE_SIMILARITY:
+            return False
+    if _NEGATION_RE.search(stripped[max(0, start - _NEGATION_LOOKBACK) : start]):
+        return False
+    return not (security and _REMEDIATION_RE.search(stripped[max(0, start - _REMEDIATION_LOOKBACK) : start]))
+
+
+# A quote this short ("done", "later") matches almost anywhere and proves nothing.
+_MIN_QUOTE_CHARS: Final = 12
+# A quote that is not verbatim must share one run of at least this share with the turn,
+# and match the stretch of the turn at that spot at least this closely.
+_MIN_ANCHOR_SHARE: Final = 0.4
+_MIN_QUOTE_SIMILARITY: Final = 0.9
 
 
 _FORBADE_RE: Final = re.compile(r"\bB3\b|\bUSER_FORBADE\b")

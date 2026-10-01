@@ -4,9 +4,10 @@ model: haiku
 
 # Commit and Push
 
-Commit and push every Datrix repo that has uncommitted changes by running the unified
-`commit-and-push.ps1` script. The script generates a commit message per dirty repo (local
-Ollama model if reachable, otherwise the Claude Code CLI) and then stages, commits, and
+Commit and push every Datrix repo that has uncommitted changes: first a first-pass review of
+the pending changes (`pre-review.ps1`), then the unified `commit-and-push.ps1` script. The
+script generates a commit message per change set (a local model on any of the network's
+model servers if one answers, otherwise the Claude Code CLI) and then stages, commits, and
 pushes each repo in one pass. No `commit-messages.json` file is involved.
 
 ## When to Use
@@ -24,7 +25,25 @@ Workspace root: `d:\datrix` (parent of `datrix/`).
 
 ## Workflow
 
-### Step 1: Run the unified commit-and-push script
+### Step 1: Pre-review the pending changes
+
+Execute:
+
+```
+powershell -File "d:/datrix/datrix/scripts/git/pre-review.ps1"
+```
+
+It checks only the lines the pending changes add to Python files, on this machine, in a few
+seconds: silent `.get(key, None)` fallbacks, bare `except:`, `except ...: pass`, TODO/FIXME
+comments, missing type hints, and placeholder bodies.
+
+- **Exit 0** — go to Step 2.
+- **Exit 1** — definite findings are listed with `file:line`. Do NOT commit. Report the list
+  to Jon and stop: fixing code is the job of the agent that wrote it, not of this skill. If
+  Jon says to commit anyway (for example, a deliberate fixture), go to Step 2.
+- **Exit 2** — the review could not run; report its error and stop.
+
+### Step 2: Run the unified commit-and-push script
 
 Execute:
 
@@ -34,25 +53,25 @@ powershell -File "d:/datrix/datrix/scripts/git/commit-and-push.ps1"
 
 The script (via `scripts/library/git/commit-and-push.py`) does everything in one pass:
 
-1. Probes the local Ollama endpoint for reachability.
-2. Picks the message source: local Ollama model if reachable, otherwise the Claude Code CLI.
-3. Scans every repo under `d:\datrix` with `git status --porcelain`; clean repos are skipped.
-4. For each dirty repo, generates a commit message (passed through a quality gate; deterministic fallback if the model output is unusable).
-5. Cleans stale `.lock` files, then `git add -A`, `git commit -F {tempfile}`, `git push`.
+1. Refuses the whole run on a customer-domain term, a .gitignore rule shadowing source, or a PolyString case round-trip in the pending changes.
+2. Scans every repo under `d:\datrix` with `git status --porcelain`; clean repos are skipped.
+3. Picks the message source: the first local model that answers on any of the network's model servers (Ollama, vLLM or llama-server; see `library/shared/local_llm.py`), otherwise the Claude Code CLI.
+4. Splits each dirty repo into themed change sets and generates one commit message per set (passed through a quality gate; deterministic fallback if the model output is unusable).
+5. Cleans stale `.lock` files, then stages, commits each set, and pushes each repo once.
 6. Stops on the first git failure. A `git commit` exit code of 1 means nothing to commit (not an error).
 
 **Useful options:**
-- `-MessageSource ollama|claude` to force a backend (default `auto`).
+- `-MessageSource local|claude` to force a backend (default `auto`).
 - `-DryRun` to print the generated messages without committing.
 
 No `commit-messages.json` file is written or read — generation and commit/push happen together.
 
-### Step 2: Report
+### Step 3: Report
 
 After the script completes, report:
 - Which repos were committed and pushed
 - Any repos that had nothing to commit
-- Which message source was used (Ollama or Claude)
+- Which message source was used (the local model and machine, or Claude)
 - Any errors encountered
 
 ## Message Style (for reference)

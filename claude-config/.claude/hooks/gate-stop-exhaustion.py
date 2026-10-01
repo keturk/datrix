@@ -69,6 +69,17 @@ than the dodge did. Four suppressors:
   4. PROOF MARKERS: a real B1-B4 blocker proof or a filed task path is a
      legitimate exit and suppresses the check entirely.
 
+A SECOND READER FOR REWORDED CLAIMS
+-----------------------------------
+A wordlist loses to rephrasing: "given where the budget stands I'll stop here" means
+what the exhaustion family bans and matches none of it. When the patterns find nothing
+and every suppressor above has passed, a local model reads the turn once
+(`_local_judge.py`) and may block for exhaustion, a security downgrade or an expedient
+fix -- not a handover, which it could not tell apart from a question put to Jon -- only
+at high confidence, and only with a quote the turn really contains that survives the
+same quoting and negation suppressors. It never re-reads a stop that is already
+continuing after a block, never loads a model, and with no model in memory it is silent.
+
 FAILING OPEN, DELIBERATELY
 --------------------------
 Any exception, unreadable transcript, or missing field ALLOWS the stop. A hook
@@ -91,13 +102,21 @@ from typing import Final
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from _local_judge import (  # noqa: E402
+    CLEAN_JUDGEMENT,
+    FAMILY_EXHAUSTION,
+    FAMILY_EXPEDIENT,
+    FAMILY_SECURITY,
+    GATE_STOP,
+    judge_report,
+)
 from _report_language import (  # noqa: E402
     EXPEDIENT_REMEDY,
     SECURITY_REMEDY,
     carries_forbade_exception,
     carries_proof,
-    find_expedient,
     find_exhaustion,
+    find_expedient,
     find_handover_section,
     find_security_downgrade,
     last_assistant_text,
@@ -198,9 +217,18 @@ def main() -> None:
 
     exhaustion = find_exhaustion(text)
     handover = find_handover_section(text)
+    second_reader = ""
     if not exhaustion and not handover and not downgrade and not expedient:
-        _clear(state)
-        sys.exit(0)
+        # The patterns found nothing. A local model gets one read, never on a stop that
+        # is already continuing after a block, and blocks only with a quote that stands.
+        judged = CLEAN_JUDGEMENT if data.get("stop_hook_active") else judge_report(text, GATE_STOP)
+        if not judged.flagged:
+            _clear(state)
+            sys.exit(0)
+        second_reader = judged.quote
+        exhaustion = judged.quote if judged.family == FAMILY_EXHAUSTION else ""
+        downgrade = judged.quote if judged.family == FAMILY_SECURITY else ""
+        expedient = judged.quote if judged.family == FAMILY_EXPEDIENT else ""
 
     blocks = _block_count(state)
     if blocks >= _MAX_BLOCKS:
@@ -222,6 +250,9 @@ def main() -> None:
     else:
         headline = f"STOP REJECTED - the turn ends on a handover section: {handover!r}"
         remedy = _HANDOVER_REMEDY
+    if second_reader:
+        headline += (" (found by the local second reader, not the wordlist: the quoted sentence says "
+                     "this in other words)")
 
     print(
         f"{headline}\n\n{remedy}\n\n"

@@ -19,6 +19,13 @@ The vocabulary, the false-positive suppressors, and the remedy text live in
 so the two cannot drift apart. They did drift, once, and it mattered: the subagents
 were policed and the agent talking to Jon was not.
 
+When none of the patterns match, a local model reads the report once as a second reader
+(`_local_judge.py`) and can block for a security downgrade or an expedient fix -- only at
+high confidence, and only with a quote that appears in the report and survives the same
+quoting, negation and remediation suppressors. Not for dodges: on its first real day it
+was wrong all eight times it called one. It can add a block, never lift one, and with no
+model in memory it is silent.
+
 Legitimate exits are preserved. The block is skipped when the final message carries:
   - a blocker code (B1/B2/B3/B4) with proof, or
   - a filed task file path (a defect that was properly FILED), or
@@ -33,6 +40,7 @@ Exit codes:
 import json
 import sys
 
+from _local_judge import FAMILY_EXPEDIENT, FAMILY_SECURITY, GATE_SUBAGENT, judge_report
 from _report_language import (
     DODGE_REMEDY,
     EXPEDIENT_REMEDY,
@@ -88,12 +96,26 @@ def main() -> None:
         sys.exit(0)
 
     dodge = find_dodge(text)
-    if not dodge:
-        sys.exit(0)
+    if dodge:
+        _reject(
+            f'REPORT REJECTED — you are ending your turn on a dodge: "{dodge}".',
+            DODGE_REMEDY,
+        )
 
+    # The patterns found nothing: a local model gets one read and blocks only with a
+    # quote that stands (see _local_judge.py). A stop already continuing after a block
+    # exited above, so it never re-judges.
+    judged = judge_report(text, GATE_SUBAGENT)
+    if not judged.flagged:
+        sys.exit(0)
+    remedy = {
+        FAMILY_SECURITY: SECURITY_REMEDY,
+        FAMILY_EXPEDIENT: EXPEDIENT_REMEDY,
+    }[judged.family]
     _reject(
-        f'REPORT REJECTED — you are ending your turn on a dodge: "{dodge}".',
-        DODGE_REMEDY,
+        f'REPORT REJECTED — the local second reader found {judged.family.replace("_", " ")} in other words: '
+        f'"{judged.quote}".',
+        remedy,
     )
 
 

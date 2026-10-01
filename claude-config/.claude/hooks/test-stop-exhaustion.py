@@ -15,6 +15,10 @@ import tempfile
 
 H = r"d:\datrix\.claude\hooks"
 SID = "TESTSESSION-exhaustion"
+
+# These cases pin the WORDLIST's behaviour; the local second reader has its own test
+# (test-local-judge.py). Off here so a model server's answer cannot change a verdict.
+os.environ["DATRIX_LOCAL_JUDGE"] = "off"
 TRANSCRIPT = r"D:\datrix\.tmp\exhaustion-test-transcript.jsonl"
 STATE = os.path.join(tempfile.gettempdir(), "datrix-stop-exhaustion", f"{SID}.json")
 

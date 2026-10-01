@@ -23,6 +23,10 @@ PREDEPLOY = r"D:\datrix\.tmp\predeploy"
 CHECKLIST_DIR = os.path.join(TMP, "checklists")
 SID = "TESTSESSION-hookcheck"
 
+# The dodge cases pin the WORDLIST; the local second reader has its own test
+# (test-local-judge.py). Off here so a model server's answer cannot change a verdict.
+os.environ["DATRIX_LOCAL_JUDGE"] = "off"
+
 fails = []
 
 

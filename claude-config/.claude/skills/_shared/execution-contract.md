@@ -184,7 +184,7 @@ outcome 1.
 `Write` tool.
 
 **No search first.** Do not read or search the folder for an existing entry. Duplicates are fine;
-they are merged later.
+`/consolidate-findings` merges them later.
 
 **Content.** Brief: enough for someone with no context to understand and fix the issue, and no
 more. Aim for under 30 lines.
