@@ -3,6 +3,13 @@
 Produces per-project structured output directories from JUnit XML (Python)
 and Jest JSON (TypeScript) test results. Designed for AI agent consumption —
 the agent reads index.json first, then drills into individual error files.
+
+index.json records every test the run executed in its ``tests`` list (one
+``{"service", "test", "outcome"}`` entry per test, outcomes drawn from
+:data:`TEST_OUTCOMES`), beside the per-service ``counts``. The failure and error
+lists carry only the tests that did not pass; ``tests`` is the one place a
+passing or skipped test is named, which is what lets the generated-suite parity
+gate compare the set of tests two languages emitted and which of them passed.
 """
 
 from __future__ import annotations
@@ -11,10 +18,10 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from shared.codegen_hint_mapper import get_codegen_hint
 
@@ -48,6 +55,19 @@ _FRAME_LINE = re.compile(r"^\s*(.+?):(\d+):\s+in\s+(.+)$", re.MULTILINE)
 #: Banner Jest puts at the head of a suite-level ``message`` when the spec file
 #: never ran (import error, tsc failure, a throw at module scope).
 _JEST_SUITE_FAILED_BANNER = "Test suite failed to run"
+
+#: Per-test outcomes recorded in index.json's ``tests`` list. The closed
+#: vocabulary both frameworks' results are mapped onto: a JUnit ``<failure>`` and a
+#: Jest ``failed`` assertion are ``failed``; a JUnit ``<error>`` (a collection or
+#: setup error pytest attributes to one test) is ``error``; JUnit ``<skipped>`` and
+#: Jest ``pending``/``skipped``/``todo``/``disabled`` are ``skipped``.
+OUTCOME_PASSED: Final[str] = "passed"
+OUTCOME_FAILED: Final[str] = "failed"
+OUTCOME_ERROR: Final[str] = "error"
+OUTCOME_SKIPPED: Final[str] = "skipped"
+TEST_OUTCOMES: Final[frozenset[str]] = frozenset(
+    {OUTCOME_PASSED, OUTCOME_FAILED, OUTCOME_ERROR, OUTCOME_SKIPPED}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +106,24 @@ class TestError:
 
 
 @dataclass(frozen=True)
+class TestOutcome:
+    """One executed test and how it ended, whatever that outcome was.
+
+    Attributes:
+        service: Name of the service the test ran in.
+        test: The framework-reported full test name, with no file location: pytest's
+            ``classname::name`` (the dotted module path and enclosing classes, then
+            the function) or Jest's ``fullName`` (the enclosing ``describe`` titles
+            and the test title). Unique within one service's report.
+        outcome: One of :data:`TEST_OUTCOMES`.
+    """
+
+    service: str
+    test: str
+    outcome: str
+
+
+@dataclass(frozen=True)
 class ErrorCluster:
     """A group of errors/failures sharing a common pattern."""
 
@@ -108,11 +146,18 @@ class _JestSuiteResult:
     failures: list[TestFailure]
     errors: list[TestError]
     suite_failure_message: str | None
+    tests: list[TestOutcome]
 
 
 @dataclass
 class _ServiceData:
-    """Internal mutable holder for service results."""
+    """Internal mutable holder for service results.
+
+    ``tests`` holds one record per executed test and stays empty for a service
+    known only by its totals (``add_service_log_only``) or by the absence of any
+    report (``add_unreported_service``): the index then carries counts with no
+    per-test records, which a consumer detects by comparing the two.
+    """
 
     name: str
     result: str  # "PASSED" | "FAILED"
@@ -121,6 +166,7 @@ class _ServiceData:
     failures: list[TestFailure]
     errors: list[TestError]
     suite_failure_message: str | None = None
+    tests: list[TestOutcome] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +266,7 @@ class GeneratedTestLogWriter:
         suite_failures = 0
         failures_list: list[TestFailure] = []
         errors_list: list[TestError] = []
+        tests_list: list[TestOutcome] = []
 
         for suite in suites:
             for tc in suite.findall("testcase"):
@@ -232,6 +279,7 @@ class GeneratedTestLogWriter:
                 test_id = f"{classname}::{name}" if classname else name
 
                 if failure_el is not None:
+                    tests_list.append(TestOutcome(service_name, test_id, OUTCOME_FAILED))
                     failed += 1
                     err_type = failure_el.get("type", "")
                     err_msg = _ANSI_ESCAPE.sub(
@@ -253,6 +301,7 @@ class GeneratedTestLogWriter:
                     self._next_failure_id += 1
 
                 elif error_el is not None:
+                    tests_list.append(TestOutcome(service_name, test_id, OUTCOME_ERROR))
                     errors += 1
                     err_type = error_el.get("type", "")
                     err_msg = _ANSI_ESCAPE.sub(
@@ -275,8 +324,10 @@ class GeneratedTestLogWriter:
                     self._next_error_id += 1
 
                 elif skipped_el is not None:
+                    tests_list.append(TestOutcome(service_name, test_id, OUTCOME_SKIPPED))
                     skipped += 1
                 else:
+                    tests_list.append(TestOutcome(service_name, test_id, OUTCOME_PASSED))
                     passed += 1
 
         result = "FAILED" if (failed > 0 or errors > 0 or suite_failures > 0) else "PASSED"
@@ -293,6 +344,7 @@ class GeneratedTestLogWriter:
             log_path=log_path,
             failures=failures_list,
             errors=errors_list,
+            tests=tests_list,
         )
         self._services.append(svc)
 
@@ -343,6 +395,7 @@ class GeneratedTestLogWriter:
         suite_failures = 0
         failures_list: list[TestFailure] = []
         errors_list: list[TestError] = []
+        tests_list: list[TestOutcome] = []
         suite_failure_msg: str | None = None
 
         for test_suite in data.get("testResults", []):
@@ -351,6 +404,7 @@ class GeneratedTestLogWriter:
             skipped += suite.skipped
             failures_list.extend(suite.failures)
             errors_list.extend(suite.errors)
+            tests_list.extend(suite.tests)
             if suite.suite_failure_message is not None:
                 suite_failures += 1
                 if suite_failure_msg is None:
@@ -375,6 +429,7 @@ class GeneratedTestLogWriter:
             failures=failures_list,
             errors=errors_list,
             suite_failure_message=suite_failure_msg,
+            tests=tests_list,
         )
         self._services.append(svc)
 
@@ -402,20 +457,25 @@ class GeneratedTestLogWriter:
         passed = 0
         skipped = 0
         failures: list[TestFailure] = []
+        tests: list[TestOutcome] = []
 
         for test_result in test_suite.get("assertionResults", []):
             status = test_result.get("status", "")
+            full_name = _jest_full_name(test_result)
             if status == "passed":
+                tests.append(TestOutcome(service_name, full_name, OUTCOME_PASSED))
                 passed += 1
             elif status in ("pending", "skipped", "todo", "disabled"):
+                tests.append(TestOutcome(service_name, full_name, OUTCOME_SKIPPED))
                 skipped += 1
             elif status == "failed":
+                tests.append(TestOutcome(service_name, full_name, OUTCOME_FAILED))
                 failures.append(
                     self._make_jest_failure(service_name, test_file, test_result)
                 )
 
         if test_suite.get("status") != "failed" or failures:
-            return _JestSuiteResult(passed, skipped, failures, [], None)
+            return _JestSuiteResult(passed, skipped, failures, [], None, tests)
 
         # Jest marked the file failed yet no assertion failed: the file never ran.
         # The reason lives only in the suite-level "message" ("Test suite failed
@@ -433,7 +493,7 @@ class GeneratedTestLogWriter:
             generated_file=_extract_generated_file_from_path(test_file),
         )
         self._next_error_id += 1
-        return _JestSuiteResult(passed, skipped, failures, [error], summary)
+        return _JestSuiteResult(passed, skipped, failures, [error], summary, tests)
 
     def _make_jest_failure(
         self, service_name: str, test_file: str, test_result: dict[str, Any]
@@ -449,7 +509,7 @@ class GeneratedTestLogWriter:
             The failure, with its id consumed from this writer's counter.
         """
         title = test_result.get("title", "")
-        full_name = test_result.get("fullName", title)
+        full_name = _jest_full_name(test_result)
         message = _ANSI_ESCAPE.sub(
             "", "\n".join(test_result.get("failureMessages", []))
         )
@@ -752,6 +812,12 @@ class GeneratedTestLogWriter:
         fc_json = [_cluster_to_dict(c) for c in failure_clusters]
         ec_json = [_cluster_to_dict(c) for c in error_clusters]
 
+        tests_json: list[dict[str, str]] = [
+            {"service": t.service, "test": t.test, "outcome": t.outcome}
+            for svc in self._services
+            for t in svc.tests
+        ]
+
         index: dict[str, Any] = {
             "schema_version": _SCHEMA_VERSION,
             "project": self._project_path,
@@ -765,6 +831,7 @@ class GeneratedTestLogWriter:
             "result": result,
             "counts": counts,
             "services": services_json,
+            "tests": tests_json,
             "failures": failures_json,
             "errors": errors_json,
             "failure_clusters": fc_json,
@@ -1083,6 +1150,19 @@ def _extract_generated_file(traceback_text: str, service_name: str) -> str | Non
             return file_path
 
     return None
+
+
+def _jest_full_name(test_result: dict[str, Any]) -> str:
+    """The full name of one Jest assertion: the enclosing ``describe`` titles then
+    its own title, which is what Jest reports as ``fullName``.
+
+    Args:
+        test_result: One element of a suite's ``assertionResults`` list.
+
+    Returns:
+        ``fullName`` when Jest reported it, else the assertion's ``title``.
+    """
+    return test_result.get("fullName", test_result.get("title", ""))
 
 
 def _extract_generated_file_from_path(test_file_path: str) -> str | None:

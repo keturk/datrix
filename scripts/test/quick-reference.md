@@ -769,23 +769,22 @@ name ANY member of a role drops as language-private plumbing is dropped for ever
 that name, so a language whose own file-scope subclass happens to live inside the shared layer
 does not count a parameter its sibling languages drop.
 
-**Two hard-zero buckets, one shape-exempt, one declared-hole:**
+**Two buckets that fail by shape, one that fails by skeleton groups:**
 - `identical` / `same-behaviour` fail unless every member is a **pre-binding adapter** (a single
   `return` of a call into `datrix_codegen_common`, recognized by AST shape only — no written
   exemption list).
 - `divergent` is judged **without a reference language**: the role's member packages are
   partitioned into **skeleton groups** (packages whose contributed skeleton sets are equal share
-  a group); every package that declares the construct unsupported on one of three surfaces — its
-  `DomainDeclaration.status == "unsupported"` for the role's resolved domain, the domain in its
-  `on_demand_domains`, or (for `@emit_adapter`-marked members) every emit-table row's builtin
-  group having an `unsupported` `builtin_group_stances` entry — is set aside; the role passes
-  iff at most one group remains, and otherwise fails with one reason naming every remaining
-  group (e.g. `members split into 2 skeleton groups: {python} vs {typescript}; no member
-  declares the construct unsupported`) — the gate cannot know which group is right, so it names
-  all of them. A role every member of which declares the construct unsupported passes and is
-  still reported. An `undomained` role admits only the builtin-group surface. A role the gate
-  cannot classify (unparseable member, unresolvable annotation) is reported as a **failure naming
-  the member** — never skipped.
+  a group); the role passes iff at most one group remains, and otherwise fails with one reason
+  naming every remaining group (e.g. `members split into 2 skeleton groups: {python} vs
+  {typescript}; no member declares domain 'x' on-demand`) — the gate cannot know which group is
+  right, so it names all of them. The one package set aside is a package whose
+  `LanguageCapabilityDeclaration.on_demand_domains` names the role's domain (that language emits
+  the domain's artifacts only when the DSL triggers them). No domain stance, builtin-group
+  stance, capability declaration or `capability_gaps` row sets a package aside, so a capability a
+  target does not realize leaves its roles failing and counted. An `undomained` role admits no
+  set-aside. A role the gate cannot classify (unparseable member, unresolvable annotation) is
+  reported as a **failure naming the member** — never skipped.
 - The `identical`/`same-behaviour` shape exemption also covers a **rendering leaf**: a body with
   no branch/loop/`try`/`with`/comprehension/`raise`, no attribute chain rooted at `self`, a
   shared-typed or unannotated parameter, or a derived root sourced from one of those (a chain
@@ -794,22 +793,39 @@ does not count a parameter its sibling languages drop.
   call resolving to the shared codegen layer or the standard library — reported
   `rendering-leaf-exempt` beside `adapter-exempt`.
 
-**Scope is migration-only.** While `datrix/scripts/config/behaviour-parity-scope.json` exists,
-only the domains it lists (plus the literal `undomained` if listed) can fail the gate; every
-other role is reported but never fails. `-Scope` overrides the file for one run. When the file
-is absent, every domain is in scope (hard zero). The file only grows, never shrinks, and is
-deleted once every domain is in scope.
-The same file's `buckets` list independently gates every role of a named verdict across every
-domain regardless of `domains`; it too only grows and accepts only the three verdict names.
-A role fails when EITHER half admits it — a scoped bucket is never narrowed by an empty or
-unrelated `domains` list, and vice versa. `-Buckets` overrides the file's `buckets` list for
-one run the same way `-Scope` overrides `domains`.
+**Every role is in scope; the verdict is a pinned, two-directional failing-role count.** No
+file, flag or domain id narrows the measured population: every bucket, every domain, and every
+role the domain ladder resolves to `undomained` is evaluated and counted. The gate compares the
+number of failing roles with `[languages].failing_roles` in
+`datrix/scripts/config/behaviour-parity-baseline.toml` and exits 0 only on an exact match. More
+failing roles than the pin fails (a regression); FEWER failing roles than the pin fails too,
+unless the pin is lowered in the same change (an improvement must be banked — no other ratchet in
+this repo fails on an unpinned decrease). The failure message names the direction, the delta and
+the live split. The `[languages.buckets]` counts split the failing roles by verdict
+(`identical`/`same_behaviour`/`divergent`); they are diagnostic — a stale split logs a WARNING and
+never moves the exit code. The loader refuses a missing, unreadable or malformed file, an
+unrecognized top-level section or key (naming the file and the key), and a non-integer or
+negative count. Seed or lower a pin from the gate's own `BEHAVIOUR-PARITY GATE: N role(s) FAIL
+(...)` line (`-Dbg` also lists every role), never from a document. The platform axis has no
+section.
+
+**`-Scope` / `-Buckets` are report filters only.** They choose which role lines the report
+prints (a role prints when its domain and its verdict satisfy every filter given), print a
+`BEHAVIOUR-PARITY REPORT FILTER` line, and never change the failing-role count, the ratchet
+comparison or the exit code. An unknown id is a usage error naming the valid options, and both
+are refused on a run that renders no gate report (`-Axis platforms`, `--report-only`).
 
 **Non-vacuity is enforced on every run.** A synthetic five-bucket tree (one identical role, one
 same-behaviour role, one divergent role, one role split only by a language token, one role
 unified only by shared-typed signature) must land in exactly its bucket, a single-target tree
-must be refused, a two-group divergent role must fail naming both groups and pass once the odd
-group's package declares the construct unsupported, and the bucket labels printed must be
+must be refused, a two-group divergent role must fail naming both groups and pass only once the
+odd group's package declares the role's domain on-demand, a divergent role whose package would
+once have been declared unsupported (or whose member is an `@emit_adapter` over an unsupported
+builtin group) must still fail, the module's own AST must import, name and read none of the
+retired declaration types, an `undomained` failing role must be counted by the failing-role count
+and the ratchet, a live count above the pin and a live count below it must each fail while an
+exact match passes, the baseline loader must refuse an unrecognized key naming the file, a report
+filter must change the printed lines and not the verdict, and the bucket labels printed must be
 exactly `identical` / `same-behaviour` / `divergent`. A fixture language split into a backend
 and a core must resolve both packages under one label, a function planted only in the core must
 be compared as that language's member, and the core must never land in the "other package" set
@@ -835,8 +851,8 @@ never through `self` and never through a plain local). A skeleton under
 candidate. A surviving cross-package group is judged by the same `identical` / `same-behaviour` /
 `divergent` verdict rules a name/signature role uses — no second classifier — and labelled
 `match` (every member's skeleton text equal) or `near-match` (same shape and attributes, at least
-one member's skeleton text differs). The pass never reaches the exit code, the scope file, or
-`-Buckets`; it becomes gated only once its first measurement is worked down.
+one member's skeleton text differs). The pass never reaches the exit code, the baseline, or the
+report filters; it becomes gated only once its first measurement is worked down.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -853,17 +869,18 @@ plugin answers to the same name — never guessed from the bare registered name 
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the gate** | `.\test\behaviour-parity-gate.ps1` | Language axis, default (empty or file) scope |
-| **Scoped** | `.\test\behaviour-parity-gate.ps1 -Scope queue,cache` | Fail only roles in these domains |
-| **Bucket-gated** | `.\test\behaviour-parity-gate.ps1 -Buckets identical` | Fail every role in these verdict buckets (identical, same-behaviour, divergent) across every domain, regardless of -Scope |
+| **Run the gate** | `.\test\behaviour-parity-gate.ps1` | Language axis: the failing-role count against its pinned baseline, in both directions |
+| **List every role** | `.\test\behaviour-parity-gate.ps1 -Dbg` | Debug logging; also prints every passing role (failing roles always print) |
+| **Filter by domain** | `.\test\behaviour-parity-gate.ps1 -Dbg -Scope queue,cache` | Print only these domains' role lines (add `undomained` to see those); never changes the exit code |
+| **Filter by bucket** | `.\test\behaviour-parity-gate.ps1 -Dbg -Buckets identical` | Print only these verdict buckets' role lines (identical, same-behaviour, divergent); never changes the exit code |
 | **Platform axis** | `.\test\behaviour-parity-gate.ps1 -Axis platforms` | Report only, always exits 0 |
-| **Debug** | `.\test\behaviour-parity-gate.ps1 -Dbg` | Debug logging |
 | **Self-test only** | `.\test\behaviour-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test |
 
 **Parameters:** `-Axis <languages|platforms>` (default: languages), `-Scope <id,...>`, `-Buckets <id,...>`, `-Dbg`, `-SelfTest`, `-Fingerprint`
 
-**Exit codes:** 0 = no failing role in scope (or a successful `-SelfTest`, or `-Axis platforms`),
-1 = ≥1 failing role in scope, 2 = usage/discovery/parse error or the self-test failed.
+**Exit codes:** 0 = the failing-role count equals its pin (or a successful `-SelfTest`, or `-Axis platforms`),
+1 = the count differs from its pin (above it: a regression; below it: an improvement whose pin was not lowered in the same change),
+2 = usage/discovery/parse error, an unreadable or malformed baseline, or the self-test failed.
 
 ---
 
@@ -1164,6 +1181,31 @@ Cross-language artifact-role parity gate -- the G-A closure: detects a language 
 
 ---
 
+### `test\generated-suite-parity-gate.ps1`
+
+Cross-language generated-suite parity gate: every registered language's generated project carries its own emitted test suite, and the suites must agree. For every `(example, runtime, provider)` unit-tested in >= 2 registered languages under `<workspace>/.generated/<language>/<runtime>/<provider>/<example>/`, it compares the structured result index `run-complete.ps1` already wrote for each language's latest unit-test run (`<project>/.test_results/unit-tests-<stamp>/index.json`, written by `shared/generated_test_log_writer.py`, whose `tests` list names every executed test as `{service, test, outcome}`). **Generates NOTHING and runs NOTHING** -- it reads existing index files only; there is no committed baseline. A test is identified by its service and the framework-reported full test name (pytest `classname::name`, Jest `fullName`) exactly as the index records it, so two languages agree on a test only when they emit the same name for it. Three divergences are reported, each its own category: a **role gap** (a test present in one language's suite and absent from another's), a **behaviour gap** (a test present in several languages' suites that passes in one and fails or errors in another), and a **skip gap** (a test one language skips and another runs -- a skip is neither a pass nor a fail, so it is never folded into the other two; a test every language skips is no divergence). The pass/fail comparison runs over the languages a test is present in, so a role gap never hides a behaviour gap. Only unit-test runs are compared: a deploy-test index records the docker lifecycle phases of a live stack, not a flat per-test suite.
+
+**The gate is exactly as current as the local corpus, and refuses incomplete evidence.** It prints every language's oldest and newest index timestamp and exits 2 before comparing anything when: fewer than two languages are registered; a registered language has no unit-tests index for an example another language has one for and the pair has no entry in `scripts/config/parity-known-nongenerating.json` (naming every missing pair and the command that fills it, `run-complete.ps1 -All -L <language> -Skip4`; Jon runs this, the gate never runs a suite itself); an index predates per-test records (no `tests` list); a service's per-test records do not equal its `passed + failed + errors + skipped` counts (it reported totals only, or no test report at all); a service reports a spec file that never ran (`suite_failures > 0`); two tests share one identity; an outcome falls outside `passed/failed/error/skipped`; an index belongs to another language or example than the tree it sits in; or the newest `unit-tests-*` run directory holds no `index.json` (an older run is never substituted for it). A missing index is never read as "zero tests, therefore zero gap".
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\generated-suite-parity-gate.ps1` | Compare the unit-test suites of every `(example, runtime, provider)` unit-tested in >= 2 languages under `<workspace>/.generated` |
+| **Explicit output base** | `.\test\generated-suite-parity-gate.ps1 -GeneratedRoot D:\datrix\.generated` | Same, reading a named `generate.ps1` output base |
+| **Longer listing** | `.\test\generated-suite-parity-gate.ps1 -ListLimit 50` | List up to 50 gaps per (example group, kind) before summarizing the rest (default 10) |
+| **Debug** | `.\test\generated-suite-parity-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\generated-suite-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
+
+**Parameters:** `-GeneratedRoot` (default: `<workspace>/.generated`), `-ListLimit` (default: 10), `-Dbg`, `-SelfTest`
+
+**Assertions:**
+- Every `(example, runtime, provider)` unit-tested in >= 2 registered languages is compared; the language set comes from the installed `datrix.languages` entry points, never a list in the script.
+- A test present in one language's index and absent from another's is a role gap; present in several with a pass in one and a fail/error in another is a behaviour gap; skipped in one and run in another is a skip gap.
+- Non-vacuity self-test (every invocation, 11 `[OK]` lines): a planted role gap, a planted behaviour gap and a planted skip divergence are each reported as exactly that gap; a matching pair reports none; a fail against an error is no gap; fewer than two registered languages is refused (the real entry point and the comparator); every outcome the index writer records is classified; indices written by the real writer (pytest JUnit and Jest JSON) are read, grouped and compared; an incomplete corpus is refused naming the pair while a parked pair is not missing; each unusable-index shape above is refused with its reason; the newest run is read and a newest run with no index is refused; and the entry point exits 0 for agreeing suites, 1 for each gap kind (named in the report, bounded by `-ListLimit`) and 2 over an empty corpus.
+
+**Exit codes:** 0 = every comparable group's suites agree (or a successful `-SelfTest`), 1 = a role, behaviour or skip gap was found, 2 = the self-test failed, fewer than two languages are registered, the corpus is incomplete, an index is unusable, or no group is unit-tested in >= 2 languages.
+
+---
+
 ### `test\example-registry-gate.ps1`
 
 Example-universe consistency **and layout** gate: every `system.dtrx` under `datrix/examples/` must appear in >= 1 named test set of `scripts/config/test-projects.json`, or carry a reviewed entry in `scripts/config/test-set-exclusions.json`. An unregistered example is never built by `generate.ps1 -All`/`run-complete.ps1 -All`, which select their corpus FROM `test-projects.json`'s test sets -- this is exactly how the `config-store` and `replayable-ingestion` whole-example parked defects (tracked in `parity-known-nongenerating.json`) went unnoticed for a full generation cycle before this gate landed.
@@ -1457,7 +1499,10 @@ non-vacuity self-test failed or fewer than 2 languages are registered.
 
 Wire-shape round-trip gate. Generates BOTH a backend service and a browser client for the adopted
 ecommerce fixture application (`datrix/examples/03-domains/ecommerce/`), boots the backend with
-`docker compose up -d --build --wait`, invokes every generated client method against it through a
+its own `scripts/deploy.py deploy` plus `docker compose up -d --build`, then waits for every container
+to settle (running and healthy, or a one-shot that exited 0 — `up --wait` cannot be used, because it
+reports a completed one-shot nothing depends on as a failure; any non-zero exit or unhealthy container
+fails at once with the log tail), invokes every generated client method against it through a
 Node harness that executes the emitted client classes **as shipped** (real TypeScript compilation,
 real framework dependency injection, real `fetch`-backed HTTP), and compares every response body
 against the interface the client generator emitted for it. This is the only check that exercises the
@@ -1473,8 +1518,10 @@ Derives its BACKEND target set from `importlib.metadata.entry_points(group="datr
 runtime — never a hardcoded language literal. A backend that fails to generate or boot is reported as
 SKIPPED by name with its reason, and an emitted client target the gate has no harness for is reported
 the same way; the target set is never narrowed in silence. The browser-facing base URL is read from
-the generated `docker-compose.yml` (the service on the front-end network that publishes a host port,
-whose live host port is then resolved with `docker compose port`) — no port or URL is assumed, and an
+the generated `docker-compose.yml` (the API gateway service, named by the container-runtime generator's
+own gateway-naming function from the analyzed fixture — never "whatever publishes a port", since the
+browser apps' static sites are published on the same front-end network — whose live host port is then
+resolved with `docker compose port`) — no port or URL is assumed, and an
 unresolvable one fails loud naming the compose file. Requires a running Docker daemon plus `node`/`npm`
 on PATH; the pinned harness toolchain installs once into `D:\datrix\.tmp\wire-shape-round-trip\`.
 
@@ -1519,11 +1566,34 @@ request per 700 ms, honours the `Retry-After` the gateway sends on a 429, and re
 bounded, run-wide wait budget; only when that budget is spent is a route reported UNEXERCISED, with
 the reason. The emitted limit itself is untouched.
 
+**Backends are compared against each other.** After the per-backend comparison above, every route's
+response from each booted backend is compared against every OTHER booted backend's response to the
+same route — status, media type (parameters such as `charset` ignored), body shape (the kind at every
+position; list length is data, not contract, so only the leading elements of a list are compared) and
+the casing of every field — because two languages must answer the same route identically on the wire,
+and a disagreement is invisible to a check that compares each backend only against its own client
+interface. It is reported under the `CROSS-LANGUAGE` label so it reads apart from the per-backend
+`WIRE-SHAPE FAILURE` lines. It issues **no extra request**: the one call the harness already makes per
+(backend, route) also records, through an Angular interceptor, what arrived on the wire (the stacks
+publish fixed host ports and are torn down per backend, so a separate pass over all backends would need
+extra boots), which keeps the cost at one call per backend and route however many backends exist,
+through the same request pacer, bearer token and resolved base URL — no second auth path, no unpaced
+traffic, no new host. **A response value never leaves the harness**: a body is reduced to its
+value-free shape (the kind at every position and the name of every property) the moment it is
+captured, so a mismatch names only the JSON path and the two kinds, spellings, statuses or media types
+(`property casing differs at $.orderId: 'orderId' on 'a' vs 'order_id' on 'b'`) and no token,
+identifier or personal datum in a body can reach a report, a log line or a results file. A route the
+shared gateway rate-limited (429) is not captured as an answer; a route a booted backend did not answer
+is reported `CROSS-LANGUAGE NOT COMPARED`, by name, and compared among the backends that did answer.
+**Fewer than two booted backends, or no route answered by two of them, fails the gate** — a comparison
+that compared nothing never passes. Backends are never hardcoded: the pairs come from the booted
+entry-point set.
+
 | Mode | Command | Description |
 |------|---------|--------------|
-| **Run gate** | `.\test\wire-shape-round-trip-gate.ps1` | Generate, boot, call, and compare for every registered backend language |
+| **Run gate** | `.\test\wire-shape-round-trip-gate.ps1` | Generate, boot, call, and compare (per-backend and cross-language) for every registered backend language |
 | **Debug** | `.\test\wire-shape-round-trip-gate.ps1 -Dbg` | Debug logging |
-| **Self-test only** | `.\test\wire-shape-round-trip-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real generate-boot-call-compare run |
+| **Self-test only** | `.\test\wire-shape-round-trip-gate.ps1 -SelfTest` | Run only the non-vacuity self-tests (comparator, cross-language comparison, wire capture); skip the real generate-boot-call-compare run. Needs `node`/`npm`, not Docker |
 | **Reuse the generated tree** | `.\test\wire-shape-round-trip-gate.ps1 -ReuseGenerated` | Boot and exercise the tree a previous run already generated, skipping generation |
 
 **Parameters:** `-Dbg`, `-SelfTest`, `-ReuseGenerated`
@@ -1559,22 +1629,127 @@ correct `pagination: unknown` reported all six of its inner keys as undeclared p
 `null extends void` is false, so two correct `-> Void` routes were reported as mismatches. Neither
 could ever have been fixed generator-side.
 
+The same self-test run also proves the cross-language comparison and the capture behind it, with no
+Docker. Planted bodies are reduced to shapes by the comparator's own function and compared by its own
+pairwise function, and every planted route must produce exactly what it plants, no more: agreeing
+responses (different values, different list lengths, a `charset` parameter on one media type) report
+nothing; a field re-spelled in another casing (top level and inside an array element), a different
+value kind, a property one side lacks, a different status, a different media type, a binary body
+against a string body, a different route, and a shape the comparator cannot classify each report
+exactly that, naming the path and both sides; a route only one backend answered reports nothing; with
+three backends only the disagreeing pairs are named. A secret-shaped string planted in every
+mismatched field must appear in no mismatch field, log record, captured shape or response record — the
+detector is first shown to fire on a known leak, and the secret is shown to be present in the input, so
+the absence means something. The report itself is driven too: it fails on one booted backend and on
+disjoint routes, and passes only on agreement. The collector is shown to cost one captured call per
+(backend, route) — eight captured calls for four backends over two routes, compared as twelve pairs in
+memory — and to refuse a repeated (backend, route). Finally the harness's real capture path (a real
+Angular `HttpClient` over `fetch`, with the same provider wiring and recorder interceptor the live
+harness uses) runs against a throwaway server bound to the loopback interface that answers with
+planted success, error-status, 204 and binary responses and two requests in flight at once; each must
+record its status, media type and value-free shape into the attempt that issued it, and the Python row
+reader must accept what the harness wrote and refuse a malformed capture.
+
 A route the backend answers with a non-2xx status is reported as **UNEXERCISED**, by name and with the
-status, rather than as a mismatch: the generated interface describes the success body only (error
-responses are deliberately untyped in this design), so an error body is a route the gate could not
-exercise, not a shape disagreement. A method declaring `Observable<unknown>` is reported as **UNTYPED**
-the same way. Both counts are printed on every run, and a run in which *nothing* could be compared
-fails rather than passing vacuously.
+status, rather than as a mismatch of its own interface: the generated interface describes the success
+body only (error responses are deliberately untyped in this design), so an error body is a route the
+per-backend comparison could not exercise, not a shape disagreement. (The cross-language comparison
+still compares that status and the error body's shape across backends, so one language answering 404
+where another answers 200 is reported.) A method declaring `Observable<unknown>` is reported as
+**UNTYPED** the same way. Both counts are printed on every run, and a run in which *nothing* could be
+compared fails rather than passing vacuously.
 
 **Exit codes:** 0 = every response that carried a typed success body parsed against its generated
-interface, for at least one backend that booted; 1 = a wire-shape mismatch, a declared route with no
-reachable client method, a method whose emitted shape could not be read or whose response type could
-not be resolved, an argument no value could be constructed for, an emitted client tree that does not
-compile, a client method issuing a route the generated manifest does not declare, an emitted client
-target the gate cannot drive at all, or a run in which nothing at all could be compared; 2 = either
+interface, for at least one backend that booted, and every pair of booted backends answered every
+route they both answered identically (status, media type, body shape, field casing); 1 = a wire-shape
+mismatch, a cross-language mismatch, fewer than two booted backends or no route answered by two of
+them (nothing to compare across languages), a declared route with no reachable client method, a method
+whose emitted shape could not be read or whose response type could not be resolved, an argument no
+value could be constructed for, an emitted client tree that does not compile, a client method issuing
+a route the generated manifest does not declare, an emitted client target the gate cannot drive at
+all, or a run in which nothing at all could be compared; 2 = either
 self-test failed (diagnostic durability or comparator non-vacuity), no `datrix.languages` targets are
 registered, no host every emitted service trusts reaches this machine's loopback, or every registered
 backend failed before a single route could be called.
+
+Generation runs at the pipeline's default, full validation level: a booted gate needs a deployable
+tree, and the Angular client's `package-lock.json` (which its static-site image installs from with
+`npm ci`) is written by a post-generation hook only that level runs.
+
+The boot, seam-closing and credential machinery above (generation from a private source copy, the
+trusted-host, compose-variable, container-name and host-port pre-flights, the entry-point port, the
+provisioned-key bearer token, boot and teardown) lives once, in
+`scripts/library/shared/generated_stack.py`, and is shared with `api-key-identity-round-trip-gate.ps1`.
+
+---
+
+### `test\api-key-identity-round-trip-gate.ps1`
+
+API-key identity round-trip gate. Generates the ecommerce fixture (`datrix/examples/03-domains/ecommerce/`,
+its `customerKeys` API-key provider) for every registered backend language, boots each with real
+Postgres and Redis through the same shared boot-and-settle step as the wire-shape gate, issues real keys through the generated
+issuance endpoint (`POST /me/api-keys`, with a bearer token signed by the stack's own provisioned key),
+and proves against the live stack:
+
+- **Immediate revocation** — a key that verifies is refused 401 on its very next request once its stored
+  row is deactivated (there is no revoke endpoint, so the row is changed in the store itself, as one would).
+- **Exact concurrent rate-limit counting** — the key's stored limit is lowered to 3 and 8 requests are
+  released together from a barrier on separate connections; exactly 3 must answer `ok` and 5 must answer
+  429 with an integer `Retry-After`. The store's own Redis counters for the key are then read to prove all 8
+  reached verification exactly once, so a request the gateway throttled can never pass as a key limit.
+- **Bounded `lastUsedAt` writes** — 5 verifications inside one resolution window; the key row is read from
+  Postgres before the first and after each (its `xmin` row version changes on every write and nothing else),
+  and exactly one write must occur and record a use.
+- **Tenant from the key row** — against a tenant-scoped companion fixture (two services: a key store whose
+  `ApiKey` entity is `Tenantable`, and a header-tenanted service whose one route admits only the key), a key
+  is issued in one tenant, its stored tenant is confirmed, and the route must answer 403 for a different
+  request tenant and `ok` for the key's own tenant or none. The companion fixture's sources live beside the
+  gate in `scripts/library/test/api_key_identity_fixture/` and are assembled into scratch space each run,
+  borrowing the ecommerce example's system and platform-identity configuration; it is never a product example.
+- **Cross-language parity** — every backend's outcome vector for every probe above must be identical.
+
+Every answer is judged against the outcome the key's freshly read stored row prescribes (no row, inactive,
+and expired are `invalid`; over the limit is `rate_limited`; otherwise `ok`), never against a remembered
+expectation. Sequential calls are paced under the gateway's per-address zone and a burst is fired only after
+its allowance refills and with at least 15 s left in the store's rate-limit window — the emitted limits are
+honoured, never routed around.
+
+Derives its backend target set from `datrix.languages` at runtime and refuses to run under two languages,
+since cross-language parity is otherwise vacuous; a backend that fails to generate or boot fails the gate.
+Every fact it needs is read, not assumed: the provider, its header, store, entity, table and column names,
+window and resolution from the fixture's analyzed application; the probe route (the one parameterless gateway
+GET admitting the provider) and issuance route from its REST surface; the store's database and Redis
+coordinates from the store service's derived connection surface and its emitted file config store; their
+published ports from the running stack; and their credentials from the secrets the generated project itself
+provisions — none is a literal in the gate. Its pre-flight seam closers are the shared ones the wire-shape
+gate documents above (trusted host, compose variables, container names, fixed host ports, provisioned key).
+
+Every stack is torn down with `docker compose down -v` in a `finally`, per fixture and backend, and the run
+ends by listing every project's containers: any left behind fails the gate. Scratch state lives under
+`D:\datrix\.tmp\api-key-identity-round-trip\`.
+
+**A non-vacuity self-test runs first, every invocation, before any container is started** (after the shared
+diagnostic-durability check). It drives the gate's REAL classifiers over synthetic input: a success answer for
+an active, unexpired, under-limit key row is accepted as `ok`; the same answer for that row with `active`
+false — a revoked key — is rejected, naming the inactive row (an expired row likewise); a 429 without an
+integer `Retry-After` is never counted as a limit; a burst of 8 against a limit of 3 is prescribed exactly 3
+admissions and one admission over or under is rejected; 5 verifications writing the row once count as one
+write while 5 writes are rejected; identical outcome vectors agree and a differing one is named.
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate** | `.\test\api-key-identity-round-trip-gate.ps1` | Generate, boot, issue, and probe revocation, tenant scoping, rate-limit counting, bounded writes, and cross-language parity for every registered backend language |
+| **Debug** | `.\test\api-key-identity-round-trip-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\api-key-identity-round-trip-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip generation/boot |
+| **Reuse the generated tree** | `.\test\api-key-identity-round-trip-gate.ps1 -ReuseGenerated` | Boot and probe a previous run's already-generated trees, skipping generation |
+
+**Parameters:** `-Dbg`, `-SelfTest`, `-ReuseGenerated`
+
+**Exit codes:** 0 = every registered backend green on revocation, tenant scoping, rate-limit counting, and
+bounded-write checks, cross-language parity holds, and no container was left behind; 1 = a backend failed to
+generate or boot, a probe failed (naming the backend, the check, and the observed outcome), parity broke, or a
+stack leaked containers; 2 = a self-test failed, fewer than two languages are registered, or the fixtures
+cannot be planned.
 
 ---
 
@@ -1985,7 +2160,7 @@ no-server outcome — against real HTTP servers it starts on loopback, and `shar
 
 **Parameters:** `-HarnessSelfTest`, `-Only <prefix>`, `-Dbg`
 
-**Assertions:** 71 named checks covering `structured_log_writer.py`, `test_runner.py` (including
+**Assertions:** 72 named checks covering `structured_log_writer.py`, `test_runner.py` (including
 the `-Tag` pre-flight that refuses an unknown or whole-tree tag selection before any phase),
 `suite_stamp.py`, `node_test_runner.py`'s stamp, `codegen_hint_mapper.py`,
 `deploy_test_aggregate_writer.py`, `generated_test_log_writer.py`,

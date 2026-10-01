@@ -7,8 +7,8 @@ never by raw name, so a language token in a name can never hide a parallel
 implementation -- classifies every role with two or more
 member packages as ``identical``, ``same-behaviour``, or ``divergent``
 using the behaviour-skeleton extractor, resolves each role to its owning
-shared domain, reads the declared exemption surfaces, and fails exactly the
-roles the language-axis behaviour-parity invariants say must fail.
+shared domain, and counts the roles the language-axis behaviour-parity
+invariants say must fail against a pinned, two-directional baseline.
 
 A per-target difference in generator BEHAVIOUR -- what is read from the
 model, what is validated, what is emitted -- is a defect with as many copies
@@ -41,25 +41,46 @@ Two grouping keys, tried in order for every function:
    the language axis; the bare registered name(s) on the platform axis)
    stripped as whole ``_``-delimited segments.
 
-Gate verdicts (language-axis invariants I1 and I2)
+Role verdicts (language-axis invariants I1 and I2)
 --------------------------------------------------
 - ``identical`` and ``same-behaviour`` fail unless every member is a
-  pre-binding adapter (recognized by AST shape in ``behaviour_skeleton``;
-  there is no written exemption for this bucket).
+  pre-binding adapter or a rendering leaf (recognized by AST shape in
+  ``behaviour_skeleton``; there is no written exemption for this bucket).
 - ``divergent`` is judged without a reference language. The role's member
   packages are partitioned into SKELETON GROUPS: two packages share a group
   when the sets of ``(behaviour skeleton, behaviour arity)`` pairs their
-  members contribute to the role are equal. Every package that declares the
-  construct ``unsupported(reason)`` on one of the declared surfaces below is
-  set aside. The role PASSES iff at most one group remains; otherwise it
+  members contribute to the role are equal. The role PASSES iff at most one
+  group remains once the one declared surface below is applied; otherwise it
   FAILS with one reason naming every remaining group -- the gate cannot
   know which group carries the correct behaviour, so it names all of them.
-  A role every member of which declares the construct unsupported passes (a
-  declared hole everywhere) and is still reported.
-- A failure counts toward the exit code only when the role's domain is in
-  scope; every other role is reported and never fails (the migration-only
-  scope below). The platform axis is measured, not reconciled: it is
-  report-only and never fails.
+  No capability declaration, builtin-group stance, domain stance or
+  ``capability_gaps`` row sets a package aside: a capability a target does
+  not realize is a counted gap, and its roles stay in the failing-role count
+  until the behaviour is reconciled.
+
+Population ratchet (the gate's verdict)
+---------------------------------------
+Every role the scan measures is in scope -- every bucket, every domain, and
+a role the domain ladder resolves to ``undomained`` exactly like any other.
+No file, flag or domain id narrows the measured population. The verdict is
+one number per gated axis: the count of failing roles, compared in BOTH
+directions with the pin in
+``datrix/scripts/config/behaviour-parity-baseline.toml``.
+
+- A count ABOVE the pin fails: a role regressed or a new failing role
+  appeared.
+- A count BELOW the pin fails too, unless the pin is lowered in the same
+  change: a reconciliation is provable only once it is banked, and an
+  un-banked decrease would let the next regression hide in the slack.
+- The per-bucket split beside the pin (``identical`` / ``same_behaviour`` /
+  ``divergent``) counts the FAILING roles by verdict. It is diagnostic and
+  never part of the verdict: a split that no longer matches the live one is
+  reported as a note and moves no exit code.
+
+The baseline loader refuses an unrecognized top-level section or key, and
+the platform axis has no section: it is measured, not reconciled, and
+report-only. The pins are seeded from a live run, never copied from a
+document.
 
 Domain resolution ladder (first hit wins)
 -----------------------------------------
@@ -80,61 +101,41 @@ Domain resolution ladder (first hit wins)
 
 Membership is always tested against ``SHARED_CONTEXT_TYPES``: no domain id
 is ever fabricated, and disagreeing members fall through to ``undomained``.
+The resolved domain orders the reconciliation worklist and serves the
+``--scope`` report filter; it never changes a role's verdict, and an
+``undomained`` role fails and is counted exactly like a domained one.
 
-Declared exemption surfaces (a member package is set aside on ANY one)
-----------------------------------------------------------------------
-1. Its ``DomainDeclaration.status == "unsupported"`` for the role's domain
-   (read through ``supported_domain_parity.stance_table_by_language``).
-2. The role's domain is a key of its
-   ``LanguageCapabilityDeclaration.on_demand_domains``.
-3. Every member it contributes to the role is an ``@emit_adapter``-marked
-   function (the decorator resolved through the member's own import table
-   to the shared layer's ``emit_adapter``) whose emit-table rows all belong
-   to builtin groups its ``builtin_group_stances`` declares ``unsupported``.
+Declared set-aside (the only one)
+---------------------------------
+A member package is set aside in the divergence check when the role's domain
+is a key of its ``LanguageCapabilityDeclaration.on_demand_domains``: the
+language emits that domain's artifacts only when the DSL invokes a triggering
+construct, which says WHEN a language emits something, never that it does
+not realize it. The set-aside is keyed by the role's domain, so renaming a
+function never touches it, and an ``undomained`` role admits none. No
+classification file exists (invariant I11).
 
-An ``undomained`` role admits only the third surface. Exemptions are
-role-keyed -- renaming a function never touches one -- and no classification
-file exists (invariant I11): the typed declaration on the plugin is the
-only surface, and it records a capability hole, never a reason to behave
-differently.
-
-How surface 3 finds a language's emit tables: every module under the
-language package's ``src/<import root>`` is imported
-(``pkgutil.walk_packages`` with a raising ``onerror``) and every module-level
-``EmitTable`` instance is collected by ``isinstance``, deduplicated by
-identity. No per-language table variable name and no table-module path is
-assumed: the tables live in differently-named variables
-(``PYTHON_EMIT_TABLE``, ``TYPESCRIPT_EMIT_TABLE``, ...) and in more than one
-module per package (a language's instance-call table can live beside its
-expression visitor rather than in ``transpiler/emit_tables.py``). Each
-registered emit callable is matched to the AST-scanned member by
-``(resolved defining file, __qualname__)``, and the row's builtin group is
-read from ``BUILTIN_REGISTRY``. An ``@emit_adapter``-marked member no table
-registers is a failure naming the member, never a skip.
-
-Scope (migration-only)
-----------------------
+Report filters
+--------------
 ``--scope <id>[,<id>...]`` -- universe ids plus the literal ``undomained`` --
-overrides ``datrix/scripts/config/behaviour-parity-scope.json``'s ``domains``
-list, read only when ``--scope`` is absent. ``--buckets <id>[,<id>...]`` --
-verdict names (``identical``, ``same-behaviour``, ``divergent``) --
-overrides the file's ``buckets`` list the same way, gating every role of
-that verdict across EVERY domain regardless of ``domains``/``--scope``. A
-role is in scope when either half admits it. File present: its ``domains``
-list is the domain scope (empty means no role fails by domain) and its
-``buckets`` list (absent key means none) is the bucket scope. File absent:
-every domain is in scope and no bucket is -- the hard-zero end state once
-the migration is over. An unknown id in either place is a usage error naming
-the valid options.
+and ``--buckets <id>[,<id>...]`` -- verdict names (``identical``,
+``same-behaviour``, ``divergent``) -- choose which role lines the report
+PRINTS; a role prints when it satisfies every filter given. They never reach
+the verdict: the failing-role count, the ratchet comparison and the exit code
+are computed over every role either way. An unknown id is a usage error
+naming the valid options, and both filters are refused on a run that renders
+no gate report.
 
 Fail-closed rule: an unparseable file, an unparseable string annotation, a
-member the skeleton extractor cannot classify, an ``@emit_adapter`` member
-with no row, or an emit callable without a usable identity is a reported
-failure naming the member -- never a skip.
+member the skeleton extractor cannot classify, a baseline file that is
+missing, malformed or carries an unrecognized key, or an axis with no
+baseline section is a reported failure naming the offender -- never a skip.
 
-Exit codes: 0 no in-scope failing role; 1 at least one in-scope failing
-role; 2 usage error, discovery/parse failure, or self-test failure.
-``--axis platforms`` and ``--report-only`` render the report and exit 0.
+Exit codes: 0 the failing-role count equals its pin; 1 the count differs from
+its pin (above it: a regression; below it: an improvement whose pin was not
+lowered in the same change); 2 usage error, discovery/parse failure, or
+self-test failure. ``--axis platforms`` and ``--report-only`` render the
+report and exit 0.
 
 Fingerprint pass (report-only)
 -------------------------------
@@ -157,8 +158,8 @@ name/signature role uses (``_classify_role``): ``identical``,
 labelled ``match`` when every member's exact behaviour skeleton is equal, or
 ``near-match`` when the shape and the model attributes agree but at least one
 member's skeleton text differs (a divergent detail inside an otherwise
-shared job). The pass never reaches ``gate_exit_code``, the scope file, or
-``--buckets`` -- it is report-only, and the exit code is identical with and
+shared job). The pass never reaches the ratchet verdict, the baseline, or the
+report filters -- it is report-only, and the exit code is identical with and
 without ``--fingerprint``. It is gated only once its first measurement is
 worked down, which this pass does not do.
 
@@ -176,58 +177,38 @@ import argparse
 import ast
 import dataclasses
 import functools
-import importlib
-import json
 import logging
-import pkgutil
 import sys
 import tempfile
 import textwrap
+import tomllib
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from importlib.metadata import EntryPoint
 from pathlib import Path
-from types import CodeType, MappingProxyType
-from typing import Final, Literal, TypeVar
+from types import MappingProxyType
+from typing import Final, Literal
 
 _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from datrix_codegen_kernel.parity.domain_declaration import DomainDeclaration  # noqa: E402
-from datrix_codegen_common.testkit.fixtures.fixtureclient import fixture_client_target_descriptor  # noqa: E402
+from datrix_codegen_common.testkit.fixtures.fixtureclient import (  # noqa: E402
+    FIXTURECLIENT_CAPABILITY_DECLARATION,
+    fixture_client_target_descriptor,
+)
 from datrix_codegen_common.parity.domain_registry import (  # noqa: E402
     _RICH_CONTEXT_TYPES,
     SHARED_CONTEXT_TYPES,
 )
-from datrix_codegen_common.transpiler.builtin_registry import (  # noqa: E402
-    BUILTIN_REGISTRY,
-    ArityContract,
-    BuiltinDecl,
-    BuiltinGroup,
-    BuiltinKey,
-    Receiver,
-)
-from datrix_codegen_common.transpiler.emit_dsl import (  # noqa: E402
-    KNOWN_CHAIN_STEPS,
-    EmitTable,
-    emit_adapter,
-    emit_decl,
-)
+from datrix_codegen_common.transpiler.emit_dsl import emit_adapter  # noqa: E402
 from datrix_common.errors.plugin import PluginNotFoundError  # noqa: E402
 from datrix_common.plugin import registry as registry_module  # noqa: E402
 from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
-from datrix_common.plugin.client_capability import (  # noqa: E402
-    ClientTargetCapabilityDeclaration,
-    PushCapabilityRealization,
-    WebBuildRealization,
-)
+from datrix_common.plugin.client_capability import ClientTargetCapabilityDeclaration  # noqa: E402
 from datrix_common.plugin.descriptor import PluginDescriptor  # noqa: E402
-from datrix_common.plugin.language_capability import (  # noqa: E402
-    BuiltinGroupStance,
-    LanguageCapabilityDeclaration,
-)
+from datrix_common.plugin.language_capability import LanguageCapabilityDeclaration  # noqa: E402
 from datrix_common.plugin.registry import GENERATOR_GROUP, PluginRegistry  # noqa: E402
 from shared.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
@@ -259,15 +240,14 @@ from test.behaviour_skeleton import (  # noqa: E402
     plumbing_parameter_names,
     skeleton_shape,
 )
-from test.supported_domain_parity import stance_table_by_language  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 EXIT_OK: Final[int] = 0
-#: At least one role whose domain is in scope fails the gate.
+#: The failing-role count differs from its pin, in either direction.
 EXIT_FAIL: Final[int] = 1
 #: Also argparse's own usage-error exit code: a failed self-test, a
-#: single-package axis, an unknown scope or bucket id, and a
+#: single-package axis, an unknown filter id, an unreadable baseline, and a
 #: parse/discovery failure all mean "nothing was proven".
 EXIT_USAGE: Final[int] = 2
 
@@ -307,27 +287,15 @@ _VERDICT_DIVERGENT: Final[Verdict] = "divergent"
 BehaviourPair = tuple[str, int]
 
 #: The domain of a role the resolution ladder maps to no shared domain id.
-#: Also a valid ``--scope`` id, so the roles that resolve nowhere can be gated.
+#: Also a valid ``--scope`` id, so a report can be filtered to the roles that
+#: resolve nowhere; the role is counted by the ratchet like any other.
 UNDOMAINED: Final[str] = "undomained"
-_SCOPE_SEPARATOR: Final[str] = ","
-_SCOPE_FILE_DOMAINS_KEY: Final[str] = "domains"
-_SCOPE_FILE_BUCKETS_KEY: Final[str] = "buckets"
-#: The only valid --buckets / scope-file "buckets" entries: the three verdict
-#: names a role can classify as. Gating a bucket fails every role of that
-#: verdict across EVERY domain, independent of the domains list.
+_FILTER_SEPARATOR: Final[str] = ","
+#: The only valid ``--buckets`` entries: the three verdict names a role can
+#: classify as.
 _VALID_BUCKET_IDS: Final[frozenset[str]] = frozenset(
     {_VERDICT_IDENTICAL, _VERDICT_SAME_BEHAVIOUR, _VERDICT_DIVERGENT}
 )
-#: The migration-only scope list; read only when ``--scope`` is absent, and
-#: only while it exists (its absence means every domain is in scope).
-BEHAVIOUR_PARITY_SCOPE_PATH: Final[Path] = DATRIX_DIR / "scripts" / "config" / "behaviour-parity-scope.json"
-#: The declared-status literal shared by ``DomainDeclaration`` and
-#: ``BuiltinGroupStance`` that sets a member package aside.
-_UNSUPPORTED_STATUS: Final[str] = "unsupported"
-#: The marker decorator, resolved structurally through a member's own import
-#: table -- derived from the real callable so a rename of the shared layer's
-#: symbol fails this constant rather than silently matching nothing.
-_EMIT_ADAPTER_QUALIFIED_NAME: Final[str] = f"{emit_adapter.__module__}.{emit_adapter.__qualname__}"
 #: Only a product type defined under one of these shared modules is eligible
 #: for ladder step 2 (module-basename resolution). The target-neutral context
 #: models (serverless, migration, replayable ingestion, NoSQL connection) live
@@ -351,13 +319,6 @@ _HOOKS_MODULE_SUFFIX: Final[str] = "_hooks.py"
 _ORCHESTRATION_DIR: Final[str] = "orchestration"
 _ORCHESTRATION_MODULE_SUFFIXES: Final[tuple[str, ...]] = ("_context_builders.py", "_frozen_builders.py")
 _GENERATORS_DIR: Final[str] = "generators"
-
-#: ``(resolved defining file, __qualname__)`` -- the identity an AST-scanned
-#: member and a registered emit callable are matched on.
-AdapterIdentity = tuple[Path, str]
-_NO_ADAPTERS: Final[Mapping[AdapterIdentity, frozenset[str]]] = MappingProxyType({})
-_NO_GROUP_STANCES: Final[Mapping[str, BuiltinGroupStance]] = MappingProxyType({})
-_DeclaredValue = TypeVar("_DeclaredValue")
 
 
 # ---------------------------------------------------------------------------
@@ -488,38 +449,19 @@ def _name_tokens_for_language_axis_member(name: str) -> frozenset[str]:
         return _client_target_capability_declaration(name).name_tokens
 
 
-def _is_registered_language(name: str) -> bool:
-    """True when *name* resolves to a registered ``datrix.languages`` plugin.
-
-    Distinguishes a real language member of the language axis from a
-    client-target-only ``datrix.generators`` plugin (Angular/Flutter):
-    both share the axis's token and builtin-group-stance surfaces (a client
-    target contributes a transpiler profile), but domain stances and on-demand domains are a SERVER-axis
-    concept a client target has no analogue for -- it registers no
-    per-service domain sub-generator matching any shared backend domain.
-    """
-    try:
-        declaration_for_language(name)
-    except PluginNotFoundError:
-        return False
-    return True
-
-
-def _builtin_capability_for_language_axis_member(
+def _capability_declaration_for_language_axis_member(
     name: str,
 ) -> LanguageCapabilityDeclaration | ClientTargetCapabilityDeclaration:
-    """One language-axis member's own declared builtin-capability object.
+    """One language-axis member's own declared capability object.
 
     A ``datrix.languages`` plugin's ``LanguageCapabilityDeclaration``, tried
     first -- falling back to a ``datrix.generators`` client-target plugin's
     ``ClientTargetCapabilityDeclaration`` when no language plugin is
     registered under *name*, exactly the same fallback
     ``_name_tokens_for_language_axis_member`` already applies for name
-    tokens. Both declaration types carry the identical
-    ``builtin_group_stances`` shape (``register_builtin_capability`` walks
-    either one the same way); only ``LanguageCapabilityDeclaration`` carries
-    ``on_demand_domains``, so a caller reading that field off the result
-    falls back itself (``getattr(..., "on_demand_domains", {})``).
+    tokens. Only ``LanguageCapabilityDeclaration`` carries
+    ``on_demand_domains``: a client target has no per-service domain
+    sub-generator matching a shared backend domain, so it declares none.
 
     Raises:
         PluginNotFoundError: If *name* resolves to neither a registered
@@ -1703,388 +1645,138 @@ def resolve_domain(role: RoleVerdict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Declared exemption surfaces
+# Declared set-aside
 # ---------------------------------------------------------------------------
+
+#: A client-target-only member (Angular/Flutter) declares no on-demand domain.
+_NO_ON_DEMAND_DOMAINS: Final[Mapping[str, str]] = MappingProxyType({})
 
 
 @dataclass(frozen=True)
 class ExemptionSurfaces:
-    """The three declared surfaces a member package may be set aside on,
-    keyed by member package label, read ONCE by the caller and passed in -- never
-    fetched inside the exemption check -- so the self-test injects synthetic
-    tables exactly as the role-grouping self-test injects synthetic tokens.
+    """The one declared surface a member package may still be set aside on --
+    its ``on_demand_domains`` -- keyed by member package label, read ONCE by
+    the caller and passed in -- never fetched inside the divergence check --
+    so the self-test injects synthetic tables exactly as the role-grouping
+    self-test injects synthetic tokens.
 
-    ``adapter_groups_by_language`` is surface 3 pre-resolved: for every
-    language, ``adapter_group_index`` over its emit tables.
+    A capability a target does not realize is never a surface: no domain
+    stance, builtin-group stance or ``capability_gaps`` row is read here.
     """
 
-    stance_table: Mapping[str, Mapping[str, DomainDeclaration]]
     on_demand_by_language: Mapping[str, Mapping[str, str]]
-    builtin_group_stances_by_language: Mapping[str, Mapping[str, BuiltinGroupStance]]
-    adapter_groups_by_language: Mapping[str, Mapping[AdapterIdentity, frozenset[str]]]
 
     @classmethod
     def none(cls) -> ExemptionSurfaces:
         """No language declares anything: no member package is set aside."""
-        return cls(MappingProxyType({}), MappingProxyType({}), MappingProxyType({}), MappingProxyType({}))
+        return cls(MappingProxyType({}))
 
 
-def _adapter_identity(emit_function: object, table_key: str) -> AdapterIdentity:
-    """``(resolved defining file, __qualname__)`` of a registered emit callable.
+def is_domain_on_demand(domain: str, language: str, surfaces: ExemptionSurfaces) -> bool:
+    """True iff *language* declares *domain* a key of its ``on_demand_domains``.
 
-    Raises:
-        ValueError: The callable carries no code object or qualified name
-            (a ``functools.partial``, an arbitrary callable instance) -- it
-            cannot be matched to an AST-scanned member, so the read fails
-            closed naming the registration.
-    """
-    code = getattr(emit_function, "__code__", None)
-    qualname = getattr(emit_function, "__qualname__", None)
-    if not isinstance(code, CodeType) or not isinstance(qualname, str):
-        raise ValueError(
-            f"behaviour_parity:emit function {table_key!r} ({emit_function!r}) carries no __code__/__qualname__; "
-            f"the gate matches @emit_adapter members on (defining file, qualified name). Fix: register a "
-            f"module-level function or a method, not an arbitrary callable object."
-        )
-    return (Path(code.co_filename).resolve(), qualname)
-
-
-def _row_groups_by_emit_function(
-    table: EmitTable[object], registry: Mapping[BuiltinKey, BuiltinDecl]
-) -> dict[str, set[str]]:
-    """``{emit-function key: builtin group names}`` over every row of *table*."""
-    groups: dict[str, set[str]] = {}
-    for key in sorted(table.declared_keys):
-        if key not in registry:
-            raise ValueError(
-                f"behaviour_parity:emit-table row {key!r} is not a key of the supplied builtin registry, so its "
-                f"builtin group cannot be read. Fix: pass the registry the table was validated against."
-            )
-        group_name = registry[key].group.value
-        for decl in table.rows_for(*key):
-            groups.setdefault(decl.emit_function, set()).add(group_name)
-    return groups
-
-
-def adapter_group_index(
-    emit_tables: Sequence[EmitTable[object]], registry: Mapping[BuiltinKey, BuiltinDecl]
-) -> Mapping[AdapterIdentity, frozenset[str]]:
-    """``(defining file, __qualname__) -> builtin group names`` for every emit
-    callable the given tables register -- the reverse lookup surface 3 reads.
-
-    A callable registered in several tables, or referenced by rows of several
-    groups, maps to the union of its groups.
+    Domain-keyed, so it applies only to a role resolved to a shared domain:
+    an ``UNDOMAINED`` role admits no set-aside, whatever a language declares.
 
     Args:
-        emit_tables: Every ``EmitTable`` one language constructs.
-        registry: The builtin registry the tables were validated against
-            (``BUILTIN_REGISTRY`` for a real language; synthetic in the
-            self-test).
-
-    Returns:
-        The read-only index.
-
-    Raises:
-        ValueError: A row's key is missing from *registry*, a registered
-            callable is referenced by no row, or a callable carries no usable
-            identity -- each fails closed naming the offender.
-    """
-    index: dict[AdapterIdentity, set[str]] = {}
-    for table in emit_tables:
-        groups_by_name = _row_groups_by_emit_function(table, registry)
-        for name, emit_function in table.registered_emit_functions.items():
-            if name not in groups_by_name:
-                raise ValueError(
-                    f"behaviour_parity:emit function {name!r} is registered but referenced by no row of its "
-                    f"EmitTable; its builtin group cannot be read. Fix: reference it from a declared row."
-                )
-            index.setdefault(_adapter_identity(emit_function, name), set()).update(groups_by_name[name])
-    return MappingProxyType({identity: frozenset(groups) for identity, groups in index.items()})
-
-
-def _raise_walk_error(package_name: str) -> None:
-    raise ValueError(
-        f"behaviour_parity:cannot import package {package_name!r} while collecting its EmitTables; an "
-        f"unimportable package hides every table it may define, so the scan refuses to continue. Fix: make "
-        f"the package import cleanly under the running interpreter."
-    )
-
-
-def _import_module_or_raise(module_name: str) -> object:
-    try:
-        return importlib.import_module(module_name)
-    except Exception as exc:  # noqa: BLE001 -- re-raised with the fail-closed reason
-        raise ValueError(
-            f"behaviour_parity:cannot import module {module_name!r} while collecting its package's EmitTables "
-            f"({type(exc).__name__}: {exc}); an unimportable module hides every table it may define, so the "
-            f"scan refuses to continue. Fix: make the module import cleanly under the running interpreter."
-        ) from exc
-
-
-def collect_emit_tables(src_dir: Path) -> tuple[EmitTable[object], ...]:
-    """Every module-level ``EmitTable`` instance any module under *src_dir*
-    defines, deduplicated by identity (a table re-imported into another
-    module is one table).
-
-    Imports the package root and every module ``pkgutil.walk_packages``
-    finds beneath it; a module that fails to import aborts the collection
-    naming it (module docstring, "How surface 3 finds a language's emit
-    tables"). No table variable name and no table-module path is assumed.
-
-    Args:
-        src_dir: The package's importable root (``.../src/<import root>``);
-            its directory name IS the import name.
-
-    Returns:
-        Every distinct ``EmitTable`` the package constructs, in discovery
-        order.
-
-    Raises:
-        ValueError: A module or package under *src_dir* cannot be imported.
-    """
-    import_root = src_dir.name
-    modules = [_import_module_or_raise(import_root)]
-    for info in pkgutil.walk_packages([str(src_dir)], prefix=f"{import_root}.", onerror=_raise_walk_error):
-        modules.append(_import_module_or_raise(info.name))
-    tables: dict[int, EmitTable[object]] = {}
-    for module in modules:
-        for value in vars(module).values():
-            if isinstance(value, EmitTable):
-                tables.setdefault(id(value), value)
-    return tuple(tables.values())
-
-
-def collect_emit_tables_across(src_dirs: Iterable[Path]) -> tuple[EmitTable[object], ...]:
-    """``collect_emit_tables`` over every package implementing one target,
-    deduplicated by identity -- a table one package defines and another
-    re-imports is one table.
-
-    Raises:
-        ValueError: A module or package under any of *src_dirs* cannot be imported.
-    """
-    tables: dict[int, EmitTable[object]] = {}
-    for src_dir in src_dirs:
-        for table in collect_emit_tables(src_dir):
-            tables.setdefault(id(table), table)
-    return tuple(tables.values())
-
-
-def is_emit_adapter_member(member: FunctionSource) -> bool:
-    """Whether *member* carries the ``@emit_adapter`` marker, recognized
-    STRUCTURALLY: one of its decorators resolves through the member's own
-    import table to the shared layer's ``emit_adapter`` (bare name or
-    module-qualified attribute alike). A same-named decorator imported from
-    anywhere else is not the marker -- the fail-closed direction for an
-    exemption."""
-    return any(
-        _qualified_name_of(decorator, member.import_table) == _EMIT_ADAPTER_QUALIFIED_NAME
-        for decorator in member.node.decorator_list
-    )
-
-
-def _adapter_groups_for_member(
-    member: FunctionSource, adapter_groups: Mapping[AdapterIdentity, frozenset[str]]
-) -> frozenset[str]:
-    """The builtin groups the emit-table rows dispatching to *member* belong to.
-
-    Raises:
-        ValueError: *member* is ``@emit_adapter``-marked but no table
-            registers it -- a failure naming the member, never a skip.
-    """
-    identity: AdapterIdentity = (member.file_path.resolve(), member.qualified_name)
-    if identity not in adapter_groups:
-        raise ValueError(
-            f"behaviour_parity:{member.package}:{member.file_path}:{member.line_number} ({member.qualified_name}) "
-            f"is marked @emit_adapter but no EmitTable of {member.package!r} registers it, so its builtin group "
-            f"cannot be read and the gate refuses to skip it. Every @emit_adapter function must be referenced by "
-            f"a declared (category, method) row. Fix: register the function in a row, or remove the marker."
-        )
-    return adapter_groups[identity]
-
-
-def _domain_declared_unsupported(
-    stance_table: Mapping[str, Mapping[str, DomainDeclaration]], language: str, domain: str
-) -> bool:
-    """Surface 1: *language*'s ``DomainDeclaration`` for *domain* is ``unsupported``."""
-    if language not in stance_table or domain not in stance_table[language]:
-        return False
-    return stance_table[language][domain].status == _UNSUPPORTED_STATUS
-
-
-def _domain_on_demand(on_demand_by_language: Mapping[str, Mapping[str, str]], language: str, domain: str) -> bool:
-    """Surface 2: *domain* is a key of *language*'s ``on_demand_domains``."""
-    return language in on_demand_by_language and domain in on_demand_by_language[language]
-
-
-def _groups_declared_unsupported(stances: Mapping[str, BuiltinGroupStance], groups: frozenset[str]) -> bool:
-    """Every group in *groups* has an ``unsupported`` stance. An empty set
-    is never exempt (``all`` over nothing would be vacuously true)."""
-    return bool(groups) and all(group in stances and stances[group].status == _UNSUPPORTED_STATUS for group in groups)
-
-
-def _adapter_member_exempt(member: FunctionSource, language: str, surfaces: ExemptionSurfaces) -> bool:
-    """Surface 3 for one member: an ``@emit_adapter``-marked member whose
-    rows' builtin groups *language* all declares ``unsupported``. A language
-    with no collected tables or no group stances is simply not exempt on
-    this surface (an unregistered marked member still raises)."""
-    if not is_emit_adapter_member(member):
-        return False
-    adapter_groups = (
-        surfaces.adapter_groups_by_language[language]
-        if language in surfaces.adapter_groups_by_language
-        else _NO_ADAPTERS
-    )
-    stances = (
-        surfaces.builtin_group_stances_by_language[language]
-        if language in surfaces.builtin_group_stances_by_language
-        else _NO_GROUP_STANCES
-    )
-    return _groups_declared_unsupported(stances, _adapter_groups_for_member(member, adapter_groups))
-
-
-def is_role_exempt(role: RoleVerdict, domain: str, language: str, surfaces: ExemptionSurfaces) -> bool:
-    """True iff *language* -- a member package of *role* -- declares the
-    construct unsupported on ANY of the three declared surfaces.
-
-    Surfaces 1 and 2 are domain-keyed and apply only to a role resolved to a
-    shared domain; an ``UNDOMAINED`` role admits only surface 3. Surface 3
-    requires EVERY member *language* contributes to the role to be a marked
-    adapter over unsupported groups -- one behaviour-bearing non-adapter
-    member is enough to deny it.
-
-    Args:
-        role: The ``divergent`` role.
         domain: ``resolve_domain(role)``.
         language: The member package label.
-        surfaces: The declared surfaces, read once by the caller.
+        surfaces: The declared surface, read once by the caller.
 
     Returns:
-        Whether *language* is exempt for *role*.
-
-    Raises:
-        ValueError: A marked adapter member of *language* resolves to no
-            emit-table row.
+        Whether *language* is set aside for a role of *domain*.
     """
-    if domain != UNDOMAINED and (
-        _domain_declared_unsupported(surfaces.stance_table, language, domain)
-        or _domain_on_demand(surfaces.on_demand_by_language, language, domain)
-    ):
-        return True
-    own_members = [member for member in role.members if member.package == language]
-    return bool(own_members) and all(_adapter_member_exempt(member, language, surfaces) for member in own_members)
+    if domain == UNDOMAINED:
+        return False
+    return language in surfaces.on_demand_by_language and domain in surfaces.on_demand_by_language[language]
 
 
-def _merge_declared(
-    mappings: Iterable[Mapping[str, _DeclaredValue]], label: str, surface: str
-) -> Mapping[str, _DeclaredValue]:
-    """One declaration table for one package label: the registered names
-    folded into *label* (``registered_targets.fold_names_by_src_dirs``) each
-    carry a declaration, and a key two of them declare differently is
+def _merge_declared(mappings: Iterable[Mapping[str, str]], label: str) -> Mapping[str, str]:
+    """One ``on_demand_domains`` table for one package label: the registered
+    names folded into *label* (``registered_targets.fold_names_by_src_dirs``)
+    each carry a declaration, and a key two of them declare differently is
     ambiguous -- refused, never resolved by order."""
-    merged: dict[str, _DeclaredValue] = {}
+    merged: dict[str, str] = {}
     for mapping in mappings:
         for key, value in mapping.items():
             if key in merged and merged[key] != value:
                 raise ValueError(
                     f"behaviour_parity:the registered names folded into package label {label!r} declare "
-                    f"conflicting {surface} for {key!r}; one package must carry one declaration per key."
+                    f"conflicting on_demand_domains for {key!r}; one package must carry one declaration per key."
                 )
             merged[key] = value
     return MappingProxyType(merged)
 
 
-def live_exemption_surfaces(
-    target_src_dirs: Mapping[str, tuple[Path, ...]], registry: Mapping[BuiltinKey, BuiltinDecl]
-) -> ExemptionSurfaces:
-    """Read the three declared surfaces for every language package label from
-    the live registry: domain stances through
-    ``supported_domain_parity.stance_table_by_language``, ``on_demand_domains``
-    and ``builtin_group_stances`` through ``declaration_for_language``, and the
-    adapter index through ``collect_emit_tables`` + ``adapter_group_index``.
+def live_exemption_surfaces(target_src_dirs: Mapping[str, tuple[Path, ...]]) -> ExemptionSurfaces:
+    """Read ``on_demand_domains`` for every language package label from the
+    live registry through ``declaration_for_language`` (a client-target-only
+    member contributes none).
 
     Args:
         target_src_dirs: ``{label: (src dir, ...)}`` for every compared
-            language; a label's emit tables are collected from every package
-            implementing it, a language core included.
-        registry: The builtin registry the languages' tables were validated
-            against.
+            language.
 
     Returns:
-        The surfaces, keyed by label.
+        The surface, keyed by label.
 
     Raises:
-        ValueError: A folded label declares conflicting values, a package
-            cannot be imported, or an emit table cannot be indexed.
+        ValueError: A folded label declares conflicting values.
     """
-    stance_table: dict[str, Mapping[str, DomainDeclaration]] = {}
     on_demand: dict[str, Mapping[str, str]] = {}
-    group_stances: dict[str, Mapping[str, BuiltinGroupStance]] = {}
-    adapter_groups: dict[str, Mapping[AdapterIdentity, frozenset[str]]] = {}
-    for label, src_dirs in target_src_dirs.items():
-        names = label.split(_LABEL_JOIN_SEPARATOR)
-        declarations = [_builtin_capability_for_language_axis_member(name) for name in names]
-        # Domain stances and on-demand domains are a SERVER-axis-only
-        # concept: a client-target-only member (Angular/Flutter)
-        # contributes none of either, the same way `sql`/`component` (other
-        # artifacts-phase, non-language generators) never enter this table.
-        stance_table[label] = _merge_declared(
-            stance_table_by_language([n for n in names if _is_registered_language(n)]).values(),
-            label,
-            "domain stances",
-        )
+    for label in target_src_dirs:
+        declarations = [
+            _capability_declaration_for_language_axis_member(name) for name in label.split(_LABEL_JOIN_SEPARATOR)
+        ]
         on_demand[label] = _merge_declared(
-            [getattr(declaration, "on_demand_domains", {}) for declaration in declarations],
+            [
+                declaration.on_demand_domains
+                if isinstance(declaration, LanguageCapabilityDeclaration)
+                else _NO_ON_DEMAND_DOMAINS
+                for declaration in declarations
+            ],
             label,
-            "on_demand_domains",
         )
-        group_stances[label] = _merge_declared(
-            [declaration.builtin_group_stances for declaration in declarations], label, "builtin_group_stances"
-        )
-        tables = collect_emit_tables_across(src_dirs)
-        adapter_groups[label] = adapter_group_index(tables, registry)
-        logger.info(
-            "exemption surfaces for %s: %d domain stance(s), %d on-demand domain(s), %d builtin-group stance(s), "
-            "%d EmitTable(s) registering %d emit function(s)",
-            label,
-            len(stance_table[label]),
-            len(on_demand[label]),
-            len(group_stances[label]),
-            len(tables),
-            len(adapter_groups[label]),
-        )
-    return ExemptionSurfaces(
-        MappingProxyType(stance_table),
-        MappingProxyType(on_demand),
-        MappingProxyType(group_stances),
-        MappingProxyType(adapter_groups),
-    )
+        logger.info("on-demand domains for %s: %d", label, len(on_demand[label]))
+    return ExemptionSurfaces(MappingProxyType(on_demand))
 
 
 # ---------------------------------------------------------------------------
-# Scope
+# Report filters
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class GateScope:
-    """The gate's full in-scope surface. A role is in scope when EITHER half
-    admits it: its resolved domain is in ``domains`` (or ``domains`` is
-    ``None``, meaning every domain), OR its verdict is in ``buckets``. The
-    two halves grow independently and neither is ever read as narrowing the
-    other -- Section 6 step 2 needs to gate the whole ``identical`` bucket
-    while ``domains`` still lists no domain at all.
+class ReportFilter:
+    """Which role lines the gate report PRINTS. A filter never reaches the
+    verdict: the failing-role count, the ratchet comparison and the exit code
+    are computed over every role whatever is printed.
 
     Attributes:
-        domains: The in-scope shared domain ids, or ``None`` for every
-            domain (the hard-zero end state once the migration scope file
-            is deleted).
-        buckets: The verdict names (drawn from ``_VALID_BUCKET_IDS``) gated
-            across every domain regardless of ``domains``. Empty means no
-            bucket-wide gating.
+        domains: The shared domain ids (plus ``UNDOMAINED``) whose roles print,
+            or ``None`` for every domain.
+        buckets: The verdict names (drawn from ``_VALID_BUCKET_IDS``) whose
+            roles print, or ``None`` for every bucket.
     """
 
     domains: frozenset[str] | None
-    buckets: frozenset[str]
+    buckets: frozenset[str] | None
+
+    @classmethod
+    def unfiltered(cls) -> ReportFilter:
+        """Print every role."""
+        return cls(domains=None, buckets=None)
+
+    @property
+    def is_unfiltered(self) -> bool:
+        return self.domains is None and self.buckets is None
+
+    def admits(self, evaluation: RoleEvaluation) -> bool:
+        """Whether *evaluation*'s role line prints: its domain and its verdict
+        each satisfy the filter that is set."""
+        domain_ok = self.domains is None or evaluation.domain in self.domains
+        bucket_ok = self.buckets is None or evaluation.verdict.verdict in self.buckets
+        return domain_ok and bucket_ok
 
 
 def parse_scope_argument(value: str | None) -> tuple[str, ...] | None:
@@ -2095,12 +1787,12 @@ def parse_scope_argument(value: str | None) -> tuple[str, ...] | None:
     """
     if value is None:
         return None
-    ids = tuple(part.strip() for part in value.split(_SCOPE_SEPARATOR) if part.strip())
+    ids = tuple(part.strip() for part in value.split(_FILTER_SEPARATOR) if part.strip())
     if not ids:
         raise ValueError(
-            f"behaviour_parity:--scope was given but names no domain id; expected a {_SCOPE_SEPARATOR!r}-separated "
+            f"behaviour_parity:--scope was given but names no domain id; expected a {_FILTER_SEPARATOR!r}-separated "
             f"list of shared domain ids and/or {UNDOMAINED!r}. Fix: pass at least one id, or omit --scope to "
-            f"use the scope file."
+            f"print every domain."
         )
     return ids
 
@@ -2113,150 +1805,59 @@ def parse_buckets_argument(value: str | None) -> tuple[str, ...] | None:
     """
     if value is None:
         return None
-    ids = tuple(part.strip() for part in value.split(_SCOPE_SEPARATOR) if part.strip())
+    ids = tuple(part.strip() for part in value.split(_FILTER_SEPARATOR) if part.strip())
     if not ids:
         raise ValueError(
             f"behaviour_parity:--buckets was given but names no verdict-bucket id; expected a "
-            f"{_SCOPE_SEPARATOR!r}-separated list drawn from {sorted(_VALID_BUCKET_IDS)}. Fix: pass at least one "
-            f"id, or omit --buckets to use the scope file."
+            f"{_FILTER_SEPARATOR!r}-separated list drawn from {sorted(_VALID_BUCKET_IDS)}. Fix: pass at least one "
+            f"id, or omit --buckets to print every bucket."
         )
     return ids
 
 
-def _validate_scope_ids(ids: Iterable[str], universe: frozenset[str], origin: str) -> frozenset[str]:
+def _validate_scope_ids(ids: Iterable[str], universe: frozenset[str]) -> frozenset[str]:
     valid = universe | {UNDOMAINED}
     unknown = sorted(set(ids) - valid)
     if unknown:
         raise ValueError(
-            f"behaviour_parity:unknown scope id(s) {unknown} in {origin}; valid options are {sorted(valid)}. "
+            f"behaviour_parity:unknown scope id(s) {unknown} in --scope; valid options are {sorted(valid)}. "
             f"Fix: pass a shared domain id or {UNDOMAINED!r}."
         )
     return frozenset(ids)
 
 
-def _validate_bucket_ids(ids: Iterable[str], origin: str) -> frozenset[str]:
+def _validate_bucket_ids(ids: Iterable[str]) -> frozenset[str]:
     unknown = sorted(set(ids) - _VALID_BUCKET_IDS)
     if unknown:
         raise ValueError(
-            f"behaviour_parity:unknown bucket id(s) {unknown} in {origin}; valid options are "
+            f"behaviour_parity:unknown bucket id(s) {unknown} in --buckets; valid options are "
             f"{sorted(_VALID_BUCKET_IDS)}. Fix: pass one or more of {sorted(_VALID_BUCKET_IDS)}."
         )
     return frozenset(ids)
 
 
-def _parse_scope_file(scope_path: Path) -> dict[str, object]:
-    """Parse the scope file JSON, refusing anything that is not a JSON object.
-
-    Raises:
-        ValueError: The file is not valid JSON, or is valid JSON that is not
-            an object.
-    """
-    expected = (
-        f"a JSON object with a {_SCOPE_FILE_DOMAINS_KEY!r} array of domain-id strings and an optional "
-        f"{_SCOPE_FILE_BUCKETS_KEY!r} array of verdict-bucket-id strings"
-    )
-    try:
-        data = json.loads(scope_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"behaviour_parity:scope file {scope_path} is not valid JSON ({exc}); expected {expected}."
-        ) from exc
-    if not isinstance(data, dict):
-        raise ValueError(f"behaviour_parity:malformed scope file {scope_path}: expected {expected}.")
-    return data
-
-
-def _read_scope_file(scope_path: Path) -> list[str]:
-    """The ``domains`` list of the scope file, shape-validated.
-
-    Raises:
-        ValueError: The file is malformed (see ``_parse_scope_file``), lacks
-            the ``domains`` key, or lists a non-string.
-    """
-    data = _parse_scope_file(scope_path)
-    if _SCOPE_FILE_DOMAINS_KEY not in data:
-        raise ValueError(
-            f"behaviour_parity:malformed scope file {scope_path}: expected a {_SCOPE_FILE_DOMAINS_KEY!r} array of "
-            f"domain-id strings."
-        )
-    domains = data[_SCOPE_FILE_DOMAINS_KEY]
-    if not isinstance(domains, list) or not all(isinstance(domain, str) for domain in domains):
-        raise ValueError(
-            f"behaviour_parity:malformed scope file {scope_path}: {_SCOPE_FILE_DOMAINS_KEY!r} must be an array of "
-            f"domain-id strings, got {domains!r}."
-        )
-    return domains
-
-
-def _read_scope_buckets(scope_path: Path) -> list[str]:
-    """The optional ``buckets`` list of the scope file; ``[]`` when the key
-    is absent (no bucket-wide gating) -- unlike ``domains`` this key is not
-    mandatory, so an existing scope file with no ``buckets`` key keeps
-    today's behaviour unchanged.
-
-    Raises:
-        ValueError: The file is malformed (see ``_parse_scope_file``), or
-            ``buckets`` is present but not an array of strings.
-    """
-    buckets = _parse_scope_file(scope_path).get(_SCOPE_FILE_BUCKETS_KEY, [])
-    if not isinstance(buckets, list) or not all(isinstance(bucket, str) for bucket in buckets):
-        raise ValueError(
-            f"behaviour_parity:malformed scope file {scope_path}: {_SCOPE_FILE_BUCKETS_KEY!r} must be an array of "
-            f"verdict-bucket-id strings, got {buckets!r}; valid options are {sorted(_VALID_BUCKET_IDS)}. "
-            f"Fix: set {_SCOPE_FILE_BUCKETS_KEY!r} to an array of zero or more of {sorted(_VALID_BUCKET_IDS)}."
-        )
-    return buckets
-
-
-def load_scope(
-    explicit_scope: Sequence[str] | None,
-    explicit_buckets: Sequence[str] | None,
-    universe: frozenset[str],
-    scope_path: Path,
-) -> GateScope:
-    """Resolve the gate's full scope: which domains and which verdict
-    buckets may fail.
-
-    Domains: ``--scope`` given -> its ids (the file is not read for
-    domains). ``--scope`` absent and *scope_path* present -> the file's
-    ``domains`` list (empty means no role fails by domain). Both absent ->
-    ``None``, meaning EVERY domain is in scope: the hard-zero end state once
-    the migration scope file is deleted.
-
-    Buckets: ``--buckets`` given -> its ids (the file is not read for
-    buckets). ``--buckets`` absent -> the file's ``buckets`` list if
-    *scope_path* exists (empty or missing key means no bucket-wide gate),
-    else empty. A role is in scope when EITHER half admits it.
+def build_report_filter(
+    explicit_scope: Sequence[str] | None, explicit_buckets: Sequence[str] | None, universe: frozenset[str]
+) -> ReportFilter:
+    """Resolve ``--scope``/``--buckets`` into the filter that chooses which
+    role lines the report prints. Reads no file and moves no verdict.
 
     Args:
         explicit_scope: ``parse_scope_argument``'s result.
         explicit_buckets: ``parse_buckets_argument``'s result.
         universe: ``SHARED_CONTEXT_TYPES``' keys (or a synthetic universe).
-        scope_path: The scope file read for whichever half has no explicit
-            override.
 
     Returns:
-        The resolved ``GateScope``.
+        The filter; an absent option leaves its half unfiltered.
 
     Raises:
-        ValueError: An unknown domain id, an unknown bucket id (naming the
-            valid options), or a malformed scope file.
+        ValueError: An unknown domain id or an unknown bucket id, naming the
+            valid options.
     """
-    if explicit_scope is not None:
-        domains = _validate_scope_ids(explicit_scope, universe, "--scope")
-    elif not scope_path.exists():
-        domains = None
-    else:
-        domains = _validate_scope_ids(_read_scope_file(scope_path), universe, str(scope_path))
-
-    if explicit_buckets is not None:
-        buckets = _validate_bucket_ids(explicit_buckets, "--buckets")
-    elif not scope_path.exists():
-        buckets = frozenset()
-    else:
-        buckets = _validate_bucket_ids(_read_scope_buckets(scope_path), str(scope_path))
-
-    return GateScope(domains=domains, buckets=buckets)
+    return ReportFilter(
+        domains=None if explicit_scope is None else _validate_scope_ids(explicit_scope, universe),
+        buckets=None if explicit_buckets is None else _validate_bucket_ids(explicit_buckets),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2266,22 +1867,17 @@ def load_scope(
 
 @dataclass(frozen=True)
 class RoleEvaluation:
-    """One role's gate outcome: its verdict with ``domain`` filled in, whether
-    that domain is in scope, and the reasons it fails (empty = passes)."""
+    """One role's gate outcome: its verdict with ``domain`` filled in, and the
+    reasons it fails (empty = passes). Every role is evaluated and counted --
+    there is no in-scope/out-of-scope split."""
 
     verdict: RoleVerdict
     domain: str
-    in_scope: bool
     failure_reasons: tuple[str, ...]
 
     @property
     def fails(self) -> bool:
         return bool(self.failure_reasons)
-
-    @property
-    def fails_in_scope(self) -> bool:
-        """The only condition that moves the exit code."""
-        return self.fails and self.in_scope
 
 
 def _behaviour_by_package(role: RoleVerdict) -> dict[str, frozenset[BehaviourPair]]:
@@ -2335,49 +1931,41 @@ def _duplicate_skeleton_reasons(verdict: RoleVerdict) -> tuple[str, ...]:
 
 def _divergence_reasons(verdict: RoleVerdict, domain: str, surfaces: ExemptionSurfaces) -> tuple[str, ...]:
     """``divergent``: partition the member packages into skeleton groups,
-    set aside every package that declares the construct unsupported on a
-    declared surface, and pass iff at most one group remains. Otherwise one
-    reason names every remaining group -- the gate cannot know which group
-    carries the correct behaviour, so it names all of them. A role every
-    member of which declares the construct unsupported passes: a declared
-    hole everywhere.
-
-    Raises:
-        ValueError: A marked adapter member of any package resolves to no
-            emit-table row (``is_role_exempt`` fails closed).
+    set aside every package that declares the role's domain on-demand -- the
+    one declared surface -- and pass iff at most one group remains. Otherwise
+    one reason names every remaining group -- the gate cannot know which group
+    carries the correct behaviour, so it names all of them. A role whose
+    every member declares the domain on-demand has no group left and passes.
+    No capability declaration, builtin-group stance or ``capability_gaps`` row
+    is read: a capability a target does not realize leaves its role failing.
     """
     packages = sorted({member.package for member in verdict.members})
-    declaring = frozenset(package for package in packages if is_role_exempt(verdict, domain, package, surfaces))
-    remaining = [group - declaring for group in skeleton_groups(verdict) if group - declaring]
+    on_demand = frozenset(package for package in packages if is_domain_on_demand(domain, package, surfaces))
+    remaining = [group - on_demand for group in skeleton_groups(verdict) if group - on_demand]
     if len(remaining) <= 1:
         return ()
     groups_text = " vs ".join(_group_text(group) for group in remaining)
-    declared_text = (
-        "no member declares the construct unsupported"
-        if not declaring
-        else f"only {_group_text(declaring)} declare(s) the construct unsupported"
+    on_demand_text = (
+        f"no member declares domain {domain!r} on-demand"
+        if not on_demand
+        else f"only {_group_text(on_demand)} declare(s) domain {domain!r} on-demand"
     )
-    return (
-        f"members split into {len(remaining)} skeleton groups: {groups_text}; {declared_text} for domain "
-        f"{domain!r} on any declared surface",
-    )
+    return (f"members split into {len(remaining)} skeleton groups: {groups_text}; {on_demand_text}",)
 
 
-def evaluate_role(verdict: RoleVerdict, *, scope: GateScope, surfaces: ExemptionSurfaces) -> RoleEvaluation:
-    """Resolve *verdict*'s domain, decide whether it is in *scope*, and
-    compute its failure reasons -- for EVERY role, in scope or not, so an
-    out-of-scope failure is reported rather than hidden.
+def evaluate_role(verdict: RoleVerdict, *, surfaces: ExemptionSurfaces) -> RoleEvaluation:
+    """Resolve *verdict*'s domain and compute its failure reasons -- for EVERY
+    role, whatever its domain (``undomained`` included) or bucket, so every
+    failing role is counted.
 
     Args:
         verdict: A classified role.
-        scope: The resolved domains/buckets scope.
-        surfaces: The declared exemption surfaces.
+        surfaces: The declared on-demand surface.
 
     Returns:
         The evaluation, its verdict carrying the resolved domain.
 
     Raises:
-        ValueError: A marked adapter member resolves to no emit-table row.
         SkeletonError: A member's skeleton cannot be extracted.
     """
     domain = resolve_domain(verdict)
@@ -2388,21 +1976,13 @@ def evaluate_role(verdict: RoleVerdict, *, scope: GateScope, surfaces: Exemption
     return RoleEvaluation(
         verdict=dataclasses.replace(verdict, domain=domain),
         domain=domain,
-        in_scope=scope.domains is None or domain in scope.domains or verdict.verdict in scope.buckets,
         failure_reasons=reasons,
     )
 
 
-def evaluate_roles(
-    verdicts: Sequence[RoleVerdict], *, scope: GateScope, surfaces: ExemptionSurfaces
-) -> list[RoleEvaluation]:
+def evaluate_roles(verdicts: Sequence[RoleVerdict], *, surfaces: ExemptionSurfaces) -> list[RoleEvaluation]:
     """``evaluate_role`` over every verdict, order preserved."""
-    return [evaluate_role(verdict, scope=scope, surfaces=surfaces) for verdict in verdicts]
-
-
-def gate_exit_code(evaluations: Sequence[RoleEvaluation]) -> int:
-    """``EXIT_FAIL`` iff any role fails in scope, else ``EXIT_OK``."""
-    return EXIT_FAIL if any(evaluation.fails_in_scope for evaluation in evaluations) else EXIT_OK
+    return [evaluate_role(verdict, surfaces=surfaces) for verdict in verdicts]
 
 
 def axis_gates(axis: str, *, report_only: bool) -> bool:
@@ -2412,50 +1992,331 @@ def axis_gates(axis: str, *, report_only: bool) -> bool:
     return axis == AXIS_LANGUAGES and not report_only
 
 
+# ---------------------------------------------------------------------------
+# Population ratchet (decrease-only, two-directional)
+# ---------------------------------------------------------------------------
+
+BEHAVIOUR_PARITY_BASELINE_PATH: Final[Path] = DATRIX_DIR / "scripts" / "config" / "behaviour-parity-baseline.toml"
+#: The axes carrying a pinned section. A section is named by its axis id, so
+#: this one set is also the set of valid top-level keys: the platform axis
+#: joins it when it stops being report-only.
+_BASELINE_AXES: Final[frozenset[str]] = frozenset({AXIS_LANGUAGES})
+_BASELINE_FAILING_ROLES_KEY: Final[str] = "failing_roles"
+_BASELINE_BUCKETS_KEY: Final[str] = "buckets"
+_BASELINE_AXIS_KEYS: Final[frozenset[str]] = frozenset({_BASELINE_FAILING_ROLES_KEY, _BASELINE_BUCKETS_KEY})
+
+
+def _bucket_key(verdict: str) -> str:
+    """The baseline spelling of a verdict name: ``same-behaviour`` ->
+    ``same_behaviour``, so the keys are valid bare TOML keys."""
+    return verdict.replace("-", "_")
+
+
+_BASELINE_BUCKET_KEYS: Final[frozenset[str]] = frozenset(_bucket_key(verdict) for verdict in _VALID_BUCKET_IDS)
+
+
+@dataclass(frozen=True)
+class AxisBaseline:
+    """One axis's pinned failing-role count plus its diagnostic split of those
+    failing roles by verdict bucket.
+
+    The split is never part of the verdict: only ``failing_roles`` is
+    compared. ``diagnostic_split_notes`` reports a split that no longer
+    matches the live one, so a stale diagnostic is visible without ever
+    moving the exit code.
+
+    Raises:
+        ValueError: A count is negative.
+    """
+
+    failing_roles: int
+    identical: int
+    same_behaviour: int
+    divergent: int
+
+    def __post_init__(self) -> None:
+        negative = sorted(
+            name
+            for name, count in (*self.bucket_counts().items(), (_BASELINE_FAILING_ROLES_KEY, self.failing_roles))
+            if count < 0
+        )
+        if negative:
+            raise ValueError(f"counts must not be negative; got a negative value for {negative}.")
+
+    def bucket_counts(self) -> dict[str, int]:
+        """The split keyed by baseline bucket key."""
+        return {
+            _bucket_key(_VERDICT_IDENTICAL): self.identical,
+            _bucket_key(_VERDICT_SAME_BEHAVIOUR): self.same_behaviour,
+            _bucket_key(_VERDICT_DIVERGENT): self.divergent,
+        }
+
+
+def _require_count(value: object, location: str) -> int:
+    """*value* as an integer count. A bool is not a count, though it is an
+    ``int`` subclass; a negative integer is refused by ``AxisBaseline``.
+
+    Raises:
+        ValueError: *value* is not an integer, naming *location*.
+    """
+    if type(value) is not int:
+        raise ValueError(f"{location} must be a non-negative integer; got {value!r} ({type(value).__name__}).")
+    return value
+
+
+def _require_table_with_exact_keys(where: str, table: object, valid: frozenset[str]) -> dict[str, object]:
+    """*table* as a TOML table carrying exactly the keys *valid*.
+
+    Raises:
+        ValueError: *table* is not a table, carries an unrecognized key, or
+            lacks a required one -- naming *where* and every offending key.
+    """
+    if not isinstance(table, dict):
+        raise ValueError(f"{where} must be a table with {sorted(valid)}; got {table!r}.")
+    unknown = sorted(set(table) - valid)
+    missing = sorted(valid - set(table))
+    if unknown or missing:
+        raise ValueError(
+            f"{where} must carry exactly {sorted(valid)}; unrecognized key(s) {unknown}, missing key(s) {missing}. "
+            f"Fix: remove the unrecognized key(s) and seed the missing ones from a live run of the gate."
+        )
+    return table
+
+
+def _parse_axis_baseline(path: Path, axis: str, section: object) -> AxisBaseline:
+    """One axis section of the baseline file, shape-validated.
+
+    Raises:
+        ValueError: *section* is not a table, carries an unrecognized or
+            missing key, or a non-integer or negative count -- naming the
+            file and the offending key.
+    """
+    where = f"behaviour_parity:{path}: [{axis}]"
+    table = _require_table_with_exact_keys(where, section, _BASELINE_AXIS_KEYS)
+    buckets_where = f"{where}.{_BASELINE_BUCKETS_KEY}"
+    buckets = _require_table_with_exact_keys(buckets_where, table[_BASELINE_BUCKETS_KEY], _BASELINE_BUCKET_KEYS)
+    counts = {key: _require_count(buckets[key], f"{buckets_where}.{key}") for key in sorted(_BASELINE_BUCKET_KEYS)}
+    failing = _require_count(table[_BASELINE_FAILING_ROLES_KEY], f"{where}.{_BASELINE_FAILING_ROLES_KEY}")
+    try:
+        return AxisBaseline(
+            failing_roles=failing,
+            identical=counts[_bucket_key(_VERDICT_IDENTICAL)],
+            same_behaviour=counts[_bucket_key(_VERDICT_SAME_BEHAVIOUR)],
+            divergent=counts[_bucket_key(_VERDICT_DIVERGENT)],
+        )
+    except ValueError as exc:
+        raise ValueError(f"{where}: {exc}") from exc
+
+
+def load_baseline(path: Path = BEHAVIOUR_PARITY_BASELINE_PATH) -> Mapping[str, AxisBaseline]:
+    """Load and validate the decrease-only, two-directional ratchet baseline.
+
+    Args:
+        path: The TOML baseline file.
+
+    Returns:
+        One ``AxisBaseline`` per axis section present in the file, keyed by
+        axis id (today: ``languages`` only).
+
+    Raises:
+        ValueError: The file is missing, unreadable or malformed TOML, has no
+            axis section, carries an unrecognized top-level or nested key, or
+            holds a count that is negative or not an integer.
+    """
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(
+            f"behaviour_parity:cannot read the baseline file {path} ({exc}). Fix: restore it, seeded from a "
+            f"live run of the gate."
+        ) from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"behaviour_parity:{path} is not valid TOML ({exc}). Fix: correct the syntax.") from exc
+    unknown = sorted(set(raw) - _BASELINE_AXES)
+    if unknown:
+        raise ValueError(
+            f"behaviour_parity:{path} has unrecognized top-level key(s) {unknown}; valid sections are "
+            f"{sorted(_BASELINE_AXES)}. Fix: remove the key."
+        )
+    if not raw:
+        raise ValueError(
+            f"behaviour_parity:{path} carries no axis section; expected one of {sorted(_BASELINE_AXES)}. "
+            f"Fix: seed a section from a live run of the gate."
+        )
+    return MappingProxyType({axis: _parse_axis_baseline(path, axis, section) for axis, section in raw.items()})
+
+
+def failing_role_count(evaluations: Sequence[RoleEvaluation]) -> int:
+    """The number of failing roles over EVERY evaluation -- an ``undomained``
+    role counts exactly like a domained one."""
+    return sum(evaluation.fails for evaluation in evaluations)
+
+
+def failing_bucket_split(evaluations: Sequence[RoleEvaluation]) -> dict[str, int]:
+    """The failing roles counted by verdict bucket, keyed by baseline bucket
+    key, every bucket present."""
+    counts = Counter(_bucket_key(evaluation.verdict.verdict) for evaluation in evaluations if evaluation.fails)
+    return {key: counts[key] for key in sorted(_BASELINE_BUCKET_KEYS)}
+
+
+def _split_text(split: Mapping[str, int]) -> str:
+    return ", ".join(f"{key}={count}" for key, count in sorted(split.items()))
+
+
+def evaluate_population_ratchet(
+    axis: str,
+    *,
+    live_failing_roles: int,
+    live_buckets: Mapping[str, int],
+    baseline: Mapping[str, AxisBaseline],
+) -> list[str]:
+    """Two-directional comparison of *live_failing_roles* with the axis's pin.
+
+    A live count ABOVE the pin is a regression; a live count BELOW the pin is
+    an improvement that was not banked -- the pin must be lowered in the same
+    change that produces it, or the next regression hides in the slack. An
+    exact match is the only passing state.
+
+    Args:
+        axis: The gated axis (``AXIS_LANGUAGES``; the platform axis has no
+            section until it stops being report-only).
+        live_failing_roles: The count this run just computed.
+        live_buckets: This run's failing roles by verdict bucket, keyed like
+            the baseline; diagnostic only, never part of the comparison.
+        baseline: The loaded baseline.
+
+    Returns:
+        Empty on an exact match, else one problem string naming the direction,
+        the delta, the live split and the fix.
+
+    Raises:
+        KeyError: *axis* has no baseline section (a caller bug: gate the axis
+            before calling).
+        ValueError: *live_buckets* does not sum to *live_failing_roles*.
+    """
+    if axis not in baseline:
+        raise KeyError(
+            f"behaviour_parity:the baseline has no section for axis {axis!r}; pinned axes: {sorted(baseline)}. "
+            f"Fix: gate only a pinned axis, or seed a section for this axis from a live run."
+        )
+    if sum(live_buckets.values()) != live_failing_roles:
+        raise ValueError(
+            f"behaviour_parity:the live bucket split {dict(live_buckets)} does not sum to the live failing-role "
+            f"count {live_failing_roles}."
+        )
+    pin = baseline[axis].failing_roles
+    if live_failing_roles == pin:
+        return []
+    live_text = f"live split: {_split_text(live_buckets)}"
+    file_name = BEHAVIOUR_PARITY_BASELINE_PATH.name
+    if live_failing_roles > pin:
+        return [
+            f"{axis} axis: {live_failing_roles} failing role(s) EXCEED the pinned {pin} by "
+            f"{live_failing_roles - pin} ({live_text}). A role regressed or a new failing role appeared. "
+            f"Fix: reconcile the failing roles listed above; never raise the pin in {file_name} to admit them."
+        ]
+    return [
+        f"{axis} axis: {live_failing_roles} failing role(s) is BELOW the pinned {pin} by "
+        f"{pin - live_failing_roles} ({live_text}). An improvement must be banked in the same change. "
+        f"Fix: set {_BASELINE_FAILING_ROLES_KEY} = {live_failing_roles} and the [{axis}.{_BASELINE_BUCKETS_KEY}] "
+        f"counts to the live split in {file_name}."
+    ]
+
+
+def diagnostic_split_notes(
+    axis: str, *, live_buckets: Mapping[str, int], baseline: Mapping[str, AxisBaseline]
+) -> list[str]:
+    """Notes for a baseline bucket split that no longer matches the live
+    split. A note is never a problem: the split is diagnostic, so a stale one
+    is reported and the verdict -- the failing-role count against its pin --
+    is untouched.
+
+    Args:
+        axis: The gated axis; it must have a baseline section.
+        live_buckets: This run's failing roles by verdict bucket, keyed like
+            the baseline.
+        baseline: The loaded baseline.
+
+    Returns:
+        Empty when the split matches, else one note naming both splits.
+    """
+    pinned = baseline[axis].bucket_counts()
+    if pinned == dict(live_buckets):
+        return []
+    return [
+        f"{axis} axis: the pinned bucket split ({_split_text(pinned)}) differs from the live split "
+        f"({_split_text(live_buckets)}); it is diagnostic and moves no verdict. Fix: update the "
+        f"[{axis}.{_BASELINE_BUCKETS_KEY}] counts in {BEHAVIOUR_PARITY_BASELINE_PATH.name}."
+    ]
+
+
+def population_problems(
+    axis: str, evaluations: Sequence[RoleEvaluation], baseline: Mapping[str, AxisBaseline]
+) -> list[str]:
+    """``evaluate_population_ratchet`` over every evaluation of *axis* -- the
+    gate's whole verdict. Empty means the failing-role count equals its pin."""
+    return evaluate_population_ratchet(
+        axis,
+        live_failing_roles=failing_role_count(evaluations),
+        live_buckets=failing_bucket_split(evaluations),
+        baseline=baseline,
+    )
+
+
+def gate_exit_code(problems: Sequence[str]) -> int:
+    """``EXIT_FAIL`` iff the ratchet reports any problem, else ``EXIT_OK``."""
+    return EXIT_FAIL if problems else EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# Gate report
+# ---------------------------------------------------------------------------
+
+
 def evaluation_line(evaluation: RoleEvaluation, workspace_root: Path) -> str:
-    """One gate-report line: ``PASS``, ``FAIL`` (in scope) or ``REPORTED``
-    (fails, out of scope), then the verdict line, the domain, the scope
-    state and every failure reason."""
+    """One gate-report line: ``PASS`` or ``FAIL``, then the verdict line, the
+    domain and every failure reason."""
     base = verdict_line(evaluation.verdict, workspace_root)
-    scope_text = "in-scope" if evaluation.in_scope else "out-of-scope"
     if not evaluation.fails:
-        return f"PASS {base} domain={evaluation.domain} {scope_text}"
-    status = "FAIL" if evaluation.in_scope else "REPORTED"
+        return f"PASS {base} domain={evaluation.domain}"
     reasons = "; ".join(evaluation.failure_reasons)
-    return f"{status} {base} domain={evaluation.domain} {scope_text} reasons=[{reasons}]"
+    return f"FAIL {base} domain={evaluation.domain} reasons=[{reasons}]"
 
 
 def _log_evaluation(evaluation: RoleEvaluation, workspace_root: Path, *, debug: bool) -> None:
     line = evaluation_line(evaluation, workspace_root)
-    if evaluation.fails_in_scope:
-        logger.error(line)
-    elif evaluation.fails or debug:
+    if evaluation.fails or debug:
         logger.info(line)
     else:
         logger.debug(line)
 
 
-def _scope_text(scope: GateScope) -> str:
-    domains_text = "every domain (no scope file: hard zero)" if scope.domains is None else f"{sorted(scope.domains)}"
-    buckets_text = f"{sorted(scope.buckets)}" if scope.buckets else "none"
-    return f"domains={domains_text} buckets={buckets_text}"
-
-
 def render_gate_report(
-    evaluations: Sequence[RoleEvaluation], workspace_root: Path, *, scope: GateScope, debug: bool
+    evaluations: Sequence[RoleEvaluation], workspace_root: Path, *, report_filter: ReportFilter, debug: bool
 ) -> None:
-    """Log one line per role (in-scope failures at ERROR, out-of-scope
-    failures at INFO, passes at DEBUG unless *debug*), the per-bucket
-    counts, the per-domain counts, and the gate summary.
+    """Log one line per role the filter admits (failing roles at INFO, passes
+    at DEBUG unless *debug*), then the per-bucket counts, the per-domain counts
+    and the gate summary -- the last three over EVERY role, so the filter
+    changes what prints and never what is counted.
 
     Args:
         evaluations: Every evaluated role.
         workspace_root: Root that member paths are displayed relative to.
-        scope: The scope the evaluations were made under (for the summary).
+        report_filter: Which role lines print.
         debug: Also log passing roles at INFO.
     """
-    for evaluation in evaluations:
+    shown = [evaluation for evaluation in evaluations if report_filter.admits(evaluation)]
+    for evaluation in shown:
         _log_evaluation(evaluation, workspace_root, debug=debug)
+    if not report_filter.is_unfiltered:
+        logger.info(
+            "BEHAVIOUR-PARITY REPORT FILTER: %d of %d role line(s) printed (domains=%s, buckets=%s); the filter "
+            "never changes the failing-role count or the exit code.",
+            len(shown),
+            len(evaluations),
+            "all" if report_filter.domains is None else sorted(report_filter.domains),
+            "all" if report_filter.buckets is None else sorted(report_filter.buckets),
+        )
     _log_bucket_counts([evaluation.verdict for evaluation in evaluations])
     domain_counts = Counter(evaluation.domain for evaluation in evaluations)
     logger.info(
@@ -2464,15 +2325,12 @@ def render_gate_report(
         domain_counts[UNDOMAINED],
         dict(sorted(domain_counts.items())),
     )
-    failing_in_scope = sum(evaluation.fails_in_scope for evaluation in evaluations)
-    failing_out_of_scope = sum(evaluation.fails and not evaluation.in_scope for evaluation in evaluations)
+    failing = failing_role_count(evaluations)
     logger.info(
-        "BEHAVIOUR-PARITY GATE: scope=%s -- %d role(s) FAIL in scope, %d failing role(s) REPORTED out of scope, "
-        "%d role(s) pass.",
-        _scope_text(scope),
-        failing_in_scope,
-        failing_out_of_scope,
-        len(evaluations) - failing_in_scope - failing_out_of_scope,
+        "BEHAVIOUR-PARITY GATE: %d role(s) FAIL (%s), %d role(s) pass -- every role is counted, undomained included.",
+        failing,
+        _split_text(failing_bucket_split(evaluations)),
+        len(evaluations) - failing,
     )
 
 
@@ -2489,14 +2347,8 @@ _SELF_TEST_MODULE: Final[str] = "mod.py"
 #: ladder's step 3 (never read from disk).
 _SELF_TEST_TREE: Final[Path] = Path("self-test-tree")
 _SELF_TEST_REASON: Final[str] = "self-test synthetic reason -- never a real capability gap"
-#: A synthetic builtin key and emit-function key for the synthetic EmitTable
-#: surface 3 is exercised with -- deliberately no real registry row.
-_SELF_TEST_BUILTIN_KEY: Final[BuiltinKey] = ("SelfTestOrder", "ship")
-_SELF_TEST_EMIT_FUNCTION: Final[str] = "self_test_ship"
 _SELF_TEST_UNKNOWN_SCOPE_ID: Final[str] = "bogus"
 _SELF_TEST_UNKNOWN_BUCKET_ID: Final[str] = "not-a-verdict"
-#: The synthetic importable package ``collect_emit_tables`` is exercised on.
-_SELF_TEST_PACKAGE: Final[str] = "behaviour_parity_self_test_pkg"
 #: The self-test's three-package divergent tree: two packages agreeing on
 #: one behaviour, a third adding a fail-closed raise.
 _SELF_TEST_AGREEING_SOURCE: Final[str] = "def divergent_thing(command):\n    return command.name\n"
@@ -2526,12 +2378,10 @@ class _SelfTestClientTargetGenerator:
 
     descriptor = fixture_client_target_descriptor(
         _SELF_TEST_CLIENT_TARGET_NAME,
-        ClientTargetCapabilityDeclaration(
+        dataclasses.replace(
+            FIXTURECLIENT_CAPABILITY_DECLARATION,
             target_label="Self-Test Client",
             name_tokens=_SELF_TEST_CLIENT_TARGET_TOKENS,
-            push=PushCapabilityRealization(supported=False, reason=_SELF_TEST_REASON),
-            native_redirect=False,
-            web_build=WebBuildRealization(realized=False, reason=_SELF_TEST_REASON),
         ),
     )
 
@@ -2551,26 +2401,15 @@ class _SelfTestSrcDirGenerator:
 
     descriptor = fixture_client_target_descriptor(
         _SELF_TEST_SRCDIR_TARGET_NAME,
-        ClientTargetCapabilityDeclaration(
+        dataclasses.replace(
+            FIXTURECLIENT_CAPABILITY_DECLARATION,
             target_label="Self-Test SrcDir",
             name_tokens=frozenset({"selftestsrcdir"}),
-            push=PushCapabilityRealization(supported=False, reason=_SELF_TEST_REASON),
-            native_redirect=False,
-            web_build=WebBuildRealization(realized=False, reason=_SELF_TEST_REASON),
         ),
     )
 
 
 _SelfTestSrcDirGenerator.__module__ = _SELF_TEST_SRCDIR_MODULE_ROOT
-
-
-@emit_adapter
-def _self_test_emit_adapter(value: str) -> str:
-    """The marked emit callable the self-test's synthetic ``EmitTable``
-    registers -- defined here so its ``(defining file, __qualname__)``
-    identity is this module's, matching a member the self-test parses from
-    source text with ``file_path=Path(__file__)``. Registered by no language."""
-    return value
 
 
 def _assert(condition: bool, label: str) -> bool:
@@ -2629,65 +2468,18 @@ def _two_universe_ids() -> tuple[str, str]:
     return ids[0], ids[1]
 
 
-def _unsupported_declaration(domain: str) -> DomainDeclaration:
-    return DomainDeclaration(domain_id=domain, status="unsupported", reason=_SELF_TEST_REASON)
-
-
-def _supported_declaration(domain: str) -> DomainDeclaration:
-    return DomainDeclaration(domain_id=domain, status="supported", structural_pattern="*/self_test/*.txt")
-
-
-def _surfaces(
-    *,
-    stances: Mapping[str, Mapping[str, DomainDeclaration]] | None = None,
-    on_demand: Mapping[str, Mapping[str, str]] | None = None,
-    group_stances: Mapping[str, Mapping[str, BuiltinGroupStance]] | None = None,
-    adapter_groups: Mapping[str, Mapping[AdapterIdentity, frozenset[str]]] | None = None,
-) -> ExemptionSurfaces:
-    """Synthetic surfaces with every omitted surface empty."""
-    return ExemptionSurfaces(
-        stance_table=stances if stances is not None else {},
-        on_demand_by_language=on_demand if on_demand is not None else {},
-        builtin_group_stances_by_language=group_stances if group_stances is not None else {},
-        adapter_groups_by_language=adapter_groups if adapter_groups is not None else {},
-    )
-
-
-def _synthetic_registry(group: BuiltinGroup) -> Mapping[BuiltinKey, BuiltinDecl]:
-    category, method = _SELF_TEST_BUILTIN_KEY
-    return {
-        _SELF_TEST_BUILTIN_KEY: BuiltinDecl(
-            category=category,
-            method=method,
-            receiver=Receiver.STATIC,
-            arity=ArityContract(min_args=0, max_args=0),
-            group=group,
-            rationale="self-test synthetic builtin -- never a real registry row",
-        )
-    }
-
-
-def _synthetic_emit_table(group: BuiltinGroup) -> EmitTable[object]:
-    """A real, validated ``EmitTable`` over the synthetic registry whose one
-    row dispatches to ``_self_test_emit_adapter``."""
-    return EmitTable(
-        {_SELF_TEST_BUILTIN_KEY: emit_decl(sorted(KNOWN_CHAIN_STEPS)[0], _SELF_TEST_EMIT_FUNCTION)},
-        registry=_synthetic_registry(group),
-        emit_functions={_SELF_TEST_EMIT_FUNCTION: _self_test_emit_adapter},
-    )
-
-
-def _adapter_member(package: str) -> FunctionSource:
-    """A member parsed from source text that spells THIS module's synthetic
-    adapter with the real marker import, at this module's own path -- so its
-    identity equals the registered callable's."""
+def _marked_adapter_member(package: str, file_path: Path) -> FunctionSource:
+    """A member parsed from source text that carries the real ``@emit_adapter``
+    marker, spelled through the shared layer's own import path, whose body
+    differs from ``_plain_member``'s -- the shape the retired builtin-group
+    set-aside used to excuse."""
     source = (
         f"from {emit_adapter.__module__} import {emit_adapter.__qualname__}\n\n"
         f"@{emit_adapter.__qualname__}\n"
-        f"def {_self_test_emit_adapter.__name__}(value: str) -> str:\n"
+        f"def build_thing(value: str) -> str:\n"
         f"    return value\n"
     )
-    return _function_source(source, package=package, file_path=Path(__file__))
+    return _function_source(source, package=package, file_path=file_path)
 
 
 class _RecordingHandler(logging.Handler):
@@ -2706,7 +2498,9 @@ class _RecordingHandler(logging.Handler):
         self.levels.append(record.levelno)
 
 
-def _recorded_gate_lines(evaluations: Sequence[RoleEvaluation], scope: GateScope) -> list[str]:
+def _recorded_gate_lines(
+    evaluations: Sequence[RoleEvaluation], report_filter: ReportFilter = ReportFilter.unfiltered()
+) -> list[str]:
     """Render the gate report into a recording handler (nothing reaches the
     real handlers) and return every line."""
     handler = _RecordingHandler()
@@ -2715,7 +2509,7 @@ def _recorded_gate_lines(evaluations: Sequence[RoleEvaluation], scope: GateScope
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
     try:
-        render_gate_report(evaluations, _SELF_TEST_TREE, scope=scope, debug=False)
+        render_gate_report(evaluations, _SELF_TEST_TREE, report_filter=report_filter, debug=False)
     finally:
         logger.removeHandler(handler)
         logger.setLevel(previous_level)
@@ -3011,209 +2805,176 @@ def _self_test_case_domain_step_three() -> bool:
     )
 
 
-def _self_test_case_domain_surfaces() -> bool:
-    """(m) Surfaces 1 and 2: an ``unsupported`` stance or an on-demand entry
-    for the ROLE'S domain sets the member package aside; a stance for another
-    domain, a ``supported`` stance, no declaration at all, and any
-    domain-keyed declaration on an ``undomained`` role do not."""
+def _self_test_case_on_demand_surface() -> bool:
+    """(m) The on-demand set-aside: an on-demand entry for the ROLE'S domain
+    sets the member package aside; an entry for another domain, none at all,
+    and an entry keyed ``undomained`` on an ``undomained`` role do not."""
     domain, other = _two_universe_ids()
-    role = _synthetic_role(
+    beta = _SELF_TEST_BETA
+    on_demand_here = ExemptionSurfaces(on_demand_by_language={beta: {domain: _SELF_TEST_REASON}})
+    on_demand_elsewhere = ExemptionSurfaces(on_demand_by_language={beta: {other: _SELF_TEST_REASON}})
+    undomained_keyed = ExemptionSurfaces(on_demand_by_language={beta: {UNDOMAINED: _SELF_TEST_REASON}})
+    return (
+        not is_domain_on_demand(domain, beta, ExemptionSurfaces.none())
+        and is_domain_on_demand(domain, beta, on_demand_here)
+        and not is_domain_on_demand(domain, _SELF_TEST_ALPHA, on_demand_here)
+        and not is_domain_on_demand(domain, beta, on_demand_elsewhere)
+        and not is_domain_on_demand(UNDOMAINED, beta, undomained_keyed)
+    )
+
+
+def _self_test_case_declared_hole_still_fails() -> bool:
+    """(n) NEGATIVE: a divergent role whose package used to be set aside as a
+    declared hole STILL FAILS. Two plants, both shapes the retired set-aside
+    excused -- a role in a real domain whose beta member would have been
+    declared ``unsupported`` for that domain, and a role whose beta member is
+    an ``@emit_adapter``-marked function over a builtin group that would have
+    been declared ``unsupported``. Neither declaration has an input left to
+    carry it (the surfaces type holds the on-demand table alone), so each role
+    is judged by its skeleton groups alone and fails naming both groups."""
+    domain, _ = _two_universe_ids()
+
+    def domain_path(package: str) -> Path:
+        return _SELF_TEST_TREE / package / _MICRO_GENERATORS_DIR / f"{domain}{_PY_SUFFIX}"
+
+    in_domain = _synthetic_role(
         NameRole("build_thing"),
         [
-            _plain_member(label, _SELF_TEST_TREE / label / _MICRO_GENERATORS_DIR / f"{domain}{_PY_SUFFIX}")
-            for label in (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
+            _plain_member(_SELF_TEST_ALPHA, domain_path(_SELF_TEST_ALPHA)),
+            _marked_adapter_member(_SELF_TEST_BETA, domain_path(_SELF_TEST_BETA)),
         ],
     )
-    beta = _SELF_TEST_BETA
-    unsupported_here = _surfaces(stances={beta: {domain: _unsupported_declaration(domain)}})
-    unsupported_elsewhere = _surfaces(stances={beta: {other: _unsupported_declaration(other)}})
-    supported_here = _surfaces(stances={beta: {domain: _supported_declaration(domain)}})
-    on_demand_here = _surfaces(on_demand={beta: {domain: _SELF_TEST_REASON}})
-    on_demand_elsewhere = _surfaces(on_demand={beta: {other: _SELF_TEST_REASON}})
-    undomained_keyed = _surfaces(
-        stances={beta: {UNDOMAINED: _unsupported_declaration(UNDOMAINED)}},
-        on_demand={beta: {UNDOMAINED: _SELF_TEST_REASON}},
+    marked_adapter = _synthetic_role(
+        NameRole("build_thing"),
+        [
+            _plain_member(_SELF_TEST_ALPHA, _SELF_TEST_TREE / _SELF_TEST_ALPHA / _SELF_TEST_MODULE),
+            _marked_adapter_member(_SELF_TEST_BETA, _SELF_TEST_TREE / _SELF_TEST_BETA / _SELF_TEST_MODULE),
+        ],
     )
+    surfaces = ExemptionSurfaces.none()
+    domained = evaluate_role(in_domain, surfaces=surfaces)
+    undomained = evaluate_role(marked_adapter, surfaces=surfaces)
     return (
-        not is_role_exempt(role, domain, beta, ExemptionSurfaces.none())
-        and is_role_exempt(role, domain, beta, unsupported_here)
-        and not is_role_exempt(role, domain, beta, unsupported_elsewhere)
-        and not is_role_exempt(role, domain, beta, supported_here)
-        and is_role_exempt(role, domain, beta, on_demand_here)
-        and not is_role_exempt(role, domain, beta, on_demand_elsewhere)
-        and not is_role_exempt(role, UNDOMAINED, beta, undomained_keyed)
+        {field.name for field in dataclasses.fields(ExemptionSurfaces)} == {"on_demand_by_language"}
+        and domained.domain == domain
+        and domained.fails
+        and undomained.domain == UNDOMAINED
+        and undomained.fails
+        and all(
+            _group_text((package,)) in evaluation.failure_reasons[0]
+            for evaluation in (domained, undomained)
+            for package in (_SELF_TEST_ALPHA, _SELF_TEST_BETA)
+        )
     )
 
 
-def _self_test_case_builtin_group_surface() -> bool:
-    """(n) Surface 3: a marked adapter member whose synthetic ``EmitTable``
-    row's builtin group the language declares ``unsupported`` is exempt --
-    on an ``undomained`` role and on a domained one alike; a ``supported``
-    stance, no stance, or a behaviour-bearing non-adapter member beside the
-    adapter denies it."""
-    group = sorted(BuiltinGroup, key=lambda member: member.value)[0]
-    index = adapter_group_index((_synthetic_emit_table(group),), _synthetic_registry(group))
-    beta = _SELF_TEST_BETA
-    alpha_member = _plain_member(_SELF_TEST_ALPHA, _SELF_TEST_TREE / _SELF_TEST_ALPHA / _SELF_TEST_MODULE)
-    adapter = _adapter_member(beta)
-    role = _synthetic_role(NameRole(adapter.qualified_name), [alpha_member, adapter])
-    mixed = _synthetic_role(
-        NameRole(adapter.qualified_name), [alpha_member, adapter, _plain_member(beta, Path(__file__), name="deciding")]
-    )
-    unsupported = _surfaces(
-        group_stances={beta: {group.value: BuiltinGroupStance("unsupported", _SELF_TEST_REASON)}},
-        adapter_groups={beta: index},
-    )
-    supported = _surfaces(
-        group_stances={beta: {group.value: BuiltinGroupStance("supported")}}, adapter_groups={beta: index}
-    )
-    unstanced = _surfaces(adapter_groups={beta: index})
-    domain, _ = _two_universe_ids()
-    return (
-        index == {(Path(__file__).resolve(), _self_test_emit_adapter.__qualname__): frozenset({group.value})}
-        and is_emit_adapter_member(adapter)
-        and not is_emit_adapter_member(alpha_member)
-        and is_role_exempt(role, UNDOMAINED, beta, unsupported)
-        and is_role_exempt(role, domain, beta, unsupported)
-        and not is_role_exempt(role, UNDOMAINED, beta, supported)
-        and not is_role_exempt(role, UNDOMAINED, beta, unstanced)
-        and not is_role_exempt(mixed, UNDOMAINED, beta, unsupported)
-    )
+#: Names of the declaration types and fields a parity verdict used to read to
+#: excuse a divergent role. Matched against the AST of this module -- an
+#: import, a name or an attribute -- never against its prose.
+_REMOVED_DECLARATION_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        "DomainDeclaration",
+        "BuiltinGroupStance",
+        "stance_table_by_language",
+        "builtin_group_stances",
+        "capability_gaps",
+        "CapabilityGap",
+    }
+)
 
 
-def _self_test_case_builtin_group_surface_fails_closed() -> bool:
-    """(o) Surface 3 failure paths: a marked adapter no table registers raises
-    naming the member; a table over a registry missing its row raises; a
-    same-named decorator from another module is not the marker."""
-    group = sorted(BuiltinGroup, key=lambda member: member.value)[0]
-    adapter = _adapter_member(_SELF_TEST_BETA)
-    role = _synthetic_role(
-        NameRole(adapter.qualified_name),
-        [_plain_member(_SELF_TEST_ALPHA, _SELF_TEST_TREE / _SELF_TEST_ALPHA / _SELF_TEST_MODULE), adapter],
-    )
-    try:
-        is_role_exempt(role, UNDOMAINED, _SELF_TEST_BETA, ExemptionSurfaces.none())
-        return False
-    except ValueError as exc:
-        if adapter.qualified_name not in str(exc):
-            return False
-    try:
-        adapter_group_index((_synthetic_emit_table(group),), {})
-        return False
-    except ValueError as exc:
-        if repr(_SELF_TEST_BUILTIN_KEY) not in str(exc):
-            return False
-    impostor = _function_source(
-        f"from somewhere_else import {emit_adapter.__qualname__}\n\n@{emit_adapter.__qualname__}\ndef build_thing(value):\n    return value\n",
-        package=_SELF_TEST_BETA,
-        file_path=Path(__file__),
-    )
-    return not is_emit_adapter_member(impostor)
+def _declaration_names_referenced(source: str) -> list[str]:
+    """Every removed-declaration name *source* imports, names or reads as an
+    attribute -- by AST, so a docstring or comment describing the retired
+    mechanism is never a hit."""
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.alias):
+            found.add(node.name.rsplit(".", 1)[-1])
+        elif isinstance(node, ast.Name):
+            found.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            found.add(node.attr)
+    return sorted(found & _REMOVED_DECLARATION_NAMES)
 
 
-def _self_test_case_scope_rules() -> bool:
-    """(p) Scope: ``--scope``/``--buckets`` override the file, each half's
-    file list applies when its flag is absent, an absent file means every
-    domain and no bucket, an old-style domains-only file still loads with
-    ``buckets=frozenset()``, and an unknown id (either origin, either half),
-    an empty ``--scope``/``--buckets`` or a malformed file are refused
-    naming the problem."""
+def _self_test_case_no_declaration_reader() -> bool:
+    """(o) This module reads no declaration to excuse a divergent role: its
+    own AST imports, names and reads none of the retired declaration types or
+    fields. NON-VACUITY: the same matcher finds each one planted in a
+    synthetic source, whether imported, named or read as an attribute."""
+    planted = (
+        "from datrix_codegen_kernel.parity.domain_declaration import DomainDeclaration\n"
+        "def read(declaration):\n"
+        "    return declaration.builtin_group_stances, stance_table_by_language, declaration.capability_gaps\n"
+    )
+    return _declaration_names_referenced(planted) == sorted(
+        {"DomainDeclaration", "builtin_group_stances", "stance_table_by_language", "capability_gaps"}
+    ) and not _declaration_names_referenced(Path(__file__).read_text(encoding="utf-8"))
+
+
+def _self_test_case_report_filters() -> bool:
+    """(p) Report filters: ``--scope``/``--buckets`` name the role lines that
+    print -- a role prints when its domain AND its verdict satisfy every
+    filter given -- and an unknown id (either option) or an empty option is
+    refused naming the problem."""
     domain, other = _two_universe_ids()
     universe = frozenset(SHARED_CONTEXT_TYPES)
-    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-p-") as tmp:
-        present = Path(tmp) / "scope.json"
-        present.write_text(json.dumps({_SCOPE_FILE_DOMAINS_KEY: [domain, UNDOMAINED]}), encoding="utf-8")
-        with_buckets = Path(tmp) / "with-buckets.json"
-        with_buckets.write_text(
-            json.dumps({_SCOPE_FILE_DOMAINS_KEY: [domain], _SCOPE_FILE_BUCKETS_KEY: [_VERDICT_IDENTICAL]}),
-            encoding="utf-8",
+    evaluations = evaluate_roles(_divergent_tree_verdicts(domain), surfaces=ExemptionSurfaces.none())
+    only = evaluations[0]
+    admits = {
+        "unfiltered": ReportFilter.unfiltered().admits(only),
+        "own domain": build_report_filter((domain,), None, universe).admits(only),
+        "other domain": build_report_filter((other,), None, universe).admits(only),
+        "undomained": build_report_filter((UNDOMAINED,), None, universe).admits(only),
+        "own bucket": build_report_filter(None, (_VERDICT_DIVERGENT,), universe).admits(only),
+        "other bucket": build_report_filter(None, (_VERDICT_IDENTICAL,), universe).admits(only),
+        "both match": build_report_filter((domain,), (_VERDICT_DIVERGENT,), universe).admits(only),
+        "domain matches, bucket does not": build_report_filter((domain,), (_VERDICT_IDENTICAL,), universe).admits(only),
+    }
+    filters_hold = (
+        admits["unfiltered"]
+        and admits["own domain"]
+        and not admits["other domain"]
+        and not admits["undomained"]
+        and admits["own bucket"]
+        and not admits["other bucket"]
+        and admits["both match"]
+        and not admits["domain matches, bucket does not"]
+        and build_report_filter(None, None, universe).is_unfiltered
+        and parse_scope_argument(f"{domain} {_FILTER_SEPARATOR} {other}") == (domain, other)
+        and parse_scope_argument(None) is None
+        and parse_buckets_argument(f"{_VERDICT_IDENTICAL}{_FILTER_SEPARATOR}{_VERDICT_SAME_BEHAVIOUR}")
+        == (_VERDICT_IDENTICAL, _VERDICT_SAME_BEHAVIOUR)
+        and parse_buckets_argument(None) is None
+    )
+    refusals_hold = (
+        _refuses(
+            lambda: build_report_filter((_SELF_TEST_UNKNOWN_SCOPE_ID,), None, universe),
+            _SELF_TEST_UNKNOWN_SCOPE_ID,
+            UNDOMAINED,
+            "--scope",
         )
-        absent = Path(tmp) / "missing.json"
-        malformed = Path(tmp) / "malformed.json"
-        malformed.write_text(json.dumps({"other_key": [domain]}), encoding="utf-8")
-        unknown_in_file = Path(tmp) / "unknown.json"
-        unknown_in_file.write_text(
-            json.dumps({_SCOPE_FILE_DOMAINS_KEY: [_SELF_TEST_UNKNOWN_SCOPE_ID]}), encoding="utf-8"
+        and _refuses(
+            lambda: build_report_filter(None, (_SELF_TEST_UNKNOWN_BUCKET_ID,), universe),
+            _SELF_TEST_UNKNOWN_BUCKET_ID,
+            "--buckets",
+            *sorted(_VALID_BUCKET_IDS),
         )
-        unknown_bucket_in_file = Path(tmp) / "unknown-bucket.json"
-        unknown_bucket_in_file.write_text(
-            json.dumps({_SCOPE_FILE_DOMAINS_KEY: [], _SCOPE_FILE_BUCKETS_KEY: [_SELF_TEST_UNKNOWN_BUCKET_ID]}),
-            encoding="utf-8",
-        )
-        non_list_buckets_in_file = Path(tmp) / "non-list-buckets.json"
-        non_list_buckets_in_file.write_text(
-            json.dumps({_SCOPE_FILE_DOMAINS_KEY: [], _SCOPE_FILE_BUCKETS_KEY: _VERDICT_IDENTICAL}),
-            encoding="utf-8",
-        )
-        non_string_bucket_in_file = Path(tmp) / "non-string-bucket.json"
-        non_string_bucket_in_file.write_text(
-            json.dumps({_SCOPE_FILE_DOMAINS_KEY: [], _SCOPE_FILE_BUCKETS_KEY: [_VERDICT_IDENTICAL, 1]}),
-            encoding="utf-8",
-        )
-        rules_hold = (
-            load_scope(None, None, universe, present)
-            == GateScope(domains=frozenset({domain, UNDOMAINED}), buckets=frozenset())
-            and load_scope(None, None, universe, absent) == GateScope(domains=None, buckets=frozenset())
-            and load_scope((other,), None, universe, present)
-            == GateScope(domains=frozenset({other}), buckets=frozenset())
-            and load_scope(None, None, universe, with_buckets)
-            == GateScope(domains=frozenset({domain}), buckets=frozenset({_VERDICT_IDENTICAL}))
-            and load_scope(None, (_VERDICT_SAME_BEHAVIOUR,), universe, with_buckets)
-            == GateScope(domains=frozenset({domain}), buckets=frozenset({_VERDICT_SAME_BEHAVIOUR}))
-            and parse_scope_argument(f"{domain} {_SCOPE_SEPARATOR} {other}") == (domain, other)
-            and parse_scope_argument(None) is None
-            and parse_buckets_argument(f"{_VERDICT_IDENTICAL}{_SCOPE_SEPARATOR}{_VERDICT_SAME_BEHAVIOUR}")
-            == (_VERDICT_IDENTICAL, _VERDICT_SAME_BEHAVIOUR)
-            and parse_buckets_argument(None) is None
-        )
-        refusals_hold = (
-            _refuses(
-                lambda: load_scope((_SELF_TEST_UNKNOWN_SCOPE_ID,), None, universe, absent),
-                _SELF_TEST_UNKNOWN_SCOPE_ID,
-                UNDOMAINED,
-            )
-            and _refuses(
-                lambda: load_scope(None, None, universe, unknown_in_file),
-                _SELF_TEST_UNKNOWN_SCOPE_ID,
-                str(unknown_in_file),
-            )
-            and _refuses(
-                lambda: load_scope(None, None, universe, malformed), str(malformed), _SCOPE_FILE_DOMAINS_KEY
-            )
-            and _refuses(lambda: parse_scope_argument(_SCOPE_SEPARATOR), "--scope")
-            and _refuses(
-                lambda: load_scope(None, (_SELF_TEST_UNKNOWN_BUCKET_ID,), universe, absent),
-                _SELF_TEST_UNKNOWN_BUCKET_ID,
-                "--buckets",
-            )
-            and _refuses(
-                lambda: load_scope(None, None, universe, unknown_bucket_in_file),
-                _SELF_TEST_UNKNOWN_BUCKET_ID,
-                str(unknown_bucket_in_file),
-            )
-            and _refuses(
-                lambda: load_scope(None, None, universe, non_list_buckets_in_file),
-                str(non_list_buckets_in_file),
-                _SCOPE_FILE_BUCKETS_KEY,
-                *sorted(_VALID_BUCKET_IDS),
-            )
-            and _refuses(
-                lambda: load_scope(None, None, universe, non_string_bucket_in_file),
-                str(non_string_bucket_in_file),
-                _SCOPE_FILE_BUCKETS_KEY,
-                *sorted(_VALID_BUCKET_IDS),
-            )
-            and _refuses(lambda: parse_buckets_argument(_SCOPE_SEPARATOR), "--buckets")
-        )
-        return rules_hold and refusals_hold
+        and _refuses(lambda: parse_scope_argument(_FILTER_SEPARATOR), "--scope")
+        and _refuses(lambda: parse_buckets_argument(_FILTER_SEPARATOR), "--buckets")
+    )
+    return filters_hold and refusals_hold
 
 
-def _refuses(action: Callable[[], object], *expected_texts: str) -> bool:
-    """Whether *action* raises ``ValueError`` whose message contains every one
-    of *expected_texts*."""
+def _refuses(
+    action: Callable[[], object], *expected_texts: str, error_type: type[Exception] = ValueError
+) -> bool:
+    """Whether *action* raises *error_type* (``ValueError`` by default) whose
+    message contains every one of *expected_texts*."""
     try:
         action()
-    except ValueError as exc:
+    except error_type as exc:
         return all(expected in str(exc) for expected in expected_texts)
     return False
 
@@ -3235,7 +2996,7 @@ def _divergent_tree_verdicts(domain: str) -> list[RoleVerdict]:
 
 def _self_test_case_skeleton_groups_fail_naming_every_group() -> bool:
     """(q1) A divergent role whose members split into two skeleton groups,
-    no package declaring the construct unsupported, FAILS with one reason
+    no package declaring the domain on-demand, FAILS with one reason
     naming BOTH groups -- there is no reference language, so the gate cannot
     single out one side as lagging. Reordering the packages (so the group
     holding the raise comes first alphabetically) names the same groups."""
@@ -3245,67 +3006,64 @@ def _self_test_case_skeleton_groups_fail_naming_every_group() -> bool:
     if not _single_role_with_verdict(role, _VERDICT_DIVERGENT):
         return False
     groups = skeleton_groups(role[0])
-    evaluation = evaluate_role(role[0], scope=GateScope(domains=None, buckets=frozenset()), surfaces=ExemptionSurfaces.none())
+    evaluation = evaluate_role(role[0], surfaces=ExemptionSurfaces.none())
     agreeing_group = _group_text((_SELF_TEST_ALPHA, _SELF_TEST_BETA))
     raising_group = _group_text((_SELF_TEST_GAMMA,))
     reason = evaluation.failure_reasons[0] if evaluation.failure_reasons else ""
     return (
         groups == (frozenset({_SELF_TEST_ALPHA, _SELF_TEST_BETA}), frozenset({_SELF_TEST_GAMMA}))
-        and evaluation.fails_in_scope
+        and evaluation.fails
         and len(evaluation.failure_reasons) == 1
         and "2 skeleton groups" in reason
         and agreeing_group in reason
         and raising_group in reason
-        and "no member declares the construct unsupported" in reason
+        and f"no member declares domain {domain!r} on-demand" in reason
     )
 
 
-def _self_test_case_declaring_package_set_aside() -> bool:
+def _self_test_case_on_demand_package_set_aside() -> bool:
     """(q2) The same role PASSES when the package in the odd group declares
-    the construct unsupported for the role's domain: one group remains. A
-    declaration on a package in the OTHER group does not rescue it -- two
-    groups still remain (one of them smaller) -- and the reason names the
-    declaring package as the only one set aside."""
+    the role's domain on-demand: one group remains. A declaration on a
+    package in the OTHER group does not rescue it -- two groups still remain
+    (one of them smaller) -- and the reason names the declaring package as the
+    only one set aside."""
     domain, _ = _two_universe_ids()
     role = _name_roles(_divergent_tree_verdicts(domain), _SELF_TEST_DIVERGENT_ROLE)[0]
-    no_scope = GateScope(domains=None, buckets=frozenset())
     odd_declares = evaluate_role(
-        role, scope=no_scope, surfaces=_surfaces(stances={_SELF_TEST_GAMMA: {domain: _unsupported_declaration(domain)}})
+        role, surfaces=ExemptionSurfaces(on_demand_by_language={_SELF_TEST_GAMMA: {domain: _SELF_TEST_REASON}})
     )
     other_declares = evaluate_role(
-        role, scope=no_scope, surfaces=_surfaces(stances={_SELF_TEST_ALPHA: {domain: _unsupported_declaration(domain)}})
+        role, surfaces=ExemptionSurfaces(on_demand_by_language={_SELF_TEST_ALPHA: {domain: _SELF_TEST_REASON}})
     )
     other_reason = other_declares.failure_reasons[0] if other_declares.failure_reasons else ""
     return (
         not odd_declares.fails
-        and other_declares.fails_in_scope
+        and other_declares.fails
         and _group_text((_SELF_TEST_BETA,)) in other_reason
         and _group_text((_SELF_TEST_GAMMA,)) in other_reason
         and f"only {_group_text((_SELF_TEST_ALPHA,))} declare(s)" in other_reason
     )
 
 
-def _self_test_case_every_member_declares() -> bool:
-    """(q3) A divergent role every member of which declares the construct
-    unsupported passes -- a declared hole everywhere -- and is still
-    reported: the evaluation exists, carries its domain, and prints a PASS
-    line naming the role."""
+def _self_test_case_every_member_on_demand() -> bool:
+    """(q3) A divergent role every member of which declares the domain
+    on-demand passes -- no group is left -- and is still reported: the
+    evaluation exists, carries its domain, and prints a PASS line naming the
+    role."""
     domain, _ = _two_universe_ids()
     verdicts = _divergent_tree_verdicts(domain)
-    no_scope = GateScope(domains=None, buckets=frozenset())
-    everyone = _surfaces(
-        stances={
-            label: {domain: _unsupported_declaration(domain)}
-            for label in (_SELF_TEST_ALPHA, _SELF_TEST_BETA, _SELF_TEST_GAMMA)
+    everyone = ExemptionSurfaces(
+        on_demand_by_language={
+            label: {domain: _SELF_TEST_REASON} for label in (_SELF_TEST_ALPHA, _SELF_TEST_BETA, _SELF_TEST_GAMMA)
         }
     )
-    evaluations = evaluate_roles(verdicts, scope=no_scope, surfaces=everyone)
-    lines = _recorded_gate_lines(evaluations, no_scope)
+    evaluations = evaluate_roles(verdicts, surfaces=everyone)
+    lines = _recorded_gate_lines(evaluations)
     return (
         len(evaluations) == 1
         and not evaluations[0].fails
         and evaluations[0].domain == domain
-        and gate_exit_code(evaluations) == EXIT_OK
+        and failing_role_count(evaluations) == 0
         and any(line.startswith("PASS ") and f"role={_SELF_TEST_DIVERGENT_ROLE}" in line for line in lines)
     )
 
@@ -3318,8 +3076,7 @@ def _self_test_case_bucket_labels() -> bool:
     expected = frozenset({"identical", "same-behaviour", "divergent"})
     domain, _ = _two_universe_ids()
     verdicts = _divergent_tree_verdicts(domain)
-    no_scope = GateScope(domains=None, buckets=frozenset())
-    lines = _recorded_gate_lines(evaluate_roles(verdicts, scope=no_scope, surfaces=ExemptionSurfaces.none()), no_scope)
+    lines = _recorded_gate_lines(evaluate_roles(verdicts, surfaces=ExemptionSurfaces.none()))
     summary = next((line for line in lines if line.startswith("BEHAVIOUR-PARITY REPORT:")), "")
     return (
         _VALID_BUCKET_IDS == expected
@@ -3329,46 +3086,40 @@ def _self_test_case_bucket_labels() -> bool:
     )
 
 
+def _baseline_pinning(failing_roles: int) -> Mapping[str, AxisBaseline]:
+    """A synthetic ``languages`` baseline pinning *failing_roles*, the whole
+    pin in the ``divergent`` bucket (the split only has to sum to the pin)."""
+    pin = AxisBaseline(failing_roles=failing_roles, identical=0, same_behaviour=0, divergent=failing_roles)
+    return {AXIS_LANGUAGES: pin}
+
+
 def _self_test_case_gate_outcome() -> bool:
     """(r) End to end on a synthetic three-package tree: a divergent role in a
-    real universe domain with NO declaration fails in scope (exit 1, the
-    FAIL line names the role and every group); the same role with a synthetic
-    ``unsupported`` stance passes (exit 0); with the domain out of ``--scope``
-    it is REPORTED but does not fail (exit 0); an identical non-adapter role
-    fails while an adapter-exempt one passes; and the platform axis never
-    gates."""
-    domain, other = _two_universe_ids()
+    real universe domain with no on-demand declaration FAILs (the FAIL line
+    names the role and every group) and is counted; a baseline pinning exactly
+    that count exits 0; the identical non-adapter role fails while an
+    adapter-exempt one passes; and the platform axis never gates."""
+    domain, _ = _two_universe_ids()
     verdicts = _divergent_tree_verdicts(domain)
     if not _single_role_with_verdict(_name_roles(verdicts, _SELF_TEST_DIVERGENT_ROLE), _VERDICT_DIVERGENT):
         return False
-    evaluate = functools.partial(evaluate_roles, verdicts)
-    no_scope = GateScope(domains=None, buckets=frozenset())
-    undeclared = evaluate(scope=no_scope, surfaces=ExemptionSurfaces.none())
-    declared = evaluate(
-        scope=no_scope, surfaces=_surfaces(stances={_SELF_TEST_GAMMA: {domain: _unsupported_declaration(domain)}})
-    )
-    out_of_scope_gate = GateScope(domains=frozenset({other}), buckets=frozenset())
-    out_of_scope = evaluate(scope=out_of_scope_gate, surfaces=ExemptionSurfaces.none())
-    in_scope = evaluate(scope=GateScope(domains=frozenset({domain}), buckets=frozenset()), surfaces=ExemptionSurfaces.none())
-    undeclared_lines = _recorded_gate_lines(undeclared, no_scope)
-    out_of_scope_lines = _recorded_gate_lines(out_of_scope, out_of_scope_gate)
+    evaluations = evaluate_roles(verdicts, surfaces=ExemptionSurfaces.none())
+    lines = _recorded_gate_lines(evaluations)
+    at_pin = population_problems(AXIS_LANGUAGES, evaluations, _baseline_pinning(1))
     return (
-        gate_exit_code(undeclared) == EXIT_FAIL
-        and undeclared[0].domain == domain
+        evaluations[0].domain == domain
+        and failing_role_count(evaluations) == 1
+        and failing_bucket_split(evaluations) == {"identical": 0, "same_behaviour": 0, "divergent": 1}
         and any(
             line.startswith("FAIL ")
             and f"role={_SELF_TEST_DIVERGENT_ROLE}" in line
             and _group_text((_SELF_TEST_ALPHA, _SELF_TEST_BETA)) in line
             and _group_text((_SELF_TEST_GAMMA,)) in line
-            for line in undeclared_lines
+            for line in lines
         )
-        and gate_exit_code(declared) == EXIT_OK
-        and gate_exit_code(out_of_scope) == EXIT_OK
-        and out_of_scope[0].fails
-        and any(
-            line.startswith("REPORTED ") and f"role={_SELF_TEST_DIVERGENT_ROLE}" in line for line in out_of_scope_lines
-        )
-        and gate_exit_code(in_scope) == EXIT_FAIL
+        and any(line.startswith("BEHAVIOUR-PARITY GATE: 1 role(s) FAIL") for line in lines)
+        and not any("in scope" in line or "in-scope" in line for line in lines)
+        and gate_exit_code(at_pin) == EXIT_OK
         and _duplicate_buckets_gate_correctly()
         and not axis_gates(AXIS_PLATFORMS, report_only=False)
         and axis_gates(AXIS_LANGUAGES, report_only=False)
@@ -3378,7 +3129,8 @@ def _self_test_case_gate_outcome() -> bool:
 
 def _duplicate_buckets_gate_correctly() -> bool:
     """Case (r)'s duplicate-bucket half: the adapter/decider tree of case (f)
-    -- the adapter-exempt identical role passes, the deciding one fails."""
+    -- the adapter-exempt identical role passes, the deciding one fails and,
+    resolving to no domain, is counted all the same."""
     with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-r2-") as tmp:
         root = Path(tmp)
         body = (
@@ -3391,95 +3143,190 @@ def _duplicate_buckets_gate_correctly() -> bool:
         _write_module(root / _SELF_TEST_ALPHA, body)
         _write_module(root / _SELF_TEST_BETA, body)
         verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
-    evaluations = {
-        role_label(evaluation.verdict.role_key): evaluation
-        for evaluation in evaluate_roles(
-            verdicts,
-            scope=GateScope(domains=None, buckets=frozenset()),
-            surfaces=ExemptionSurfaces.none(),
-        )
-    }
+    evaluations = evaluate_roles(verdicts, surfaces=ExemptionSurfaces.none())
+    by_label = {role_label(evaluation.verdict.role_key): evaluation for evaluation in evaluations}
     return (
-        not evaluations["build_adapter_thing"].fails
-        and evaluations["build_deciding_thing"].fails_in_scope
-        and evaluations["build_deciding_thing"].domain == UNDOMAINED
+        not by_label["build_adapter_thing"].fails
+        and by_label["build_deciding_thing"].fails
+        and by_label["build_deciding_thing"].domain == UNDOMAINED
+        and failing_role_count(evaluations) == 1
+        and failing_bucket_split(evaluations) == {"identical": 1, "same_behaviour": 0, "divergent": 0}
     )
 
 
-def _self_test_case_bucket_scope_gate() -> bool:
-    """(t) Bucket-wide scope: a planted 'identical'-verdict role, with an
-    EMPTY domains scope (so the domains half admits nothing), still FAILs
-    when its verdict bucket is scoped (``buckets={"identical"}``), and is
-    only REPORTED (fails, out of scope) when no bucket is scoped
-    (``buckets=frozenset()``) -- the bucket key gates a verdict across every
-    domain independently of the domains list."""
-    domain, _ = _two_universe_ids()
-    identical_body = "def shared_identical_thing(command):\n    return command.name\n"
-    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-t-") as tmp:
+def _undomained_tree_verdicts() -> list[RoleVerdict]:
+    """The three-package divergent tree of ``_divergent_tree_verdicts`` with
+    every member under a path no ladder step reads a domain from: the one
+    role resolves to ``undomained``."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-undomained-") as tmp:
         root = Path(tmp)
-        for label in (_SELF_TEST_ALPHA, _SELF_TEST_BETA):
-            _write_module(root / label / _MICRO_GENERATORS_DIR, identical_body, f"{domain}{_PY_SUFFIX}")
-        verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
-    if not _single_role_with_verdict(_name_roles(verdicts, "shared_identical_thing"), _VERDICT_IDENTICAL):
-        return False
-    evaluate = functools.partial(evaluate_roles, verdicts, surfaces=ExemptionSurfaces.none())
-    bucket_gated = evaluate(scope=GateScope(domains=frozenset(), buckets=frozenset({_VERDICT_IDENTICAL})))
-    bucket_ungated = evaluate(scope=GateScope(domains=frozenset(), buckets=frozenset()))
+        for label, source in (
+            (_SELF_TEST_ALPHA, _SELF_TEST_AGREEING_SOURCE),
+            (_SELF_TEST_BETA, _SELF_TEST_AGREEING_SOURCE),
+            (_SELF_TEST_GAMMA, _SELF_TEST_RAISING_SOURCE),
+        ):
+            _write_module(root / label, source)
+        return _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA, _SELF_TEST_GAMMA))
+
+
+def _self_test_case_undomained_role_counted() -> bool:
+    """(r1) A failing role the domain ladder resolves to ``undomained`` is
+    COUNTED -- by the failing-role count and by the ratchet -- exactly like a
+    domained one: alone it is one failing role, beside a domained failing
+    role it makes two, and a pin that omits it fails the gate."""
+    domain, _ = _two_universe_ids()
+    undomained = evaluate_roles(_undomained_tree_verdicts(), surfaces=ExemptionSurfaces.none())
+    domained = evaluate_roles(_divergent_tree_verdicts(domain), surfaces=ExemptionSurfaces.none())
+    both = [*undomained, *domained]
+    omitted = population_problems(AXIS_LANGUAGES, undomained, _baseline_pinning(0))
+    counted = population_problems(AXIS_LANGUAGES, undomained, _baseline_pinning(1))
     return (
-        gate_exit_code(bucket_gated) == EXIT_FAIL
-        and bucket_gated[0].in_scope
-        and gate_exit_code(bucket_ungated) == EXIT_OK
-        and not bucket_ungated[0].in_scope
-        and bucket_ungated[0].fails
+        len(undomained) == 1
+        and undomained[0].domain == UNDOMAINED
+        and undomained[0].fails
+        and failing_role_count(undomained) == 1
+        and failing_role_count(both) == 2
+        and failing_bucket_split(both) == {"identical": 0, "same_behaviour": 0, "divergent": 2}
+        and gate_exit_code(omitted) == EXIT_FAIL
+        and "EXCEED" in omitted[0]
+        and gate_exit_code(counted) == EXIT_OK
     )
 
 
-def _self_test_case_collect_emit_tables() -> bool:
-    """(s) ``collect_emit_tables`` finds a table defined in a NESTED module of a
-    synthetic importable package (no table-module name assumed), deduplicates
-    a re-import, and refuses a package with an unimportable module naming it."""
-    table_source = f"""
-        from datrix_codegen_common.transpiler.builtin_registry import ArityContract, BuiltinDecl, BuiltinGroup, Receiver
-        from datrix_codegen_common.transpiler.emit_dsl import EmitTable, emit_adapter, emit_decl
+def _self_test_case_population_ratchet_both_directions() -> bool:
+    """(r2) The ratchet fails in BOTH directions and only an exact match
+    passes: a pin one BELOW the live count (a regression) and a pin one ABOVE
+    it (an improvement that was not banked) each exit 1, naming their
+    direction, the delta, the live split and the fix; a pin equal to the live
+    count exits 0; an axis with no baseline section raises naming the pinned
+    axes; a live split that does not sum to the live count is refused; and a
+    stale bucket split is a note that never moves the verdict."""
+    evaluations = evaluate_roles(_undomained_tree_verdicts(), surfaces=ExemptionSurfaces.none())
+    live = failing_role_count(evaluations)
+    split = {"identical": 0, "same_behaviour": 0, "divergent": live}
+    pinned = _baseline_pinning(live)
+    stale = {AXIS_LANGUAGES: AxisBaseline(failing_roles=live, identical=live, same_behaviour=0, divergent=0)}
+    stale_notes = diagnostic_split_notes(AXIS_LANGUAGES, live_buckets=split, baseline=stale)
 
-        @emit_adapter
-        def ship(value):
-            return value
+    def ratchet(pin: int, count: int = live, buckets: Mapping[str, int] = split) -> list[str]:
+        return evaluate_population_ratchet(
+            AXIS_LANGUAGES, live_failing_roles=count, live_buckets=buckets, baseline=_baseline_pinning(pin)
+        )
 
-        _REGISTRY = {{
-            {_SELF_TEST_BUILTIN_KEY!r}: BuiltinDecl(
-                category={_SELF_TEST_BUILTIN_KEY[0]!r}, method={_SELF_TEST_BUILTIN_KEY[1]!r}, receiver=Receiver.STATIC,
-                arity=ArityContract(min_args=0, max_args=0), group=sorted(BuiltinGroup, key=lambda g: g.value)[0],
-                rationale="self-test synthetic builtin",
-            )
-        }}
-        NESTED_TABLE = EmitTable(
-            {{{_SELF_TEST_BUILTIN_KEY!r}: emit_decl({sorted(KNOWN_CHAIN_STEPS)[0]!r}, {_SELF_TEST_EMIT_FUNCTION!r})}},
-            registry=_REGISTRY,
-            emit_functions={{{_SELF_TEST_EMIT_FUNCTION!r}: ship}},
+    regression, unbanked, exact = ratchet(live - 1), ratchet(live + 1), ratchet(live)
+    return (
+        live == 1
+        and exact == []
+        and len(regression) == 1
+        and "EXCEED" in regression[0]
+        and "by 1" in regression[0]
+        and "divergent=1" in regression[0]
+        and len(unbanked) == 1
+        and "BELOW" in unbanked[0]
+        and "banked in the same change" in unbanked[0]
+        and f"{_BASELINE_FAILING_ROLES_KEY} = {live}" in unbanked[0]
+        and gate_exit_code(regression) == EXIT_FAIL
+        and gate_exit_code(unbanked) == EXIT_FAIL
+        and gate_exit_code(exact) == EXIT_OK
+        and _refuses(
+            lambda: evaluate_population_ratchet(
+                AXIS_PLATFORMS, live_failing_roles=live, live_buckets=split, baseline=pinned
+            ),
+            AXIS_PLATFORMS,
+            AXIS_LANGUAGES,
+            error_type=KeyError,
         )
-        """
-    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-s-") as tmp:
-        package_dir = Path(tmp) / _SELF_TEST_PACKAGE
-        _write_module(package_dir, "", "__init__.py")
-        _write_module(package_dir / "sub", "", "__init__.py")
-        _write_module(package_dir / "sub", table_source, "tables.py")
-        _write_module(
-            package_dir,
-            f"from {_SELF_TEST_PACKAGE}.sub.tables import NESTED_TABLE\n\nREIMPORTED = NESTED_TABLE\n",
-            "reimport.py",
-        )
-        sys.path.insert(0, tmp)
-        try:
-            tables = collect_emit_tables(package_dir)
-            found = len(tables) == 1 and _SELF_TEST_BUILTIN_KEY in tables[0].declared_keys
-            _write_module(package_dir, "def broken(value:\n    return value\n", "broken.py")
-            _forget_self_test_package()
-            refused = _refuses(lambda: collect_emit_tables(package_dir), f"{_SELF_TEST_PACKAGE}.broken")
-        finally:
-            sys.path.remove(tmp)
-            _forget_self_test_package()
-    return found and refused
+        and _refuses(lambda: ratchet(live, live + 1), "does not sum")
+        and diagnostic_split_notes(AXIS_LANGUAGES, live_buckets=split, baseline=pinned) == []
+        and len(stale_notes) == 1
+        and "identical=1" in stale_notes[0]
+        and "divergent=1" in stale_notes[0]
+        and "moves no verdict" in stale_notes[0]
+        and population_problems(AXIS_LANGUAGES, evaluations, stale) == []
+    )
+
+
+_BASELINE_FIXTURE_VALID: Final[str] = (
+    "[languages]\nfailing_roles = 3\n\n[languages.buckets]\nidentical = 1\nsame_behaviour = 1\ndivergent = 1\n"
+)
+
+
+def _self_test_case_baseline_loader() -> bool:
+    """(r3) The baseline loader accepts a well-formed file and REFUSES, naming
+    the file and the offending key, an unrecognized top-level section, an
+    unrecognized key inside an axis section, an unrecognized or missing bucket
+    key, a negative or non-integer count, a file with no axis section,
+    malformed TOML, and a missing file. A pin edited alone -- the split left
+    stale -- still loads: the split is diagnostic."""
+    valid = _BASELINE_FIXTURE_VALID
+    cases: dict[str, tuple[str, tuple[str, ...]]] = {
+        "typo-top-level": (valid + "\n[platforms]\nfailing_roles = 0\n", ("top-level key(s) ['platforms']",)),
+        "typo-axis-key": (
+            valid.replace("failing_roles = 3", "failing_roles = 3\ntypo_key = 1"),
+            ("unrecognized key(s) ['typo_key']",),
+        ),
+        "typo-bucket-key": (
+            valid.replace("divergent = 1", "divergent = 1\nsame_behavior = 1"),
+            ("unrecognized key(s) ['same_behavior']",),
+        ),
+        "missing-bucket": (valid.replace("divergent = 1\n", ""), ("missing key(s) ['divergent']",)),
+        "negative": (valid.replace("failing_roles = 3", "failing_roles = -3"), ("negative", "failing_roles")),
+        "float": (valid.replace("failing_roles = 3", "failing_roles = 3.0"), ("failing_roles", "integer")),
+        "bool": (valid.replace("identical = 1", "identical = true"), ("identical", "integer")),
+        "empty": ("", ("no axis section",)),
+        "malformed": ("[languages\nfailing_roles = 3\n", ("not valid TOML",)),
+    }
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-r3-") as tmp:
+        root = Path(tmp)
+        valid_path = root / "valid.toml"
+        valid_path.write_text(_BASELINE_FIXTURE_VALID, encoding="utf-8")
+        pin_only_path = root / "pin-only.toml"
+        pin_only_path.write_text(valid.replace("failing_roles = 3", "failing_roles = 4"), encoding="utf-8")
+        loads = load_baseline(valid_path) == {
+            AXIS_LANGUAGES: AxisBaseline(failing_roles=3, identical=1, same_behaviour=1, divergent=1)
+        } and load_baseline(pin_only_path) == {
+            AXIS_LANGUAGES: AxisBaseline(failing_roles=4, identical=1, same_behaviour=1, divergent=1)
+        }
+        refusals = True
+        for name, (text, expected) in cases.items():
+            path = root / f"{name}.toml"
+            path.write_text(text, encoding="utf-8")
+            refusals &= _refuses(lambda path=path: load_baseline(path), str(path), *expected)
+        missing = root / "missing.toml"
+        refusals &= _refuses(lambda: load_baseline(missing), str(missing), "cannot read")
+    return loads and refusals
+
+
+def _self_test_case_filters_never_move_the_verdict() -> bool:
+    """(t) ``--scope``/``--buckets`` change which role lines PRINT and nothing
+    else: with a filter that admits no role the divergent role's line is
+    absent from the report, yet the gate summary still counts it as failing
+    and the ratchet verdict -- hence the exit code -- is identical to the
+    unfiltered run's."""
+    domain, other = _two_universe_ids()
+    universe = frozenset(SHARED_CONTEXT_TYPES)
+    evaluations = evaluate_roles(_divergent_tree_verdicts(domain), surfaces=ExemptionSurfaces.none())
+    baseline = _baseline_pinning(1)
+    unfiltered = _recorded_gate_lines(evaluations)
+    filtered_out = _recorded_gate_lines(evaluations, build_report_filter((other,), None, universe))
+    bucket_filtered_out = _recorded_gate_lines(evaluations, build_report_filter(None, (_VERDICT_IDENTICAL,), universe))
+
+    def role_lines(lines: list[str]) -> list[str]:
+        return [line for line in lines if line.startswith(("FAIL ", "PASS "))]
+
+    def summary(lines: list[str]) -> str:
+        return next((line for line in lines if line.startswith("BEHAVIOUR-PARITY GATE:")), "")
+
+    return (
+        len(role_lines(unfiltered)) == 1
+        and role_lines(filtered_out) == []
+        and role_lines(bucket_filtered_out) == []
+        and summary(unfiltered) == summary(filtered_out) == summary(bucket_filtered_out)
+        and any(line.startswith("BEHAVIOUR-PARITY REPORT FILTER: 0 of 1") for line in filtered_out)
+        and not any("REPORT FILTER" in line for line in unfiltered)
+        and gate_exit_code(population_problems(AXIS_LANGUAGES, evaluations, baseline)) == EXIT_OK
+        and gate_exit_code(population_problems(AXIS_LANGUAGES, evaluations, _baseline_pinning(0))) == EXIT_FAIL
+    )
 
 
 def _self_test_case_try_except_structure() -> bool:
@@ -3834,15 +3681,6 @@ def _self_test_case_language_core_is_a_member_not_an_other_package() -> bool:
     )
 
 
-def _forget_self_test_package() -> None:
-    """Drop the synthetic package's modules from ``sys.modules`` so the case
-    re-imports from disk and leaves nothing behind."""
-    for name in [
-        name for name in sys.modules if name == _SELF_TEST_PACKAGE or name.startswith(f"{_SELF_TEST_PACKAGE}.")
-    ]:
-        del sys.modules[name]
-
-
 # ---------------------------------------------------------------------------
 # Fingerprint pass self-test fixtures (fp1-fp5)
 # ---------------------------------------------------------------------------
@@ -4049,9 +3887,11 @@ def _self_test_case_fingerprint_report_only() -> bool:
 def run_self_test() -> bool:
     """Prove the gate's non-vacuity: each synthetic role lands in exactly its
     bucket, the refusal path refuses, a broken member fails closed, every
-    ladder step and every exemption surface both fires and declines on
-    synthetic input, the scope rules hold, and a synthetic divergent role
-    with no declaration fails the gate while a declared one does not.
+    ladder step and the on-demand set-aside both fire and decline on
+    synthetic input, no declared hole excuses a divergent role, an
+    undomained failing role is counted, the ratchet fails in both directions
+    and the baseline loader refuses an unknown key, and the report filters
+    never move the verdict.
 
     Returns:
         True iff every assertion passed.
@@ -4098,24 +3938,25 @@ def run_self_test() -> bool:
         "(l) ladder step 3: four owning-module shapes agreeing resolve; disagreement or a non-universe id is undomained",
     )
     ok &= _assert(
-        _self_test_case_domain_surfaces(),
-        "(m) surfaces 1+2: an unsupported stance / on-demand entry for the role's domain sets the package aside; "
-        "wrong domain, supported, none, or an undomained role do not",
+        _self_test_case_on_demand_surface(),
+        "(m) on-demand set-aside: an on-demand entry for the role's domain sets the package aside; another "
+        "domain, none, or an undomained role do not",
     )
     ok &= _assert(
-        _self_test_case_builtin_group_surface(),
-        "(n) surface 3: a marked adapter over an unsupported builtin group sets the package aside; supported, "
-        "unstanced, or a behaviour-bearing sibling member do not",
+        _self_test_case_declared_hole_still_fails(),
+        "(n) NEG: a divergent role whose package would have been declared unsupported for its domain, and one "
+        "whose member is an @emit_adapter over a builtin group that would have been declared unsupported, STILL "
+        "FAIL naming both groups -- no declaration is an input any more",
     )
     ok &= _assert(
-        _self_test_case_builtin_group_surface_fails_closed(),
-        "(o) surface 3 fails closed: an unregistered marked adapter and a registry-less row raise naming the "
-        "offender; a same-named foreign decorator is not the marker",
+        _self_test_case_no_declaration_reader(),
+        "(o) no declaration reader: this module's own AST imports, names and reads no domain stance, builtin-group "
+        "stance or capability-gap row; the matcher finds each one planted in a synthetic source",
     )
     ok &= _assert(
-        _self_test_case_scope_rules(),
-        "(p) scope: --scope overrides the file, the file applies when --scope is absent, no file means every "
-        "domain; unknown ids, an empty --scope and a malformed file are refused",
+        _self_test_case_report_filters(),
+        "(p) report filters: --scope/--buckets choose which role lines print (a role prints when its domain and "
+        "verdict satisfy every filter given); unknown ids and empty options are refused",
     )
     ok &= _assert(
         _self_test_case_skeleton_groups_fail_naming_every_group(),
@@ -4123,13 +3964,13 @@ def run_self_test() -> bool:
         "both groups -- no reference language, no lagging side",
     )
     ok &= _assert(
-        _self_test_case_declaring_package_set_aside(),
-        "(q2) the same role passes when the odd group's package declares the construct unsupported; a "
-        "declaration in the other group leaves two groups and is named as the only one set aside",
+        _self_test_case_on_demand_package_set_aside(),
+        "(q2) the same role passes when the odd group's package declares the domain on-demand; a declaration in "
+        "the other group leaves two groups and is named as the only one set aside",
     )
     ok &= _assert(
-        _self_test_case_every_member_declares(),
-        "(q3) a role every member of which declares the construct unsupported passes and is still reported",
+        _self_test_case_every_member_on_demand(),
+        "(q3) a role every member of which declares the domain on-demand passes and is still reported",
     )
     ok &= _assert(
         _self_test_case_bucket_labels(),
@@ -4137,19 +3978,31 @@ def run_self_test() -> bool:
     )
     ok &= _assert(
         _self_test_case_gate_outcome(),
-        "(r) gate: an undeclared divergent role FAILs in scope (exit 1, naming the role and every group); "
-        "declared unsupported or out of scope it does not (exit 0); duplicate buckets fail unless adapter-exempt; "
-        "the platform axis never gates",
+        "(r) gate: a divergent role FAILs and is counted (naming the role and every group, no in-scope split in "
+        "the printed verdict); a pin equal to the live count exits 0; duplicate buckets fail unless "
+        "adapter-exempt; the platform axis never gates",
     )
     ok &= _assert(
-        _self_test_case_bucket_scope_gate(),
-        "(t) buckets: a verdict-bucket gates every role of that verdict across every domain, independent of an "
-        "empty domains scope; ungated the same role is reported only",
+        _self_test_case_undomained_role_counted(),
+        "(r1) an undomained failing role is COUNTED like a domained one -- by the failing-role count, the bucket "
+        "split and the ratchet; a pin that omits it fails",
     )
     ok &= _assert(
-        _self_test_case_collect_emit_tables(),
-        "(s) emit tables: a table in a nested module of a synthetic package is found once; an unimportable module "
-        "refuses the collection naming it",
+        _self_test_case_population_ratchet_both_directions(),
+        "(r2) ratchet: a live count above the pin fails (regression), a live count below the pin fails (an "
+        "unbanked improvement), only an exact match passes; an unpinned axis raises; a stale bucket split is a "
+        "note, never a verdict",
+    )
+    ok &= _assert(
+        _self_test_case_baseline_loader(),
+        "(r3) baseline loader: a well-formed file (and one whose pin alone was edited) loads; an unrecognized "
+        "top-level or nested key, a missing or unknown bucket key, a negative/float/bool count, an empty, "
+        "malformed or missing file are each refused naming the file and the key",
+    )
+    ok &= _assert(
+        _self_test_case_filters_never_move_the_verdict(),
+        "(t) filters never move the verdict: a filter that admits no role removes its line from the report, yet "
+        "the gate summary and the ratchet verdict equal the unfiltered run's",
     )
     ok &= _assert(
         _self_test_case_try_except_structure(),
@@ -4244,7 +4097,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Behaviour-parity gate: role grouping, behaviour-skeleton classification, domain resolution, "
-            "declared exemptions and migration scope."
+            "the on-demand set-aside and the pinned, two-directional failing-role ratchet."
         )
     )
     parser.add_argument("--self-test", action="store_true", help="Run only the non-vacuity self-test.")
@@ -4253,17 +4106,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "--scope",
         default=None,
         help=(
-            f"{_SCOPE_SEPARATOR!r}-separated shared domain ids and/or {UNDOMAINED!r} whose roles may fail; "
-            f"overrides {BEHAVIOUR_PARITY_SCOPE_PATH.name}. Language axis only."
+            f"{_FILTER_SEPARATOR!r}-separated shared domain ids and/or {UNDOMAINED!r} whose role lines the report "
+            f"prints. A report filter only: it never changes the failing-role count or the exit code. Language "
+            f"axis only."
         ),
     )
     parser.add_argument(
         "--buckets",
         default=None,
         help=(
-            f"{_SCOPE_SEPARATOR!r}-separated verdict-bucket ids, drawn from {sorted(_VALID_BUCKET_IDS)}, gated "
-            f"across EVERY domain regardless of --scope/{BEHAVIOUR_PARITY_SCOPE_PATH.name}'s domains list; "
-            f"overrides the file's {_SCOPE_FILE_BUCKETS_KEY!r} list. Language axis only."
+            f"{_FILTER_SEPARATOR!r}-separated verdict-bucket ids, drawn from {sorted(_VALID_BUCKET_IDS)}, whose "
+            f"role lines the report prints. A report filter only: it never changes the failing-role count or the "
+            f"exit code. Language axis only."
         ),
     )
     parser.add_argument(
@@ -4282,8 +4136,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _refuse_gate_options_when_not_gating(args: argparse.Namespace) -> None:
-    """``--scope``/``--buckets`` shape a gate; on a run that renders a report
-    only they would be silently ignored, so they are refused instead."""
+    """``--scope``/``--buckets`` filter the gate report; on a run that renders
+    a report only they would be silently ignored, so they are refused instead."""
     given = [name for name, value in (("--scope", args.scope), ("--buckets", args.buckets)) if value is not None]
     if given:
         raise ValueError(
@@ -4294,15 +4148,17 @@ def _refuse_gate_options_when_not_gating(args: argparse.Namespace) -> None:
 
 
 def _run_scan(args: argparse.Namespace) -> int:
-    """Discover, classify and -- on a gating run -- evaluate and gate.
+    """Discover, classify and -- on a gating run -- evaluate every role and
+    compare the failing-role count with its pin.
 
     Returns:
-        ``EXIT_OK`` or ``EXIT_FAIL`` (``gate_exit_code``); ``EXIT_OK`` for a
-        report-only run.
+        ``EXIT_OK`` or ``EXIT_FAIL`` (``gate_exit_code`` over the ratchet's
+        problems); ``EXIT_OK`` for a report-only run.
 
     Raises:
         ValueError: A usage/discovery error (unknown scope or bucket id,
-            unresolvable package, unimportable module, unregistered adapter).
+            unresolvable package, an unreadable or malformed baseline, an
+            axis with no baseline section).
         SkeletonError: An unparseable or unclassifiable member.
     """
     axis: str = args.axis
@@ -4321,20 +4177,36 @@ def _run_scan(args: argparse.Namespace) -> int:
         if args.fingerprint:
             _run_fingerprint_pass(scan, WORKSPACE_ROOT)
         return EXIT_OK
-    scope = load_scope(
-        parse_scope_argument(args.scope),
-        parse_buckets_argument(args.buckets),
-        frozenset(SHARED_CONTEXT_TYPES),
-        BEHAVIOUR_PARITY_SCOPE_PATH,
+    report_filter = build_report_filter(
+        parse_scope_argument(args.scope), parse_buckets_argument(args.buckets), frozenset(SHARED_CONTEXT_TYPES)
     )
-    logger.info("behaviour-parity gate: packages=%s scope=%s", sorted(target_src_dirs), _scope_text(scope))
+    baseline = load_baseline()
+    if axis not in baseline:
+        raise ValueError(
+            f"behaviour_parity:{BEHAVIOUR_PARITY_BASELINE_PATH} has no [{axis}] section to gate the {axis} axis "
+            f"against; sections present: {sorted(baseline)}. Fix: seed the section from a live run of the gate."
+        )
+    logger.info(
+        "behaviour-parity gate: packages=%s baseline=%s", sorted(target_src_dirs), BEHAVIOUR_PARITY_BASELINE_PATH.name
+    )
     scan = discover_role_scan(axis, target_src_dirs, WORKSPACE_ROOT)
-    surfaces = live_exemption_surfaces(target_src_dirs, BUILTIN_REGISTRY)
-    evaluations = evaluate_roles(scan.verdicts, scope=scope, surfaces=surfaces)
-    render_gate_report(evaluations, WORKSPACE_ROOT, scope=scope, debug=args.debug)
+    evaluations = evaluate_roles(scan.verdicts, surfaces=live_exemption_surfaces(target_src_dirs))
+    render_gate_report(evaluations, WORKSPACE_ROOT, report_filter=report_filter, debug=args.debug)
     if args.fingerprint:
         _run_fingerprint_pass(scan, WORKSPACE_ROOT)
-    return gate_exit_code(evaluations)
+    problems = population_problems(axis, evaluations, baseline)
+    for problem in problems:
+        logger.error("BEHAVIOUR-PARITY RATCHET: %s", problem)
+    if not problems:
+        logger.info(
+            "BEHAVIOUR-PARITY RATCHET: %s axis -- %d failing role(s) match the pin in %s.",
+            axis,
+            failing_role_count(evaluations),
+            BEHAVIOUR_PARITY_BASELINE_PATH.name,
+        )
+    for note in diagnostic_split_notes(axis, live_buckets=failing_bucket_split(evaluations), baseline=baseline):
+        logger.warning("BEHAVIOUR-PARITY RATCHET: %s", note)
+    return gate_exit_code(problems)
 
 
 def _run_fingerprint_pass(scan: RoleScan, workspace_root: Path) -> None:
@@ -4348,10 +4220,11 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entry point.
 
     Returns:
-        ``EXIT_OK`` (self-test passed and no in-scope role fails, or the run
-        was report-only), ``EXIT_FAIL`` (at least one in-scope role fails),
-        ``EXIT_USAGE`` (self-test failed, usage error, fewer than two
-        registered packages, or a discovery/parse error).
+        ``EXIT_OK`` (self-test passed and the failing-role count equals its
+        pin, or the run was report-only), ``EXIT_FAIL`` (the count differs
+        from its pin), ``EXIT_USAGE`` (self-test failed, usage error, an
+        unreadable baseline, fewer than two registered packages, or a
+        discovery/parse error).
     """
     args = _build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")

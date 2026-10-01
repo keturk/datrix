@@ -2728,6 +2728,110 @@ def check_generated_test_log_multi_service_and_log_only_fallback() -> None:
         assert index_log_only["failures"] == [] and index_log_only["errors"] == []
 
 
+_GTLW_JUNIT_ALL_OUTCOMES = """\
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="tests.unit.test_order" tests="4" errors="1" failures="1" skipped="1">
+    <testcase classname="tests.unit.test_order.TestOrder" name="test_passes"/>
+    <testcase classname="tests.unit.test_order.TestOrder" name="test_fails">
+      <failure type="AssertionError" message="assert False">assert False</failure>
+    </testcase>
+    <testcase classname="tests.unit.test_order.TestOrder" name="test_errors">
+      <error type="RuntimeError" message="boom">boom</error>
+    </testcase>
+    <testcase classname="tests.unit.test_order.TestOrder" name="test_skipped">
+      <skipped message="not today"/>
+    </testcase>
+  </testsuite>
+</testsuites>
+"""
+
+
+def check_generated_test_log_per_test_records() -> None:
+    """index.json lists EVERY executed test in `tests` -- passing and skipped ones too, which
+    the failure/error lists never name -- as {service, test, outcome} drawn from the closed
+    outcome vocabulary, for both frameworks. The records account for each service's counts
+    (passed + failed + errors + skipped), a service known only by totals records none (which
+    is how a consumer detects it), and a spec file that never ran contributes no test."""
+    with TemporaryDirectory(prefix="gtlw-tests-") as tmp:
+        root = Path(tmp)
+        log_path = root / "svc.log"
+        log_path.write_text("log\n", encoding="utf-8")
+
+        def write_index(
+            name: str, language: str, add: Callable[[GeneratedTestLogWriter], None]
+        ) -> dict[str, object]:
+            run_dir = root / name
+            run_dir.mkdir()
+            writer = _make_generated_test_log_writer(run_dir, language=language)
+            add(writer)
+            return json.loads(writer.write(duration_seconds=0.1).read_text(encoding="utf-8"))
+
+        xml_all = root / "all.xml"
+        xml_all.write_text(_GTLW_JUNIT_ALL_OUTCOMES, encoding="utf-8")
+        index_junit = write_index(
+            "junit", "python", lambda w: w.add_service_junit_xml("order_service", xml_all, log_path)
+        )
+        classname = "tests.unit.test_order.TestOrder"
+        assert index_junit["tests"] == [
+            {"service": "order_service", "test": f"{classname}::test_passes", "outcome": "passed"},
+            {"service": "order_service", "test": f"{classname}::test_fails", "outcome": "failed"},
+            {"service": "order_service", "test": f"{classname}::test_errors", "outcome": "error"},
+            {"service": "order_service", "test": f"{classname}::test_skipped", "outcome": "skipped"},
+        ], index_junit["tests"]
+
+        json_mixed = root / "mixed.json"
+        json_mixed.write_text(json.dumps(_GTLW_JEST_MIXED), encoding="utf-8")
+        index_jest = write_index(
+            "jest", "typescript", lambda w: w.add_service_jest_json("order_service", json_mixed, log_path)
+        )
+        assert index_jest["tests"] == [
+            {"service": "order_service", "test": "OrderService should total", "outcome": "failed"},
+            {"service": "order_service", "test": "OrderService should discount", "outcome": "skipped"},
+            {"service": "order_service", "test": "OrderService should ship", "outcome": "passed"},
+        ], index_jest["tests"]
+
+        # The records account for the counts, per service, for both frameworks.
+        for index in (index_junit, index_jest):
+            for service in index["services"]:
+                counts = service["counts"]
+                expected = counts["passed"] + counts["failed"] + counts["errors"] + counts["skipped"]
+                recorded = [t for t in index["tests"] if t["service"] == service["name"]]
+                assert len(recorded) == expected, (service["name"], counts, len(recorded))
+
+        # A service known only by its totals (or by no report at all) records no test, so its
+        # counts exceed its records -- the mismatch a consumer refuses on.
+        index_log_only = write_index(
+            "log-only", "python", lambda w: w.add_service_log_only("svc", log_path, passed=3, failed=0, errors=0)
+        )
+        assert index_log_only["tests"] == [] and index_log_only["counts"]["passed"] == 3
+        index_unreported = write_index(
+            "unreported", "python", lambda w: w.add_unreported_service("svc", log_path)
+        )
+        assert index_unreported["tests"] == [] and index_unreported["counts"]["errors"] == 1
+
+        # A spec file that never ran holds no assertions, so it contributes no test.
+        json_suite = root / "suite.json"
+        json_suite.write_text(json.dumps(_GTLW_JEST_SUITE_FAILURE), encoding="utf-8")
+        index_suite = write_index(
+            "suite", "typescript", lambda w: w.add_service_jest_json("user_service", json_suite, log_path)
+        )
+        assert index_suite["tests"] == [] and index_suite["counts"]["suite_failures"] == 1
+
+        # Several services keep their own records, each tagged with its service.
+        xml_pass = root / "pass.xml"
+        xml_pass.write_text(_GTLW_JUNIT_PASSING, encoding="utf-8")
+
+        def add_two(writer: GeneratedTestLogWriter) -> None:
+            writer.add_service_junit_xml("service_a", xml_pass, log_path)
+            writer.add_service_junit_xml("service_b", xml_all, log_path)
+
+        index_multi = write_index("multi", "python", add_two)
+        by_service = {s: [t for t in index_multi["tests"] if t["service"] == s] for s in ("service_a", "service_b")}
+        assert len(by_service["service_a"]) == 5 and len(by_service["service_b"]) == 4
+        assert len(index_multi["tests"]) == 9
+
+
 # ===========================================================================
 # shared.aggregate_test_writer
 # ===========================================================================
@@ -4369,6 +4473,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_generated_test_log_index_schema_and_summary_format,
     check_generated_test_log_detail_files_and_codegen_hint,
     check_generated_test_log_multi_service_and_log_only_fallback,
+    check_generated_test_log_per_test_records,
     # shared.aggregate_test_writer
     check_aggregate_test_writer_cross_project_correlation,
     check_aggregate_test_writer_suite_failure_clusters_separate_type,

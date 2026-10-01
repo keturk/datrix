@@ -28,18 +28,40 @@
  reported as SKIPPED by name and with its reason; the target set is never narrowed
  in silence.
 
+ Also compares the backends against EACH OTHER (the "cross-language" comparison,
+ reported under that label so it reads apart from the per-backend one): for every
+ route, what each booted backend answered is compared against what every other
+ booted backend answered -- status, media type, body shape and the casing of every
+ field -- because two languages must answer the same route identically on the
+ wire, and a disagreement is invisible to a check that compares each backend only
+ against its own client interface. It issues no extra request: the one call the
+ harness already makes per (backend, route) also records what arrived on the wire,
+ through the same request pacer, bearer token and resolved base URL, so the cost
+ stays one call per backend and route however many backends there are. A response
+ VALUE never leaves the harness -- a body is reduced to its shape the moment it is
+ captured -- so a mismatch names the JSON path and the two kinds, spellings,
+ statuses or media types, and nothing else. With fewer than two booted backends, or
+ no route answered by two of them, nothing was compared and the gate fails.
+
  Runs a non-vacuity self-test on every invocation, before trusting any real run:
  the shared response-shape comparator is driven over a synthetic matching payload
  (must report parsed), the same payload against an interface whose one property has
  been re-spelled in a different case (must report unparsed, naming that property),
  and against one declaring the wrong value kind (must report unparsed, naming that
- property).
+ property). The same self-test plants responses for the cross-language comparison
+ (agreeing responses must report nothing; a field re-spelled in another casing, a
+ different value kind, a missing property, a different status, media type or route
+ must each report exactly that, naming the path and both sides; a planted secret
+ must appear in no report or log line; one captured call per backend and route),
+ and drives the harness's wire capture through a real HttpClient against a
+ throwaway loopback server. None of this needs Docker.
 
 .PARAMETER Dbg
  Enable debug logging.
 
 .PARAMETER SelfTest
- Run only the non-vacuity self-test and skip the real generate-boot-call-compare run.
+ Run only the non-vacuity self-test (comparator, cross-language comparison, wire
+ capture) and skip the real generate-boot-call-compare run.
 
 .PARAMETER ReuseGenerated
  Boot and exercise the tree a previous run already generated instead of

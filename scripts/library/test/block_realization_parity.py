@@ -183,6 +183,19 @@ _EMISSION_INVENTORY_FIELDS: Final[frozenset[str]] = frozenset({
     "untracked_project_artifacts",
 })
 
+#: Fields that LEDGER the capabilities this platform realizes by no
+#: implementation at all, each as a typed ``CapabilityGap`` row. The field's
+#: own key set is not a capability coordinate comparable across platforms: a
+#: platform with no known hole correctly carries no row, so requiring every
+#: platform to carry a row for a surface another one lists would manufacture
+#: violations with no capability-parity meaning. A row never sets a surface
+#: aside -- the difference it records stays counted by the comparison that
+#: owns the capability -- so this bucket exists only to keep the ledger out of
+#: the generic per-coordinate comparison, never to excuse a platform.
+_CAPABILITY_GAP_LEDGER_FIELDS: Final[frozenset[str]] = frozenset({
+    "capability_gaps",
+})
+
 
 def configure_logging(debug: bool = False) -> None:
     """Configure logging output."""
@@ -200,7 +213,7 @@ def _assert_scalar_field_partition_complete() -> None:
     Every OPTIONAL field (one with a default) must be a member of EXACTLY
     ONE of: ``_SURFACE_OWNED_OPTIONAL_FIELDS``, ``_SET_SHAPED_SCALAR_FIELDS``,
     ``_PRESENCE_SHAPED_SCALAR_FIELDS``, ``_EXPLANATORY_METADATA_FIELDS``,
-    ``_EMISSION_INVENTORY_FIELDS``.
+    ``_EMISSION_INVENTORY_FIELDS``, ``_CAPABILITY_GAP_LEDGER_FIELDS``.
 
     Raises:
         AssertionError: If any optional field is unaccounted for, or is
@@ -218,6 +231,7 @@ def _assert_scalar_field_partition_complete() -> None:
         frozenset(_PRESENCE_SHAPED_SCALAR_FIELDS),
         _EXPLANATORY_METADATA_FIELDS,
         _EMISSION_INVENTORY_FIELDS,
+        _CAPABILITY_GAP_LEDGER_FIELDS,
     )
     accounted: set[str] = set()
     overlaps: set[str] = set()

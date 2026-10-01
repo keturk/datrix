@@ -7,13 +7,19 @@
  Wraps datrix/scripts/library/test/behaviour_parity.py. Groups functions
  across registered target packages into roles (by shared-typed signature or
  normalized name), classifies each into identical / same-behaviour /
- divergent by comparing behaviour skeletons rather than bodies, and fails on
- any role in scope that is not adapter-exempt (identical / same-behaviour)
- or whose members, once every package declaring the construct unsupported
- is set aside, still split into more than one skeleton group (divergent).
- No language is the reference: a divergent role names every skeleton group
- it splits into. The platform axis (-Axis platforms) is report-only and
- never fails.
+ divergent by comparing behaviour skeletons rather than bodies. A role fails
+ when it is not adapter-exempt (identical / same-behaviour) or when its
+ member packages still split into more than one skeleton group (divergent);
+ no capability declaration or gap row sets a package aside. No language is
+ the reference: a divergent role names every skeleton group it splits into.
+
+ Every role is in scope -- every bucket, every domain, an `undomained` role
+ included. The verdict is the count of failing roles compared in BOTH
+ directions with the pin in
+ datrix/scripts/config/behaviour-parity-baseline.toml: more failing roles
+ than the pin fails (a regression), fewer fails too unless the pin is
+ lowered in the same change (an improvement must be banked). The platform
+ axis (-Axis platforms) is report-only and never fails.
 
  Runs a non-vacuity self-test on every invocation -- the five-bucket role
  grouping/classification cases, and the fingerprint pass's own non-vacuity
@@ -25,17 +31,15 @@
  "languages" (default) or "platforms".
 
 .PARAMETER Scope
- Comma-separated or repeated domain ids (plus the literal "undomained") to
- restrict failure to. Overrides
- datrix/scripts/config/behaviour-parity-scope.json when given; when absent,
- the scope file's list applies if it exists, else every domain is in scope.
+ Comma-separated or repeated domain ids (plus the literal "undomained")
+ whose role lines the report prints. A report filter only: it never changes
+ the failing-role count or the exit code.
 
 .PARAMETER Buckets
  Comma-separated or repeated verdict-bucket ids (identical, same-behaviour,
- divergent) to fail across every domain, regardless of -Scope. Overrides
- datrix/scripts/config/behaviour-parity-scope.json's "buckets" list when
- given; when absent, the scope file's "buckets" list applies if it exists,
- else no bucket is gated.
+ divergent) whose role lines the report prints; with -Scope, a role prints
+ when it satisfies both. A report filter only: it never changes the
+ failing-role count or the exit code.
 
 .PARAMETER Dbg
  Enable debug logging.
@@ -52,10 +56,10 @@
  .\behaviour-parity-gate.ps1 -Axis languages
 
 .EXAMPLE
- .\behaviour-parity-gate.ps1 -Axis languages -Scope queue,cache
+ .\behaviour-parity-gate.ps1 -Axis languages -Dbg -Scope queue,cache   # print only those domains' role lines
 
 .EXAMPLE
- .\behaviour-parity-gate.ps1 -Axis languages -Buckets identical
+ .\behaviour-parity-gate.ps1 -Axis languages -Dbg -Buckets identical   # print only the identical-verdict role lines
 
 .EXAMPLE
  .\behaviour-parity-gate.ps1 -Axis platforms -Dbg
