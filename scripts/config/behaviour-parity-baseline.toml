@@ -1,0 +1,38 @@
+# Decrease-only, two-directional ratchet over the behaviour-parity gate's failing-role
+# population (scripts/library/test/behaviour_parity.py, wrapped by
+# scripts/test/behaviour-parity-gate.ps1).
+#
+# Every role of a gated axis is in scope: every bucket, every domain, and a role no shared
+# domain claims (`undomained`) exactly like any other. No domain-scoped or bucket-scoped
+# exemption exists, and no capability declaration or gap row excuses a role.
+#
+# A run whose failing-role count EXCEEDS its axis's pin fails: a role regressed or a new
+# failing role appeared.
+#
+# A run whose failing-role count is BELOW its axis's pin, without the pin being lowered in the
+# same change, ALSO fails. The other ratchet baselines in this directory are one-directional
+# ("decreases are always allowed"); this one is not, so a reconciliation is provable only once
+# it is banked, and a later regression cannot hide in the slack. Landing a reconciliation is
+# the only way to move this number, and the pin is lowered in the same change that does the
+# reconciling.
+#
+# `buckets` splits the FAILING roles by verdict (identical + same_behaviour + divergent =
+# failing_roles). It is diagnostic and never part of the verdict, so a reader can see what the
+# pinned roles are made of without re-running with -Dbg; the gate warns when it no longer
+# matches the live split and its exit code never depends on it.
+#
+# The loader refuses an unrecognized section or key. Seed every number from a live run of
+# `behaviour-parity-gate.ps1 -Axis languages -Dbg` (its "BEHAVIOUR-PARITY GATE" line), never
+# from a document.
+#
+# The `platforms` axis has no section: it stays report-only until its role key is the
+# capability a function realizes. Pinning it against the normalized-name key would certify a
+# measurement covering a small fraction of its function population.
+
+[languages]
+failing_roles = 172
+
+[languages.buckets]
+identical = 4
+same_behaviour = 20
+divergent = 148
