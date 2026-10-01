@@ -7,9 +7,8 @@
 
 .DESCRIPTION
  A generated service exchanges a handful of headers Datrix itself defines
- (the trusted-caller token, the delegated-user envelope, the rate-limit
- response headers, the inbound webhook secret, the outbound webhook delivery
- headers). Each is a cross-language wire contract with one home:
+ (the trusted-caller token, the rate-limit response headers, the inbound
+ webhook secret, the outbound webhook delivery headers). Each is a cross-language wire contract with one home:
  datrix_codegen_common.generation.http_headers. This gate censuses the .py and .j2
  sources under every registered language package and holds each language to:
 
