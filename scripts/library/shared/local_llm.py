@@ -1,8 +1,9 @@
-"""Local model servers on the network: discovery, readiness, and failover.
+"""Local model servers on the network: discovery, readiness, load spreading, and failover.
 
-Every script that asks a local model for text goes through this module, so every one of
-them searches the same machines, prefers the same models, and hands over to the next
-server the same way when one fails.
+Every script, hook and MCP tool that asks a local model for text goes through this module,
+so every one of them searches the same machines, prefers the same models, spreads its
+requests the same way, hands over to the next server the same way when one fails, and is
+recorded in the same usage log (``shared.local_llm_usage``).
 
 WHY DISCOVERY RATHER THAN A CONFIGURED URL
     What each machine runs changes: a llama-server container once took over the T5820's
@@ -18,11 +19,24 @@ CANDIDATE ORDER
     memory the load would need. When a caller names preferred models, only those are
     candidates, in the caller's order.
 
+LOAD SPREADING
+    Every resident candidate of the best preference rank is eligible, not only the first:
+    a request goes to an idle ready candidate, and when every ready one is busy and another
+    eligible one has not been readied yet, that one is readied and takes the request. A bulk
+    run (2,400 module summaries) therefore keeps every machine's resident model busy instead
+    of queueing on one while the others sit idle. A single request -- a hook's -- still
+    readies and uses only the first candidate. Models Ollama would have to LOAD are never
+    spread over: one is loaded only when no resident candidate is left, one at a time.
+
 FAILOVER
-    ``LocalLlmPool.chat`` readies the first candidate before handing it a request, and a
-    candidate that fails -- to load, to answer, or mid-run -- is dropped for the rest of
-    the run and the next one takes over. When none is left the pool raises
-    ``LocalLlmUnavailable``; it never answers with nothing.
+    A candidate is readied before it is handed a request, and a candidate that fails -- to
+    load, to answer, or mid-run -- is dropped for the rest of the run and the remaining ones
+    take over. When none is left the pool raises ``LocalLlmUnavailable``; it never answers
+    with nothing.
+
+USAGE LOG
+    Every request -- answered, failed, or refused because no server could serve -- is one
+    line in ``LocalLlmSettings.usage_log``, labelled with ``LocalLlmSettings.caller``.
 """
 
 from __future__ import annotations
@@ -32,11 +46,23 @@ import json
 import re
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import Path
+
+from shared.local_llm_usage import (
+    OUTCOME_FAILED,
+    OUTCOME_OK,
+    OUTCOME_UNAVAILABLE,
+    UsageEntry,
+    default_usage_log,
+    invoking_script,
+    record_usage,
+)
 
 # The HTTP APIs a local model server can speak. "ollama" is Ollama's native API, which can
 # list, report and load models. "openai" is the OpenAI-compatible chat API that vLLM,
@@ -59,7 +85,9 @@ OPENAI_COMPATIBLE_PORTS: tuple[int, ...] = (8000, 8080, 8081)
 
 # Models Ollama may be asked to LOAD when a machine has nothing resident and the caller
 # named no model, best first. Only models installed on the machine count.
-OLLAMA_LOAD_PREFERENCE: tuple[str, ...] = ("qwen3-coder:30b-ctx32k",)
+# qwen3.6:35b is the model the T7920 (10.94.0.101) has installed; without it there, that
+# machine could never serve, because nothing else on it is loadable.
+OLLAMA_LOAD_PREFERENCE: tuple[str, ...] = ("qwen3-coder:30b-ctx32k", "qwen3.6:35b")
 
 # Ollama capability a model needs to answer a prompt; an embedding model lacks it.
 OLLAMA_COMPLETION_CAPABILITY = "completion"
@@ -163,6 +191,10 @@ class LocalLlmSettings:
     # servers it started itself.
     ollama_port: int = OLLAMA_PORT
     openai_ports: tuple[int, ...] = OPENAI_COMPATIBLE_PORTS
+    # Where every request is recorded, and the name it is recorded under: the running
+    # script's name unless the caller says otherwise (a hook, an MCP tool).
+    usage_log: Path = field(default_factory=default_usage_log)
+    caller: str = field(default_factory=invoking_script)
 
 
 @dataclass(frozen=True)
@@ -542,19 +574,23 @@ def _report_to_stderr(line: str) -> None:
 
 
 class LocalLlmPool:
-    """The ordered local candidates for one run, readied lazily and failed over in order.
+    """The local candidates for one run: readied lazily, spread over, and failed over.
 
-    Safe to share between threads: discovery and readiness run once under a lock, and a
-    failed candidate is dropped only if it is still the one in front, so two threads
-    failing on the same candidate drop it once.
+    Safe to share between threads. Discovery runs once, under the lock. Readying a
+    candidate happens outside it (a readiness check takes seconds, an Ollama load
+    minutes), with the candidate marked as being readied so no second thread readies it
+    too; a thread with nothing ready to use waits for that. A failed candidate is dropped
+    once, however many threads fail on it.
     """
 
     def __init__(self, settings: LocalLlmSettings, report: Callable[[str], None] = _report_to_stderr) -> None:
         self._settings = settings
         self._report = report
-        self._lock = threading.Lock()
+        self._cond = threading.Condition()
         self._candidates: list[LocalCandidate] | None = None
-        self._ready_front = False
+        self._ready: set[LocalCandidate] = set()
+        self._readying: set[LocalCandidate] = set()
+        self._in_flight: dict[LocalCandidate, int] = {}
         self._last_failure = ""
 
     @property
@@ -562,55 +598,125 @@ class LocalLlmPool:
         return self._settings
 
     def activate(self) -> LocalHost:
-        """Discover (once) and ready the front candidate; return it.
+        """Discover (once) and ready a candidate; return it.
 
         Raises LocalLlmUnavailable when no candidate can serve.
         """
-        with self._lock:
-            return self._front_locked().host
+        candidate = self._acquire()
+        self._release(candidate)
+        return candidate.host
 
     def is_exhausted(self) -> bool:
         """True once discovery ran and every candidate has failed."""
-        with self._lock:
+        with self._cond:
             return self._candidates is not None and not self._candidates
 
     def chat(self, request: ChatRequest) -> LocalLlmReply:
-        """Answer ``request`` from the front candidate, failing over until one answers."""
+        """Answer ``request`` from an eligible candidate, failing over until one answers."""
+        prompt_chars = len(request.system) + len(request.user)
         while True:
-            with self._lock:
-                candidate = self._front_locked()
             try:
-                return LocalLlmReply(complete(candidate, request, self._settings), candidate.host)
+                candidate = self._acquire()
+            except LocalLlmUnavailable as exc:
+                self._record(None, OUTCOME_UNAVAILABLE, prompt_chars, 0, 0.0, str(exc))
+                raise
+            started = time.perf_counter()
+            try:
+                text = complete(candidate, request, self._settings)
             except LocalLlmError as exc:
+                self._record(candidate, OUTCOME_FAILED, prompt_chars, 0, time.perf_counter() - started, str(exc))
                 self._drop(candidate, str(exc))
+                continue
+            finally:
+                self._release(candidate)
+            self._record(candidate, OUTCOME_OK, prompt_chars, len(text), time.perf_counter() - started, "")
+            return LocalLlmReply(text, candidate.host)
 
-    def _front_locked(self) -> LocalCandidate:
+    def _record(self, candidate: LocalCandidate | None, outcome: str, prompt_chars: int, answer_chars: int,
+                seconds: float, error: str) -> None:
+        host = candidate.host if candidate is not None else LocalHost("", "", "")
+        record_usage(self._settings.usage_log, UsageEntry(
+            caller=self._settings.caller, outcome=outcome, api=host.api, model=host.model,
+            base_url=host.base_url, prompt_chars=prompt_chars, answer_chars=answer_chars,
+            seconds=seconds, error=error))
+
+    def _acquire(self) -> LocalCandidate:
+        """An eligible candidate, readied, with one more request counted against it."""
+        while True:
+            with self._cond:
+                chosen, to_ready = self._choose_locked()
+                if chosen is not None:
+                    self._in_flight[chosen] += 1
+                    return chosen
+                if to_ready is None:
+                    # Another thread is readying the only eligible candidate.
+                    self._cond.wait()
+                    continue
+                self._readying.add(to_ready)
+            self._ready_outside_lock(to_ready)
+
+    def _choose_locked(self) -> tuple[LocalCandidate | None, LocalCandidate | None]:
+        """(a ready candidate to use, None) or (None, a candidate to ready) or (None, None) to wait."""
         if self._candidates is None:
             self._candidates = discover_candidates(self._settings, self._report)
-        while self._candidates:
-            front = self._candidates[0]
-            if self._ready_front:
-                return front
-            self._report(self._readiness_line(front))
-            try:
-                ready_candidate(front, self._settings)
-            except LocalLlmError as exc:
-                self._report(f"Warning: {front.host.label()} cannot serve: {exc}")
-                self._last_failure = str(exc)
-                self._candidates.pop(0)
-                continue
-            self._ready_front = True
-            self._report(f"Using {front.host.label()}.")
-            return front
-        raise LocalLlmUnavailable(self._unavailable_message())
+        if not self._candidates:
+            raise LocalLlmUnavailable(self._unavailable_message())
+        eligible = self._eligible(self._candidates)
+        ready =[c for c in eligible if c in self._ready]
+        idle = [c for c in ready if self._in_flight[c] == 0]
+        if idle:
+            return idle[0], None
+        unready = [c for c in eligible if c not in self._ready and c not in self._readying]
+        if unready:
+            return None, unready[0]
+        if ready:
+            return min(ready, key=lambda c: self._in_flight[c]), None
+        return None, None
+
+    def _eligible(self, candidates: list[LocalCandidate]) -> list[LocalCandidate]:
+        """The candidates a request may go to: every resident one of the best preference
+        rank, or -- when none is resident -- the first that would have to be loaded."""
+        resident = [c for c in candidates if c.resident]
+        if not resident:
+            return candidates[:1]
+        best = min(_preference_rank(self._settings, c) for c in resident)
+        return [c for c in resident if _preference_rank(self._settings, c) == best]
+
+    def _ready_outside_lock(self, candidate: LocalCandidate) -> None:
+        self._report(self._readiness_line(candidate))
+        try:
+            ready_candidate(candidate, self._settings)
+        except LocalLlmError as exc:
+            self._report(f"Warning: {candidate.host.label()} cannot serve: {exc}")
+            with self._cond:
+                self._readying.discard(candidate)
+                self._remove_locked(candidate, str(exc))
+                self._cond.notify_all()
+            return
+        with self._cond:
+            self._readying.discard(candidate)
+            self._ready.add(candidate)
+            self._in_flight[candidate] = 0
+            self._cond.notify_all()
+        self._report(f"Using {candidate.host.label()}.")
+
+    def _release(self, candidate: LocalCandidate) -> None:
+        with self._cond:
+            if candidate in self._in_flight:
+                self._in_flight[candidate] -= 1
 
     def _drop(self, candidate: LocalCandidate, failure: str) -> None:
-        with self._lock:
-            self._last_failure = failure
-            if self._candidates and self._candidates[0] == candidate:
-                self._candidates.pop(0)
-                self._ready_front = False
+        with self._cond:
+            if self._candidates is not None and candidate in self._candidates:
                 self._report(f"Warning: {candidate.host.label()} failed: {failure}")
+            self._remove_locked(candidate, failure)
+            self._cond.notify_all()
+
+    def _remove_locked(self, candidate: LocalCandidate, failure: str) -> None:
+        self._last_failure = failure
+        if self._candidates is not None and candidate in self._candidates:
+            self._candidates.remove(candidate)
+        self._ready.discard(candidate)
 
     def _readiness_line(self, candidate: LocalCandidate) -> str:
         if candidate.host.api == LOCAL_API_OLLAMA:
