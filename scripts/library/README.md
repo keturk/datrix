@@ -32,6 +32,14 @@ Development tool implementations.
 | `code_index_cli.py` | `dev/code-index.ps1` | Code index queries (definitions, references, outline, search, logic-map markers, status, summaries) |
 | `code_index_mcp.py` | (registered with Claude Code by `code-index.ps1 -Setup`) | The code index as a stdio MCP server; standard library only |
 | `logic_map.py` | (library) | Logic-map marker syntax, parser, and the `markers.db` writer the code index calls |
+| `code_scan.py` | `dev/code-scan.ps1` | On-demand digest of dead code (Vulture, confirmed against the code index and string uses), complexity, duplicates and docs drift for changed packages |
+
+## git/
+
+| File | Wrapper | Description |
+|------|---------|-------------|
+| `commit-and-push.py` | `git/commit-and-push.ps1` | Themed commits with local-model (or Claude CLI) messages, then push |
+| `pre_review.py` | `git/pre-review.ps1` | Definite syntax-tree checks on the lines pending changes add to Python files; opt-in advisory local-model review |
 
 ## code_index/
 

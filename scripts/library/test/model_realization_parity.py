@@ -45,11 +45,12 @@ from datrix_common.deployment.cache_connection_identity import CacheConnectionId
 from datrix_common.deployment.rdbms_connection_identity import RdbmsConnectionIdentity  # noqa: E402
 from datrix_common.deployment.secret_backend import SecretBackend  # noqa: E402
 from datrix_common.deployment.signing_backend import SigningBackend  # noqa: E402
-from datrix_common.plugin.capability import (
-    # noqa: E402
+from datrix_common.plugin.capability import (  # noqa: E402
+    PlatformCapabilityDeclaration,
+)
+from datrix_common.plugin.capability_cells import (  # noqa: E402
     BlockRealization,
     DeployableConstruct,
-    PlatformCapabilityDeclaration,
 )
 from datrix_common.plugin.capability_resolution import declaration_for_provider  # noqa: E402
 from datrix_common.plugin.identity import RuntimeId  # noqa: E402

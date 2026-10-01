@@ -30,7 +30,7 @@ CATEGORY_SHELL_SEARCH = "shell_search"
 
 # A grep for one identifier (optionally a dotted path, a word boundary, a def/class prefix,
 # or a trailing call paren): a definition or reference lookup find_symbol/find_references answers.
-_IDENTIFIER_PATTERN = re.compile(
+IDENTIFIER_GREP_PATTERN = re.compile(
     r"^(?:def\s+|class\s+|\\b)?[A-Za-z_][A-Za-z0-9_]*(?:\\?\.[A-Za-z_][A-Za-z0-9_]*)*(?:\\b|\\\(|\()?$"
 )
 
@@ -100,7 +100,7 @@ def _record(report: UsageReport, entry: dict[str, object], chars: int, workspace
     detail = str(entry.get("detail", ""))
     if category == CATEGORY_INDEX:
         report.index_tools[str(entry.get("tool", ""))] += 1
-    elif category == CATEGORY_GREP and _IDENTIFIER_PATTERN.match(detail):
+    elif category == CATEGORY_GREP and IDENTIFIER_GREP_PATTERN.match(detail):
         report.identifier_greps.add(chars)
     elif category == CATEGORY_READ and not entry.get("ranged") and chars >= LARGE_READ_CHARS:
         report.large_full_reads.add(chars)

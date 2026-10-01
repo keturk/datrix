@@ -119,9 +119,8 @@ from datrix_common.config_resolution import (  # noqa: E402
     resolve_system_config,
 )
 from datrix_common.datrix_model.auth_contract import AuthMode  # noqa: E402
-from datrix_common.datrix_model.enumeration import enumerate_rest_endpoints  # noqa: E402
-from datrix_semantic import SemanticAnalyzer  # noqa: E402
-from datrix_language.parser import TreeSitterParser  # noqa: E402
+from datrix_semantic.analyzer import SemanticAnalyzer  # noqa: E402
+from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser  # noqa: E402
 from datrix_language.registration import register_all  # noqa: E402
 
 # `GenerationPipeline.run()` parses real `.dtrx` source, which needs the stdlib
@@ -1353,8 +1352,14 @@ def fixture_demanded_roles() -> frozenset[str]:
             f"Expected the adopted fixture to analyze cleanly, as generation requires."
         )
     demanded: set[str] = set()
-    for ownership in enumerate_rest_endpoints(result.app):
-        contract = ownership.endpoint.auth_contract
+    endpoints = (
+        endpoint
+        for service in result.app.services.values()
+        for api in service.rest_apis.values()
+        for endpoint in api.endpoints.values()
+    )
+    for endpoint in endpoints:
+        contract = endpoint.auth_contract
         if contract.mode in (AuthMode.PUBLIC, AuthMode.WEBHOOK):
             continue
         demanded.update(contract.roles)

@@ -613,7 +613,8 @@ def generate_for_target(system_dtrx: Path, output_dir: Path, target: str) -> lis
     Raises:
         RuntimeError: The pipeline reported failure.
     """
-    from datrix_cli.pipeline.generation import GenerationPipeline, PipelineConfig
+    from datrix_cli.pipeline.contract import PipelineConfig
+    from datrix_cli.pipeline.generation import GenerationPipeline
     from datrix_cli.generation.validation_level import ValidationLevel
     from datrix_common.plugin.identity import LanguageId
 
@@ -1101,7 +1102,7 @@ def collect_attached_runs(fixture_root: Path) -> tuple[AttachedRun, ...]:
     that WERE attached and then reached no artifact.
     """
     from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
-    from datrix_language.transformers import ASTTransformer
+    from datrix_language.transformers.transformer import ASTTransformer
     from datrix_language.transformers.cst_utils import TransformContext
     from datrix_language.transformers.doc_comments import (
         attach_documentation,

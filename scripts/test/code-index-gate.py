@@ -61,8 +61,23 @@ from code_index.store import open_index  # noqa: E402
 from code_index.summaries import MIN_SUMMARY_LINES, summarize  # noqa: E402
 from code_index.usage import usage_report  # noqa: E402
 from dev.code_index_mcp import TOOLS, CodeIndexServer, serve  # noqa: E402
+from dev.code_scan import (  # noqa: E402
+    VERDICT_DEAD,
+    VERDICT_REFUTED,
+    VERDICT_TEST_ONLY,
+    VERDICT_TEST_SUPPORT,
+    VERDICT_UNMATCHED,
+    CodeScanError,
+    _string_names,
+    fingerprint,
+    index_verdict,
+    named_in_strings,
+    select_packages,
+    write_state,
+)
 from dev.generate_test_rules import seed_topics_from_index  # noqa: E402
 from dev.logic_map import parse_markers  # noqa: E402
+from metrics.dead_code_report import Finding  # noqa: E402
 from shared.local_llm import LocalLlmPool, LocalLlmSettings  # noqa: E402
 
 CheckFunc = Callable[[], None]
@@ -535,6 +550,114 @@ def check_mcp_server_stdout_carries_only_protocol() -> None:
 
 
 # ===========================================================================
+# code scan (dev/code_scan.py): what it adds on top of the scanners
+# ===========================================================================
+
+_SCAN_EXTRA = {
+    "pyproject.toml": "[project]\nname = \"alpha\"\n",
+    "src/alpha_pkg/extra.py": (
+        "def lonely() -> None:\n    return None\n\n\n"
+        "def tested() -> int:\n    return 1\n\n\n"
+        "def by_string() -> int:\n    return 2\n"
+    ),
+    "src/alpha_pkg/lookup.py": "import alpha_pkg.extra as extra\n\nFN = getattr(extra, \"by_string\")\n",
+    "src/alpha_pkg/testkit/helpers.py": (
+        "def support() -> int:\n    return 3\n\n\n"
+        "@staticmethod\n@staticmethod\ndef decorated() -> int:\n    return 4\n"
+    ),
+    "tests/test_extra.py": (
+        "from alpha_pkg.extra import tested\nfrom alpha_pkg.testkit.helpers import support\n\n\n"
+        "def test_it() -> None:\n    assert tested() + support() == 4\n"
+    ),
+}
+
+
+def _finding(session: IndexSession, rel: str, line: int, symbol: str, kind: str) -> Finding:
+    return Finding(str(session.workspace / rel), line, f"unused {kind} '{symbol}'", 60, symbol, kind)
+
+
+def check_code_scan_index_verdicts() -> None:
+    with _workspace(_SCAN_EXTRA) as session:
+        session.refresh()
+        verdicts = {
+            symbol: index_verdict(session.conn, session.workspace, _finding(session, rel, line, symbol, kind))
+            for rel, line, symbol, kind in (
+                ("alpha/src/alpha_pkg/extra.py", 1, "lonely", "function"),
+                ("alpha/src/alpha_pkg/extra.py", 5, "tested", "function"),
+                ("alpha/src/alpha_pkg/text.py", 8, "to_words", "function"),
+                ("alpha/src/alpha_pkg/extra.py", 3, "nowhere", "function"),
+                ("alpha/src/alpha_pkg/testkit/helpers.py", 1, "support", "function"),
+                # Vulture reports a decorated definition at its first decorator (line 5); the def is line 7.
+                ("alpha/src/alpha_pkg/testkit/helpers.py", 5, "decorated", "function"),
+            )
+        }
+        assert verdicts == {"lonely": VERDICT_DEAD, "tested": VERDICT_TEST_ONLY, "to_words": VERDICT_REFUTED,
+                            "nowhere": VERDICT_UNMATCHED, "support": VERDICT_TEST_SUPPORT,
+                            "decorated": VERDICT_DEAD}, verdicts
+
+
+def check_code_scan_sees_names_used_through_strings() -> None:
+    source = (
+        '"""Module prose mentions lonely_word, which is not a use."""\n'
+        'A = getattr(obj, "by_attr")\n'
+        'B = {"resolver_ref": "pkg.module.by_path"}\n'
+        'C = "{{ ctx.by_template }} and more"\n'
+        'def gen() -> None:\n'
+        '    """\n'
+        '    generator g : g {\n'
+        '      domain d {\n'
+        '        each item where call ns.mod.by_gendsl_call(item) {\n'
+        '          context Ctx from ns.mod.by_gendsl_context;\n'
+        '        }\n'
+        '      }\n'
+        '    }\n'
+        '    """\n'
+    )
+    names = _string_names(source)
+    assert {"by_attr", "by_path", "by_template", "resolver_ref", "by_gendsl_call",
+            "by_gendsl_context"} <= names, names
+    assert "lonely_word" not in names, f"docstring prose must not count as a use: {names}"
+    with _workspace(_SCAN_EXTRA) as session:
+        session.refresh()
+        assert "by_string" in named_in_strings(session.conn, session.workspace)
+
+
+def check_code_scan_selects_only_changed_packages() -> None:
+    with _workspace(_SCAN_EXTRA) as session:
+        session.refresh()
+        # A src/ tree without a pyproject.toml (a TypeScript repo) is not a Python package.
+        ts_repo = session.workspace / "typescript_client"
+        (ts_repo / "src").mkdir(parents=True)
+        _git(ts_repo, "init", "-q")
+        assert select_packages(session.conn, session.workspace, [], False) == ["alpha"], \
+            "with no scan state every scannable package is due"
+        write_state(session.workspace, {"alpha": fingerprint(session.conn, "alpha")})
+        assert select_packages(session.conn, session.workspace, [], False) == [], "an unchanged package is not due"
+        extra = session.workspace / "alpha/src/alpha_pkg/extra.py"
+        extra.write_text(extra.read_text(encoding="utf-8") + "\nNEW = 1\n", encoding="utf-8")
+        session.refresh()
+        assert select_packages(session.conn, session.workspace, [], False) == ["alpha"], "a changed package is due"
+        assert select_packages(session.conn, session.workspace, ["alpha"], False) == ["alpha"]
+        alpha = session.workspace / "alpha"
+        folder_forms = [str(alpha), f"{alpha}\\", f"{alpha}/", str(alpha / "src" / "alpha_pkg")]
+        for form in folder_forms:
+            assert select_packages(session.conn, session.workspace, [form], False) == ["alpha"], form
+        previous = Path.cwd()
+        os.chdir(session.workspace)
+        try:
+            assert select_packages(session.conn, session.workspace, [".\\alpha\\"], False) == ["alpha"], \
+                "a relative folder is read against the current directory"
+        finally:
+            os.chdir(previous)
+        try:
+            select_packages(session.conn, session.workspace, ["nope"], False)
+        except CodeScanError as exc:
+            assert "scannable packages: alpha" in str(exc), exc
+        else:
+            raise AssertionError("an unknown package must be refused")
+
+
+# ===========================================================================
 # usage log (the record-search-usage hook -> code_index.usage)
 # ===========================================================================
 
@@ -578,6 +701,9 @@ def check_usage_hook_log_is_what_the_report_reads() -> None:
         ]
         codes = [_run_hook(hook, payload) for payload in payloads]
         assert codes == [0] * len(payloads), f"the hook must always exit 0: {codes}"
+        # The copied hook resolves the scripts library from its own real path, which here is a
+        # temp directory: it cannot load the identifier pattern, so it hints nothing. The real
+        # hook's hints are checked against the real hook below.
         report = usage_report(workspace, 0)
         calls = {name: tally.calls for name, tally in report.categories.items()}
         # The output filter (``| Select-String FAILED``) is not a code search; the file-listing pipe is.
@@ -586,6 +712,39 @@ def check_usage_hook_log_is_what_the_report_reads() -> None:
         assert report.top_full_reads == {"alpha/src/big.py": 1}, report.top_full_reads
         assert report.sessions == 2 and report.replaceable == 4, report
         assert "20% (1 of 5)" in report.render(), report.render()
+
+
+def _hook_output(payload: object) -> str:
+    stdin = json.dumps(payload).encode("utf-8")
+    result = subprocess.run([sys.executable, str(_USAGE_HOOK)], input=stdin, capture_output=True, timeout=30,
+                            check=False)
+    assert result.returncode == 0, result.stderr
+    return result.stdout.decode("utf-8")
+
+
+def check_usage_hook_points_at_the_index_a_few_times_per_session() -> None:
+    session = f"gate-hints-{os.getpid()}-{threading.get_ident()}"
+    state = _USAGE_HOOK.parent / ".state" / f"search-hints-{session}.json"
+    identifier = {"tool_name": "Grep", "tool_input": {"pattern": "\\bto_snake_case\\b"},
+                  "tool_response": "g", "session_id": session}
+    try:
+        outputs = [_hook_output(identifier) for _ in range(4)]
+        hinted = [json.loads(out)["hookSpecificOutput"]["additionalContext"] for out in outputs[:3]]
+        assert all("find_references" in text and "select:mcp__datrix-code-index__" in text for text in hinted), \
+            hinted
+        assert outputs[3].strip() == "", "a session gets three identifier hints, then silence"
+        for silent in (
+            {"tool_name": "Grep", "tool_input": {"pattern": "tenant.*header"}, "session_id": session},
+            {"tool_name": "Grep", "tool_input": {"pattern": "to_snake_case", "glob": "*.j2"}, "session_id": session},
+            {"tool_name": "Read", "tool_input": {"file_path": "x.py", "offset": 1}, "tool_response": "c" * 9000,
+             "session_id": session},
+        ):
+            assert _hook_output(silent).strip() == "", f"no hint for {silent['tool_input']}"
+        large_read = {"tool_name": "Read", "tool_input": {"file_path": "big.py"}, "tool_response": "c" * 9000,
+                      "session_id": session}
+        assert "outline" in _hook_output(large_read), "a whole read of a large Python file points at outline"
+    finally:
+        state.unlink(missing_ok=True)
 
 
 # ===========================================================================
@@ -624,6 +783,10 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_mcp_server_answers_the_protocol_and_tools,
     check_mcp_server_stdout_carries_only_protocol,
     check_usage_hook_log_is_what_the_report_reads,
+    check_usage_hook_points_at_the_index_a_few_times_per_session,
+    check_code_scan_index_verdicts,
+    check_code_scan_sees_names_used_through_strings,
+    check_code_scan_selects_only_changed_packages,
 ]
 
 

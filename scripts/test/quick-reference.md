@@ -1822,6 +1822,7 @@ Behaviour checks for the code index (`scripts/library/code_index`) and its entry
 - search and canonical topic matching
 - model summaries against a real loopback model server
 - the MCP protocol, in-process and as a subprocess whose stdout must carry only protocol
+- the code scan's additions (`dev/code-scan.ps1`): index verdicts for dead-code findings (dead, test-only, refuted by another file's use, unmatched), names used through strings and templates, and changed-package selection
 
 It is a repo-level validation **script**, not a pytest suite.
 
@@ -1830,6 +1831,28 @@ It is a repo-level validation **script**, not a pytest suite.
 | **Run the gate** | `.\test\code-index-gate.ps1` | Run every check |
 | **One area** | `.\test\code-index-gate.ps1 -Only check_references` | Checks whose name starts with the prefix |
 | **Harness self-test** | `.\test\code-index-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
+
+**Parameters:** `-Only`, `-HarnessSelfTest`, `-Dbg`
+
+**Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
+
+---
+
+### `test\pre-review-gate.ps1`
+
+Behaviour checks for the first-pass pre-review (`scripts/library/git/pre_review.py`, wrapped by `git/pre-review.ps1`), over real git repositories in a temporary directory. It covers:
+
+- the diff parser
+- every definite rule firing on added lines only, with planted old violations as the non-vacuity control and Protocol/ABC declarations exempt
+- pending changes read from git (untracked files included, ignored files excluded)
+- model findings dropped unless high-confidence, on an added line, and quoting that line
+- the model review staying advisory and off test files, against a real loopback model server
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\pre-review-gate.ps1` | Run every check |
+| **One area** | `.\test\pre-review-gate.ps1 -Only check_model` | Checks whose name starts with the prefix |
+| **Harness self-test** | `.\test\pre-review-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
 
 **Parameters:** `-Only`, `-HarnessSelfTest`, `-Dbg`
 

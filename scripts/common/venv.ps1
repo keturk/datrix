@@ -492,40 +492,13 @@ function Install-DatrixPackage {
  }
  }
 
- # datrix-language's own PEP 517 backend (_build_backend.py, backend-path=["."])
- # unconditionally imports datrix_language.parser.tree_sitter_datrix.build at
- # module-import time, which imports `tree_sitter` via the package's __init__ chain
- # (parser.py:23) -- this happens even for a bare "does this backend support
- # build_editable" probe, before pip resolves [project.dependencies] at all. Because
- # this package is installed with --no-build-isolation (its backend also imports
- # datrix_common, a local monorepo package no isolated build env can resolve), pip
- # never gets a chance to install its own declared "tree-sitter>=0.23.0" dependency
- # first -- the backend import fails on a venv that has never had tree-sitter
- # installed before. Pre-seed it here, mirroring the setuptools/wheel bootstrap
- # above, exactly once, before the editable install is attempted.
- if ($PackageName -eq "datrix-language") {
- $ErrorActionPreference = "SilentlyContinue"
- $null = & pip show tree-sitter 2>&1
- $treeSitterInstalled = $LASTEXITCODE -eq 0
- $ErrorActionPreference = $oldErrorActionPreference
-
- if (-not $treeSitterInstalled) {
- Write-DatrixVenvInfo "Installing datrix-language build prerequisite (tree-sitter)..." -ForegroundColor Cyan
- & pip install "tree-sitter>=0.23.0" 2>&1 | Out-Null
- if ($LASTEXITCODE -ne 0) {
- Write-Error "Failed to install datrix-language build prerequisite (tree-sitter)"
- return $false
- }
- }
- }
-
  # datrix-extensions declares build-backend = "hatchling.build". Because every
  # datrix package is installed with --no-build-isolation (its build also imports
  # local monorepo packages no isolated build env can resolve), pip never installs
  # the hatchling backend into an isolated env first -- the backend import fails
  # with "Cannot import 'hatchling.build'" on a venv that has never had hatchling
- # installed before. Pre-seed it here, mirroring the tree-sitter bootstrap above,
- # exactly once, before the editable install is attempted.
+ # installed before. Pre-seed it here, mirroring the setuptools/wheel bootstrap
+ # above, exactly once, before the editable install is attempted.
  if ($PackageName -eq "datrix-extensions") {
  	$ErrorActionPreference = "SilentlyContinue"
  	$null = & pip show hatchling 2>&1

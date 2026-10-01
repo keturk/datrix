@@ -128,6 +128,7 @@ from shared.local_llm import (  # noqa: E402
     survey_ollama,
 )
 from shared.logging_utils import LogConfig, TeeLogger, cleanup_old_logs  # noqa: E402
+from shared.node_test_runner import node_selection, node_suite_inputs  # noqa: E402
 from shared.structured_log_writer import (  # noqa: E402
     _MAX_FILENAME_BODY_LENGTH,
     StructuredLogWriter,
@@ -135,7 +136,6 @@ from shared.structured_log_writer import (  # noqa: E402
 from shared.structured_log_writer import (  # noqa: E402
     TestCaseResult as _SlwTestCaseResult,  # noqa: E402
 )
-from shared.node_test_runner import node_selection, node_suite_inputs  # noqa: E402
 from shared.suite_stamp import (  # noqa: E402
     ENV_RUN_DIR,
     ENV_SUITE_CONE,
@@ -1311,8 +1311,8 @@ def check_suite_stamp_record_names_match_the_runner_plugin() -> None:
     """The seam between the plugin that writes the records and the merge that
     reads them: file names, session ids, buckets, schema and environment
     variables are compared in code, so neither side can drift alone."""
-    from test import runner_plugin
     from shared import suite_stamp
+    from test import runner_plugin
 
     assert RUNNER_PLUGIN_MODULE == runner_plugin.__name__
     assert (ENV_RUN_DIR, ENV_SUITE_CONE, ENV_WORKSPACE_ROOT) == (
@@ -4189,6 +4189,31 @@ def check_local_llm_openai_server_suppresses_ollama_load() -> None:
     )
 
 
+def check_local_llm_allow_load_false_offers_only_resident_models() -> None:
+    preferred = OLLAMA_LOAD_PREFERENCE[0]
+
+    def ollama(method: str, path: str, body: dict[str, object] | None) -> tuple[int, object]:
+        if path == "/api/tags":
+            return 200, {"models": [{"name": "loaded:7b", "capabilities": ["completion"]},
+                                    {"name": preferred, "capabilities": ["completion"]}]}
+        if path == "/api/ps":
+            return 200, {"models": [{"name": "loaded:7b"}]}
+        return 404, {}
+
+    with _ModelServer(ollama) as server:
+        settings = _settings_for((), server.port)
+        loads = discover_candidates(settings, [].append)
+        resident_only = discover_candidates(
+            LocalLlmSettings(**{**settings.__dict__, "allow_load": False}), [].append,
+        )
+    assert [c.host.model for c in loads] == ["loaded:7b", preferred], (
+        f"the non-vacuity control: by default the load preference follows the resident model; got {loads}"
+    )
+    assert [c.host.model for c in resident_only] == ["loaded:7b"], (
+        f"allow_load=False must offer only models already in memory; got {resident_only}"
+    )
+
+
 def check_local_llm_pool_fails_over_to_the_next_server() -> None:
     lines: list[str] = []
     with _openai_server("model-a", "from a", fail_generation=True) as a, _openai_server("model-b", "from b") as b:
@@ -4373,6 +4398,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_local_llm_request_bodies_carry_think_schema_and_context,
     check_local_llm_survey_ollama_orders_resident_then_preferred_loadable,
     check_local_llm_openai_server_suppresses_ollama_load,
+    check_local_llm_allow_load_false_offers_only_resident_models,
     check_local_llm_pool_fails_over_to_the_next_server,
     check_local_llm_pool_treats_an_empty_answer_as_a_failure,
     check_local_llm_pool_raises_when_no_server_answers,

@@ -63,12 +63,13 @@ from datrix_common.deployment.cache_connection_identity import CacheConnectionId
 from datrix_common.deployment.rdbms_connection_identity import RdbmsConnectionIdentity  # noqa: E402
 from datrix_common.deployment.secret_backend import SecretBackend  # noqa: E402
 from datrix_common.deployment.signing_backend import SigningBackend  # noqa: E402
-from datrix_common.plugin.capability import (
-    # noqa: E402
+from datrix_common.plugin.capability import (  # noqa: E402
+    PlatformCapabilityDeclaration,
+)
+from datrix_common.plugin.capability_cells import (  # noqa: E402
     BlockRealization,
     CustomDomainSurfaceRealization,
     DeployableConstruct,
-    PlatformCapabilityDeclaration,
     StaticWebHostingRealization,
 )
 from datrix_common.plugin.capability_resolution import declaration_for_provider  # noqa: E402
@@ -114,6 +115,7 @@ _SET_SHAPED_SCALAR_FIELDS: Final[tuple[str, ...]] = (
     "supported_gateway_types",
     "injected_test_identity_providers",
     "websocket_upgrade_runtimes",
+    "non_evicting_cache_flavors",
 )
 
 #: Surface-6 optional fields compared by WHOLE-VALUE truthy/non-None

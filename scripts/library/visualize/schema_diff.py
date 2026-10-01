@@ -65,8 +65,8 @@ def _load_application(path: Path) -> object:
             "Use .dtrx files for both --before and --after."
         )
 
-    from datrix_semantic import SemanticAnalyzer
-    from datrix_language.parser import TreeSitterParser
+    from datrix_semantic.analyzer import SemanticAnalyzer
+    from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
 
     parser = TreeSitterParser()
 

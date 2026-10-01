@@ -63,10 +63,10 @@ from datrix_common.config.observability.models import (
     VisualizationProvider,
 )
 from datrix_common.errors.generation import GenerationError
+from datrix_common.plugin.capability_policy import validate_language_provider_realization
 from datrix_common.plugin.capability_resolution import (
     declaration_for_language,
     declaration_for_provider,
-    validate_language_provider_realization,
 )
 from datrix_common.plugin.language_capability import (
     PLATFORM_ONLY_OBSERVABILITY_CATEGORIES,
