@@ -131,8 +131,10 @@ need a `-Rule` or a stated question (`guard-untargeted-scans.py`).
   <language>`, which Jon runs — blocked for agents).
 - **`behaviour-parity-gate.ps1`** (~1 min): groups functions into roles by shared-typed
   signature or normalized name and fails a role whose members carry the same behaviour
-  skeleton, or split into more than one skeleton group once every package declaring the
-  construct unsupported is set aside. Run it when a language codegen package,
+  skeleton, or split into more than one skeleton group. Every role is counted (an
+  `undomained` one included) against a pinned failing-role count in
+  `behaviour-parity-baseline.toml`: more failing roles than the pin fails, and so do fewer
+  unless the pin is lowered in the same change. Run it when a language codegen package,
   codegen-common, or common changed.
 - Other gates only when their surface was touched: `shared-library-gate` /
   `test-tooling-parsing-gate` / `review-library-gate` (datrix/scripts/library),
