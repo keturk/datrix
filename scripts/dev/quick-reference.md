@@ -464,13 +464,41 @@ Queries never leave the machine. `-Summarize` is the exception, and it only runs
 | **Summaries** | `.\dev\code-index.ps1 -Summarize -Limit 100` | Summarize modules lacking a summary (`-Limit 0` = all) |
 | **Adoption** | `.\dev\code-index.ps1 -Usage -Days 7` | Index tool calls against the greps, whole reads of large `.py` files and shell searches the index could have answered, with estimated tokens |
 
-**Usage log:** the non-blocking PostToolUse hook `record-search-usage.py` appends one line per code-search call to `d:\datrix\.code-index\usage.jsonl` on each machine. It records the tool, the pattern or path searched (never file content) and the size of the answer. A shell search counts when `rg`/`grep`/`Select-String`/`findstr` starts a command or is piped from a file listing; piped from anything else it is an output filter and is not logged.
+**Usage log:** the non-blocking PostToolUse hook `record-search-usage.py` appends one line per code-search call to `d:\datrix\.code-index\usage.jsonl` on each machine. It records the tool, the pattern or path searched (never file content) and the size of the answer. A shell search counts when `rg`/`grep`/`Select-String`/`findstr` starts a command or is piped from a file listing; piped from anything else it is an output filter and is not logged. After an identifier grep or a whole read of a large `.py` file the same hook points the agent at the index: at the MCP tool when the server is registered for the directory the session started in, otherwise at the `code-index.ps1` command. The hook finds its workspace from its own real path, so it logs to `d:\datrix\.code-index\` however it is started.
+
+**Missing registration is announced.** A session whose start directory lacks the `datrix-code-index` or `datrix-local-llm` server is told so at session start by `session-context.py`, per server, with its `-Setup` command (and, for the index, the shell fallback). A server counts when registered in user scope, in local scope for that exact directory, or in a `.mcp.json` there that this machine has approved (`enabledMcpjsonServers` in `.claude\settings.local.json` or the project's `~/.claude.json` entry; `disabledMcpjsonServers` wins). Without it a machine that never ran `-Setup` looks like one that did, and every agent silently greps instead.
 
 **Parameters:** exactly one action: `-Symbol`, `-References`, `-Outline`, `-Search`, `-Canonical`, `-Status`, `-Refresh`, `-Usage`, `-Summarize`, `-Setup`. Modifiers: `-Kind` (with `-Symbol`), `-IncludeTestRules` (with `-Canonical`), `-Days` (with `-Usage`; default 7, 0 = all), `-Limit` (results, files listed, or modules summarized), `-Workers` (default 4), `-LocalMachines`, `-LlmModel` and `-LlmTimeout` (default 300; all three with `-Summarize`).
 
 **Exit codes:** 0 answered; 1 the query or index could not be answered as asked; 2 `-Summarize` found no local model server.
 
 **Agents:** the MCP server (`library/dev/code_index_mcp.py`, stdio, no socket) offers the same queries as the tools `find_symbol`, `find_references`, `outline`, `search`, `find_canonical` and `index_status`.
+
+### `dev\local-llm.ps1`
+
+**Sets up, inspects and measures the local model servers that agents read through.** The model servers on the network (Ollama, vLLM, llama-server, searched by `library/shared/local_llm.py`) answer every local-model script, the stop-gate judge, and the agents' MCP tools from `library/dev/local_llm_mcp.py`:
+
+| Tool | What the agent gets |
+|------|---------------------|
+| `ask_files` | A question about up to 40 files (paths or globs) answered in a few lines citing `path:line`, so the agent does not read the text itself. Larger inputs are split into chunks: each chunk is answered separately and the answers are merged. |
+| `digest_log` | The distinct failures in a test, generation or deploy log: one entry per cause, with its count, the first log line and the source `file:line` it names. A log too large to read whole is cut to the lines around error markers, or to its end when it has none. |
+| `local_models` | Which servers answer, what they hold in memory, and recent usage. |
+
+**What may be read:** files inside the framework repositories (`datrix` and every `datrix-*` git repository at the workspace root) and `.test-output`. Anything else is refused: another repository at the workspace root, `.tmp`, `reports`, `design`, `.git` internals. Paths are resolved before the check, so `..` cannot escape it. An answer is a lead, not a finding. Every citation is checked against the files and lines that were actually sent, and one that does not match is called out under the answer. The agent opens the cited lines with a ranged Read before acting on them.
+
+**Spreading and failover:** a request goes to an idle ready server. While every ready server is busy, the next resident one is readied, so concurrent requests use every machine's resident model. The MCP tools never wait for a model to load: they use resident models only.
+
+**Usage log:** every request from any caller (script, hook `hook:<gate>-judge`, MCP tool `mcp:<tool>`) is one line in `d:\datrix\.local-llm\usage.jsonl` on the machine that sent it. Each line records the caller, the server and model, the characters sent and received, the seconds taken and the outcome, never the text. `DATRIX_LOCAL_LLM_USAGE_LOG` points it elsewhere; the gates use it so their loopback servers never count as real use.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Set up a machine** | `.\dev\local-llm.ps1 -Setup` | Write the MCP server `datrix-local-llm` into `d:\datrix\.mcp.json` (other servers kept), approve it for this machine in `.claude\settings.local.json`, remove older local-scope registrations; restart Claude Code afterwards. Same mechanism as `code-index.ps1 -Setup` (`Install-DatrixProjectMcpServer`) |
+| **Status** | `.\dev\local-llm.ps1 -Status` | Servers that answer, resident models, and the last day's usage |
+| **Usage** | `.\dev\local-llm.ps1 -Usage -Days 7` | Requests by caller and by server (`-Days 0` = everything logged) |
+
+**Parameters:** exactly one action: `-Setup`, `-Status`, `-Usage`. Modifier: `-Days` (with `-Status`, default 1; with `-Usage`, default 7; 0 = all).
+
+**Exit codes:** 0 done; 1 the request could not be carried out.
 
 ### `dev\code-scan.ps1`
 

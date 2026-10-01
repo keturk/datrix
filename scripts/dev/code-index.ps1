@@ -175,124 +175,6 @@ trap {
     exit 130
 }
 
-function Get-ClaudeCodeInstallations {
-    # Every Claude Code that can start a session here: the CLI on PATH, and the newest build the
-    # VS Code extension bundles. They are separate installations with different versions, and
-    # they key local scope differently (2.0 by 'D:\datrix', 2.1 by 'D:/datrix'), so a server
-    # registered through one is invisible to the other -- each must register it itself.
-    $found = @()
-    if (Get-Command claude -ErrorAction SilentlyContinue) {
-        $found += "claude"
-    }
-    $extensions = Join-Path $env:USERPROFILE ".vscode\extensions"
-    if (Test-Path $extensions) {
-        $newest = Get-ChildItem $extensions -Directory -Filter "anthropic.claude-code-*" |
-            Where-Object { $_.Name -match '^anthropic\.claude-code-(\d+\.\d+\.\d+)' } |
-            Sort-Object { [version]($_.Name -replace '^anthropic\.claude-code-(\d+\.\d+\.\d+).*$', '$1') } -Descending |
-            Select-Object -First 1
-        if ($newest) {
-            $bundled = Join-Path $newest.FullName "resources\native-binary\claude.exe"
-            if (Test-Path $bundled) { $found += "`"$bundled`"" }
-        }
-    }
-    return $found
-}
-
-function Remove-LocalCodeIndexRegistrations {
-    # Earlier versions of -Setup registered the server in local scope (~/.claude.json), keyed by
-    # the exact working-directory string -- once per Claude Code installation, once per
-    # drive-letter spelling. The project .mcp.json replaces all of them; a stale local entry
-    # would shadow it. Each 'claude' call runs from cmd with that spelling as its working
-    # directory, because PowerShell hands child processes the upper-case drive.
-    $workspace = Split-Path -Parent (Split-Path -Parent $scriptsDir)
-    $spellings = @(
-        ($workspace.Substring(0, 1).ToUpperInvariant() + $workspace.Substring(1)),
-        ($workspace.Substring(0, 1).ToLowerInvariant() + $workspace.Substring(1))
-    ) | Select-Object -Unique
-    # 'claude mcp get' reports an absent server on stderr, which Windows PowerShell turns into a
-    # terminating error under "Stop"; exit codes are checked explicitly instead.
-    $previousPreference = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        foreach ($claude in @(Get-ClaudeCodeInstallations)) {
-            foreach ($directory in $spellings) {
-                $inDirectory = "cd /d `"$directory`" && $claude mcp"
-                cmd /s /c "`"$inDirectory remove --scope local $McpServerName`"" *> $null
-                cmd /s /c "`"$inDirectory get $McpServerName`"" 2>&1 | Out-String | Set-Variable details
-                if ($details -match "Scope:\s*Local") {
-                    Write-Host "A local-scope '$McpServerName' registration ($claude, $directory) could not be removed: $details" -ForegroundColor Red
-                    exit 1
-                }
-            }
-        }
-    }
-    finally {
-        $ErrorActionPreference = $previousPreference
-    }
-}
-
-function Write-CodeIndexMcpConfig([string]$PythonExe) {
-    # The project's .mcp.json at the workspace root: Claude Code reads it from the folder it
-    # opens, for every installation and whatever the drive-letter case, so one file per
-    # machine replaces per-installation registrations. Written here, not copied from a
-    # checked-in file, because its paths are this machine's (the venv's Python, this
-    # checkout's server). Other servers already in the file are kept. Approval is
-    # Approve-CodeIndexMcpServer.
-    $workspace = Split-Path -Parent (Split-Path -Parent $scriptsDir)
-    $configPath = Join-Path $workspace ".mcp.json"
-    $config = [ordered]@{ mcpServers = [ordered]@{} }
-    if (Test-Path $configPath) {
-        try {
-            $existing = Get-Content $configPath -Raw | ConvertFrom-Json
-        }
-        catch {
-            Write-Host "$configPath is not valid JSON ($($_.Exception.Message)); fix or delete it and re-run -Setup." -ForegroundColor Red
-            exit 1
-        }
-        if ($existing.mcpServers) {
-            foreach ($server in $existing.mcpServers.PSObject.Properties) {
-                $config.mcpServers[$server.Name] = $server.Value
-            }
-        }
-    }
-    $config.mcpServers[$McpServerName] = [ordered]@{ type = "stdio"; command = $PythonExe; args = @($mcpScript) }
-    $json = $config | ConvertTo-Json -Depth 10
-    [System.IO.File]::WriteAllText($configPath, $json + "`n", (New-Object System.Text.UTF8Encoding $false))
-    Write-Host "Wrote $configPath." -ForegroundColor Green
-}
-
-function Approve-CodeIndexMcpServer {
-    # Claude Code starts a project .mcp.json server only once it is approved on this machine.
-    # Current builds ignore an approval in the checked-in settings.json -- a repository must not
-    # approve its own servers -- so it is written to .claude\settings.local.json (gitignored,
-    # per machine), naming this one server. Running -Setup is the approval. Every other setting
-    # already in the file is kept.
-    $workspace = Split-Path -Parent (Split-Path -Parent $scriptsDir)
-    $localSettings = Join-Path $workspace ".claude\settings.local.json"
-    $settings = [ordered]@{}
-    if (Test-Path $localSettings) {
-        try {
-            $existing = Get-Content $localSettings -Raw | ConvertFrom-Json
-        }
-        catch {
-            Write-Host "$localSettings is not valid JSON ($($_.Exception.Message)); fix it and re-run -Setup." -ForegroundColor Red
-            exit 1
-        }
-        foreach ($property in $existing.PSObject.Properties) {
-            $settings[$property.Name] = $property.Value
-        }
-    }
-    $approved = @($settings["enabledMcpjsonServers"] | Where-Object { $_ })
-    if ($approved -notcontains $McpServerName) {
-        $approved += $McpServerName
-    }
-    $settings["enabledMcpjsonServers"] = $approved
-    $json = $settings | ConvertTo-Json -Depth 20
-    [System.IO.File]::WriteAllText($localSettings, $json + "`n", (New-Object System.Text.UTF8Encoding $false))
-    Write-Host ("Approved '$McpServerName' for this machine in $localSettings. Restart Claude Code (in VS Code: " +
-        "Developer: Reload Window) to load its tools.") -ForegroundColor Green
-}
-
 try {
     $venvActivated = Ensure-DatrixVenv
     if (-not $venvActivated) {
@@ -311,9 +193,8 @@ try {
             Write-Host "Building the index failed (see above); the MCP server was not set up." -ForegroundColor Red
             exit $LASTEXITCODE
         }
-        Write-CodeIndexMcpConfig $pythonExe
-        Approve-CodeIndexMcpServer
-        Remove-LocalCodeIndexRegistrations
+        Install-DatrixProjectMcpServer -Name $McpServerName -PythonExe $pythonExe -ServerScript $mcpScript `
+            -Workspace (Split-Path -Parent (Split-Path -Parent $scriptsDir)) -SetupCommand "code-index.ps1 -Setup"
         exit 0
     }
 

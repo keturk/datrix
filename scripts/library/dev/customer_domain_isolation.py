@@ -297,23 +297,6 @@ def scan_paths(repo_path: Path, rel_paths: list[str], corpus: TermCorpus) -> lis
     return violations
 
 
-def framework_repos(workspace_root: Path) -> list[Path]:
-    """Discover the framework git repos in the workspace.
-
-    Discovered, not hardcoded: a newly cloned ``datrix-codegen-<lang>`` must be
-    policed the day it appears, and Datrix is a multi-language, multi-platform
-    generator whose repo set is open-ended. The showcase repo anchors the list.
-    """
-    repos: list[Path] = []
-    showcase = workspace_root / "datrix"
-    if (showcase / ".git").exists():
-        repos.append(showcase)
-    for child in sorted(workspace_root.iterdir()):
-        if child.name.startswith("datrix-") and (child / ".git").exists():
-            repos.append(child)
-    return repos
-
-
 SELF_TEST_TERM = "zephyrantha"
 
 PLANTED_RELPATH = "config/settings.json"
