@@ -82,10 +82,13 @@
     With -Summarize: request timeout in seconds. Default: 300.
 
 .PARAMETER Setup
-    Set this machine up: build (or bring up to date) its index, then register the index's MCP
-    server with Claude Code for this workspace (local scope, stored in your user configuration, not
-    in any repository). Run once on each development machine, then restart Claude Code. Safe to
-    re-run: an existing registration is replaced.
+    Set this machine up: build (or bring up to date) its index, then write the index's MCP server
+    into <workspace>\.mcp.json with this machine's paths (other servers in the file are kept), and
+    remove any older local-scope registration that would shadow it. Claude Code reads .mcp.json
+    for every installation and drive-letter spelling. The server is approved for this machine in
+    .claude\settings.local.json (gitignored), because Claude Code ignores an approval in the
+    checked-in settings.json. Run once on each development machine, then restart Claude Code.
+    Safe to re-run.
 
 .EXAMPLE
     .\code-index.ps1 -Symbol to_snake_case
@@ -195,18 +198,12 @@ function Get-ClaudeCodeInstallations {
     return $found
 }
 
-function Register-CodeIndexMcp([string]$PythonExe) {
-    $claudes = @(Get-ClaudeCodeInstallations)
-    if ($claudes.Count -eq 0) {
-        Write-Host ("No Claude Code found: 'claude' is not on PATH and no VS Code extension build exists under " +
-            "$env:USERPROFILE\.vscode\extensions. Install Claude Code and re-run -Setup.") -ForegroundColor Red
-        exit 1
-    }
-    # Local scope is keyed by the exact directory string Claude Code starts in, drive-letter
-    # case included: a server registered for D:\datrix is absent from a session VS Code opened
-    # as d:\datrix. So the workspace is registered under both drive-letter spellings, and each
-    # 'claude' call runs from cmd with that spelling as its working directory (PowerShell's own
-    # location always hands a child process the normalized, upper-case drive).
+function Remove-LocalCodeIndexRegistrations {
+    # Earlier versions of -Setup registered the server in local scope (~/.claude.json), keyed by
+    # the exact working-directory string -- once per Claude Code installation, once per
+    # drive-letter spelling. The project .mcp.json replaces all of them; a stale local entry
+    # would shadow it. Each 'claude' call runs from cmd with that spelling as its working
+    # directory, because PowerShell hands child processes the upper-case drive.
     $workspace = Split-Path -Parent (Split-Path -Parent $scriptsDir)
     $spellings = @(
         ($workspace.Substring(0, 1).ToUpperInvariant() + $workspace.Substring(1)),
@@ -217,20 +214,13 @@ function Register-CodeIndexMcp([string]$PythonExe) {
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        foreach ($claude in $claudes) {
+        foreach ($claude in @(Get-ClaudeCodeInstallations)) {
             foreach ($directory in $spellings) {
                 $inDirectory = "cd /d `"$directory`" && $claude mcp"
-                cmd /s /c "`"$inDirectory get $McpServerName`"" *> $null
-                if ($LASTEXITCODE -eq 0) {
-                    cmd /s /c "`"$inDirectory remove --scope local $McpServerName`"" | Out-Host
-                    if ($LASTEXITCODE -ne 0) {
-                        Write-Host "Removing the existing '$McpServerName' registration ($claude, $directory) failed (see above)." -ForegroundColor Red
-                        exit 1
-                    }
-                }
-                cmd /s /c "`"$inDirectory add --scope local $McpServerName -- `"$PythonExe`" `"$mcpScript`"`"" | Out-Host
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Host "Registering '$McpServerName' ($claude, $directory) failed (see above)." -ForegroundColor Red
+                cmd /s /c "`"$inDirectory remove --scope local $McpServerName`"" *> $null
+                cmd /s /c "`"$inDirectory get $McpServerName`"" 2>&1 | Out-String | Set-Variable details
+                if ($details -match "Scope:\s*Local") {
+                    Write-Host "A local-scope '$McpServerName' registration ($claude, $directory) could not be removed: $details" -ForegroundColor Red
                     exit 1
                 }
             }
@@ -239,9 +229,68 @@ function Register-CodeIndexMcp([string]$PythonExe) {
     finally {
         $ErrorActionPreference = $previousPreference
     }
-    Write-Host ("Registered MCP server '$McpServerName' for $($spellings -join ' and ') with $($claudes -join ' and '). " +
-        "Restart Claude Code (in VS Code: Developer: Reload Window) to load its tools. Re-run -Setup after the " +
-        "VS Code extension updates to a new version.") -ForegroundColor Green
+}
+
+function Write-CodeIndexMcpConfig([string]$PythonExe) {
+    # The project's .mcp.json at the workspace root: Claude Code reads it from the folder it
+    # opens, for every installation and whatever the drive-letter case, so one file per
+    # machine replaces per-installation registrations. Written here, not copied from a
+    # checked-in file, because its paths are this machine's (the venv's Python, this
+    # checkout's server). Other servers already in the file are kept. Approval is
+    # Approve-CodeIndexMcpServer.
+    $workspace = Split-Path -Parent (Split-Path -Parent $scriptsDir)
+    $configPath = Join-Path $workspace ".mcp.json"
+    $config = [ordered]@{ mcpServers = [ordered]@{} }
+    if (Test-Path $configPath) {
+        try {
+            $existing = Get-Content $configPath -Raw | ConvertFrom-Json
+        }
+        catch {
+            Write-Host "$configPath is not valid JSON ($($_.Exception.Message)); fix or delete it and re-run -Setup." -ForegroundColor Red
+            exit 1
+        }
+        if ($existing.mcpServers) {
+            foreach ($server in $existing.mcpServers.PSObject.Properties) {
+                $config.mcpServers[$server.Name] = $server.Value
+            }
+        }
+    }
+    $config.mcpServers[$McpServerName] = [ordered]@{ type = "stdio"; command = $PythonExe; args = @($mcpScript) }
+    $json = $config | ConvertTo-Json -Depth 10
+    [System.IO.File]::WriteAllText($configPath, $json + "`n", (New-Object System.Text.UTF8Encoding $false))
+    Write-Host "Wrote $configPath." -ForegroundColor Green
+}
+
+function Approve-CodeIndexMcpServer {
+    # Claude Code starts a project .mcp.json server only once it is approved on this machine.
+    # Current builds ignore an approval in the checked-in settings.json -- a repository must not
+    # approve its own servers -- so it is written to .claude\settings.local.json (gitignored,
+    # per machine), naming this one server. Running -Setup is the approval. Every other setting
+    # already in the file is kept.
+    $workspace = Split-Path -Parent (Split-Path -Parent $scriptsDir)
+    $localSettings = Join-Path $workspace ".claude\settings.local.json"
+    $settings = [ordered]@{}
+    if (Test-Path $localSettings) {
+        try {
+            $existing = Get-Content $localSettings -Raw | ConvertFrom-Json
+        }
+        catch {
+            Write-Host "$localSettings is not valid JSON ($($_.Exception.Message)); fix it and re-run -Setup." -ForegroundColor Red
+            exit 1
+        }
+        foreach ($property in $existing.PSObject.Properties) {
+            $settings[$property.Name] = $property.Value
+        }
+    }
+    $approved = @($settings["enabledMcpjsonServers"] | Where-Object { $_ })
+    if ($approved -notcontains $McpServerName) {
+        $approved += $McpServerName
+    }
+    $settings["enabledMcpjsonServers"] = $approved
+    $json = $settings | ConvertTo-Json -Depth 20
+    [System.IO.File]::WriteAllText($localSettings, $json + "`n", (New-Object System.Text.UTF8Encoding $false))
+    Write-Host ("Approved '$McpServerName' for this machine in $localSettings. Restart Claude Code (in VS Code: " +
+        "Developer: Reload Window) to load its tools.") -ForegroundColor Green
 }
 
 try {
@@ -259,10 +308,12 @@ try {
     if ($Setup) {
         & $pythonExe $cliScript refresh
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "Building the index failed (see above); the MCP server was not registered." -ForegroundColor Red
+            Write-Host "Building the index failed (see above); the MCP server was not set up." -ForegroundColor Red
             exit $LASTEXITCODE
         }
-        Register-CodeIndexMcp $pythonExe
+        Write-CodeIndexMcpConfig $pythonExe
+        Approve-CodeIndexMcpServer
+        Remove-LocalCodeIndexRegistrations
         exit 0
     }
 

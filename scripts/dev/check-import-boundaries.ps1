@@ -43,6 +43,8 @@
  is passed (without -CheckTargetLiterals), in which case it updates
  provider-conditional-baseline.toml instead. Pass both -CheckTargetLiterals and
  -CheckProviderConditionals to update both baselines in one run.
+ -CheckDesignLabels and -CheckReexportFacades are hard zeros with no
+ baseline: -UpdateBaseline writes nothing for them.
 
 .PARAMETER CheckProviderConditionals
  Run the I6 successor ratchet check (invariant I6, DI-4/DI-5) in
@@ -123,9 +125,11 @@
  check.
 
 .PARAMETER CheckReexportFacades
- Run the re-export-facade ratchet check in addition to the import-boundary
- check. Scans every discovered package's src/+tests/ trees, this repo's
- own datrix/scripts/ tree, and datrix/claude-config/.claude/hooks/, for a
+ Run the re-export-facade check in addition to the import-boundary
+ check. Scans every discovered package's src/+tests/ trees and root-level
+ *.py files (conftest.py and the like), this repo's own datrix/scripts/
+ tree, and datrix/claude-config/.claude/hooks/, resolving relative imports
+ to their absolute module on both the provider and the consumer side, for a
  name that has a second import path through a facade: a module that
  passes through a name it does not itself define via its own __all__ or a
  self-aliased import (provider side); a from-M-import-N anywhere that
@@ -135,8 +139,8 @@
  not define (entry-point side); or an import whose module resolves to
  nothing on disk at all (unresolved). Every hit is attributed to the
  PROVIDING module, never the file where a consumer statement happens to
- appear. Compares current per-providing-module counts against the frozen
- baseline at scripts/config/reexport-facade-baseline.toml.
+ appear. Hard zero, no baseline file: any hit fails, and -UpdateBaseline
+ has no effect on this check.
 
 .PARAMETER FacadeModule
  With -CheckReexportFacades -ShowFiles, narrow the printed per-site
@@ -161,7 +165,8 @@
 .NOTES
  Every check invocation -- the default run and any -Check* run, i.e. every run
  without -UpdateBaseline or -SelfTest -- also runs the function-level-import,
- cross-package-vocabulary, and re-export-facade ratchets. The quality gate's
+ cross-package-vocabulary ratchets and the re-export-facade hard-zero check
+ (-UpdateBaseline has no effect on the facade check). The quality gate's
  -CheckTargetLiterals / -CheckProviderConditionals runs therefore fail on a new
  deferred import, a re-spelled vocabulary set, or a new re-export facade, in
  the change that adds it.
@@ -244,11 +249,7 @@
 
 .EXAMPLE
  .\check-import-boundaries.ps1 -CheckReexportFacades
- Run the re-export-facade ratchet check against the frozen baseline
-
-.EXAMPLE
- .\check-import-boundaries.ps1 -CheckReexportFacades -UpdateBaseline
- Recompute and overwrite the frozen re-export-facade baseline
+ Run the re-export-facade check (hard zero, no baseline)
 
 .EXAMPLE
  .\check-import-boundaries.ps1 -CheckReexportFacades -ShowFiles -FacadeModule datrix_common.errors

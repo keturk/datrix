@@ -173,15 +173,15 @@ in a scanned file where M is a Datrix module that does not define N and N
 is not itself a submodule of M (consumer side); a `pyproject.toml`
 `[project.entry-points.*]` value naming an attribute its target module
 does not define (entry-point side); and a `from M import N` whose M does
-not resolve to any module on disk at all (unresolved). The baseline is
-decrease-only and keyed by the providing module -- its relative file path
-when it resolves to a real file, or, only for the unresolved shape, the
-dotted module path itself -- with one combined count per key. Fails if any
-key's count increases past its frozen baseline
-(scripts/config/reexport-facade-baseline.toml). --update-baseline
-(combined with --check-reexport-facades) recomputes and overwrites that
-baseline. `--facade-module`/`--consumer-package` (repeatable) narrow the
-`--verbose` per-site worklist to one providing module or one repo.
+not resolve to any module on disk at all (unresolved). Relative imports
+(`from .a import X`, `from . import sub`) are resolved to their absolute
+module from the scanned file's own dotted name, on both the provider and the
+consumer side, and every package's root-level `.py` files (e.g. `conftest.py`)
+are scanned too. Like --check-design-labels this is a HARD ZERO with NO
+baseline file: any hit fails, one failure message per hit, and
+--update-baseline has no effect on this check (there is nothing to seed).
+`--facade-module`/`--consumer-package` (repeatable) narrow the `--verbose`
+per-site worklist to one providing module or one repo.
 
 Self-test (--self-test): proves the rule model (the manifest-discovered
 generator taxonomy, build_boundary_rules over it, the allowed-
@@ -210,8 +210,8 @@ Exit codes:
     2: Usage error, configuration error, or (with --check-target-literals,
        --check-provider-conditionals, --check-function-level-imports,
        --check-shared-vocabulary, --check-shared-target-names,
-       --check-own-target-names, --check-cross-package-vocabulary, or
-       --check-reexport-facades) a missing baseline file
+       --check-own-target-names, or --check-cross-package-vocabulary) a
+       missing baseline file
 """
 
 from __future__ import annotations
@@ -4977,11 +4977,16 @@ def check_cross_package_vocabulary_ratchet(
 # what proves every rewritten import lands on something that actually
 # exists, rather than silently accepting any string.
 #
-# The baseline is decrease-only and keyed by the PROVIDING module -- its own
-# relative file path when it resolves to a real file, or (only for the
-# unresolved-import shape, where by definition no such file exists) the
-# dotted module path itself -- with one COMBINED count per key across all
-# four shapes. --update-baseline recomputes and overwrites it.
+# Relative imports (`from .a import X`, `from . import sub`) are resolved to
+# their absolute dotted module from the scanned file's own dotted name, on
+# both the provider and the consumer side; a file outside every package's
+# src/ tree has no dotted name, so its relative imports (which can only
+# name sibling files of that tree, never a Datrix module) are not followed.
+#
+# This is a HARD ZERO with no baseline: any hit fails. Hits are grouped by
+# the PROVIDING module -- its own relative file path when it resolves to a
+# real file, or (only for the unresolved-import shape, where by definition
+# no such file exists) the dotted module path itself.
 # ---------------------------------------------------------------------------
 
 
@@ -4990,7 +4995,7 @@ class ReexportFacadeHit:
     """One occurrence of a re-export facade, attributed to the PROVIDING
     module.
 
-    ``providing_module`` doubles as the baseline key: the module's own
+    ``providing_module`` is the grouping key: the module's own
     relative file path when it resolves to a real file on disk, or -- only
     for an "unresolved" hit, where by definition no such file exists -- the
     dotted module path that failed to resolve. ``providing_module_dotted``
@@ -5091,6 +5096,41 @@ def _dotted_module_name_for_file(
     return None
 
 
+def _absolute_import_module(
+    stmt: ast.ImportFrom, file_path: Path, own_dotted: str | None
+) -> str | None:
+    """The absolute dotted module a ``from ... import`` statement names.
+
+    An absolute import returns its own ``module``. A relative import
+    (``level > 0``) is resolved against the scanned file's own dotted name
+    *own_dotted* (``from . import sub`` names the file's package itself,
+    ``from .a import X`` names ``<package>.a``). Returns ``None`` when the
+    statement has no module to resolve to (``from . import x`` in a file
+    with no dotted name -- a file outside every package's ``src/`` tree can
+    only name its own siblings, never a Datrix module).
+
+    Raises:
+        ValueError: A relative import climbs above the file's top-level
+            package, which Python itself rejects at import time.
+    """
+    if stmt.level == 0:
+        return stmt.module
+    if own_dotted is None:
+        return None
+    own_parts = own_dotted.split(".")
+    package_parts = own_parts if file_path.name == "__init__.py" else own_parts[:-1]
+    ascend = stmt.level - 1
+    if ascend >= len(package_parts):
+        raise ValueError(
+            f"{file_path}:{stmt.lineno}: relative import with level {stmt.level} climbs "
+            f"above the top-level package of {own_dotted!r}; use an import that stays "
+            f"inside the package, or the absolute module path."
+        )
+    base_parts = package_parts[: len(package_parts) - ascend]
+    module_parts = stmt.module.split(".") if stmt.module else []
+    return ".".join([*base_parts, *module_parts])
+
+
 def _assignment_target_names(target: ast.expr) -> set[str]:
     """Every ``Name`` id bound by an assignment target, including nested
     tuple/list/starred unpacking."""
@@ -5158,26 +5198,32 @@ def _parse_module_source(file_path: Path) -> ast.Module:
 
 
 @functools.lru_cache(maxsize=None)
-def _analyze_module_file(file_path: Path) -> _ModuleFacadeInfo:
+def _analyze_module_file(file_path: Path, own_dotted: str | None) -> _ModuleFacadeInfo:
     """Compute *file_path*'s ``_ModuleFacadeInfo`` from its top-level
     statements only -- "defines" and "declares __all__" are both top-level
-    facts by the check's own definition."""
+    facts by the check's own definition. *own_dotted* is the file's own
+    dotted module name (``None`` outside every package's ``src/`` tree); it
+    resolves the file's relative imports to absolute modules."""
     tree = _parse_module_source(file_path)
     defined_names = frozenset(_collect_top_level_defined_names(tree.body))
     all_names: set[str] = set()
     datrix_imports: dict[str, tuple[str, str, bool]] = {}
     import_lines: dict[str, int] = {}
     for stmt in tree.body:
+        source_module = (
+            _absolute_import_module(stmt, file_path, own_dotted)
+            if isinstance(stmt, ast.ImportFrom)
+            else None
+        )
         if (
             isinstance(stmt, ast.ImportFrom)
-            and stmt.module is not None
-            and stmt.level == 0
-            and _is_datrix_module_path(stmt.module)
+            and source_module is not None
+            and _is_datrix_module_path(source_module)
         ):
             for alias in stmt.names:
                 bound = alias.asname or alias.name
                 datrix_imports[bound] = (
-                    stmt.module,
+                    source_module,
                     alias.name,
                     alias.asname == alias.name,
                 )
@@ -5215,7 +5261,7 @@ def _resolve_defining_module(
     resolved = _resolve_datrix_module(module_dotted, packages)
     if resolved is None:
         return None
-    info = _analyze_module_file(resolved.file_path)
+    info = _analyze_module_file(resolved.file_path, module_dotted)
     if name in info.defined_names:
         return module_dotted
     next_hop = info.datrix_imports.get(name)
@@ -5227,11 +5273,22 @@ def _resolve_defining_module(
     )
 
 
+def _analyze_scanned_file(
+    file_path: Path, packages: dict[str, PackageInfo]
+) -> _ModuleFacadeInfo:
+    """``_analyze_module_file`` for a file of the scan scope, with the file's
+    own dotted module name supplied so its relative imports resolve."""
+    return _analyze_module_file(
+        file_path, _dotted_module_name_for_file(file_path, packages)
+    )
+
+
 def _reexport_facade_scan_files(
     packages: dict[str, PackageInfo], monorepo_root: Path
 ) -> list[Path]:
     """Every ``.py`` file the re-export-facade check scans: every discovered
-    package's ``src/`` and ``tests/`` trees, this repo's own
+    package's ``src/`` and ``tests/`` trees plus its root-level ``*.py``
+    files (``conftest.py`` and the like), this repo's own
     ``datrix/scripts/`` tree, and ``datrix/claude-config/.claude/hooks/`` (a
     facade emptied later would otherwise break a script or a hook silently,
     with no static warning from this check). Prints an informational note
@@ -5240,6 +5297,7 @@ def _reexport_facade_scan_files(
     files: list[Path] = []
     for package_info in packages.values():
         files.extend(sorted(package_info.src_dir.rglob("*.py")))
+        files.extend(sorted(package_info.root.glob("*.py")))
         tests_dir = package_info.root / "tests"
         if tests_dir.is_dir():
             files.extend(sorted(tests_dir.rglob("*.py")))
@@ -5276,16 +5334,23 @@ def _reexport_facade_provider_hits(
 ) -> list[ReexportFacadeHit]:
     """The provider-side shape for one already-analyzed file: every bound
     name it imports from a Datrix module and passes through -- via a
-    self-aliased import or its own ``__all__`` -- without defining it."""
+    self-aliased import or its own ``__all__`` -- without defining it. A
+    bound name that is itself a submodule of the module it is imported from
+    (``from . import sub``) is a package traversal, never a facade."""
     hits: list[ReexportFacadeHit] = []
     providing_module = str(py_file.relative_to(monorepo_root)).replace("\\", "/")
     providing_module_dotted = _dotted_module_name_for_file(py_file, packages)
-    for bound_name, (_source_module, _source_name, self_aliased) in sorted(
+    for bound_name, (source_module, source_name, self_aliased) in sorted(
         info.datrix_imports.items()
     ):
         if bound_name in info.defined_names:
             continue
         if not (self_aliased or bound_name in info.all_names):
+            continue
+        resolved_source = _resolve_datrix_module(source_module, packages)
+        if resolved_source is not None and _is_submodule_member(
+            resolved_source, source_name
+        ):
             continue
         hits.append(
             ReexportFacadeHit(
@@ -5306,18 +5371,18 @@ def _reexport_facade_consumer_hits(
     """The consumer-side and unresolved-import shapes for one file: every
     ``from M import N`` ANYWHERE in the file (module top or nested -- unlike
     the provider-side shape, this one is not limited to module top), for
-    every M that is a Datrix module."""
+    every M that is a Datrix module. A relative import is resolved to its
+    absolute M from the file's own dotted name first."""
     hits: list[ReexportFacadeHit] = []
     tree = _parse_module_source(py_file)
+    own_dotted = _dotted_module_name_for_file(py_file, packages)
     for node in ast.walk(tree):
-        if not (
-            isinstance(node, ast.ImportFrom)
-            and node.module is not None
-            and node.level == 0
-            and _is_datrix_module_path(node.module)
-        ):
+        if not isinstance(node, ast.ImportFrom):
             continue
-        resolved = _resolve_datrix_module(node.module, packages)
+        node_module = _absolute_import_module(node, py_file, own_dotted)
+        if node_module is None or not _is_datrix_module_path(node_module):
+            continue
+        resolved = _resolve_datrix_module(node_module, packages)
         for alias in node.names:
             if alias.name == "*":
                 continue
@@ -5325,16 +5390,16 @@ def _reexport_facade_consumer_hits(
             if resolved is None:
                 hits.append(
                     ReexportFacadeHit(
-                        providing_module=node.module,
+                        providing_module=node_module,
                         kind="unresolved",
                         name=alias.name,
                         site_file=py_file,
                         site_line=site_line,
-                        providing_module_dotted=node.module,
+                        providing_module_dotted=node_module,
                     )
                 )
                 continue
-            info = _analyze_module_file(resolved.file_path)
+            info = _analyze_module_file(resolved.file_path, node_module)
             if alias.name in info.defined_names:
                 continue
             if _is_submodule_member(resolved, alias.name):
@@ -5343,7 +5408,7 @@ def _reexport_facade_consumer_hits(
                 resolved.file_path.relative_to(monorepo_root)
             ).replace("\\", "/")
             defining_module = _resolve_defining_module(
-                node.module, alias.name, packages
+                node_module, alias.name, packages
             )
             hits.append(
                 ReexportFacadeHit(
@@ -5353,7 +5418,7 @@ def _reexport_facade_consumer_hits(
                     site_file=py_file,
                     site_line=site_line,
                     defining_module=defining_module,
-                    providing_module_dotted=node.module,
+                    providing_module_dotted=node_module,
                 )
             )
     return hits
@@ -5411,7 +5476,7 @@ def scan_reexport_facades(
 
     for py_file in _reexport_facade_scan_files(packages, monorepo_root):
         try:
-            info = _analyze_module_file(py_file)
+            info = _analyze_scanned_file(py_file, packages)
         except SyntaxError as e:
             rel_path = py_file.relative_to(monorepo_root)
             print(
@@ -5461,7 +5526,9 @@ def scan_reexport_facades(
             site_line = _reexport_facade_entry_point_line(manifest_lines, reference)
             resolved = _resolve_datrix_module(module_path, packages)
             if resolved is not None:
-                defined = _analyze_module_file(resolved.file_path).defined_names
+                defined = _analyze_module_file(
+                    resolved.file_path, module_path
+                ).defined_names
                 if attr in defined:
                     continue
                 providing_module = str(
@@ -5483,115 +5550,24 @@ def scan_reexport_facades(
     return results
 
 
-def load_reexport_facade_baseline(baseline_path: Path) -> dict[str, int]:
-    """Load ``{providing_module_key: frozen_count}`` from the baseline TOML.
-
-    Args:
-        baseline_path: Path to the re-export-facade baseline TOML file.
-
-    Returns:
-        An empty dict if the file does not exist yet.
-    """
-    if not baseline_path.exists():
-        return {}
-
-    with baseline_path.open("rb") as f:
-        data = tomllib.load(f)
-
-    counts: dict[str, int] = {}
-    for entry in data.get("baseline", []):
-        if not isinstance(entry, dict):
-            continue
-
-        key = entry.get("file", "")
-        count = entry.get("count")
-
-        if key and isinstance(count, int):
-            counts[key] = count
-
-    return counts
-
-
-def write_reexport_facade_baseline(baseline_path: Path, counts: dict[str, int]) -> None:
-    """Write *counts* to the baseline TOML as ``[[baseline]] file=... count=...``
-    entries, sorted by key for deterministic diffs.
-
-    Args:
-        baseline_path: Path to the re-export-facade baseline TOML file to write.
-        counts: Mapping of providing-module key -> combined hit count.
-    """
-    header = (
-        "# Re-Export Facade Ratchet Baseline\n"
-        "#\n"
-        "# Frozen per-module counts of names that have a second import path\n"
-        "# through a facade -- a module that passes through a name it does\n"
-        "# not itself define, via its own __all__ or a self-aliased import\n"
-        "# (provider side); a `from M import N` anywhere that reaches through\n"
-        "# such a facade instead of the module that actually defines N\n"
-        "# (consumer side); a pyproject.toml entry point naming an attribute\n"
-        "# its target module does not define (entry-point side); or a\n"
-        "# `from M import N` whose M does not resolve to any module on disk\n"
-        "# at all (unresolved). Each entry's key is the PROVIDING module --\n"
-        "# its own relative file path when it resolves to a real file, or\n"
-        "# (only for the unresolved shape, where by definition no such file\n"
-        "# exists) the dotted module path that failed to resolve -- never\n"
-        "# the file where a consumer statement happens to appear, and its\n"
-        "# count combines every shape attributed to it.\n"
-        "#\n"
-        "# Any INCREASE in an entry's count fails\n"
-        "# datrix/scripts/dev/check-import-boundaries.py\n"
-        "# --check-reexport-facades. Decreases are always allowed and should\n"
-        "# be captured by re-running with --update-baseline once a later\n"
-        "# change rewrites a consumer to import from the module that\n"
-        "# actually defines the name, or empties a facade's __all__. A later\n"
-        "# migration drives every entry here to zero, one providing module\n"
-        "# at a time; once the last entry reaches zero this file is deleted,\n"
-        "# and the check becomes a hard zero with no baseline to consult.\n"
-        "#\n"
-        "# Format:\n"
-        "#   [[baseline]]\n"
-        '#   file = "path/relative/to/monorepo-root, forward slashes -- or,\n'
-        '#           for an unresolved-import entry, a dotted module path"\n'
-        "#   count = <int>\n"
-    )
-
-    lines = [header]
-    for key in sorted(counts.keys()):
-        lines.append("\n[[baseline]]\n")
-        lines.append(f'file = "{key}"\n')
-        lines.append(f"count = {counts[key]}\n")
-
-    baseline_path.parent.mkdir(parents=True, exist_ok=True)
-    baseline_path.write_text("".join(lines), encoding="utf-8")
-
-
-def check_reexport_facade_ratchet(
-    current_counts: dict[str, int],
-    baseline: dict[str, int],
+def check_reexport_facades(
+    hits_by_module: dict[str, list[ReexportFacadeHit]], monorepo_root: Path
 ) -> list[str]:
-    """Compare *current_counts* against *baseline*; return one message per
-    providing module whose count INCREASED (baseline missing == baseline 0).
-    Never flags a decrease -- the ratchet only tightens.
+    """Return one message per re-export-facade hit -- ANY hit fails.
+
+    No baseline: a name with a second import path is removed, never
+    grandfathered, so a new facade fails outright. Returns an empty list only
+    when ``hits_by_module`` holds no hit at all.
 
     Args:
-        current_counts: Providing-module key -> current hit count.
-        baseline: Providing-module key -> frozen baseline count.
+        hits_by_module: Output of ``scan_reexport_facades``.
+        monorepo_root: Monorepo root for relative path reporting.
 
     Returns:
-        List of human-readable ratchet-failure messages, one per regressed
-        module, sorted by key.
+        One failure message per hit, sorted by providing module, then site
+        file, then line.
     """
-    messages: list[str] = []
-
-    for key in sorted(current_counts.keys()):
-        current = current_counts[key]
-        frozen = baseline.get(key, 0)
-        if current > frozen:
-            messages.append(
-                f"{key}: re-export-facade count increased from baseline "
-                f"{frozen} to {current}"
-            )
-    return messages
+    return format_reexport_facade_worklist(hits_by_module, monorepo_root)
 
 
 def format_reexport_facade_worklist(
@@ -5609,7 +5585,7 @@ def format_reexport_facade_worklist(
             ``scan_reexport_facades``.
         monorepo_root: Monorepo root, for the site file's relative path.
         facade_modules: If non-empty, keep only hits whose providing module
-            matches one of these -- either the baseline-key form (a relative
+            matches one of these -- either the grouping-key form (a relative
             file path, or a dotted path for an unresolved entry) or the
             dotted form (``providing_module_dotted``).
         consumer_packages: If non-empty, keep only hits whose site file
@@ -9121,11 +9097,11 @@ def _self_test_target_literal_new_kinds() -> bool:
 def _self_test_reexport_facade_build_fixture_monorepo(tmp_root: Path) -> Path:
     """Build a minimal isolated monorepo: one fixture package
     (``datrix-codegen-fixture``) with a clean ``__init__.py`` (defines
-    nothing, re-exports nothing) and a ``sub.py`` defining ``VALUE``, plus a
-    re-export-facade baseline TOML freezing the package's ``__init__.py`` at
-    count 0. Registers a ``datrix.languages`` entry point so the scanner
-    classifies it (a discovered package with no rule at all stops the scan
-    by design). Returns the ``__init__.py`` path."""
+    nothing, re-exports nothing) and a ``sub.py`` defining ``VALUE``. The
+    fixture carries NO re-export-facade baseline file: the check is a hard
+    zero and never reads one. Registers a ``datrix.languages`` entry point so
+    the scanner classifies it (a discovered package with no rule at all stops
+    the scan by design). Returns the ``__init__.py`` path."""
     _self_test_write_manifest(
         tmp_root,
         "datrix-codegen-fixture",
@@ -9145,15 +9121,6 @@ def _self_test_reexport_facade_build_fixture_monorepo(tmp_root: Path) -> Path:
     # baseline this fixture is meant to establish.
     (fixture_src / "plugin.py").write_text(
         "class FixtureLanguagePlugin:\n    pass\n", encoding="utf-8"
-    )
-
-    config_dir = tmp_root / "datrix" / "scripts" / "config"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "reexport-facade-baseline.toml").write_text(
-        "[[baseline]]\n"
-        'file = "datrix-codegen-fixture/src/datrix_codegen_fixture/__init__.py"\n'
-        "count = 0\n",
-        encoding="utf-8",
     )
     return init_path
 
@@ -9215,7 +9182,7 @@ def _self_test_reexport_facade_scanner() -> bool:
             file_path.write_text(source, encoding="utf-8")
             _analyze_module_file.cache_clear()
             _parse_module_source.cache_clear()
-            info = _analyze_module_file(file_path)
+            info = _analyze_scanned_file(file_path, packages)
             return _reexport_facade_provider_hits(file_path, info, packages, scratch_dir)
 
         # One-hit case: __all__ = ["X"] + from a.b import X.
@@ -9331,6 +9298,95 @@ def _self_test_reexport_facade_scanner() -> bool:
             and unresolved_hits[0].kind == "unresolved"
             and unresolved_hits[0].providing_module == "datrix_fixture.no_such_module",
         )
+
+        # Relative imports resolve to their absolute module from the file's
+        # own dotted name, on both the provider and the consumer side.
+        rel_pkg_dir = fixture_src / "relpkg"
+        rel_pkg_dir.mkdir(parents=True, exist_ok=True)
+        (rel_pkg_dir / "a.py").write_text("X = 1\n", encoding="utf-8")
+        relative_all_hits = _provider_hits(
+            "datrix_fixture/relpkg/__init__.py",
+            "from .a import X\n\n__all__ = ['X']\n",
+        )
+        ok &= _check(
+            "from .a import X + __all__ = ['X'] is exactly one provider hit",
+            len(relative_all_hits) == 1
+            and relative_all_hits[0].kind == "provider"
+            and relative_all_hits[0].name == "X",
+        )
+
+        relative_own_consumer_hits = _reexport_facade_consumer_hits(
+            rel_pkg_dir / "__init__.py", packages, scratch_dir
+        )
+        ok &= _check(
+            "from .a import X is zero consumer hits when a.py defines X",
+            relative_own_consumer_hits == [],
+        )
+
+        rel_sub_dir = fixture_src / "relsub"
+        rel_sub_dir.mkdir(parents=True, exist_ok=True)
+        (rel_sub_dir / "a.py").write_text("X = 1\n", encoding="utf-8")
+        relative_submodule_hits = _provider_hits(
+            "datrix_fixture/relsub/__init__.py",
+            "from . import a\n\n__all__ = ['a']\n",
+        )
+        relative_submodule_consumer_hits = _reexport_facade_consumer_hits(
+            rel_sub_dir / "__init__.py", packages, scratch_dir
+        )
+        ok &= _check(
+            "from . import submodule is zero provider and zero consumer hits",
+            relative_submodule_hits == [] and relative_submodule_consumer_hits == [],
+        )
+
+        relative_consumer_file = rel_pkg_dir / "relative_consumer.py"
+        relative_consumer_file.write_text("from . import X\n", encoding="utf-8")
+        _parse_module_source.cache_clear()
+        relative_consumer_hits = _reexport_facade_consumer_hits(
+            relative_consumer_file, packages, scratch_dir
+        )
+        ok &= _check(
+            "a relative consumer importing a re-exported name through a facade "
+            "is exactly one consumer hit, resolved to the defining module",
+            len(relative_consumer_hits) == 1
+            and relative_consumer_hits[0].kind == "consumer"
+            and relative_consumer_hits[0].providing_module
+            == "datrix_fixture/relpkg/__init__.py"
+            and relative_consumer_hits[0].defining_module == "datrix_fixture.relpkg.a",
+        )
+
+        relative_unresolved_file = rel_pkg_dir / "relative_unresolved.py"
+        relative_unresolved_file.write_text("from .no_such import X\n", encoding="utf-8")
+        _parse_module_source.cache_clear()
+        relative_unresolved_hits = _reexport_facade_consumer_hits(
+            relative_unresolved_file, packages, scratch_dir
+        )
+        ok &= _check(
+            "a relative import of a module that resolves to nothing on disk is "
+            "one unresolved hit",
+            len(relative_unresolved_hits) == 1
+            and relative_unresolved_hits[0].kind == "unresolved"
+            and relative_unresolved_hits[0].providing_module
+            == "datrix_fixture.relpkg.no_such",
+        )
+
+        # A package's root-level modules (conftest.py) are in the scan scope.
+        conftest_package_root = scratch_dir / "datrix-root-scan"
+        (conftest_package_root / "src" / "datrix_root_scan").mkdir(parents=True)
+        (conftest_package_root / "conftest.py").write_text("\n", encoding="utf-8")
+        scoped_files = _reexport_facade_scan_files(
+            {
+                "datrix_root_scan": PackageInfo(
+                    name="datrix_root_scan",
+                    root=conftest_package_root,
+                    src_dir=conftest_package_root / "src" / "datrix_root_scan",
+                )
+            },
+            scratch_dir,
+        )
+        ok &= _check(
+            "a package's root-level conftest.py is in the re-export-facade scan scope",
+            conftest_package_root / "conftest.py" in scoped_files,
+        )
     finally:
         _analyze_module_file.cache_clear()
         _parse_module_source.cache_clear()
@@ -9342,9 +9398,18 @@ def _self_test_reexport_facade_scanner() -> bool:
         init_path = _self_test_reexport_facade_build_fixture_monorepo(tmp_root)
         clean_source = init_path.read_text(encoding="utf-8")
 
+        baseline_path = (
+            tmp_root / "datrix" / "scripts" / "config" / "reexport-facade-baseline.toml"
+        )
+        ok &= _check(
+            "the fixture carries no re-export-facade baseline file",
+            not baseline_path.exists(),
+        )
+
         clean_result = _self_test_reexport_facade_run_cli(tmp_root)
         ok &= _check(
-            f"clean fixture package exits 0, got {clean_result.returncode}",
+            f"clean fixture package exits 0 with the baseline file absent, "
+            f"got {clean_result.returncode}",
             clean_result.returncode == 0,
         )
 
@@ -9354,16 +9419,45 @@ def _self_test_reexport_facade_scanner() -> bool:
         )
         failing_result = _self_test_reexport_facade_run_cli(tmp_root)
         ok &= _check(
-            f"planted provider-side facade exits 1, got {failing_result.returncode}",
+            f"planted provider-side facade exits 1 with the baseline file absent, "
+            f"got {failing_result.returncode}",
             failing_result.returncode == 1,
         )
         ok &= _check(
-            "failure output names the mutated file",
-            "__init__.py" in failing_result.stdout,
+            "failure output names the mutated file, line and name",
+            "__init__.py:1 VALUE" in failing_result.stdout,
+        )
+
+        # A hand-authored baseline at the old path must not suppress the
+        # planted facade, and the check must not resurrect or rewrite it.
+        stray_baseline = (
+            "[[baseline]]\n"
+            'file = "datrix-codegen-fixture/src/datrix_codegen_fixture/__init__.py"\n'
+            "count = 5\n"
+        )
+        baseline_path.parent.mkdir(parents=True, exist_ok=True)
+        baseline_path.write_text(stray_baseline, encoding="utf-8")
+        stray_result = _self_test_reexport_facade_run_cli(tmp_root)
+        ok &= _check(
+            f"a stray hand-authored baseline does not suppress a planted facade, "
+            f"got exit {stray_result.returncode}",
+            stray_result.returncode == 1,
         )
         ok &= _check(
-            "failure output names the exact count delta (0 -> 1)",
-            "increased from baseline 0 to 1" in failing_result.stdout,
+            "the check leaves a stray baseline file untouched",
+            baseline_path.read_text(encoding="utf-8") == stray_baseline,
+        )
+        baseline_path.unlink()
+
+        update_result = _self_test_reexport_facade_run_cli(tmp_root, "--update-baseline")
+        ok &= _check(
+            f"--update-baseline cannot make a planted facade pass, "
+            f"got exit {update_result.returncode}",
+            update_result.returncode == 1,
+        )
+        ok &= _check(
+            "--update-baseline writes no re-export-facade baseline file",
+            not baseline_path.exists(),
         )
 
         init_path.write_text(clean_source, encoding="utf-8")
@@ -9661,7 +9755,7 @@ def main() -> int:
         "--check-reexport-facades",
         action="store_true",
         help=(
-            "Run the re-export-facade ratchet check in addition to the "
+            "Run the re-export-facade check in addition to the "
             "import-boundary check. Fails when a name has a second import "
             "path through a facade: a module that passes through a name it "
             "does not itself define via its own __all__ or a self-aliased "
@@ -9670,8 +9764,8 @@ def main() -> int:
             "actually defines N (consumer side); a pyproject.toml entry "
             "point naming an attribute its target module does not define; "
             "or an import whose module resolves to nothing on disk at all. "
-            "Compares current per-providing-module counts against the "
-            "frozen baseline at scripts/config/reexport-facade-baseline.toml."
+            "Hard zero, no baseline: any hit fails, and --update-baseline "
+            "has no effect on this check."
         ),
     )
     parser.add_argument(
@@ -9881,12 +9975,6 @@ def main() -> int:
     own_target_name_baseline_path = (
         monorepo_root / "datrix" / "scripts" / "config" / "own-target-name-baseline.toml"
     )
-    # Re-export-facade ratchet (exactly one import path per symbol) — opt-in
-    # via --check-reexport-facades.
-    reexport_facade_baseline_path = (
-        monorepo_root / "datrix" / "scripts" / "config" / "reexport-facade-baseline.toml"
-    )
-
     # D6.1 shared-package zero-tolerance check (distinct from the I6
     # language-package ratchet above) -- runs UNCONDITIONALLY whenever
     # --check-provider-conditionals is passed, in both --update-baseline and
@@ -9909,6 +9997,17 @@ def main() -> int:
     if args.check_design_labels:
         design_label_hits_by_file = scan_design_labels(packages, monorepo_root)
         design_label_messages = check_design_labels(design_label_hits_by_file, monorepo_root)
+
+    # Re-export-facade check (exactly one import path per symbol) -- a hard
+    # zero with no baseline file, computed unconditionally for the same
+    # reason as the design-label check above.
+    reexport_facade_messages: list[str] = []
+    reexport_facade_hits_by_module: dict[str, list[ReexportFacadeHit]] = {}
+    if args.check_reexport_facades:
+        reexport_facade_hits_by_module = scan_reexport_facades(packages, monorepo_root)
+        reexport_facade_messages = check_reexport_facades(
+            reexport_facade_hits_by_module, monorepo_root
+        )
 
     if args.update_baseline:
         updated_any = False
@@ -10076,19 +10175,9 @@ def main() -> int:
             )
             updated_any = True
 
-        if args.check_reexport_facades:
-            reexport_facade_hits_by_module = scan_reexport_facades(packages, monorepo_root)
-            current_counts = {
-                key: len(hits) for key, hits in reexport_facade_hits_by_module.items()
-            }
-            write_reexport_facade_baseline(reexport_facade_baseline_path, current_counts)
-            print(
-                f"Updated re-export-facade baseline: {len(current_counts)} providing "
-                f"module(s) recorded at "
-                f"{reexport_facade_baseline_path.relative_to(monorepo_root)}"
-            )
-            updated_any = True
-
+        # The design-label and re-export-facade checks have no baseline, so
+        # requesting either alone must not fall through to the target-literal
+        # default and overwrite an unrelated baseline.
         if args.check_target_literals or not (
             args.check_provider_conditionals
             or args.check_function_level_imports
@@ -10096,6 +10185,7 @@ def main() -> int:
             or args.check_shared_target_names
             or args.check_cross_package_vocabulary
             or args.check_own_target_names
+            or args.check_design_labels
             or args.check_reexport_facades
         ):
             target_literal_hits_by_file = scan_target_literals(
@@ -10130,6 +10220,17 @@ def main() -> int:
                 "baseline to update; fix the code instead:\n"
             )
             for message in design_label_messages:
+                print(message)
+            print()
+            return 1
+
+        if reexport_facade_messages:
+            print(
+                f"Error: re-export-facade check failed for "
+                f"{len(reexport_facade_messages)} site(s) -- there is no "
+                "baseline to update; fix the code instead:\n"
+            )
+            for message in reexport_facade_messages:
                 print(message)
             print()
             return 1
@@ -10313,30 +10414,7 @@ def main() -> int:
             own_target_name_current_counts, baseline
         )
 
-    reexport_facade_messages: list[str] = []
-    reexport_facade_hits_by_module: dict[str, list[ReexportFacadeHit]] = {}
     if args.check_reexport_facades:
-        if not reexport_facade_baseline_path.exists():
-            print(
-                f"Error: re-export-facade baseline not found at "
-                f"{reexport_facade_baseline_path}. Run "
-                f"'check-import-boundaries.py --check-reexport-facades --update-baseline' "
-                f"first to freeze the initial baseline.",
-                file=sys.stderr,
-            )
-            return 2
-
-        reexport_facade_baseline = load_reexport_facade_baseline(
-            reexport_facade_baseline_path
-        )
-        reexport_facade_hits_by_module = scan_reexport_facades(packages, monorepo_root)
-        reexport_facade_current_counts = {
-            key: len(hits) for key, hits in reexport_facade_hits_by_module.items()
-        }
-        reexport_facade_messages = check_reexport_facade_ratchet(
-            reexport_facade_current_counts, reexport_facade_baseline
-        )
-
         if args.verbose:
             worklist = format_reexport_facade_worklist(
                 reexport_facade_hits_by_module,
@@ -10458,8 +10536,9 @@ def main() -> int:
 
         if reexport_facade_messages:
             print(
-                f"{mode}: re-export-facade ratchet failed for "
-                f"{len(reexport_facade_messages)} providing module(s):\n"
+                f"{mode}: re-export-facade check failed for "
+                f"{len(reexport_facade_messages)} site(s) (no baseline -- "
+                f"any hit fails):\n"
             )
             for message in reexport_facade_messages:
                 print(message)
@@ -10479,6 +10558,9 @@ def main() -> int:
 
     if args.check_design_labels:
         print("Design-document label check: 0 hits.")
+
+    if args.check_reexport_facades:
+        print("Re-export-facade check: 0 hits.")
 
     if args.check_own_target_names:
         print("I4 own-target-name live counts (per registered language package):")
@@ -10517,9 +10599,7 @@ def main() -> int:
                 "No I4 own-target-name ratchet regressions found.", file=sys.stderr
             )
         if args.check_reexport_facades:
-            print(
-                "No re-export-facade ratchet regressions found.", file=sys.stderr
-            )
+            print("No re-export-facade hits found.", file=sys.stderr)
 
     return 0
 
