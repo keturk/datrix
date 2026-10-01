@@ -1,6 +1,5 @@
 """Framework header parity gate -- every registered language spells the
-framework-minted HTTP headers from one registry and realizes every family or
-declares the hole.
+framework-minted HTTP headers from one registry and realizes every family.
 
 A generated service exchanges a handful of headers Datrix itself defines: the
 trusted-caller token on an inter-service call, the three rate-limit response
@@ -23,19 +22,18 @@ and each language core the backend requires:
   reviewed, counted exemption in
   ``scripts/config/framework-header-exemptions.json``. A retired name is a
   violation with no exemption path.
-* **Realization.** Every registered family is realized by the language (its
-  exact name spelled, or its registry constant referenced from python) or
-  declared unrealized with a reason on that language's
-  ``LanguageCapabilityDeclaration.unrealized_framework_headers``. Neither
-  fails naming the language and the family; both at once is a stale
-  declaration and fails too. A family no language realizes is a dead registry
-  entry and fails.
+* **Realization.** Every registered language realizes every registered family
+  (its exact name spelled, or its registry constant referenced from python).
+  A family a language does not realize fails naming the language and the
+  family; no declaration can excuse it. A family no language realizes is a
+  dead registry entry and fails too. The gate is a hard zero: it exits
+  non-zero on any problem and has no baseline.
 
 Language set from the installed ``datrix.languages`` entry points at runtime;
-registry from datrix-codegen-common at runtime; holes from each language's own
-declaration -- never a table in this script. Runs a built-in non-vacuity
-self-test on every invocation. Repo-level validation script (per the datrix
-showcase boundary -- no pytest suite lives in datrix).
+registry from datrix-codegen-common at runtime -- never a table in this
+script. Runs a built-in non-vacuity self-test on every invocation.
+Repo-level validation script (per the datrix showcase boundary -- no pytest
+suite lives in datrix).
 """
 
 from __future__ import annotations
@@ -64,7 +62,6 @@ from datrix_codegen_common.generation.http_headers import (  # noqa: E402
     FrameworkHeader,
 )
 from datrix_codegen_kernel.generation.trusted_caller import CALLER_TOKEN_HEADER  # noqa: E402
-from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
 
 from shared.registered_targets import registered_language_names  # noqa: E402
 from shared.registered_targets import (  # noqa: E402
@@ -296,7 +293,6 @@ def load_exemptions(registry: Registry) -> tuple[Exemption, ...]:
 class LanguageVerdict:
     language: str
     realized: frozenset[str]
-    declared_holes: frozenset[str]
 
 
 def realized_families(census: LanguageCensus, registry: Registry) -> frozenset[str]:
@@ -348,42 +344,20 @@ def _spelling_problems(
 def _realization_problems(
     census: LanguageCensus,
     registry: Registry,
-    declared_holes: Mapping[str, str],
 ) -> tuple[list[str], LanguageVerdict]:
     realized = realized_families(census, registry)
-    families = registry.families()
-    problems: list[str] = []
-    for family, reason in sorted(declared_holes.items()):
-        if family not in families:
-            problems.append(
-                f"{census.language}: declares unrealized_framework_headers[{family!r}], which is "
-                f"not a registered family. Registered: {', '.join(sorted(families))}."
-            )
-        elif not reason.strip():
-            problems.append(
-                f"{census.language}: unrealized_framework_headers[{family!r}] carries an empty "
-                f"reason. Fix: state why the language does not realize the family."
-            )
-    holes = frozenset(declared_holes)
-    for family in sorted(families):
-        if family in realized and family in holes:
-            problems.append(
-                f"{census.language}: declares family {family!r} unrealized, but its sources "
-                f"realize it. Fix: remove the stale declaration."
-            )
-        elif family not in realized and family not in holes:
-            problems.append(
-                f"{census.language}: neither realizes family {family!r} nor declares it "
-                f"unrealized. Fix: emit the registered header, or declare the hole with a reason "
-                f"on the language's LanguageCapabilityDeclaration.unrealized_framework_headers."
-            )
-    return problems, LanguageVerdict(census.language, realized, holes)
+    problems = [
+        f"{census.language}: does not realize framework header family {family!r}. Every "
+        f"registered language realizes every registered family. Fix: emit the registered "
+        f"header for the family (datrix_codegen_common.generation.http_headers)."
+        for family in sorted(registry.families() - realized)
+    ]
+    return problems, LanguageVerdict(census.language, realized)
 
 
 def evaluate(
     registry: Registry,
     censuses: Mapping[str, LanguageCensus],
-    declared_holes: Mapping[str, Mapping[str, str]],
     exemptions: tuple[Exemption, ...],
 ) -> tuple[list[str], dict[str, LanguageVerdict]]:
     """Every violation across every language, plus the per-language verdicts
@@ -394,9 +368,7 @@ def evaluate(
     for language in sorted(censuses):
         census = censuses[language]
         problems.extend(_spelling_problems(census, registry, exemptions, used_exemptions))
-        realization_problems, verdict = _realization_problems(
-            census, registry, declared_holes.get(language, {}),
-        )
+        realization_problems, verdict = _realization_problems(census, registry)
         problems.extend(realization_problems)
         verdicts[language] = verdict
     for exemption in exemptions:
@@ -430,17 +402,13 @@ def _require_min_languages(language_names: frozenset[str]) -> None:
         raise SystemExit(EXIT_USAGE)
 
 
-def scan_all_registered_languages(
-    registry: Registry,
-) -> tuple[dict[str, LanguageCensus], dict[str, Mapping[str, str]]]:
+def scan_all_registered_languages(registry: Registry) -> dict[str, LanguageCensus]:
     language_names = registered_language_names()
     _require_min_languages(language_names)
     src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, language_names, WORKSPACE_ROOT)
     censuses: dict[str, LanguageCensus] = {}
-    holes: dict[str, Mapping[str, str]] = {}
     for language, language_src_dirs in sorted(src_dirs.items()):
         censuses[language] = census_sources(language, language_src_dirs, registry)
-        holes[language] = declaration_for_language(language).unrealized_framework_headers
         logger.debug(
             "census language=%s packages=%s spellings=%d constant_refs=%s",
             language,
@@ -448,7 +416,7 @@ def scan_all_registered_languages(
             len(censuses[language].spellings),
             sorted(censuses[language].constant_references),
         )
-    return censuses, holes
+    return censuses
 
 
 def render_report(registry: Registry, verdicts: Mapping[str, LanguageVerdict]) -> str:
@@ -461,8 +429,6 @@ def render_report(registry: Registry, verdicts: Mapping[str, LanguageVerdict]) -
             verdict = verdicts[language]
             if header.family in verdict.realized:
                 cells.append("realized".ljust(10))
-            elif header.family in verdict.declared_holes:
-                cells.append("declared".ljust(10))
             else:
                 cells.append("MISSING".ljust(10))
         lines.append("  " + header.family.ljust(width) + "  " + "  ".join(cells))
@@ -497,51 +463,54 @@ def _self_test_comparator(registry: Registry) -> bool:
     ok = True
     full = _all_names(registry)
     clean = {"alpha": _planted_census("alpha", full), "beta": _planted_census("beta", full)}
-    problems, _ = evaluate(registry, clean, {}, ())
+    problems, _ = evaluate(registry, clean, ())
     ok &= _assert(problems == [], "two fully realizing languages report no problem")
 
     retired = {"alpha": _planted_census("alpha", full + (registry.retired[0],)), "beta": clean["beta"]}
-    problems, _ = evaluate(registry, retired, {}, ())
+    problems, _ = evaluate(registry, retired, ())
     ok &= _assert(len(problems) == 1 and "RETIRED" in problems[0], "a retired spelling is one problem")
 
     private = {"alpha": _planted_census("alpha", full + ("X-Datrix-Private-Thing",)), "beta": clean["beta"]}
-    problems, _ = evaluate(registry, private, {}, ())
+    problems, _ = evaluate(registry, private, ())
     ok &= _assert(
         len(problems) == 1 and "not a registered name" in problems[0],
         "an unregistered framework-prefixed spelling is one problem",
     )
     exemption = Exemption("datrix-codegen-alpha", "x-datrix-private-thing", "caller_token", "planted")
-    problems, _ = evaluate(registry, private, {}, (exemption,))
+    problems, _ = evaluate(registry, private, (exemption,))
     ok &= _assert(problems == [], "an exempted private spelling passes (case-insensitively)")
-    problems, _ = evaluate(registry, clean, {}, (exemption,))
+    problems, _ = evaluate(registry, clean, (exemption,))
     ok &= _assert(len(problems) == 1 and "stale entry" in problems[0], "an unused exemption is one problem")
 
     foreign = {"alpha": _planted_census("alpha", full + ("X-Forwarded-For",)), "beta": clean["beta"]}
-    problems, _ = evaluate(registry, foreign, {}, ())
+    problems, _ = evaluate(registry, foreign, ())
     ok &= _assert(problems == [], "a non-framework X- header is not counted")
 
     missing_family = registry.headers[-1].family
     partial_names = tuple(name for name in full if name != registry.headers[-1].name)
     partial = {"alpha": _planted_census("alpha", partial_names), "beta": clean["beta"]}
-    problems, _ = evaluate(registry, partial, {}, ())
+    problems, verdicts = evaluate(registry, partial, ())
     ok &= _assert(
-        len(problems) == 1 and missing_family in problems[0] and "neither realizes" in problems[0],
-        "an undeclared unrealized family is one problem",
+        len(problems) == 1
+        and "alpha" in problems[0]
+        and repr(missing_family) in problems[0]
+        and "does not realize" in problems[0],
+        "an unrealized family is exactly one problem naming the language and the family, "
+        "and evaluate takes no declaration input that could excuse it",
     )
-    problems, verdicts = evaluate(registry, partial, {"alpha": {missing_family: "planted reason"}}, ())
-    ok &= _assert(problems == [], "a declared hole with a reason passes")
-    ok &= _assert(missing_family in verdicts["alpha"].declared_holes, "the verdict records the declared hole")
-    problems, _ = evaluate(registry, partial, {"alpha": {missing_family: "  "}}, ())
-    ok &= _assert(len(problems) == 1 and "empty reason" in problems[0], "a reasonless hole is one problem")
-    problems, _ = evaluate(registry, clean, {"alpha": {missing_family: "planted"}}, ())
-    ok &= _assert(len(problems) == 1 and "stale declaration" in problems[0], "a realized-but-declared family is one problem")
-    problems, _ = evaluate(registry, clean, {"alpha": {"no_such_family": "planted"}}, ())
-    ok &= _assert(len(problems) == 1 and "not a registered family" in problems[0], "an unknown family in a declaration is one problem")
+    ok &= _assert(
+        missing_family not in verdicts["alpha"].realized
+        and missing_family in verdicts["beta"].realized,
+        "the verdict marks the unrealized family missing for the one language only",
+    )
 
     nobody = {"alpha": _planted_census("alpha", partial_names), "beta": _planted_census("beta", partial_names)}
-    holes = {"alpha": {missing_family: "planted"}, "beta": {missing_family: "planted"}}
-    problems, _ = evaluate(registry, nobody, holes, ())
-    ok &= _assert(len(problems) == 1 and "dead contract" in problems[0], "a family nobody realizes is one problem")
+    problems, _ = evaluate(registry, nobody, ())
+    dead = [problem for problem in problems if "dead contract" in problem]
+    ok &= _assert(
+        len(dead) == 1 and len(problems) == 3,
+        "a family nobody realizes is one dead-contract problem beside one per-language problem",
+    )
 
     constant_name = next(iter(registry.constant_families))
     via_constant = {
@@ -552,7 +521,7 @@ def _self_test_comparator(registry: Registry) -> bool:
         ),
         "beta": clean["beta"],
     }
-    problems, _ = evaluate(registry, via_constant, {}, ())
+    problems, _ = evaluate(registry, via_constant, ())
     ok &= _assert(problems == [], "a registry constant reference realizes its family")
     return ok
 
@@ -612,17 +581,20 @@ def _self_test_language_core(tmp_root: Path, registry: Registry) -> bool:
     problems, _ = evaluate(
         registry,
         {"splitlang": split, "other": _planted_census("other", _all_names(registry))},
-        {"splitlang": {family: "planted" for family in registry.families() - {"caller_token"}}},
         (exemption,),
     )
+    unrealized_by_split = sorted(registry.families() - realized_families(split, registry))
+    split_problems = [problem for problem in problems if problem.startswith("splitlang:")]
     return _assert(
         [spelling.package for spelling in split.spellings] == ["datrix-codegen-splitlang-core"]
         and "caller_token" in realized_families(split, registry)
         and not backend_only.spellings
         and not backend_only.constant_references
-        and problems == [],
+        and len(split_problems) == len(unrealized_by_split)
+        and len(problems) == len(split_problems),
         f"a fixture language split into a backend and a core: the census sees the header and the constant "
-        f"planted in the core, keyed on the core package (problems: {problems})",
+        f"planted in the core, keyed on the core package, and the only problems are the "
+        f"{len(unrealized_by_split)} families the fixture does not realize (got {len(problems)})",
     )
 
 
@@ -649,7 +621,7 @@ def _self_test_exemption_parsing(registry: Registry) -> bool:
 def _self_test_live_read(registry: Registry) -> bool:
     """The live census must see a real, known realization: the caller token
     on at least two languages. A scan that finds nothing is broken, not clean."""
-    censuses, _ = scan_all_registered_languages(registry)
+    censuses = scan_all_registered_languages(registry)
     realizers = sorted(
         language for language, census in censuses.items()
         if "caller_token" in realized_families(census, registry)
@@ -699,11 +671,11 @@ def main(argv: list[str] | None = None) -> int:
     registry = live_registry()
     try:
         exemptions = load_exemptions(registry)
-        censuses, holes = scan_all_registered_languages(registry)
+        censuses = scan_all_registered_languages(registry)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return EXIT_USAGE
-    problems, verdicts = evaluate(registry, censuses, holes, exemptions)
+    problems, verdicts = evaluate(registry, censuses, exemptions)
     print(f"\nFramework header census ({len(censuses)} registered language(s), "
           f"{len(registry.headers)} families, {len(exemptions)} reviewed exemption(s)):")
     print(render_report(registry, verdicts))
@@ -713,7 +685,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {problem}", file=sys.stderr)
         return EXIT_FAIL
     print("\nEvery registered language spells the framework headers from the registry and "
-          "realizes or declares every family.")
+          "realizes every family.")
     return EXIT_OK
 
 

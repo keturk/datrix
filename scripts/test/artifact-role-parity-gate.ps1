@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Cross-language artifact-role parity gate.
+ Artifact-role parity gate: cross-language and cross-provider.
 
 .DESCRIPTION
  For every (example, runtime, provider) generated in >= 2 registered
@@ -10,7 +10,28 @@
  classifies each language's generated paths by domain role (via each
  language's own derived DomainDeclaration.structural_pattern) and asserts
  the set of roles with >= 1 matching file is identical across those
- languages.
+ languages. A missing role is a failure. Exactly two skips exist, and
+ neither reads a declaration's absence: the language emits the domain only
+ on demand (declared once on its LanguageCapabilityDeclaration), or the
+ domain's own structural_pattern matches zero files across that language's
+ entire generated footprint (held to a reviewed record in
+ scripts/config/corpus-vacuity-records.json). A reviewed per-example
+ exemption (scripts/config/artifact-role-exemptions.json, absent when there
+ is none) additionally excuses a role the language realizes elsewhere; the
+ loader refuses an entry for a domain the language realizes by no
+ structural_pattern. A language that realizes a domain by no pattern is
+ never excused here: the gap is tracked once, as a capability_gaps row on its
+ own capability declaration, and counted by capability-gap-ledger-gate.ps1.
+
+ The same comparison then runs across PROVIDERS for a fixed language: for
+ every (language, example, runtime) generated under >= 2 providers, the set
+ of roles each provider's tree carries must be identical. A role present
+ under one provider and absent under another is reported as
+ ARTIFACT-ROLE CROSS-PROVIDER DRIFT. The same two skips apply; the
+ per-example exemption file does not (it has no provider coordinate). Below
+ two providers there is nothing to compare, so a corpus generated under one
+ provider yields no provider-axis comparison -- the self-test is what proves
+ the axis live.
 
  Generates NOTHING and stores NOTHING -- it reads the generation pipeline's
  own per-target manifests (.datrix/manifests/<target>.json: the files each
@@ -28,8 +49,9 @@
  A parked example that DOES have a generated tree is a stale park entry and
  also fails the gate: the recorded defect is fixed and the entry must go.
 
- Runs a built-in non-vacuity self-test on every invocation. Fails loud
- (exit 2) if zero groups are generated in >= 2 languages.
+ Runs a built-in non-vacuity self-test on every invocation (one [OK] line
+ per proven case). Fails loud (exit 2) if zero groups are generated in >= 2
+ languages.
 
  Repo-level validation script (per the datrix showcase boundary -- no
  pytest suite lives in datrix).
@@ -42,7 +64,8 @@
  Enable debug logging.
 
 .PARAMETER SelfTest
- Run only the non-vacuity self-test and skip the real comparison.
+ Run only the non-vacuity self-test and skip the real comparison. Prints one
+ [OK] line per proven case, including the provider-axis cases.
 
 .PARAMETER Census
  Print every (language, domain) the generated corpus exercises nowhere, with

@@ -110,6 +110,7 @@ _SET_SHAPED_SCALAR_FIELDS: Final[tuple[str, ...]] = (
     "supported_config_stores",
     "container_scaffold_runtimes",
     "platform_allowed_host_patterns",
+    "service_network_hosts",
     "native_cloud_helper_packages",
     "native_notification_vendors",
     "supported_gateway_types",

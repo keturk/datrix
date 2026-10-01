@@ -93,10 +93,10 @@ DATRIX_ROOT = SCRIPT_DIR.parents[2]
 sys.path.insert(0, str(LIBRARY_DIR))
 
 from dev.customer_domain_isolation import (  # noqa: E402
-    framework_repos,
     pending_files,
     publishable_files,
 )
+from shared.framework_repos import framework_repos  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

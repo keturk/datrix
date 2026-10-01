@@ -75,6 +75,7 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
+from shared.capped_log import DEFAULT_MAX_BYTES, append_line  # noqa: E402
 from shared.venv import get_datrix_root  # noqa: E402
 from test import affected_set  # noqa: E402
 from test import gate_verdict  # noqa: E402
@@ -1359,9 +1360,8 @@ def append_completion_row(audit_path: Path, record: CompletionRecord) -> dict[st
         },
         "overall": record.overall,
     }
-    audit_path.parent.mkdir(parents=True, exist_ok=True)
-    with audit_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    # Capped at the size every shared log uses; the full-suite guard writes this log too.
+    append_line(audit_path, json.dumps(row, ensure_ascii=False), DEFAULT_MAX_BYTES)
     return row
 
 

@@ -34,7 +34,6 @@ from dev.customer_domain_isolation import (  # noqa: E402
     CorpusError,
     Violation,
     corpus_path,
-    framework_repos,
     hash_term,
     load_term_corpus,
     pending_files,
@@ -42,6 +41,7 @@ from dev.customer_domain_isolation import (  # noqa: E402
     scan_paths,
     self_test,
 )
+from shared.framework_repos import framework_repos  # noqa: E402
 
 
 def add_term(path: Path, term: str, hint: str) -> int:

@@ -71,7 +71,10 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -105,6 +108,13 @@ from shared.generated_test_log_writer import (  # noqa: E402
     _extract_import_chain,
     normalize_error_message,
 )
+from shared.capped_log import (  # noqa: E402
+    CLAIM_SUFFIX,
+    STALE_CLAIM_SECONDS,
+    append_line,
+    read_lines,
+    rotated_path,
+)
 from shared.llm_code_fix import (  # noqa: E402
     parse_code_response,
     run_ruff_check,
@@ -127,6 +137,7 @@ from shared.local_llm import (  # noqa: E402
     strip_reasoning,
     survey_ollama,
 )
+from shared.local_llm_usage import USAGE_LOG_VARIABLE, usage_report  # noqa: E402
 from shared.logging_utils import LogConfig, TeeLogger, cleanup_old_logs  # noqa: E402
 from shared.node_test_runner import node_selection, node_suite_inputs  # noqa: E402
 from shared.structured_log_writer import (  # noqa: E402
@@ -4176,8 +4187,12 @@ def _closed_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def _openai_server(model: str, answer: str, fail_generation: bool = False) -> _ModelServer:
-    """An OpenAI-compatible server listing ``model``; a one-token readiness request always succeeds."""
+def _openai_server(model: str, answer: str, fail_generation: bool = False,
+                   generation_seconds: float = 0.0) -> _ModelServer:
+    """An OpenAI-compatible server listing ``model``; a one-token readiness request always succeeds.
+
+    ``generation_seconds`` holds each generation open that long, so concurrent requests overlap.
+    """
 
     def respond(method: str, path: str, body: dict[str, object] | None) -> tuple[int, object]:
         if method == "GET" and path == "/v1/models":
@@ -4187,6 +4202,7 @@ def _openai_server(model: str, answer: str, fail_generation: bool = False) -> _M
                 return 200, {"choices": [{"message": {"content": "pong"}}]}
             if fail_generation:
                 return 500, {"error": "engine died"}
+            time.sleep(generation_seconds)
             return 200, {"choices": [{"message": {"content": answer}, "finish_reason": "stop"}]}
         return 404, {"error": "not found"}
 
@@ -4337,6 +4353,54 @@ def check_local_llm_pool_fails_over_to_the_next_server() -> None:
     assert any("model-a" in line and "failed" in line for line in lines), f"the failover was not reported: {lines}"
 
 
+def _generations(server: _ModelServer) -> int:
+    return len([p for p in server.posts_to("/v1/chat/completions") if p.get("max_tokens") != 1])
+
+
+def check_local_llm_pool_spreads_requests_over_ready_servers() -> None:
+    request = ChatRequest(system="s", user="u", temperature=0.0, max_tokens=16)
+    with _openai_server("model-a", "from a") as a, _openai_server("model-b", "from b") as b:
+        single = LocalLlmPool(_settings_for((a.port, b.port), _closed_port()), report=[].append)
+        assert single.chat(request).host.model == "model-a"
+        assert b.posts_to("/v1/chat/completions") == [], (
+            "one request must ready and use only the first candidate, never touch the second"
+        )
+    with _openai_server("model-a", "from a", generation_seconds=0.4) as a, \
+            _openai_server("model-b", "from b", generation_seconds=0.4) as b:
+        pool = LocalLlmPool(_settings_for((a.port, b.port), _closed_port()), report=[].append)
+        with ThreadPoolExecutor(max_workers=4) as workers:
+            replies = list(workers.map(lambda _: pool.chat(request), range(8)))
+        served = {reply.host.model for reply in replies}
+        assert served == {"model-a", "model-b"}, f"concurrent requests must use every ready server; got {served}"
+        assert _generations(a) + _generations(b) == 8 and min(_generations(a), _generations(b)) >= 2, (
+            f"load was not spread: model-a {_generations(a)}, model-b {_generations(b)}"
+        )
+
+
+def check_local_llm_pool_records_every_request() -> None:
+    request = ChatRequest(system="sys", user="question", temperature=0.0, max_tokens=16)
+    with TemporaryDirectory(prefix="local-llm-usage-") as tmp:
+        log = Path(tmp) / "usage.jsonl"
+        with _openai_server("model-a", "x", fail_generation=True) as a, _openai_server("model-b", "answer") as b:
+            settings = replace(_settings_for((a.port, b.port), _closed_port()), usage_log=log, caller="gate-caller")
+            LocalLlmPool(settings, report=[].append).chat(request)
+        down = replace(_settings_for((_closed_port(),), _closed_port()), usage_log=log, caller="gate-caller")
+        try:
+            LocalLlmPool(down, report=[].append).chat(request)
+        except LocalLlmUnavailable:
+            pass
+        else:
+            raise AssertionError("a pool with no server must raise LocalLlmUnavailable")
+        entries = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+        assert [(e["caller"], e["outcome"], e["model"]) for e in entries] == [
+            ("gate-caller", "failed", "model-a"), ("gate-caller", "ok", "model-b"), ("gate-caller", "unavailable", ""),
+        ], entries
+        assert entries[1]["prompt_chars"] == len("sys") + len("question") and entries[1]["answer_chars"] == len("answer")
+        assert "question" not in log.read_text(encoding="utf-8"), "the log records sizes, never the text sent"
+        rendered = usage_report(log, 0).render()
+        assert "gate-caller: 2 requests, 1 failed" in rendered and "gate-caller x1" in rendered, rendered
+
+
 def check_local_llm_pool_treats_an_empty_answer_as_a_failure() -> None:
     with _openai_server("thinker", "<think>only reasoning</think>") as server:
         pool = LocalLlmPool(_settings_for((server.port,), _closed_port()), report=[].append)
@@ -4361,6 +4425,46 @@ def check_local_llm_pool_raises_when_no_server_answers() -> None:
     advisory = advisory_reply(settings, ChatRequest(system="s", user="u", temperature=0.0), "LLM triage")
     assert advisory.source == ADVISORY_UNAVAILABLE_SOURCE
     assert advisory.text.startswith("LLM triage unavailable: No local model server could answer")
+
+
+# ===========================================================================
+# shared.capped_log
+# ===========================================================================
+
+
+def check_capped_log_rotates_at_the_cap_and_keeps_one_previous_file() -> None:
+    with TemporaryDirectory(prefix="capped-log-") as tmp:
+        log = Path(tmp) / "nested" / "usage.jsonl"
+        for n in range(5):
+            append_line(log, f"line-{n}-" + "x" * 10, max_bytes=40)  # 18 bytes a line: two fit under 40
+        # 0,1 fill the log; 2 rotates them to .1; 4 rotates 2,3 over them -> .1 = 2,3, log = 4.
+        assert read_lines(log) == [f"line-{n}-" + "x" * 10 for n in range(2, 5)], (
+            f"oldest first, the first generation dropped by the second rotation: {read_lines(log)}")
+        assert log.stat().st_size <= 40 and rotated_path(log).stat().st_size <= 40
+        assert sorted(p.name for p in log.parent.iterdir()) == ["usage.jsonl", "usage.jsonl.1"], (
+            "a capped log is never more than two files")
+
+
+def check_capped_log_rotates_once_per_claim() -> None:
+    with TemporaryDirectory(prefix="capped-log-") as tmp:
+        log = Path(tmp) / "usage.jsonl"
+        append_line(log, "a" * 30, max_bytes=40)
+        claim = log.with_name(log.name + CLAIM_SUFFIX)
+        claim.touch()
+        append_line(log, "b" * 30, max_bytes=40)
+        assert not rotated_path(log).exists() and read_lines(log) == ["a" * 30, "b" * 30], (
+            "while another process holds the rotation claim, appends go to the current log")
+        stale = time.time() - STALE_CLAIM_SECONDS - 5
+        os.utime(claim, (stale, stale))
+        append_line(log, "c" * 30, max_bytes=40)
+        append_line(log, "d" * 30, max_bytes=40)
+        assert rotated_path(log).exists() and not claim.exists(), "a stale claim must be broken, then rotation resumes"
+        try:
+            append_line(log, "e", max_bytes=0)
+        except ValueError as exc:
+            assert "max_bytes must be positive" in str(exc), exc
+        else:
+            raise AssertionError("a non-positive cap must be refused")
 
 
 # ===========================================================================
@@ -4505,8 +4609,13 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_local_llm_openai_server_suppresses_ollama_load,
     check_local_llm_allow_load_false_offers_only_resident_models,
     check_local_llm_pool_fails_over_to_the_next_server,
+    check_local_llm_pool_spreads_requests_over_ready_servers,
+    check_local_llm_pool_records_every_request,
     check_local_llm_pool_treats_an_empty_answer_as_a_failure,
     check_local_llm_pool_raises_when_no_server_answers,
+    # shared.capped_log
+    check_capped_log_rotates_at_the_cap_and_keeps_one_previous_file,
+    check_capped_log_rotates_once_per_claim,
     # shared.llm_code_fix
     check_llm_code_fix_parses_fenced_and_bare_code,
     check_llm_code_fix_ruff_check_fails_closed,
@@ -4548,7 +4657,10 @@ def main() -> int:
             return 2
 
     print(f"Running {len(checks)} shared-library behavior checks...\n")
-    passed = run_checks(checks)
+    # The checks' own loopback model servers must never count as real use of the machines.
+    with TemporaryDirectory(prefix="shared-library-gate-") as tmp:
+        os.environ[USAGE_LOG_VARIABLE] = str(Path(tmp) / "usage.jsonl")
+        passed = run_checks(checks)
 
     print()
     if passed:

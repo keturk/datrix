@@ -101,7 +101,7 @@ LIBRARY_DIR = SCRIPT_DIR.parent
 DATRIX_ROOT = SCRIPT_DIR.parents[2]
 sys.path.insert(0, str(LIBRARY_DIR))
 
-from dev.customer_domain_isolation import framework_repos  # noqa: E402
+from shared.framework_repos import framework_repos  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

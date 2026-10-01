@@ -1,6 +1,6 @@
 """Problem-type parity gate -- every registered language answers errors with
-RFC 7807 ``type`` URNs from one registry and realizes every framework family
-or declares the hole.
+RFC 7807 ``type`` URNs from one registry and is obligated to every framework
+family.
 
 A generated service's error body carries a ``type`` member naming the error
 class. A client keyed on it must see one vocabulary whichever language served
@@ -21,17 +21,23 @@ language to:
   defect with no exemption path: register the family or spell the registered
   one. (A slug the generator composes at runtime for a declared exception is
   not a literal and is minted by the shared algorithm.)
-* **Realization.** Every registered family is spelled by the language or
-  declared unrealized with a reason on its
-  ``LanguageCapabilityDeclaration.unrealized_problem_types``. Neither fails
-  naming the language and family; both is a stale declaration and fails; a
-  family no language spells is a dead registry entry and fails.
+* **Realization.** Every registered language is obligated to spell every
+  registered family. A (language, family) cell a language does not spell is an
+  *unspelled cell*; no declaration can excuse it. A family no language spells
+  is a dead registry entry and fails outright.
+
+The unspelled cells are counted per language and held to a two-directional
+pin in ``scripts/config/problem-type-parity-baseline.toml``: a count above the
+pin fails (a family stopped being spelled, or a new family was registered
+unspelled -- spell it, never raise the pin), and a count below the pin fails
+until the pin is lowered in the same change (an improvement must be banked). A
+language absent from the table is pinned at zero. Every counted cell is printed
+on every run, never silent.
 
 Language set from the installed ``datrix.languages`` entry points at runtime;
-registry from datrix-common at runtime; holes from each language's own
-declaration -- never a table in this script. Runs a built-in non-vacuity
-self-test on every invocation. Repo-level validation script (per the datrix
-showcase boundary -- no pytest suite lives in datrix).
+registry from datrix-common at runtime -- never a table in this script. Runs a
+built-in non-vacuity self-test on every invocation. Repo-level validation
+script (per the datrix showcase boundary -- no pytest suite lives in datrix).
 """
 
 from __future__ import annotations
@@ -42,9 +48,11 @@ import re
 import shutil
 import sys
 import tempfile
-from collections.abc import Mapping
+import tomllib
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 _LIBRARY_DIR = Path(__file__).resolve().parent.parent
@@ -56,7 +64,6 @@ from datrix_common.datrix_model.problem_types import (  # noqa: E402
     PROBLEM_TYPE_URN_PREFIX,
     ProblemType,
 )
-from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
 
 from shared.registered_targets import registered_language_names  # noqa: E402
 from shared.registered_targets import (  # noqa: E402
@@ -66,6 +73,11 @@ from shared.registered_targets import (  # noqa: E402
 )
 
 logger = logging.getLogger(__name__)
+
+_HERE = Path(__file__).resolve()
+DATRIX_DIR: Final[Path] = _HERE.parents[3]
+BASELINE_PATH: Final[Path] = DATRIX_DIR / "scripts" / "config" / "problem-type-parity-baseline.toml"
+_BASELINE_LANGUAGES_KEY: Final[str] = "languages"
 
 EXIT_OK: Final[int] = 0
 EXIT_FAIL: Final[int] = 1
@@ -131,7 +143,19 @@ def census_sources(language: str, src_dirs: tuple[Path, ...]) -> LanguageCensus:
 class LanguageVerdict:
     language: str
     realized: frozenset[str]
-    declared_holes: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class Evaluation:
+    """What one comparison found, split by whether a pin may count it."""
+
+    problems: list[str]
+    """Findings no pin can absorb: a literal slug that is not a registered
+    family, and a registered family no language spells."""
+    unspelled: Mapping[str, tuple[str, ...]]
+    """Per language, the sorted registered families its census does not spell
+    -- the cells the baseline pins."""
+    verdicts: Mapping[str, LanguageVerdict]
 
 
 def realized_families(census: LanguageCensus, registry: tuple[ProblemType, ...]) -> frozenset[str]:
@@ -142,11 +166,11 @@ def realized_families(census: LanguageCensus, registry: tuple[ProblemType, ...])
 def evaluate(
     registry: tuple[ProblemType, ...],
     censuses: Mapping[str, LanguageCensus],
-    declared_holes: Mapping[str, Mapping[str, str]],
-) -> tuple[list[str], dict[str, LanguageVerdict]]:
+) -> Evaluation:
     families = frozenset(problem_type.family for problem_type in registry)
     problems: list[str] = []
     verdicts: dict[str, LanguageVerdict] = {}
+    unspelled: dict[str, tuple[str, ...]] = {}
     for language in sorted(censuses):
         census = censuses[language]
         for spelling in census.spellings:
@@ -154,42 +178,116 @@ def evaluate(
                 problems.append(
                     f"{spelling.package}: {spelling.relative_path}:{spelling.line}: spells "
                     f"{PROBLEM_TYPE_URN_PREFIX}{spelling.slug!s}, which is not a registered "
-                    f"problem-type family. Fix: spell a registered family, or register it in "
-                    f"datrix_common.datrix_model.problem_types so every target mints it."
-                )
-        holes = declared_holes.get(language, {})
-        for family, reason in sorted(holes.items()):
-            if family not in families:
-                problems.append(
-                    f"{language}: declares unrealized_problem_types[{family!r}], which is not a "
-                    f"registered family. Registered: {', '.join(sorted(families))}."
-                )
-            elif not reason.strip():
-                problems.append(
-                    f"{language}: unrealized_problem_types[{family!r}] carries an empty reason."
+                    f"problem-type family. A private slug has no exemption path. Fix: spell a "
+                    f"registered family, or register it in datrix_common.datrix_model.problem_types "
+                    f"so every target mints it."
                 )
         realized = realized_families(census, registry)
-        hole_set = frozenset(holes)
-        for family in sorted(families):
-            if family in realized and family in hole_set:
-                problems.append(
-                    f"{language}: declares problem type {family!r} unrealized, but its sources "
-                    f"spell it. Fix: remove the stale declaration."
-                )
-            elif family not in realized and family not in hole_set:
-                problems.append(
-                    f"{language}: neither spells problem type {PROBLEM_TYPE_URN_PREFIX}{family} "
-                    f"nor declares it unrealized. Fix: answer with the registered URN, or declare "
-                    f"the hole with a reason on unrealized_problem_types."
-                )
-        verdicts[language] = LanguageVerdict(language, realized, hole_set)
+        verdicts[language] = LanguageVerdict(language, realized)
+        unspelled[language] = tuple(sorted(families - realized))
     realized_anywhere = frozenset().union(*(verdict.realized for verdict in verdicts.values()))
     for family in sorted(families - realized_anywhere):
         problems.append(
             f"registry: problem type {family!r} is spelled by no registered language. A type "
             f"nobody mints is a dead contract. Fix: realize it or remove it from the registry."
         )
-    return problems, verdicts
+    return Evaluation(problems, unspelled, verdicts)
+
+
+# ---------------------------------------------------------------------------
+# Two-directional pin over the unspelled cells
+# ---------------------------------------------------------------------------
+
+
+def _baseline_error(path: Path, what: str, fix: str) -> ValueError:
+    return ValueError(f"problem_type_parity:{path} {what}. Fix: {fix}")
+
+
+def load_baseline(path: Path = BASELINE_PATH) -> Mapping[str, int]:
+    """Load the per-language pin of unspelled (language, family) cells.
+
+    Only a ``[languages]`` table of non-negative integers is legal. A language
+    absent from it is pinned at zero.
+
+    Raises:
+        ValueError: The file is missing, is not valid TOML, carries an
+            unrecognized top-level key, lacks the ``[languages]`` table, or
+            holds a count that is negative or not an integer (a ``bool`` is
+            not one).
+    """
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise _baseline_error(
+            path,
+            f"cannot be read ({exc})",
+            "restore the file, seeded from a live run of the gate (never from a document).",
+        ) from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise _baseline_error(path, f"is not valid TOML ({exc})", "correct the syntax.") from exc
+    unknown = sorted(set(raw) - {_BASELINE_LANGUAGES_KEY})
+    if unknown:
+        raise _baseline_error(
+            path,
+            f"has unrecognized top-level key(s) {unknown}; the only legal table is [{_BASELINE_LANGUAGES_KEY}]",
+            "remove the key.",
+        )
+    table = raw.get(_BASELINE_LANGUAGES_KEY)
+    if not isinstance(table, dict):
+        raise _baseline_error(
+            path,
+            f"carries no [{_BASELINE_LANGUAGES_KEY}] table of language = count entries",
+            f"add the [{_BASELINE_LANGUAGES_KEY}] table, seeded from a live run of the gate.",
+        )
+    counts: dict[str, int] = {}
+    for language, count in table.items():
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise _baseline_error(
+                path,
+                f"pins {language!r} at {count!r}; expected a non-negative integer (a bool is not one)",
+                "write the live unspelled-cell count for the language.",
+            )
+        counts[language] = count
+    return MappingProxyType(counts)
+
+
+def ratchet_problems(
+    unspelled: Mapping[str, Sequence[str]],
+    baseline: Mapping[str, int],
+    registered: frozenset[str],
+) -> list[str]:
+    """Compare each registered language's unspelled-cell count with its pin.
+
+    A count ABOVE the pin and a count BELOW it are both problems -- exact
+    match is the only passing state -- and a pin naming a language that is not
+    registered is stale. A registered language absent from *baseline* is
+    pinned at exactly zero.
+    """
+    problems: list[str] = []
+    for language in sorted(registered):
+        families = tuple(unspelled.get(language, ()))
+        live = len(families)
+        pinned = baseline.get(language, 0)
+        if live > pinned:
+            problems.append(
+                f"{language}: EXCEED -- {live} unspelled problem-type cell(s) against a pin of "
+                f"{pinned} (+{live - pinned}): {', '.join(families)}. A family stopped being spelled "
+                f"or a new family was registered unspelled. Fix: spell the registered URN in the "
+                f"language's sources; never raise the pin in {BASELINE_PATH.name}."
+            )
+        elif live < pinned:
+            problems.append(
+                f"{language}: BELOW -- {live} unspelled problem-type cell(s) against a pin of "
+                f"{pinned} (-{pinned - live}). An improvement must be banked. Fix: lower "
+                f"[{_BASELINE_LANGUAGES_KEY}] {language} to {live} in {BASELINE_PATH.name} in the "
+                f"same change."
+            )
+    for language in sorted(set(baseline) - registered):
+        problems.append(
+            f"{BASELINE_PATH.name}: stale pin -- it names language {language!r}, which is not "
+            f"registered (registered: {', '.join(sorted(registered))}). Fix: remove the entry."
+        )
+    return problems
 
 
 def _require_min_languages(language_names: frozenset[str]) -> None:
@@ -203,22 +301,20 @@ def _require_min_languages(language_names: frozenset[str]) -> None:
         raise SystemExit(EXIT_USAGE)
 
 
-def scan_all_registered_languages() -> tuple[dict[str, LanguageCensus], dict[str, Mapping[str, str]]]:
+def scan_all_registered_languages() -> dict[str, LanguageCensus]:
     language_names = registered_language_names()
     _require_min_languages(language_names)
     src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, language_names, WORKSPACE_ROOT)
     censuses: dict[str, LanguageCensus] = {}
-    holes: dict[str, Mapping[str, str]] = {}
     for language, language_src_dirs in sorted(src_dirs.items()):
         censuses[language] = census_sources(language, language_src_dirs)
-        holes[language] = declaration_for_language(language).unrealized_problem_types
         logger.debug(
             "census language=%s packages=%s spellings=%d",
             language,
             [src_dir.parents[1].name for src_dir in language_src_dirs],
             len(censuses[language].spellings),
         )
-    return censuses, holes
+    return censuses
 
 
 def render_report(registry: tuple[ProblemType, ...], verdicts: Mapping[str, LanguageVerdict]) -> str:
@@ -231,8 +327,6 @@ def render_report(registry: tuple[ProblemType, ...], verdicts: Mapping[str, Lang
             verdict = verdicts[language]
             if problem_type.family in verdict.realized:
                 cells.append("realized".ljust(10))
-            elif problem_type.family in verdict.declared_holes:
-                cells.append("declared".ljust(10))
             else:
                 cells.append("MISSING".ljust(10))
         lines.append("  " + problem_type.family.ljust(width) + "  " + "  ".join(cells))
@@ -260,34 +354,99 @@ def _self_test_comparator(registry: tuple[ProblemType, ...]) -> bool:
     ok = True
     full = tuple(problem_type.family for problem_type in registry)
     clean = {"alpha": _planted("alpha", full), "beta": _planted("beta", full)}
-    problems, _ = evaluate(registry, clean, {})
-    ok &= _assert(problems == [], "two fully realizing languages report no problem")
+    evaluation = evaluate(registry, clean)
+    ok &= _assert(
+        evaluation.problems == [] and all(cells == () for cells in evaluation.unspelled.values()),
+        "two fully realizing languages report no problem and no unspelled cell",
+    )
 
     private = {"alpha": _planted("alpha", full + ("private-thing",)), "beta": clean["beta"]}
-    problems, _ = evaluate(registry, private, {})
-    ok &= _assert(len(problems) == 1 and "not a registered problem-type family" in problems[0],
-                  "an unregistered literal slug is one problem")
+    evaluation = evaluate(registry, private)
+    ok &= _assert(
+        len(evaluation.problems) == 1 and "not a registered problem-type family" in evaluation.problems[0],
+        "a spelled private slug is one unpinned hard problem",
+    )
 
     missing = full[-1]
     partial_slugs = full[:-1]
     partial = {"alpha": _planted("alpha", partial_slugs), "beta": clean["beta"]}
-    problems, _ = evaluate(registry, partial, {})
-    ok &= _assert(len(problems) == 1 and missing in problems[0] and "neither spells" in problems[0],
-                  "an undeclared unrealized family is one problem")
-    problems, verdicts = evaluate(registry, partial, {"alpha": {missing: "planted reason"}})
-    ok &= _assert(problems == [], "a declared hole with a reason passes")
-    ok &= _assert(missing in verdicts["alpha"].declared_holes, "the verdict records the declared hole")
-    problems, _ = evaluate(registry, partial, {"alpha": {missing: " "}})
-    ok &= _assert(len(problems) == 1 and "empty reason" in problems[0], "a reasonless hole is one problem")
-    problems, _ = evaluate(registry, clean, {"alpha": {missing: "planted"}})
-    ok &= _assert(len(problems) == 1 and "stale declaration" in problems[0],
-                  "a spelled-but-declared family is one problem")
-    problems, _ = evaluate(registry, clean, {"alpha": {"no-such-family": "planted"}})
-    ok &= _assert(len(problems) == 1 and "not a registered family" in problems[0],
-                  "an unknown family in a declaration is one problem")
+    evaluation = evaluate(registry, partial)
+    ok &= _assert(
+        evaluation.problems == []
+        and evaluation.unspelled["alpha"] == (missing,)
+        and evaluation.unspelled["beta"] == ()
+        and missing not in evaluation.verdicts["alpha"].realized,
+        "a partially-spelling language is exactly one unspelled cell and zero hard problems",
+    )
     nobody = {"alpha": _planted("alpha", partial_slugs), "beta": _planted("beta", partial_slugs)}
-    problems, _ = evaluate(registry, nobody, {"alpha": {missing: "p"}, "beta": {missing: "p"}})
-    ok &= _assert(len(problems) == 1 and "dead contract" in problems[0], "a family nobody spells is one problem")
+    evaluation = evaluate(registry, nobody)
+    ok &= _assert(
+        len(evaluation.problems) == 1 and "dead contract" in evaluation.problems[0],
+        "a family nobody spells is one unpinned hard problem, whatever any pin says",
+    )
+    return ok
+
+
+def _self_test_ratchet(registry: tuple[ProblemType, ...]) -> bool:
+    ok = True
+    full = tuple(problem_type.family for problem_type in registry)
+    registered = frozenset({"alpha", "beta"})
+    one_cell = {"alpha": (full[-1],), "beta": ()}
+    problems = ratchet_problems(one_cell, {"alpha": 1}, registered)
+    ok &= _assert(problems == [], "an exact-pin match is clean")
+    problems = ratchet_problems(one_cell, {"alpha": 0}, registered)
+    ok &= _assert(
+        len(problems) == 1 and "EXCEED" in problems[0] and full[-1] in problems[0],
+        "a count above the pin is one EXCEED problem naming the unspelled family",
+    )
+    problems = ratchet_problems(one_cell, {"alpha": 2}, registered)
+    ok &= _assert(
+        len(problems) == 1 and "BELOW" in problems[0] and "lower" in problems[0],
+        "a count below the pin is one BELOW problem that says to lower the pin",
+    )
+    problems = ratchet_problems(one_cell, {}, registered)
+    ok &= _assert(
+        len(problems) == 1 and "EXCEED" in problems[0] and "pin of 0" in problems[0],
+        "an unpinned language with one unspelled family is EXCEED against an implicit pin of 0",
+    )
+    problems = ratchet_problems(one_cell, {"alpha": 1, "gamma": 3}, registered)
+    ok &= _assert(
+        len(problems) == 1 and "stale pin" in problems[0] and "gamma" in problems[0],
+        "a pin naming an unregistered language is one stale-pin problem",
+    )
+    return ok
+
+
+def _self_test_baseline_loader(tmp_root: Path) -> bool:
+    ok = True
+    good = tmp_root / "good.toml"
+    good.write_text("[languages]\nalpha = 3\nbeta = 0\n", encoding="utf-8")
+    ok &= _assert(dict(load_baseline(good)) == {"alpha": 3, "beta": 0}, "a well-formed baseline loads")
+    empty_table = tmp_root / "empty-table.toml"
+    empty_table.write_text("[languages]\n", encoding="utf-8")
+    ok &= _assert(dict(load_baseline(empty_table)) == {}, "an empty [languages] table loads (every language at zero)")
+    rejected: tuple[tuple[str, Path, str], ...] = (
+        ("an unrecognized top-level key", tmp_root / "key.toml", "[languages]\nalpha = 1\n[extra]\nx = 1\n"),
+        ("a missing [languages] table", tmp_root / "no-table.toml", "alpha = 1\n"),
+        ("a negative count", tmp_root / "negative.toml", "[languages]\nalpha = -1\n"),
+        ("a bool count", tmp_root / "bool.toml", "[languages]\nalpha = true\n"),
+        ("a non-integer count", tmp_root / "string.toml", '[languages]\nalpha = "7"\n'),
+        ("invalid TOML", tmp_root / "invalid.toml", "[languages\nalpha = 1\n"),
+    )
+    for label, path, text in rejected:
+        path.write_text(text, encoding="utf-8")
+        try:
+            load_baseline(path)
+        except ValueError as exc:
+            ok &= _assert(path.name in str(exc), f"the loader rejects {label}, naming the file")
+        else:
+            ok &= _assert(False, f"the loader rejects {label}")
+    try:
+        load_baseline(tmp_root / "absent.toml")
+    except ValueError as exc:
+        ok &= _assert("absent.toml" in str(exc), "the loader rejects a missing file, naming it")
+    else:
+        ok &= _assert(False, "the loader rejects a missing file")
     return ok
 
 
@@ -333,7 +492,7 @@ def _self_test_language_core(tmp_root: Path) -> bool:
 
 
 def _self_test_live_read() -> bool:
-    censuses, _ = scan_all_registered_languages()
+    censuses = scan_all_registered_languages()
     realizers = sorted(
         language for language, census in censuses.items()
         if "internal" in realized_families(census, FRAMEWORK_PROBLEM_TYPES)
@@ -350,9 +509,11 @@ def self_test() -> bool:
     try:
         ok = _self_test_census(tmp_root)
         ok &= _self_test_language_core(tmp_root)
+        ok &= _self_test_baseline_loader(tmp_root)
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)
     ok &= _self_test_comparator(FRAMEWORK_PROBLEM_TYPES)
+    ok &= _self_test_ratchet(FRAMEWORK_PROBLEM_TYPES)
     ok &= _self_test_live_read()
     return ok
 
@@ -368,18 +529,28 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_USAGE
     if args.self_test:
         return EXIT_OK
-    censuses, holes = scan_all_registered_languages()
-    problems, verdicts = evaluate(FRAMEWORK_PROBLEM_TYPES, censuses, holes)
+    try:
+        baseline = load_baseline()
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    censuses = scan_all_registered_languages()
+    evaluation = evaluate(FRAMEWORK_PROBLEM_TYPES, censuses)
+    problems = evaluation.problems + ratchet_problems(evaluation.unspelled, baseline, frozenset(censuses))
     print(f"\nProblem-type census ({len(censuses)} registered language(s), "
           f"{len(FRAMEWORK_PROBLEM_TYPES)} families):")
-    print(render_report(FRAMEWORK_PROBLEM_TYPES, verdicts))
+    print(render_report(FRAMEWORK_PROBLEM_TYPES, evaluation.verdicts))
+    for language in sorted(evaluation.unspelled):
+        for family in evaluation.unspelled[language]:
+            print(f"PINNED GAP language={language} family={family}")
     if problems:
         print(f"\nError: {len(problems)} problem-type parity violation(s):", file=sys.stderr)
         for problem in problems:
             print(f"  - {problem}", file=sys.stderr)
         return EXIT_FAIL
-    print("\nEvery registered language spells problem types from the registry and realizes or "
-          "declares every family.")
+    pinned_cells = sum(len(cells) for cells in evaluation.unspelled.values())
+    print(f"\nEvery registered language spells every registry family except the {pinned_cells} "
+          f"unspelled cell(s) pinned in {BASELINE_PATH.name}.")
     return EXIT_OK
 
 

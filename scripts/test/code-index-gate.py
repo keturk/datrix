@@ -20,6 +20,7 @@ import argparse
 import io
 import json
 import os
+import shutil
 import socket
 import sqlite3
 import subprocess
@@ -27,6 +28,7 @@ import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -79,6 +81,8 @@ from dev.generate_test_rules import seed_topics_from_index  # noqa: E402
 from dev.logic_map import parse_markers  # noqa: E402
 from metrics.dead_code_report import Finding  # noqa: E402
 from shared.local_llm import LocalLlmPool, LocalLlmSettings  # noqa: E402
+from shared.capped_log import rotated_path  # noqa: E402
+from shared.local_llm_usage import USAGE_LOG_VARIABLE  # noqa: E402
 
 CheckFunc = Callable[[], None]
 
@@ -91,6 +95,9 @@ _GIT_IDENTITY = ("-c", "user.name=code-index-gate", "-c", "user.email=gate@examp
                  "-c", "commit.gpgsign=false")
 _MCP_SCRIPT = _LIBRARY_DIR / "dev" / "code_index_mcp.py"
 _USAGE_HOOK = _SCRIPT_DIR.parent.parent / "claude-config" / ".claude" / "hooks" / "record-search-usage.py"
+_REGISTRATION_MODULE = "_mcp_registration.py"
+_HOOK_LOG_MODULE = "_hook_log.py"
+_PROJECT_DIR_VARIABLE = "CLAUDE_PROJECT_DIR"
 
 _CONFIG = CodeIndexConfig(exclude=("alpha/generated/*",), module_roots=("*/src",), summarize=("*/src/*",))
 
@@ -662,18 +669,59 @@ def check_code_scan_selects_only_changed_packages() -> None:
 # ===========================================================================
 
 
-def _run_hook(hook: Path, payload: object) -> int:
+@dataclass(frozen=True)
+class _HookSandbox:
+    workspace: Path
+    hook: Path
+    env: dict[str, str]
+
+
+_CODE_INDEX_SERVER = "datrix-code-index"
+_LOCAL_LLM_SERVER = "datrix-local-llm"
+
+
+@contextmanager
+def _hook_sandbox(registered_directory: str | None,
+                  servers: tuple[str, ...] = (_CODE_INDEX_SERVER,)) -> Iterator[_HookSandbox]:
+    """A copy of the usage hook in a temp workspace laid out like the real one, run under a temp
+    user profile whose Claude Code config registers ``servers`` for ``registered_directory`` only
+    (for no directory when None).
+
+    The hook finds its workspace and the scripts library from its own real path, so the copy logs
+    into the temp workspace and loads the copied library; the real workspace, the real user config
+    and the ``datrix`` repository are never touched.
+    """
+    with TemporaryDirectory() as temp:
+        workspace = Path(temp) / "workspace"
+        hooks = workspace / "datrix" / "claude-config" / ".claude" / "hooks"
+        hooks.mkdir(parents=True)
+        for name in (_USAGE_HOOK.name, _REGISTRATION_MODULE, _HOOK_LOG_MODULE):
+            shutil.copyfile(_USAGE_HOOK.parent / name, hooks / name)
+        library = workspace / "datrix" / "scripts" / "library"
+        for package in ("code_index", "shared"):
+            shutil.copytree(_LIBRARY_DIR / package, library / package, ignore=shutil.ignore_patterns("__pycache__"))
+        profile = Path(temp) / "profile"
+        profile.mkdir()
+        server = {"type": "stdio", "command": sys.executable, "args": [str(_MCP_SCRIPT)]}
+        projects = {} if registered_directory is None else {registered_directory: {"mcpServers": {
+            name: server for name in servers}}}
+        (profile / ".claude.json").write_text(json.dumps({"projects": projects}), encoding="utf-8")
+        # The gate may itself run inside a Claude Code session, whose project directory must not leak in.
+        env = {key: value for key, value in os.environ.items() if key != _PROJECT_DIR_VARIABLE}
+        env.update({"USERPROFILE": str(profile), "HOME": str(profile)})
+        yield _HookSandbox(workspace, hooks / _USAGE_HOOK.name, env)
+
+
+def _run_hook(sandbox: _HookSandbox, payload: object, project_dir: str = "") -> subprocess.CompletedProcess[bytes]:
     stdin = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
-    return subprocess.run([sys.executable, str(hook)], input=stdin, capture_output=True, timeout=30,
-                          check=False).returncode
+    env = {**sandbox.env, _PROJECT_DIR_VARIABLE: project_dir} if project_dir else sandbox.env
+    return subprocess.run([sys.executable, str(sandbox.hook)], input=stdin, capture_output=True, timeout=30,
+                          check=False, env=env)
 
 
 def check_usage_hook_log_is_what_the_report_reads() -> None:
-    with TemporaryDirectory() as temp:
-        workspace = Path(temp)
-        hook = workspace / ".claude" / "hooks" / _USAGE_HOOK.name
-        hook.parent.mkdir(parents=True)
-        hook.write_bytes(_USAGE_HOOK.read_bytes())
+    with _hook_sandbox(None) as sandbox:
+        workspace = sandbox.workspace
         big_py = str(workspace / "alpha" / "src" / "big.py")
         payloads: list[object] = [
             {"tool_name": "mcp__datrix-code-index__find_symbol", "tool_input": {"name": "x"},
@@ -699,11 +747,8 @@ def check_usage_hook_log_is_what_the_report_reads() -> None:
              "tool_response": "s", "session_id": "s2"},
             b"not json",
         ]
-        codes = [_run_hook(hook, payload) for payload in payloads]
+        codes = [_run_hook(sandbox, payload).returncode for payload in payloads]
         assert codes == [0] * len(payloads), f"the hook must always exit 0: {codes}"
-        # The copied hook resolves the scripts library from its own real path, which here is a
-        # temp directory: it cannot load the identifier pattern, so it hints nothing. The real
-        # hook's hints are checked against the real hook below.
         report = usage_report(workspace, 0)
         calls = {name: tally.calls for name, tally in report.categories.items()}
         # The output filter (``| Select-String FAILED``) is not a code search; the file-listing pipe is.
@@ -712,39 +757,98 @@ def check_usage_hook_log_is_what_the_report_reads() -> None:
         assert report.top_full_reads == {"alpha/src/big.py": 1}, report.top_full_reads
         assert report.sessions == 2 and report.replaceable == 4, report
         assert "20% (1 of 5)" in report.render(), report.render()
+        # After a rotation the report still counts what the rotated file holds.
+        log = workspace / ".code-index" / "usage.jsonl"
+        log.replace(rotated_path(log))
+        assert _run_hook(sandbox, payloads[2]).returncode == 0
+        rotated = usage_report(workspace, 0)
+        assert rotated.categories["grep"].calls == 3 and log.read_text(encoding="utf-8").count("\n") == 1, (
+            "the report must read the rotated log and the current one")
 
 
-def _hook_output(payload: object) -> str:
-    stdin = json.dumps(payload).encode("utf-8")
-    result = subprocess.run([sys.executable, str(_USAGE_HOOK)], input=stdin, capture_output=True, timeout=30,
-                            check=False)
+def _hook_hint(sandbox: _HookSandbox, payload: dict[str, object], project_dir: str = "") -> str:
+    result = _run_hook(sandbox, payload, project_dir)
     assert result.returncode == 0, result.stderr
-    return result.stdout.decode("utf-8")
+    out = result.stdout.decode("utf-8").strip()
+    return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out else ""
 
 
 def check_usage_hook_points_at_the_index_a_few_times_per_session() -> None:
-    session = f"gate-hints-{os.getpid()}-{threading.get_ident()}"
-    state = _USAGE_HOOK.parent / ".state" / f"search-hints-{session}.json"
-    identifier = {"tool_name": "Grep", "tool_input": {"pattern": "\\bto_snake_case\\b"},
-                  "tool_response": "g", "session_id": session}
-    try:
-        outputs = [_hook_output(identifier) for _ in range(4)]
-        hinted = [json.loads(out)["hookSpecificOutput"]["additionalContext"] for out in outputs[:3]]
-        assert all("find_references" in text and "select:mcp__datrix-code-index__" in text for text in hinted), \
+    # Registered with forward slashes, asked from a backslash spelling: separators are normalised.
+    with _hook_sandbox("D:/registered/workspace") as sandbox:
+        cwd = "D:\\registered\\workspace"
+        identifier = {"tool_name": "Grep", "tool_input": {"pattern": "\\bto_snake_case\\b"},
+                      "tool_response": "g", "session_id": "s1", "cwd": cwd}
+        hinted = [_hook_hint(sandbox, identifier) for _ in range(4)]
+        assert all("find_references" in text and "select:mcp__datrix-code-index__" in text for text in hinted[:3]), \
             hinted
-        assert outputs[3].strip() == "", "a session gets three identifier hints, then silence"
+        assert hinted[3] == "", "a session gets three identifier hints, then silence"
+        subagent = {**identifier, "agent_id": "a1"}
+        assert "find_symbol" in _hook_hint(sandbox, subagent), \
+            "a subagent has a fresh context: the main thread's spent hints must not silence it"
         for silent in (
-            {"tool_name": "Grep", "tool_input": {"pattern": "tenant.*header"}, "session_id": session},
-            {"tool_name": "Grep", "tool_input": {"pattern": "to_snake_case", "glob": "*.j2"}, "session_id": session},
+            {"tool_name": "Grep", "tool_input": {"pattern": "tenant.*header"}, "session_id": "s1", "cwd": cwd},
+            {"tool_name": "Grep", "tool_input": {"pattern": "to_snake_case", "glob": "*.j2"}, "session_id": "s1",
+             "cwd": cwd},
             {"tool_name": "Read", "tool_input": {"file_path": "x.py", "offset": 1}, "tool_response": "c" * 9000,
-             "session_id": session},
+             "session_id": "s1", "cwd": cwd},
         ):
-            assert _hook_output(silent).strip() == "", f"no hint for {silent['tool_input']}"
+            assert _hook_hint(sandbox, silent) == "", f"no hint for {silent['tool_input']}"
         large_read = {"tool_name": "Read", "tool_input": {"file_path": "big.py"}, "tool_response": "c" * 9000,
-                      "session_id": session}
-        assert "outline" in _hook_output(large_read), "a whole read of a large Python file points at outline"
-    finally:
-        state.unlink(missing_ok=True)
+                      "session_id": "s1", "cwd": cwd}
+        assert "select:mcp__datrix-code-index__outline" in _hook_hint(sandbox, large_read), \
+            "a whole read of a large Python file points at outline"
+        assert (sandbox.workspace / ".code-index" / "usage.jsonl").is_file(), "the log lands in the hook's workspace"
+        # The agent changed directory: the payload's cwd moved, the session's project directory did not.
+        moved = {"tool_name": "Grep", "tool_input": {"pattern": "\\bto_snake_case\\b"}, "tool_response": "g",
+                 "session_id": "s3", "cwd": "D:\\registered\\workspace\\pkg\\src"}
+        assert "select:mcp__datrix-code-index__" in _hook_hint(sandbox, moved, project_dir=cwd), \
+            "registration is looked up for the directory the session started in, not the shell's current one"
+
+
+def check_usage_hook_names_the_shell_where_the_session_has_no_index_tools() -> None:
+    # Registered for one directory; the session runs in another, or reports none.
+    with _hook_sandbox("D:/registered/workspace") as sandbox:
+        for session, cwd in (("s1", "D:/elsewhere"), ("s2", "")):
+            identifier = {"tool_name": "Grep", "tool_input": {"pattern": "\\bto_snake_case\\b"},
+                          "tool_response": "g", "session_id": session, "cwd": cwd}
+            text = _hook_hint(sandbox, identifier)
+            assert "code-index.ps1\" -Symbol to_snake_case" in text and "-Setup" in text, text
+            assert "ToolSearch" not in text, f"an unregistered session must not be sent to a ToolSearch: {text}"
+            large_read = {"tool_name": "Read", "tool_input": {"file_path": "big.py"}, "tool_response": "c" * 9000,
+                          "session_id": session, "cwd": cwd}
+            text = _hook_hint(sandbox, large_read)
+            assert "-Outline <path>" in text and "ToolSearch" not in text, text
+
+
+def check_usage_hook_points_at_local_models_only_where_registered() -> None:
+    cwd = "D:/registered/workspace"
+    big_log = {"tool_name": "Read", "tool_input": {"file_path": "D:/registered/workspace/.test-output/run/full.txt"},
+               "tool_response": "l" * 9000, "session_id": "s1", "cwd": cwd}
+    big_py = {"tool_name": "Read", "tool_input": {"file_path": "big.py"}, "tool_response": "c" * 9000,
+              "session_id": "s1", "cwd": cwd}
+    with _hook_sandbox(cwd, servers=(_CODE_INDEX_SERVER, _LOCAL_LLM_SERVER)) as sandbox:
+        log_hint = _hook_hint(sandbox, big_log)
+        assert "select:mcp__datrix-local-llm__digest_log" in log_hint, log_hint
+        assert _hook_hint(sandbox, {**big_log, "tool_input": {**big_log["tool_input"], "limit": 50}}) == "", \
+            "a ranged log read is already cheap: no hint"
+        assert _hook_hint(sandbox, {**big_log, "tool_response": "short"}) == "", "a small log read gets no hint"
+        assert "mcp__datrix-local-llm__ask_files" in _hook_hint(sandbox, big_py), \
+            "a whole read of a large Python file also points at ask_files when the session has it"
+        assert not (sandbox.workspace / ".code-index" / "usage.jsonl").exists() or "full.txt" not in (
+            sandbox.workspace / ".code-index" / "usage.jsonl").read_text(encoding="utf-8"), \
+            "a log read is not a code search and must not enter the code-index usage log"
+    with _hook_sandbox(cwd, servers=(_CODE_INDEX_SERVER,)) as sandbox:
+        assert _hook_hint(sandbox, big_log) == "", "no local-model tools in the session: no digest_log hint"
+        assert "ask_files" not in _hook_hint(sandbox, big_py), "no local-model tools: ask_files is not named"
+
+
+def check_usage_hook_never_writes_into_the_datrix_repository() -> None:
+    stray = _USAGE_HOOK.parents[2] / ".code-index"
+    assert not stray.exists(), (
+        f"{stray} exists: the usage hook (or a check running it) logged inside the datrix repository. The hook "
+        f"derives its workspace from its real path; delete the directory and find what ran the hook from a copy "
+        f"outside the workspace layout.")
 
 
 # ===========================================================================
@@ -784,6 +888,9 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_mcp_server_stdout_carries_only_protocol,
     check_usage_hook_log_is_what_the_report_reads,
     check_usage_hook_points_at_the_index_a_few_times_per_session,
+    check_usage_hook_names_the_shell_where_the_session_has_no_index_tools,
+    check_usage_hook_points_at_local_models_only_where_registered,
+    check_usage_hook_never_writes_into_the_datrix_repository,
     check_code_scan_index_verdicts,
     check_code_scan_sees_names_used_through_strings,
     check_code_scan_selects_only_changed_packages,
@@ -806,7 +913,10 @@ def main() -> int:
                   f"{', '.join(c.__name__ for c in _ALL_CHECKS)}.", file=sys.stderr)
             return 2
     print(f"Running {len(checks)} code-index behaviour checks...\n")
-    passed = run_checks(checks)
+    # The checks' own loopback model servers must never count as real use of the machines.
+    with TemporaryDirectory(prefix="code-index-gate-") as temp:
+        os.environ[USAGE_LOG_VARIABLE] = str(Path(temp) / "usage.jsonl")
+        passed = run_checks(checks)
     print()
     if passed:
         print(f"{_GREEN}GATE PASSED{_RESET}: all {len(checks)} code-index behaviour checks passed.")

@@ -366,6 +366,161 @@ function Get-DatrixLocalLlmArguments {
  return ,$llmArgs
 }
 
+function Get-DatrixClaudeCodeInstallations {
+ <#
+ .SYNOPSIS
+ Every Claude Code that can start a session on this machine.
+
+ .DESCRIPTION
+ The CLI on PATH, and the newest build the VS Code extension bundles. They are separate
+ installations with different versions, and they key local scope differently (2.0 by
+ 'D:\datrix', 2.1 by 'D:/datrix'), so a stale local-scope registration must be looked for
+ through each of them.
+ #>
+ $found = @()
+ if (Get-Command claude -ErrorAction SilentlyContinue) {
+  $found += "claude"
+ }
+ $extensions = Join-Path $env:USERPROFILE ".vscode\extensions"
+ if (Test-Path $extensions) {
+  $newest = Get-ChildItem $extensions -Directory -Filter "anthropic.claude-code-*" |
+   Where-Object { $_.Name -match '^anthropic\.claude-code-(\d+\.\d+\.\d+)' } |
+   Sort-Object { [version]($_.Name -replace '^anthropic\.claude-code-(\d+\.\d+\.\d+).*$', '$1') } -Descending |
+   Select-Object -First 1
+  if ($newest) {
+   $bundled = Join-Path $newest.FullName "resources\native-binary\claude.exe"
+   if (Test-Path $bundled) { $found += "`"$bundled`"" }
+  }
+ }
+ return $found
+}
+
+function Read-DatrixJsonObject([string]$Path, [string]$SetupCommand) {
+ # The file's top-level properties as an ordered table; empty when the file does not exist.
+ $table = [ordered]@{}
+ if (-not (Test-Path $Path)) {
+  return $table
+ }
+ try {
+  $existing = Get-Content $Path -Raw | ConvertFrom-Json
+ }
+ catch {
+  throw "$Path is not valid JSON ($($_.Exception.Message)); fix or delete it and re-run $SetupCommand."
+ }
+ foreach ($property in $existing.PSObject.Properties) {
+  $table[$property.Name] = $property.Value
+ }
+ return $table
+}
+
+function Write-DatrixJsonFile([string]$Path, [System.Collections.IDictionary]$Table) {
+ $json = $Table | ConvertTo-Json -Depth 20
+ [System.IO.File]::WriteAllText($Path, $json + "`n", (New-Object System.Text.UTF8Encoding $false))
+}
+
+function Remove-DatrixLocalMcpRegistrations([string]$Name, [string]$Workspace) {
+ # Earlier setups registered servers in local scope (~/.claude.json), keyed by the exact
+ # working-directory string -- once per Claude Code installation, once per drive-letter
+ # spelling. The project .mcp.json replaces all of them; a stale local entry would shadow it.
+ # Each 'claude' call runs from cmd with that spelling as its working directory, because
+ # PowerShell hands child processes the upper-case drive.
+ $spellings = @(
+  ($Workspace.Substring(0, 1).ToUpperInvariant() + $Workspace.Substring(1)),
+  ($Workspace.Substring(0, 1).ToLowerInvariant() + $Workspace.Substring(1))
+ ) | Select-Object -Unique
+ # 'claude mcp get' reports an absent server on stderr, which Windows PowerShell turns into a
+ # terminating error under "Stop"; exit codes are checked explicitly instead.
+ $previousPreference = $ErrorActionPreference
+ $ErrorActionPreference = "Continue"
+ try {
+  foreach ($claude in @(Get-DatrixClaudeCodeInstallations)) {
+   foreach ($directory in $spellings) {
+    $inDirectory = "cd /d `"$directory`" && $claude mcp"
+    cmd /s /c "`"$inDirectory remove --scope local $Name`"" *> $null
+    $details = cmd /s /c "`"$inDirectory get $Name`"" 2>&1 | Out-String
+    if ($details -match "Scope:\s*Local") {
+     throw "A local-scope '$Name' registration ($claude, $directory) could not be removed: $details"
+    }
+   }
+  }
+ }
+ finally {
+  $ErrorActionPreference = $previousPreference
+ }
+}
+
+function Install-DatrixProjectMcpServer {
+ <#
+ .SYNOPSIS
+ Set up a stdio MCP server for the workspace on this machine: the project .mcp.json, its
+ per-machine approval, and the removal of any older local-scope registration.
+
+ .DESCRIPTION
+ Writes the server into <workspace>\.mcp.json with this machine's paths. Claude Code reads that
+ file from the folder it opens, for every installation and whatever the drive-letter case, so
+ one file per machine replaces per-installation registrations. It is written here, not checked
+ in, because its paths are this machine's (the venv's Python, this checkout's server). Other
+ servers already in the file are kept.
+
+ Claude Code starts a project .mcp.json server only once it is approved on the machine, and
+ current builds ignore an approval in the checked-in settings.json -- a repository must not
+ approve its own servers -- so the server is named in .claude\settings.local.json
+ (gitignored, per machine). Running the setup is the approval. Every other setting already
+ in that file is kept.
+
+ Throws when a file is not valid JSON or a stale local registration cannot be removed.
+
+ .PARAMETER Name
+ The MCP server name (its tools appear as mcp__<Name>__<tool>).
+
+ .PARAMETER PythonExe
+ The interpreter that runs the server.
+
+ .PARAMETER ServerScript
+ The server's Python script.
+
+ .PARAMETER Workspace
+ The workspace root the sessions start in.
+
+ .PARAMETER SetupCommand
+ The command that re-runs this setup, named in the messages.
+ #>
+ [CmdletBinding()]
+ param(
+  [Parameter(Mandatory = $true)] [string]$Name,
+  [Parameter(Mandatory = $true)] [string]$PythonExe,
+  [Parameter(Mandatory = $true)] [string]$ServerScript,
+  [Parameter(Mandatory = $true)] [string]$Workspace,
+  [Parameter(Mandatory = $true)] [string]$SetupCommand
+ )
+
+ $configPath = Join-Path $Workspace ".mcp.json"
+ $config = Read-DatrixJsonObject $configPath $SetupCommand
+ $servers = [ordered]@{}
+ if ($config.Contains("mcpServers") -and $config["mcpServers"]) {
+  foreach ($server in $config["mcpServers"].PSObject.Properties) {
+   $servers[$server.Name] = $server.Value
+  }
+ }
+ $servers[$Name] = [ordered]@{ type = "stdio"; command = $PythonExe; args = @($ServerScript) }
+ $config["mcpServers"] = $servers
+ Write-DatrixJsonFile $configPath $config
+ Write-Host "Wrote '$Name' into $configPath." -ForegroundColor Green
+
+ $localSettings = Join-Path $Workspace ".claude\settings.local.json"
+ $settings = Read-DatrixJsonObject $localSettings $SetupCommand
+ $approved = @(if ($settings.Contains("enabledMcpjsonServers")) { $settings["enabledMcpjsonServers"] | Where-Object { $_ } })
+ if ($approved -notcontains $Name) {
+  $approved += $Name
+ }
+ $settings["enabledMcpjsonServers"] = $approved
+ Write-DatrixJsonFile $localSettings $settings
+
+ Remove-DatrixLocalMcpRegistrations $Name $Workspace
+ Write-Host ("Approved '$Name' for this machine in $localSettings. Restart Claude Code (in VS Code: " +
+  "Developer: Reload Window) to load its tools.") -ForegroundColor Green
+}
+
 Export-ModuleMember -Function @(
  "Get-DatrixWorkspaceRootFromScript",
  "ConvertTo-DatrixProjectName",
@@ -377,5 +532,7 @@ Export-ModuleMember -Function @(
  "Get-DatrixInstalledPlatforms",
  "Get-DatrixInstalledLanguages",
  "Get-DatrixInstalledTargets",
- "Get-DatrixLocalLlmArguments"
+ "Get-DatrixLocalLlmArguments",
+ "Get-DatrixClaudeCodeInstallations",
+ "Install-DatrixProjectMcpServer"
 )

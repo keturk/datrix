@@ -128,6 +128,7 @@ SELF_TEST_DIR: Path = WORK_ROOT / "self-test"
 HARNESS_DIR: Path = _HERE.parent / "wire_shape_harness"
 COMPARATOR_SCRIPT: Path = HARNESS_DIR / "shape_comparator.mjs"
 CAPTURE_SELF_TEST_SCRIPT: Path = HARNESS_DIR / "wire_capture_self_test.mjs"
+INTROSPECTION_SELF_TEST_SCRIPT: Path = HARNESS_DIR / "client_introspection_self_test.mjs"
 
 #: Scratch directory the live cross-language comparison writes its job into.
 CROSS_LANGUAGE_DIR: Path = WORK_ROOT / "cross-language"
@@ -1356,6 +1357,141 @@ def _run_wire_capture_self_test() -> list[str]:
     return problems
 
 
+#: A planted generated-client class holding the three method shapes the renderer emits and one
+#: shape it never emits. The paths are deliberately unlike any real route.
+_PLANTED_CLIENT_SOURCE: Final[str] = """\
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+
+import { API_BASE_URL } from './core/api-base-url.token';
+import type { ApiRequestOptions } from './core/request-options';
+
+@Injectable({ providedIn: 'root' })
+export class SelfTestProbeClient {
+  private readonly http = inject(HttpClient);
+  private readonly base = inject(API_BASE_URL);
+
+  withArgs(args: {
+    probeId: string;
+  }, options?: ApiRequestOptions): Observable<number> {
+    return this.http.get<number>(
+      `${this.base}/self-test/with-args/${encodeURIComponent(String(args.probeId))}`,
+      options,
+    );
+  }
+
+  withoutArgs(options?: ApiRequestOptions): Observable<number> {
+    return this.http.get<number>(
+      `${this.base}/self-test/without-args`,
+      options,
+    );
+  }
+
+  withDefaultArgs(args: {
+    probeFilter?: string;
+  } = {}, options?: ApiRequestOptions): Observable<number> {
+    return this.http.get<number>(
+      `${this.base}/self-test/default-args`,
+      options,
+    );
+  }
+
+  unreadable(probeId: string): Observable<number> {
+    return this.http.get<number>(`${this.base}/self-test/unreadable`);
+  }
+}
+"""
+
+
+def _run_client_introspection_self_test() -> list[str]:
+    """Prove the generated-client reader reads every emitted method shape and refuses others.
+
+    Drives the REAL reader (``client_introspection.mjs``'s ``readClientClasses``, the function the
+    live harness reads every emitted client with) over a planted client file. A route that takes
+    no request arguments is emitted as a method declaring ONLY the trailing request options, so
+    the reader must read it: a reader that refuses it reports a real route as an unreadable
+    method, which fails the gate on a backend that answers that route correctly. A method whose
+    first parameter is neither an ``args`` object nor the options bag must still be refused by
+    name, so the reader cannot swallow a shape it does not understand.
+
+    Returns:
+        Failure descriptions; empty means the reader is sound.
+
+    Raises:
+        RuntimeError: If the reader script itself fails to run.
+    """
+    case_dir = SELF_TEST_DIR / "client-introspection"
+    case_dir.mkdir(parents=True, exist_ok=True)
+    client_file = case_dir / "self-test-probe.client.ts"
+    client_file.write_text(_PLANTED_CLIENT_SOURCE, encoding="utf-8")
+    out_path = case_dir / "results.json"
+    out_path.unlink(missing_ok=True)
+    result = run_command(
+        [
+            _resolve_node(),
+            str(INTROSPECTION_SELF_TEST_SCRIPT),
+            "--node-dir",
+            str(NODE_DIR),
+            "--client-file",
+            str(client_file),
+            "--out",
+            str(out_path),
+        ],
+        cwd=case_dir,
+        timeout_seconds=_COMPARATOR_TIMEOUT_SECONDS,
+    )
+    if result.returncode != 0 or not out_path.is_file():
+        raise RuntimeError(
+            f"The client-introspection self-test failed to run (exit {result.returncode}). "
+            f"Expected it to write {out_path}. Fix: read the output below -- a missing Node "
+            f"toolchain or an unreachable npm registry is the usual cause.\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
+    classes = json.loads(out_path.read_text(encoding="utf-8"))["classes"]
+    problems: list[str] = []
+    if [entry["className"] for entry in classes] != ["SelfTestProbeClient"]:
+        return [f"the introspection self-test read classes {classes!r}; expected SelfTestProbeClient."]
+    probe = classes[0]
+    read = {method["name"]: method for method in probe["methods"]}
+    expected: dict[str, tuple[str, list[str]]] = {
+        "withArgs": ("/self-test/with-args/:probeId", ["probeId"]),
+        "withoutArgs": ("/self-test/without-args", []),
+        "withDefaultArgs": ("/self-test/default-args", ["probeFilter"]),
+    }
+    if set(read) != set(expected):
+        problems.append(
+            f"the reader read methods {sorted(read)}; expected {sorted(expected)} -- a route the "
+            f"renderer emitted would be reported as unreadable."
+        )
+    for name, (route_path, arg_names) in expected.items():
+        method = read.get(name)
+        if method is None:
+            continue
+        if (method["httpVerb"], method["routePath"], method["argNames"]) != (
+            "get",
+            route_path,
+            arg_names,
+        ):
+            problems.append(
+                f"method {name!r} was read as {method['httpVerb']} {method['routePath']} with "
+                f"arguments {method['argNames']}; expected get {route_path} with {arg_names}."
+            )
+    failures = probe["introspectionFailures"]
+    if len(failures) != 1 or "unreadable" not in failures[0]:
+        problems.append(
+            f"the reader refused {failures!r}; expected exactly the one method whose first "
+            f"parameter is neither an args object nor the options bag, named 'unreadable'."
+        )
+    if not problems:
+        logger.info(
+            "[OK] client-introspection self-test: a method with request arguments, one with none "
+            "(only the trailing options) and one with defaulted arguments were all read; a method "
+            "whose first parameter is neither was refused by name"
+        )
+    return problems
+
+
 def run_self_test() -> list[str]:
     """Prove the shared comparator detects a planted mismatch before any real run.
 
@@ -1374,8 +1510,9 @@ def run_self_test() -> list[str]:
     so this cannot pass with the comparison removed.
 
     The same run then proves the CROSS-LANGUAGE comparison
-    (:func:`_run_cross_language_self_test`) and the harness's wire capture
-    (:func:`_run_wire_capture_self_test`), neither of which needs Docker.
+    (:func:`_run_cross_language_self_test`), the harness's wire capture
+    (:func:`_run_wire_capture_self_test`) and its generated-client reader
+    (:func:`_run_client_introspection_self_test`), none of which needs Docker.
 
     Returns:
         Failure descriptions; empty means the comparator is sound.
@@ -1444,6 +1581,7 @@ def run_self_test() -> list[str]:
     problems.extend(_run_void_response_self_test(contract_file))
     problems.extend(_run_cross_language_self_test())
     problems.extend(_run_wire_capture_self_test())
+    problems.extend(_run_client_introspection_self_test())
 
     return problems
 

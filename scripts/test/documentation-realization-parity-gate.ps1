@@ -23,12 +23,10 @@
  real `tsc` + `SwaggerModule.createDocument()` run over an npm-installed
  dependency set. This gate is the repo-level cross-target census.
 
- A target that does not yet realize a (construct_kind, surface) cell must
- carry a typed, reviewed exemption in
- `datrix/scripts/config/documentation-realization-exemptions.json` -- an
- unexempted hole fails the gate naming the target, construct kind and surface; a STALE
- exemption (the artifact now carries the text) also fails, naming the entry
- to remove.
+ The gate is a hard zero: every registered target realizes every
+ (construct_kind, surface) cell, and an unpopulated cell is a hole that fails
+ the gate naming the target, construct kind and surface. There is no
+ exemption mechanism of any kind.
 
  Runs a SECOND comparison over the same generated fixture: the coverage
  census (Decision 39 invariant 1). It re-parses the fixture with the shipped
@@ -51,7 +49,8 @@
  DSL itself, and each structural extractor (Python ast/tokenize, the
  C-family bracket/string-aware lexer and its doc-block reader) is proven
  against a synthetic snippet to find a known-present published/source text
- and to never leak a source comment into the published set. Fails loud
+ and to never leak a source comment into the published set, and a planted
+ unpopulated cell is proven to fail the gate. Fails loud
  (exit 2) if fewer than 2 languages are registered.
 
  Repo-level validation script (per the datrix showcase boundary -- no

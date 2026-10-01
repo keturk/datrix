@@ -54,7 +54,10 @@
  must each report exactly that, naming the path and both sides; a planted secret
  must appear in no report or log line; one captured call per backend and route),
  and drives the harness's wire capture through a real HttpClient against a
- throwaway loopback server. None of this needs Docker.
+ throwaway loopback server, and its generated-client reader over a planted client
+ (a method with request arguments, one with none and one with defaulted arguments
+ must all be read; a method of any other shape must be refused by name). None of
+ this needs Docker.
 
 .PARAMETER Dbg
  Enable debug logging.

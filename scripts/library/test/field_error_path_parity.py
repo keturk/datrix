@@ -1,13 +1,12 @@
 """Field-error-path parity gate -- every registered language spells
 `request-validation` problem-body `errors[].field` paths with ONE dot-separated,
 `body`-prefix-free, `[n]`-array-indexed rule
-(`datrix_common.datrix_model.problem_types.FIELD_ERROR_PATH_RULE`) or declares the
-hole with a reason on `LanguageCapabilityDeclaration.unrealized_field_error_path`.
+(`datrix_common.datrix_model.problem_types.FIELD_ERROR_PATH_RULE`).
 
 Unlike the problem-type and framework-header registries, this is not a table of
-named families: there is exactly ONE rule, so `unrealized_field_error_path` is a
-single optional reason string, not a per-family mapping, and this gate's
-`evaluate()` mirrors that shape.
+named families: there is exactly ONE rule, so the gate holds each language to
+that one rule. It is a hard zero: every registered language is obligated to
+realize it, and no declaration excuses a language that does not.
 
 Realization is a runtime BEHAVIOUR, not a literal wire string every backend
 spells identically (unlike a problem-type URN or a framework header name), so
@@ -24,13 +23,12 @@ reading its real source:
   class-validator's own `ValidationError` tree -- censused by confirming its
   two required construction lines (bracket-indexed, dot-joined) are present.
 * A language with no known construction technique censuses to zero sites,
-  which `evaluate()` correctly reports as an undeclared gap unless the
-  language declares the hole.
+  which `evaluate()` reports as a language that does not realize the rule.
 
-Language set from the installed `datrix.languages` entry points at runtime;
-declarations read from the packages -- never a table in this script. Runs a
-built-in non-vacuity self-test on every invocation. Repo-level validation
-script (per the datrix showcase boundary -- no pytest suite lives in datrix).
+Language set from the installed `datrix.languages` entry points at runtime --
+never a table in this script. Runs a built-in non-vacuity self-test on every
+invocation. Repo-level validation script (per the datrix showcase boundary --
+no pytest suite lives in datrix).
 """
 
 from __future__ import annotations
@@ -53,7 +51,6 @@ if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
 from datrix_common.datrix_model.problem_types import FIELD_ERROR_PATH_RULE  # noqa: E402
-from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
 
 from shared.registered_targets import registered_language_names  # noqa: E402
 from shared.registered_targets import (  # noqa: E402
@@ -100,7 +97,6 @@ class RealizationSite:
 class LanguageVerdict:
     language: str
     realized: bool
-    declared_reason: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -205,10 +201,10 @@ def _census_typescript(package: str, src_dir: Path, files: list[Path]) -> tuple[
 #: `{language: detector}` -- the plumbing that dispatches a discovered
 #: language's sources to its own construction-technique census. A language
 #: absent here (a future target, or one with no known technique yet) censuses
-#: to zero sites, which `evaluate()` correctly reports as an undeclared gap
-#: unless that language declares `unrealized_field_error_path`. This is NOT
-#: the retired per-family mapping shape: it holds no reason, only a census
-#: FUNCTION, because there is no family axis on a one-rule gate.
+#: to zero sites, which `evaluate()` reports as a language that does not
+#: realize the rule. This is NOT the retired per-family mapping shape: it
+#: holds only a census FUNCTION, because there is no family axis on a
+#: one-rule gate.
 _CENSUS_DISPATCH: Final[Mapping[str, Callable[[str, Path, list[Path]], tuple[RealizationSite, ...]]]] = {
     "python": _census_python,
     "typescript": _census_typescript,
@@ -236,25 +232,20 @@ def census_sources(language: str, src_dirs: tuple[Path, ...]) -> tuple[Realizati
 def evaluate(
     canonical_path: str,
     censuses: Mapping[str, tuple[RealizationSite, ...]],
-    declared_reasons: Mapping[str, str | None],
 ) -> tuple[list[str], dict[str, LanguageVerdict]]:
     """Every violation across every registered language, plus the per-language
     verdicts the report renders.
 
     A language realizes the rule when its census sites spell *canonical_path*
-    exactly for the shared fixture; declares the hole when
-    `unrealized_field_error_path` carries a non-empty reason; realizing AND
-    declaring is a stale declaration (fails); neither is an unrealized,
-    undeclared gap (fails); a divergent spelling that is neither the
-    canonical path nor an empty census is a violation naming the found
-    spelling and the expected one.
+    exactly for the shared fixture. Every registered language is obligated to:
+    an empty census is a language that does not realize the rule (fails, and no
+    declaration can excuse it), and a divergent spelling is a violation naming
+    the found spelling and the expected one.
     """
     problems: list[str] = []
     verdicts: dict[str, LanguageVerdict] = {}
     for language in sorted(censuses):
         sites = censuses[language]
-        reason = declared_reasons.get(language)
-        declared = reason is not None
         realized = any(site.spelled_path == canonical_path for site in sites)
         for site in sites:
             if site.spelled_path == canonical_path:
@@ -265,23 +256,13 @@ def evaluate(
                 f"{canonical_path!r} FIELD_ERROR_PATH_RULE derives. Fix: match the rule's "
                 f"dot-separated, body-prefix-free, `[n]`-indexed form."
             )
-        if declared and not (reason or "").strip():
+        if not sites:
             problems.append(
-                f"{language}: unrealized_field_error_path carries an empty/whitespace reason. "
-                f"Fix: state why the language does not realize the rule."
+                f"{language}: does not spell the canonical field-error path "
+                f"({canonical_path!r}). Every registered language is obligated to realize "
+                f"FIELD_ERROR_PATH_RULE. Fix: realize the rule's form in the language's sources."
             )
-        if realized and declared:
-            problems.append(
-                f"{language}: declares unrealized_field_error_path, but its sources realize "
-                f"the rule. Fix: remove the stale declaration."
-            )
-        elif not sites and not declared:
-            problems.append(
-                f"{language}: neither spells the canonical field-error path "
-                f"({canonical_path!r}) nor declares unrealized_field_error_path. Fix: realize "
-                f"FIELD_ERROR_PATH_RULE's form, or declare the hole with a reason."
-            )
-        verdicts[language] = LanguageVerdict(language, realized, reason)
+        verdicts[language] = LanguageVerdict(language, realized)
     return problems, verdicts
 
 
@@ -296,23 +277,17 @@ def _require_min_languages(language_names: frozenset[str]) -> None:
         raise SystemExit(EXIT_USAGE)
 
 
-def scan_all_registered_languages() -> tuple[dict[str, tuple[RealizationSite, ...]], dict[str, str | None]]:
+def scan_all_registered_languages() -> dict[str, tuple[RealizationSite, ...]]:
     """Census every registered `datrix.languages` package's `.py`/`.j2` sources
-    for field-error-path construction sites, and read each language's
-    `unrealized_field_error_path` declaration."""
+    for field-error-path construction sites."""
     language_names = registered_language_names()
     _require_min_languages(language_names)
     src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, language_names, WORKSPACE_ROOT)
     censuses: dict[str, tuple[RealizationSite, ...]] = {}
-    reasons: dict[str, str | None] = {}
     for language, language_src_dirs in sorted(src_dirs.items()):
         censuses[language] = census_sources(language, language_src_dirs)
-        reasons[language] = declaration_for_language(language).unrealized_field_error_path
-        logger.debug(
-            "census language=%s sites=%d declared=%s",
-            language, len(censuses[language]), reasons[language] is not None,
-        )
-    return censuses, reasons
+        logger.debug("census language=%s sites=%d", language, len(censuses[language]))
+    return censuses
 
 
 def render_report(canonical_path: str, verdicts: Mapping[str, LanguageVerdict]) -> str:
@@ -320,12 +295,7 @@ def render_report(canonical_path: str, verdicts: Mapping[str, LanguageVerdict]) 
     width = max(len("language"), *(len(language) for language in verdicts)) if verdicts else len("language")
     for language in sorted(verdicts):
         verdict = verdicts[language]
-        if verdict.realized:
-            status = "realized"
-        elif verdict.declared_reason is not None:
-            status = "declared"
-        else:
-            status = "MISSING"
+        status = "realized" if verdict.realized else "MISSING"
         lines.append(f"  {language.ljust(width)}  {status}")
     return "\n".join(lines)
 
@@ -349,40 +319,29 @@ def _self_test_comparator() -> bool:
     canonical = _CANONICAL_PATH
 
     clean = {"alpha": _planted("alpha", canonical), "beta": _planted("beta", canonical)}
-    problems, verdicts = evaluate(canonical, clean, {})
+    problems, verdicts = evaluate(canonical, clean)
     ok &= _assert(problems == [], "two languages spelling the canonical path report no problem")
     ok &= _assert(verdicts["alpha"].realized, "the verdict records realization")
 
     divergent_path = "body." + canonical
     divergent = {"alpha": _planted("alpha", divergent_path), "beta": clean["beta"]}
-    problems, _ = evaluate(canonical, divergent, {})
+    problems, _ = evaluate(canonical, divergent)
     ok &= _assert(
         len(problems) == 1 and divergent_path in problems[0] and canonical in problems[0],
         "a divergent spelling is one violation naming the found and expected paths",
     )
 
-    reasonless = {"alpha": (), "beta": clean["beta"]}
-    problems, _ = evaluate(canonical, reasonless, {"alpha": "  "})
-    ok &= _assert(len(problems) == 1 and "empty" in problems[0], "an empty declared reason is one violation")
-
-    stale = {"alpha": clean["alpha"], "beta": clean["beta"]}
-    problems, _ = evaluate(canonical, stale, {"alpha": "planted reason"})
+    unrealized = {"alpha": (), "beta": clean["beta"]}
+    problems, verdicts = evaluate(canonical, unrealized)
     ok &= _assert(
-        len(problems) == 1 and "stale declaration" in problems[0],
-        "realizing and declaring at once is one problem",
+        len(problems) == 1 and problems[0].startswith("alpha:") and "does not spell" in problems[0],
+        "a language that realizes nothing is exactly one problem naming it, and evaluate takes no "
+        "declaration input that could excuse it",
     )
-
-    neither = {"alpha": (), "beta": clean["beta"]}
-    problems, _ = evaluate(canonical, neither, {})
     ok &= _assert(
-        len(problems) == 1 and "neither spells" in problems[0],
-        "an undeclared unrealized gap is one problem",
+        not verdicts["alpha"].realized and verdicts["beta"].realized,
+        "the verdict marks only the non-realizing language missing",
     )
-
-    genuine_hole = {"alpha": (), "beta": clean["beta"]}
-    problems, verdicts = evaluate(canonical, genuine_hole, {"alpha": "a genuine reason"})
-    ok &= _assert(problems == [], "a declared hole with a real reason passes")
-    ok &= _assert(verdicts["alpha"].declared_reason == "a genuine reason", "the verdict records the declared reason")
     return ok
 
 
@@ -507,28 +466,25 @@ def _self_test_min_languages_refusal() -> bool:
 
 
 def _self_test_live_read() -> bool:
-    censuses, reasons = scan_all_registered_languages()
-    realizing_or_declaring = sorted(
+    censuses = scan_all_registered_languages()
+    realizing = sorted(
         language
         for language in censuses
         if any(site.spelled_path == _CANONICAL_PATH for site in censuses[language])
-        or reasons.get(language) is not None
     )
     return _assert(
-        len(realizing_or_declaring) >= 1,
-        f"live census finds at least one language realizing or declaring the rule "
-        f"(found: {realizing_or_declaring})",
+        len(realizing) >= 1,
+        f"live census finds at least one language realizing the rule (found: {realizing})",
     )
 
 
 def self_test() -> bool:
     """Non-vacuity self-test: a planted realized language passes; a planted
-    divergent spelling with no declared reason fails naming the divergence; a
-    declared reason with an empty string fails; realizing AND declaring fails
-    as a stale declaration; fewer than two registered languages refuses with
-    `EXIT_USAGE`; the live census finds at least one registered language
-    realizing OR declaring the rule (a scan that sees nothing is broken, not
-    clean)."""
+    divergent spelling fails naming the divergence; a language that realizes
+    nothing fails with no declaration to excuse it; fewer than two registered
+    languages refuses with `EXIT_USAGE`; the live census finds at least one
+    registered language realizing the rule (a scan that sees nothing is
+    broken, not clean)."""
     print("Non-vacuity self-test:")
     tmp_root = Path(tempfile.mkdtemp(prefix="field-error-path-gate-"))
     try:
@@ -556,8 +512,8 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_USAGE
     if args.self_test:
         return EXIT_OK
-    censuses, reasons = scan_all_registered_languages()
-    problems, verdicts = evaluate(_CANONICAL_PATH, censuses, reasons)
+    censuses = scan_all_registered_languages()
+    problems, verdicts = evaluate(_CANONICAL_PATH, censuses)
     print(f"\nField-error-path census ({len(censuses)} registered language(s)):")
     print(render_report(_CANONICAL_PATH, verdicts))
     if problems:
@@ -565,7 +521,7 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems:
             print(f"  - {problem}", file=sys.stderr)
         return EXIT_FAIL
-    print("\nEvery registered language realizes the field-error-path rule or declares the hole.")
+    print("\nEvery registered language realizes the field-error-path rule.")
     return EXIT_OK
 
 

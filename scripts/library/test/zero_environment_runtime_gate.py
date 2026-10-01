@@ -1,42 +1,47 @@
 #!/usr/bin/env python3
-"""Zero-environment runtime census gate -- every registered language is held
-to the posture it declares.
+"""Zero-environment runtime census gate -- every registered language is
+obligated to bake deployment-static values at generation time.
 
 The zero-environment runtime architecture bakes every deployment-static value
 a generated service needs into literal constants at generation time, so the
 running service consults no environment variable. That is a portable
-decision, but its realization is per language, and a portable contract is
-only portable if the targets that decline it say so out loud. Each language
-plugin therefore declares its posture on its ``LanguageCapabilityDeclaration``
-(``zero_environment_runtime``: realized or not, with the regular expressions
-that spell an environment read in that language's own templates and, when
-unrealized, a written reason). This gate is the census that holds every
-language to that declaration:
+decision, and every registered language is obligated to it. Each language
+plugin states the regular expressions that spell an environment read in its
+own templates on its ``LanguageCapabilityDeclaration``
+(``zero_environment_runtime``), and this gate censuses every template against
+them. What the census may find is decided by the KIND of the language's entry
+in ``scripts/config/zero-environment-runtime-baseline.json`` -- nothing else
+selects the rule:
 
-* A language declaring the contract **realized** may carry environment reads
-  only as reviewed, written exemptions in the baseline file. Every template
-  that reads the environment must have an entry with a reason, and every
-  entry must still match a real read -- an unlisted read and a stale entry
-  are both violations.
-* A language declaring the contract **unrealized** carries a pinned,
-  decrease-only count of templates that read the environment. The count may
-  fall (``--update-baseline`` re-pins it downward) and may never rise.
-* A registered language that declares nothing fails the gate, naming it.
+* ``reviewed_exemptions`` -- every template that reads the environment is
+  listed with a written reason, as a justification of that specific read. An
+  unlisted read and a stale entry are both violations. A registered language
+  with NO entry is held to this kind with an empty list: it may carry no
+  environment read, so adding a language needs no edit here.
+* ``pinned_count`` -- a decrease-only count of environment-reading templates,
+  for a language that delivers runtime facts through the environment by
+  design. The count may fall (``--update-baseline`` lowers it) and may never
+  rise; the writer refuses to raise it.
+
+A registered language that states no idioms fails the gate, naming it, and a
+baseline entry naming a language that is not registered is stale and fails.
 
 The language set is derived from the installed ``datrix.languages`` entry
-points at runtime, never a hardcoded list, and each language's idiom comes
+points at runtime, never a hardcoded list, and each language's idioms come
 from its own declaration, never a table in this script. Templates are every
 ``.j2`` file under the ``src/`` tree of every package implementing the
 language -- its backend and each language core the backend requires; test-harness
 templates count too, because a harness that reads the environment is still
-emitted into the generated project -- a realized language lists them as
-exemptions with that reason.
+emitted into the generated project -- a ``reviewed_exemptions`` language
+lists them as exemptions with that reason.
 
 Runs a built-in non-vacuity self-test on every invocation: a synthetic
 template tree with one planted read and one clean file, the comparator
-against realized and unrealized synthetic declarations (missing exemption,
-stale exemption, count over and under the pin), the declaration's own
-validation, and a live-tree proof that the census sees a known real read.
+against both entry kinds (missing exemption, stale exemption, count over and
+under the pin, the same census passing under one kind and failing under the
+other, no entry), the entry-kind validation, the baseline writer (lowers a
+pin, refuses to raise one, carries exemptions through), and a live-tree proof
+that the census sees a known real read.
 
 Repo-level validation script (per the datrix showcase boundary -- no pytest
 suite lives in datrix).
@@ -57,6 +62,7 @@ import re
 import shutil
 import sys
 import tempfile
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -92,6 +98,31 @@ EXIT_OK: Final[int] = 0
 EXIT_FAIL: Final[int] = 1
 EXIT_USAGE: Final[int] = 2
 
+#: The two baseline entry kinds -- a closed set -- and the one payload key each
+#: kind owns. The kind alone selects which rule a language's census is held to.
+ENTRY_KIND_EXEMPTIONS: Final[str] = "reviewed_exemptions"
+ENTRY_KIND_PINNED_COUNT: Final[str] = "pinned_count"
+_ENTRY_KIND_KEY: Final[str] = "kind"
+_EXEMPTIONS_KEY: Final[str] = "exemptions"
+_PINNED_COUNT_KEY: Final[str] = "pinned_count"
+_ENTRY_PAYLOAD_KEYS: Final[Mapping[str, str]] = {
+    ENTRY_KIND_EXEMPTIONS: _EXEMPTIONS_KEY,
+    ENTRY_KIND_PINNED_COUNT: _PINNED_COUNT_KEY,
+}
+
+#: The ``_comment`` block ``--update-baseline`` writes; the committed file
+#: carries the same text.
+_BASELINE_COMMENT: Final[tuple[str, ...]] = (
+    "Zero-environment runtime census, per registered datrix.languages package.",
+    "Every language entry carries a 'kind'. reviewed_exemptions: every template",
+    "that reads the environment is listed with a written reason (hand-authored;",
+    "an unlisted read and a stale entry both fail). pinned_count: a decrease-only",
+    "count of environment-reading templates, for a language that delivers runtime",
+    "facts through the environment by design; only -UpdateBaseline writes it, and",
+    "never upward. A language with no entry is held to reviewed_exemptions with an",
+    "empty list.",
+)
+
 #: A described, currently-real environment read the live census must find:
 #: ``(language, template path relative to the package's src/<import root>/)``.
 #: Python's JWKS validator resolves ``allowedAudienceRefs`` through the
@@ -103,6 +134,7 @@ _KNOWN_LIVE_READ: Final[tuple[str, str]] = ("python", "templates/api/identity.py
 
 _SELF_TEST_LANGUAGE: Final[str] = "self_test_zero_env_lang"
 _SELF_TEST_IDIOM: Final[str] = r"\bSELF_TEST_ENV\.read\b"
+_SELF_TEST_TEMPLATE: Final[str] = "templates/reads.py.j2"
 
 
 @dataclass(frozen=True)
@@ -116,7 +148,7 @@ class LanguageCensus:
 
 @dataclass(frozen=True)
 class Exemption:
-    """One reviewed environment read a realized language carries on purpose."""
+    """One reviewed environment read a language carries on purpose."""
 
     template: str
     reason: str
@@ -161,12 +193,12 @@ def census_templates(src_dirs: tuple[Path, ...], idioms: tuple[re.Pattern[str], 
 
 
 def census_language(
-    language: str, src_dirs: tuple[Path, ...], declaration: ZeroEnvironmentRuntimeDeclaration
+    language: str, src_dirs: tuple[Path, ...], idioms: tuple[re.Pattern[str], ...]
 ) -> LanguageCensus:
     return LanguageCensus(
         language=language,
         src_dirs=src_dirs,
-        reads=census_templates(src_dirs, declaration.compiled_idioms()),
+        reads=census_templates(src_dirs, idioms),
     )
 
 
@@ -180,7 +212,7 @@ def load_baseline() -> dict[str, dict[str, object]]:
 
     Raises:
         ValueError: If the file exists but is not an object carrying a
-            ``languages`` object.
+            ``languages`` object whose every value is an object.
     """
     if not BASELINE_PATH.exists():
         return {}
@@ -191,23 +223,72 @@ def load_baseline() -> dict[str, dict[str, object]]:
             f"Malformed {BASELINE_PATH}: expected an object with a 'languages' "
             f"object keyed by registered language name."
         )
+    for language, entry in languages.items():
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"{BASELINE_PATH}: languages.{language} must be an object carrying a "
+                f"'{_ENTRY_KIND_KEY}' and its payload; got {entry!r}."
+            )
     return languages
 
 
-def parse_exemptions(language: str, entry: dict[str, object]) -> tuple[Exemption, ...]:
-    """The reviewed exemption list of a realized language's baseline entry.
+def entry_kind(language: str, entry: Mapping[str, object]) -> str:
+    """The kind of *language*'s baseline entry, validated against its payload.
+
+    Raises:
+        ValueError: If ``kind`` is absent or not one of the two valid kinds,
+            the entry carries the payload key the OTHER kind owns, the entry
+            lacks the payload key its own kind owns, or it carries any key
+            beyond the kind and its payload.
+    """
+    where = f"{BASELINE_PATH}: languages.{language}"
+    valid = sorted(_ENTRY_PAYLOAD_KEYS)
+    if _ENTRY_KIND_KEY not in entry:
+        raise ValueError(
+            f"{where} has no '{_ENTRY_KIND_KEY}'. Valid kinds: {valid}. Fix: add "
+            f"'{_ENTRY_KIND_KEY}': '{ENTRY_KIND_EXEMPTIONS}' (every environment-reading template "
+            f"listed with a written reason) or '{ENTRY_KIND_PINNED_COUNT}' (a decrease-only count, "
+            f"for a language that delivers runtime facts through the environment by design)."
+        )
+    kind = entry[_ENTRY_KIND_KEY]
+    if not isinstance(kind, str) or kind not in _ENTRY_PAYLOAD_KEYS:
+        raise ValueError(
+            f"{where} has unknown kind {kind!r}. Valid kinds: {valid}. Fix: use one of them."
+        )
+    payload_key = _ENTRY_PAYLOAD_KEYS[kind]
+    for other_kind, other_key in _ENTRY_PAYLOAD_KEYS.items():
+        if other_kind != kind and other_key in entry:
+            raise ValueError(
+                f"{where} is kind '{kind}' but carries '{other_key}', which belongs to kind "
+                f"'{other_kind}'. Fix: carry only '{payload_key}', or change the kind."
+            )
+    if payload_key not in entry:
+        raise ValueError(
+            f"{where} is kind '{kind}' but carries no '{payload_key}'. Fix: add the "
+            f"'{payload_key}' payload its kind owns."
+        )
+    unknown = sorted(set(entry) - {_ENTRY_KIND_KEY, payload_key})
+    if unknown:
+        raise ValueError(
+            f"{where} carries unrecognized key(s) {unknown}. Fix: keep only "
+            f"'{_ENTRY_KIND_KEY}' and '{payload_key}'."
+        )
+    return kind
+
+
+def parse_exemptions(language: str, entry: Mapping[str, object]) -> tuple[Exemption, ...]:
+    """The reviewed exemption list of a ``reviewed_exemptions`` entry.
 
     Raises:
         ValueError: If the entry has no ``exemptions`` list, an item lacks a
             template or a non-empty reason, or a template is listed twice.
     """
-    raw = entry.get("exemptions")
+    raw = entry.get(_EXEMPTIONS_KEY)
     if not isinstance(raw, list):
         raise ValueError(
-            f"{BASELINE_PATH}: languages.{language} declares the zero-environment "
-            f"contract realized, so its entry must carry an 'exemptions' list "
-            f"(each item: template + reason). Fix: add the list, empty if the "
-            f"language carries no environment read."
+            f"{BASELINE_PATH}: languages.{language} is a '{ENTRY_KIND_EXEMPTIONS}' entry, so it "
+            f"must carry an '{_EXEMPTIONS_KEY}' list (each item: template + reason). Fix: add the "
+            f"list, empty if the language carries no environment read."
         )
     seen: set[str] = set()
     exemptions: list[Exemption] = []
@@ -236,18 +317,18 @@ def parse_exemptions(language: str, entry: dict[str, object]) -> tuple[Exemption
     return tuple(exemptions)
 
 
-def parse_pinned_count(language: str, entry: dict[str, object]) -> int:
-    """The pinned count of an unrealized language's baseline entry.
+def parse_pinned_count(language: str, entry: Mapping[str, object]) -> int:
+    """The pinned count of a ``pinned_count`` entry.
 
     Raises:
         ValueError: If the entry has no non-negative integer ``pinned_count``.
     """
-    count = entry.get("pinned_count")
+    count = entry.get(_PINNED_COUNT_KEY)
     if not isinstance(count, int) or isinstance(count, bool) or count < 0:
         raise ValueError(
-            f"{BASELINE_PATH}: languages.{language} declares the zero-environment "
-            f"contract unrealized, so its entry must carry a non-negative integer "
-            f"'pinned_count'. Fix: run with --update-baseline to pin the live count."
+            f"{BASELINE_PATH}: languages.{language} is a '{ENTRY_KIND_PINNED_COUNT}' entry, so it "
+            f"must carry a non-negative integer '{_PINNED_COUNT_KEY}'. Fix: run with "
+            f"--update-baseline to lower it to the live count, or write the count by hand."
         )
     return count
 
@@ -257,53 +338,86 @@ def parse_pinned_count(language: str, entry: dict[str, object]) -> int:
 # ---------------------------------------------------------------------------
 
 
-def evaluate(
-    census: LanguageCensus,
-    declaration: ZeroEnvironmentRuntimeDeclaration,
-    entry: dict[str, object] | None,
-) -> list[str]:
-    """Every way *census* disagrees with what the language declared and pinned."""
+def _exemption_problems(census: LanguageCensus, exemptions: tuple[Exemption, ...]) -> list[str]:
     problems: list[str] = []
-    if declaration.realized:
-        exemptions = parse_exemptions(census.language, entry or {"exemptions": []})
-        exempted = {exemption.template for exemption in exemptions}
-        for template in sorted(census.reads - exempted):
-            problems.append(
-                f"{census.language}: {template} reads the environment but carries "
-                f"no reviewed exemption. The language declares the zero-environment "
-                f"contract realized. Fix: bake the value at generation time, or add "
-                f"an exemption with a written reason to {BASELINE_PATH}."
-            )
-        for template in sorted(exempted - census.reads):
-            problems.append(
-                f"{census.language}: exemption {template} names a template with no "
-                f"environment read (or no such template). Fix: remove the stale "
-                f"entry from {BASELINE_PATH}."
-            )
-        return problems
-    if entry is None:
+    exempted = {exemption.template for exemption in exemptions}
+    for template in sorted(census.reads - exempted):
         problems.append(
-            f"{census.language}: declares the zero-environment contract unrealized "
-            f"but {BASELINE_PATH} pins no count for it. Fix: run with "
-            f"--update-baseline to pin the live count ({len(census.reads)})."
+            f"{census.language}: {template} reads the environment but carries no reviewed "
+            f"exemption. Fix: bake the value at generation time, or add an exemption with a "
+            f"written reason to {BASELINE_PATH} (a language that delivers runtime facts through "
+            f"the environment by design carries a '{ENTRY_KIND_PINNED_COUNT}' entry at its live "
+            f"count instead)."
         )
-        return problems
-    pinned = parse_pinned_count(census.language, entry)
-    if len(census.reads) > pinned:
+    for template in sorted(exempted - census.reads):
         problems.append(
-            f"{census.language}: {len(census.reads)} template(s) read the environment, "
+            f"{census.language}: exemption {template} names a template with no "
+            f"environment read (or no such template). Fix: remove the stale "
+            f"entry from {BASELINE_PATH}."
+        )
+    return problems
+
+
+def _pinned_count_problems(census: LanguageCensus, pinned: int) -> list[str]:
+    live = len(census.reads)
+    if live > pinned:
+        return [
+            f"{census.language}: {live} template(s) read the environment, "
             f"above the pinned decrease-only count of {pinned}. A new environment read "
             f"appeared. Fix: bake the new value at generation time instead."
-        )
-    elif len(census.reads) < pinned:
+        ]
+    if live < pinned:
         logger.info(
             "%s: %d environment-reading template(s), below the pinned %d -- "
             "run with --update-baseline to lower the pin.",
             census.language,
-            len(census.reads),
+            live,
             pinned,
         )
-    return problems
+    return []
+
+
+def evaluate(census: LanguageCensus, entry: Mapping[str, object] | None) -> list[str]:
+    """Every way *census* disagrees with its language's baseline entry.
+
+    The entry's kind alone selects the rule: ``reviewed_exemptions`` (or no
+    entry, an empty list) holds the census to its reviewed exemption list;
+    ``pinned_count`` holds it to a decrease-only count.
+    """
+    if entry is None:
+        return _exemption_problems(census, ())
+    if entry_kind(census.language, entry) == ENTRY_KIND_PINNED_COUNT:
+        return _pinned_count_problems(census, parse_pinned_count(census.language, entry))
+    return _exemption_problems(census, parse_exemptions(census.language, entry))
+
+
+def stale_entry_problems(
+    baseline: Mapping[str, Mapping[str, object]], registered: frozenset[str]
+) -> list[str]:
+    """A baseline entry naming a language that is not registered is stale."""
+    return [
+        f"{BASELINE_PATH}: languages.{language} names a language that is not registered "
+        f"(registered: {sorted(registered)}). Fix: remove the stale entry."
+        for language in sorted(set(baseline) - registered)
+    ]
+
+
+def summary_line(census: LanguageCensus, entry: Mapping[str, object] | None, problem_count: int) -> str:
+    """One census line per language, naming the entry kind that selected its rule."""
+    live = len(census.reads)
+    if entry is not None and entry_kind(census.language, entry) == ENTRY_KIND_PINNED_COUNT:
+        pinned = parse_pinned_count(census.language, entry)
+        comparison = "<=" if live <= pinned else ">"
+        return (
+            f"language={census.language} entry_kind={ENTRY_KIND_PINNED_COUNT}: {live} {comparison} "
+            f"pinned {pinned}, {problem_count} problem(s)"
+        )
+    exemptions = () if entry is None else parse_exemptions(census.language, entry)
+    return (
+        f"language={census.language} entry_kind={ENTRY_KIND_EXEMPTIONS}: {live} "
+        f"environment-reading template(s), {len(exemptions)} reviewed exemption(s), "
+        f"{problem_count} problem(s)"
+    )
 
 
 def _require_min_languages(language_names: frozenset[str]) -> None:
@@ -322,28 +436,69 @@ def _declaration_for(language: str) -> ZeroEnvironmentRuntimeDeclaration | None:
     return declaration_for_language(language).zero_environment_runtime
 
 
-def scan_all_registered_languages() -> tuple[dict[str, LanguageCensus], dict[str, ZeroEnvironmentRuntimeDeclaration], list[str]]:
-    """Census every registered language; undeclared languages are reported,
-    never skipped."""
+def scan_all_registered_languages() -> tuple[dict[str, LanguageCensus], list[str]]:
+    """Census every registered language; a language that states no idioms is
+    reported, never skipped."""
     language_names = registered_language_names()
     _require_min_languages(language_names)
     src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, language_names, WORKSPACE_ROOT)
     censuses: dict[str, LanguageCensus] = {}
-    declarations: dict[str, ZeroEnvironmentRuntimeDeclaration] = {}
     undeclared: list[str] = []
     for language, language_src_dirs in sorted(src_dirs.items()):
         declaration = _declaration_for(language)
         if declaration is None:
             undeclared.append(
-                f"{language}: declares no zero_environment_runtime posture on its "
-                f"LanguageCapabilityDeclaration. Fix: declare a "
-                f"ZeroEnvironmentRuntimeDeclaration (realized or not, with the "
-                f"language's environment-read idioms and, if unrealized, a reason)."
+                f"{language}: states no zero_environment_runtime idioms on its "
+                f"LanguageCapabilityDeclaration, so its templates cannot be censused. Every "
+                f"registered language is obligated to state the regular expressions that spell "
+                f"an environment read in its own templates. Fix: declare a "
+                f"ZeroEnvironmentRuntimeDeclaration naming them."
             )
             continue
-        declarations[language] = declaration
-        censuses[language] = census_language(language, language_src_dirs, declaration)
-    return censuses, declarations, undeclared
+        censuses[language] = census_language(language, language_src_dirs, declaration.compiled_idioms())
+    return censuses, undeclared
+
+
+# ---------------------------------------------------------------------------
+# Baseline writer
+# ---------------------------------------------------------------------------
+
+
+def write_baseline(
+    censuses: Mapping[str, LanguageCensus],
+    existing: Mapping[str, Mapping[str, object]],
+    path: Path = BASELINE_PATH,
+) -> None:
+    """Lower every ``pinned_count`` entry to its live census.
+
+    The ratchet is decrease-only, so a writer that could raise a pin would
+    defeat it: a live count above the existing pin raises. Entries of kind
+    ``reviewed_exemptions`` are hand-authored and carried over untouched -- the
+    writer never invents a reason -- and a pinned entry whose language has no
+    census is carried over untouched. Every entry keeps its ``kind``.
+
+    Raises:
+        ValueError: A ``pinned_count`` entry's live count is above its pin, or
+            an existing entry is malformed.
+    """
+    languages: dict[str, object] = {}
+    for language in sorted(existing):
+        entry = existing[language]
+        if entry_kind(language, entry) != ENTRY_KIND_PINNED_COUNT or language not in censuses:
+            languages[language] = entry
+            continue
+        live = len(censuses[language].reads)
+        pinned = parse_pinned_count(language, entry)
+        if live > pinned:
+            raise ValueError(
+                f"{language}: {live} template(s) read the environment, above the pinned "
+                f"decrease-only count of {pinned}; --update-baseline refuses to raise a pin. "
+                f"Fix: bake the new value at generation time instead."
+            )
+        languages[language] = {_ENTRY_KIND_KEY: ENTRY_KIND_PINNED_COUNT, _PINNED_COUNT_KEY: live}
+    payload = {"_comment": list(_BASELINE_COMMENT), "languages": languages}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +511,15 @@ def _assert(condition: bool, label: str) -> bool:
     return condition
 
 
+def _raises_value_error(call: Callable[[], object]) -> bool:
+    """Whether calling *call* raises ``ValueError``."""
+    try:
+        call()
+    except ValueError:
+        return True
+    return False
+
+
 def _self_test_census(tmp_root: Path) -> tuple[bool, LanguageCensus]:
     src_dir = tmp_root / _SELF_TEST_LANGUAGE
     (src_dir / "templates").mkdir(parents=True)
@@ -366,12 +530,9 @@ def _self_test_census(tmp_root: Path) -> tuple[bool, LanguageCensus]:
     (src_dir / "templates" / "not_a_template.py").write_text(
         "SELF_TEST_ENV.read('ignored: not a template')\n", encoding="utf-8"
     )
-    declaration = ZeroEnvironmentRuntimeDeclaration(
-        realized=True, environment_read_idioms=(_SELF_TEST_IDIOM,)
-    )
-    census = census_language(_SELF_TEST_LANGUAGE, (src_dir,), declaration)
+    census = census_language(_SELF_TEST_LANGUAGE, (src_dir,), (re.compile(_SELF_TEST_IDIOM),))
     ok = _assert(
-        census.reads == frozenset({"templates/reads.py.j2"}),
+        census.reads == frozenset({_SELF_TEST_TEMPLATE}),
         "synthetic tree: exactly the planted template is a read; the clean template and "
         "the non-template file are not",
     )
@@ -389,15 +550,11 @@ def _self_test_language_core(tmp_root: Path) -> bool:
     (core / "templates").mkdir(parents=True)
     (backend / "templates" / "clean.py.j2").write_text("value = 1\n", encoding="utf-8")
     (core / "templates" / "core_reads.py.j2").write_text("value = SELF_TEST_ENV.read('X')\n", encoding="utf-8")
-    declaration = ZeroEnvironmentRuntimeDeclaration(realized=True, environment_read_idioms=(_SELF_TEST_IDIOM,))
-    split = census_language(_SELF_TEST_LANGUAGE, (backend, core), declaration)
-    backend_only = census_language(_SELF_TEST_LANGUAGE, (backend,), declaration)
+    idioms = (re.compile(_SELF_TEST_IDIOM),)
+    split = census_language(_SELF_TEST_LANGUAGE, (backend, core), idioms)
+    backend_only = census_language(_SELF_TEST_LANGUAGE, (backend,), idioms)
     (backend / "templates" / "core_reads.py.j2").write_text("value = SELF_TEST_ENV.read('Y')\n", encoding="utf-8")
-    try:
-        census_language(_SELF_TEST_LANGUAGE, (backend, core), declaration)
-        collision_refused = False
-    except ValueError:
-        collision_refused = True
+    collision_refused = _raises_value_error(lambda: census_language(_SELF_TEST_LANGUAGE, (backend, core), idioms))
     return _assert(
         split.reads == frozenset({"templates/core_reads.py.j2"}) and not backend_only.reads and collision_refused,
         "a fixture language split into a backend and a core: a read planted in the core is censused, a "
@@ -405,66 +562,141 @@ def _self_test_language_core(tmp_root: Path) -> bool:
     )
 
 
+def _exemptions_entry(*templates: str) -> dict[str, object]:
+    return {
+        _ENTRY_KIND_KEY: ENTRY_KIND_EXEMPTIONS,
+        _EXEMPTIONS_KEY: [{"template": template, "reason": "planted"} for template in templates],
+    }
+
+
+def _pinned_entry(count: int) -> dict[str, object]:
+    return {_ENTRY_KIND_KEY: ENTRY_KIND_PINNED_COUNT, _PINNED_COUNT_KEY: count}
+
+
 def _self_test_comparator(census: LanguageCensus) -> bool:
-    realized = ZeroEnvironmentRuntimeDeclaration(
-        realized=True, environment_read_idioms=(_SELF_TEST_IDIOM,)
-    )
-    unrealized = ZeroEnvironmentRuntimeDeclaration(
-        realized=False, environment_read_idioms=(_SELF_TEST_IDIOM,), reason="self-test"
-    )
+    clean = LanguageCensus(_SELF_TEST_LANGUAGE, census.src_dirs, frozenset())
     ok = True
     ok &= _assert(
-        evaluate(census, realized, {"exemptions": [{"template": "templates/reads.py.j2", "reason": "planted"}]}) == [],
-        "realized + exact exemption list: no problem",
+        evaluate(census, _exemptions_entry(_SELF_TEST_TEMPLATE)) == [],
+        "reviewed_exemptions + exact exemption list: no problem",
     )
     ok &= _assert(
-        len(evaluate(census, realized, {"exemptions": []})) == 1,
-        "realized + missing exemption: exactly one problem",
-    )
-    stale = {"exemptions": [
-        {"template": "templates/reads.py.j2", "reason": "planted"},
-        {"template": "templates/gone.py.j2", "reason": "stale"},
-    ]}
-    ok &= _assert(
-        len(evaluate(census, realized, stale)) == 1,
-        "realized + stale exemption: exactly one problem",
+        len(evaluate(census, _exemptions_entry())) == 1,
+        "reviewed_exemptions + missing exemption: exactly one problem",
     )
     ok &= _assert(
-        evaluate(census, unrealized, {"pinned_count": 1}) == []
-        and evaluate(census, unrealized, {"pinned_count": 5}) == [],
-        "unrealized + count at or below the pin: no problem",
+        len(evaluate(census, _exemptions_entry(_SELF_TEST_TEMPLATE, "templates/gone.py.j2"))) == 1,
+        "reviewed_exemptions + stale exemption: exactly one problem",
     )
     ok &= _assert(
-        len(evaluate(census, unrealized, {"pinned_count": 0})) == 1,
-        "unrealized + count above the pin: exactly one problem",
+        evaluate(census, _pinned_entry(1)) == [] and evaluate(census, _pinned_entry(5)) == [],
+        "pinned_count + count at or below the pin: no problem",
     )
     ok &= _assert(
-        len(evaluate(census, unrealized, None)) == 1,
-        "unrealized + no pinned entry: exactly one problem",
+        len(evaluate(census, _pinned_entry(0))) == 1,
+        "pinned_count + count above the pin: exactly one problem",
     )
-    try:
-        parse_exemptions(_SELF_TEST_LANGUAGE, {"exemptions": [{"template": "x.j2", "reason": " "}]})
-        reasonless_rejected = False
-    except ValueError:
-        reasonless_rejected = True
-    ok &= _assert(reasonless_rejected, "an exemption without a written reason is rejected")
+    ok &= _assert(
+        len(evaluate(census, None)) == 1 and evaluate(clean, None) == [],
+        "no entry + one read: exactly one problem; no entry + no read: none",
+    )
+    ok &= _assert(
+        evaluate(census, _pinned_entry(1)) == [] and len(evaluate(census, _exemptions_entry())) == 1,
+        "the same one-read census passes against a pinned_count entry of 1 and fails against an "
+        "empty reviewed_exemptions entry: the entry kind alone selects the branch",
+    )
+    ok &= _assert(
+        _raises_value_error(
+            lambda: parse_exemptions(
+                _SELF_TEST_LANGUAGE,
+                {_EXEMPTIONS_KEY: [{"template": "x.j2", "reason": " "}]},
+            )
+        ),
+        "an exemption without a written reason is rejected",
+    )
     return ok
 
 
-def _self_test_declaration_validation() -> bool:
+def _self_test_entry_kind() -> bool:
     ok = True
-    try:
-        ZeroEnvironmentRuntimeDeclaration(realized=False, environment_read_idioms=(_SELF_TEST_IDIOM,))
-        rejected = False
-    except ValueError:
-        rejected = True
-    ok &= _assert(rejected, "an unrealized declaration without a reason is rejected at construction")
-    try:
-        ZeroEnvironmentRuntimeDeclaration(realized=True, environment_read_idioms=())
-        rejected = False
-    except ValueError:
-        rejected = True
-    ok &= _assert(rejected, "a declaration with no idiom is rejected at construction")
+    ok &= _assert(
+        entry_kind(_SELF_TEST_LANGUAGE, _exemptions_entry()) == ENTRY_KIND_EXEMPTIONS
+        and entry_kind(_SELF_TEST_LANGUAGE, _pinned_entry(3)) == ENTRY_KIND_PINNED_COUNT,
+        "entry_kind returns the kind of a well-formed entry of each kind",
+    )
+    rejected: tuple[tuple[str, dict[str, object]], ...] = (
+        ("a missing kind", {_EXEMPTIONS_KEY: []}),
+        ("an unknown kind", {_ENTRY_KIND_KEY: "realized", _EXEMPTIONS_KEY: []}),
+        (
+            "a pinned_count entry carrying exemptions",
+            {**_pinned_entry(1), _EXEMPTIONS_KEY: []},
+        ),
+        (
+            "a reviewed_exemptions entry carrying pinned_count",
+            {**_exemptions_entry(), _PINNED_COUNT_KEY: 1},
+        ),
+        ("a pinned_count entry lacking its count", {_ENTRY_KIND_KEY: ENTRY_KIND_PINNED_COUNT}),
+        ("a reviewed_exemptions entry lacking its list", {_ENTRY_KIND_KEY: ENTRY_KIND_EXEMPTIONS}),
+        ("an entry carrying an unrecognized key", {**_pinned_entry(1), "reason": "planted"}),
+    )
+    for label, entry in rejected:
+        ok &= _assert(
+            _raises_value_error(lambda entry=entry: entry_kind(_SELF_TEST_LANGUAGE, entry)),
+            f"entry_kind rejects {label}",
+        )
+    return ok
+
+
+def _self_test_stale_entries() -> bool:
+    registered = frozenset({"alpha", "beta"})
+    stale = stale_entry_problems({"alpha": _pinned_entry(1), "gamma": _exemptions_entry()}, registered)
+    registered_only = stale_entry_problems({"alpha": _pinned_entry(1)}, registered)
+    return _assert(
+        len(stale) == 1 and "gamma" in stale[0] and registered_only == [],
+        "a baseline entry naming an unregistered language is one stale-entry problem; registered ones are not",
+    )
+
+
+def _self_test_baseline_writer(tmp_root: Path, census: LanguageCensus) -> bool:
+    """The writer lowers a pinned entry to the live count, refuses to raise one,
+    and carries a reviewed_exemptions entry (and a language with no census)
+    through unchanged, every entry keeping its kind."""
+    ok = True
+    target = tmp_root / "written-baseline.json"
+    exemptions = _exemptions_entry("templates/a.py.j2", "templates/b.py.j2")
+    untouched_pin = _pinned_entry(9)
+    existing: dict[str, dict[str, object]] = {
+        "self_exemptions": exemptions,
+        "self_pinned": _pinned_entry(4),
+        "self_uncensused": untouched_pin,
+    }
+    censuses = {
+        "self_exemptions": census,
+        "self_pinned": LanguageCensus("self_pinned", census.src_dirs, census.reads),
+    }
+    write_baseline(censuses, existing, target)
+    written = json.loads(target.read_text(encoding="utf-8"))["languages"]
+    ok &= _assert(
+        written["self_pinned"] == _pinned_entry(1),
+        "write_baseline lowers a pinned_count entry from 4 to the live count 1, keeping its kind",
+    )
+    ok &= _assert(
+        json.dumps(written["self_exemptions"]) == json.dumps(exemptions)
+        and json.dumps(written["self_uncensused"]) == json.dumps(untouched_pin),
+        "write_baseline carries a reviewed_exemptions entry and an uncensused pinned entry through unchanged",
+    )
+    untouched = target.read_text(encoding="utf-8")
+    refused = _raises_value_error(
+        lambda: write_baseline(
+            {"self_pinned": LanguageCensus("self_pinned", census.src_dirs, census.reads)},
+            {"self_pinned": _pinned_entry(0)},
+            target,
+        )
+    )
+    ok &= _assert(
+        refused and target.read_text(encoding="utf-8") == untouched,
+        "write_baseline refuses to raise a pinned_count entry (live 1 against a pin of 0) and writes nothing",
+    )
     return ok
 
 
@@ -475,8 +707,8 @@ def _self_test_live_read() -> bool:
     language_src_dirs = src_dirs.get(language)
     declaration = _declaration_for(language) if language_src_dirs is not None else None
     if language_src_dirs is None or declaration is None:
-        return _assert(False, f"live tree registers {language} with a declared posture")
-    census = census_language(language, language_src_dirs, declaration)
+        return _assert(False, f"live tree registers {language} with stated idioms")
+    census = census_language(language, language_src_dirs, declaration.compiled_idioms())
     return _assert(
         relative_template in census.reads,
         f"live census (real tree) finds the known read {language}:{relative_template}",
@@ -490,57 +722,20 @@ def self_test() -> bool:
         census_ok, census = _self_test_census(tmp_root)
         ok &= census_ok
         ok &= _self_test_comparator(census)
+        ok &= _self_test_entry_kind()
+        ok &= _self_test_stale_entries()
+        ok &= _self_test_baseline_writer(tmp_root, census)
         ok &= _self_test_language_core(tmp_root)
-        ok &= _self_test_declaration_validation()
         ok &= _self_test_live_read()
+        refused = False
         try:
             _require_min_languages(frozenset({_SELF_TEST_LANGUAGE}))
-            refused = False
         except SystemExit as exc:
             refused = exc.code == EXIT_USAGE
         ok &= _assert(refused, "single-language guard refuses a one-language set, never a silent pass")
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)
     return ok
-
-
-# ---------------------------------------------------------------------------
-# Baseline writer
-# ---------------------------------------------------------------------------
-
-
-def write_baseline(
-    censuses: dict[str, LanguageCensus],
-    declarations: dict[str, ZeroEnvironmentRuntimeDeclaration],
-    existing: dict[str, dict[str, object]],
-) -> None:
-    """Re-pin every unrealized language's count to its live census. Realized
-    languages' exemption lists are hand-authored and are carried over
-    untouched -- the writer never invents a reason."""
-    languages: dict[str, object] = {}
-    for language in sorted(set(existing) | set(censuses)):
-        declaration = declarations.get(language)
-        if declaration is None or declaration.realized:
-            if language in existing:
-                languages[language] = existing[language]
-            continue
-        languages[language] = {"pinned_count": len(censuses[language].reads)}
-    payload = {
-        "_comment": [
-            "Zero-environment runtime census, per registered datrix.languages package.",
-            "A language whose LanguageCapabilityDeclaration.zero_environment_runtime",
-            "is realized=True lists every template that reads the environment as a",
-            "reviewed exemption with a written reason (hand-authored; the gate fails",
-            "on an unlisted read and on a stale entry). A language declaring",
-            "realized=False carries a decrease-only pinned_count of environment-",
-            "reading templates; a live count above it fails.",
-            "zero-environment-runtime-gate.ps1 -UpdateBaseline is the only writer of",
-            "pinned_count values; do not hand-guess the numbers.",
-        ],
-        "languages": languages,
-    }
-    BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    BASELINE_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -551,9 +746,9 @@ def write_baseline(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Zero-environment runtime census: every registered language is held to "
-            "the zero_environment_runtime posture it declares -- reviewed exemptions "
-            "when realized, a decrease-only pinned count when not."
+            "Zero-environment runtime census: every registered language is held to the rule "
+            "its baseline entry kind selects -- reviewed per-read exemptions "
+            "(reviewed_exemptions) or a decrease-only pinned count (pinned_count)."
         ),
     )
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG logging")
@@ -561,7 +756,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--update-baseline",
         action="store_true",
-        help="Re-pin every unrealized language's count to its live census",
+        help="Lower every pinned_count entry to its live census (never raises one)",
     )
     args = parser.parse_args(argv)
     logging.basicConfig(
@@ -577,24 +772,22 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_OK
 
     try:
-        censuses, declarations, undeclared = scan_all_registered_languages()
+        censuses, undeclared = scan_all_registered_languages()
         baseline = load_baseline()
         if args.update_baseline:
-            write_baseline(censuses, declarations, baseline)
+            write_baseline(censuses, baseline)
             logger.info("baseline written: %s", BASELINE_PATH)
             baseline = load_baseline()
         problems = list(undeclared)
+        problems.extend(stale_entry_problems(baseline, registered_language_names()))
         for language in sorted(censuses):
             census = censuses[language]
+            entry = baseline.get(language)
             for template in sorted(census.reads):
                 logger.debug("READ language=%s template=%s", language, template)
-            logger.info(
-                "language=%s realized=%s environment_reading_templates=%d",
-                language,
-                declarations[language].realized,
-                len(census.reads),
-            )
-            problems.extend(evaluate(census, declarations[language], baseline.get(language)))
+            language_problems = evaluate(census, entry)
+            logger.info("%s", summary_line(census, entry, len(language_problems)))
+            problems.extend(language_problems)
     except ValueError as exc:
         logger.error("Zero-environment census failed: %s", exc)
         return EXIT_USAGE

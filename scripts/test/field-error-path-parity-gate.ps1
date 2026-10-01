@@ -3,8 +3,7 @@
 .SYNOPSIS
  Field-error-path parity gate -- every registered language spells
  `request-validation` problem-body `errors[].field` paths with one
- dot-separated, `body`-prefix-free, `[n]`-array-indexed rule or declares the
- hole with a reason.
+ dot-separated, `body`-prefix-free, `[n]`-array-indexed rule.
 
 .DESCRIPTION
  A generated service's `request-validation` problem body carries an
@@ -17,16 +16,15 @@
  registered language package's own construction technique for that shape and
  holds each language to:
 
-   * REALIZATION -- the language's sources construct the canonical shape for
-     the rule's own worked example, or the language declares the hole with a
-     reason on its LanguageCapabilityDeclaration.unrealized_field_error_path.
-     Neither fails by name; both is a stale declaration and fails; a
-     divergent construction (a literal `body` prefix, or an array index not
-     spelled `[n]`) fails naming the found and expected spelling.
+   * REALIZATION -- every registered language is obligated to construct the
+     canonical shape for the rule's own worked example. A language that does
+     not fails by name, and no declaration can excuse it; a divergent
+     construction (a literal `body` prefix, or an array index not spelled
+     `[n]`) fails naming the found and expected spelling. Hard zero.
 
- Language set from the installed datrix.languages entry points at runtime;
- declarations read from the packages -- never a table here. Runs a built-in
- non-vacuity self-test on every invocation.
+ Language set from the installed datrix.languages entry points at runtime --
+ never a table here. Runs a built-in non-vacuity self-test on every
+ invocation.
 
  Repo-level validation script (per the datrix showcase boundary -- no pytest
  suite lives in datrix).

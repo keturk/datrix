@@ -18,9 +18,13 @@
  fixed category names and a user enum is never one of those categories), so this gate is the
  coverage the closed registry would otherwise provide.
 
+ The gate is a hard zero: a language that is not fully conformant fails the gate, and no
+ exemption of any kind exists.
+
  Runs a built-in non-vacuity self-test on every invocation, before trusting any real comparison:
  feeds the comparator a synthetic fully-conformant pair (must report zero violations) and a
- synthetic partially-broken pair (must report exactly the broken language). Fails loud (exit 2) if
+ synthetic partially-broken pair (must report exactly the broken language, and fail the gate with
+ no exemption input to pass it). Fails loud (exit 2) if
  fewer than 2 enum-emitting languages are registered -- a cross-language comparison over 0 or 1
  language is vacuous.
 

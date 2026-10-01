@@ -3,7 +3,7 @@
 .SYNOPSIS
  Framework header parity gate -- every registered language spells the
  framework-minted HTTP headers from datrix-common's registry and realizes
- every header family or declares the hole with a reason.
+ every header family.
 
 .DESCRIPTION
  A generated service exchanges a handful of headers Datrix itself defines
@@ -16,15 +16,15 @@
      X-Webhook-) is an exact registered name or a reviewed, counted entry in
      scripts/config/framework-header-exemptions.json; a retired name is a
      violation with no exemption path;
-   * REALIZATION -- every registered family is realized (the exact name
-     spelled, or its registry constant referenced from python) or declared
-     unrealized with a reason on the language's
-     LanguageCapabilityDeclaration.unrealized_framework_headers. Neither
-     fails by name; both at once is a stale declaration and fails; a family
-     no language realizes is a dead registry entry and fails.
+   * REALIZATION -- every registered language realizes every registered
+     family (the exact name spelled, or its registry constant referenced from
+     python). A family a language does not realize fails by language and
+     family; no declaration can excuse it. A family no language realizes is a
+     dead registry entry and fails. Hard zero: any problem exits non-zero and
+     there is no baseline.
 
  Language set from the installed datrix.languages entry points at runtime;
- registry and declarations read from the packages -- never a table here.
+ registry read from the packages -- never a table here.
  Runs a built-in non-vacuity self-test on every invocation.
 
  Repo-level validation script (per the datrix showcase boundary -- no pytest

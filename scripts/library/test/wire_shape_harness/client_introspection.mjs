@@ -242,12 +242,22 @@ function observableTypeArgument(ts, method) {
   return returnType.typeArguments[0];
 }
 
+/**
+ * The name of the trailing request-options parameter every generated method ends with. A route
+ * that takes no request arguments declares ONLY this parameter, so a first parameter carrying
+ * this name is the options bag, never an `args` object.
+ */
+const REQUEST_OPTIONS_PARAMETER = 'options';
+
 /** Read the members of a generated method's single `args` object parameter. */
 function argsMembers(ts, method) {
   if (method.parameters.length === 0) {
     return { members: [], hasDefault: true };
   }
   const parameter = method.parameters[0];
+  if (parameter.name.getText() === REQUEST_OPTIONS_PARAMETER) {
+    return { members: [], hasDefault: true };
+  }
   const hasDefault = parameter.initializer !== undefined;
   if (parameter.type === undefined || !ts.isTypeLiteralNode(parameter.type)) {
     throw new Error(

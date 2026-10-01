@@ -31,6 +31,8 @@ Development tool implementations.
 | `evaluate_service_scan.py` | `dev/evaluate-service-scan.ps1` | Service-level scan for `/evaluate-generated-service` (DSL inventory, manifest set-diff, artifact existence, dead-code candidates) |
 | `code_index_cli.py` | `dev/code-index.ps1` | Code index queries (definitions, references, outline, search, logic-map markers, status, summaries) |
 | `code_index_mcp.py` | (registered with Claude Code by `code-index.ps1 -Setup`) | The code index as a stdio MCP server; standard library only |
+| `local_llm_mcp.py` | (registered with Claude Code by `local-llm.ps1 -Setup`) | The local model servers as a stdio MCP server: `ask_files`, `digest_log`, `local_models` |
+| `local_llm_cli.py` | `dev/local-llm.ps1` | Local model status and usage report |
 | `logic_map.py` | (library) | Logic-map marker syntax, parser, and the `markers.db` writer the code index calls |
 | `code_scan.py` | `dev/code-scan.ps1` | On-demand digest of dead code (Vulture, confirmed against the code index and string uses), complexity, duplicates and docs drift for changed packages |
 
@@ -68,6 +70,11 @@ Shared utilities used across multiple scripts.
 | `structured_log_writer.py` | Post-processes JUnit XML into structured test result directories (codegen package tests via `test.ps1`) |
 | `generated_test_log_writer.py` | Post-processes JUnit XML and Jest JSON into structured test result directories for generated projects (multi-service, cross-project aggregation, codegen hints). Called from `run_complete.py`. Shares clustering/normalization utilities with `structured_log_writer.py`. Its `index.json` lists every executed test in `tests` (`{service, test, outcome}`), which `test/generated_suite_parity.py` reads to compare the generated suites across languages. |
 | `venv.py` | Virtual environment utilities (Python side) |
+| `framework_repos.py` | The framework git repositories at the workspace root (`datrix` and every `datrix-*`), discovered, never listed |
+| `local_llm.py` | Local model servers on the network: discovery, readiness, load spreading over every ready server, failover; every request recorded through `local_llm_usage.py` |
+| `local_llm_usage.py` | The per-machine local-model usage log (`<workspace>/.local-llm/usage.jsonl`, sizes only, never text) and its report |
+| `local_reading.py` | Reads framework files and logs through a local model so an agent gets a cited answer instead of the text: read scope, line numbering, chunking, log reduction, citation checking |
+| `mcp_stdio.py` | The MCP protocol over stdio shared by every Datrix MCP server; standard library only |
 
 ## metrics/
 

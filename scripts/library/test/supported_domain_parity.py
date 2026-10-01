@@ -1,13 +1,10 @@
-"""Cross-language domain-universe closure and stance-completeness gate.
+"""Cross-language domain-universe closure and declaration-presence gate.
 
-Every registered ``datrix.languages`` entry point declares its own stance --
-``supported`` or ``unsupported(reason)`` -- over the full shared domain
-universe. This gate proves two properties about that stance-taking, never
-that the stances themselves agree: a per-language `supported`/
-`unsupported(reason)` split is the DESIGNED state, not a gap awaiting work --
-most `unsupported` stances are permanent "realized elsewhere on this target"
-facts (e.g. a domain folded into another domain, or architecturally
-inapplicable to one target's runtime), not capability holes.
+Every registered ``datrix.languages`` entry point declares, for each shared
+structural domain it realizes, the glob its generator emits to
+(``DomainDeclaration.structural_pattern``). This gate proves two properties
+about those declarations, never that the languages' declarations agree with one
+another:
 
 **Language set is never hardcoded.** ``registered_language_names`` derives
 the comparison universe from ``importlib.metadata.entry_points(group=
@@ -16,8 +13,8 @@ package is picked up automatically with no edit to this script.
 
 **Property 1: domain-universe closure.** ``check_domain_universe_closure``
 computes the union of every registered language's COMPILED GenDSL IR domain
-ids (``get_definitions(<lang>)``, independent of any supported/unsupported
-stance) and asserts it equals ``SHARED_CONTEXT_TYPES.keys()`` exactly: a
+ids (``get_definitions(<lang>)``, independent of any declaration a plugin
+commits) and asserts it equals ``SHARED_CONTEXT_TYPES.keys()`` exactly: a
 domain id some language's compiled IR declares but the registry omits fails
 naming the declaring language(s); a registry id no registered language's
 compiled IR declares fails as a dead entry (Decision 28 invariant 6 -- dead
@@ -25,24 +22,27 @@ surfaces are deleted, not deprecated). Zero tolerance, no exemption file.
 This closure check runs first and short-circuits everything after it on
 failure -- a wrong universe makes every later check meaningless.
 
-**Property 2: per-language stance completeness.** ``check_stance_completeness``
-proves every registered language declares SOME stance -- ``supported`` or
-``unsupported(reason)`` -- for every id in the closed universe, and declares
-no stance for an id outside it. A language silently missing a stance for a
-universe id, or declaring a stance for an id that is not (or no longer) part
-of the universe, is a fail-loud ``STANCE COMPLETENESS VIOLATION``. This is a
-COMPLETENESS check, never an agreement check: two languages are free to take
-opposite stances on the same domain id -- one may support ``graphql``
-while another declares it ``unsupported(reason=...)`` -- as long as each
-language HAS declared one.
+**Property 2: per-language declaration presence.**
+``check_declaration_presence`` proves every registered language declares every
+STRUCTURAL domain id (the kernel's ``STRUCTURAL_DOMAIN_IDS``), and declares
+nothing outside the full registration universe (``SHARED_CONTEXT_TYPES``). A
+structural id a language does not declare, or an id a language declares that is
+not (or no longer) part of the universe, is a fail-loud
+``DECLARATION PRESENCE VIOLATION`` naming the language and the id -- a domain a
+language does not realize is counted here and never excused. ``discovery`` and
+``resilience`` keep their GenDSL registration and so stay in the registration
+universe, but carry no structural-pattern obligation: no language is required to
+declare either, and a language that declares one is not reported
+out-of-universe. The gate reads only membership (``domain_id in
+plugin.domain_declarations``) and a declaration's ``structural_pattern``.
 
-**The stance report is diagnostic, not a gate.** ``print_stance_report``
-prints every registered language's full stance table (one row per universe
-id) and then a divergence report for every id whose declared status is not
-unanimous across languages -- including unanimous ``unsupported`` -- quoting
-each unsupported language's declared reason verbatim. Divergence-with-a-reason
-is the designed per-target-realization state; the report exists so a reader
-can see WHY languages diverge, never to fail the gate on its own.
+**The declaration report is diagnostic, not a gate.**
+``print_declaration_report`` prints, for every STRUCTURAL domain id, each
+registered language's declared ``structural_pattern`` (or ``no structural
+pattern``), then a divergence block for every structural id some language
+declares with no structural pattern or does not declare at all, listing those
+languages. It never fails the gate on its own; only ``check_declaration_presence``
+does.
 
 **The MariaDB engine boundary needs no special-case code.** The
 MariaDB engine boundary is an ENGINE CHOICE inside the ``rdbms``/migration
@@ -52,18 +52,20 @@ than per-engine), so MariaDB is naturally never a domain-id-level diff. Do
 not add a per-engine special case here.
 
 **Built-in non-vacuity self-test, every invocation.** Before any real
-comparison is trusted, ``run_self_test`` feeds ``check_stance_completeness``
-a complete synthetic stance table (must report zero findings), a synthetic
-language missing one universe id's stance (must be reported, naming that
-language and id), and a synthetic language declaring a stance for an
-out-of-universe id (must be reported, naming that language and id); and
-``run_universe_closure_self_test`` feeds ``check_domain_universe_closure`` a
-synthetic matching registry/compiled-IR pair (must report zero divergence),
-a synthetic compiled id absent from the registry (must be reported, naming
-the declaring language), and a synthetic registry id no synthetic language
-declares (must be reported as a dead entry). A parity gate that cannot
-detect a real divergence is worthless -- this mirrors the self-test pattern
-already used by ``artifact-role-parity-gate.ps1``,
+comparison is trusted, ``run_self_test`` feeds ``check_declaration_presence``
+a complete synthetic declaration table covering the structural ids only (must
+report zero findings, a language omitting the non-structural id included), a
+synthetic language omitting one structural id (must be reported, naming that
+language and id), a synthetic language declaring an id outside the registration
+universe (must be reported, naming that language and id), and a synthetic
+language declaring the non-structural id (must be neither reported nor
+required); and ``run_universe_closure_self_test`` feeds
+``check_domain_universe_closure`` a synthetic matching registry/compiled-IR
+pair (must report zero divergence), a synthetic compiled id absent from the
+registry (must be reported, naming the declaring language), and a synthetic
+registry id no synthetic language declares (must be reported as a dead entry).
+A parity gate that cannot detect a real divergence is worthless -- this
+mirrors the self-test pattern already used by ``artifact-role-parity-gate.ps1``,
 ``check-generated-file-ratchet.ps1``, and ``check-docs-conformance.ps1``.
 
 **Fails loud on an empty/single-target discovery.** Fewer than 2 registered
@@ -81,11 +83,12 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from importlib.metadata import entry_points
 from typing import Final, cast
 
 from datrix_codegen_kernel.parity.domain_declaration import DomainDeclaration
+from datrix_codegen_kernel.parity.domain_ids import STRUCTURAL_DOMAIN_IDS
 from datrix_codegen_common.parity.domain_registry import SHARED_CONTEXT_TYPES
 from datrix_testing.conformance.domain_self_consistency import (
     DomainDeclaringPlugin,
@@ -97,6 +100,9 @@ from datrix_common.plugin.registry import LANGUAGES_GROUP
 #: is nothing to compare against) -- discovery returning fewer than this many
 #: registered languages is a fail-loud condition, never a silent "pass".
 _MIN_LANGUAGES_FOR_COMPARISON: Final[int] = 2
+
+#: What the report prints for a declaration that names no structural glob.
+_NO_STRUCTURAL_PATTERN: Final[str] = "no structural pattern"
 
 #: Synthetic language names used only by the self-test below. Deliberately
 #: NOT real registered language names
@@ -114,10 +120,15 @@ _SELF_TEST_DOMAIN_FORCED_GAP: Final[str] = "self_test_shipment"
 #: below, standing in for a registry entry no synthetic language declares.
 _SELF_TEST_DOMAIN_DEAD_ENTRY: Final[str] = "self_test_backorder"
 
-#: A fourth synthetic domain id, used only by the stance-completeness
-#: self-test below, standing in for a stance a synthetic language declares
+#: A fourth synthetic domain id, used only by the declaration-presence
+#: self-test below, standing in for a declaration a synthetic language makes
 #: for an id that is not (or no longer) part of the synthetic universe.
 _SELF_TEST_DOMAIN_OUT_OF_UNIVERSE: Final[str] = "self_test_returns"
+
+#: A fifth synthetic domain id, in the synthetic registration universe but not
+#: in the synthetic structural ids: standing in for ``discovery``/``resilience``,
+#: which no language is required to declare and any language may.
+_SELF_TEST_DOMAIN_NON_STRUCTURAL: Final[str] = "self_test_lookup"
 
 
 def configure_logging(debug: bool = False) -> None:
@@ -152,24 +163,21 @@ def registered_language_names() -> frozenset[str]:
     return frozenset(ep.name for ep in eps)
 
 
-def stance_table_by_language(
+def declarations_by_language(
     language_names: Iterable[str],
 ) -> dict[str, Mapping[str, DomainDeclaration]]:
-    """Every domain id's declared STANCE for each language.
+    """Every domain declaration each language's plugin commits.
 
-    Reads each language plugin's full ``domain_declarations`` -- the
-    ``supported``/``unsupported(reason)`` stance a plugin commits for a
-    domain id, not just the ones it supports. Callers use this both to
-    check completeness (``check_stance_completeness``) and to print the
-    full stance table (``print_stance_report``).
+    Reads each language plugin's full ``domain_declarations``. Callers use this
+    both to check presence (``check_declaration_presence``) and to print the
+    declaration table (``print_declaration_report``).
 
     Args:
         language_names: `datrix.languages` entry-point names.
 
     Returns:
         `{language_name: {domain_id: DomainDeclaration}}`, one entry per
-        language for every domain id that language's plugin declares a
-        stance for.
+        language for every domain id that language's plugin declares.
     """
     result: dict[str, Mapping[str, DomainDeclaration]] = {}
     for name in language_names:
@@ -190,13 +198,12 @@ def compiled_domain_ids_by_language(
 ) -> dict[str, frozenset[str]]:
     """Every domain id each language's COMPILED GenDSL IR declares.
 
-    Unlike ``stance_table_by_language`` (which reads a plugin's derived
-    ``domain_declarations`` -- supported/unsupported STANCES), this reads
-    ``get_definitions(name)`` directly: the compiled IR is the raw fact of
-    what a language's GenDSL source declares, independent of any stance a
-    plugin later commits. The domain-universe closure check measures the
-    universe against THIS raw compiled fact, never against the registry's
-    own idea of itself.
+    Unlike ``declarations_by_language`` (which reads a plugin's derived
+    ``domain_declarations``), this reads ``get_definitions(name)`` directly:
+    the compiled IR is the raw fact of what a language's GenDSL source
+    declares, independent of any declaration a plugin later commits. The
+    domain-universe closure check measures the universe against THIS raw
+    compiled fact, never against the registry's own idea of itself.
 
     Args:
         language_names: `datrix.languages` entry-point names.
@@ -256,42 +263,44 @@ def check_domain_universe_closure(
     return declaring_by_missing_id, dead_registry_ids
 
 
-def check_stance_completeness(
-    per_language_stances: Mapping[str, Mapping[str, DomainDeclaration]],
+def check_declaration_presence(
+    per_language: Mapping[str, Mapping[str, DomainDeclaration]],
     *,
     registry_ids: frozenset[str] | None = None,
+    structural_ids: frozenset[str] | None = None,
 ) -> tuple[dict[str, frozenset[str]], dict[str, frozenset[str]]]:
-    """Prove every language declares a stance for every universe id, and no other.
+    """Prove every language declares every structural domain id, and nothing outside the universe.
 
-    This is a COMPLETENESS check, never an agreement check: two languages
-    are free to take opposite stances (``supported`` vs.
-    ``unsupported(reason)``) on the same domain id, as long as each language
-    HAS declared one.
+    This is a PRESENCE check, never an agreement check: a language MAY declare
+    a registered non-structural id (``discovery``, ``resilience``) and is never
+    required to, and two languages are free to emit a domain to different globs.
 
     Args:
-        per_language_stances: `{language_name: {domain_id: DomainDeclaration}}`
-            from `stance_table_by_language`.
-        registry_ids: The universe to check completeness against. Defaults
-            to the real `SHARED_CONTEXT_TYPES`; a test passes a synthetic
-            set to prove this function's discriminating power without
-            touching real state.
+        per_language: `{language_name: {domain_id: DomainDeclaration}}`
+            from `declarations_by_language`.
+        registry_ids: The full registration universe a declaration must stay
+            inside. Defaults to the real `SHARED_CONTEXT_TYPES`; a test passes a
+            synthetic set to prove this function's discriminating power
+            without touching real state.
+        structural_ids: The ids every language must declare. Defaults to the
+            kernel's real `STRUCTURAL_DOMAIN_IDS`; a test passes a synthetic set.
 
     Returns:
         `(undeclared_by_language, out_of_universe_by_language)`.
-        `undeclared_by_language` maps each language that is missing a
-        stance for one or more universe ids to the frozenset of those ids
-        (a language with a complete stance table is simply absent from this
-        dict). `out_of_universe_by_language` maps each language that
-        declares a stance for an id outside the universe to the frozenset
-        of those ids. Both empty for every language is the stance-
-        completeness property holding.
+        `undeclared_by_language` maps each language that does not declare one
+        or more structural ids to the frozenset of those ids (a language that
+        declares every structural id is simply absent from this dict).
+        `out_of_universe_by_language` maps each language that declares an id
+        outside the registration universe to the frozenset of those ids. Both
+        empty for every language is the presence property holding.
     """
     universe = registry_ids if registry_ids is not None else frozenset(SHARED_CONTEXT_TYPES)
+    required = structural_ids if structural_ids is not None else frozenset(STRUCTURAL_DOMAIN_IDS)
     undeclared_by_language: dict[str, frozenset[str]] = {}
     out_of_universe_by_language: dict[str, frozenset[str]] = {}
-    for language, stances in per_language_stances.items():
-        declared = frozenset(stances)
-        undeclared = universe - declared
+    for language, declarations in per_language.items():
+        declared = frozenset(declarations)
+        undeclared = required - declared
         out_of_universe = declared - universe
         if undeclared:
             undeclared_by_language[language] = undeclared
@@ -300,181 +309,211 @@ def check_stance_completeness(
     return undeclared_by_language, out_of_universe_by_language
 
 
-def _stances_for_domain(
+def _declarations_for_domain(
     domain_id: str,
-    per_language_stances: Mapping[str, Mapping[str, DomainDeclaration]],
-    languages: list[str],
+    per_language: Mapping[str, Mapping[str, DomainDeclaration]],
+    languages: Sequence[str],
 ) -> dict[str, DomainDeclaration]:
     """Every language's declaration for one domain id, for languages that hold one."""
     return {
-        language: per_language_stances[language][domain_id]
+        language: per_language[language][domain_id]
         for language in languages
-        if domain_id in per_language_stances[language]
+        if domain_id in per_language[language]
     }
 
 
-def _is_divergent_stance(by_language: Mapping[str, DomainDeclaration]) -> bool:
-    """True if a universe id's stance is not unanimous ``supported`` across languages.
-
-    Unanimous ``unsupported`` counts as divergent too -- surfaced in the
-    report even though no language supports the domain, since that is worth
-    a reader's attention (nobody realizes this domain on any target) without
-    being a gate failure on its own.
-    """
-    statuses = {declaration.status for declaration in by_language.values()}
-    return len(statuses) > 1 or statuses == {"unsupported"}
+def _undeclaring_languages(
+    domain_id: str,
+    per_language: Mapping[str, Mapping[str, DomainDeclaration]],
+    languages: Sequence[str],
+) -> list[str]:
+    """The languages that hold no declaration for one domain id."""
+    return [language for language in languages if domain_id not in per_language[language]]
 
 
-def print_stance_report(
-    per_language_stances: Mapping[str, Mapping[str, DomainDeclaration]],
+def _has_unpatterned_language(by_language: Mapping[str, DomainDeclaration]) -> bool:
+    """True if any language's declaration for a domain names no structural pattern."""
+    return any(declaration.structural_pattern is None for declaration in by_language.values())
+
+
+def print_declaration_report(
+    per_language: Mapping[str, Mapping[str, DomainDeclaration]],
+    structural_ids: Sequence[str],
 ) -> None:
-    """Log the full per-language stance table, then a divergence report.
+    """Log the per-language declaration table, then a divergence block.
 
-    One INFO row per universe id per language: ``STANCE: <lang>.<id> =
-    <status>`` (with the declared reason parenthesized for ``unsupported``).
-    Then, for every universe id whose declared status is not unanimous
-    across every language that holds a stance for it -- including the case
-    where every language agrees on ``unsupported`` -- a divergence block
-    quoting each unsupported language's reason verbatim.
+    One INFO row per STRUCTURAL domain id per language holding a declaration:
+    ``DECLARATION: <lang>.<id> = <structural_pattern>`` (``no structural
+    pattern`` when the declaration names none). Then, for every structural id
+    some language declares with no structural pattern or does not declare at
+    all, a divergence block listing those languages. A non-structural id
+    (``discovery``, ``resilience``) appears nowhere in the report.
 
-    Divergence here is the DESIGNED state, not a failure list: per-language
-    ``supported``/``unsupported(reason)`` stances are expected to diverge
-    when a domain is realized differently (or not at all) on different
-    targets -- e.g. a domain folded into another domain on one target, or
-    architecturally inapplicable to one target's runtime. Reporting
-    divergence never fails the gate on its own; only
-    ``check_stance_completeness`` (a missing or out-of-universe stance)
-    does.
+    The report is diagnostic: it never quotes a reason (none exists) and never
+    fails the gate on its own; only ``check_declaration_presence`` does.
 
     Args:
-        per_language_stances: `{language_name: {domain_id: DomainDeclaration}}`
-            from `stance_table_by_language`.
+        per_language: `{language_name: {domain_id: DomainDeclaration}}`
+            from `declarations_by_language`.
+        structural_ids: The structural domain ids to report, in report order.
     """
     logger = logging.getLogger(__name__)
-    languages = sorted(per_language_stances)
-    universe_ids = sorted(
-        frozenset[str]().union(*(frozenset(stances) for stances in per_language_stances.values()))
-    )
+    languages = sorted(per_language)
 
-    for domain_id in universe_ids:
-        for language, declaration in _stances_for_domain(
-            domain_id, per_language_stances, languages
-        ).items():
-            suffix = f" ({declaration.reason})" if declaration.status == "unsupported" else ""
-            logger.info(
-                "STANCE: %s.%s = %s%s", language, domain_id, declaration.status, suffix
+    for domain_id in structural_ids:
+        for language, declaration in _declarations_for_domain(domain_id, per_language, languages).items():
+            pattern = (
+                _NO_STRUCTURAL_PATTERN
+                if declaration.structural_pattern is None
+                else declaration.structural_pattern
             )
+            logger.info("DECLARATION: %s.%s = %s", language, domain_id, pattern)
 
     divergent_ids = [
         domain_id
-        for domain_id in universe_ids
-        if _is_divergent_stance(_stances_for_domain(domain_id, per_language_stances, languages))
+        for domain_id in structural_ids
+        if _has_unpatterned_language(_declarations_for_domain(domain_id, per_language, languages))
+        or _undeclaring_languages(domain_id, per_language, languages)
     ]
     if not divergent_ids:
         return
 
     logger.info(
-        "STANCE DIVERGENCE REPORT (%d domain id(s) -- divergence-with-a-reason is "
-        "the designed per-target-realization state, not a gate failure):",
+        "DECLARATION DIVERGENCE REPORT (%d structural domain id(s) some language declares "
+        "with no structural pattern or does not declare):",
         len(divergent_ids),
     )
     for domain_id in divergent_ids:
-        by_language = _stances_for_domain(domain_id, per_language_stances, languages)
+        by_language = _declarations_for_domain(domain_id, per_language, languages)
         for language, declaration in by_language.items():
-            if declaration.status != "unsupported":
-                continue
-            logger.info("  %s: %s unsupported -- %s", domain_id, language, declaration.reason)
+            if declaration.structural_pattern is None:
+                logger.info("  %s: %s declares %s", domain_id, language, _NO_STRUCTURAL_PATTERN)
+        for language in _undeclaring_languages(domain_id, per_language, languages):
+            logger.info("  %s: %s does not declare it", domain_id, language)
+
+
+def _synthetic_declaration(domain_id: str) -> DomainDeclaration:
+    """A realized synthetic declaration -- always carries a structural pattern."""
+    return DomainDeclaration(
+        domain_id=domain_id,
+        structural_pattern=f"*/self_test/{domain_id}/*.txt",
+    )
 
 
 def run_self_test() -> None:
-    """Prove check_stance_completeness detects both incompleteness directions
-    before any real stance-completeness check is trusted (non-vacuity
-    requirement).
+    """Prove check_declaration_presence detects both directions, and narrows
+    its required set to the structural ids, before any real presence check is
+    trusted (non-vacuity requirement).
 
-    Feeds :func:`check_stance_completeness` a complete synthetic stance
-    table (both synthetic languages declare a stance for every synthetic
-    universe id -- must report zero findings), a synthetic table where one
-    language is missing a stance for one universe id (must be reported,
-    naming that language and id), and a synthetic table where one language
-    declares a stance for an id outside the synthetic universe (must be
-    reported, naming that language and id). A comparator that either
-    false-positives on the complete table or fails to detect either forced
-    gap cannot be trusted for the real check that follows.
+    Feeds :func:`check_declaration_presence` a complete synthetic declaration
+    table over the structural ids only (both synthetic languages declare every
+    structural id and neither declares the non-structural one -- must report
+    zero findings), a synthetic table where one language omits one structural
+    id (must be reported undeclared, naming that language and id), a synthetic
+    table where one language declares an id outside the registration universe
+    (must be reported, naming that language and id), and a synthetic table
+    where one language declares the non-structural id (must be neither
+    reported out-of-universe nor make the other language undeclared). A
+    comparator that either false-positives on the complete table or fails to
+    detect either forced gap cannot be trusted for the real check that follows.
 
     Every input here is synthetic (never a real language name, domain id, or
     mutation of real state).
 
     Raises:
-        AssertionError: If any of the three synthetic cases does not
-            produce the expected result.
+        AssertionError: If any of the synthetic cases does not produce the
+            expected result.
     """
-    synthetic_universe = frozenset({_SELF_TEST_DOMAIN_SHARED, _SELF_TEST_DOMAIN_FORCED_GAP})
-    complete_stances: Mapping[str, DomainDeclaration] = {
-        _SELF_TEST_DOMAIN_SHARED: DomainDeclaration(
-            domain_id=_SELF_TEST_DOMAIN_SHARED,
-            status="supported",
-            structural_pattern="*/self_test/*.txt",
-        ),
-        _SELF_TEST_DOMAIN_FORCED_GAP: DomainDeclaration(
-            domain_id=_SELF_TEST_DOMAIN_FORCED_GAP,
-            status="unsupported",
-            reason="self-test synthetic reason -- never a real capability gap",
-        ),
+    structural_ids = frozenset({_SELF_TEST_DOMAIN_SHARED, _SELF_TEST_DOMAIN_FORCED_GAP})
+    synthetic_universe = structural_ids | {_SELF_TEST_DOMAIN_NON_STRUCTURAL}
+    complete_declarations: Mapping[str, DomainDeclaration] = {
+        domain_id: _synthetic_declaration(domain_id) for domain_id in sorted(structural_ids)
     }
 
     complete_table = {
-        _SELF_TEST_LANGUAGE_A: complete_stances,
-        _SELF_TEST_LANGUAGE_B: complete_stances,
+        _SELF_TEST_LANGUAGE_A: complete_declarations,
+        _SELF_TEST_LANGUAGE_B: complete_declarations,
     }
-    undeclared, out_of_universe = check_stance_completeness(
-        complete_table, registry_ids=synthetic_universe
+    undeclared, out_of_universe = check_declaration_presence(
+        complete_table, registry_ids=synthetic_universe, structural_ids=structural_ids
     )
     if undeclared or out_of_universe:
         raise AssertionError(
-            f"Non-vacuity self-test FAILED: check_stance_completeness "
-            f"reported a finding for a synthetic COMPLETE stance table "
+            f"Non-vacuity self-test FAILED: check_declaration_presence "
+            f"reported a finding for a synthetic COMPLETE declaration table "
             f"(undeclared={undeclared}, out_of_universe={out_of_universe}) "
             f"-- the comparator is over-triggering and cannot be trusted to "
             f"judge a real comparison."
         )
 
     incomplete_table = {
-        _SELF_TEST_LANGUAGE_A: {_SELF_TEST_DOMAIN_SHARED: complete_stances[_SELF_TEST_DOMAIN_SHARED]},
-        _SELF_TEST_LANGUAGE_B: complete_stances,
+        _SELF_TEST_LANGUAGE_A: {
+            _SELF_TEST_DOMAIN_SHARED: complete_declarations[_SELF_TEST_DOMAIN_SHARED]
+        },
+        _SELF_TEST_LANGUAGE_B: complete_declarations,
     }
-    undeclared, out_of_universe = check_stance_completeness(
-        incomplete_table, registry_ids=synthetic_universe
+    undeclared, out_of_universe = check_declaration_presence(
+        incomplete_table, registry_ids=synthetic_universe, structural_ids=structural_ids
     )
-    missing_for_a = undeclared.get(_SELF_TEST_LANGUAGE_A, frozenset())
-    if _SELF_TEST_DOMAIN_FORCED_GAP not in missing_for_a:
+    if (
+        undeclared.get(_SELF_TEST_LANGUAGE_A) != frozenset({_SELF_TEST_DOMAIN_FORCED_GAP})
+        or _SELF_TEST_LANGUAGE_B in undeclared
+        or out_of_universe
+    ):
         raise AssertionError(
-            f"Non-vacuity self-test FAILED: check_stance_completeness did "
-            f"not detect {_SELF_TEST_LANGUAGE_A!r}'s missing stance for "
-            f"{_SELF_TEST_DOMAIN_FORCED_GAP!r} (got undeclared={undeclared}) "
-            f"-- a completeness gate that cannot detect a real gap is "
-            f"worthless."
+            f"Non-vacuity self-test FAILED: check_declaration_presence did "
+            f"not report exactly {_SELF_TEST_LANGUAGE_A!r}'s omitted structural id "
+            f"{_SELF_TEST_DOMAIN_FORCED_GAP!r} (got undeclared={undeclared}, "
+            f"out_of_universe={out_of_universe}) -- a presence gate that cannot "
+            f"detect a real gap is worthless."
+        )
+    omitting = _undeclaring_languages(
+        _SELF_TEST_DOMAIN_FORCED_GAP, incomplete_table, sorted(incomplete_table)
+    )
+    if omitting != [_SELF_TEST_LANGUAGE_A]:
+        raise AssertionError(
+            f"Non-vacuity self-test FAILED: the declaration report did not name "
+            f"{_SELF_TEST_LANGUAGE_A!r} as the only language omitting "
+            f"{_SELF_TEST_DOMAIN_FORCED_GAP!r} (got {omitting})."
         )
 
-    extra_stances = dict(complete_stances)
-    extra_stances[_SELF_TEST_DOMAIN_OUT_OF_UNIVERSE] = DomainDeclaration(
-        domain_id=_SELF_TEST_DOMAIN_OUT_OF_UNIVERSE,
-        status="unsupported",
-        reason="self-test synthetic out-of-universe reason",
+    extra_declarations = dict(complete_declarations)
+    extra_declarations[_SELF_TEST_DOMAIN_OUT_OF_UNIVERSE] = _synthetic_declaration(
+        _SELF_TEST_DOMAIN_OUT_OF_UNIVERSE
     )
     out_of_universe_table = {
-        _SELF_TEST_LANGUAGE_A: extra_stances,
-        _SELF_TEST_LANGUAGE_B: complete_stances,
+        _SELF_TEST_LANGUAGE_A: extra_declarations,
+        _SELF_TEST_LANGUAGE_B: complete_declarations,
     }
-    undeclared, out_of_universe = check_stance_completeness(
-        out_of_universe_table, registry_ids=synthetic_universe
+    undeclared, out_of_universe = check_declaration_presence(
+        out_of_universe_table, registry_ids=synthetic_universe, structural_ids=structural_ids
     )
-    extra_for_a = out_of_universe.get(_SELF_TEST_LANGUAGE_A, frozenset())
-    if _SELF_TEST_DOMAIN_OUT_OF_UNIVERSE not in extra_for_a:
+    if out_of_universe != {_SELF_TEST_LANGUAGE_A: frozenset({_SELF_TEST_DOMAIN_OUT_OF_UNIVERSE})} or undeclared:
         raise AssertionError(
-            f"Non-vacuity self-test FAILED: check_stance_completeness did "
-            f"not detect {_SELF_TEST_LANGUAGE_A!r}'s out-of-universe stance "
-            f"for {_SELF_TEST_DOMAIN_OUT_OF_UNIVERSE!r} (got "
-            f"out_of_universe={out_of_universe})."
+            f"Non-vacuity self-test FAILED: check_declaration_presence did "
+            f"not report exactly {_SELF_TEST_LANGUAGE_A!r}'s out-of-universe "
+            f"declaration {_SELF_TEST_DOMAIN_OUT_OF_UNIVERSE!r} (got "
+            f"out_of_universe={out_of_universe}, undeclared={undeclared})."
+        )
+
+    optional_declarations = dict(complete_declarations)
+    optional_declarations[_SELF_TEST_DOMAIN_NON_STRUCTURAL] = _synthetic_declaration(
+        _SELF_TEST_DOMAIN_NON_STRUCTURAL
+    )
+    optional_table = {
+        _SELF_TEST_LANGUAGE_A: optional_declarations,
+        _SELF_TEST_LANGUAGE_B: complete_declarations,
+    }
+    undeclared, out_of_universe = check_declaration_presence(
+        optional_table, registry_ids=synthetic_universe, structural_ids=structural_ids
+    )
+    if undeclared or out_of_universe:
+        raise AssertionError(
+            f"Non-vacuity self-test FAILED: check_declaration_presence reported a "
+            f"finding for a language declaring the non-structural id "
+            f"{_SELF_TEST_DOMAIN_NON_STRUCTURAL!r} beside the structural ids "
+            f"(undeclared={undeclared}, out_of_universe={out_of_universe}) -- a "
+            f"non-structural id is optional: never required, never out-of-universe."
         )
 
 
@@ -485,7 +524,7 @@ def run_universe_closure_self_test() -> None:
     Every input here is synthetic (never a real language name or a mutation
     of real state) -- this proves the COMPARATOR's discriminating power, the
     same non-vacuity discipline `run_self_test` already applies to
-    `check_stance_completeness`.
+    `check_declaration_presence`.
 
     Raises:
         AssertionError: If any of the three synthetic cases does not produce
@@ -538,7 +577,7 @@ def run_universe_closure_self_test() -> None:
 
 
 def check_supported_domain_parity() -> int:
-    """Prove domain-universe closure and per-language stance completeness.
+    """Prove domain-universe closure and per-language declaration presence.
 
     Runs, in order:
     1. Domain-universe closure -- the union of every registered language's
@@ -547,17 +586,17 @@ def check_supported_domain_parity() -> int:
        absent from the registry, or a registry id no registered language's
        compiled IR declares, fails loud and short-circuits before anything
        downstream runs (a wrong universe makes every later check meaningless).
-    2. Per-language stance completeness -- every registered language must
-       declare a stance (``supported`` or ``unsupported(reason)``) for every
-       id in the closed universe, and no stance for an id outside it. Fails
-       loud and short-circuits before the stance report runs.
-    3. The full per-language stance table and divergence report are printed
+    2. Per-language declaration presence -- every registered language must
+       declare every structural domain id, and no id outside the registration
+       universe. Fails loud and short-circuits before the declaration report
+       runs.
+    3. The per-language declaration table and divergence block are printed
        (diagnostic only -- never itself a failure condition).
 
     Returns:
         Exit code (0 = the universe closure holds and every registered
-        language's stance table is complete, 1 = a closure violation or a
-        stance-completeness violation was found, 2 = fewer than
+        language declares every structural domain id, 1 = a closure violation
+        or a declaration-presence violation was found, 2 = fewer than
         ``_MIN_LANGUAGES_FOR_COMPARISON`` languages are registered -- a
         cross-language comparison over 0 or 1 language is vacuous and must
         fail loud rather than silently "pass").
@@ -606,41 +645,47 @@ def check_supported_domain_parity() -> int:
         return 1
 
     logger.info(
-        "Comparing %d registered languages: %s (full %d-domain shared "
-        "universe: %s)",
-        len(languages), languages, len(SHARED_CONTEXT_TYPES), sorted(SHARED_CONTEXT_TYPES),
+        "Comparing %d registered languages: %s (%d structural domain ids of the full "
+        "%d-domain registration universe: %s)",
+        len(languages), languages, len(STRUCTURAL_DOMAIN_IDS), len(SHARED_CONTEXT_TYPES),
+        list(STRUCTURAL_DOMAIN_IDS),
     )
-    per_language_stances = stance_table_by_language(languages)
-    undeclared_by_language, out_of_universe_by_language = check_stance_completeness(
-        per_language_stances
+    per_language = declarations_by_language(languages)
+    undeclared_by_language, out_of_universe_by_language = check_declaration_presence(
+        per_language
     )
 
-    completeness_ok = True
+    presence_ok = True
     for name in languages:
         undeclared = undeclared_by_language.get(name, frozenset())
         if undeclared:
-            completeness_ok = False
+            presence_ok = False
             logger.error(
-                "STANCE COMPLETENESS VIOLATION: %s has no stance for %s",
+                "DECLARATION PRESENCE VIOLATION: %s declares no structural domain %s. Every "
+                "registered language is obligated to realize every structural domain id; one a "
+                "language does not realize is a counted capability gap and still fails here. "
+                "Fix: realize the domain and declare its structural_pattern.",
                 name, sorted(undeclared),
             )
         out_of_universe = out_of_universe_by_language.get(name, frozenset())
         if out_of_universe:
-            completeness_ok = False
+            presence_ok = False
             logger.error(
-                "STANCE COMPLETENESS VIOLATION: %s declares out-of-universe %s",
+                "DECLARATION PRESENCE VIOLATION: %s declares out-of-universe %s. Fix: remove "
+                "the declaration, or register the domain id in "
+                "datrix_codegen_kernel.generation.registry.COMMON_GENERATOR_REGISTRATIONS.",
                 name, sorted(out_of_universe),
             )
-    if not completeness_ok:
+    if not presence_ok:
         return 1
 
     logger.info(
-        "Stance completeness holds: all %d registered languages' (%s) "
-        "stance tables cover the full shared domain universe with no "
-        "out-of-universe stance.",
+        "Declaration presence holds: all %d registered languages' (%s) "
+        "declaration tables cover every structural domain id with no "
+        "out-of-universe declaration.",
         len(languages), languages,
     )
-    print_stance_report(per_language_stances)
+    print_declaration_report(per_language, STRUCTURAL_DOMAIN_IDS)
 
     return 0
 
@@ -649,8 +694,8 @@ def main() -> int:
     """Main entry point.
 
     Returns:
-        Exit code (0 = domain-universe closure and stance completeness both
-        hold, 1 = a closure or stance-completeness violation was found, 2 =
+        Exit code (0 = domain-universe closure and declaration presence both
+        hold, 1 = a closure or declaration-presence violation was found, 2 =
         the non-vacuity self-test failed or fewer than 2 languages are
         registered).
     """
@@ -658,9 +703,9 @@ def main() -> int:
         description=(
             "Prove domain-universe closure (the registry equals the union "
             "of every registered datrix.languages plugin's compiled GenDSL "
-            "IR) and per-language stance completeness (every registered "
-            "language declares a supported/unsupported(reason) stance for "
-            "every id in that closed universe, and no stance outside it)."
+            "IR) and per-language declaration presence (every registered "
+            "language declares every structural domain id in that closed "
+            "universe, and nothing outside it)."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -685,10 +730,11 @@ def main() -> int:
         )
         return 2
     logger.info(
-        "Non-vacuity self-test passed: check_stance_completeness reports "
-        "zero findings for a synthetic complete stance table and correctly "
-        "detects both a synthetic missing stance and a synthetic "
-        "out-of-universe stance, and check_domain_universe_closure "
+        "Non-vacuity self-test passed: check_declaration_presence reports "
+        "zero findings for a synthetic complete declaration table, correctly "
+        "detects both a synthetic omitted structural id and a synthetic "
+        "out-of-universe declaration, and neither requires nor rejects a "
+        "non-structural id; check_domain_universe_closure "
         "correctly detects both a synthetic missing-from-registry id and a "
         "synthetic dead registry entry."
     )

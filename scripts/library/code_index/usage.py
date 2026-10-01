@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from code_index.sources import USAGE_LOG_NAME, index_dir
+from shared.capped_log import read_lines
 
 CHARS_PER_TOKEN = 4
 # A whole-file read this large is one an outline plus a ranged read would have answered
@@ -112,11 +113,9 @@ def usage_report(workspace: Path, days: int) -> UsageReport:
     cutoff = datetime.now(UTC) - timedelta(days=days) if days else None
     report = UsageReport(since=cutoff.date().isoformat() if cutoff else "the first logged call", sessions=0,
                          unreadable_lines=0)
-    log = usage_log(workspace)
-    if not log.exists():
-        return report
     sessions: set[str] = set()
-    for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+    # The hook caps the log and keeps one rotated file (shared.capped_log): read both.
+    for line in read_lines(usage_log(workspace)):
         try:
             entry = json.loads(line)
             when = datetime.fromisoformat(str(entry["ts"]))

@@ -2,8 +2,9 @@
 <#
 .SYNOPSIS
  Problem-type parity gate -- every registered language answers errors with
- RFC 7807 type URNs from datrix-common's registry and realizes every
- framework family or declares the hole with a reason.
+ RFC 7807 type URNs from datrix-common's registry and is obligated to every
+ framework family; unspelled (language, family) cells are held to a
+ two-directional pin.
 
 .DESCRIPTION
  A generated service's error body carries a `type` member naming the error
@@ -15,14 +16,18 @@
 
    * SPELLING -- every literal slug is a registered family (a private slug
      has no exemption path: register it or spell the registered one);
-   * REALIZATION -- every registered family is spelled by the language or
-     declared unrealized with a reason on the language's
-     LanguageCapabilityDeclaration.unrealized_problem_types. Neither fails
-     by name; both is a stale declaration and fails; a family no language
-     spells is a dead registry entry and fails.
+   * REALIZATION -- every registered language is obligated to spell every
+     registered family. A (language, family) cell a language does not spell
+     is counted (printed as PINNED GAP language=<l> family=<f>) against the
+     language's pin in scripts/config/problem-type-parity-baseline.toml: a
+     count above the pin fails (EXCEED), a count below it fails until the pin
+     is lowered in the same change (BELOW), and a language absent from the
+     table is pinned at zero. No declaration excuses a cell. A family no
+     language spells is a dead registry entry and fails outright.
 
  Language set from the installed datrix.languages entry points at runtime;
- registry and declarations read from the packages -- never a table here.
+ registry read from the packages -- never a table here. The pin is seeded
+ from a live run and lowered by hand; no script writes it.
  Runs a built-in non-vacuity self-test on every invocation.
 
  Repo-level validation script (per the datrix showcase boundary -- no pytest

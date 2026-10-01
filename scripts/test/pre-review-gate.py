@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -45,6 +46,7 @@ from git.pre_review import (  # noqa: E402
     review,
 )
 from shared.local_llm import LocalLlmPool, LocalLlmSettings  # noqa: E402
+from shared.local_llm_usage import USAGE_LOG_VARIABLE  # noqa: E402
 
 CheckFunc = Callable[[], None]
 
@@ -304,7 +306,10 @@ def main() -> int:
                   f"{', '.join(c.__name__ for c in _ALL_CHECKS)}.", file=sys.stderr)
             return 2
     print(f"Running {len(checks)} pre-review behaviour checks...\n")
-    passed = run_checks(checks)
+    # The checks' own loopback model servers must never count as real use of the machines.
+    with TemporaryDirectory(prefix="pre-review-gate-") as temp:
+        os.environ[USAGE_LOG_VARIABLE] = str(Path(temp) / "usage.jsonl")
+        passed = run_checks(checks)
     print()
     if passed:
         print(f"{_GREEN}GATE PASSED{_RESET}: all {len(checks)} pre-review behaviour checks passed.")

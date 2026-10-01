@@ -23,9 +23,9 @@ The TARGET SET this gate evaluates never comes from that dispatch table's keys -
 `enum_emitting_language_names(registered_language_names())` -- and a registered enum-emitting
 language absent from the dispatch table is a loud `RuntimeError`, never a silent skip.
 
-A known, reviewed gap is a typed, counted entry in
-`d:\\datrix\\datrix\\scripts\\config\\enum-classifier-conformance-exemptions.json` with a written
-reason -- never silence (D11's own wording).
+The gate is a hard zero: every enum-emitting language must be fully conformant, and a language
+that is not fails the gate naming the missing classifier behaviour. No exemption of any kind
+exists.
 
 Run with `--self-test` to verify the comparator is non-vacuous before trusting a real run.
 """
@@ -33,7 +33,6 @@ Run with `--self-test` to verify the comparator is non-vacuous before trusting a
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import re
 import sys
@@ -61,11 +60,6 @@ from datrix_common.paths import ServicePaths  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-_HERE = Path(__file__).resolve()
-#: <datrix>/scripts/library/test/enum_classifier_conformance.py -- parents[3] is <datrix>.
-DATRIX_DIR: Path = _HERE.parents[3]
-EXEMPTIONS_PATH: Path = DATRIX_DIR / "scripts" / "config" / "enum-classifier-conformance-exemptions.json"
-
 #: A cross-language comparison over 0 or 1 language is vacuous.
 _MIN_LANGUAGES_FOR_COMPARISON: Final[int] = 2
 
@@ -87,11 +81,11 @@ _FIXTURE_SERVICE_NAME: Final[str] = "catalog"
 
 #: The GenDSL domain id every enum-emitting language plugin registers its `EnumGenerator`
 #: sub-generator under (`_declare_structural("enum", EnumGenerator)` in each language's own gendsl
-#: definitions module). This is deliberately NOT `plugin.domain_declarations["enum"].status` -- a
-#: language may declare that structural-parity stance "unsupported" for an unrelated reason (no
-#: committed structural glob pattern for the cross-language STRUCTURAL parity surface) while its
-#: `EnumGenerator` still emits real enum files. The SUB-GENERATOR REGISTRATION, not the
-#: structural-parity declaration, is the true capability signal "this language emits enum types."
+#: definitions module). This is deliberately NOT a structural-parity declaration in
+#: `plugin.domain_declarations` -- that declaration carries a structural glob pattern for the
+#: cross-language STRUCTURAL parity surface, which a language's `EnumGenerator` does not need in
+#: order to emit real enum files. The SUB-GENERATOR REGISTRATION, not the structural-parity
+#: declaration, is the true capability signal "this language emits enum types."
 _ENUM_DOMAIN_NAME: Final[str] = "enum"
 
 #: The no-match throw's message shape every language's enum template emits (a compile-time
@@ -203,8 +197,9 @@ def enum_emitting_language_names(languages: frozenset[str]) -> frozenset[str]:
 
     The capability signal is each plugin's own sub-generator registration -- does it register a
     sub-generator under the `"enum"` GenDSL domain (`_registered_domain_names`) -- never a
-    hardcoded language-name list, and never `domain_declarations["enum"].status` (see
-    `_ENUM_DOMAIN_NAME`'s own docstring for why that status is the wrong signal).
+    hardcoded language-name list, and never a structural-parity declaration in
+    `domain_declarations` (see `_ENUM_DOMAIN_NAME`'s own docstring for why that is the wrong
+    signal).
 
     Args:
         languages: Every registered `datrix.languages` entry-point name.
@@ -440,42 +435,6 @@ def collect_conformance_facts(language: str, fixture: Enum) -> ClassifierConform
         ) from exc
 
 
-def load_exemptions() -> list[dict[str, str]]:
-    """Return the reviewed exemption entries.
-
-    A typed, reason-carrying entry is the only sanctioned way a known gap
-    survives this gate. An empty list is the default/expected state today --
-    every currently registered language is expected to be fully conformant.
-
-    Returns:
-        The exemption entries. Each carries at least `"language"` and
-        `"reason"` (both non-empty strings).
-
-    Raises:
-        ValueError: The exemptions file is missing or malformed, or an entry
-            is missing a required field (`language`, `reason`) -- the file
-            stopped describing what it claims to and nothing in it can be
-            trusted.
-    """
-    if not EXEMPTIONS_PATH.exists():
-        raise ValueError(
-            f"Missing exemption file {EXEMPTIONS_PATH}. It pins the catalogued per-language "
-            f"enum-classifier conformance holes. Restore it from git; the gate never creates it."
-        )
-    data = json.loads(EXEMPTIONS_PATH.read_text(encoding="utf-8"))
-    entries = data.get("exemptions")
-    if not isinstance(entries, list):
-        raise ValueError(
-            f"Malformed exemption file {EXEMPTIONS_PATH}: expected an object with "
-            f"'exemptions' (array of {{language, reason}})."
-        )
-    for entry in entries:
-        for key in ("language", "reason"):
-            if not isinstance(entry, dict) or not isinstance(entry.get(key), str) or not entry[key].strip():
-                raise ValueError(f"Exemption entry {entry!r} is missing a non-empty {key!r}.")
-    return entries
-
-
 def compare_classifier_conformance(
     per_language: Mapping[str, ClassifierConformanceFacts],
 ) -> dict[str, ClassifierConformanceFacts]:
@@ -503,6 +462,18 @@ def compare_classifier_conformance(
     }
 
 
+def conformance_exit_code(violations: Mapping[str, ClassifierConformanceFacts]) -> int:
+    """The gate verdict over the non-conformant subset `compare_classifier_conformance` returns.
+
+    Any non-conformant language fails the gate. The verdict takes no exemption input, so no
+    language can be excused.
+
+    Returns:
+        0 when *violations* is empty, 1 otherwise.
+    """
+    return 1 if violations else 0
+
+
 def run_self_test() -> None:
     """Prove the comparator detects a forced conformance gap before any real run is trusted.
 
@@ -510,6 +481,9 @@ def run_self_test() -> None:
     languages have every `ClassifierConformanceFacts` field True -- must report zero violations)
     and a synthetic PARTIALLY-BROKEN pair (one language has `has_contains_keyword=False` -- must
     report exactly that language as non-conformant, and must NOT report the other language).
+    The verdict over each result must pass the first pair and fail the second, and
+    `conformance_exit_code` takes no exemption input, so a non-conformant language has no path
+    to a pass.
     Mirrors `supported_domain_parity.run_self_test`'s matching/forced-mismatch shape.
 
     Raises:
@@ -557,15 +531,22 @@ def run_self_test() -> None:
             f"{_SELF_TEST_LANGUAGE_A!r} (the language that IS fully conformant) as "
             f"non-conformant -- asymmetric/wrong: {mismatched_result[_SELF_TEST_LANGUAGE_A]}"
         )
+    if conformance_exit_code(matching_result) != 0 or conformance_exit_code(mismatched_result) != 1:
+        raise AssertionError(
+            f"Non-vacuity self-test FAILED: conformance_exit_code must pass a fully-conformant "
+            f"pair and fail a pair with a non-conformant language, with no exemption input to "
+            f"turn that failure into a pass (got {conformance_exit_code(matching_result)} and "
+            f"{conformance_exit_code(mismatched_result)})."
+        )
 
 
 def check_enum_classifier_conformance() -> int:
     """Run the real cross-target comparison and report the result.
 
     Returns:
-        Exit code (0 = every enum-emitting registered language is fully conformant or has a valid
-        exemption, 1 = an unexempted conformance gap was found, 2 = fewer than
-        `_MIN_LANGUAGES_FOR_COMPARISON` enum-emitting languages are registered).
+        Exit code (0 = every enum-emitting registered language is fully conformant, 1 = a
+        conformance gap was found, 2 = fewer than `_MIN_LANGUAGES_FOR_COMPARISON` enum-emitting
+        languages are registered).
     """
     languages = registered_language_names()
     emitting = sorted(enum_emitting_language_names(languages))
@@ -585,37 +566,25 @@ def check_enum_classifier_conformance() -> int:
     per_language = {language: collect_conformance_facts(language, fixture) for language in emitting}
     violations = compare_classifier_conformance(per_language)
 
-    exemptions = load_exemptions()
-    exempted_reasons = {entry["language"]: entry["reason"] for entry in exemptions}
-
-    ok = True
     for language in emitting:
         facts = violations.get(language)
         if facts is None:
             continue
-        if language in exempted_reasons:
-            logger.warning(
-                "G10 EXEMPTED: %s does not fully realize equalsKeyword/containsKeyword "
-                "conformance (%s) -- reviewed exemption: %s",
-                language, facts, exempted_reasons[language],
-            )
-            continue
-        ok = False
         logger.error(
             "G10 VIOLATION: %s does not fully realize equalsKeyword/containsKeyword conformance "
             "for the fixture enum %r: %s. Fix: implement the missing classifier behavior in "
-            "%s's EnumGenerator/templates, or add a reviewed entry to %s.",
-            language, _FIXTURE_ENUM_NAME, facts, language, EXEMPTIONS_PATH,
+            "%s's EnumGenerator/templates.",
+            language, _FIXTURE_ENUM_NAME, facts, language,
         )
 
-    if ok:
+    exit_code = conformance_exit_code(violations)
+    if exit_code == 0:
         logger.info(
             "G10 holds: all %d enum-emitting registered languages (%s) fully realize "
             "equalsKeyword/containsKeyword conformance for the fixture enum %r.",
             len(emitting), emitting, _FIXTURE_ENUM_NAME,
         )
-        return 0
-    return 1
+    return exit_code
 
 
 def main() -> int:

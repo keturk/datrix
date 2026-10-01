@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Cross-language domain-universe closure and stance-completeness gate.
+ Cross-language domain-universe closure and declaration-presence gate.
 
 .DESCRIPTION
  Proves two properties for every registered `datrix.languages` plugin, over
@@ -13,19 +13,22 @@
     IR declares but the registry omits, or a registry id no registered
     language's compiled IR declares (a dead entry), fails loud and
     short-circuits before anything downstream runs.
- 2. Per-language stance completeness -- every registered language declares
-    a stance (`supported` or `unsupported(reason)`) for every id in that
-    closed universe, and no stance for an id outside it. A missing or
-    out-of-universe stance is a fail-loud `STANCE COMPLETENESS VIOLATION`.
-    This is a completeness check, never an agreement check: languages are
-    free to take opposite stances on the same domain id, most commonly
-    because a domain is realized elsewhere on that target (e.g. folded into
-    another domain, or architecturally inapplicable to that target's
-    runtime) rather than left as an unclaimed gap.
+ 2. Per-language declaration presence -- every registered language declares
+    every STRUCTURAL domain id (the kernel's structural-domain-id tuple;
+    `discovery` and `resilience` keep their GenDSL registration but carry no
+    structural-pattern obligation, so no language is required to declare
+    either and a language that does is not reported), and declares nothing
+    outside the full registration universe. An undeclared structural id or an
+    out-of-universe declaration is a fail-loud `DECLARATION PRESENCE
+    VIOLATION` naming the language and the id. This is a presence check,
+    never an agreement check: languages may emit a domain to different
+    globs. A domain a language does not realize is counted here, never
+    excused.
 
- On success, prints every registered language's full stance table (one row
- per universe id) plus a divergence report quoting each unsupported
- language's declared reason verbatim -- diagnostic only, never itself a
+ On success, prints, for every structural domain id, each registered
+ language's declared structural pattern (or `no structural pattern`), plus a
+ divergence block listing the languages that declare a structural id with no
+ structural pattern or do not declare it -- diagnostic only, never itself a
  failure condition.
 
  Derives its target language set from
@@ -34,10 +37,12 @@
  package is covered automatically with no edit to this gate.
 
  Runs a built-in non-vacuity self-test on every invocation, before trusting
- any real comparison: feeds the stance-completeness comparator a complete
- synthetic table (must report zero findings), a synthetic language missing
- one universe id's stance (must be reported), and a synthetic language
- declaring an out-of-universe stance (must be reported); and feeds the
+ any real comparison: feeds the declaration-presence comparator a complete
+ synthetic table over the structural ids (must report zero findings), a
+ synthetic language omitting one structural id (must be reported, naming the
+ language and id), a synthetic language declaring an out-of-universe id (must
+ be reported), and a synthetic language declaring the non-structural id (must
+ be neither reported nor required); and feeds the
  closure comparator a synthetic matching pair (must report zero
  divergence), a synthetic compiled id absent from the registry (must be
  reported), and a synthetic dead registry entry (must be reported). Fails
@@ -115,7 +120,7 @@ try {
         $pythonArgs += "--self-test"
     }
 
-    Write-Host "Running domain-universe closure + stance-completeness gate (all registered languages)" -ForegroundColor Cyan
+    Write-Host "Running domain-universe closure + declaration-presence gate (all registered languages)" -ForegroundColor Cyan
     python @pythonArgs
     $exitCode = $LASTEXITCODE
 

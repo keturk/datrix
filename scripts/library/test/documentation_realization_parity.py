@@ -1,12 +1,12 @@
 """Documentation-realization parity gate (Decision 39, invariants I2 and I6).
 
-Every registered ``datrix.languages`` target either emits an authored ``///``
+Every registered ``datrix.languages`` target emits an authored ``///``
 DSL comment onto its declared PUBLISHED documentation surface (an OpenAPI
 operation summary/description, a schema field description, a doc-comment
 block, ...) and a plain ``//`` comment onto its SOURCE-commentary surface
-only -- or the target carries a typed, counted exemption in
-``scripts/config/documentation-realization-exemptions.json`` explaining why
-it cannot.
+only. The gate is a hard zero: an unpopulated (construct kind, surface) cell
+is a hole that fails the gate, naming the target, the construct kind and the
+surface, and no exemption of any kind exists.
 
 WHAT THIS GATE CHECKS -- SIX CONSTRUCT KINDS, TWO SURFACES EACH
 -----------------------------------------------------------------
@@ -83,6 +83,7 @@ import re
 import shutil
 import sys
 import tokenize
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
@@ -108,9 +109,6 @@ _HERE: Final[Path] = Path(__file__).resolve()
 DATRIX_DIR: Final[Path] = _HERE.parents[3]
 WORKSPACE_ROOT: Final[Path] = _HERE.parents[4]
 
-EXEMPTIONS_PATH: Final[Path] = (
-    DATRIX_DIR / "scripts" / "config" / "documentation-realization-exemptions.json"
-)
 #: Decrease-only ratchet for the coverage census (Decision 39 invariant 1's
 #: second half): per target, how many of the fixture's ATTACHED comment runs
 #: reach no generated artifact at all.
@@ -1057,6 +1055,35 @@ def check_all_surfaces(target: str, index: ArtifactTextIndex) -> list[SurfaceChe
     return checks
 
 
+def census_target_checks(checks: Sequence[SurfaceCheck]) -> tuple[dict[str, int], list[SurfaceCheck]]:
+    """The census counts and the holes of one target's surface checks.
+
+    Every unpopulated cell is a hole; nothing can excuse one.
+
+    Returns:
+        ``({"checked", "populated", "holes"}, the unpopulated checks)``.
+    """
+    holes = [check for check in checks if not check.populated]
+    counts = {
+        "checked": len(checks),
+        "populated": len(checks) - len(holes),
+        "holes": len(holes),
+    }
+    return counts, holes
+
+
+def gate_exit_code(
+    generation_failures: Mapping[str, str],
+    holes: Sequence[SurfaceCheck],
+    coverage_regressions: Sequence[str],
+) -> int:
+    """The gate verdict: a generation failure, any hole, or a coverage
+    regression fails it. There is no input that excuses a hole."""
+    if generation_failures or holes or coverage_regressions:
+        return EXIT_FAIL
+    return EXIT_OK
+
+
 # ---------------------------------------------------------------------------
 # Coverage census -- attached runs vs. runs that reach an artifact
 # ---------------------------------------------------------------------------
@@ -1272,51 +1299,6 @@ def write_coverage_baseline(holes: dict[str, int]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Exemption file (reviewed, typed holes -- never silence)
-# ---------------------------------------------------------------------------
-
-_EXEMPTION_REQUIRED_FIELDS: Final[tuple[str, ...]] = (
-    "target", "construct_kind", "surface", "reason",
-)
-
-
-def load_exemptions(config_path: Path = EXEMPTIONS_PATH) -> dict[tuple[str, str, str], str]:
-    """Load and validate the exemption file.
-
-    Returns:
-        ``{(target, construct_kind, surface): reason}``.
-
-    Raises:
-        ValueError: Missing/malformed file, or an entry missing a non-empty
-            required field.
-    """
-    if not config_path.exists():
-        raise ValueError(
-            f"Missing exemption file {config_path}. It pins the catalogued "
-            f"documentation-realization holes. Restore it from git; the gate "
-            f"never creates it."
-        )
-    data = json.loads(config_path.read_text(encoding="utf-8"))
-    entries = data.get("exemptions")
-    if not isinstance(entries, list):
-        raise ValueError(
-            f"Malformed exemption file {config_path}: expected an object with "
-            f"'exemptions' (array of {{target, construct_kind, surface, reason}})."
-        )
-    exemptions: dict[tuple[str, str, str], str] = {}
-    for entry in entries:
-        for field_name in _EXEMPTION_REQUIRED_FIELDS:
-            if not isinstance(entry.get(field_name), str) or not entry[field_name].strip():
-                raise ValueError(
-                    f"Exemption entry {entry!r} in {config_path} is missing a "
-                    f"non-empty {field_name!r}."
-                )
-        key = (entry["target"], entry["construct_kind"], entry["surface"])
-        exemptions[key] = entry["reason"]
-    return exemptions
-
-
-# ---------------------------------------------------------------------------
 # Non-vacuity self-test
 # ---------------------------------------------------------------------------
 
@@ -1337,6 +1319,8 @@ def run_self_test() -> list[str]:
        bracket-depth-tracking annotation-argument scan, plus a known-present
        ``/** ... */`` doc block, and does NOT treat a sibling plain
        ``/* ... */`` block comment as published.
+    4. A planted unpopulated cell is reported as a hole and fails the gate,
+       with no exemption input to pass it.
 
     Returns:
         A list of failure descriptions -- empty means every extractor is sound.
@@ -1435,8 +1419,64 @@ def run_self_test() -> list[str]:
             "comment (no doubled-star opener) as a published doc block"
         )
 
+    problems.extend(_hard_zero_self_test())
     problems.extend(_coverage_census_self_test())
 
+    return problems
+
+
+def _hard_zero_self_test() -> list[str]:
+    """Prove an unpopulated cell is a failure with no exemption path.
+
+    Plants one fully populated target and one target with a single unpopulated
+    (construct kind, surface) cell: the census must report exactly that cell as
+    a hole, the verdict must pass the first and fail the second, and the verdict
+    takes no exemption input that could turn the second into a pass.
+    """
+    problems: list[str] = []
+    planted_kind, planted_surface = CONSTRUCT_KINDS[0], SURFACES[0]
+    populated = [
+        SurfaceCheck("planted-clean", kind, surface, True, "planted populated")
+        for kind in CONSTRUCT_KINDS
+        for surface in SURFACES
+    ]
+    with_hole = [
+        SurfaceCheck(
+            "planted-hole", kind, surface,
+            (kind, surface) != (planted_kind, planted_surface),
+            "planted populated" if (kind, surface) != (planted_kind, planted_surface) else "planted hole",
+        )
+        for kind in CONSTRUCT_KINDS
+        for surface in SURFACES
+    ]
+    clean_counts, clean_holes = census_target_checks(populated)
+    hole_counts, found_holes = census_target_checks(with_hole)
+    cells = len(CONSTRUCT_KINDS) * len(SURFACES)
+    if clean_holes or clean_counts != {"checked": cells, "populated": cells, "holes": 0}:
+        problems.append(
+            f"self-test: a fully populated target reported holes or a wrong census "
+            f"(holes={clean_holes}, counts={clean_counts})."
+        )
+    if (
+        [(hole.construct_kind, hole.surface) for hole in found_holes] != [(planted_kind, planted_surface)]
+        or hole_counts != {"checked": cells, "populated": cells - 1, "holes": 1}
+    ):
+        problems.append(
+            f"self-test: the planted unpopulated cell ({planted_kind}, {planted_surface}) was not "
+            f"reported as exactly one hole (holes={found_holes}, counts={hole_counts}) -- the census "
+            f"cannot see an unpopulated cell."
+        )
+    if gate_exit_code({}, clean_holes, []) != EXIT_OK:
+        problems.append("self-test: a fully populated census with no regression did not pass the gate.")
+    if gate_exit_code({}, found_holes, []) != EXIT_FAIL:
+        problems.append(
+            "self-test: a planted unpopulated cell did not fail the gate -- a hole must fail with no "
+            "exemption path."
+        )
+    if gate_exit_code({"planted": "boom"}, clean_holes, []) != EXIT_FAIL:
+        problems.append("self-test: a generation failure did not fail the gate.")
+    if gate_exit_code({}, clean_holes, ["planted"]) != EXIT_FAIL:
+        problems.append("self-test: a coverage regression did not fail the gate.")
     return problems
 
 
@@ -1523,8 +1563,7 @@ def _coverage_census_self_test() -> list[str]:
 class GateReport:
     targets: list[str]
     census: dict[str, dict[str, int]]
-    unexempted_holes: list[dict[str, str]]
-    exempted: list[dict[str, str]]
+    holes: list[dict[str, str]]
     generation_failures: dict[str, str]
     result: str
     #: Per target: attached runs, how many reached an artifact, and the ones
@@ -1536,17 +1575,16 @@ def run_gate(*, debug: bool = False, update_coverage_baseline: bool = False) -> 
     """Full gate run. Returns ``(exit_code, report)``.
 
     Runs two comparisons over the same generated fixture: the per-cell
-    realization check (every (construct_kind, surface) cell populated or
-    exempted) and the coverage census (attached runs that reach no artifact,
+    realization check (every (construct_kind, surface) cell populated, a hard
+    zero) and the coverage census (attached runs that reach no artifact,
     against the decrease-only baseline).
 
     Exit codes:
         0: every registered target's every (construct_kind, surface) cell is
-           populated or carries a reviewed exemption, and no target's
-           coverage holes exceed its pinned baseline.
-        1: at least one unexempted hole, a stale exemption (exempted but now
-           populated), a coverage regression past the baseline, a generation
-           failure, or an exemption-file count mismatch.
+           populated, and no target's coverage holes exceed its pinned
+           baseline.
+        1: at least one hole, a coverage regression past the baseline, or a
+           generation failure.
         2: fewer than ``_MIN_TARGETS`` targets are registered.
     """
     targets = sorted(registered_language_names())
@@ -1558,19 +1596,13 @@ def run_gate(*, debug: bool = False, update_coverage_baseline: bool = False) -> 
             "package(s) into D:\\datrix\\.venv.",
             len(targets), targets, _MIN_TARGETS,
         )
-        return EXIT_VACUOUS, GateReport(targets, {}, [], [], {}, "VACUOUS")
-
-    try:
-        exemptions = load_exemptions()
-    except ValueError as exc:
-        logger.error("EXEMPTION FILE INVALID: %s", exc)
-        return EXIT_FAIL, GateReport(targets, {}, [], [], {}, "EXEMPTION_FILE_INVALID")
+        return EXIT_VACUOUS, GateReport(targets, {}, [], {}, "VACUOUS")
 
     try:
         coverage_baseline = load_coverage_baseline()
     except ValueError as exc:
         logger.error("COVERAGE BASELINE INVALID: %s", exc)
-        return EXIT_FAIL, GateReport(targets, {}, [], [], {}, "COVERAGE_BASELINE_INVALID")
+        return EXIT_FAIL, GateReport(targets, {}, [], {}, "COVERAGE_BASELINE_INVALID")
 
     fixture_root = SCRATCH_ROOT / "fixture"
     system_dtrx = write_fixture(fixture_root)
@@ -1600,60 +1632,25 @@ def run_gate(*, debug: bool = False, update_coverage_baseline: bool = False) -> 
             logger.error("target=%s GENERATION/PARSE FAILED: %s", target, exc)
 
     census: dict[str, dict[str, int]] = {}
-    unexempted: list[SurfaceCheck] = []
-    exempted_hits: list[SurfaceCheck] = []
-    stale: list[tuple[str, str, str]] = []
+    holes_found: list[SurfaceCheck] = []
 
-    seen_keys: set[tuple[str, str, str]] = set()
     for target in targets:
         if target in generation_failures:
-            census[target] = {"checked": 0, "populated": 0, "exempted": 0, "unexempted_holes": 1}
+            census[target] = {"checked": 0, "populated": 0, "holes": 1}
             continue
-        checks = per_target_checks[target]
-        checked = len(checks)
-        populated = 0
-        exempted_count = 0
-        for c in checks:
-            key = (c.target, c.construct_kind, c.surface)
-            seen_keys.add(key)
-            if c.populated:
-                populated += 1
-                if key in exemptions:
-                    stale.append(key)
-                continue
-            if key in exemptions:
-                exempted_count += 1
-                exempted_hits.append(c)
-                logger.info(
-                    "EXEMPTED target=%s construct_kind=%s surface=%s reason=%s",
-                    c.target, c.construct_kind, c.surface, exemptions[key],
-                )
-            else:
-                unexempted.append(c)
-                logger.error(
-                    "UNEXEMPTED HOLE target=%s construct_kind=%s surface=%s evidence=%s",
-                    c.target, c.construct_kind, c.surface, c.evidence,
-                )
-        census[target] = {
-            "checked": checked,
-            "populated": populated,
-            "exempted": exempted_count,
-            "unexempted_holes": checked - populated - exempted_count,
-        }
+        census[target], target_holes = census_target_checks(per_target_checks[target])
+        for hole in target_holes:
+            logger.error(
+                "HOLE target=%s construct_kind=%s surface=%s evidence=%s",
+                hole.target, hole.construct_kind, hole.surface, hole.evidence,
+            )
+        holes_found.extend(target_holes)
 
     for target, counts in census.items():
         logger.info(
-            "CENSUS target=%s checked=%d populated=%d exempted=%d unexempted_holes=%d",
-            target, counts["checked"], counts["populated"], counts["exempted"], counts["unexempted_holes"],
+            "CENSUS target=%s checked=%d populated=%d holes=%d",
+            target, counts["checked"], counts["populated"], counts["holes"],
         )
-
-    if stale:
-        for key in stale:
-            logger.error(
-                "STALE EXEMPTION: target=%s construct_kind=%s surface=%s is exempted "
-                "in %s but the artifact now carries the text -- remove the entry.",
-                key[0], key[1], key[2], EXEMPTIONS_PATH,
-            )
 
     coverage: dict[str, dict[str, object]] = {}
     coverage_regressions: list[str] = []
@@ -1697,55 +1694,43 @@ def run_gate(*, debug: bool = False, update_coverage_baseline: bool = False) -> 
                 len(generation_failures), sorted(generation_failures),
             )
             return EXIT_FAIL, GateReport(
-                targets, census, [], [], generation_failures, "COVERAGE_BASELINE_NOT_WRITTEN",
+                targets, census, [], generation_failures, "COVERAGE_BASELINE_NOT_WRITTEN",
             )
         write_coverage_baseline({t: len(h) for t, h in per_target_holes.items()})
         logger.info("Coverage baseline re-pinned: %s", COVERAGE_BASELINE_PATH)
 
-    result = "PASS"
-    exit_code = EXIT_OK
-    if generation_failures or unexempted or stale or coverage_regressions:
-        result = "FAIL"
-        exit_code = EXIT_FAIL
+    exit_code = gate_exit_code(generation_failures, holes_found, coverage_regressions)
 
     report = GateReport(
         targets=targets,
         census=census,
-        unexempted_holes=[
+        holes=[
             {"target": c.target, "construct_kind": c.construct_kind, "surface": c.surface, "evidence": c.evidence}
-            for c in unexempted
-        ],
-        exempted=[
-            {"target": c.target, "construct_kind": c.construct_kind, "surface": c.surface,
-             "reason": exemptions[(c.target, c.construct_kind, c.surface)]}
-            for c in exempted_hits
+            for c in holes_found
         ],
         generation_failures=generation_failures,
-        result=result,
+        result="PASS" if exit_code == EXIT_OK else "FAIL",
         coverage=coverage,
     )
-    _write_report(report, len(exemptions))
+    _write_report(report)
 
     if exit_code == EXIT_OK:
         logger.info(
-            "DOCUMENTATION-REALIZATION PARITY HOLDS: %d target(s) (%s), zero "
-            "unexempted holes, %d reviewed exemption(s) of %d; "
+            "DOCUMENTATION-REALIZATION PARITY HOLDS: %d target(s) (%s), zero holes; "
             "coverage census within baseline on every target.",
-            len(targets), targets, len(exempted_hits), len(exemptions),
+            len(targets), targets,
         )
     return exit_code, report
 
 
-def _write_report(report: GateReport, exemption_count: int) -> None:
+def _write_report(report: GateReport) -> None:
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "result": report.result,
         "targets": report.targets,
         "census": report.census,
-        "unexempted_holes": report.unexempted_holes,
-        "exempted": report.exempted,
+        "holes": report.holes,
         "generation_failures": report.generation_failures,
-        "exemption_count": exemption_count,
         "coverage": report.coverage,
     }
     REPORT_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -1768,8 +1753,9 @@ def main() -> int:
             "Documentation-realization parity gate: for every registered "
             "datrix.languages target, asserts a documented construct's "
             "author text reaches that target's declared published/source "
-            "documentation surfaces in a real generated fixture, or carries "
-            "a reviewed exemption (Decision 39 I2/I6)."
+            "documentation surfaces in a real generated fixture; an "
+            "unpopulated cell fails with no exemption path "
+            "(Decision 39 I2/I6)."
         ),
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
