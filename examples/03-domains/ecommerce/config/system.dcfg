@@ -8,8 +8,8 @@ config system library.System {
     migrations {
       // `enabled = false` is for projects that are generated fresh and never
       // booted, where a migration lifecycle is meaningless. This example is
-      // booted: the wire-shape round-trip gate starts its emitted stack and
-      // calls the generated browser client against it. Without a migration
+      // booted: a deployed stack and the generated browser client calling it
+      // both need the schema to exist. Without a migration
       // baseline the stack comes up against a database holding the enum types
       // and not one table, and every read answers 500.
       enabled = true;
