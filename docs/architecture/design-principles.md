@@ -71,7 +71,7 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Example (transpiled job handlers):** `JobsGenerator` (`datrix_codegen_python.generators.messaging.jobs_generator`) combines Jinja2 templates such as `messaging/jobs_scheduler.py.j2` and `messaging/jobs_runner.py.j2` with output from `PythonTranspiler` so each scheduled job’s DSL body becomes real Python inside the generated scheduler/runner modules.
 
-**Example (Grafana dashboard JSON):** `DashboardBuilder` (`datrix_codegen_docker.generators.infra.dashboard_builder`) assembles Grafana **provisioned** dashboard documents in Python (nested dicts), serializes them to JSON under `config/grafana/dashboards/`, and pairs them with Jinja2-rendered Prometheus alert YAML — no ad-hoc string concatenation of panel definitions.
+**Example (Grafana dashboard JSON):** `generate_dashboards` (`datrix_codegen_docker.generators.infra.dashboard_builder`), through the shared `DashboardBuilder` in `datrix_codegen_kernel.dashboards`, assembles Grafana **provisioned** dashboard documents in Python (nested dicts), serializes them to JSON under `config/grafana/dashboards/`, and pairs them with Jinja2-rendered Prometheus alert YAML — no ad-hoc string concatenation of panel definitions.
 
 **Key Insight:** Templates should aim for clean output; the pipeline's post-processing passes (import fix, format, validate) catch remaining drift. Which passes run is controlled by `PipelineConfig.validation_level` — see [Validation levels](architecture/pipeline-and-capabilities.md#validation-levels) for the level-to-hook mapping.
 

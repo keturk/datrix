@@ -504,7 +504,7 @@ Provider-native runtimes are produced by their provider generator plus, where th
 - **The `LanguageRuntimeSpec` protocol gains language-agnostic methods** (default-free abstract declarations, implemented in `datrix-codegen-python` and `datrix-codegen-typescript`, covered by the parity gate), including: `container_command(service, package_name) -> list[str]` (the single source of truth for how the HTTP service starts — consumed both as Azure App Service's `startup_command` and as the source every `datrix-codegen-docker` Dockerfile `CMD` is rendered from on both clouds, so the same service starts identically regardless of hosting mode), `hosts_consumers_in_process() -> bool` (whether the language runs scheduled-job / event-consumer / queue-worker containers in-process on Compose), and `language_id() -> LanguageId` (the language's own open-identity `LanguageId`, replacing a silent string→enum fallback). Both probe routes are language-declared members — `readiness_probe_path()` (dependency-gated; what container healthchecks, target-group health checks and edge probes consult) and `app_service_liveness_probe_path()` (dependency-free; what a PaaS health monitor consults) — because a probe route is a route the language's generated application mounts. A shared `"/ready"` constant once stood in for the readiness route; one registered language never mounted it, so every platform that assumed it probed a 404, and `app-probe-path-literal-gate.ps1` now holds every platform package free of such literals
 - **IaC language ≠ application language.** The language a provider authors its infrastructure artifacts in (AWS CDK Python, Azure Bicep) is independent of the generated application's language. A TypeScript app deployed via AWS still gets Python CDK stacks; the CDK references a TypeScript container command obtained from the runtime spec. AWS collapses its three Python-IaC string constants into one named `_CDK_IAC_LANGUAGE` constant documenting this invariant
 - **The `datrix_codegen_kernel/platform/` subpackage** (in `datrix-codegen-kernel`, a sibling of `gendsl/`, `dashboards/`, `pooling/`, `secrets/`) is the shared home for provider-level concerns that are language-agnostic and shared by ≥2 platforms: the `resolve_runtime_spec(context)` discovery helper (raises `GenerationError`, never falls back to Python), the `runtime_stack_token(lang_spec, runtime_version)` `LANG|VERSION` composer, and the `PlatformInfrastructure` protocol. The shared Grafana `DashboardBuilder` lives in `datrix_codegen_kernel/dashboards/` and platforms import it directly — no facade
-- **`PlatformInfrastructure` protocol** (`@runtime_checkable`, in `datrix_codegen_kernel/platform/`) expresses provider-level infrastructure surfaces — `network_topology(app)`, `service_to_service_auth(app)`, and `provision_managed_service(block, block_kind, service)` — exposed as a `platform_infrastructure` property on each `PlatformGenerator` subclass. Every platform implements the **full** protocol: clouds fully; Docker return explicit no-op value objects (`NetworkTopology.none()`, empty `ManagedServicePlan`) — honest "no VPC/IAM" facts, never silent stubs. Value objects (`NetworkTopology`, `ServiceAuthModel`, `ManagedServicePlan`) are frozen Pydantic models in `datrix_codegen_kernel/platform/`, keeping provider concepts out of the AST model
+- **`PlatformInfrastructure` protocol** (`@runtime_checkable`, in `datrix_codegen_kernel/platform/`) expresses provider-level infrastructure surfaces — `network_topology(app)`, `service_to_service_auth(app)`, and `provision_managed_service(block, block_kind, service)` — returned by each platform plugin's class-level `declared_infrastructure()`. Every platform implements the **full** protocol: clouds fully; Docker return explicit no-op value objects (`NetworkTopology.none()`, empty `ManagedServicePlan`) — honest "no VPC/IAM" facts, never silent stubs. Value objects (`NetworkTopology`, `ServiceAuthModel`, `ManagedServicePlan`) are frozen Pydantic models in `datrix_codegen_kernel/platform/`, keeping provider concepts out of the AST model
 - **The platform seam is the existing `PlatformGenerator` + `datrix.platforms` entry-point group** — discovered via `discover_platforms`. No new `PlatformAdapter` type is introduced. `PlatformInfrastructure` and the shared `DashboardBuilder` are *consumed by* `PlatformGenerator` subclasses, never a competing discovery contract. A new provider implements a `PlatformGenerator` subclass + a `PlatformInfrastructure` implementation, and *consumes* the shared `DashboardBuilder` (`datrix_codegen_kernel.dashboards.builder`) and `LanguageRuntimeSpec` — language support is free
 
 **Reference:** [Repository Architecture — Platform Generators](architecture/repository-architecture.md#platform-generators-3) | [Import Boundaries](../../../datrix-common/docs/architecture/import-boundaries.md)
@@ -526,7 +526,7 @@ Provider-native runtimes are produced by their provider generator plus, where th
 - **Provider is the source of truth; the stable local id is deterministic by default.** Datrix never mints primary tokens. It validates provider tokens via issuer/audience/client/JWKS. The stable local user id is resolved by an explicit per-provider `localIdentity` strategy carried in the plan: the **default `deterministicUuid5`** computes `userId = uuidv5(c9a255a1-350b-4414-beb9-7f06f7dfd92d, "<provider>:<sub>")` — stateless, uniform across services, UUID-shaped, no tables and no first-auth upsert. The frozen namespace is defined once in `datrix-common` and read from the plan by both codegens (never redeclared). Server-side profile attributes + cross-IdP account linking are an **opt-in** feature: declaring `profileProjection { enabled = true; profileStore = <service>; }` selects `localIdentity = projected` **unless every field the block declares is `owner = "app"`** — such an all-app-owned block stays on its normal local-identity mode (`deterministicUuid5` for a human/customer realm) and injects no `IdentityProfile`/`IdentityLink`. A block with any `owner = "provider"` field, or an enabled block with no fields, resolves to `projected` as before, injecting the Datrix-managed `IdentityProfile` (+ `IdentityLink` keyed `(providerName, providerSubject)`) into the single **explicitly declared** store and upserting on first auth. Store resolution is fail-loud — a `projected` resolution with an unresolvable `profileStore` is a generation error, never a silent runtime disable. **Decision-13 amendment (write-back):** app-owned fields (`owner = "app"`, `syncOnAuth`) instead write the application's values into the provider's user metadata, which the provider re-surfaces as a token claim on the next authentication. Providers on the default path inject no identity tables; per-request attributes come from validated token claims (with `required` identityFields enforced 401-at-the-edge), and tenancy is app-owned via onboarding. Account linking is explicit and verified; weak email-only linking is forbidden.
 - **Opinionated per-target providers.** Docker → Zitadel (provisioned with project/organization import, clients, groups/roles, social providers — Google, GitHub, generic-OIDC); AWS → Cognito User Pool (app-level, per-service app client); Azure customer → Microsoft Entra External ID, Azure workforce → Microsoft Entra ID, Azure machine → user-assigned managed identity (app registration via the Microsoft Graph Bicep extension, never a `deploy-identity.sh` stub). `provider self` (`ProviderPlanEntry.mode="self"`) is a Datrix-managed Zitadel issuer realizable on Docker targets — Docker reuses existing Zitadel provisioning; a self-host Zitadel instance on a cloud target (AWS/Azure) raises a `GenerationError` (external mode must be used to consume a remotely-hosted Zitadel). `mode: external` consumes issuer/JWKS/audience/client and provisions nothing. Supported `(providerType, target, feature)` combinations are declared by each platform plugin on its own `PlatformCapabilityDeclaration` and resolved by one generic validator in `datrix-common`; unsupported combinations fail loud. (This originally read "a capability matrix in `datrix-common` is the authoritative source" — that central table was deleted by [Decision 22](#decision-22-open-world-identity-providers-and-infrastructure-flavors-adopted), which moved identity capability into the per-platform declarations.)
 - **Structured versioned provider plan.** A `config/generated/identity-providers.json` artifact (schema owned by `datrix-common`, one per application+environment) carries providers, role/attribute mappings, revocation mode, and `*_SECRET_REF` names — and no per-surface map. Runtime token validation selects the provider by the token's issuer from `plan.providers` — never a hardcoded provider name — and each route or construct enforces the auth contract (providers, roles, principal types) emitted with it. The plan's `schemaVersion` is checked at load by every generated identity core, which refuses any version but the one it was generated for. A non-secret public-client metadata artifact (`identity-client-<provider>.<env>.json`) is the only supported input for frontend login config. Secrets are logical secret-handle references only (reusing the declared `secrets` table + raw-secret hygiene), wired to platform-native secret stores; raw secrets never appear in source, manifests, logs, or docs.
-- **Security-sensitive defaults fail closed.** Auth/JWKS-refresh failures, authorization-bearing cache reads/deletes (revocation, role mappings, identity links), and revocation checks reuse the existing `dependencyPolicy` model with `onFailure="raise"`/`"deny"` only (the model has no `fallback`). Error bodies are opaque (RFC 7807) and never leak issuer/audience/client/role/claim detail; structured reason codes go to logs only. WebSocket auth uses fixed close codes (4401 auth-failed/expired, 4403 forbidden) and clears membership/`Auth.*` state on expiry.
+- **Security-sensitive defaults fail closed.** Auth/JWKS-refresh failures and authorization-bearing cache reads/deletes (role mappings, identity links) reuse the existing `dependencyPolicy` model with `onFailure="raise"`/`"deny"` only (the model has no `fallback`). Token revocation takes no `dependencyPolicy` at all: a revocation status that cannot be determined refuses the request, and no setting can turn it into an allow ([Decision 52](#decision-52-token-revocation--one-check-per-auth-chain-realized-on-every-language-approved--implementation-in-progress)). Error bodies are opaque (RFC 7807) and never leak issuer/audience/client/role/claim detail; structured reason codes go to logs only. WebSocket auth uses fixed close codes (4401 auth-failed/expired, 4403 forbidden) and clears membership/`Auth.*` state on expiry.
 - **Decision-13 amendment (inbound API-key credential — approved, implementation in progress):** An application-issued API key is an ordinary identity-block provider (`provider = "apiKey"`, `mode = "self"`), declared like any other, named in `auth(..., providers: […])`, and bound by the same allow-list, role and principal-type rules — there is no separate opt-in surface. Exactly one service owns the key entity; every other service verifies a presented key by asking the owner, over the existing authenticated service-to-service channel, for a SHA-256 hash match — the raw key never leaves the service that received it, and no verifying service caches a result, so revocation and the per-key rate limit are exact on every request. `ProviderPlanEntry` becomes a discriminated union on a new `credential` field (`"jwt"` | `"apiKey"`) at schema version 4, with no backward-compatible reader for version 3; the JWT variant is unchanged. Every verification failure path — the owner unreachable, its rate-limit store unavailable, an ambiguous or malformed credential — denies. Each gateway realizes a **per-route edge credential policy**: a route admitting an API-key provider accepts a validated bearer JWT or, absent `Authorization`, a bounds-checked key header, and the edge never validates the key itself — nginx through a renamed second internal auth location (`/internal/credential-verify`), Azure APIM through an extended `validate-jwt` gate condition, and AWS through a new Lambda REQUEST authorizer (payload format 2.0, simple responses, no identity sources, so it runs on every request and never caches) admitting the same two shapes; the owning service's hash lookup remains the sole verification point on every platform. Security posture: 256-bit CSPRNG keys stored only as an unsalted SHA-256 hash (a slow KDF was rejected — the secret is already unguessable, and a KDF would defeat the indexed equality lookup the verification query depends on), opaque failure responses, roles taken only from declared scope mappings, and the key header excluded from every CORS allow-list. Rejected alternatives: a shared cache as the verification source (caches are per-service, and cross-service cache access is already rejected); positive-result caching at verifying services (lags revocation by the cache TTL and cannot count the rate limit exactly); reusing the managed gateway's usage-plan API keys (a distinct, platform-issued and platform-validated mechanism, unavailable on `nginx`, whose service-side extractor validates nothing); full key verification at the edge (doubles the owning service's load for an identical security outcome); and a new `.dtrx` keyword or config kind for keys (the identity block, provider allow-list, role mappings and declaration checks already express everything a key needs).
 
 **Enforcement (managed-only):** Authentication issuance is provider-owned, end to end. The `Auth` issuance builtin (`generateToken`/`verifyToken`/`hashPassword`/`verifyPassword`/`generateOtp`/`generateApiKey`/…) is **removed wholesale** — the only recognized authentication is a provider-issued token validated through `auth(...)`, and a provider (external *or* `provider self`) owns issuance. The Decision-13 `Auth.*` context views (`Auth.isAuthenticated`/`subject`/`identity.*`) are generated runtime, not that builtin, and stay. Non-authentication cryptography (signing, hashing, HMAC, secure random, opaque keys) belongs to the pre-existing `Crypto` builtin — the sanctioned non-auth surface, which produces signed/hashed data and never confers an `Auth.*` principal. Enforcement extends the existing legacy-auth-conflict and identity validators (`LegacyAuthManagedOnlyValidator`, `IdentityDanglingProviderValidator`, etc. — removed-issuance-builtin diagnostics, dangling-provider checks, a best-effort hand-rolled-auth heuristic) — no new validator class. The Python first-party local-validation short-circuit (`_validate_local_issuer_token`, the `iss == JWT_ISSUER` path) is removed; `provider self` tokens validate through the standard provider-plan/JWKS path like any provider (TypeScript never had such a path).
@@ -2162,6 +2162,381 @@ languages and never on others. Consuming the new decorator in the transformer, t
   emission exists anywhere today.
 
 **Status:** Approved — Implementation In Progress (approved 2026-09-26).
+
+---
+
+### Decision 52: Token Revocation — One Check per Auth Chain, Realized on Every Language (Approved — Implementation In Progress)
+
+**Rationale:**
+
+An identity provider's `revocationMode` promised three semantics (`none`, `introspection`,
+`denylist`) that no language realized. Python refused every mode but `none` before generation.
+TypeScript generated a service with no check at all, so the same source failed closed on one
+language and open on the other. The `denylist` mode named no store, no key shape, no writer and
+no lifetime bound. The platforms' declared `token_validation` capability cells were read by
+nothing, and two of them claimed introspection for a provider that publishes no RFC 7662
+endpoint (Microsoft Entra ID and External ID). An open WebSocket was never re-checked between its
+handshake and its token's `exp`.
+
+**Decision:**
+
+- **One interim refusal, shared by every language.** Until a language realizes the check, config
+  resolution refuses a non-`none` mode for every language in one place. Per-language copies of the
+  rule are deleted. The refusal is removed only after every registered language realizes the check.
+- **Each mode accepts exactly its own keys.** `denylist` requires a store (`<Shared>.<cacheBlock>`)
+  and a revocation window. `introspection` requires an `https` endpoint, a client id and a
+  logical secret handle, with an optional positive-answer cache capped at 60 seconds.
+  `introspection` is legal only for `mode = external`, where the author registers the
+  introspection client. A key set under a mode that does not read it is an error.
+- **Provider and platform facts are platform declarations.** The `token_validation` cell becomes
+  load-bearing in the identity planner. Each supported identity-provider realization declares the
+  claim that carries the per-token id (`jti`, or `uti` on Microsoft Entra). Each platform declares
+  which cache flavors it can render non-evicting. One shared check reads these declarations.
+- **The plan carries one revocation object per provider.** It holds the mode, the token-id claim,
+  the window and store for `denylist`, and the endpoint, client id, secret handle and cache
+  seconds for `introspection`. The secret is read by handle through the declared secret resolver,
+  never from an environment variable.
+- **Denylist.** The store is a non-evicting cache block of a `shared` container that every
+  consuming service names with `uses`. It is never pooled with evicting caches, and its flavor
+  must be one the selected platform renders non-evicting. There is a subject watermark key
+  (revoke everything issued up to now) and a per-token key. Both use digests of the subject and
+  token id, and both share a Redis Cluster hash tag so one `MGET` reads them. TTLs are derived
+  from the declared window, so no entry expires while a token it revokes is still accepted.
+  Tokens without `iat`, or whose lifetime exceeds the window, are refused.
+- **Introspection.** RFC 7662 over verified TLS, after local signature, `exp`, `iss`, `aud` and
+  algorithm verification. Only a boolean `active: true` is accepted; a `sub`/`iss` mismatch is
+  refused. Only positive answers are cached, in process and bounded by entry count.
+- **One step in each language's auth chain.** The check runs after token verification and provider
+  attribution, and before profile projection and claim write-back. A revoked token therefore
+  never causes a side effect, and every surface that verifies through the chain inherits the
+  check. A revoked token answers 401. A status that cannot be determined answers 503 with a new
+  `revocation-unavailable` problem family and `Retry-After`, never "not revoked". An open
+  WebSocket or subscription is re-checked on a fixed interval and closed 4401 (revoked) or 1013
+  (undeterminable), with its principal and tenant cleared first.
+- **Two `Auth` builtins write revocations.** One revokes the current token, the other revokes a
+  subject for a named `denylist` provider. Both are statically constrained: the provider is a
+  literal, the caller has write access to the store, and an endpoint's admitted providers all use
+  `denylist`.
+- **Revocation is not policy-managed.** No `dependencyPolicy`, `onFailure` or opt-out can turn a
+  revocation read into an allow. `none` is the only way to run without a check, and it is
+  documented as "valid until expiry".
+
+**Invariants:**
+
+| # | Invariant | Check |
+|---|---|---|
+| R1 | Until every language realizes the check, one shared refusal governs every language | A config-resolution test refusing a `denylist` provider, and a negative test that no language package carries its own copy |
+| R2 | Each mode accepts exactly its own keys | Per-mode required-key and foreign-key tests on the identity config model |
+| R3 | A provider/platform pair that cannot realize the mode is refused, and no platform declares introspection for a provider without an RFC 7662 endpoint | Planner tests over declaration fixtures, plus per-platform capability tests |
+| R4 | The denylist store is declared, reachable and non-evicting | Config-resolution tests per rule, plus per-platform rendered tests of the store's eviction setting |
+| R5 | Key shape and TTLs are one fact | Rendered-module tests per language against the shared constants |
+| R6 | The check precedes every side effect of the chain | Rendered-order tests per language |
+| R7 | An undeterminable status never allows | Rendered tests per language: every failure path re-raises as unavailable, and only a positive introspection answer is cached |
+| R8 | Open sockets are re-checked and cut off | Rendered websocket tests per language |
+| R9 | Both builtins are realized on every language and statically constrained | Builtin-registry and pre-generation census tests |
+| R10 | The plan carries the revocation object and no environment-variable secret name | Plan model and plan-entry tests |
+| R11 | The new vocabulary is registered and realized | Reason-code count test and the problem-type parity gate |
+| R12 | Generated guarantee text matches the plan | Identity-metadata generator tests |
+
+**Consequences for authors:** no committed example sets `revocationMode`, so nothing that
+generates today stops generating. An introspection key set under `none`, which was silently
+accepted before, is now an error. The identity plan JSON changes shape (one revocation object
+per provider, schema version 4).
+
+**Rejected alternatives:**
+- **A per-language refusal** would put two copies of one rule in place, and the Python copy
+  returned early outside a real generation run.
+- **A per-service cache block as the store** would leave a revocation written by one service
+  invisible to the others that accept the same provider.
+- **A denylist of token ids only** fails twice over. Microsoft names the id `uti`, and an
+  administrator disabling a user does not know the user's live token ids. The subject watermark
+  and the per-token key are both needed.
+- **A watermark with no TTL** would grow without bound, and the declared window makes the
+  storage bound a checked fact.
+- **Allowing the request when the store is unreachable** is fail-open on an authorization
+  control.
+- **Making the denylist read a `dependencyPolicy` operation** would add a surface whose only
+  non-default setting is fail-open.
+- **Introspection under a provider Datrix provisions**, with a Datrix-provisioned introspection
+  client, is a new per-platform provisioning capability. Those modes get `denylist`, which needs
+  no provider endpoint.
+- **Re-checking a socket on every inbound frame** costs per message, never fires for a
+  subscription, and misses a silent socket. A timer covers every socket kind.
+- **In-band re-authentication on a socket** is rejected: a client reconnects and runs the full
+  chain.
+- **Caching negative introspection answers** buys nothing, because the next request is denied
+  anyway.
+
+**Out of scope:** Datrix-provisioned introspection clients (a separate provisioning capability),
+the author-facing token-lifetime settings that no platform realizes, and whether readiness
+probes a shared cache a service `uses`. Each is recorded as its own finding where it is a
+defect.
+
+**Security posture:** fail closed at every decision point. An undeterminable status refuses the
+request, and a possibly-evicting store, an unrealizable mode, a missing `iat` and an over-long
+token are all refused. Introspection is `https` only, with TLS always verified and client
+credentials read by handle. Keys carry SHA-256 digests and logs carry reason codes only, never a
+token, subject, token id or introspection response. No switch turns revocation into an allow.
+Writers are limited to services that call a revoke builtin behind an authenticated contract.
+
+**Status:** Approved — Implementation In Progress. Nothing has landed yet. The realization steps
+depend on the auth-chain consolidation (Decision 53), the WebSocket connection-tenant binding, and
+shared cache blocks becoming reachable from the services that `uses` them. The last is not realized
+on any language or platform today.
+
+---
+
+### Decision 53: One Auth Behaviour per Route Kind — Five Guard Kinds, One Chain, Dead Identity Surfaces Removed (Approved — Implementation In Progress)
+
+**Rationale:**
+
+The same `auth(...)` declaration was realized by up to five different mechanisms, depending on the
+language and on whether the route was REST, serverless HTTP, GraphQL or a WebSocket message, and
+two identity surfaces were emitted that nothing mints and nothing reads.
+
+- **Five realizations of one declaration.** The route guard decision knew three kinds and folded
+  `optional` and `required` together. The serverless route index carried its own decision, and the
+  WebSocket plan a third. On REST, Python checked an `auth(service)` route against a service-wide
+  union of every service route's providers and answered 401 for a foreign provider; TypeScript
+  marked it public, ran a machine-only guard, and so never checked the route's declared roles. An
+  `auth(optional)` route required a token. A public route whose body read the principal ran as
+  anonymous on Python even when the presented token failed verification, and threw at runtime on
+  TypeScript.
+- **A TypeScript global machine guard.** A TypeScript service that calls another service
+  registered a global guard that refused any request without a machine token and any route without
+  a provider allow-list, so every public, webhook and user route of such a service answered 401.
+  A service's outbound dependencies say nothing about who may call it. Python attaches nothing
+  global.
+- **An unminted self-signed service token.** Python's token chain accepted a JWT signed by the
+  service's own public key under a private issuer, granting an ambient `Service` role no contract
+  declares. No generated code mints that token; every caller uses the platform's managed machine
+  identity. It was an acceptance path, not a feature.
+- **An unenforced `delegation:` declaration.** The DSL accepted `auth(..., delegation: required)`,
+  documented as "direct calls are rejected", and no generator read the field. The envelope
+  verifiers, the delegated-user header and its audit members were emitted for every
+  managed-identity service while nothing minted or read them. A declared control failed open.
+  Separately, auth lowering dropped any misspelled or retired key inside `auth(...)` without a
+  word, and a documented builtin member with no registry row was never rejected.
+- **A gateway behaviour flag answering two questions.** A per-language boolean decided both "is the
+  provider-plan JWKS validator needed" and "which model does the gateway verify endpoint use".
+  Python's static-key gateway skipped the plan artifact while the auth module still imported it, so
+  the service could authenticate nobody; TypeScript's verify endpoint always used a static key read
+  from a file path, so a delegated-verify gateway in front of a TypeScript auth provider rejected
+  every token.
+- **Re-typed reason codes.** Dozens of templates spelled reason codes as private string literals,
+  some not members of `AuthReasonCode`. TypeScript's identity core encoded them into error message
+  prefixes and parsed them back out of the text, turning any message without a colon into
+  `malformed_token`. The trusted-caller guard logged the exception message as the reason.
+- **A rate limiter trusting unverified claims.** On both languages the plan ceiling and the
+  per-client bucket came from the base64-decoded, unverified payload of whatever `Authorization`
+  header was sent, so a caller could name a higher plan or rotate the subject per request. On
+  TypeScript the limiter also ran before authentication.
+- **Lifecycle hooks reading an unbound principal.** A principal read in an entity lifecycle hook
+  rendered a request-scoped expression in a standalone function with no request. Python repaired
+  two of seven principal reads by rewriting the rendered text and left the rest as an unbound
+  variable. A parallel unreachable generator carried the same rewrite.
+
+**Decision:**
+
+- **D1 — One guard decision per route, in the generation kernel, with five kinds.** The decision
+  reads the endpoint's `AuthContract` alone and is exhaustive over five `GuardKind` values.
+  `GuardKind`, the decision type and the resolver move to one home in the kernel, beside the route
+  index that must read them, and the old paths are deleted. The decision also carries the route's
+  own providers, roles and principal types. The serverless route index, the WebSocket plan and
+  every REST, serverless and GraphQL renderer read this one decision.
+
+  | Kind | Mode | No credential | Credential fails verification | Provider not in the route's own list | Principal type not admitted | None of the route's roles | Principal visible to the body |
+  |---|---|---|---|---|---|---|---|
+  | `PUBLIC` | `public` | served | never read | — | — | — | none |
+  | `WEBHOOK` | `webhook` | the declared `verify(...)` only | — | — | — | — | none |
+  | `OPTIONAL` | `optional` | served as anonymous | 401 with the failure's reason code | 403 | 403 | 403 | nullable |
+  | `AUTHENTICATED` | `required` | 401 `MISSING_TOKEN` | 401 | 403 | 403 | 403 | always present |
+  | `SERVICE` | `service` | 401 `MISSING_TOKEN` | 401 | 403 | 403 | 403 | always present |
+
+  `OPTIONAL` is the rule the WebSocket handshake already realized on both languages, adopted by
+  every route: a presented bad credential is refused, an absent one is admitted. Roles and
+  principal types apply to a presented principal only. `SERVICE` and `AUTHENTICATED` run the same
+  chain; what makes a route machine-only is its contract's principal types and its own provider
+  list, enforced per route on every language. A provider that is not allowed is 403 on every kind.
+  A non-public kind with no provider is a generation error. Derived nested-collection routes take
+  their guard from this same decision over the contract of the endpoint they derive from, and a
+  nested route with no source contract is not derived. Every other auth classifier (route
+  predicates, "needs authentication" helpers, generated-test expectations) derives from the kind.
+- **D2 — Every language renders the decision through its one chain; machine-only and global guards
+  go.** Python renders each route's principal dependency from the kind through two factories over
+  the existing chain (one for `AUTHENTICATED`/`SERVICE`, one for `OPTIONAL`), and the per-kind
+  entry points they replace are deleted, including the fail-open optional dependency, the
+  service-wide provider union and the self-signed service-token branch. TypeScript deletes the
+  global machine-only guard and the per-route one; `auth(service)` routes run the same controller
+  guard as every authenticated route, which gains an optional-auth marker and a principal-types
+  marker and enforces both through the existing chain steps. Serverless adapters on both languages
+  take the same kind. GraphQL queries and mutations run the api's contract through the same
+  per-route decision and the language's one auth chain on every language; until this decision only
+  subscription handshakes enforced it. Every `graphql_api` that declares queries or mutations must
+  declare `auth(...)`. Removing the TypeScript global guard lowers no route below its declared
+  contract, because every handler's guard set becomes a function of its kind alone.
+- **D3 — A route that authenticates nobody cannot read a principal (IDN029).** A semantic
+  validator rejects any `Auth` member read in the body of an `auth(public)` or `auth(webhook)`
+  endpoint, naming the endpoint, the member and the fix (declare `auth(optional, providers: [...])`).
+  Under `OPTIONAL`, the user read is nullable. The user-id, token, subject, profile and identity
+  reads on an anonymous request raise the language's unauthenticated error, rendered as the opaque
+  401 problem, and the role test is false.
+- **D4 — Unknown request fields are rejected on REST and WebSocket.** Every request-side model
+  forbids extra fields on Python, matching TypeScript's existing whitelist pipe. Response models
+  and dependency-client response models stay lenient, because they parse data a service or peer
+  produced. A struct used as both request and response is a request model. The rejection is the
+  existing 422 problem; the body names the offending field and never echoes its value. Serverless
+  request binding is not decided here: the serverless request-binding decision owns it, and its
+  unknown-field rejection comes through the body type's own rejection.
+- **D5 — The delegation surface is deleted, and `auth(...)` keys are a closed set (IDN028).**
+  Lowering rejects any named key outside `providers`, `roles`, `profile` and `principalTypes`,
+  naming the key, the surface and the valid set, so `delegation:` fails by name. The delegation
+  mode, its field on `AuthContract`, its keyword resolver, the envelope model and header owner, the
+  audit event and reason code, both languages' envelope verifiers and the Python service-auth
+  module are deleted, with their documentation. `X-Datrix-Delegated-User` leaves the framework
+  header families and joins `RETIRED_HEADERS`, so any surviving spelling fails the header parity
+  gate by name. The pre-generation builtin census, which already rejects unknown members for app
+  bodies, does the same for service bodies: a member of a registry category with no registry row
+  is rejected before any file is written. That closes the class, not only the delegated-user read.
+  A working delegation capability is a new cross-language feature with its own trust design and is
+  not recorded here.
+- **D6 — Two shared gateway answers; the behaviour flag goes.** The per-language flag is deleted.
+  One shared predicate answers "do per-route guards verify through the provider-plan JWKS seam"
+  (true when the service has an authenticated handler or its gateway uses delegated verify), on
+  every language, whatever gateway sits in front: the gateway is never the only check. One shared
+  enum answers "which model does the gateway verify endpoint use" (delegated verify or static
+  key). The endpoint realizes that model on every language. Delegated verify runs the language's
+  full auth chain, so token revocation applies; it never calls a bare token validator. Static key
+  verifies against the key returned by the service's declared secret resolver for the public-key
+  handle, pinned to the configured asymmetric algorithm. TypeScript reads it through
+  SecretsService.getSecret, never a file path or an environment variable, as Python already does.
+  An unset key or plan fails closed. TypeScript's private re-derivation of the shared
+  gateway-auth predicate is deleted.
+- **D7 — One reason-code vocabulary; no re-typing.** `AuthReasonCode` gains
+  `provider_config_error`, `required_identity_field_missing` and `untrusted_caller` (a verified
+  trusted-caller token whose principal is not allow-listed), and loses `delegation_invalid`. Every
+  generated reason spelling renders from the shared vocabulary. TypeScript's identity core throws a
+  typed verification error carrying the code; the chain reads the code, never the message, and an
+  error of any other type maps to `provider_config_error` and is logged as a configuration error,
+  as Python's chain does. Trusted-caller rejections log a vocabulary code on both languages, and the
+  exception text is never the logged reason.
+- **D8 — Ambient rows serve every scope that binds no request principal.** The registry has seven
+  `Auth` principal reads: userId, user, token, hasRole, subject, profile and identity. Every
+  language realizes all seven; no language carries an `unsupported` stance for the `Auth` group.
+  Each read has a declared ambient realization per language (TypeScript through the request
+  context, Python through the context-variable readers), and those declared rows are the single
+  mechanism in every scope that binds no request principal: service functions, `rest_api`
+  functions and lifecycle hooks. They replace every text rewrite of `Auth` reads and the eager
+  principal prelude. Outside a request (a hook run by a job or consumer) the principal is absent:
+  the user id is null, the role test is false, and the other reads raise, naming the hook. The
+  unreachable lifecycle-hook generator and its wiring flag are deleted.
+- **D9 — Test shells are deleted and their claims corrected.** Emptied test classes that still
+  claim executable coverage are deleted with their dead helpers, and each module docstring
+  describes only the static assertions it keeps. One static assertion is added: a declared audience
+  reference whose environment value is empty raises the provider configuration error, and no path
+  returns an empty allow-list for a provider that declares references.
+- **D10 — One guard order per HTTP route, and a rate limiter that reads only the verified
+  principal.** One ordered stage list is declared once, in the generation kernel: TRUSTED_CALLER,
+  REQUEST_TENANT, AUTHENTICATE, RATE_LIMIT. Every language realizes each stage it emits in exactly
+  that order on every HTTP route, and no stage reads a fact a later stage produces. The trusted
+  caller reads only its own header; request tenancy covers `header` and `path` sources; a
+  `jwt`-sourced tenant binds in the authenticate stage, from the claims the chain verified. On
+  TypeScript the rate limiter leaves the global guard list and follows the authentication guard in
+  the same controller-level list; on Python it is a route dependency declared after the principal
+  dependency. The limiter takes the plan and the client key from the verified principal only; the
+  unverified payload peek is deleted on both languages. A route with no principal (public,
+  webhook, an anonymous optional request) keys on the client address with the default plan. A
+  request refused by authentication is not charged to a bucket. The verified-principal rule
+  applies to GraphQL as well. Serverless adapters realize the stages they emit today, which is
+  AUTHENTICATE.
+
+**Invariants:**
+
+| # | Invariant | Check |
+|---|---|---|
+| I1 | Every non-public route on every route kind, including GraphQL queries and mutations and derived nested routes, carries its kind's guard on every language; no identity guard is global | Per-language rendered census over a service with discovery dependencies declaring one endpoint per mode: the set of non-public routes minus the guarded routes is empty, the application-wide guard list names no identity guard, and no machine-only guard artifact is emitted |
+| I2 | REST, serverless and WebSocket routes with the same contract render the same checks | A parity test over one fixture declaring every mode in each route kind: provider, role and principal-type lists and the optional flag are equal across REST, container, Lambda and Functions |
+| I3 | The guard decision is exhaustive and computed once | Kernel tests: every auth mode maps to one kind, the route index equals the decision per endpoint, a non-public contract with no provider raises, and the old import paths fail |
+| I4 | `auth(optional)` refuses a bad credential and admits an absent one | Rendered-surface tests per language: a 401 branch on verification failure, a no-principal branch only for an absent header, and no swallowed authentication failure |
+| I5 | No inbound acceptance path exists for a credential nothing mints | Rendered Python tests: no service-token verifier, private issuer or ambient `Service` role, and no service-auth module in a managed-identity service |
+| I6 | A principal read in a public or webhook body fails analysis; unknown `auth(...)` keys fail lowering | Semantic validator test for IDN029, and a lowering test for IDN028 over a `delegation: required` fixture |
+| I7 | Unknown request fields are rejected on REST and WebSocket | Rendered tests per language: request models forbid extras and response models do not |
+| I8 | The delegation surface is gone and its header is retired | Header-registry test (retired header present, no delegated-user family), the framework header parity gate, and a pre-generation test that a delegated-user read in a service body fails before any file is written |
+| I9 | Lifecycle hooks, service functions and `rest_api` functions read the caller through the declared ambient rows, all seven on every language | Rendered tests per language: a body reading each member renders the ambient accessor and its import, never a request-scoped expression or an unbound principal; the text rewrites are absent |
+| I10 | The gateway verify endpoint realizes the declared model | Rendered tests per language: delegated verify runs the full auth chain, static key reads through the secret resolver, and a static-key gateway service with authenticated routes emits its identity plan artifact |
+| I11 | No reason code is re-typed in any language package | A per-language census over templates and modules for every vocabulary value, with a non-vacuity step that plants a value and requires a hit |
+| I12 | No framework test claims coverage it does not run | A tag listing over the former shell modules showing no emptied class, plus the new audience assertion |
+| I13 | Every HTTP route runs its guard stages in the declared order, and no global guard depends on the principal | A kernel test pins the stage order; per-language rendered tests check the registration order, the controller guard list, and that the rate-limit step follows the principal step |
+| I14 | The rate limiter never reads an unverified claim, on any route kind including GraphQL | Rendered limiter tests per language: no payload peek or base64 decode of the `Authorization` header, plan and key from the verified principal, address and default plan when there is none |
+
+**Security posture:** every change tightens or equalizes. Provider lists are per route instead of
+a service-wide union; declared roles are enforced on TypeScript service routes; principal types are
+enforced on every HTTP route; a presented bad credential is refused on optional routes; GraphQL
+queries and mutations gain the contract they never enforced; an undeclared self-signed acceptance
+path and its ambient role are removed. Removing the TypeScript global guard lowers no route below
+its declared contract (I1); its effect was an outage, not protection. Fail-open declarations are
+removed: `delegation: required` promised a rejection it never performed, and unknown `auth(...)`
+keys were dropped silently; both now fail generation. Input is rejected where the request enters,
+with the field named and its value never echoed. Per-route verification is never dropped because a
+gateway exists, and the gateway's delegated-verify branch runs the full chain so revocation
+applies. The static gateway key comes from the declared secret resolver, never a file path or an
+environment variable. The rate-limit plan and bucket come from the verified principal only;
+charging after authentication means a flood of invalid tokens is refused by authentication
+instead. Log lines carry vocabulary codes only; exception text, which can carry issuer or audience
+detail, is no longer a logged reason, and client bodies stay opaque. No control is loosened
+anywhere in this decision.
+
+**Rejected alternatives:**
+- **Keep the TypeScript global machine guard and teach it public routes and allow-lists.** It
+  would still guess per route what the route's own contract decides and keep a second copy of the
+  service-route check.
+- **Keep a separate machine-only guard for `auth(service)`.** It skips roles on TypeScript and
+  uses a service-wide provider union on Python; the one chain plus principal types expresses
+  "machine only" per route.
+- **Keep the optional dependency's leniency for public routes.** A public contract names no
+  provider to verify against, so accepting a principal there reads an unverifiable claim.
+- **Realize delegation now.** It is a new capability with its own trust design (signing identity,
+  replay, audience binding, precedence over the caller), and a keyword no generator reads is not a
+  declared consumer.
+- **A bare token validator on the delegated verify branch.** It skips revocation and every other
+  step of the chain; the gateway endpoint runs the full chain.
+- **Keep the gateway behaviour flag and set TypeScript to match Python.** That copies Python's
+  defect, a service that cannot authenticate anyone, into TypeScript.
+- **Ignore unknown body fields everywhere.** Silently accepting unexpected input is the fail-open
+  choice, and TypeScript already rejects.
+- **Keep the rate limiter global and have it verify the token itself.** A second verification path
+  is a second copy of the chain, and it would still run before the route's contract is known.
+- **Move rate limiting to a global interceptor.** The order would hold only as a side effect of the
+  framework's pipeline, outside the one guard list the order invariant reads; a guard listed after
+  the authentication guard states the order in the same place for every controller.
+- **Restore executable identity tests.** Framework suites never run generated output; the
+  behaviours are asserted statically.
+- **Route the live hook generator through the unreachable generator's text replacement.** A string
+  rewrite of rendered code is the imperative bypass Decision 44 forbids; the declared ambient row
+  replaces both languages' rewrites.
+
+**Consequences for authors:**
+- An application that declares `delegation:` or reads a delegated-user builtin stops generating,
+  with a message naming the key or member.
+- An `auth(public)` or `auth(webhook)` body that reads `Auth` stops generating (IDN029); the fix is
+  `auth(optional, providers: [...])`.
+- A `graphql_api` that declares queries or mutations without `auth(...)` stops generating, and its
+  queries and mutations now enforce the contract.
+- Clients that sent extra body fields to a Python REST or WebSocket endpoint now receive 422.
+- A token from a foreign provider on an `auth(service)` route now receives 403, not 401. An
+  `auth(optional)` request with a bad token now receives 401 instead of running anonymously.
+- TypeScript `auth(service, roles: [...])` routes now enforce their roles.
+- A TypeScript service that calls other services now serves its public, webhook and user routes.
+- A hook, service function or `rest_api` function that reads the caller works on both languages.
+- Committed example trees are not regenerated by this decision.
+
+**Out of scope:** serverless request binding (its own decision); GraphQL transport hardening
+beyond the contract and rate limit above; WebSocket identity and tenancy; the TypeScript secret
+store; snake-case field names accepted on the Python wire; the anonymous rate-limit key's trust in
+`X-Forwarded-For`, which needs a declared trusted-proxy hop count per platform; and trusted-caller
+log event names, which belong to the audit event vocabulary's own reconciliation.
+
+**Status:** Approved — implementation in progress.
 
 ---
 

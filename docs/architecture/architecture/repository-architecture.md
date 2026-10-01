@@ -90,7 +90,7 @@ Generates Python code (FastAPI). Includes SeedDSL-backed seed runner generation 
 Generates TypeScript code (NestJS on Express). Includes SeedDSL-backed seed runner generation with MikroORM/SQL driver for RDBMS, Mongo driver for NoSQL, and AWS/Azure SDK for Storage targets. Extends `TsBuiltinMethodMapper` with `Seed.*` method mappings.
 
 #### 7. datrix-codegen-sql
-Generates SQL DDL (PostgreSQL, MySQL). Extends `SQLDialect` protocol with seed-specific DML primitives (`seed_upsert_sql()`) for multi-engine upsert semantics: PostgreSQL `ON CONFLICT ... DO NOTHING/UPDATE`, MySQL `INSERT IGNORE` / `ON DUPLICATE KEY UPDATE`.
+Generates SQL DDL (PostgreSQL, MySQL). Seed DML (PostgreSQL `ON CONFLICT ... DO NOTHING/UPDATE`, MySQL `INSERT IGNORE` / `ON DUPLICATE KEY UPDATE`) is built by the kernel's `RdbmsSeedWriter`.
 
 **Dependencies (language generators):**
 - `datrix-codegen-common` (shared transpiler, algorithms, context models, field analysis)

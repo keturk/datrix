@@ -539,6 +539,55 @@ consumes `@crossTenant`, so it never reaches a language's endpoint-decorator dis
 
 Full decision log: [Architecture Overview — Decision 51](./architecture-overview.md#decision-51-declared-route-response-media-type-produces-approved--implementation-in-progress).
 
+## Token Revocation — One Check per Auth Chain
+
+An identity provider's `revocationMode` (`none` | `denylist` | `introspection`) is realized as one
+step in each language's auth chain, or it is refused. **Approved — implementation in progress.**
+
+- **Refusal first.** Until every registered language realizes the check, config resolution refuses
+  a non-`none` mode in one shared place, for every language.
+- **Keys per mode.** `denylist` names a `shared` cache block as its store plus a revocation window.
+  `introspection` names an `https` RFC 7662 endpoint, a client id and a secret handle, and is
+  legal only for `mode = external`. A key under a mode that does not read it is an error.
+- **Declared, not assumed.** The `token_validation` capability cell, the per-provider token-id claim
+  (`jti` / Entra `uti`) and each platform's non-evicting cache flavors are platform declarations.
+- **Position.** The check runs after verification and provider attribution, before profile
+  projection and write-back. Revoked → 401. Undeterminable → 503 `revocation-unavailable` with
+  `Retry-After` (never "not revoked"). An open socket is re-checked on a fixed interval and closed
+  4401 or 1013.
+- **Never policy-managed.** No `dependencyPolicy` or opt-out can turn a revocation read into an
+  allow.
+
+Full decision log: [Architecture Overview — Decision 52](./architecture-overview.md#decision-52-token-revocation--one-check-per-auth-chain-realized-on-every-language-approved--implementation-in-progress).
+
+## One Auth Behaviour per Route Kind
+
+One `auth(...)` declaration yields one behaviour on every language and route kind. The guard
+decision is computed once, in the generation kernel, from the route's `AuthContract`.
+**Approved — implementation in progress.**
+
+- **Five kinds.** `PUBLIC` (credential never read), `WEBHOOK` (its `verify(...)` only), `OPTIONAL`
+  (absent → anonymous, presented-and-bad → 401), `AUTHENTICATED` and `SERVICE` (absent → 401).
+  Foreign provider, unadmitted principal type or no matching role → 403, always against the
+  route's own lists. `SERVICE` and `AUTHENTICATED` run the same chain.
+- **Per route, never global.** Each handler's guard comes from its own kind, on REST, serverless,
+  GraphQL queries and mutations, WebSocket and derived nested routes. The TypeScript global
+  machine guard, the service-wide provider union and the self-signed service token are deleted.
+- **Stage order.** Trusted caller → request tenant → authenticate → rate limit, declared once. The
+  limiter reads the verified principal only; a route with no principal keys on the client address.
+- **No principal where none is verified.** Reading `Auth` in a public or webhook body is IDN029.
+  Under `optional` the user read is nullable. All seven principal reads are realized on every
+  language, and the declared ambient rows serve every scope that binds no request principal.
+- **Closed `auth(...)` keys.** IDN028 rejects any key outside `providers`, `roles`, `profile`,
+  `principalTypes`. `delegation:` is gone, `X-Datrix-Delegated-User` is retired, and an unknown
+  builtin member is rejected before generation.
+- **Gateway verify.** The static key comes from the declared secret resolver; delegated verify runs
+  the full auth chain, so revocation applies.
+- **Inputs and vocabulary.** REST and WebSocket request models reject unknown fields. Reason codes
+  come from `AuthReasonCode` alone, never re-typed or parsed out of message text.
+
+Full decision log: [Architecture Overview — Decision 53](./architecture-overview.md#decision-53-one-auth-behaviour-per-route-kind--five-guard-kinds-one-chain-dead-identity-surfaces-removed-approved--implementation-in-progress).
+
 ## Zero-Environment Runtime — Declared Per Language
 
 Decision 14's contract (every deployment-static value baked at generation time; the running
@@ -756,7 +805,7 @@ Key rules:
 - Prometheus metrics, Grafana dashboards, cAdvisor, alert rules (the LOCAL/docker-native observability stack)
 - **Native-only observability per platform** — each target emits only its native providers (LOCAL: Prometheus/Jaeger/Loki/Grafana/Alertmanager; AWS: CloudWatch/X-Ray; Azure: Azure Monitor/App Insights). Each platform declares its native set on `PlatformCapabilityDeclaration`; a generic validator rejects non-native providers at the platform boundary (see architecture-overview Decision 27; design principle 10)
 - Export **volume** (trace sampling rate, log export floor, metric export interval) and platform-collected **diagnostics** (verbosity, retention, daily budget) are separate portable axes, orthogonal to the provider axis above — see Portable Telemetry Volume, Platform Diagnostics, and Realization Conformance above
-- Declaration-driven gateway realizations (NGINX, Azure APIM, AWS API Gateway), emitted when the system declares `gateway { }`; all consume the same shared route enumeration (`datrix_codegen_kernel.generation.gateway_routes`), so the public surface — including relationship-derived nested sub-collection routes — and per-route edge credential policy can never diverge between them. **Gateway-minted routes no backend serves are a declared family registry** (`GATEWAY_SYNTHESIZED_ROUTE_FAMILIES` → `gateway_synthesized_routes`, covering the health-probe and OpenAPI discovery/spec families): every realization consumes the registry rather than naming builders, so registering a family reaches every target at once. Minting one inside a single platform's private route table is what shipped health routes, and later the whole OpenAPI surface, on nginx alone. Per-service routing derived from auth contracts; upstreams, health aliases, CORS, rate limit zones
+- Declaration-driven gateway realizations (NGINX, Azure APIM, AWS API Gateway), emitted when the system declares `gateway { }`; a GraphQL HTTP path is EXACT, the subscription path `<basePath>/subscriptions` is an upgrade route, and a path published by two gateway services fails generation; all consume the same shared route enumeration (`datrix_codegen_kernel.generation.gateway_routes`), so the public surface — including relationship-derived nested sub-collection routes — and per-route edge credential policy can never diverge between them. **Gateway-minted routes no backend serves are a declared family registry** (`GATEWAY_SYNTHESIZED_ROUTE_FAMILIES` → `gateway_synthesized_routes`, covering the health-probe and OpenAPI discovery/spec families): every realization consumes the registry rather than naming builders, so registering a family reaches every target at once. Minting one inside a single platform's private route table is what shipped health routes, and later the whole OpenAPI surface, on nginx alone. Per-service routing derived from auth contracts; upstreams, health aliases, CORS, rate limit zones
 - ArcGIS FeatureServer paged ingestion (`arcgisFeatureLayer` integration kind): metadata-aware pagination, deterministic checksums, watermark optimization, archive/refresh modes
 
 ## Declared Work Lifecycle
