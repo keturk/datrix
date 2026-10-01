@@ -139,12 +139,12 @@ reason = "rendering.expressions <-> rendering.renderer: renderer imports _render
 [[baseline]]
 file = "datrix-common/src/datrix_common/types/ref.py"
 count = 3
-reason = "types.ref <-> datrix_model.entity/enums/cqrs through the types package: those modules import datrix_model.base, which imports EnumType/StructType from the datrix_common.types package at module top, and that package's __init__ imports ref, so a runtime import would run them against a partially initialised datrix_common.types."
+reason = "types.ref -> datrix_model.entity/enums/cqrs -> datrix_model.base -> types.ref: entity, enums and cqrs import datrix_model.base, which imports EnumType/StructType from types.ref at module top, and ref's own annotations name datrix_model types (Ref[Entity]); the three imports are annotation-only under TYPE_CHECKING (from __future__ import annotations), so a runtime import would be a direct cycle whichever module loads first."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/types/registry.py"
-count = 6
-reason = "types.registry <-> builtins.scalar_definitions / plugin.extension / types.definitions.loader / types.parser: scalar_definitions imports types.mapping_requirement, whose package __init__ imports registry (the loader and the three get_builtin_scalar_definitions imports; plugin.extension reaches scalar_definitions the same way), and parser imports TypeRegistry from registry at module top."
+count = 1
+reason = "types.registry <-> types.parser: parser imports TypeRegistry at module top; TypeRegistry.parse calls parse_type_expr"
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/utils/engine_helpers.py"

@@ -164,15 +164,6 @@ count = 1
 file = "datrix-common/src/datrix_common/identity/deployment_context.py"
 count = 3
 
-# reason: facade re-exporting each platform-config model from its own
-# config/platform/<provider>.py module -- three target_module_import hits
-# (aws/azure/docker) from the import statements themselves; the facade is
-# scheduled to be emptied by later platform-config consolidation work, not
-# this task's scope.
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/platform/__init__.py"
-count = 3
-
 # reason: single docker-named import in the shared identity-naming module (its
 # own import of ZitadelIdentityDeploymentConfig from config.platform.docker) --
 # a target_module_import hit naming 'docker'; part of the same documented
