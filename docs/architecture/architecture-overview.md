@@ -1055,12 +1055,12 @@ platforms {
 | --- | --- | --- |
 | 1 | Exactly one definition of each hoisted helper exists across the language packages | Duplicate-body scan reports zero exact-duplicate groups for the consolidated symbol set; the only surviving per-package definitions are pure pre-binding adapters — a docstring and a single `return` delegating to the shared builder — not duplicated bodies |
 | 2 | No language package redeclares a shared-enum member set | Shared-vocabulary ratchet passes at a zero baseline; each package's own suites exercise the imported enum |
-| 3 | No symbol in the shared codegen package carries a target name | Shared-layer target-name ratchet passes at a baseline holding exactly one reviewed exemption, 70 genuine declarations fixed (down from 76 matched, of which the four `sql`-substring identifiers are provably outside the ratchet's language-derived vocabulary); the closed-world drill's fixture language plugin supplies a struct slice and builds a struct context with no edit to the shared package |
+| 3 | No symbol in the shared codegen package carries a target name | Shared-layer target-name ratchet matches each registered language's name and its declared `name_tokens` (aliases such as `ts`); a hit is renamed or becomes a reviewed baseline entry with a written reason. It passes at a baseline holding exactly one reviewed exemption at the time of adoption, 70 genuine declarations fixed (down from 76 matched, of which the four `sql`-substring identifiers are provably outside the ratchet's language-derived vocabulary); the closed-world drill's fixture language plugin supplies a struct slice and builds a struct context with no edit to the shared package |
 | 4 | No package hand-rolls a service-body walk | Zero private body-enumeration helpers survive in the language packages; a regression test proves a typed cross-service call inside a CQRS handler materializes its response module — written first and observed red against the shipped defect |
 | 5 | Every hoist is behavior-preserving | Each affected package's targeted suites pass unchanged; no generated-output diff on the hoisted paths |
 | 6 | Every hoist lands inside an already-declared dependency edge | No hoist adds a new edge: the language packages already declared `datrix-codegen-common`. The D6 scope fence was later retired for both `datrix-codegen-sql` (Decision 42) and `datrix-codegen-component` (which declares the dependency its production modules always carried); `manifest-import-parity-gate.ps1` holds every package's manifest equal to its import set |
 
-**Scope boundaries:** Not a merge of language-specific emission — type maps, extension maps, per-language capability declarations, genDSL domain declarations, per-target realization declarations, and the language hook bodies all stay where they are. Not a consolidation of the delegating micro-generator classes (D7). Not a change to the SQL, component, docker, AWS, or Azure packages (D6). Not a removal of target-named declarations from the foundation or CLI packages: those are platform config-schema models, whose relocation into the platform packages is a Decision-22-shaped question of its own, and documented canonical-import API whose renaming is a breaking change to a published surface — so the new target-name ratchet is scoped to the shared codegen package. It also matches registered *language* names only, because one registered platform name is a common English word and including platforms returns hundreds of spurious hits; widening the ratchet requires solving that collision first. Not a cross-language parity or matrix test: each package tests its own surface, and the cross-cutting checks are repo-level scripts, never a test suite in the showcase repo. Not an endpoint-handler body-method parity change — two same-named constants encode genuinely different concepts (a cross-service call body versus request parameter binding), and the capability question that separates them belongs to the Cross-Target Parity Program.
+**Scope boundaries:** Not a merge of language-specific emission — type maps, extension maps, per-language capability declarations, genDSL domain declarations, per-target realization declarations, and the language hook bodies all stay where they are. Not a consolidation of the delegating micro-generator classes (D7). Not a change to the SQL, component, docker, AWS, or Azure packages (D6). Not a removal of target-named declarations from the foundation or CLI packages: those are platform config-schema models, whose relocation into the platform packages is a Decision-22-shaped question of its own, and documented canonical-import API whose renaming is a breaking change to a published surface — so the new target-name ratchet is scoped to the shared codegen package. It also matches each registered *language's* name and its declared `name_tokens` (aliases such as `ts`) only, scoped to `datrix-codegen-common` and `datrix-codegen-kernel`; a hit is renamed or becomes a reviewed baseline entry with a written reason. Platforms are excluded, because one registered platform name is a common English word and including platforms returns hundreds of spurious hits; widening the ratchet requires solving that collision first. Not a cross-language parity or matrix test: each package tests its own surface, and the cross-cutting checks are repo-level scripts, never a test suite in the showcase repo. Not an endpoint-handler body-method parity change — two same-named constants encode genuinely different concepts (a cross-service call body versus request parameter binding), and the capability question that separates them belongs to the Cross-Target Parity Program.
 
 **Status:** Adopted. Both ratchets ship in the import-boundary checker with frozen decrease-only baselines and their own non-vacuity self-tests; the named helper clusters are hoisted; the shared codegen package's target-named surfaces are down to a single reviewed exemption; and the shipped body-walk defect is fixed with a regression test that was observed red first.
 
@@ -1079,7 +1079,7 @@ Three things surfaced during implementation that the approved shape did not anti
 
 - **D1 — A distinct provider identity, not a widened one.** The provider is registered under the platform entry-point group from the Azure platform package, declares the container runtime as its only supported runtime, and declares that it owns a provider platform generator. The container runtime generator is unchanged and continues to own all container artifacts.
 
-- **D2 — Its capability declaration is its own, derived from the self-hosted target's.** Values mirror the self-hosted container target — container-secret backend, password RDBMS connection identity, nginx gateway with no TLS termination, container serverless model, the file-backed config store set — and diverge only where the topology genuinely differs. It declares its own runtime spec rather than importing the container target's, so the two can diverge later without coupling the packages.
+- **D2 — Its capability declaration is its own, derived from the self-hosted target's.** Values mirror the self-hosted container target — container-secret backend, password RDBMS connection identity, nginx gateway with no TLS termination, container serverless model, the file-backed config store set — and diverge only where the topology genuinely differs. It declares its own runtime spec rather than importing the container target's, so the two can diverge later without coupling the packages. Each package still keeps its own spec and realization tables; the shared algorithm that reads them lives in `datrix-common` or `datrix-codegen-kernel` as a function both packages call.
 
 - **D3 — Managed state is provisioned, not merely connected.** Under this provider the managed relational, object-storage and messaging flavors are supported AND provisioned by emitted infrastructure templates, rather than connect-only. Container flavors remain supported for what genuinely stays self-hosted on the VM.
 
@@ -1140,7 +1140,7 @@ Three things surfaced during implementation that the approved shape did not anti
 | # | Invariant | Enforcement mechanism |
 | --- | --- | --- |
 | 1 | A member set declared in two or more packages is a baseline entry with a written reason, never silence | Cross-package duplicate-vocabulary ratchet (`check-import-boundaries.ps1 -CheckCrossPackageVocabulary`), decrease-only baseline, with a plant/observe/revert non-vacuity self-test; the enum-scoped ratchet (`-CheckSharedVocabulary`) stays at its hard zero |
-| 2 | Code that has a shared home has exactly one definition | Per-symbol negative check that the private declaration is gone from every consuming package, plus a positive test that the shared value drives behaviour — required especially where the deleted copy had no test at all |
+| 2 | Code that has a shared home has exactly one definition | Per-symbol negative check that the private declaration is gone from every consuming package, plus a positive test that the shared value drives behaviour — required especially where the deleted copy had no test at all. The per-symbol check is name-keyed, so it is backed by a body-shape gate (`shared-home-body-gate.ps1`): normalized-AST body match of every other package's public functions against the public functions of `datrix-codegen-common`, `datrix-codegen-kernel` and `datrix-common`, a decrease-only pinned baseline, and a plant/observe/revert self-test, so a renamed copy cannot pass |
 | 3 | A topological order is preserved across the migration to the standard library | Per-site order test authored against the current implementation and observed green BEFORE the swap, asserting full sequences rather than index inequalities; a cycle then reports its members instead of being inferred from a length comparison |
 | 4 | A reference cycle fails generation rather than emitting code that breaks at runtime | One shared sort; a cycle fixture raises on every consuming target, with the degrade path's test rewritten red-first |
 | 5 | A generator module is never reachable only from tests | Package-owned reachability check with a pinned decrease-only baseline, landed before the deletions it polices and decremented to zero by them |
@@ -1504,7 +1504,7 @@ This decision makes Datrix emit a **frontend backend-access layer** — request/
 
 **Two residual properties are recorded so nobody "fixes" them.** Method names are unique *within* a client class by the shared handler-name helper's own guard, but two different API blocks may each expose a method of the same name; since each block is its own injectable class that is harmless, and flattening the per-block clients into one service to "resolve" it would create the collision it claims to prevent. And a frontend target is a new consumer of the AST, so every construct the contract builder does not classify must raise rather than skip: the failure mode of a silent skip is a *missing* client method, which no test asserts the absence of — the single most invisible outcome available here, and the reason the fail-loud default in invariant 2 is not negotiable.
 
-**Status:** Approved — Implementation In Progress. Landed: the framework-neutral client contract in `datrix-codegen-common` (`generation/client_contract.py`); the `datrix-codegen-angular` renderer as an artifact-phase `datrix.generators` plugin with its own genDSL target contribution, declared-config activation, complete type map, identifier-collision allocation, hostile-text escaping, manifest emission and models-domain emission, each held by that package's own suites (`tests/unit/`, `tests/integration/`); and two repo-level gates — `body-wire-naming-conformance-gate.ps1` (invariant 3, effective wire names across every registered language) and `wire-shape-round-trip-gate.ps1` (the emitted client exercised against a live backend). This decision moves to Adopted only when every invariant in the table above is named here with the executable check that holds it; until then the heading says in progress, and a status paragraph that claims less than the table is the drift this line exists to prevent.
+**Status:** Approved — Implementation In Progress. Landed: the framework-neutral client contract in `datrix-codegen-common` (`generation/client_contract.py`); the `datrix-codegen-angular` renderer as an artifact-phase `datrix.generators` plugin with its own genDSL target contribution, declared-config activation, complete type map, identifier-collision allocation, hostile-text escaping, manifest emission and models-domain emission, each held by that package's own suites (`tests/unit/`, `tests/integration/`); and the repo-level gate `body-wire-naming-conformance-gate.ps1` (invariant 3, effective wire names across every registered language). Exercising the emitted client against a live backend is the generated project's own test, not a framework gate. This decision moves to Adopted only when every invariant in the table above is named here with the executable check that holds it; until then the heading says in progress, and a status paragraph that claims less than the table is the drift this line exists to prevent.
 
 Decision 48 extends this decision from the backend-access layer to complete generated applications; as it lands, the statements above that components, pages, forms, routing, guards and view-model state are not generated, and invariant 11's wording, are superseded by Decision 48.
 
@@ -2605,6 +2605,211 @@ beyond the contract and rate limit above; WebSocket identity and tenancy; the Ty
 store; snake-case field names accepted on the Python wire; the anonymous rate-limit key's trust in
 `X-Forwarded-For`, which needs a declared trusted-proxy hop count per platform; and trusted-caller
 log event names, which belong to the audit event vocabulary's own reconciliation.
+
+**Status:** Approved — implementation in progress.
+
+---
+
+### Decision 54: Codegen Duplication Consolidation — One Fact, One Home, Strongest Behaviour (Approved — Implementation In Progress)
+
+**Rationale:**
+
+Earlier consolidation removed most exact duplicate bodies. What remains falls into six classes, and
+three of them have already diverged into defects, two of them security-bearing, because a copy was
+fixed in one place and its twin was not.
+
+- **Private copies beside an existing shared home.** A shared replay-plan function has no
+  production caller while the Python package keeps a renamed copy; private copies resolve a member
+  type with a weaker lookup (`postalCode` is missed) and drop `is_enum` on a GraphQL array element.
+- **Python and TypeScript clusters.** TypeScript silently drops `oauth2ClientCredentials` outbound
+  auth, so the client emits no credential. TypeScript still emits the `shared-secret` machine
+  credential that Python removed because the callee's JWKS guard can never validate it. Both
+  languages interpolate extern path variables into the outbound URL unencoded.
+- **Angular and Flutter helpers.** Ten helpers exist twice, in the two newest packages, where
+  duplication grows fastest.
+- **Platform-axis algorithms.** Docker and azure-vm accept a wrong-channel notification provider,
+  because the three provider enums are `StrEnum` values that collide under plain-dict membership. An
+  Event Hubs consumer-group name is a byte-for-byte seam "kept in sync manually" between two
+  packages.
+- **Foundation DSL parsers.** `DcfgParser` and `_SeedParserImpl` copy one token cursor (sixteen
+  methods).
+- **The guards that should have stopped this.** The hoist check matches a name, so a renamed copy
+  passes; the shared-target-name ratchet ignores declared alias tokens such as `ts`.
+
+The rule is the existing one applied to what is left: same source, same behaviour, only rendering
+differs. Where copies disagree, the shared implementation takes the strongest behaviour on four
+ordered axes: fails closed, reads everything the DSL declares, most secure, most correct output. No
+language or platform is the reference by default.
+
+**Decision:**
+
+- **R1 — A private copy of code that has a shared home is deleted and its callers re-routed.** The
+  replay-plan event resolver, the field-container and field-type lookups in the numeric-slot
+  coercion (the latter moves to `member_declared_type`, which normalizes casing on both sides), the
+  TypeScript GraphQL field descriptors (one call into the shared descriptor, which keeps `is_enum`),
+  the kernel's config-store feature getter, the post-commit gate's call walker, and the duplicated
+  name-decorator and path-identity normalisers. The bcrypt hash moves down into the kernel (the
+  kernel cannot import `datrix-codegen-common`), raising `GenerationError`. The two serverless
+  path-identity normalisers take the strongest behaviour on each axis: whitespace stripped, every
+  all-empty path is `{method}_root`, the snake wrap is part of the function, and the semantic
+  validator reads the same `path or full_path or "/"` input generation reads. The shared function
+  lives in `datrix-common` because kernel and semantic cannot import each other. Also in R1: an
+  unrecognised REST path part raises instead of returning `"{}"`, an enum import in a TypeScript
+  body matches on an identifier boundary rather than a substring, the dead list branch in docker's
+  `integration_profiles` goes, and the two Azure resource-group wrapper validators become one
+  annotated type.
+- **R2 — Python and TypeScript clusters are hoisted into `datrix-codegen-common` and take a
+  per-language piece as a parameter, never a language branch.** API-key resolution becomes one
+  module with one closed provider truth table (a store/name combination the table does not allow is
+  a `GenerationError`, never a fallback), a lower-cased verify header and a raise on empty input.
+  Machine identity: the audience-provider selection moves to `datrix-common` (azure cannot reach
+  codegen-common) and the strategy set and kind resolver become one shared enum of three members,
+  `iam-role`, `managed-identity` and `oidc-client-credentials`, with an unknown kind raising. The
+  extern client generators share one flow, one auth-context builder that raises for an `auth_type`
+  the calling language does not realize, one path-token check over base and endpoint paths, and one
+  default wire path. Remote-config artifact builders become one pair; a `Float` key with an integer
+  default is coerced to float at its source, and docker's unreachable defaults builder is deleted.
+  Generator hooks (CQRS language files, extra structs), the cache orchestrator and its pooled-group
+  resolver, the transpiler core's doc-comment prefix and builtin receiver split, Flutter's note
+  blocks, and three small same-behaviour helpers are each one shared body.
+- **R3 — Angular and Flutter helpers live in `datrix-codegen-common` generation, beside
+  `ui_contract` and `client_contract`.** Flutter has no dependency on `datrix-codegen-typescript-core`,
+  so a helper shared by the two client targets cannot live there. The hoisted helpers are the default
+  layout view, nav target key, feed bindings, declared type name, browser-routes predicate, facts
+  accessor, auth-mode rejection (one shared `CLIENT_AUTH_MODES`), identifier requirement, and the
+  JSON wire-override skeleton. The duplicate-path rejection lives in the kernel. Each target's
+  capability declaration stays separate, because the architecture requires it per target.
+- **R4 — Platform-shared algorithms live in `datrix-common` or `datrix-codegen-kernel`, never in
+  `datrix-codegen-common`, because docker and azure do not depend on it.** Per-platform tables stay
+  per platform; only the algorithm that reads them is shared. `build_bootstrap` for azure-vm and
+  docker is one `datrix-common` function taking a label. The azure-vm and docker infrastructure
+  algorithms (`service_to_service_auth`, `provision_managed_service`, flavor resolution) are one
+  kernel module that each package calls with its own table and identity-kind constant.
+  `realize_notification` is one `datrix-common` lookup in `capability_cells` that rejects a
+  wrong-channel provider with `NotificationNotOfferedError` on every platform, so the capability
+  policy that catches that class now sees it. The application-level config store accessor, the
+  per-service alert collection (built on the one `collect_alerts` enumeration, so aws and azure
+  cover every surface that can declare an alert) and the Event Hubs consumer-group name with its
+  digest clamp move to the shared layers. Sixteen engine/SKU membership validators share one `require_option` raising
+  `GenerationError` with sorted, comma-joined options. The managed-key surface check is one
+  `datrix-common` function over `model_handle_provisioned_keys`, so only `MANAGED` handles
+  contribute keys on every platform.
+- **R5 — One `SourceCursor` in `datrix-common`, beside the source-syntax module.** It is
+  parameterized by a `CommentSyntax`, an error factory and an escape table; the dcfg and seed
+  parsers subclass it. The seed parser gains a declared comment syntax. Declaring it does not
+  register `.dseed` with the language server.
+- **R6 — The guards land before the hoists they police.** A repo gate,
+  `shared-home-body-gate.ps1`, matches the normalized AST body of every other package's public
+  functions against the public functions of `datrix-codegen-common`, `datrix-codegen-kernel` and
+  `datrix-common`; a function qualifies at 8 or more lines and 40 or more AST nodes, local and
+  parameter names become positional tokens, constants collapse to their type, and attribute names
+  and call targets are kept. The verdict is a decrease-only pinned count per package in
+  `shared-home-body-baseline.toml`, with a plant/observe/revert self-test. `-CheckSharedTargetNames`
+  matches each language's declared `name_tokens` as well as its registered name; a short alias
+  such as `ts` can be an ordinary abbreviation, so each hit is renamed or becomes a reviewed
+  baseline entry with a written reason. The behaviour-parity pin
+  (`[languages].failing_roles` in `behaviour-parity-baseline.toml`) is two-directional and one shared
+  file, so it is banked once, by the closing change, after every hoist has landed: that change lowers
+  the pin to the gate's own measured count, a count above the pin is a regression, and the pin is
+  never raised. Until it lands the gate reports a count below the pin, which is the expected
+  intermediate state.
+
+Placement is fixed by the declared dependency edges: python and typescript depend on common, kernel
+and codegen-common; angular depends on typescript-core and flutter does not; azure depends on
+common, kernel and semantic and docker on common and kernel, neither on codegen-common; kernel and
+semantic cannot import each other. No hoist adds an edge.
+
+**Invariants:**
+
+| # | Invariant | Check |
+|---|---|---|
+| 1 | A function with a shared home has exactly one definition; no private function in another package has a normalized body equal to a shared function's | `shared-home-body-gate.ps1` over every other package's public functions against those of `datrix-codegen-common`, `datrix-codegen-kernel` and `datrix-common`, a decrease-only pinned baseline in `shared-home-body-baseline.toml`, and a plant/observe/revert self-test |
+| 2 | A hoist removes every private copy | A per-symbol negative check beside each shared home that no package redefines the private name, plus a test that the old private name is not importable |
+| 3 | A language-specific module in a shared package is visible to the ratchet by its declared alias tokens | `check-import-boundaries.ps1 -CheckSharedTargetNames` matches each language's declared `name_tokens` as well as its registered name, and its CLI non-vacuity self-test plants an alias-token identifier and observes the count delta |
+| 4 | Every behaviour change is declared and pinned | One test per BC1–BC13 that fails against the pre-change behaviour |
+| 5 | Every hoist is behaviour-preserving apart from BC1–BC13 | A test beside each shared home renders the hoisted construct per consuming language and asserts the output; the `behaviour-parity-gate.ps1` pin is lowered to the measured count by the closing change and never raised |
+| 6 | No hoist adds a dependency edge | `manifest-import-parity-gate.ps1` stays at its hard zero; every home is inside the declared edges |
+| 7 | A security-bearing shared function fails closed | One negative test per API-key, machine-identity, extern-client, notification and managed-key rule: the unsafe input raises |
+| 8 | The duplicate-body count strictly drops in every package a rule names | Each package's `shared-home-body-gate.ps1` count is strictly below the `seed` recorded when the gate landed, checked when the work closes |
+
+**Declared behaviour changes:**
+
+| # | Change | Axis |
+|---|---|---|
+| BC1 | `member_declared_type` replaces a two-spelling lookup; multi-word members such as `postalCode` resolve | most correct output |
+| BC2 | A GraphQL array-of-enum field keeps `is_enum` in TypeScript | most correct output |
+| BC3 | The API-key dispatch module raises on an empty provider list in both languages | fails closed |
+| BC4 | The API-key verify header is lower-cased in both languages | most correct output |
+| BC5 | The machine-identity strategy set loses `shared-secret` in TypeScript | most secure |
+| BC6 | Extern clients: an unresolved parameter type raises in TypeScript; path tokens are checked against the full path in Python; the default wire path is kebab-case in Python; path variables are percent-encoded in both; `oauth2ClientCredentials` is realized in TypeScript and an unrealized `auth_type` raises at generation time | fails closed, most secure, reads everything declared |
+| BC7 | A `Float` config key with an integer default serializes as a float everywhere (`5.0`, not `5`) | most correct output |
+| BC8 | A one-argument receiver builtin no longer passes the receiver twice, so a `{1}` row uses its default | most correct output |
+| BC9 | Docker and azure-vm `realize_notification` reject a wrong-channel provider | fails closed |
+| BC10 | The AWS managed-key surface check filters `MANAGED` handles as Azure does | most correct output |
+| BC11 | A documented statement carries its doc comment on every `transpile_statement` call, including Flutter's direct calls | reads everything declared |
+| BC12 | Engine and SKU membership failures are one `GenerationError` shape with sorted, comma-joined options | fails closed (uniform class) |
+| BC13 | aws and azure emit alarms and rules for alerts declared on CQRS, jobs, REST and GraphQL surfaces, through the one `collect_alerts` enumeration docker and the language generators already use | reads everything declared |
+
+**Security posture:** fail closed, strongest behaviour wins, no control weakened, no exemption added.
+- **Inbound API-key authentication.** An empty provider list raises; a store/name combination the
+  truth table does not allow is a `GenerationError`, never a fallback; the verify call denies on every
+  non-HTTP failure in both languages (503).
+- **Outbound machine identity.** The `shared-secret` strategy is removed from TypeScript because it
+  forwards a static string the callee cannot validate; an unknown strategy raises.
+- **Outbound extern auth and URLs.** An `auth_type` the target cannot realize raises at generation
+  time instead of emitting no credential. TypeScript then realizes `oauth2ClientCredentials`, reading
+  the declared credential variables from the environment, never logging or echoing the secret or
+  token, calling the token endpoint over verified TLS, and throwing before any request when a
+  credential is missing or empty. Extern path variables are percent-encoded with no safe characters
+  in both languages, so a value such as `../admin` or one containing `?` cannot change the request
+  target.
+- **Seed credentials.** The bcrypt default cost and CSPRNG salt are retained; the plaintext is never
+  logged or placed in an error; a hash failure raises `GenerationError`.
+- **Notification realization.** A provider of the wrong channel is rejected by an `isinstance` check
+  against the channel's enum, on every platform.
+- **Managed-key surface.** Only `MANAGED` handles contribute provisioned keys, read from one
+  producer; a consumed key with no producer raises.
+- **Behaviour-parity pin.** It is only ever lowered.
+
+**Rejected alternatives:**
+- **Derive the remote-config client artifact from the kernel seed plan.** The two are not
+  byte-equivalent (`5` versus `5.0`, and feature-flag keys leave the scalar map). Fixing the model
+  coercion removes the first difference; the builders are hoisted as they are.
+- **Put platform-shared algorithms in `datrix-codegen-common`.** Docker and azure do not depend on it;
+  the kernel and `datrix-common` are inside every edge.
+- **Keep Python's `None` return on empty API-key input.** The stronger behaviour fails closed; callers
+  gate on admissions instead.
+- **Add `has_circuit_breaker` to TypeScript.** TypeScript already denies on every non-HTTP failure;
+  the fact is only a Python import and except-tuple rendering input.
+- **Keep `shared-secret` in the shared strategy set.** It yields no working call and no
+  authentication; the smaller set is the secure one.
+- **Silently keep each language's extern default path.** The same DSL source would call different
+  URLs per language, a behaviour difference with two copies.
+- **Have every hoist lower the behaviour-parity pin itself.** The pin is one shared file, so every
+  language-package change would serialize on it; one closing change banks the final measured count.
+- **Raise the behaviour-parity pin.** That loosens a control to turn a gate green.
+- **Move `datrix-codegen-common` modules by name to fix the alias-token blind spot.** The blind spot
+  is in the ratchet; fixing the ratchet surfaces every offender.
+- **One sweep-style migration script for the hoists.** Each hoist is a deliberate edit with its own
+  rendered-output test.
+
+**Consequences for authors:**
+- A Python extern endpoint with no declared `path` now calls the kebab-case path (`/get-quote`, not
+  `/get_quote`); declare `path` to keep another.
+- A TypeScript extern client throws when a declared credential variable is unset, and an extern
+  endpoint using an `auth_type` the target cannot realize stops generating, naming the type.
+- TypeScript machine-identity fixtures use `oidc-client-credentials`; `shared-secret` is no longer a
+  machine strategy.
+- A `Float` config key with an integer default is written as a float (`5.0`).
+- An API-key provider whose store, name and synthesized verify route are inconsistent fails
+  generation instead of resolving to one branch silently, in both languages.
+
+**Out of scope:** the placement of `graphql_ts_field` (it emits TypeScript text from the shared
+layer, needs a neutral descriptor with per-language rendering, and is a reviewed baseline entry in the
+shared-target-name ratchet); the 148 divergent language-axis roles, a program of its own that starts
+with the tenant signatures (`QueryTenant`, `QueryTenantSource`, `RowTenantCarrier`, the only
+security-bearing family) and the entity-query chain; duplication in Jinja templates; and registering
+`.dseed` with the language server.
 
 **Status:** Approved — implementation in progress.
 
