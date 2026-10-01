@@ -1,0 +1,26 @@
+// A tenant-scoped service reached with an API key only: the key's tenant,
+// read from the key's stored row, is the tenant every request runs in.
+service tenantshop.CatalogService('config/catalog-service.dcfg') : version('1.0.0'), description('tenant-scoped product catalog') {
+
+    discovery {
+        AccountService { loadBalance: roundRobin, healthyOnly: true }
+    }
+
+    rdbms catalogDb {
+
+        entity Product extends BaseEntity with Tenantable {
+            String(200) name;
+        }
+
+    }
+
+    rest_api CatalogAPI : basePath('/api/v1/products'), rdbms(catalogDb) {
+
+        // Lists the products of the tenant the presented API key belongs to
+        get products() : auth(required, providers: [customerKeys]) -> Array<catalogDb.Product> {
+            let Array<Product> products = catalogDb.Product.all();
+            return products;
+        }
+
+    }
+}

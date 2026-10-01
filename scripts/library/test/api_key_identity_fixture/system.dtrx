@@ -1,0 +1,9 @@
+// Tenant-scoped API-key fixture for the API-key identity round-trip gate.
+// Never a product example: the gate copies this tree into scratch space,
+// generates it for every registered backend language, boots it, and proves
+// that a key's tenant comes from its stored row rather than from the request.
+include 'account-service.dtrx';
+include 'catalog-service.dtrx';
+
+system tenantshop('config/system.dcfg') : version('1.0.0') {
+}

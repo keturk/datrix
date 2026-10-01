@@ -1,0 +1,34 @@
+// App-issued, tenant-scoped API-key identity provider for 'customerKeys'.
+// mode = self: the application issues and verifies this credential itself.
+// The key's tenant is a column of its stored row, so a verified key carries
+// the tenant it was issued in.
+config identity customerKeys {
+  base {
+    provider = "apiKey";
+    mode = "self";
+    audience = "customer";
+    apiKey {
+      header = "X-Customer-Api-Key";
+      store = "tenantshop.AccountService";
+      storeBlock = "accountDb";
+      entity = "ApiKey";
+      fields {
+        hash = "keyHash";
+        owner = "ownerId";
+        tenant = "tenantId";
+        scopes = "scopes";
+        active = "isActive";
+        expiresAt = "expiresAt";
+        lastUsedAt = "lastUsedAt";
+        rateLimit = "rateLimit";
+      }
+      lastUsedResolutionSeconds = 60;
+      rateLimitWindowSeconds = 60;
+      rateLimitCache = "redis";
+      serviceProviders = ["platform"];
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+}
