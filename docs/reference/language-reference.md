@@ -547,7 +547,7 @@ Modules provide reusable traits, abstract entities, enums, and structs that can 
 get(UUID id) : auth(required, providers: [identity]) -> Order { ... }
 ```
 
-Rate limiting (`@rateLimit(requests: N, window: S)`, `S` in whole seconds, at most one per endpoint), response caching (`@cache(ttl: S)`) and deprecation (`@deprecated`) are decorators; authorization is never a decorator.
+Rate limiting (`@rateLimit(requests: N, window: S)`, `S` in whole seconds, at most one per endpoint), response caching (`@cache(ttl: S)`), deprecation (`@deprecated`) and a binary route's response media type (`@produces('<type>/<subtype>')`, only on a route returning `Bytes`/`Bytes?`) are decorators; authorization is never a decorator.
 
 **Modifiers** (`: name, …`) apply to fields and declarations. **`server`** marks a field as server-managed (populate from server defaults / hooks, excluded from client create/update payloads):
 
