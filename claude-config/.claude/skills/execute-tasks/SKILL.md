@@ -337,7 +337,7 @@ For tasks that modified code:
 
    **Test-invocation rules (a PreToolUse hook hard-blocks violations):**
    - **Never pass `-NoSave`** — it hides the saved progress Jon reads. Always let results save.
-   - **Never pass `-VerboseOutput`** — it burns tokens for no benefit; read the run's `index.json` / `full.log` for detail.
+   - **Never pass `-VerboseOutput`** — it burns tokens for no benefit; read the run's `index.json` for detail, and digest `full.log` with local-model MCP `digest_log` instead of reading it whole.
    - **Never call `pytest` (or `python -m pytest`) directly** — always go through `test.ps1` / `test-single.ps1`.
    - **Never run `mypy`** (or any standalone type-checker) — write fully type-hinted code, but do not invoke a type-check command; it only burns tokens/turns.
 

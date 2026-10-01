@@ -18,6 +18,7 @@ when the work calls for it. Read the doc — do not act from memory of it.
 | feel pressure to ship a smaller change than the defect deserves | execution-contract §14 |
 | call any repo script | `datrix/scripts/quick-reference.md` |
 | implement significant new logic, or look for a definition or its uses | code-index MCP tools (`find_canonical`, `find_symbol`, `find_references`, `outline`, `search`); no MCP → `datrix/scripts/dev/code-index.ps1` |
+| read a large file whole to answer a question about it, or read a test/generation/deploy log | local-model MCP tools `ask_files` / `digest_log` (`datrix-local-llm`): the answer cites `path:line` and is a lead — confirm the cited lines with a ranged Read before acting; no MCP → read by range |
 
 **Architecture:** `datrix/docs/architecture/architecture-cheat-sheet.md`,
 `design-principles-cheat-sheet.md`, then `architecture-overview.md` (index).

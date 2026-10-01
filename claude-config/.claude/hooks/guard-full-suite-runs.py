@@ -45,11 +45,11 @@ Exit codes:
 """
 
 import json
-import os
 import sys
 import time
 from typing import Final
 
+from _hook_log import append_record
 from _suite_invocation import (
     MAX_PACKAGES_PER_KEYWORD_RUN,
     MAX_TAGS_PER_RUN,
@@ -95,13 +95,11 @@ def _block_sweep(reasons: list[str]) -> None:
 
 
 def _audit(record: dict[str, object]) -> None:
-    """Append the blocked attempt. The count of attempts must be a readable fact."""
-    try:
-        os.makedirs(_SCRATCH_DIR, exist_ok=True)
-        with open(_AUDIT_PATH, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record) + "\n")
-    except OSError:
-        return
+    """Append the blocked attempt. The count of attempts must be a readable fact.
+
+    Capped like every hook log (``_hook_log.py``); a lost line is reported on stderr and
+    never stops the block that follows."""
+    append_record(_AUDIT_PATH, record, "guard-full-suite-runs")
 
 
 def _block(packages_named: list[str]) -> None:

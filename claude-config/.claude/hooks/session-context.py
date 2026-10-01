@@ -48,6 +48,15 @@ import sys
 import time
 from typing import Final
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _mcp_registration import (  # noqa: E402
+    CODE_INDEX_SERVER,
+    LOCAL_LLM_SERVER,
+    is_registered,
+    session_directory,
+)
+
 _REPO_ROOT: Final = "d:/datrix"
 _STATE_DIR: Final = os.path.join(_REPO_ROOT, ".claude", "hooks", ".state")
 
@@ -345,6 +354,41 @@ def _fresh_session_context(gated: list[tuple[str, str]]) -> str:
     return "\n\n".join(parts)
 
 
+def _absent_server_notice(cwd: str, server: str, title: str, script: str, fallback: str) -> str:
+    return (
+        f"===== {title} — MCP TOOLS ABSENT =====\n\n"
+        f"The `{server}` MCP server is not registered for the directory this session started in "
+        f"({cwd or 'unknown'}) on this machine, so no `mcp__{server}__*` tool exists here. "
+        "Tell Jon once, in your first reply: it is fixed by running "
+        f"`powershell -File \"{script}\" -Setup` and reloading the window.\n\n{fallback}"
+    )
+
+
+def _mcp_notices(cwd: str) -> str:
+    """Says so for each Datrix MCP server this session lacks; empty when it has them all.
+
+    CLAUDE.md and the agent templates send agents to the code index's and the local
+    models' MCP tools, but those tools exist only where `code-index.ps1 -Setup` and
+    `local-llm.ps1 -Setup` registered the servers for the session's directory. Without
+    this notice a machine that never ran them looks exactly like one that did: every
+    agent silently falls back to grep and whole-file reads, and nobody is told why.
+    """
+    notices: list[str] = []
+    if not is_registered(cwd, CODE_INDEX_SERVER):
+        script = f"{_REPO_ROOT}/datrix/scripts/dev/code-index.ps1"
+        notices.append(_absent_server_notice(
+            cwd, CODE_INDEX_SERVER, "CODE INDEX", script,
+            "Until then, use the same index from the shell for definitions, uses and outlines: "
+            f"`powershell -File \"{script}\" -Symbol <name>`, `-References <dotted.path>`, "
+            "`-Outline <path>`, `-Canonical <topic>`."))
+    if not is_registered(cwd, LOCAL_LLM_SERVER):
+        notices.append(_absent_server_notice(
+            cwd, LOCAL_LLM_SERVER, "LOCAL MODELS", f"{_REPO_ROOT}/datrix/scripts/dev/local-llm.ps1",
+            "Until then, ask_files and digest_log are unavailable: read files and logs yourself, by "
+            "range where you can."))
+    return "\n\n".join(notices)
+
+
 def main() -> None:
     try:
         data = json.loads(sys.stdin.read())
@@ -360,6 +404,8 @@ def main() -> None:
         if source == "compact"
         else _fresh_session_context(gated)
     )
+    notice = _mcp_notices(session_directory(str(data.get("cwd", ""))))
+    context = "\n\n".join(part for part in (context, notice) if part)
     if not context:
         sys.exit(0)
 

@@ -23,6 +23,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 H = os.path.dirname(os.path.abspath(__file__))
 TRANSCRIPT = r"D:\datrix\.tmp\local-judge-test-transcript.jsonl"
+# The judge's requests to this test's own server must never count as real use of the machines.
+USAGE_LOG = r"D:\datrix\.tmp\local-judge-test-usage.jsonl"
 SID = "TESTSESSION-local-judge"
 LOOPBACK = "127.0.0.1"
 
@@ -107,7 +109,8 @@ def transcript(assistant_text: str) -> str:
 
 
 def run(hook: str, text: str, port: int, *, active: bool = False, judge: str = "on") -> tuple[int, str]:
-    env = {**os.environ, "DATRIX_LOCAL_JUDGE_PORT": str(port), "DATRIX_LOCAL_JUDGE": judge}
+    env = {**os.environ, "DATRIX_LOCAL_JUDGE_PORT": str(port), "DATRIX_LOCAL_JUDGE": judge,
+           "DATRIX_LOCAL_LLM_USAGE_LOG": USAGE_LOG}
     payload = {"session_id": SID, "transcript_path": transcript(text), "stop_hook_active": active}
     process = subprocess.run([sys.executable, os.path.join(H, hook)], input=json.dumps(payload),
                              capture_output=True, text=True, env=env, timeout=60)
@@ -130,6 +133,8 @@ def clear_block_state() -> None:
 server = ModelServer()
 STOP = "gate-stop-exhaustion.py"
 SUBAGENT = "check-agent-report.py"
+if os.path.isfile(USAGE_LOG):
+    os.remove(USAGE_LOG)
 
 print("== BLOCK: a reworded claim, quoted verbatim, at high confidence ==")
 clear_block_state()
@@ -137,6 +142,9 @@ server.verdict("exhaustion", QUOTE)
 code, err = run(STOP, REWORDED_EXHAUSTION, server.port)
 check("stop gate blocks a reworded exhaustion claim", code, 2)
 check("the block names the second reader", "second reader" in err, True)
+with open(USAGE_LOG, encoding="utf-8") as handle:
+    callers = [json.loads(line)["caller"] for line in handle]
+check("the judge's request is in the usage log under its hook's name", callers, ["hook:stop-judge"])
 clear_block_state()
 server.verdict("exhaustion", QUOTE.replace("I am going", "I'm going"))
 code, _ = run(STOP, REWORDED_EXHAUSTION, server.port)
@@ -183,6 +191,8 @@ check("no model server: the stop proceeds", code, 0)
 
 server.httpd.shutdown()
 clear_block_state()
+if os.path.isfile(USAGE_LOG):
+    os.remove(USAGE_LOG)
 print()
 if fails:
     print(f"{len(fails)} FAILURE(S):")

@@ -1,8 +1,0 @@
-{"category": "grep", "tool": "Grep", "detail": "\\bto_snake_case\\b", "path": "", "glob": "", "type": "", "response_chars": 1, "session": "gate-hints-12348-3368", "agent": "main", "ts": "2026-10-01T03:47:42+00:00"}
-{"category": "grep", "tool": "Grep", "detail": "\\bto_snake_case\\b", "path": "", "glob": "", "type": "", "response_chars": 1, "session": "gate-hints-12348-3368", "agent": "main", "ts": "2026-10-01T03:47:43+00:00"}
-{"category": "grep", "tool": "Grep", "detail": "\\bto_snake_case\\b", "path": "", "glob": "", "type": "", "response_chars": 1, "session": "gate-hints-12348-3368", "agent": "main", "ts": "2026-10-01T03:47:43+00:00"}
-{"category": "grep", "tool": "Grep", "detail": "\\bto_snake_case\\b", "path": "", "glob": "", "type": "", "response_chars": 1, "session": "gate-hints-12348-3368", "agent": "main", "ts": "2026-10-01T03:47:43+00:00"}
-{"category": "grep", "tool": "Grep", "detail": "tenant.*header", "path": "", "glob": "", "type": "", "response_chars": 4, "session": "gate-hints-12348-3368", "agent": "main", "ts": "2026-10-01T03:47:43+00:00"}
-{"category": "grep", "tool": "Grep", "detail": "to_snake_case", "path": "", "glob": "*.j2", "type": "", "response_chars": 4, "session": "gate-hints-12348-3368", "agent": "main", "ts": "2026-10-01T03:47:43+00:00"}
-{"category": "read", "tool": "Read", "detail": "x.py", "ranged": true, "response_chars": 9000, "session": "gate-hints-12348-3368", "agent": "main", "ts": "2026-10-01T03:47:43+00:00"}
-{"category": "read", "tool": "Read", "detail": "big.py", "ranged": false, "response_chars": 9000, "session": "gate-hints-12348-3368", "agent": "main", "ts": "2026-10-01T03:47:43+00:00"}

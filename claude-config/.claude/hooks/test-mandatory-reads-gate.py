@@ -35,14 +35,49 @@ BLOCK, ALLOW = 2, 0
 fails = []
 
 
-def run(hook, payload):
+def run(hook, payload, env=None):
     p = subprocess.run([sys.executable, os.path.join(HOOKS, hook)],
-                       input=json.dumps(payload), capture_output=True, text=True)
+                       input=json.dumps(payload), capture_output=True, text=True, env=env)
     return p.returncode, p.stdout, p.stderr
 
 
 def start(source):
     return run("session-context.py", {"session_id": SESSION, "source": source})
+
+
+CODE_INDEX = "datrix-code-index"
+LOCAL_LLM = "datrix-local-llm"
+
+
+def start_with_registration(registered_directory, session_directory, servers=(CODE_INDEX, LOCAL_LLM)):
+    """SessionStart under a throwaway user profile registering ``servers`` for one directory."""
+    with tempfile.TemporaryDirectory() as profile:
+        projects = {registered_directory: {"mcpServers": {name: {"command": "python"} for name in servers}}}
+        with open(os.path.join(profile, ".claude.json"), "w", encoding="utf-8") as handle:
+            json.dump({"projects": projects}, handle)
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+        env.update({"USERPROFILE": profile, "HOME": profile, "CLAUDE_PROJECT_DIR": session_directory})
+        _code, out, _err = run("session-context.py",
+                               {"session_id": SESSION, "source": "startup", "cwd": session_directory}, env)
+    return json.loads(out)["hookSpecificOutput"]["additionalContext"]
+
+
+def start_with_project_config(local_settings):
+    """SessionStart in a directory whose .mcp.json lists both servers, under an empty user profile,
+    with ``local_settings`` as its .claude/settings.local.json."""
+    with tempfile.TemporaryDirectory() as profile, tempfile.TemporaryDirectory() as project:
+        with open(os.path.join(profile, ".claude.json"), "w", encoding="utf-8") as handle:
+            json.dump({}, handle)
+        with open(os.path.join(project, ".mcp.json"), "w", encoding="utf-8") as handle:
+            json.dump({"mcpServers": {CODE_INDEX: {"command": "python"}, LOCAL_LLM: {"command": "python"}}}, handle)
+        os.makedirs(os.path.join(project, ".claude"))
+        with open(os.path.join(project, ".claude", "settings.local.json"), "w", encoding="utf-8") as handle:
+            json.dump(local_settings, handle)
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+        env.update({"USERPROFILE": profile, "HOME": profile, "CLAUDE_PROJECT_DIR": project})
+        _code, out, _err = run("session-context.py",
+                               {"session_id": SESSION, "source": "startup", "cwd": project}, env)
+    return json.loads(out)["hookSpecificOutput"]["additionalContext"]
 
 
 def read_doc(path):
@@ -153,7 +188,28 @@ try:
     check("block says 'in this session'", "in this session" in err, True)
     check("fresh-session block has no drift alarm", os.path.isfile(DRIFT_FILE), False)
 
+    print("== MCP servers: a session without their tools is told so, per server ==")
+    ctx = start_with_registration("D:/registered", "D:/elsewhere")
+    check("unregistered directory -> code index notice", "CODE INDEX — MCP TOOLS ABSENT" in ctx, True)
+    check("unregistered directory -> local models notice", "LOCAL MODELS — MCP TOOLS ABSENT" in ctx, True)
+    check("notice names the code index setup command", "code-index.ps1\" -Setup" in ctx, True)
+    check("notice names the local models setup command", "local-llm.ps1\" -Setup" in ctx, True)
+    check("notice names the shell fallback", "-Symbol <name>" in ctx, True)
+    ctx = start_with_registration("D:/registered", "D:\\registered")
+    check("both registered (either separator) -> no notice", "MCP TOOLS ABSENT" in ctx, False)
+    ctx = start_with_registration("D:/registered", "D:/registered", servers=(CODE_INDEX,))
+    check("only the missing server is named",
+          ("CODE INDEX — MCP" in ctx, "LOCAL MODELS — MCP TOOLS ABSENT" in ctx), (False, True))
+    ctx = start_with_project_config({"enabledMcpjsonServers": [CODE_INDEX]})
+    check("project .mcp.json: an approved server is present, an unapproved one is absent",
+          ("CODE INDEX — MCP" in ctx, "LOCAL MODELS — MCP TOOLS ABSENT" in ctx), (False, True))
+    ctx = start_with_project_config({"enableAllProjectMcpServers": True, "disabledMcpjsonServers": [LOCAL_LLM]})
+    check("project .mcp.json: approve-all, minus a disabled server",
+          ("CODE INDEX — MCP" in ctx, "LOCAL MODELS — MCP TOOLS ABSENT" in ctx), (False, True))
+    cleanup()
+
     print("== scratch space stays writable while blocked ==")
+    start("startup")
     check("workspace .tmp -> allow", edit(SCRATCH)[0], ALLOW)
 
     print("== reading the docs clears the block ==")

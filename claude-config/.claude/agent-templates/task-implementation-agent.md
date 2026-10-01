@@ -19,7 +19,8 @@ Read the task file at the path above. It contains everything you need: files to 
 - Read the task file completely
 - Read ALL files listed in "Files to Review Before Starting"
 - Read existing code in files to be modified
-- Search for existing functions/utilities to reuse (DRY principle)
+- Search for existing functions/utilities to reuse (DRY principle): code-index MCP `find_symbol` / `search` before grep
+- To learn what a module or a set of files does, or where something happens in them, ask before reading them whole: local-model MCP `ask_files` (paths or a glob plus a question) returns a short answer citing `path:line`. It is a lead — read the cited lines (ranged Read) before relying on it. The files you will modify you still read yourself.
 - Check logic map markers (code-index MCP `find_canonical`, or `datrix/scripts/dev/code-index.ps1 -Canonical <topic>`) before modifying marked code
 - **Ambiguity is not a blocker — it is a question you first try to answer yourself.** Read the design docs, the surrounding code, and existing patterns. Return `NEEDS_CONTEXT` **only** for a genuine B2 (two defensible designs, expensive to reverse, nothing in the docs settles it) or a missing user input you cannot derive — and when you do, state the options and **your recommendation**, never a bare question.
 
@@ -86,7 +87,7 @@ The runner prints its saved run folder (`…/.test_results/test-results-…/`). 
 
 **Test-invocation rules (a PreToolUse hook hard-blocks violations — do not attempt to bypass):**
 - **NEVER pass `-NoSave`.** It suppresses the saved timestamped `.test_results/` folder that Jon and the orchestrator read for progress. Always let results save.
-- **NEVER pass `-VerboseOutput`.** It floods the transcript and burns tokens for no benefit. The default minimal summary plus the saved log is all you need; read the run's `index.json` / `full.log` for detail.
+- **NEVER pass `-VerboseOutput`.** It floods the transcript and burns tokens for no benefit. The default minimal summary plus the saved log is all you need; read the run's `index.json` for detail, and for `full.log` use local-model MCP `digest_log` (distinct failures with log line numbers) instead of reading it whole.
 - **NEVER call `pytest` (or `python -m pytest`) directly.** All tests run through `test.ps1` / `test-single.ps1`, which activate the shared venv and save results.
 - **NEVER run `mypy` (or any standalone type-check command).** Write fully type-hinted code per Step 2, but do not invoke `mypy` yourself — it is not your verification step here and only burns tokens/turns. Type correctness is enforced by the targeted tests.
 

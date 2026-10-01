@@ -71,6 +71,10 @@ import sys
 import time
 from typing import Final
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _hook_log import append_record  # noqa: E402
+
 _REPO_ROOT: Final = "d:/datrix"
 _ARTIFACT_DIR: Final = os.path.join(_REPO_ROOT, ".tmp", "predeploy")
 _AUDIT_PATH: Final = os.path.join(_REPO_ROOT, ".tmp", "predeploy-audit.jsonl")
@@ -197,12 +201,8 @@ def _verdict(command: str) -> tuple[bool, str]:
 
 
 def _audit(record: dict[str, object]) -> None:
-    try:
-        os.makedirs(os.path.dirname(_AUDIT_PATH), exist_ok=True)
-        with open(_AUDIT_PATH, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record) + "\n")
-    except OSError:
-        pass
+    """Capped like every hook log (``_hook_log.py``); a lost line is reported on stderr."""
+    append_record(_AUDIT_PATH, record, "guard-predeploy-analysis")
 
 
 def _block(command: str, why: str) -> None:
