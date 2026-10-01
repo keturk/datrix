@@ -91,13 +91,14 @@ that a cross-language wire comparison needs to exercise, each declared once in t
 | Response contract | Service-scope route | Serverless route |
 |-------------------|---------------------|------------------|
 | A byte response that declares no media type, so it answers `application/octet-stream` | `GET /api/v1/products/wire/blob` | `GET /wire-serverless/blob` |
-| A nullable byte response that declares its media type (`@produces('image/png')`) | `GET /api/v1/products/wire/image/:id` | `GET /wire-serverless/image/:sku` |
-| A nullable JSON response (`Percentage?`) | `GET /api/v1/products/wire/discount/:id` | `GET /wire-serverless/discount/:sku` |
+| A nullable byte response that declares its media type (`@produces('image/png')`) | `GET /api/v1/products/wire/image/:id` | `GET /wire-serverless/image` |
+| A nullable JSON response (`Percentage?`) | `GET /api/v1/products/wire/discount/:id` | `GET /wire-serverless/discount` |
 
 - **No external state.** Every route returns deterministic content, so a freshly booted stack
   answers it. The service-scope nullable routes answer null for an id that resolves to no
-  product; a standalone serverless handler has no database session, so its nullable routes
-  answer null for the path value `none` and content for any other value.
+  product. A standalone serverless handler has no database session, so each serverless route
+  answers a fixed result: the byte routes answer content and the nullable JSON route answers
+  null.
 - **Authenticated.** All six keep `auth(required, providers: [identity])`; a client presents a
   token minted for the fixture.
 - **Not public API.** They exist so the generated browser client, the route manifest and a

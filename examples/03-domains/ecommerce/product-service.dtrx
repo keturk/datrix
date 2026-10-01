@@ -515,9 +515,9 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
     }
 
     // The same three wire-contract response shapes served from a serverless block. A
-    // standalone serverless handler has no injected database session, so the nullable
-    // routes decide their answer from the path value instead of a lookup: the value
-    // "none" answers null, any other value answers content.
+    // standalone serverless handler has no injected database session, so each route
+    // answers a fixed result: the Bytes routes answer content, and the JSON route
+    // answers null.
     serverless wireHandlers {
         @path('/wire-serverless/blob')
         @name('WireBlob')
@@ -525,23 +525,17 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
             return "datrix-wire-contract".toBytes();
         }
 
-        @path('/wire-serverless/image/:sku')
+        @path('/wire-serverless/image')
         @name('WireImage')
         @produces('image/png')
-        get(String sku) : auth(required, providers: [identity]) -> Bytes? {
-            if (sku == "none") {
-                return null;
-            }
+        get() : auth(required, providers: [identity]) -> Bytes? {
             return "datrix-wire-contract".toBytes();
         }
 
-        @path('/wire-serverless/discount/:sku')
+        @path('/wire-serverless/discount')
         @name('WireDiscount')
-        get(String sku) : auth(required, providers: [identity]) -> Percentage? {
-            if (sku == "none") {
-                return null;
-            }
-            return 15;
+        get() : auth(required, providers: [identity]) -> Percentage? {
+            return null;
         }
 
     }
