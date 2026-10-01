@@ -29,6 +29,16 @@
 // them. A node whose declared type is `unknown` (the generator's own marker
 // for a response the DSL leaves untyped) asserts nothing and is reported by
 // the caller as untyped rather than as a pass.
+//
+// The same module also owns the OTHER comparison this gate makes: one
+// backend's wire response against another backend's response to the SAME
+// route (`describeWireShape` + `compareWireResponses`, below). That one needs
+// no declared type -- the two payloads are each other's reference -- so it is a
+// plain structural walk with no compiler in it. It compares status, media
+// type, value kind and property names (the casing of every field), and it is
+// built so that no response VALUE can reach a report: a payload is reduced to
+// its value-free shape the moment it is captured, and only shapes are ever
+// compared, written to disk, or logged.
 
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -359,11 +369,429 @@ export async function compareResponseShapes(job) {
   return { results, compilerOutput };
 }
 
+// ---------------------------------------------------------------------------
+// Cross-language comparison: one backend's wire response against another's.
+// ---------------------------------------------------------------------------
+
+/**
+ * Arrays are described by their leading elements only. A list route's length is
+ * data, not contract, and an unbounded description would make one large
+ * response a large file; the contract is what each element looks like, and the
+ * same bound applies to both sides of a comparison, so it never makes one side
+ * look different from the other.
+ */
+const MAX_DESCRIBED_ARRAY_ELEMENTS = 16;
+
+/** A body nested deeper than this is described as `depth-limit` on both sides. */
+const MAX_DESCRIBED_DEPTH = 64;
+
+/** A property name or media type longer than this is truncated in a report. */
+const MAX_REPORTED_NAME_LENGTH = 80;
+
+/** Pseudo-paths for the two envelope facts that are not part of the body. */
+export const STATUS_PATH = '<status>';
+export const CONTENT_TYPE_PATH = '<content-type>';
+
+/** Mismatch kinds a cross-language comparison reports. */
+export const WIRE_MISMATCH_KINDS = Object.freeze({
+  status: 'status',
+  contentType: 'content-type',
+  valueKind: 'value-kind',
+  propertyCasing: 'property-casing',
+  missingProperty: 'missing-property',
+  unrecognizedShape: 'unrecognized-shape',
+});
+
+/** Shape kinds that carry no further structure. */
+const LEAF_SHAPE_KINDS = new Set(['string', 'number', 'boolean', 'null', 'bytes', 'depth-limit']);
+
+const IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
+
+function compareCodeUnits(left, right) {
+  if (left < right) {
+    return -1;
+  }
+  return left > right ? 1 : 0;
+}
+
+function isBinaryPayload(value) {
+  return (
+    value instanceof ArrayBuffer ||
+    ArrayBuffer.isView(value) ||
+    (typeof Blob !== 'undefined' && value instanceof Blob)
+  );
+}
+
+/** Whether an object is a JSON-style record rather than a class instance. */
+function hasRecordPrototype(value) {
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * Reduce a response body to its value-free shape.
+ *
+ * The result records what KIND of thing is at every position and what every
+ * property is CALLED -- and nothing else. No string, number or boolean value
+ * survives, so a shape can be written to a results file, passed between
+ * processes and compared without any credential, identifier or personal datum
+ * in the body being exposed to a log line or an error message further on.
+ *
+ * Shapes:
+ * - leaf: `{kind: 'string' | 'number' | 'boolean' | 'null' | 'bytes' | 'depth-limit'}`
+ * - `{kind: 'array', elements: Shape[]}` -- leading elements only
+ * - `{kind: 'object', properties: [{name, shape}]}` -- sorted by name
+ * - `{kind: 'unrecognized', jsType}` -- anything JSON cannot be (a `bigint`, a
+ *   class instance, ...); never dropped, so a difference there is reported
+ *
+ * @param {unknown} value A parsed body, a binary payload, or `null` for no body.
+ * @param {number} depth Current nesting depth; callers omit it.
+ * @returns {object} The value-free shape.
+ */
+export function describeWireShape(value, depth = 0) {
+  if (depth > MAX_DESCRIBED_DEPTH) {
+    return { kind: 'depth-limit' };
+  }
+  if (value === null) {
+    return { kind: 'null' };
+  }
+  if (isBinaryPayload(value)) {
+    return { kind: 'bytes' };
+  }
+  if (Array.isArray(value)) {
+    return {
+      kind: 'array',
+      elements: value
+        .slice(0, MAX_DESCRIBED_ARRAY_ELEMENTS)
+        .map((element) => describeWireShape(element, depth + 1)),
+    };
+  }
+  switch (typeof value) {
+    case 'string':
+    case 'number':
+    case 'boolean':
+      return { kind: typeof value };
+    case 'object':
+      if (!hasRecordPrototype(value)) {
+        return { kind: 'unrecognized', jsType: String(value.constructor?.name ?? 'object') };
+      }
+      return {
+        kind: 'object',
+        properties: Object.keys(value)
+          .sort(compareCodeUnits)
+          .map((name) => ({ name, shape: describeWireShape(value[name], depth + 1) })),
+      };
+    default:
+      return { kind: 'unrecognized', jsType: typeof value };
+  }
+}
+
+/**
+ * The media type of a `Content-Type` header: `type/subtype`, lower-cased,
+ * parameters dropped. `application/json` and `application/json; charset=utf-8`
+ * name the same media type, so a charset parameter is not a disagreement
+ * between two backends; `application/json` against `application/octet-stream`
+ * is.
+ *
+ * @param {string} contentType The raw header value, empty when absent.
+ * @returns {string} The media type, empty when the header was absent.
+ */
+export function mediaTypeOf(contentType) {
+  return String(contentType).split(';', 1)[0].trim().toLowerCase();
+}
+
+/** A name rendered for a report: control characters escaped, length bounded. */
+function quoted(name) {
+  const text = String(name);
+  const bounded =
+    text.length > MAX_REPORTED_NAME_LENGTH
+      ? `${text.slice(0, MAX_REPORTED_NAME_LENGTH)}...(${text.length} chars)`
+      : text;
+  return `'${JSON.stringify(bounded).slice(1, -1)}'`;
+}
+
+function quotedMediaType(mediaType) {
+  return mediaType === '' ? '(none)' : quoted(mediaType);
+}
+
+function propertyPath(parentPath, name) {
+  if (IDENTIFIER_RE.test(name) && name.length <= MAX_REPORTED_NAME_LENGTH) {
+    return `${parentPath}.${name}`;
+  }
+  return `${parentPath}[${quoted(name)}]`;
+}
+
+/** Spelling-insensitive identity of a property name: `order_id` and `orderId` agree. */
+function canonicalName(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]/gu, '');
+}
+
+function kindName(shape) {
+  if (shape.kind === 'unrecognized') {
+    return `unrecognized(${quoted(shape.jsType)})`;
+  }
+  return String(shape.kind);
+}
+
+/** Group properties by their spelling-insensitive identity. */
+function groupByCanonicalName(properties) {
+  const groups = new Map();
+  for (const property of properties) {
+    const key = canonicalName(property.name);
+    const group = groups.get(key);
+    if (group === undefined) {
+      groups.set(key, [property]);
+    } else {
+      group.push(property);
+    }
+  }
+  return groups;
+}
+
+/**
+ * Compare the property sets of two objects.
+ *
+ * A property both sides have is compared in place. A property only one side has
+ * is either the SAME property spelled differently -- one counterpart on the
+ * other side whose name differs only in case or separators, which is the
+ * casing defect this gate exists to catch -- or genuinely absent from the
+ * other side.
+ */
+function compareProperties(left, right, path, sides, mismatches) {
+  const leftByName = new Map(left.properties.map((property) => [property.name, property]));
+  const rightByName = new Map(right.properties.map((property) => [property.name, property]));
+  for (const property of left.properties) {
+    const counterpart = rightByName.get(property.name);
+    if (counterpart !== undefined) {
+      compareShapes(property.shape, counterpart.shape, propertyPath(path, property.name), sides, mismatches);
+    }
+  }
+
+  const leftOnly = left.properties.filter((property) => !rightByName.has(property.name));
+  const rightOnly = right.properties.filter((property) => !leftByName.has(property.name));
+  const leftGroups = groupByCanonicalName(leftOnly);
+  const rightGroups = groupByCanonicalName(rightOnly);
+  const respelled = new Set();
+  for (const property of leftOnly) {
+    const key = canonicalName(property.name);
+    const lefts = leftGroups.get(key);
+    const rights = rightGroups.get(key);
+    if (key === '' || rights === undefined || lefts.length !== 1 || rights.length !== 1) {
+      continue;
+    }
+    const counterpart = rights[0];
+    const propertyAt = propertyPath(path, property.name);
+    mismatches.push({
+      kind: WIRE_MISMATCH_KINDS.propertyCasing,
+      jsonPath: propertyAt,
+      detail:
+        `property casing differs at ${propertyAt}: ${quoted(property.name)} on ${sides.left} ` +
+        `vs ${quoted(counterpart.name)} on ${sides.right}`,
+    });
+    respelled.add(property.name);
+    respelled.add(counterpart.name);
+    compareShapes(property.shape, counterpart.shape, propertyAt, sides, mismatches);
+  }
+
+  for (const [properties, presentOn, absentOn] of [
+    [leftOnly, sides.left, sides.right],
+    [rightOnly, sides.right, sides.left],
+  ]) {
+    for (const property of properties) {
+      if (respelled.has(property.name)) {
+        continue;
+      }
+      const propertyAt = propertyPath(path, property.name);
+      mismatches.push({
+        kind: WIRE_MISMATCH_KINDS.missingProperty,
+        jsonPath: propertyAt,
+        detail: `property ${propertyAt} is present on ${presentOn} and absent on ${absentOn}`,
+      });
+    }
+  }
+}
+
+/**
+ * Compare two value-free shapes position by position.
+ *
+ * A difference this function does not know how to classify is reported as a
+ * mismatch, never skipped: a shape kind it does not recognize, on either side,
+ * is a defect in what was captured or in this comparator, and either is worth a
+ * red gate.
+ */
+function compareShapes(left, right, path, sides, mismatches) {
+  if (left.kind !== right.kind) {
+    mismatches.push({
+      kind: WIRE_MISMATCH_KINDS.valueKind,
+      jsonPath: path,
+      detail:
+        `value kind differs at ${path}: ${kindName(left)} on ${sides.left} ` +
+        `vs ${kindName(right)} on ${sides.right}`,
+    });
+    return;
+  }
+  if (left.kind === 'object') {
+    compareProperties(left, right, path, sides, mismatches);
+    return;
+  }
+  if (left.kind === 'array') {
+    const shared = Math.min(left.elements.length, right.elements.length);
+    for (let index = 0; index < shared; index += 1) {
+      compareShapes(left.elements[index], right.elements[index], `${path}[${index}]`, sides, mismatches);
+    }
+    return;
+  }
+  if (left.kind === 'unrecognized') {
+    if (left.jsType !== right.jsType) {
+      mismatches.push({
+        kind: WIRE_MISMATCH_KINDS.valueKind,
+        jsonPath: path,
+        detail:
+          `value kind differs at ${path}: ${kindName(left)} on ${sides.left} ` +
+          `vs ${kindName(right)} on ${sides.right}`,
+      });
+    }
+    return;
+  }
+  if (!LEAF_SHAPE_KINDS.has(left.kind)) {
+    mismatches.push({
+      kind: WIRE_MISMATCH_KINDS.unrecognizedShape,
+      jsonPath: path,
+      detail:
+        `an unrecognized wire-shape kind ${quoted(left.kind)} was captured at ${path} on both ` +
+        `${sides.left} and ${sides.right}; the comparison cannot vouch for it`,
+    });
+  }
+}
+
+/**
+ * @typedef {object} WireResponse
+ * @property {string} label Which backend answered; named in a mismatch.
+ * @property {number} status The HTTP status the backend answered with.
+ * @property {string} contentType The `Content-Type` header, empty when absent.
+ * @property {object} shape The value-free shape `describeWireShape` produced.
+ */
+
+/**
+ * @typedef {object} WireMismatch
+ * @property {string} kind One of `WIRE_MISMATCH_KINDS`.
+ * @property {string} jsonPath Where in the body (or `STATUS_PATH` /
+ *   `CONTENT_TYPE_PATH` for the envelope) the two responses disagree.
+ * @property {string} detail Names the path and the two kinds, spellings,
+ *   statuses or media types -- never a value.
+ */
+
+/**
+ * Compare two backends' responses to the same route.
+ *
+ * Status first: two responses with different statuses are different contracts,
+ * so their bodies are not compared (a 404 body against a 200 body would only
+ * add noise to the one finding that matters). Otherwise the media type, then
+ * the whole body shape, are compared and every disagreement is reported.
+ *
+ * @param {WireResponse} left
+ * @param {WireResponse} right
+ * @returns {WireMismatch[]} Empty when the responses agree.
+ */
+export function compareWireResponses(left, right) {
+  const sides = { left: quoted(left.label), right: quoted(right.label) };
+  if (left.status !== right.status) {
+    return [
+      {
+        kind: WIRE_MISMATCH_KINDS.status,
+        jsonPath: STATUS_PATH,
+        detail: `status differs: ${Number(left.status)} on ${sides.left} vs ${Number(right.status)} on ${sides.right}`,
+      },
+    ];
+  }
+  const mismatches = [];
+  const leftType = mediaTypeOf(left.contentType);
+  const rightType = mediaTypeOf(right.contentType);
+  if (leftType !== rightType) {
+    mismatches.push({
+      kind: WIRE_MISMATCH_KINDS.contentType,
+      jsonPath: CONTENT_TYPE_PATH,
+      detail:
+        `content type differs: ${quotedMediaType(leftType)} on ${sides.left} ` +
+        `vs ${quotedMediaType(rightType)} on ${sides.right}`,
+    });
+  }
+  compareShapes(left.shape, right.shape, '$', sides, mismatches);
+  return mismatches;
+}
+
+const BINARY_CONSTRUCTORS = {
+  uint8array: (bytes) => new Uint8Array(bytes),
+  arraybuffer: (bytes) => new Uint8Array(bytes).buffer,
+  blob: (bytes) => new Blob([bytes]),
+};
+
+/**
+ * Rebuild a body from a `wire-describe` job's JSON-safe description of it.
+ *
+ * Only the gate's self-test submits these: the live path describes the body it
+ * received in-process, inside the harness, and never serialises a body at all.
+ * Binary payloads cannot ride in JSON, so a job names the binary type and
+ * carries the bytes as base64.
+ */
+function decodeJobBody(spec) {
+  if (spec.encoding === 'json') {
+    return spec.value;
+  }
+  if (spec.encoding === 'binary') {
+    if (!Object.hasOwn(BINARY_CONSTRUCTORS, spec.binaryType)) {
+      throw new Error(
+        `Unknown binary body type ${quoted(spec.binaryType)} in a wire-describe job. ` +
+          `Expected one of ${Object.keys(BINARY_CONSTRUCTORS).join(', ')}.`,
+      );
+    }
+    return BINARY_CONSTRUCTORS[spec.binaryType](Buffer.from(spec.base64, 'base64'));
+  }
+  throw new Error(
+    `Unknown body encoding ${quoted(spec.encoding)} in a wire-describe job. ` +
+      `Expected 'json' or 'binary'.`,
+  );
+}
+
+/**
+ * Run one comparator job. The job's `mode` says which comparison it asks for;
+ * an absent or unknown mode fails loud rather than defaulting to either.
+ *
+ * - `declared-type`: payloads against generated TypeScript interfaces.
+ * - `wire-compare`: `cases: [{caseId, left, right}]`, each side a `WireResponse`.
+ * - `wire-describe`: `cases: [{caseId, body}]`, each body a JSON-safe body spec.
+ */
+async function runJob(job) {
+  switch (job.mode) {
+    case 'declared-type':
+      return compareResponseShapes(job);
+    case 'wire-compare':
+      return {
+        results: job.cases.map((wireCase) => ({
+          caseId: wireCase.caseId,
+          mismatches: compareWireResponses(wireCase.left, wireCase.right),
+        })),
+      };
+    case 'wire-describe':
+      return {
+        results: job.cases.map((wireCase) => ({
+          caseId: wireCase.caseId,
+          shape: describeWireShape(decodeJobBody(wireCase.body)),
+        })),
+      };
+    default:
+      throw new Error(
+        `Unknown comparator job mode ${quoted(job.mode)}. Expected 'declared-type', ` +
+          `'wire-compare' or 'wire-describe'.`,
+      );
+  }
+}
+
 /**
  * CLI entry point: `node shape_comparator.mjs --job <job.json> --out <results.json>`.
  *
  * The gate's non-vacuity self-test drives the comparator through this entry
- * point, so it exercises the exported function above rather than a copy.
+ * point, so it exercises the exported functions above rather than a copy.
  */
 async function main(argv) {
   let jobPath = '';
@@ -384,7 +812,7 @@ async function main(argv) {
     return 2;
   }
   const job = JSON.parse(await readFile(jobPath, 'utf8'));
-  const outcome = await compareResponseShapes(job);
+  const outcome = await runJob(job);
   await writeFile(outPath, `${JSON.stringify(outcome, null, 2)}\n`, 'utf8');
   return 0;
 }
