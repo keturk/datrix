@@ -31,6 +31,25 @@ Pulls all git repositories under the workspace root.
 
 ---
 
+## `git\pre-review.ps1`
+
+**First-pass review of pending changes, run before `commit-and-push.ps1`** (the `/commit-and-push` skill runs it as step 1). It checks only the lines pending changes ADD to Python files, across every repo with uncommitted changes, reading each file's syntax tree on this machine in a few seconds.
+
+Definite findings: `get-none` (a `.get(key, None)` silent fallback), `bare-except`, `except-pass`, `todo-comment` (TODO/FIXME/XXX/HACK), `untyped-def` (a parameter or return with no annotation), `placeholder` (a body of only `pass`, `...`, a docstring or `raise NotImplementedError`, with Protocol/ABC classes and `@abstractmethod`/`@overload` exempt), and `syntax-error`. These alone decide the exit code.
+
+`-ModelReview` also asks a local model for advisory findings on non-test files. Each is kept only at high confidence, on an added line, and quoting that line's code. On qwen3.6-35b that still left 44 findings on 17.9k added lines, nearly all false positives, so it is off by default and never changes the exit code.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Review** | `.\git\pre-review.ps1` | Definite checks over pending added lines |
+| **With model** | `.\git\pre-review.ps1 -ModelReview` | Plus advisory local-model findings |
+
+**Parameters:** `-ModelReview`, and with it `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default 180)
+
+**Exit codes:** 0 = no definite findings, 1 = definite findings (listed as `file:line rule: explanation`), 2 = the review could not run.
+
+---
+
 ## `git\commit-and-push.ps1`
 
 **One-pass commit-and-push across all Datrix repos.** For every repo with uncommitted changes, it splits the changes into themed change sets by area (a module and its tests together), generates one message per set, commits each set separately, and pushes the repo once. No `commit-messages.json` is written. The message source is chosen automatically: the local machines are searched for model servers (Ollama, or OpenAI-compatible such as vLLM or llama-server) and what they serve is discovered; models already in memory are tried first, then a model Ollama can load, and the first that answers generates the messages (one that fails hands over to the next); if none answers, it falls back to the Claude Code CLI, run with no tools. Subjects are held to 72 characters. Stops on the first git failure.

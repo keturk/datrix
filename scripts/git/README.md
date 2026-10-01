@@ -10,6 +10,7 @@ Git operations across all Datrix repositories.
 |--------|-------------|
 | `status.ps1` | Show git status for all repositories |
 | `pull.ps1` | Pull latest changes for all repositories |
+| `pre-review.ps1` | First-pass review of the lines pending changes add to Python files (silent fallbacks, bare/swallowing excepts, TODOs, missing type hints, placeholder bodies); run before commit-and-push |
 | `commit-and-push.ps1` | One-pass commit-and-push for all dirty repos, one commit per themed change set; messages from the first local model that answers (discovered Ollama, vLLM or llama-server), or the Claude Code CLI |
 
 ## status.ps1
