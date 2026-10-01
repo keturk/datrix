@@ -1,17 +1,17 @@
 {
   "_comment": [
     "Zero-environment runtime census, per registered datrix.languages package.",
-    "A language whose LanguageCapabilityDeclaration.zero_environment_runtime",
-    "is realized=True lists every template that reads the environment as a",
-    "reviewed exemption with a written reason (hand-authored; the gate fails",
-    "on an unlisted read and on a stale entry). A language declaring",
-    "realized=False carries a decrease-only pinned_count of environment-",
-    "reading templates; a live count above it fails.",
-    "zero-environment-runtime-gate.ps1 -UpdateBaseline is the only writer of",
-    "pinned_count values; do not hand-guess the numbers."
+    "Every language entry carries a 'kind'. reviewed_exemptions: every template",
+    "that reads the environment is listed with a written reason (hand-authored;",
+    "an unlisted read and a stale entry both fail). pinned_count: a decrease-only",
+    "count of environment-reading templates, for a language that delivers runtime",
+    "facts through the environment by design; only -UpdateBaseline writes it, and",
+    "never upward. A language with no entry is held to reviewed_exemptions with an",
+    "empty list."
   ],
   "languages": {
     "python": {
+      "kind": "reviewed_exemptions",
       "exemptions": [
         {
           "template": "templates/api/_provider_metadata_cognito.py.j2",
@@ -80,7 +80,8 @@
       ]
     },
     "typescript": {
-      "pinned_count": 70
+      "kind": "pinned_count",
+      "pinned_count": 67
     }
   }
 }

@@ -1,0 +1,26 @@
+# Two-directional pin over the problem-type parity gate's unspelled (language, family) cells
+# (scripts/library/test/problem_type_parity.py, wrapped by
+# scripts/test/problem-type-parity-gate.ps1).
+#
+# Every registered language is obligated to spell every registered problem-type family. A cell a
+# language does not spell is counted here and nowhere excused: no declaration, reason or gap row
+# removes it from the count. This table pins only what is unspelled; a language absent from it is
+# pinned at exactly zero, so a new language needs no entry unless it genuinely has unspelled
+# families.
+#
+# A run whose unspelled-cell count for a language EXCEEDS its pin fails: a family stopped being
+# spelled, or a new family was registered unspelled. Spell it -- never raise the pin.
+#
+# A run whose count is BELOW its pin, without the pin being lowered in the same change, ALSO
+# fails, so an improvement is banked and a later regression cannot hide in the slack. The pin is
+# lowered by hand in the change that spells the family; no script writes this file.
+#
+# A literal slug that is not a registered family, and a registered family no language spells,
+# are never pinned: either fails the gate outright.
+#
+# The loader refuses an unrecognized top-level key and any count that is not a non-negative
+# integer. Seed every number from a live run of `problem-type-parity-gate.ps1` (its
+# `PINNED GAP language=<l> family=<f>` lines), never from a document.
+
+[languages]
+typescript = 7
