@@ -19,8 +19,24 @@ declares, most secure, most correct output), and this gate cannot know which
 copy that is. It therefore names every group of disagreeing packages, never
 one "lagging" side.
 
-Two grouping keys, tried in order for every function:
+Grouping keys, tried in order for every function:
 
+0. **Coordinate role** (platform axis only) -- the capability a function
+   realizes, resolved from the platform package's own registration table
+   rather than from file layout or name shape. Every platform builds closed
+   ``RealizationTable``s (``load_realization_table``) pairing each
+   ``(block_type, flavor)`` cell it offers with the ``plan_builder`` function
+   that realizes it. A function that is the plan builder of cells of exactly
+   one block type is keyed by that block type: every flavor builder of one
+   block type in one package folds into ONE role, because flavors are one
+   platform's own vocabulary (``rds``/``aurora``, ``flexible-server``,
+   ``container``) and a flavor-level key would give each role a single
+   member package, which no comparison ever reads. A builder bound to cells
+   of several block types (one uniform builder serving the whole table) names
+   no single capability and falls through to the keys below. The language
+   axis never builds this index, so the key cannot apply to it. A platform
+   package whose tables cannot be imported or located fails the scan: it is
+   never silently keyed by name instead.
 1. **Signature role** -- the role-defining component of a signature is the
    PRODUCT it declares: a return annotation naming a type of the shared
    codegen layer (``datrix_codegen_common.*`` -- a frozen artifact context,
@@ -77,10 +93,9 @@ directions with the pin in
   never part of the verdict: a split that no longer matches the live one is
   reported as a note and moves no exit code.
 
-The baseline loader refuses an unrecognized top-level section or key, and
-the platform axis has no section: it is measured, not reconciled, and
-report-only. The pins are seeded from a live run, never copied from a
-document.
+The baseline loader refuses an unrecognized top-level section or key. Both
+axes gate, each against its own section (``[languages]``, ``[platforms]``).
+The pins are seeded from a live run, never copied from a document.
 
 Domain resolution ladder (first hit wins)
 -----------------------------------------
@@ -134,8 +149,8 @@ baseline section is a reported failure naming the offender -- never a skip.
 Exit codes: 0 the failing-role count equals its pin; 1 the count differs from
 its pin (above it: a regression; below it: an improvement whose pin was not
 lowered in the same change); 2 usage error, discovery/parse failure, or
-self-test failure. ``--axis platforms`` and ``--report-only`` render the
-report and exit 0.
+self-test failure. ``--report-only`` renders the report and exits 0 on
+either axis.
 
 Fingerprint pass (report-only)
 -------------------------------
@@ -167,7 +182,8 @@ Usage:
     python behaviour_parity.py --self-test
     python behaviour_parity.py --axis languages [--scope queue,cache] [--buckets identical] [--debug]
     python behaviour_parity.py --axis languages --report-only [--debug]
-    python behaviour_parity.py --axis platforms [--debug]
+    python behaviour_parity.py --axis platforms [--scope queue,cache] [--buckets divergent] [--debug]
+    python behaviour_parity.py --axis platforms --report-only [--debug]
     python behaviour_parity.py --axis languages --fingerprint [--debug]
 """
 
@@ -177,6 +193,8 @@ import argparse
 import ast
 import dataclasses
 import functools
+import importlib
+import inspect
 import logging
 import sys
 import tempfile
@@ -187,7 +205,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from importlib.metadata import EntryPoint
 from pathlib import Path
-from types import MappingProxyType
+from types import FunctionType, MappingProxyType
 from typing import Final, Literal
 
 _LIBRARY_DIR = Path(__file__).resolve().parent.parent
@@ -210,6 +228,10 @@ from datrix_common.plugin.client_capability import ClientTargetCapabilityDeclara
 from datrix_common.plugin.descriptor import PluginDescriptor  # noqa: E402
 from datrix_common.plugin.language_capability import LanguageCapabilityDeclaration  # noqa: E402
 from datrix_common.plugin.registry import GENERATOR_GROUP, PluginRegistry  # noqa: E402
+from datrix_codegen_kernel.platform.realization_dsl import (  # noqa: E402
+    RealizationCell,
+    RealizationTable,
+)
 from shared.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
     AXIS_PLATFORMS,
@@ -343,7 +365,28 @@ class NameRole:
     normalized_name: str
 
 
-RoleKey = SignatureRole | NameRole
+@dataclass(frozen=True)
+class CoordinateRole:
+    """A platform-axis role: the block type (capability) whose realization a
+    function builds, resolved from the platform package's own
+    ``RealizationTable`` registration -- never from file layout or name
+    shape. Tried before the signature and name keys, on the platform axis
+    only."""
+
+    block_type: str
+
+
+RoleKey = SignatureRole | NameRole | CoordinateRole
+RoleKind = Literal["signature", "name", "coordinate"]
+
+
+def role_kind(role_key: RoleKey) -> RoleKind:
+    """The report spelling of *role_key*'s key type."""
+    if isinstance(role_key, CoordinateRole):
+        return "coordinate"
+    if isinstance(role_key, SignatureRole):
+        return "signature"
+    return "name"
 
 
 @dataclass(frozen=True)
@@ -357,7 +400,7 @@ class RoleVerdict:
     """
 
     role_key: RoleKey
-    kind: Literal["signature", "name"]
+    kind: RoleKind
     domain: str | None
     verdict: Verdict
     members: tuple[FunctionSource, ...]
@@ -787,21 +830,236 @@ def _bare_name(fn: FunctionSource) -> str:
     return fn.qualified_name.rsplit(".", 1)[-1]
 
 
-def _role_key_for(fn: FunctionSource, tokens: frozenset[str]) -> RoleKey:
-    """The two-key ladder for one function.
+#: ``(defining file, __qualname__)`` of a function -- what a registered plan
+#: builder and a scanned ``FunctionSource`` both reduce to.
+BuilderIdentity = tuple[Path, str]
+#: Every registered plan builder that realizes exactly one block type.
+CoordinateIndex = Mapping[BuilderIdentity, CoordinateRole]
+
+_REALIZATION_LOADER_NAME: Final[str] = "load_realization_table"
+#: Bound on following a plan builder through delegating adapters to the
+#: function that holds the behaviour.
+_MAX_BUILDER_HOPS: Final[int] = 5
+_PACKAGE_INIT_STEM: Final[str] = "__init__"
+
+
+def _function_identity(function: FunctionType) -> BuilderIdentity:
+    return Path(function.__code__.co_filename).resolve(), function.__qualname__
+
+
+def _defining_function(builder: object, description: str) -> FunctionType:
+    """The function that holds *builder*'s behaviour.
+
+    A bound method resolves to its function. A closure defined inside another
+    function (the delegating adapter that gives a one-argument provisioner the
+    two-argument plan-builder shape) resolves to the single callable it
+    closes over. Anything else that is not a plain function is refused.
+
+    Args:
+        builder: A ``RealizationCell.plan_builder``.
+        description: The cell, named in every error.
+
+    Raises:
+        ValueError: *builder* is not a function, a bound method, or a
+            closure over exactly one callable, or the chain does not end.
+    """
+    current = builder
+    for _ in range(_MAX_BUILDER_HOPS):
+        if inspect.ismethod(current):
+            current = current.__func__
+            continue
+        if not isinstance(current, FunctionType):
+            raise ValueError(
+                f"behaviour_parity:{description} binds a plan builder of type {type(current).__name__}, which is "
+                f"neither a function nor a bound method. Fix: bind a plain function or bound method."
+            )
+        if "<locals>" not in current.__qualname__:
+            return current
+        delegates = [cell.cell_contents for cell in current.__closure__ or () if callable(cell.cell_contents)]
+        if len(delegates) != 1:
+            raise ValueError(
+                f"behaviour_parity:{description} binds the nested function {current.__qualname__!r}, which closes "
+                f"over {len(delegates)} callable(s); an adapter must delegate to exactly one so the function "
+                f"holding the behaviour is identifiable. Fix: bind the delegate itself, or adapt it through a "
+                f"closure over that one callable."
+            )
+        current = delegates[0]
+    raise ValueError(
+        f"behaviour_parity:{description} binds a plan builder that is still an adapter after {_MAX_BUILDER_HOPS} "
+        f"delegation hops. Fix: bind the function that holds the behaviour."
+    )
+
+
+def coordinate_index_from_tables(tables: Iterable[RealizationTable]) -> dict[BuilderIdentity, CoordinateRole]:
+    """``{builder identity: CoordinateRole}`` for every plan builder the
+    *tables* bind to cells of exactly one block type.
+
+    Every flavor builder of one block type resolves to that one role. A
+    builder bound to cells of several block types names no single capability
+    and is left out, so its function keeps its signature or name key.
+
+    Args:
+        tables: Closed ``RealizationTable``s of one or more platforms.
+
+    Raises:
+        ValueError: A cell's plan builder cannot be resolved to a function.
+    """
+    block_types: dict[BuilderIdentity, set[str]] = {}
+    for table in tables:
+        for (block_type, flavor), cell in table.items():
+            if cell.plan_builder is None:
+                continue
+            function = _defining_function(cell.plan_builder, f"RealizationTable cell ({block_type!r}, {flavor!r})")
+            block_types.setdefault(_function_identity(function), set()).add(block_type)
+    return {
+        identity: CoordinateRole(block_type=next(iter(kinds)))
+        for identity, kinds in block_types.items()
+        if len(kinds) == 1
+    }
+
+
+def _module_name_for(src_dir: Path, py_file: Path) -> str:
+    package = _dotted_package_for_file(src_dir, py_file)
+    return package if py_file.stem == _PACKAGE_INIT_STEM else f"{package}.{py_file.stem}"
+
+
+def _is_loader_call(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
+    return name == _REALIZATION_LOADER_NAME
+
+
+def _table_names_in(module: ast.Module, py_file: Path) -> list[str]:
+    """The module-level names bound to ``load_realization_table(...)`` results.
+
+    Raises:
+        ValueError: A ``load_realization_table`` call is not the value of a
+            module-level assignment, so the table it builds cannot be located
+            by name.
+    """
+    names: list[str] = []
+    for stmt in module.body:
+        if isinstance(stmt, ast.AnnAssign) and _is_loader_call(stmt.value) and isinstance(stmt.target, ast.Name):
+            names.append(stmt.target.id)
+        elif (
+            isinstance(stmt, ast.Assign)
+            and _is_loader_call(stmt.value)
+            and len(stmt.targets) == 1
+            and isinstance(stmt.targets[0], ast.Name)
+        ):
+            names.append(stmt.targets[0].id)
+    calls = sum(1 for node in ast.walk(module) if _is_loader_call(node))
+    if calls != len(names):
+        raise ValueError(
+            f"behaviour_parity:{py_file} calls {_REALIZATION_LOADER_NAME} {calls} time(s) but only {len(names)} "
+            f"call(s) are the value of a module-level assignment. Fix: bind each table to a module-level name so "
+            f"the gate can locate it."
+        )
+    return names
+
+
+def _import_table(module_name: str, attribute: str, platform_label: str) -> RealizationTable:
+    """The ``RealizationTable`` *module_name* binds to *attribute*.
+
+    Raises:
+        ValueError: The module cannot be imported, lacks the attribute, or the
+            attribute is not a mapping of ``RealizationCell``.
+    """
+    where = f"platform {platform_label!r} table {module_name}.{attribute}"
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as exc:
+        raise ValueError(
+            f"behaviour_parity:cannot import {module_name} to read {where} ({exc}). Fix: install the platform "
+            f"package into the shared venv."
+        ) from exc
+    table = getattr(module, attribute, None)
+    if not isinstance(table, Mapping) or not all(isinstance(cell, RealizationCell) for cell in table.values()):
+        raise ValueError(
+            f"behaviour_parity:{where} is not a mapping of RealizationCell (found {type(table).__name__}). Fix: "
+            f"bind the result of {_REALIZATION_LOADER_NAME} to that name."
+        )
+    return table
+
+
+def platform_realization_tables(platform_label: str, src_dirs: Sequence[Path]) -> list[RealizationTable]:
+    """Every ``RealizationTable`` the platform package under *src_dirs*
+    builds, located by parsing its source for ``load_realization_table``
+    call sites and imported by the module and name each one is bound to.
+
+    Args:
+        platform_label: The platform package label, named in errors.
+        src_dirs: The package's src roots.
+
+    Raises:
+        ValueError: A table cannot be located or imported, or the package
+            builds none -- a platform with no registration table would
+            silently key every function by name.
+    """
+    tables: list[RealizationTable] = []
+    for src_dir in src_dirs:
+        for py_file in sorted(src_dir.rglob("*.py")):
+            for name in _table_names_in(parse_module_or_raise(py_file), py_file):
+                tables.append(_import_table(_module_name_for(src_dir, py_file), name, platform_label))
+    if not tables:
+        raise ValueError(
+            f"behaviour_parity:platform {platform_label!r} builds no RealizationTable under "
+            f"{[str(src_dir) for src_dir in src_dirs]}; the coordinate role key has nothing to resolve. Fix: "
+            f"register the platform's cells through {_REALIZATION_LOADER_NAME}."
+        )
+    return tables
+
+
+def platform_coordinate_index(
+    target_src_dirs: Mapping[str, tuple[Path, ...]],
+) -> dict[BuilderIdentity, CoordinateRole]:
+    """The coordinate index of every platform in *target_src_dirs* -- the one
+    place the platform axis reads each package's own registration tables.
+
+    Raises:
+        ValueError: A platform's tables cannot be located, imported or resolved.
+    """
+    tables: list[RealizationTable] = []
+    for label, src_dirs in target_src_dirs.items():
+        tables.extend(platform_realization_tables(label, src_dirs))
+    return coordinate_index_from_tables(tables)
+
+
+def _coordinate_role_key_for(fn: FunctionSource, index: CoordinateIndex) -> CoordinateRole | None:
+    """The role *fn*'s registration identifies, or ``None`` when *fn* is no
+    registered plan builder of a single block type -- the caller then keys it
+    by the existing signature-then-name ladder, unchanged."""
+    return index.get((fn.file_path.resolve(), fn.qualified_name))
+
+
+def _role_key_for(
+    fn: FunctionSource, tokens: frozenset[str], coordinate_index: CoordinateIndex | None = None
+) -> RoleKey:
+    """The key ladder for one function: coordinate (only when a
+    *coordinate_index* is supplied -- the platform axis), then signature,
+    then normalized name.
 
     Args:
         fn: The function to key.
         tokens: This function's own package's token vocabulary.
+        coordinate_index: The platform axis's registered plan builders, or
+            ``None`` on an axis with no coordinate key.
 
     Returns:
-        A ``SignatureRole`` if *fn*'s return annotation declares a shared
-        product, else a ``NameRole``.
+        A ``CoordinateRole`` if *fn* is a registered plan builder of one block
+        type, else a ``SignatureRole`` if its return annotation declares a
+        shared product, else a ``NameRole``.
 
     Raises:
         SkeletonError: If *fn*'s return annotation cannot be classified,
             naming the member.
     """
+    if coordinate_index is not None:
+        coordinate = _coordinate_role_key_for(fn, coordinate_index)
+        if coordinate is not None:
+            return coordinate
     try:
         product_type = shared_product_type(fn.node.returns, fn.import_table)
     except SkeletonError as exc:
@@ -1016,6 +1274,8 @@ def role_label(role_key: RoleKey) -> str:
     """A stable, sortable, human-readable label for one role key."""
     if isinstance(role_key, NameRole):
         return role_key.normalized_name
+    if isinstance(role_key, CoordinateRole):
+        return f"coordinate:{role_key.block_type}"
     return f"-> {role_key.product_type}"
 
 
@@ -1057,9 +1317,10 @@ def _is_excluded_name_role(key: RoleKey, members: list[FunctionSource], other_ba
 def key_functions_by_role(
     target_src_dirs: Mapping[str, tuple[Path, ...]],
     tokens_by_label: Mapping[str, frozenset[str]],
+    coordinate_index: CoordinateIndex | None = None,
 ) -> dict[RoleKey, list[FunctionSource]]:
     """Collect every target's functions -- across EVERY package implementing
-    it, a language core included -- and key each into its role (the two-key
+    it, a language core included -- and key each into its role (the key
     ladder of ``_role_key_for``) -- every role, including those with a single
     member package. A core's functions carry their target's label, so they are
     members of the same target, never of a separate package.
@@ -1068,6 +1329,8 @@ def key_functions_by_role(
         target_src_dirs: ``{label: (src dir, ...)}`` for every target to compare.
         tokens_by_label: ``{label: token vocabulary}`` for every label in
             *target_src_dirs*.
+        coordinate_index: The platform axis's registered plan builders;
+            ``None`` on an axis with no coordinate key.
 
     Returns:
         ``{role key: members}``, every qualifying and non-qualifying role
@@ -1081,7 +1344,7 @@ def key_functions_by_role(
         package_tokens = tokens_by_label[label]
         for src_dir in src_dirs:
             for fn in collect_function_sources(src_dir, label):
-                by_role.setdefault(_role_key_for(fn, package_tokens), []).append(fn)
+                by_role.setdefault(_role_key_for(fn, package_tokens, coordinate_index), []).append(fn)
     return by_role
 
 
@@ -1116,7 +1379,7 @@ def classify_keyed_roles(
         verdicts.append(
             RoleVerdict(
                 role_key=key,
-                kind="signature" if isinstance(key, SignatureRole) else "name",
+                kind=role_kind(key),
                 domain=None,
                 verdict=_classify_role(members_tuple),
                 members=members_tuple,
@@ -1131,6 +1394,7 @@ def group_and_classify_roles(
     target_src_dirs: Mapping[str, tuple[Path, ...]],
     tokens_by_label: dict[str, frozenset[str]],
     other_src_dirs: list[Path],
+    coordinate_index: CoordinateIndex | None = None,
 ) -> list[RoleVerdict]:
     """Core scan: collect every target package's functions, key them into
     roles, keep roles with >= 2 distinct member packages, apply the
@@ -1147,6 +1411,8 @@ def group_and_classify_roles(
             self-test).
         other_src_dirs: Every OTHER package's src dir -- a ``NameRole`` any
             of whose member names is also bare-defined here is excluded.
+        coordinate_index: The platform axis's registered plan builders;
+            ``None`` on an axis with no coordinate key.
 
     Returns:
         One ``RoleVerdict`` per qualifying role, ``domain=None``, sorted by
@@ -1156,7 +1422,9 @@ def group_and_classify_roles(
         SkeletonError: Propagates from an unparseable or unclassifiable
             member.
     """
-    return classify_keyed_roles(key_functions_by_role(target_src_dirs, tokens_by_label), other_src_dirs)
+    return classify_keyed_roles(
+        key_functions_by_role(target_src_dirs, tokens_by_label, coordinate_index), other_src_dirs
+    )
 
 
 @dataclass(frozen=True)
@@ -1196,7 +1464,8 @@ def discover_role_scan(
     _require_min_packages(axis, frozenset(target_src_dirs))
     other_src_dirs = discover_all_other_package_src_dirs(workspace_root, all_src_dirs(target_src_dirs))
     tokens_by_label = {label: tokens_for(axis, label) for label in target_src_dirs}
-    by_role = key_functions_by_role(dict(target_src_dirs), tokens_by_label)
+    coordinate_index = platform_coordinate_index(target_src_dirs) if axis == AXIS_PLATFORMS else None
+    by_role = key_functions_by_role(dict(target_src_dirs), tokens_by_label, coordinate_index)
     verdicts = classify_keyed_roles(by_role, other_src_dirs)
     return RoleScan(verdicts=verdicts, by_role={key: tuple(members) for key, members in by_role.items()})
 
@@ -1304,8 +1573,7 @@ def _log_bucket_counts(verdicts: Sequence[RoleVerdict]) -> None:
 
 def render_report(verdicts: Sequence[RoleVerdict], workspace_root: Path, *, debug: bool) -> None:
     """Log one line per role and the per-bucket counts -- the report-only
-    rendering used for the platform axis and ``--report-only``; nothing here
-    evaluates a gate.
+    rendering used by ``--report-only``; nothing here evaluates a gate.
 
     Args:
         verdicts: Every classified role.
@@ -1986,10 +2254,20 @@ def evaluate_roles(verdicts: Sequence[RoleVerdict], *, surfaces: ExemptionSurfac
 
 
 def axis_gates(axis: str, *, report_only: bool) -> bool:
-    """Whether verdicts on *axis* are evaluated against the gate. Only the
-    language axis gates, and only when the run is not ``--report-only``; the
-    platform axis is measured, never reconciled, so it is always report-only."""
-    return axis == AXIS_LANGUAGES and not report_only
+    """Whether verdicts on *axis* are evaluated against the gate. Both axes
+    gate, each against its own pinned section; a run gates unless it is
+    ``--report-only``.
+
+    Raises:
+        ValueError: *axis* is neither axis -- an unknown axis never gates by
+            default.
+    """
+    if axis not in _BASELINE_AXES:
+        raise ValueError(
+            f"behaviour_parity:unknown axis {axis!r}; valid axes are {sorted(_BASELINE_AXES)}. "
+            f"Fix: pass one of the valid axes."
+        )
+    return not report_only
 
 
 # ---------------------------------------------------------------------------
@@ -1998,9 +2276,8 @@ def axis_gates(axis: str, *, report_only: bool) -> bool:
 
 BEHAVIOUR_PARITY_BASELINE_PATH: Final[Path] = DATRIX_DIR / "scripts" / "config" / "behaviour-parity-baseline.toml"
 #: The axes carrying a pinned section. A section is named by its axis id, so
-#: this one set is also the set of valid top-level keys: the platform axis
-#: joins it when it stops being report-only.
-_BASELINE_AXES: Final[frozenset[str]] = frozenset({AXIS_LANGUAGES})
+#: this one set is also the set of valid top-level keys.
+_BASELINE_AXES: Final[frozenset[str]] = frozenset({AXIS_LANGUAGES, AXIS_PLATFORMS})
 _BASELINE_FAILING_ROLES_KEY: Final[str] = "failing_roles"
 _BASELINE_BUCKETS_KEY: Final[str] = "buckets"
 _BASELINE_AXIS_KEYS: Final[frozenset[str]] = frozenset({_BASELINE_FAILING_ROLES_KEY, _BASELINE_BUCKETS_KEY})
@@ -2116,7 +2393,7 @@ def load_baseline(path: Path = BEHAVIOUR_PARITY_BASELINE_PATH) -> Mapping[str, A
 
     Returns:
         One ``AxisBaseline`` per axis section present in the file, keyed by
-        axis id (today: ``languages`` only).
+        axis id.
 
     Raises:
         ValueError: The file is missing, unreadable or malformed TOML, has no
@@ -2178,8 +2455,7 @@ def evaluate_population_ratchet(
     exact match is the only passing state.
 
     Args:
-        axis: The gated axis (``AXIS_LANGUAGES``; the platform axis has no
-            section until it stops being report-only).
+        axis: The gated axis (``AXIS_LANGUAGES`` or ``AXIS_PLATFORMS``).
         live_failing_roles: The count this run just computed.
         live_buckets: This run's failing roles by verdict bucket, keyed like
             the baseline; diagnostic only, never part of the comparison.
@@ -2448,7 +2724,7 @@ def _synthetic_role(
     grouping is proven by cases (a)-(i))."""
     return RoleVerdict(
         role_key=role_key,
-        kind="signature" if isinstance(role_key, SignatureRole) else "name",
+        kind=role_kind(role_key),
         domain=None,
         verdict=verdict,
         members=tuple(members),
@@ -3098,7 +3374,8 @@ def _self_test_case_gate_outcome() -> bool:
     real universe domain with no on-demand declaration FAILs (the FAIL line
     names the role and every group) and is counted; a baseline pinning exactly
     that count exits 0; the identical non-adapter role fails while an
-    adapter-exempt one passes; and the platform axis never gates."""
+    adapter-exempt one passes; and both axes gate unless the run is
+    ``--report-only`` (an unknown axis is refused)."""
     domain, _ = _two_universe_ids()
     verdicts = _divergent_tree_verdicts(domain)
     if not _single_role_with_verdict(_name_roles(verdicts, _SELF_TEST_DIVERGENT_ROLE), _VERDICT_DIVERGENT):
@@ -3121,9 +3398,11 @@ def _self_test_case_gate_outcome() -> bool:
         and not any("in scope" in line or "in-scope" in line for line in lines)
         and gate_exit_code(at_pin) == EXIT_OK
         and _duplicate_buckets_gate_correctly()
-        and not axis_gates(AXIS_PLATFORMS, report_only=False)
+        and axis_gates(AXIS_PLATFORMS, report_only=False)
         and axis_gates(AXIS_LANGUAGES, report_only=False)
+        and not axis_gates(AXIS_PLATFORMS, report_only=True)
         and not axis_gates(AXIS_LANGUAGES, report_only=True)
+        and _refuses(lambda: axis_gates("not-an-axis", report_only=False), "not-an-axis", AXIS_PLATFORMS)
     )
 
 
@@ -3260,7 +3539,12 @@ def _self_test_case_baseline_loader() -> bool:
     stale -- still loads: the split is diagnostic."""
     valid = _BASELINE_FIXTURE_VALID
     cases: dict[str, tuple[str, tuple[str, ...]]] = {
-        "typo-top-level": (valid + "\n[platforms]\nfailing_roles = 0\n", ("top-level key(s) ['platforms']",)),
+        "typo-top-level": (valid + "\n[platfroms]\nfailing_roles = 0\n", ("top-level key(s) ['platfroms']",)),
+        "typo-platforms-key": (
+            valid + "\n[platforms]\nfailing_roles = 0\ntypo_key = 1\n\n[platforms.buckets]\n"
+            "identical = 0\nsame_behaviour = 0\ndivergent = 0\n",
+            ("[platforms]", "unrecognized key(s) ['typo_key']"),
+        ),
         "typo-axis-key": (
             valid.replace("failing_roles = 3", "failing_roles = 3\ntypo_key = 1"),
             ("unrecognized key(s) ['typo_key']",),
@@ -3282,11 +3566,23 @@ def _self_test_case_baseline_loader() -> bool:
         valid_path.write_text(_BASELINE_FIXTURE_VALID, encoding="utf-8")
         pin_only_path = root / "pin-only.toml"
         pin_only_path.write_text(valid.replace("failing_roles = 3", "failing_roles = 4"), encoding="utf-8")
-        loads = load_baseline(valid_path) == {
-            AXIS_LANGUAGES: AxisBaseline(failing_roles=3, identical=1, same_behaviour=1, divergent=1)
-        } and load_baseline(pin_only_path) == {
-            AXIS_LANGUAGES: AxisBaseline(failing_roles=4, identical=1, same_behaviour=1, divergent=1)
-        }
+        both_axes_path = root / "both-axes.toml"
+        both_axes_path.write_text(
+            valid + "\n[platforms]\nfailing_roles = 2\n\n[platforms.buckets]\n"
+            "identical = 0\nsame_behaviour = 0\ndivergent = 2\n",
+            encoding="utf-8",
+        )
+        loads = (
+            load_baseline(valid_path)
+            == {AXIS_LANGUAGES: AxisBaseline(failing_roles=3, identical=1, same_behaviour=1, divergent=1)}
+            and load_baseline(pin_only_path)
+            == {AXIS_LANGUAGES: AxisBaseline(failing_roles=4, identical=1, same_behaviour=1, divergent=1)}
+            and load_baseline(both_axes_path)
+            == {
+                AXIS_LANGUAGES: AxisBaseline(failing_roles=3, identical=1, same_behaviour=1, divergent=1),
+                AXIS_PLATFORMS: AxisBaseline(failing_roles=2, identical=0, same_behaviour=0, divergent=2),
+            }
+        )
         refusals = True
         for name, (text, expected) in cases.items():
             path = root / f"{name}.toml"
@@ -3884,6 +4180,248 @@ def _self_test_case_fingerprint_report_only() -> bool:
     return below_error and line_count_ok and summary_ok
 
 
+#: Package-name root of the synthetic platform packages the coordinate-key
+#: cases import. Never a real package.
+_SELF_TEST_PLATFORM_PREFIX: Final[str] = "behaviour_parity_selftest_platform"
+_SELF_TEST_PLATFORM_MODULE: Final[str] = "tables.py"
+_SELF_TEST_PLATFORM_ALPHA_SOURCE: Final[str] = '''
+    from datrix_codegen_kernel.platform.realization_dsl import load_realization_table
+    from datrix_common.plugin.capability_cells import BlockRealization
+
+    _CELL = BlockRealization(supported=True, structural_pattern="*/infra/main.tf")
+
+
+    class Infra:
+        def provision_database(self, block):
+            return block.name
+
+
+    def _adapt(provision):
+        def plan_builder(block, service):
+            del service
+            return provision(block)
+
+        return plan_builder
+
+
+    def alpha_cache_plan(block, service):
+        return service.name
+
+
+    def alpha_uniform_plan(block, service):
+        return None
+
+
+    def alpha_helper(value):
+        return value.strip()
+
+
+    _DATABASE_BUILDER = _adapt(Infra().provision_database)
+
+    ALPHA_TABLE = load_realization_table(
+        platform_label="alpha",
+        block_realizations={
+            ("rdbms", "small"): _CELL,
+            ("rdbms", "large"): _CELL,
+            ("cache", "small"): _CELL,
+            ("queue", "small"): _CELL,
+            ("nosql", "small"): _CELL,
+        },
+        plan_builders={
+            ("rdbms", "small"): _DATABASE_BUILDER,
+            ("rdbms", "large"): _DATABASE_BUILDER,
+            ("cache", "small"): alpha_cache_plan,
+            ("queue", "small"): alpha_uniform_plan,
+            ("nosql", "small"): alpha_uniform_plan,
+        },
+    )
+'''
+_SELF_TEST_PLATFORM_BETA_SOURCE: Final[str] = '''
+    from datrix_codegen_kernel.platform.realization_dsl import load_realization_table
+    from datrix_common.plugin.capability_cells import BlockRealization
+
+    _CELL = BlockRealization(supported=True, structural_pattern="*/infra/main.bicep")
+
+
+    class BetaInfra:
+        def make_db_plan(self, block, service):
+            return service.name
+
+
+    def beta_redis_builder(block, service):
+        return block.name
+
+
+    def beta_helper(value):
+        return value.strip()
+
+
+    BETA_TABLE = load_realization_table(
+        platform_label="beta",
+        block_realizations={("rdbms", "tiny"): _CELL, ("cache", "tiny"): _CELL},
+        plan_builders={
+            ("rdbms", "tiny"): BetaInfra().make_db_plan,
+            ("cache", "tiny"): beta_redis_builder,
+        },
+    )
+'''
+_SELF_TEST_PLATFORM_NO_TABLE_SOURCE: Final[str] = "def plain_function(value):\n    return value\n"
+_SELF_TEST_PLATFORM_UNBOUND_TABLE_SOURCE: Final[str] = '''
+    from datrix_codegen_kernel.platform.realization_dsl import load_realization_table
+
+
+    def build_table():
+        return load_realization_table(platform_label="gamma", block_realizations={}, plan_builders={})
+'''
+
+
+def _two_delegate_adapter(first: Callable[..., object], second: Callable[..., object]) -> Callable[..., object]:
+    """A nested function closing over TWO callables: the shape
+    ``_defining_function`` must refuse, since no single function holds its
+    behaviour."""
+
+    def plan_builder(block: object, service: object) -> tuple[object, object]:
+        return first(block), second(service)
+
+    return plan_builder
+
+
+def _write_platform_package(root: Path, label: str, source: str) -> Path:
+    """One synthetic platform package ``root/<prefix>_<label>`` holding one
+    module; returns its src dir."""
+    src_dir = root / f"{_SELF_TEST_PLATFORM_PREFIX}_{label}"
+    _write_module(src_dir, source, _SELF_TEST_PLATFORM_MODULE)
+    return src_dir
+
+
+def _purge_synthetic_platform_modules() -> None:
+    for name in [name for name in sys.modules if name.startswith(_SELF_TEST_PLATFORM_PREFIX)]:
+        del sys.modules[name]
+
+
+def _self_test_case_coordinate_key() -> bool:
+    """(c1) Two synthetic platform packages register plan builders through
+    ``load_realization_table``. The coordinate index resolves a builder bound
+    to several flavors of ONE block type (through a delegating adapter over a
+    bound method, and through a plain bound method) to that block type's role,
+    leaves a uniform builder bound to several block types out, and keys a
+    function that is no plan builder by the unchanged name ladder. The scan
+    with the index finds MORE roles than the same scan keyed by name alone, and
+    a scan given no index never produces a coordinate role (the language axis
+    passes none)."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-c1-") as tmp:
+        root = Path(tmp)
+        alpha_dir = _write_platform_package(root, _SELF_TEST_ALPHA, _SELF_TEST_PLATFORM_ALPHA_SOURCE)
+        beta_dir = _write_platform_package(root, _SELF_TEST_BETA, _SELF_TEST_PLATFORM_BETA_SOURCE)
+        target_src_dirs = {_SELF_TEST_ALPHA: (alpha_dir,), _SELF_TEST_BETA: (beta_dir,)}
+        sys.path.insert(0, str(root))
+        importlib.invalidate_caches()
+        try:
+            index = platform_coordinate_index(target_src_dirs)
+        finally:
+            sys.path.remove(str(root))
+            _purge_synthetic_platform_modules()
+        tokens = _tokens(_SELF_TEST_ALPHA, _SELF_TEST_BETA)
+        by_qualified = {
+            fn.qualified_name: fn
+            for label, src_dirs in target_src_dirs.items()
+            for src_dir in src_dirs
+            for fn in collect_function_sources(src_dir, label)
+        }
+        with_index = group_and_classify_roles(target_src_dirs, tokens, [], index)
+        without_index = group_and_classify_roles(target_src_dirs, tokens, [])
+        coordinate_roles = {
+            verdict.role_key: {member.qualified_name for member in verdict.members}
+            for verdict in with_index
+            if isinstance(verdict.role_key, CoordinateRole)
+        }
+        rdbms, cache = CoordinateRole("rdbms"), CoordinateRole("cache")
+        return (
+            len(index) == 4
+            and _coordinate_role_key_for(by_qualified["Infra.provision_database"], index) == rdbms
+            and _coordinate_role_key_for(by_qualified["BetaInfra.make_db_plan"], index) == rdbms
+            and _coordinate_role_key_for(by_qualified["alpha_cache_plan"], index) == cache
+            and _coordinate_role_key_for(by_qualified["alpha_uniform_plan"], index) is None
+            and _coordinate_role_key_for(by_qualified["alpha_helper"], index) is None
+            and _role_key_for(by_qualified["alpha_uniform_plan"], tokens[_SELF_TEST_ALPHA], index)
+            == NameRole("uniform_plan")
+            and _role_key_for(by_qualified["alpha_helper"], tokens[_SELF_TEST_ALPHA], index) == NameRole("helper")
+            and coordinate_roles
+            == {
+                rdbms: {"Infra.provision_database", "BetaInfra.make_db_plan"},
+                cache: {"alpha_cache_plan", "beta_redis_builder"},
+            }
+            and len(with_index) == len(without_index) + len(coordinate_roles)
+            and not any(isinstance(verdict.role_key, CoordinateRole) for verdict in without_index)
+            and role_label(rdbms) == "coordinate:rdbms"
+            and _role_key_for(by_qualified["Infra.provision_database"], tokens[_SELF_TEST_ALPHA])
+            == NameRole("provision_database")
+        )
+
+
+def _self_test_case_coordinate_key_fails_closed() -> bool:
+    """(c2) A platform whose tables cannot be located or resolved fails the
+    scan naming the cause, never keying that platform by name instead: a
+    package building no table, a ``load_realization_table`` call that is not
+    a module-level assignment, an unimportable module, an adapter closing over
+    two callables, and a builder that is not a function are each refused."""
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-c2-") as tmp:
+        root = Path(tmp)
+        no_table = _write_platform_package(root, "notable", _SELF_TEST_PLATFORM_NO_TABLE_SOURCE)
+        unbound = _write_platform_package(root, "unbound", _SELF_TEST_PLATFORM_UNBOUND_TABLE_SOURCE)
+        return (
+            _refuses(lambda: platform_realization_tables("notable", [no_table]), "builds no RealizationTable", "notable")
+            and _refuses(
+                lambda: platform_realization_tables("unbound", [unbound]), "module-level assignment", "tables.py"
+            )
+            and _refuses(
+                lambda: platform_coordinate_index({"notable": (no_table,), "unbound": (unbound,)}),
+                "builds no RealizationTable",
+            )
+            and _refuses(
+                lambda: _import_table("behaviour_parity_selftest_missing_module", "TABLE", "gamma"),
+                "cannot import",
+                "gamma",
+            )
+            and _refuses(lambda: _defining_function(_two_delegate_adapter(print, repr), "cell"), "closes over 2")
+            and _refuses(lambda: _defining_function(len, "cell"), "neither a function nor a bound method")
+        )
+
+
+#: The floor on live coordinate roles: block types whose plan builders are
+#: registered by at least two platform packages. Measured on the live tree
+#: (rdbms, cache, pubsub, queue, nosql, storage, serverless); a regression to
+#: name-only grouping, an unresolvable registration or a platform that stops
+#: registering a block type's builder drops the count below it.
+_PLATFORM_COORDINATE_ROLE_FLOOR: Final[int] = 7
+
+
+def _self_test_case_live_coordinate_floor() -> bool:
+    """(c3) The live platform index resolves at least
+    ``_PLATFORM_COORDINATE_ROLE_FLOOR`` block types that two or more platform
+    packages register a plan builder for. Name-only grouping resolves none of
+    them, so a regression to it fails here before any real scan is trusted."""
+    target_src_dirs = discover_target_package_src_dirs(AXIS_PLATFORMS, registered_platform_names(), WORKSPACE_ROOT)
+    try:
+        index = platform_coordinate_index(target_src_dirs)
+    except (ValueError, SkeletonError) as exc:
+        logger.error("behaviour_parity:the live platform coordinate index cannot be built: %s", exc)
+        return False
+    labels_by_role: dict[CoordinateRole, set[str]] = {}
+    for (file_path, _), role in index.items():
+        for label, src_dirs in target_src_dirs.items():
+            if any(file_path.is_relative_to(src_dir.resolve()) for src_dir in src_dirs):
+                labels_by_role.setdefault(role, set()).add(label)
+    spanning = [role for role, labels in labels_by_role.items() if len(labels) >= _MIN_PACKAGES_FOR_COMPARISON]
+    logger.info(
+        "behaviour-parity self-test: %d live coordinate role(s) span two or more platform packages (floor %d): %s",
+        len(spanning),
+        _PLATFORM_COORDINATE_ROLE_FLOOR,
+        sorted(role.block_type for role in spanning),
+    )
+    return len(spanning) >= _PLATFORM_COORDINATE_ROLE_FLOOR
+
+
 def run_self_test() -> bool:
     """Prove the gate's non-vacuity: each synthetic role lands in exactly its
     bucket, the refusal path refuses, a broken member fails closed, every
@@ -3980,7 +4518,7 @@ def run_self_test() -> bool:
         _self_test_case_gate_outcome(),
         "(r) gate: a divergent role FAILs and is counted (naming the role and every group, no in-scope split in "
         "the printed verdict); a pin equal to the live count exits 0; duplicate buckets fail unless "
-        "adapter-exempt; the platform axis never gates",
+        "adapter-exempt; both axes gate unless --report-only, and an unknown axis is refused",
     )
     ok &= _assert(
         _self_test_case_undomained_role_counted(),
@@ -4085,6 +4623,23 @@ def run_self_test() -> bool:
         "(fp5) render_fingerprint_report logs every line below ERROR, one per group plus a summary naming "
         "the group count and FINGERPRINT_MIN_SKELETON_LINES",
     )
+    ok &= _assert(
+        _self_test_case_coordinate_key(),
+        "(c1) coordinate key: plan builders registered through load_realization_table (one through a delegating "
+        "adapter over a bound method) resolve to their block type, folding flavors; a uniform multi-block-type "
+        "builder and a non-builder keep the name key; the scan finds more roles than name-only grouping; no index, "
+        "no coordinate role",
+    )
+    ok &= _assert(
+        _self_test_case_coordinate_key_fails_closed(),
+        "(c2) coordinate key fails closed: a platform with no table, an unbound load_realization_table call, an "
+        "unimportable module, a two-delegate adapter and a non-function builder are each refused naming the cause",
+    )
+    ok &= _assert(
+        _self_test_case_live_coordinate_floor(),
+        f"(c3) the live platform index resolves at least {_PLATFORM_COORDINATE_ROLE_FLOOR} block types that two or "
+        f"more platform packages register a plan builder for -- the floor name-only grouping cannot reach",
+    )
     return ok
 
 
@@ -4107,8 +4662,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             f"{_FILTER_SEPARATOR!r}-separated shared domain ids and/or {UNDOMAINED!r} whose role lines the report "
-            f"prints. A report filter only: it never changes the failing-role count or the exit code. Language "
-            f"axis only."
+            f"prints. A report filter only: it never changes the failing-role count or the exit code."
         ),
     )
     parser.add_argument(
@@ -4117,7 +4671,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             f"{_FILTER_SEPARATOR!r}-separated verdict-bucket ids, drawn from {sorted(_VALID_BUCKET_IDS)}, whose "
             f"role lines the report prints. A report filter only: it never changes the failing-role count or the "
-            f"exit code. Language axis only."
+            f"exit code."
         ),
     )
     parser.add_argument(
@@ -4141,9 +4695,8 @@ def _refuse_gate_options_when_not_gating(args: argparse.Namespace) -> None:
     given = [name for name, value in (("--scope", args.scope), ("--buckets", args.buckets)) if value is not None]
     if given:
         raise ValueError(
-            f"behaviour_parity: {given} only apply to a gating run (--axis {AXIS_LANGUAGES} without --report-only); "
-            f"the {args.axis} axis {'with --report-only ' if args.report_only else ''}renders a report and never "
-            f"fails. Fix: drop the option(s), or run the language axis without --report-only."
+            f"behaviour_parity: {given} only apply to a gating run (without --report-only); a --report-only run "
+            f"renders a role report and never fails. Fix: drop the option(s), or drop --report-only."
         )
 
 
@@ -4190,7 +4743,8 @@ def _run_scan(args: argparse.Namespace) -> int:
         "behaviour-parity gate: packages=%s baseline=%s", sorted(target_src_dirs), BEHAVIOUR_PARITY_BASELINE_PATH.name
     )
     scan = discover_role_scan(axis, target_src_dirs, WORKSPACE_ROOT)
-    evaluations = evaluate_roles(scan.verdicts, surfaces=live_exemption_surfaces(target_src_dirs))
+    surfaces = live_exemption_surfaces(target_src_dirs) if axis == AXIS_LANGUAGES else ExemptionSurfaces.none()
+    evaluations = evaluate_roles(scan.verdicts, surfaces=surfaces)
     render_gate_report(evaluations, WORKSPACE_ROOT, report_filter=report_filter, debug=args.debug)
     if args.fingerprint:
         _run_fingerprint_pass(scan, WORKSPACE_ROOT)
