@@ -119,6 +119,7 @@ Task-file management and phase analysis.
 | `validate_dependencies.py` | `tasks/validate-dependencies.ps1` | dependencies.md + numbering validation; `-NextTaskNumber` mode |
 | `task_orientation.py` | (shared module) | A task's `## Orientation` block: parse and validate (rejects "where is X defined / who calls X" questions), resolve facts from the code index and explanations through a local model |
 | `task_citations.py` | (shared module) | Checks every `path:line` citation in a task's prose against the tree (missing file, line past the end, name beside the citation no longer near its lines); never guesses between same-named files |
+| `retrofit_orientation.py` | `tasks/retrofit-orientation.ps1` | Gives tasks written before the `## Orientation` block existed one, deterministically: whole-file review items the task does not edit become exact `outline:` entries (their lines leave the review list), unique cited functions become `symbol:` entries; dry run unless `-Apply`, originals copied aside, idempotent |
 | `validate_task.py` | `tasks/validate-task.ps1` | Validates task files against the tree as it is now: orientation resolves, citations hold; run by writers, by orchestrators before each wave |
 
 ## review/
