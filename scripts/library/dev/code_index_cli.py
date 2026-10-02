@@ -41,8 +41,9 @@ from code_index.queries import (  # noqa: E402
     search,
     status,
 )
+from code_index.background import LOG_NAME, SummarizeBusy, start_background_summaries, summarize_lock  # noqa: E402
 from code_index.session import IndexSession, open_session  # noqa: E402
-from code_index.sources import CodeIndexError  # noqa: E402
+from code_index.sources import CodeIndexError, index_dir  # noqa: E402
 from code_index.summaries import (  # noqa: E402
     DEFAULT_SUMMARY_LIMIT,
     DEFAULT_SUMMARY_WORKERS,
@@ -89,11 +90,24 @@ def _run(session: IndexSession, args: argparse.Namespace) -> str:
     if command == "usage":
         return usage_report(session.workspace, args.days).render()
     if command == "summarize":
-        pool = LocalLlmPool(local_llm_settings(args), report=_report)
-        run = summarize(conn, session.workspace, session.config, pool, limit=args.limit, workers=args.workers,
-                        report=_report)
+        try:
+            with summarize_lock(session.workspace) as keep_lock_fresh:
+                def report_progress(line: str) -> None:
+                    _report(line)
+                    keep_lock_fresh()
+
+                pool = LocalLlmPool(local_llm_settings(args), report=report_progress)
+                run = summarize(conn, session.workspace, session.config, pool, limit=args.limit,
+                                workers=args.workers, report=report_progress)
+        except SummarizeBusy as exc:
+            return str(exc)
         return run.line()
     return ""
+
+
+# Commands that answer a question. After their refresh, changed modules are summarized in the
+# background (code_index.background); maintenance commands start nothing.
+_QUERY_COMMANDS = frozenset({"symbol", "refs", "outline", "search", "canonical"})
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -138,7 +152,11 @@ def main() -> int:
         _report(f"Error: {exc}")
         return EXIT_QUERY_ERROR
     try:
-        _report(session.refresh().line())
+        refreshed = session.refresh()
+        _report(refreshed.line())
+        if args.command in _QUERY_COMMANDS and (refreshed.parsed or refreshed.removed) and \
+                start_background_summaries(session):
+            _report(f"Summarizing changed modules in the background (log: {index_dir(session.workspace) / LOG_NAME}).")
         output = _run(session, args)
     except (QueryError, CodeIndexError) as exc:
         _report(f"Error: {exc}")

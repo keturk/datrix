@@ -56,11 +56,12 @@ MAX_USAGE_DAYS = 90
 
 SERVER_INSTRUCTIONS = (
     "Local model servers on this network, for reading you would otherwise do yourself. ask_files answers a "
-    "question about files you name (paths or globs) and digest_log lists the distinct failures in a test, "
-    "generation or deploy log -- both return a short answer citing path:line, so the text never enters your "
-    "context. Use them before reading a large file whole or reading a log into context. An answer is a lead: "
-    "confirm the cited lines with a ranged Read before acting on it. Only framework repositories and "
-    ".test-output can be read."
+    "question about files you name (paths or globs) -- what code does, how something is validated -- and "
+    "digest_log lists the distinct failures in a test, generation or deploy log. Both return a short answer "
+    "citing path:line, so the text never enters your context. Use them before reading a large file whole or "
+    "reading a log into context. They are NOT for definitions or call sites (use the code-index tools, which "
+    "are exact: a model asked 'where is X defined' invents answers). An answer is a lead: confirm the cited "
+    "lines with a ranged Read before acting on it. Only framework repositories and .test-output can be read."
 )
 
 
@@ -106,9 +107,13 @@ TOOLS: tuple[Tool[LocalReader], ...] = (
         "Ask a local model a question about files, instead of reading them yourself. Name up to 40 files by "
         "workspace-relative path or glob (datrix-common/src/datrix_common/config/*.py); they are read on this "
         "machine and you get back a short answer citing path:line. Use it for 'what does this module do', "
-        "'where is X validated', 'which of these files handle Y', or any question whose answer is a few lines "
-        "out of a lot of text. Large inputs are split and answered part by part. Not for editing, and not a "
-        "substitute for reading the exact lines you will change: confirm cited lines with a ranged Read.",
+        "'how is X validated', 'which of these files handle Y', or any question whose answer is a few lines "
+        "out of a lot of text. NOT for 'where is X defined' or 'who calls X': a model asked that invents "
+        "definitions and callers in files it was never given (observed), so use the code-index tools "
+        "find_symbol / find_references, which are exact. Large inputs are split and answered part by part. "
+        "Citations of files or lines it was not sent, and quoted code that is not in those files, are called "
+        "out under the answer; a claim in plain prose is not checked. Not for editing, and not a substitute "
+        "for reading the exact lines you will change: confirm cited lines with a ranged Read.",
         {"paths": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": MAX_PATH_SPECS},
          "question": {"type": "string"}},
         ("paths", "question"),

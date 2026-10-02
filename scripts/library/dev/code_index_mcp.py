@@ -4,7 +4,9 @@
 Registered per machine with ``code-index.ps1 -Setup``; Claude Code then starts it
 for each session. It speaks newline-delimited JSON-RPC 2.0 on stdin/stdout
 (``shared.mcp_stdio``) and opens no socket, so it has no network surface. Every tool call
-refreshes the index first (only changed files are parsed) and never contacts another machine.
+refreshes the index first (only changed files are parsed) and never contacts another machine
+itself; when the refresh changed files, it starts a detached background run that summarizes
+the changed modules on the local model servers (``code_index.background``).
 
 Standard library only, on purpose: it must start on every development machine from the
 shared venv without an extra dependency to install and keep in step.
@@ -35,6 +37,7 @@ from code_index.queries import (  # noqa: E402
     search,
     status,
 )
+from code_index.background import Launcher, launch_detached, start_background_summaries  # noqa: E402
 from code_index.session import IndexSession, open_session  # noqa: E402
 from code_index.sources import CodeIndexError  # noqa: E402
 from code_index.summaries import summarizable  # noqa: E402
@@ -155,13 +158,21 @@ TOOLS: tuple[Tool[IndexSession], ...] = (
 
 
 class CodeIndexServer(McpServer[IndexSession]):
-    """Answers MCP requests; opens the index on the first tool call, not at startup."""
+    """Answers MCP requests; opens the index on the first tool call, not at startup.
 
-    def __init__(self, session_factory: Callable[[], IndexSession] = open_session) -> None:
+    With a ``summary_launcher``, a call whose refresh changed files -- and the first call,
+    which may find modules left unsummarized since the last session -- starts a background
+    summarize run of the modules awaiting a summary (``code_index.background``).
+    """
+
+    def __init__(self, session_factory: Callable[[], IndexSession] = open_session,
+                 summary_launcher: Launcher | None = None) -> None:
         super().__init__(ServerInfo(SERVER_NAME, SERVER_VERSION, SERVER_INSTRUCTIONS), TOOLS,
                          (QueryError, CodeIndexError))
         self._session_factory = session_factory
         self._session: IndexSession | None = None
+        self._summary_launcher = summary_launcher
+        self._summaries_checked = False
 
     def close(self) -> None:
         if self._session is not None:
@@ -171,6 +182,10 @@ class CodeIndexServer(McpServer[IndexSession]):
         if self._session is None:
             self._session = self._session_factory()
         report = self._session.refresh()
+        changed = bool(report.parsed or report.removed)
+        if self._summary_launcher is not None and (changed or not self._summaries_checked):
+            self._summaries_checked = True
+            start_background_summaries(self._session, self._summary_launcher)
         text = tool.handler(self._session, arguments)
         if report.parsed or report.removed:
             text = f"{text}\n({report.line()})"
@@ -180,7 +195,7 @@ class CodeIndexServer(McpServer[IndexSession]):
 def main() -> int:
     # Standard output is the protocol channel; every log line goes to standard error.
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    serve(CodeIndexServer(), sys.stdin.buffer, sys.stdout.buffer)
+    serve(CodeIndexServer(summary_launcher=launch_detached), sys.stdin.buffer, sys.stdout.buffer)
     return 0
 
 
