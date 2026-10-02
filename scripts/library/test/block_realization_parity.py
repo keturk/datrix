@@ -1,38 +1,61 @@
-"""Cross-platform capability-declaration parity gate.
+"""Cross-platform capability parity gate.
 
 Every installed ``datrix.platforms`` plugin declares a
-``PlatformCapabilityDeclaration`` (``datrix_common.plugin.capability``) --
-the platform-axis counterpart of the language-axis
-``supported_domain_parity.py`` gate. That declaration is consumed by
-production capability resolution and by each platform package's own kit
-CI, but until this gate, no repo-level script ever compared declarations
-ACROSS platforms: a ``(block_type, flavor)`` cell one platform realizes and
-another has never even considered was invisible to every existing check.
+``PlatformCapabilityDeclaration`` (``datrix_common.plugin.capability``) -- the
+platform-axis counterpart of the language-axis ``supported_domain_parity.py``
+gate. This gate compares those declarations ACROSS platforms at the CAPABILITY
+level: an obligation exists for a block type, an observability category, an
+identity feature, a runtime floor and a model provider -- never for the
+implementation a capability is realized by. A platform that does not offer one
+particular flavor, vendor product or provider has simply not got it in its
+vocabulary; that is never a gap. A platform that realizes a capability by NO
+implementation at all is a gap, recorded as a ``<kind>:<id>`` row in the
+platform's own ``capability_gaps`` and still reported here (a row accounts for
+the violation; it suppresses nothing in any other gate).
 
-This gate computes the UNION of every capability coordinate any installed
-platform declares, across EIGHT surfaces, and fails loud if another
-installed platform has made no decision at all about that coordinate --
-unless the gap is a reviewed, typed entry in
-``datrix/scripts/config/platform-capability-holes.json``.
+ONE EXTRACTOR, PURE COMPARATORS. :func:`extract_facts` is the only function
+that reads attributes of a declaration (the partition guard additionally reads
+the class's field list); every comparison is a pure function over
+``Mapping[str, PlatformFacts]``. The extractor reads PRESENCE only, so it holds
+on any cell shape, and the self-test plants :class:`PlatformFacts` directly and
+constructs no declaration or cell.
 
-THE EIGHT SURFACES:
+THE SEVEN SURFACES:
 
-1. ``block_realizations`` -- ``(block_type, flavor)`` cells.
-2. ``supported_secret_backends`` -- a per-platform value set.
-3. ``native_observability_providers`` -- a per-platform value set, PER
-   CATEGORY (metrics/tracing/logging/visualization/alerting).
-4. ``supported_runtimes`` -- a per-platform value set.
-5. Identity ``(provider_type, feature)`` cells (``identity_feature_realizations``,
-   gated by ``identity_provider_realizations``).
-6. Every remaining optional scalar/mapping field on the declaration --
-   derived MECHANICALLY from ``dataclasses.fields()`` (see
-   ``_assert_scalar_field_partition_complete`` below) rather than
-   hand-listed, so a future field addition to
-   ``PlatformCapabilityDeclaration`` cannot silently slip past every
-   surface unchecked.
-7. ``unrealizable_surfaces`` -- ``{surface_name: reason}``.
-8. ``deployable_constructs`` -- the DeployableConstruct values (by
-   ``.value``) a platform counts as making a service deployable at all.
+1. ``block_types`` -- every block type any platform realizes by at least one
+   flavor is realized by at least one flavor on every platform
+   (``block_type:<id>`` row).
+2. ``observability_categories`` -- every observability category any platform
+   realizes by at least one native provider is so realized on every platform
+   (``observability_category:<id>`` row).
+3. ``supported_runtimes`` -- a platform declares at least one runtime when any
+   other does (a floor; runtimes are vocabulary).
+4. ``identity_features`` -- every identity feature any platform offers through
+   at least one provider is offered through at least one provider on every
+   platform (``identity_feature:<id>`` row).
+5. ``static_web_hosting`` -- each platform's origin kind equals the one its OWN
+   edge derives: ``domain`` when the edge binds custom domains, ``loopback_port``
+   otherwise.
+6. ``custom_domain_surfaces`` -- an edge-binding platform carries both surfaces;
+   a platform whose edge binds no domain carries neither.
+7. ``model_realizations`` -- a platform realizes at least one model provider
+   with at least one flavor cell when any other does.
+
+Surfaces 5-7 compare REQUIRED declaration fields, which the optional-field
+partition alone could never see; :func:`_assert_field_partition_complete`
+therefore partitions required and optional fields both, so a future field of
+either kind cannot escape every comparison.
+
+RETIRED SURFACES, each measured against the live platforms before removal:
+secret backends and deployable constructs are construction-time floors of the
+declaration and their members are product vocabulary; the set-shaped optional
+fields (config-store engines, runtimes, host patterns, helper packages, vendor
+tokens, gateway types, ...) are each platform's own vocabulary with a
+legitimately empty set where a platform has no such product; the presence-shaped
+optional fields (published host ports, edge origin ports, preflight entrypoint,
+TLS-edge flags, CDN invalidation, ...) are per-platform topology facts that
+differ by design between a loopback platform and a managed cloud. Each field
+still lands in a named partition bucket so a future field is forced into one.
 
 Target set is NEVER hardcoded: platforms are enumerated from the installed
 ``datrix.platforms`` entry points at run time
@@ -43,12 +66,11 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import json
 import logging
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Final
+from typing import Final, get_args
 
 # Add library directory to sys.path to import from shared (this file lives at
 # library/test/, shared/ lives at the sibling library/shared/).
@@ -58,31 +80,16 @@ if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
 
 from shared.registered_targets import registered_platform_names  # noqa: E402
 
-from datrix_common.config.serverless.models import ServerlessPlatform  # noqa: E402
-from datrix_common.deployment.cache_connection_identity import CacheConnectionIdentity  # noqa: E402
-from datrix_common.deployment.rdbms_connection_identity import RdbmsConnectionIdentity  # noqa: E402
-from datrix_common.deployment.secret_backend import SecretBackend  # noqa: E402
-from datrix_common.deployment.signing_backend import SigningBackend  # noqa: E402
 from datrix_common.plugin.capability import (  # noqa: E402
     PlatformCapabilityDeclaration,
 )
 from datrix_common.plugin.capability_cells import (  # noqa: E402
-    BlockRealization,
-    CustomDomainSurfaceRealization,
-    DeployableConstruct,
-    StaticWebHostingRealization,
+    CustomDomainSurfaceName,
+    StaticWebHostingOrigin,
 )
 from datrix_common.plugin.capability_resolution import declaration_for_provider  # noqa: E402
-from datrix_common.plugin.identity import RuntimeId  # noqa: E402
 
 logger = logging.getLogger(__name__)
-
-_HERE = Path(__file__).resolve()
-#: This file lives at <datrix>/scripts/library/test/block_realization_parity.py --
-#: parents[3] is <datrix> (the datrix package root: parents[0]=.../library/test,
-#: [1]=.../library, [2]=.../scripts, [3]=<datrix>).
-DATRIX_DIR: Path = _HERE.parents[3]
-HOLES_PATH: Path = DATRIX_DIR / "scripts" / "config" / "platform-capability-holes.json"
 
 #: A cross-platform comparison over 0 or 1 platform is vacuous.
 _MIN_PLATFORMS_FOR_COMPARISON: Final[int] = 2
@@ -91,22 +98,55 @@ _OBSERVABILITY_CATEGORIES: Final[tuple[str, ...]] = (
     "metrics", "tracing", "logging", "visualization", "alerting",
 )
 
-#: Optional/defaulted PlatformCapabilityDeclaration fields already owned by
-#: one of the SIX NAMED surfaces above (never re-checked generically as a
-#: "surface 6 scalar" -- each has its own dedicated comparison function).
+_ORIGIN_DOMAIN: Final[str] = "domain"
+_ORIGIN_LOOPBACK: Final[str] = "loopback_port"
+if frozenset({_ORIGIN_DOMAIN, _ORIGIN_LOOPBACK}) != frozenset(get_args(StaticWebHostingOrigin)):
+    raise ValueError(
+        "StaticWebHostingOrigin's members changed: this gate derives one origin kind per edge "
+        f"and knows {sorted({_ORIGIN_DOMAIN, _ORIGIN_LOOPBACK})}, the vocabulary now holds "
+        f"{sorted(get_args(StaticWebHostingOrigin))}. Fix: extend the origin comparison in "
+        "block_realization_parity.py to the new member."
+    )
+
+#: The custom-domain surfaces an edge-binding platform must carry, derived from
+#: the closed vocabulary itself.
+_CUSTOM_DOMAIN_SURFACES: Final[frozenset[str]] = frozenset(get_args(CustomDomainSurfaceName))
+
+#: Gap-row kinds (``<kind>:<id>``) a platform's own ``capability_gaps`` may use
+#: to account for a capability it realizes by no implementation.
+_GAP_KIND_BLOCK_TYPE: Final[str] = "block_type"
+_GAP_KIND_OBSERVABILITY: Final[str] = "observability_category"
+_GAP_KIND_IDENTITY: Final[str] = "identity_feature"
+
+_RUNTIME_CAPABILITY: Final[str] = "runtime"
+_MODEL_CAPABILITY: Final[str] = "model"
+
+# ---------------------------------------------------------------------------
+# Field partition buckets -- every PlatformCapabilityDeclaration field belongs
+# to exactly one, so a future field cannot silently escape every comparison.
+# ---------------------------------------------------------------------------
+
+#: Optional fields owned by a dedicated surface above.
 _SURFACE_OWNED_OPTIONAL_FIELDS: Final[frozenset[str]] = frozenset({
-    "native_observability_providers",   # surface 3
-    "identity_provider_realizations",   # surface 5
-    "identity_feature_realizations",    # surface 5
-    "unrealizable_surfaces",            # surface 7
-    "deployable_constructs",            # surface 8
+    "native_observability_providers",   # surface 2
+    "identity_provider_realizations",   # surface 4 (providers; the features are compared)
+    "identity_feature_realizations",    # surface 4
 })
 
-#: Surface-6 optional fields compared by PER-VALUE union membership (the
-#: field is itself a set/mapping of discrete values -- a MAPPING is compared
-#: by its KEY set, e.g. "which channels does native_notification_vendors
-#: name", never its values).
-_SET_SHAPED_SCALAR_FIELDS: Final[tuple[str, ...]] = (
+#: Optional fields whose floor the declaration enforces at construction (an
+#: empty ``deployable_constructs`` is rejected there), leaving no cross-platform
+#: comparison to make; the members are product vocabulary.
+_CONSTRUCTION_ENFORCED_OPTIONAL_FIELDS: Final[frozenset[str]] = frozenset({
+    "deployable_constructs",
+})
+
+#: Set-shaped optional fields whose members are product vocabulary (config-store
+#: engines, runtimes, hosts, package names, vendor tokens, gateway types): each
+#: platform's own vocabulary, legitimately empty on a platform with no such
+#: product. The capability each stands for is enforced where it is resolved --
+#: the notification-channel and websocket validators -- not by a cross-platform
+#: union.
+_VOCABULARY_SET_FIELDS: Final[frozenset[str]] = frozenset({
     "supported_config_stores",
     "container_scaffold_runtimes",
     "platform_allowed_host_patterns",
@@ -117,12 +157,17 @@ _SET_SHAPED_SCALAR_FIELDS: Final[tuple[str, ...]] = (
     "injected_test_identity_providers",
     "websocket_upgrade_runtimes",
     "non_evicting_cache_flavors",
-)
+})
 
-#: Surface-6 optional fields compared by WHOLE-VALUE truthy/non-None
-#: presence (a bare bool, an Optional[str], or an Optional[dataclass] --
-#: there is no natural "per-member" grain to compare).
-_PRESENCE_SHAPED_SCALAR_FIELDS: Final[tuple[str, ...]] = (
+#: Presence-shaped optional fields: per-platform topology facts (what the edge
+#: terminates, which host ports a runtime publishes, what the deploy entrypoint
+#: is, how a cache slice is delivered, ...). A loopback platform and a managed
+#: cloud differ in them by design; a field one platform sets says nothing a
+#: platform with a different edge could be missing. Where such a fact stands
+#: for a capability, the declaration's own construction-time validators (the
+#: custom-domain validator, the gateway-TLS check) and surface 5-6 here
+#: enforce it.
+_PLATFORM_FACT_FIELDS: Final[frozenset[str]] = frozenset({
     "platform_config_contract",
     "owns_provider_platform_generator",
     "provides_cdn_cache_invalidation",
@@ -143,59 +188,68 @@ _PRESENCE_SHAPED_SCALAR_FIELDS: Final[tuple[str, ...]] = (
     "publishes_gateway_behind_managed_edge",
     "trusted_edge_client_address_include",
     "deploy_preflight_entrypoint",
-)
-
-#: Fields that carry an explanatory RATIONALE for another field's already-
-#: compared value rather than an independent per-platform capability
-#: coordinate of their own. ``declared_capability_reasons`` maps
-#: ``{field_name: reason}`` for OTHER fields on this same dataclass (see its
-#: docstring) -- its own key set is "which fields did this platform bother
-#: to explain," which is not a capability fact and is not comparable across
-#: platforms: a platform that never deviates from a field's default has
-#: nothing to explain and correctly has no key for it, while a platform that
-#: does deviate is already caught by that field's own surface (e.g.
-#: ``gateway_terminates_tls`` via ``_PRESENCE_SHAPED_SCALAR_FIELDS``).
-#: Requiring every platform to also carry a matching reasons-map key would
-#: manufacture busywork violations with no capability-parity meaning.
-#: ``declared_set_exclusions`` is the same shape of thing one level up: a
-#: ``{surface: {coordinate: reason}}`` rationale for why a SET-SHAPED
-#: surface's coordinate is intentionally absent, consulted (via
-#: ``_is_set_excluded``) by the comparison functions of the surfaces it
-#: covers rather than compared as an independent coordinate set of its own.
-#: Deliberately its own bucket (not folded into ``_SURFACE_OWNED_OPTIONAL_FIELDS``,
-#: which is reserved for fields with a real dedicated comparison function) so
-#: it stays a reviewed, explicit exclusion rather than a silent catch-all.
-_EXPLANATORY_METADATA_FIELDS: Final[frozenset[str]] = frozenset({
-    "declared_capability_reasons",
-    "declared_set_exclusions",
 })
 
-#: Fields that INVENTORY what this platform's own tooling writes into the
-#: generated project tree, rather than declare a capability another platform
-#: could realize or lack. ``untracked_project_artifacts`` lists the gitignore
-#: patterns for a platform's own deploy transcripts, secret files and
-#: environment files; a pattern one platform declares says nothing about
-#: another platform, whose tooling writes different files or none. Comparing
-#: these across platforms would manufacture a "hole" for every platform that
-#: does not run the docker secret engine. The check that belongs to this field
-#: is per package -- a seam test in the owning platform that every path its
-#: templates write is declared -- and it lives beside each declaration.
+#: Fields that INVENTORY what a platform's own tooling writes into the generated
+#: project tree, not a capability another platform could lack.
 _EMISSION_INVENTORY_FIELDS: Final[frozenset[str]] = frozenset({
     "untracked_project_artifacts",
 })
 
-#: Fields that LEDGER the capabilities this platform realizes by no
-#: implementation at all, each as a typed ``CapabilityGap`` row. The field's
-#: own key set is not a capability coordinate comparable across platforms: a
-#: platform with no known hole correctly carries no row, so requiring every
-#: platform to carry a row for a surface another one lists would manufacture
-#: violations with no capability-parity meaning. A row never sets a surface
-#: aside -- the difference it records stays counted by the comparison that
-#: owns the capability -- so this bucket exists only to keep the ledger out of
-#: the generic per-coordinate comparison, never to excuse a platform.
+#: Fields that LEDGER the capabilities a platform realizes by no implementation,
+#: each a typed gap row. The ledger is read here only as accounting for a
+#: violation of surfaces 1, 2 and 4 and never compared as a coordinate set: a
+#: platform with no known hole correctly carries no row.
 _CAPABILITY_GAP_LEDGER_FIELDS: Final[frozenset[str]] = frozenset({
     "capability_gaps",
 })
+
+#: Fields the foundation has retired but a declaration may still carry until
+#: their deletion lands. No surface reads them; they are subtracted from the
+#: optional population so the guard holds on a declaration that still has them
+#: and on one that no longer does. This constant is the only place the names
+#: survive.
+_RETIRED_FIELDS: Final[frozenset[str]] = frozenset({
+    "declared_set_exclusions",
+    "unrealizable_surfaces",
+    "declared_capability_reasons",
+})
+
+_OPTIONAL_BUCKETS: Final[tuple[tuple[str, frozenset[str]], ...]] = (
+    ("_SURFACE_OWNED_OPTIONAL_FIELDS", _SURFACE_OWNED_OPTIONAL_FIELDS),
+    ("_CONSTRUCTION_ENFORCED_OPTIONAL_FIELDS", _CONSTRUCTION_ENFORCED_OPTIONAL_FIELDS),
+    ("_VOCABULARY_SET_FIELDS", _VOCABULARY_SET_FIELDS),
+    ("_PLATFORM_FACT_FIELDS", _PLATFORM_FACT_FIELDS),
+    ("_EMISSION_INVENTORY_FIELDS", _EMISSION_INVENTORY_FIELDS),
+    ("_CAPABILITY_GAP_LEDGER_FIELDS", _CAPABILITY_GAP_LEDGER_FIELDS),
+    ("_RETIRED_FIELDS", _RETIRED_FIELDS),
+)
+
+#: Required fields compared by a dedicated surface: ``{field: surface that compares it}``.
+_REQUIRED_FIELD_OWNERS: Final[Mapping[str, str]] = {
+    "block_realizations": "block_types",
+    "supported_runtimes": "supported_runtimes",
+    "model_realizations": "model_realizations",
+    "static_web_hosting": "static_web_hosting",
+    "custom_domain_surfaces": "custom_domain_surfaces",
+}
+
+#: Required fields that are a value every platform must state, never a
+#: capability another platform could lack.
+_REQUIRED_PLATFORM_FACT_FIELDS: Final[frozenset[str]] = frozenset({
+    "platform_label",
+    "default_secret_backend",
+    "crypto_signing_backend",
+    "rdbms_connection_identity",
+    "cache_connection_identity",
+    "supported_secret_backends",
+    "serverless_compute_model",
+})
+
+_REQUIRED_BUCKETS: Final[tuple[tuple[str, frozenset[str]], ...]] = (
+    ("_REQUIRED_FIELD_OWNERS", frozenset(_REQUIRED_FIELD_OWNERS)),
+    ("_REQUIRED_PLATFORM_FACT_FIELDS", _REQUIRED_PLATFORM_FACT_FIELDS),
+)
 
 
 def configure_logging(debug: bool = False) -> None:
@@ -204,59 +258,72 @@ def configure_logging(debug: bool = False) -> None:
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
-def _assert_scalar_field_partition_complete() -> None:
-    """Fail loud if a NEW optional field was added to the dataclass and
-    triaged into none of the three buckets above.
-
-    This is the mechanical guard against the exact failure mode this gate
-    exists to prevent: a future field lands on
-    ``PlatformCapabilityDeclaration`` and silently escapes every surface.
-    Every OPTIONAL field (one with a default) must be a member of EXACTLY
-    ONE of: ``_SURFACE_OWNED_OPTIONAL_FIELDS``, ``_SET_SHAPED_SCALAR_FIELDS``,
-    ``_PRESENCE_SHAPED_SCALAR_FIELDS``, ``_EXPLANATORY_METADATA_FIELDS``,
-    ``_EMISSION_INVENTORY_FIELDS``, ``_CAPABILITY_GAP_LEDGER_FIELDS``.
-
-    Raises:
-        AssertionError: If any optional field is unaccounted for, or is
-            claimed by more than one bucket.
-    """
-    optional_fields = {
-        f.name
-        for f in dataclasses.fields(PlatformCapabilityDeclaration)
-        if f.default is not dataclasses.MISSING
-        or f.default_factory is not dataclasses.MISSING
-    }
-    buckets = (
-        _SURFACE_OWNED_OPTIONAL_FIELDS,
-        frozenset(_SET_SHAPED_SCALAR_FIELDS),
-        frozenset(_PRESENCE_SHAPED_SCALAR_FIELDS),
-        _EXPLANATORY_METADATA_FIELDS,
-        _EMISSION_INVENTORY_FIELDS,
-        _CAPABILITY_GAP_LEDGER_FIELDS,
-    )
+def _partition_problems(
+    population: set[str],
+    buckets: Sequence[tuple[str, frozenset[str]]],
+    ignored_stale: frozenset[str],
+) -> list[str]:
+    """Describe fields of *population* unaccounted for, stale bucket names and
+    names claimed by more than one bucket."""
     accounted: set[str] = set()
     overlaps: set[str] = set()
-    for bucket in buckets:
+    for _, bucket in buckets:
         overlaps |= accounted & bucket
         accounted |= bucket
-    missing = optional_fields - accounted
-    extra = accounted - optional_fields
-    if missing or extra or overlaps:
+    missing = population - accounted
+    stale = accounted - population - ignored_stale
+    problems: list[str] = []
+    if missing:
+        problems.append(
+            f"unaccounted-for fields (add each to exactly one bucket "
+            f"{[name for name, _ in buckets]}): {sorted(missing)}"
+        )
+    if stale:
+        problems.append(f"stale bucket names naming no field (remove): {sorted(stale)}")
+    if overlaps:
+        problems.append(f"fields claimed by more than one bucket (exactly one each): {sorted(overlaps)}")
+    return problems
+
+
+def _assert_field_partition_complete(fields: Sequence[dataclasses.Field[object]]) -> None:
+    """Fail loud if a field of the declaration is triaged into no bucket.
+
+    This is the mechanical guard against the failure mode this gate exists to
+    prevent: a future field lands on ``PlatformCapabilityDeclaration`` and
+    silently escapes every comparison. REQUIRED fields (no default) and OPTIONAL
+    fields (a default or default factory) are partitioned separately, each field
+    belonging to exactly one bucket. The field list is a parameter so the
+    self-test plants lists instead of editing the dataclass.
+
+    Raises:
+        AssertionError: Naming unaccounted-for, stale and doubly-claimed fields,
+            required and optional separately.
+    """
+    optional = {
+        f.name
+        for f in fields
+        if f.default is not dataclasses.MISSING or f.default_factory is not dataclasses.MISSING
+    }
+    required = {f.name for f in fields} - optional
+    problems = [
+        f"required {problem}"
+        for problem in _partition_problems(required, _REQUIRED_BUCKETS, frozenset())
+    ]
+    problems.extend(
+        f"optional {problem}"
+        for problem in _partition_problems(optional, _OPTIONAL_BUCKETS, _RETIRED_FIELDS)
+    )
+    if problems:
         raise AssertionError(
-            "PlatformCapabilityDeclaration's optional-field partition is "
-            f"incomplete or wrong. Unaccounted-for fields (add to a bucket "
-            f"in block_realization_parity.py): {sorted(missing)}. Stale "
-            f"field names naming nothing on the dataclass (remove): "
-            f"{sorted(extra)}. Fields claimed by more than one bucket "
-            f"(fix -- exactly one bucket each): {sorted(overlaps)}."
+            "PlatformCapabilityDeclaration's field partition is incomplete or wrong "
+            "(buckets live in block_realization_parity.py): " + "; ".join(problems) + "."
         )
 
 
 @dataclasses.dataclass(frozen=True)
 class SurfaceViolation:
-    """One (platform, surface, coordinate) gap: the platform makes no
-    decision at all about a coordinate at least one OTHER installed
-    platform declares."""
+    """One (platform, surface, coordinate) gap: the platform does not realize a
+    capability (or fact) the comparison derives for it, while others do."""
 
     platform: str
     surface: str
@@ -264,499 +331,452 @@ class SurfaceViolation:
     declaring_platforms: tuple[str, ...]
 
 
-def _is_set_excluded(
-    decl: PlatformCapabilityDeclaration, surface: str, coordinate: str
-) -> bool:
-    """True when *decl* declares *coordinate* an intentional exclusion for
-    *surface* via ``declared_set_exclusions`` -- widens what counts as
-    "declared" without requiring any platform to populate the field."""
-    return coordinate in decl.declared_set_exclusions.get(surface, {})
+@dataclasses.dataclass(frozen=True)
+class PlatformFacts:
+    """Everything the comparisons read about one platform, extracted once."""
+
+    platform: str
+    block_types: frozenset[str]                    # block types with >= 1 offered flavor
+    gap_surfaces: frozenset[str]                   # surfaces of the platform's own capability_gaps rows
+    observability: Mapping[str, frozenset[str]]    # category -> native provider names
+    runtimes: frozenset[str]                       # supported_runtimes, by value
+    identity_features: frozenset[str]              # features with >= 1 offered (provider, feature) cell
+    static_hosting_origin: str                     # "loopback_port" | "domain"
+    binds_domains: bool                            # the platform's edge binds custom domains
+    custom_domain_surfaces: frozenset[str]         # names of the custom-domain surfaces present
+    model_flavor_counts: Mapping[str, int]         # model provider -> number of flavor cells
 
 
-def _block_realization_gaps(
-    per_platform: dict[str, PlatformCapabilityDeclaration],
-) -> list[SurfaceViolation]:
-    """Surface 1: union of ``(block_type, flavor)`` keys vs. each platform's
-    own ``block_realizations`` dict. Presence as a KEY (regardless of the
-    ``supported`` bool) counts as "declared" -- ``BlockRealization`` already
-    forces a reason on ``supported=False``, so a present key is always a
-    real decision. A coordinate keyed under this platform's own
-    ``declared_set_exclusions["block_realizations"]`` also counts as
-    declared."""
-    union: dict[str, set[str]] = {}
-    for platform, decl in per_platform.items():
-        for block_type, flavor in decl.block_realizations:
-            union.setdefault(f"{block_type}:{flavor}", set()).add(platform)
+def extract_facts(platform: str, decl: PlatformCapabilityDeclaration) -> PlatformFacts:
+    """The ONLY reader of a declaration's attributes. Presence only.
 
-    violations: list[SurfaceViolation] = []
-    for coordinate, declaring in union.items():
-        block_type, _, flavor = coordinate.partition(":")
-        for platform, decl in per_platform.items():
-            if (block_type, flavor) not in decl.block_realizations and not _is_set_excluded(
-                decl, "block_realizations", coordinate
-            ):
-                violations.append(
-                    SurfaceViolation(
-                        platform, "block_realizations", coordinate, tuple(sorted(declaring))
-                    )
-                )
-    return violations
+    Raises:
+        ValueError: The declaration states no static-hosting origin or has not
+            declared whether its gateway terminates TLS -- every registered
+            platform states both, so an absent one is a defect, never a skip.
+    """
+    origin = decl.static_web_hosting.origin
+    if origin is None:
+        raise ValueError(
+            f"Platform {platform!r} declares no static web hosting origin. Every registered "
+            f"platform serves static web hosting (a loopback platform at a port). Fix: declare "
+            f"origin {sorted(get_args(StaticWebHostingOrigin))} on its static_web_hosting."
+        )
+    binds_domains = decl.binds_custom_domains()
+    if binds_domains is None:
+        raise ValueError(
+            f"Platform {platform!r} has not declared gateway_terminates_tls, so its edge "
+            f"cannot be derived. Fix: declare gateway_terminates_tls on its capability declaration."
+        )
+    return PlatformFacts(
+        platform=platform,
+        block_types=frozenset(block_type for block_type, _ in decl.block_realizations),
+        gap_surfaces=frozenset(gap.surface for gap in decl.capability_gaps),
+        observability={
+            category: frozenset(
+                str(provider) for provider in decl.native_observability_providers.get(category, ())
+            )
+            for category in _OBSERVABILITY_CATEGORIES
+        },
+        runtimes=frozenset(runtime.value for runtime in decl.supported_runtimes),
+        identity_features=frozenset(feature for _, feature in decl.identity_feature_realizations),
+        static_hosting_origin=origin,
+        binds_domains=binds_domains,
+        custom_domain_surfaces=frozenset(decl.custom_domain_surfaces),
+        model_flavor_counts={
+            provider: len(realization.flavors)
+            for provider, realization in decl.model_realizations.items()
+        },
+    )
 
 
-def _value_set_gaps(
-    per_platform: dict[str, PlatformCapabilityDeclaration],
+def _coverage_gaps(
+    facts: Mapping[str, PlatformFacts],
     surface: str,
-    values_for: Callable[[PlatformCapabilityDeclaration], set[str]],
+    realized: Callable[[PlatformFacts], frozenset[str]],
     *,
-    exclusion_surface: str | None,
+    gap_kind: str | None,
 ) -> list[SurfaceViolation]:
-    """Generic per-value-union gap check for a plain set/mapping-keys-shaped
-    field. Shared by surfaces 2, 3 (per category), 4, 5, 7, and the
-    surface-6 SET_SHAPED fields.
+    """A capability any platform realizes must be realized by every platform, or
+    -- when *gap_kind* names a recorded gap kind -- carried as a
+    ``<gap_kind>:<capability>`` row on the platform's own capability declaration.
+    Compares capabilities, never the implementations a capability is realized
+    by: a platform lacking one particular flavor, provider or vendor that
+    another platform has is never a violation."""
+    declaring: dict[str, set[str]] = {}
+    for platform, platform_facts in facts.items():
+        for capability in realized(platform_facts):
+            declaring.setdefault(capability, set()).add(platform)
+    return [
+        SurfaceViolation(platform, surface, capability, tuple(sorted(platforms)))
+        for capability, platforms in sorted(declaring.items())
+        for platform, platform_facts in sorted(facts.items())
+        if capability not in realized(platform_facts)
+        and (gap_kind is None or f"{gap_kind}:{capability}" not in platform_facts.gap_surfaces)
+    ]
 
-    *exclusion_surface* is the ``declared_set_exclusions`` key a platform
-    may declare a coordinate under to widen "declared" without actually
-    holding the value -- ``None`` for surfaces
-    ``PlatformCapabilityDeclaration`` does not support exclusions for
-    (identity feature cells: absence there is already a permanent,
-    self-explaining structural fact)."""
-    union: dict[str, set[str]] = {}
-    per_platform_values = {p: values_for(d) for p, d in per_platform.items()}
-    for platform, values in per_platform_values.items():
-        for value in values:
-            union.setdefault(value, set()).add(platform)
 
+def _realized_observability_categories(platform_facts: PlatformFacts) -> frozenset[str]:
+    return frozenset(
+        category for category, providers in platform_facts.observability.items() if providers
+    )
+
+
+def _runtime_floor(platform_facts: PlatformFacts) -> frozenset[str]:
+    return frozenset({_RUNTIME_CAPABILITY}) if platform_facts.runtimes else frozenset()
+
+
+def _model_floor(platform_facts: PlatformFacts) -> frozenset[str]:
+    has_flavor = any(count > 0 for count in platform_facts.model_flavor_counts.values())
+    return frozenset({_MODEL_CAPABILITY}) if has_flavor else frozenset()
+
+
+def _static_web_hosting_gaps(facts: Mapping[str, PlatformFacts]) -> list[SurfaceViolation]:
+    """A platform serves static web hosting at a custom domain exactly when its
+    edge binds custom domains, and at a loopback port otherwise. Each platform
+    is compared with its OWN edge, never with another platform: a docker runtime
+    paired with a cloud provider is resolved by the provider's declaration, so
+    there is no pairing-dependent origin to flatten."""
     violations: list[SurfaceViolation] = []
-    for coordinate, declaring in union.items():
-        for platform, values in per_platform_values.items():
-            if coordinate in values:
-                continue
-            if exclusion_surface and _is_set_excluded(
-                per_platform[platform], exclusion_surface, coordinate
-            ):
-                continue
+    for platform, platform_facts in sorted(facts.items()):
+        expected = _ORIGIN_DOMAIN if platform_facts.binds_domains else _ORIGIN_LOOPBACK
+        if platform_facts.static_hosting_origin != expected:
+            agreeing = tuple(
+                sorted(p for p, f in facts.items() if f.static_hosting_origin == expected)
+            )
             violations.append(
-                SurfaceViolation(platform, surface, coordinate, tuple(sorted(declaring)))
+                SurfaceViolation(
+                    platform, "static_web_hosting", platform_facts.static_hosting_origin, agreeing
+                )
             )
     return violations
 
 
-def _secret_backend_gaps(
-    per_platform: dict[str, PlatformCapabilityDeclaration],
-) -> list[SurfaceViolation]:
-    """Surface 2."""
-    return _value_set_gaps(
-        per_platform,
-        "supported_secret_backends",
-        lambda d: {b.value for b in d.supported_secret_backends},
-        exclusion_surface="supported_secret_backends",
-    )
-
-
-def _observability_gaps(
-    per_platform: dict[str, PlatformCapabilityDeclaration],
-) -> list[SurfaceViolation]:
-    """Surface 3 -- one independent union PER CATEGORY. A metrics-only value
-    must never be compared against the tracing set."""
+def _custom_domain_gaps(facts: Mapping[str, PlatformFacts]) -> list[SurfaceViolation]:
+    """An edge-binding platform carries every custom-domain surface; a platform
+    whose edge binds no domain (a loopback platform) carries none. Compares each
+    platform with the obligation its own edge derives, so a loopback platform
+    correctly carrying neither surface is not a violation, and a platform
+    missing a surface it is obligated to is."""
     violations: list[SurfaceViolation] = []
-    for category in _OBSERVABILITY_CATEGORIES:
-        def _values_for_category(
-            d: PlatformCapabilityDeclaration, category: str = category
-        ) -> set[str]:
-            return set(d.native_observability_providers.get(category, frozenset()))
-
-        category_violations = _value_set_gaps(
-            per_platform,
-            f"native_observability_providers:{category}",
-            _values_for_category,
-            exclusion_surface=f"native_observability_providers:{category}",
-        )
-        violations.extend(category_violations)
-    return violations
-
-
-def _runtime_gaps(
-    per_platform: dict[str, PlatformCapabilityDeclaration],
-) -> list[SurfaceViolation]:
-    """Surface 4."""
-    return _value_set_gaps(
-        per_platform,
-        "supported_runtimes",
-        lambda d: {r.value for r in d.supported_runtimes},
-        exclusion_surface="supported_runtimes",
-    )
-
-
-def _identity_feature_gaps(
-    per_platform: dict[str, PlatformCapabilityDeclaration],
-) -> list[SurfaceViolation]:
-    """Surface 5: union of ``(provider_type, feature)`` keys across every
-    platform's ``identity_feature_realizations``. A provider type a platform
-    does not realize AT ALL (absent from its own ``identity_provider_realizations``)
-    structurally cannot have any feature cells for it either -- every one of
-    that provider's feature coordinates is reported as a gap for that
-    platform, which is the correct, literal reading of D1's "identity
-    (provider_type, feature) cells" grain. No exclusion mechanism: absence
-    here is already a permanent, self-explaining structural fact -- see
-    `_value_set_gaps`."""
-    return _value_set_gaps(
-        per_platform,
-        "identity_feature_realizations",
-        lambda d: {f"{p}:{f}" for (p, f) in d.identity_feature_realizations},
-        exclusion_surface=None,
-    )
-
-
-def _unrealizable_surface_gaps(
-    per_platform: dict[str, PlatformCapabilityDeclaration],
-) -> list[SurfaceViolation]:
-    """Surface 7."""
-    return _value_set_gaps(
-        per_platform,
-        "unrealizable_surfaces",
-        lambda d: set(d.unrealizable_surfaces),
-        exclusion_surface="unrealizable_surfaces",
-    )
-
-
-def _deployable_constructs_gaps(
-    per_platform: dict[str, PlatformCapabilityDeclaration],
-) -> list[SurfaceViolation]:
-    """Surface 8: DeployableConstruct values (by ``.value``) a platform
-    counts as making a service deployable. Docker's declared set includes
-    ``infrastructure_blocks`` (an rdbms/cache/etc.-only service realizes as
-    a real datastore container there); AWS/Azure both decline that member
-    with a reviewed ``declared_set_exclusions["deployable_constructs"]``
-    entry -- neither realizes standalone-infrastructure compute."""
-    return _value_set_gaps(
-        per_platform,
-        "deployable_constructs",
-        lambda d: {c.value for c in d.deployable_constructs},
-        exclusion_surface="deployable_constructs",
-    )
-
-
-def _scalar_set_shaped_gaps(
-    per_platform: dict[str, PlatformCapabilityDeclaration],
-) -> list[SurfaceViolation]:
-    """Surface 6a: the SET_SHAPED optional fields, per-value union."""
-    violations: list[SurfaceViolation] = []
-    for field_name in _SET_SHAPED_SCALAR_FIELDS:
-        def _values(d: PlatformCapabilityDeclaration, fname: str = field_name) -> set[str]:
-            raw = getattr(d, fname)
-            if isinstance(raw, dict):
-                return {str(k) for k in raw}
-            return {str(v) for v in raw}
-        violations.extend(
-            _value_set_gaps(
-                per_platform,
-                f"scalar:{field_name}",
-                _values,
-                exclusion_surface=f"scalar:{field_name}",
+    for platform, platform_facts in sorted(facts.items()):
+        expected = _CUSTOM_DOMAIN_SURFACES if platform_facts.binds_domains else frozenset()
+        difference = platform_facts.custom_domain_surfaces ^ expected
+        if difference:
+            declaring = tuple(sorted(p for p, f in facts.items() if f.custom_domain_surfaces))
+            violations.append(
+                SurfaceViolation(
+                    platform, "custom_domain_surfaces", ",".join(sorted(difference)), declaring
+                )
             )
-        )
     return violations
 
 
-def _scalar_presence_shaped_gaps(
-    per_platform: dict[str, PlatformCapabilityDeclaration],
-) -> list[SurfaceViolation]:
-    """Surface 6b: the PRESENCE_SHAPED optional fields. ``coordinate`` is the
-    bare field name (there is only one boolean/None-ness question per
-    field, not a per-member set).
-
-    "Declared" means the platform's value DIFFERS from the dataclass
-    default -- never bare Python truthiness. Most presence-shaped fields
-    default to ``False``/``None``, where truthiness and "differs from
-    default" happen to coincide, but a field could in principle default
-    to a truthy value, where a meaningful, explicit deviation would be
-    falsy: truthiness alone would treat that real, declared fact as
-    indistinguishable from never having been declared at all. Comparing
-    against the field's own default -- read mechanically via
-    ``dataclasses.fields()``, not hand-encoded -- is correct for every
-    default polarity a field might use.
-
-    ``gateway_terminates_tls`` is the reason this field needed an
-    ``Optional[bool]`` rather than a plain ``bool``: a plain bool's
-    default is itself a valid declared value (``True``), so an
-    undeclared platform (implicitly defaulting) and a platform that
-    explicitly confirmed the default-coinciding fact were both
-    indistinguishable ``True`` -- no comparison against the default
-    could ever separate them. ``None`` closes that gap: it is a value
-    no explicit declaration ever produces, so "differs from default"
-    is finally equivalent to "was actually declared."
-
-    A field left at its default is ALSO treated as declared when the
-    platform names it in ``declared_capability_reasons`` -- an explicit,
-    reviewed rationale for staying at the default (e.g. "this platform has
-    no CDN cache-invalidation SDK") is itself a real decision, not an
-    oversight, even though the value alone is indistinguishable from never
-    having been considered.
-    """
-    field_defaults = {
-        f.name: f.default
-        for f in dataclasses.fields(PlatformCapabilityDeclaration)
-        if f.name in _PRESENCE_SHAPED_SCALAR_FIELDS
-    }
-    violations: list[SurfaceViolation] = []
-    for field_name in _PRESENCE_SHAPED_SCALAR_FIELDS:
-        default = field_defaults[field_name]
-        declaring_platforms = {
-            p for p, d in per_platform.items() if getattr(d, field_name) != default
-        }
-        if not declaring_platforms:
-            continue
-        for platform, decl in per_platform.items():
-            if (
-                getattr(decl, field_name) == default
-                and field_name not in decl.declared_capability_reasons
-            ):
-                violations.append(
-                    SurfaceViolation(
-                        platform, "scalar", field_name, tuple(sorted(declaring_platforms))
-                    )
-                )
-    return violations
-
-
-def all_surface_violations(
-    per_platform: dict[str, PlatformCapabilityDeclaration],
-) -> list[SurfaceViolation]:
-    """Run all eight surfaces' comparisons and return every violation.
+def surface_violations(facts: Mapping[str, PlatformFacts]) -> list[SurfaceViolation]:
+    """Run surfaces 1-7 over the extracted facts and return every violation.
 
     Raises:
-        ValueError: If *per_platform* has fewer than
-            ``_MIN_PLATFORMS_FOR_COMPARISON`` entries.
+        ValueError: If *facts* has fewer than ``_MIN_PLATFORMS_FOR_COMPARISON``
+            entries.
     """
-    if len(per_platform) < _MIN_PLATFORMS_FOR_COMPARISON:
+    if len(facts) < _MIN_PLATFORMS_FOR_COMPARISON:
         raise ValueError(
-            f"all_surface_violations requires at least "
-            f"{_MIN_PLATFORMS_FOR_COMPARISON} platforms, got {len(per_platform)} "
-            f"({sorted(per_platform)})."
+            f"surface_violations requires at least {_MIN_PLATFORMS_FOR_COMPARISON} platforms, "
+            f"got {len(facts)} ({sorted(facts)})."
         )
     violations: list[SurfaceViolation] = []
-    violations.extend(_block_realization_gaps(per_platform))
-    violations.extend(_secret_backend_gaps(per_platform))
-    violations.extend(_observability_gaps(per_platform))
-    violations.extend(_runtime_gaps(per_platform))
-    violations.extend(_identity_feature_gaps(per_platform))
-    violations.extend(_scalar_set_shaped_gaps(per_platform))
-    violations.extend(_scalar_presence_shaped_gaps(per_platform))
-    violations.extend(_unrealizable_surface_gaps(per_platform))
-    violations.extend(_deployable_constructs_gaps(per_platform))
+    violations.extend(
+        _coverage_gaps(facts, "block_types", lambda f: f.block_types, gap_kind=_GAP_KIND_BLOCK_TYPE)
+    )
+    violations.extend(
+        _coverage_gaps(
+            facts,
+            "observability_categories",
+            _realized_observability_categories,
+            gap_kind=_GAP_KIND_OBSERVABILITY,
+        )
+    )
+    violations.extend(_coverage_gaps(facts, "supported_runtimes", _runtime_floor, gap_kind=None))
+    violations.extend(
+        _coverage_gaps(
+            facts, "identity_features", lambda f: f.identity_features, gap_kind=_GAP_KIND_IDENTITY
+        )
+    )
+    violations.extend(_static_web_hosting_gaps(facts))
+    violations.extend(_custom_domain_gaps(facts))
+    violations.extend(_coverage_gaps(facts, "model_realizations", _model_floor, gap_kind=None))
     return violations
 
 
-# ---------------------------------------------------------------------------
-# Exemption file
-# ---------------------------------------------------------------------------
+#: Gap kind that accounts for a violation of each coverage surface; a surface
+#: absent here has no row kind (nothing can account for it).
+_GAP_KIND_BY_SURFACE: Final[Mapping[str, str]] = {
+    "block_types": _GAP_KIND_BLOCK_TYPE,
+    "observability_categories": _GAP_KIND_OBSERVABILITY,
+    "identity_features": _GAP_KIND_IDENTITY,
+}
 
 
-def load_holes() -> dict[tuple[str, str, str], str]:
-    """Load and validate ``platform-capability-holes.json``.
-
-    Returns:
-        ``{(platform, surface, coordinate): reason}``.
-
-    Raises:
-        ValueError: If the file is missing, malformed, or an entry has an
-            empty reason.
-    """
-    if not HOLES_PATH.exists():
-        raise ValueError(
-            f"Missing exemption file {HOLES_PATH}. It pins the catalogued "
-            f"platform-capability holes. Restore it from git; the gate "
-            f"never creates it."
-        )
-    data = json.loads(HOLES_PATH.read_text(encoding="utf-8"))
-    entries = data.get("holes")
-    if not isinstance(entries, list):
-        raise ValueError(
-            f"Malformed exemption file {HOLES_PATH}: expected an object "
-            f"with 'holes' (array of {{platform, surface, coordinate, reason}})."
-        )
-    holes: dict[tuple[str, str, str], str] = {}
-    for entry in entries:
-        for key in ("platform", "surface", "coordinate", "reason"):
-            if not isinstance(entry.get(key), str) or not entry[key].strip():
-                raise ValueError(
-                    f"Exemption entry {entry!r} is missing a non-empty "
-                    f"{key!r}."
-                )
-        holes[(entry["platform"], entry["surface"], entry["coordinate"])] = entry["reason"]
-    return holes
+def _accounting_hint(violation: SurfaceViolation) -> str:
+    """The exact ``capability_gaps`` row that would account for *violation*, or
+    the fix when the surface has no row kind."""
+    kind = _GAP_KIND_BY_SURFACE.get(violation.surface)
+    if kind is None:
+        return "fix the declaration (this surface has no gap-row kind)"
+    return (
+        f"realize it by at least one implementation, or record the row "
+        f"'{kind}:{violation.coordinate}' in the platform's capability_gaps"
+    )
 
 
 # ---------------------------------------------------------------------------
-# Non-vacuity self-test
+# Non-vacuity self-test (plants facts; constructs no declaration or cell)
 # ---------------------------------------------------------------------------
 
 _SELF_TEST_PLATFORM_A: Final[str] = "self_test_platform_a"
 _SELF_TEST_PLATFORM_B: Final[str] = "self_test_platform_b"
-_SELF_TEST_FORCED_GAP_FLAVOR: Final[str] = "self_test_forced_gap_flavor"
+_SELF_TEST_BLOCK_TYPES: Final[frozenset[str]] = frozenset({"self_test_block_x", "self_test_block_y"})
+_SELF_TEST_FEATURES: Final[frozenset[str]] = frozenset({"self_test_feature_x", "self_test_feature_y"})
+_SELF_TEST_RUNTIME: Final[str] = "self_test_runtime"
+_SELF_TEST_MODEL_PROVIDER: Final[str] = "self_test_model_provider"
 
 
-def _synthetic_declaration(
-    platform_label: str,
-    *,
-    extra_flavor: str | None = None,
-    set_exclusions: dict[str, dict[str, str]] | None = None,
-) -> PlatformCapabilityDeclaration:
-    """A minimal, valid ``PlatformCapabilityDeclaration`` for the self-test
-    only -- never a stand-in for a real platform."""
-    block_realizations = {
-        ("rdbms", "container"): BlockRealization(
-            supported=True, structural_pattern="*/infra/rdbms/container/*.py"
-        )
+def _facts(platform: str, **overrides: object) -> PlatformFacts:
+    """A clean baseline platform (every block type, category, feature, runtime and
+    model provider present; loopback origin; no edge binding; no custom-domain
+    surfaces) with the named facts overridden."""
+    baseline = PlatformFacts(
+        platform=platform,
+        block_types=_SELF_TEST_BLOCK_TYPES,
+        gap_surfaces=frozenset(),
+        observability={category: frozenset({f"{category}_provider"}) for category in _OBSERVABILITY_CATEGORIES},
+        runtimes=frozenset({_SELF_TEST_RUNTIME}),
+        identity_features=_SELF_TEST_FEATURES,
+        static_hosting_origin=_ORIGIN_LOOPBACK,
+        binds_domains=False,
+        custom_domain_surfaces=frozenset(),
+        model_flavor_counts={_SELF_TEST_MODEL_PROVIDER: 1},
+    )
+    return dataclasses.replace(baseline, **overrides)
+
+
+def _pair(**b_overrides: object) -> dict[str, PlatformFacts]:
+    """Platform A (clean baseline) and platform B (baseline with overrides)."""
+    return {
+        _SELF_TEST_PLATFORM_A: _facts(_SELF_TEST_PLATFORM_A),
+        _SELF_TEST_PLATFORM_B: _facts(_SELF_TEST_PLATFORM_B, **b_overrides),
     }
-    if extra_flavor:
-        block_realizations[("rdbms", extra_flavor)] = BlockRealization(
-            supported=True, structural_pattern=f"*/infra/rdbms/{extra_flavor}/*.py"
-        )
-    return PlatformCapabilityDeclaration(
-        deployable_constructs=frozenset({DeployableConstruct.REST_API}),
-        platform_label=platform_label,
-        default_secret_backend=SecretBackend.FILE,
-        crypto_signing_backend=SigningBackend.LOCAL_KEY,
-        rdbms_connection_identity=RdbmsConnectionIdentity.PASSWORD,
-        cache_connection_identity=CacheConnectionIdentity.PASSWORD,
-        supported_secret_backends=frozenset({SecretBackend.FILE}),
-        supported_runtimes=frozenset({RuntimeId("self-test-runtime")}),
-        serverless_compute_model=ServerlessPlatform.CONTAINER,
-        block_realizations=block_realizations,
-        model_realizations={},
-        static_web_hosting=StaticWebHostingRealization(
-            status="realized", origin="loopback_port"
+
+
+def _expect_exactly(
+    problems: list[str],
+    case: str,
+    violations: list[SurfaceViolation],
+    expected: list[tuple[str, str, str]],
+) -> None:
+    """Record a problem unless *violations* is exactly the planted *expected*
+    ``(platform, surface, coordinate)`` triples."""
+    actual = sorted((v.platform, v.surface, v.coordinate) for v in violations)
+    if actual != sorted(expected):
+        problems.append(f"self-test [{case}]: expected exactly {sorted(expected)}, got {actual}")
+
+
+def _self_test_coverage(problems: list[str]) -> None:
+    """Criteria 1-3 and 6: capability-level comparison over planted facts."""
+    _expect_exactly(problems, "clean pair", surface_violations(_pair()), [])
+    absent_block = frozenset({"self_test_block_x"})
+    _expect_exactly(
+        problems,
+        "a whole block type missing, no row",
+        surface_violations(_pair(block_types=absent_block)),
+        [(_SELF_TEST_PLATFORM_B, "block_types", "self_test_block_y")],
+    )
+    _expect_exactly(
+        problems,
+        "a whole block type missing, accounted by its row",
+        surface_violations(
+            _pair(block_types=absent_block, gap_surfaces=frozenset({"block_type:self_test_block_y"}))
         ),
-        custom_domain_surfaces={
-            "gateway": CustomDomainSurfaceRealization(
-                status="unrealized", reason="self-test declaration binds no custom domain"
-            ),
-            "web": CustomDomainSurfaceRealization(
-                status="unrealized", reason="self-test declaration binds no custom domain"
-            ),
-        },
-        declared_set_exclusions=set_exclusions or {},
+        [],
+    )
+    # One flavor missing while another flavor of the same block type is realized:
+    # both platforms realize the block type, so the facts are identical -- the old
+    # coordinate-level false positive cannot be expressed at this grain.
+    _expect_exactly(
+        problems,
+        "one flavor of a realized block type missing",
+        surface_violations(_pair(block_types=_SELF_TEST_BLOCK_TYPES)),
+        [],
+    )
+    emptied = {c: frozenset({"p"}) for c in _OBSERVABILITY_CATEGORIES}
+    emptied["tracing"] = frozenset()
+    _expect_exactly(
+        problems,
+        "one observability category empty",
+        surface_violations(_pair(observability=emptied)),
+        [(_SELF_TEST_PLATFORM_B, "observability_categories", "tracing")],
+    )
+    renamed = {c: frozenset({f"other_{c}_vendor"}) for c in _OBSERVABILITY_CATEGORIES}
+    _expect_exactly(
+        problems,
+        "different provider names in every category",
+        surface_violations(_pair(observability=renamed)),
+        [],
+    )
+    _expect_exactly(
+        problems,
+        "an identity feature offered through no provider",
+        surface_violations(_pair(identity_features=frozenset({"self_test_feature_x"}))),
+        [(_SELF_TEST_PLATFORM_B, "identity_features", "self_test_feature_y")],
+    )
+    _expect_exactly(
+        problems,
+        "no runtime",
+        surface_violations(_pair(runtimes=frozenset())),
+        [(_SELF_TEST_PLATFORM_B, "supported_runtimes", _RUNTIME_CAPABILITY)],
+    )
+    _expect_exactly(
+        problems,
+        "different runtime names",
+        surface_violations(_pair(runtimes=frozenset({"another_runtime"}))),
+        [],
+    )
+    _expect_exactly(
+        problems,
+        "no model provider with a flavor cell",
+        surface_violations(_pair(model_flavor_counts={_SELF_TEST_MODEL_PROVIDER: 0})),
+        [(_SELF_TEST_PLATFORM_B, "model_realizations", _MODEL_CAPABILITY)],
+    )
+    _expect_exactly(
+        problems,
+        "a different model provider",
+        surface_violations(_pair(model_flavor_counts={"another_provider": 2})),
+        [],
     )
 
 
-def run_self_test() -> list[str]:
-    """Prove the comparator detects a real, forced divergence before any
-    real comparison is trusted.
+def _self_test_edge(problems: list[str]) -> None:
+    """Criteria 4 and 5: each platform against its own edge."""
+    _expect_exactly(
+        problems,
+        "binding edge with loopback origin",
+        surface_violations(_pair(binds_domains=True, custom_domain_surfaces=_CUSTOM_DOMAIN_SURFACES)),
+        [(_SELF_TEST_PLATFORM_B, "static_web_hosting", _ORIGIN_LOOPBACK)],
+    )
+    _expect_exactly(
+        problems,
+        "domain origin without a binding edge",
+        surface_violations(_pair(static_hosting_origin=_ORIGIN_DOMAIN)),
+        [(_SELF_TEST_PLATFORM_B, "static_web_hosting", _ORIGIN_DOMAIN)],
+    )
+    _expect_exactly(
+        problems,
+        "binding edge with matching origin and both surfaces",
+        surface_violations(
+            _pair(
+                binds_domains=True,
+                static_hosting_origin=_ORIGIN_DOMAIN,
+                custom_domain_surfaces=_CUSTOM_DOMAIN_SURFACES,
+            )
+        ),
+        [],
+    )
+    for missing in sorted(_CUSTOM_DOMAIN_SURFACES):
+        _expect_exactly(
+            problems,
+            f"binding edge missing the {missing!r} surface",
+            surface_violations(
+                _pair(
+                    binds_domains=True,
+                    static_hosting_origin=_ORIGIN_DOMAIN,
+                    custom_domain_surfaces=_CUSTOM_DOMAIN_SURFACES - {missing},
+                )
+            ),
+            [(_SELF_TEST_PLATFORM_B, "custom_domain_surfaces", missing)],
+        )
+    _expect_exactly(
+        problems,
+        "loopback edge carrying a surface",
+        surface_violations(_pair(custom_domain_surfaces=frozenset({"gateway"}))),
+        [(_SELF_TEST_PLATFORM_B, "custom_domain_surfaces", "gateway")],
+    )
 
-    Matching pair (identical declarations save for `platform_label`) must
-    report zero violations. Mismatched pair (platform A declares one extra
-    `(rdbms, self_test_forced_gap_flavor)` cell platform B never
-    considered) must report exactly one violation naming platform B and
-    that coordinate.
+
+def _planted_fields(
+    required: Sequence[str], optional: Sequence[str]
+) -> list[dataclasses.Field[object]]:
+    """Field list of a synthetic dataclass with the given required/optional names."""
+    spec: list[tuple[str, type] | tuple[str, type, object]] = [(name, int) for name in required]
+    spec.extend((name, int, dataclasses.field(default=0)) for name in optional)
+    return list(dataclasses.fields(dataclasses.make_dataclass("PlantedFields", spec)))
+
+
+def _expect_partition_failure(
+    problems: list[str], case: str, fields: Sequence[dataclasses.Field[object]], named: str
+) -> None:
+    """Record a problem unless the guard raises AssertionError naming *named*."""
+    try:
+        _assert_field_partition_complete(fields)
+    except AssertionError as error:
+        if named not in str(error):
+            problems.append(f"self-test [{case}]: the guard raised without naming {named!r}: {error}")
+        return
+    problems.append(f"self-test [{case}]: the guard accepted a field list it must reject")
+
+
+def _self_test_partition(problems: list[str]) -> None:
+    """Criterion 7: the partition guard over live and planted field lists."""
+    live = dataclasses.fields(PlatformCapabilityDeclaration)
+    try:
+        _assert_field_partition_complete(live)
+    except AssertionError as error:
+        problems.append(f"self-test [partition, live declaration]: {error}")
+    without_retired = [f for f in live if f.name not in _RETIRED_FIELDS]
+    try:
+        _assert_field_partition_complete(without_retired)
+    except AssertionError as error:
+        problems.append(f"self-test [partition, declaration without retired fields]: {error}")
+    required = sorted(_REQUIRED_PLATFORM_FACT_FIELDS | set(_REQUIRED_FIELD_OWNERS))
+    optional = sorted(_VOCABULARY_SET_FIELDS)
+    _expect_partition_failure(
+        problems, "unaccounted required", _planted_fields([*required, "self_test_required"], optional),
+        "self_test_required",
+    )
+    _expect_partition_failure(
+        problems, "unaccounted optional", _planted_fields(required, [*optional, "self_test_optional"]),
+        "self_test_optional",
+    )
+    _expect_partition_failure(
+        problems, "stale bucket name", _planted_fields(required, optional[1:]), optional[0]
+    )
+    doubly_claimed = _partition_problems(
+        {"self_test_field"},
+        (("X", frozenset({"self_test_field"})), ("Y", frozenset({"self_test_field"}))),
+        frozenset(),
+    )
+    if not any("more than one bucket" in p and "self_test_field" in p for p in doubly_claimed):
+        problems.append(
+            f"self-test [doubly claimed]: a field in two buckets was not reported: {doubly_claimed}"
+        )
+
+
+def run_self_test() -> list[str]:
+    """Prove each comparison detects a planted divergence and stays silent on a
+    clean or merely-different-vocabulary pair, before any real comparison is
+    trusted.
 
     Returns:
-        A list of failure descriptions -- empty means the comparator is sound.
+        A list of failure descriptions -- empty means the comparators are sound.
     """
     problems: list[str] = []
-
-    matching = {
-        _SELF_TEST_PLATFORM_A: _synthetic_declaration("A"),
-        _SELF_TEST_PLATFORM_B: _synthetic_declaration("B"),
-    }
-    matching_violations = all_surface_violations(matching)
-    if matching_violations:
-        problems.append(
-            f"self-test: a synthetic MATCHING pair reported "
-            f"{len(matching_violations)} violation(s) -- the comparator is "
-            f"over-triggering: {matching_violations}"
-        )
-
-    mismatched = {
-        _SELF_TEST_PLATFORM_A: _synthetic_declaration(
-            "A", extra_flavor=_SELF_TEST_FORCED_GAP_FLAVOR
-        ),
-        _SELF_TEST_PLATFORM_B: _synthetic_declaration("B"),
-    }
-    mismatched_violations = all_surface_violations(mismatched)
-    forced_gap_hits = [
-        v
-        for v in mismatched_violations
-        if v.platform == _SELF_TEST_PLATFORM_B
-        and v.surface == "block_realizations"
-        and v.coordinate == f"rdbms:{_SELF_TEST_FORCED_GAP_FLAVOR}"
-    ]
-    if not forced_gap_hits:
-        problems.append(
-            f"self-test: a synthetic platform plugin missing one union cell "
-            f"did not fail -- expected a block_realizations violation for "
-            f"{_SELF_TEST_PLATFORM_B!r} at coordinate "
-            f"'rdbms:{_SELF_TEST_FORCED_GAP_FLAVOR}', got: "
-            f"{mismatched_violations}"
-        )
-    a_hits = [v for v in mismatched_violations if v.platform == _SELF_TEST_PLATFORM_A]
-    if a_hits:
-        problems.append(
-            f"self-test: platform A (the one that DECLARED the extra cell) "
-            f"was itself reported missing something -- asymmetric/wrong "
-            f"comparator: {a_hits}"
-        )
-
-    forced_gap_coordinate = f"rdbms:{_SELF_TEST_FORCED_GAP_FLAVOR}"
-
-    excluded = {
-        _SELF_TEST_PLATFORM_A: _synthetic_declaration(
-            "A", extra_flavor=_SELF_TEST_FORCED_GAP_FLAVOR
-        ),
-        _SELF_TEST_PLATFORM_B: _synthetic_declaration(
-            "B",
-            set_exclusions={
-                "block_realizations": {
-                    forced_gap_coordinate: "self-test: intentionally absent"
-                }
-            },
-        ),
-    }
-    excluded_violations = all_surface_violations(excluded)
-    excluded_gap_hits = [
-        v
-        for v in excluded_violations
-        if v.platform == _SELF_TEST_PLATFORM_B
-        and v.surface == "block_realizations"
-        and v.coordinate == forced_gap_coordinate
-    ]
-    if excluded_gap_hits:
-        problems.append(
-            f"self-test: platform B declared the forced-gap coordinate "
-            f"{forced_gap_coordinate!r} in declared_set_exclusions but the "
-            f"comparator still reported it as a violation -- an exclusion "
-            f"must satisfy the gap: {excluded_gap_hits}"
-        )
-
-    bogus_excluded = {
-        _SELF_TEST_PLATFORM_A: _synthetic_declaration(
-            "A", extra_flavor=_SELF_TEST_FORCED_GAP_FLAVOR
-        ),
-        _SELF_TEST_PLATFORM_B: _synthetic_declaration(
-            "B",
-            set_exclusions={
-                "block_realizations": {
-                    "rdbms:some_other_flavor_entirely": "self-test: wrong coordinate"
-                }
-            },
-        ),
-    }
-    bogus_excluded_violations = all_surface_violations(bogus_excluded)
-    bogus_excluded_gap_hits = [
-        v
-        for v in bogus_excluded_violations
-        if v.platform == _SELF_TEST_PLATFORM_B
-        and v.surface == "block_realizations"
-        and v.coordinate == forced_gap_coordinate
-    ]
-    if not bogus_excluded_gap_hits:
-        problems.append(
-            "self-test: platform B declared an exclusion for an unrelated "
-            f"coordinate ('rdbms:some_other_flavor_entirely'), which must NOT "
-            f"satisfy the real gap at {forced_gap_coordinate!r} -- the "
-            f"comparator swallowed the violation anyway: {bogus_excluded_violations}"
-        )
-
+    _self_test_coverage(problems)
+    _self_test_edge(problems)
+    _self_test_partition(problems)
+    try:
+        surface_violations({_SELF_TEST_PLATFORM_A: _facts(_SELF_TEST_PLATFORM_A)})
+    except ValueError:
+        return problems
+    problems.append("self-test [one platform]: a single-platform comparison did not raise")
     return problems
 
 
@@ -764,14 +784,34 @@ def run_self_test() -> list[str]:
 # Commands
 # ---------------------------------------------------------------------------
 
+#: Surfaces a live run unions over: each must have at least one realizing
+#: platform, or the comparison is vacuous.
+_LIVE_UNION_SURFACES: Final[tuple[tuple[str, Callable[[PlatformFacts], frozenset[str]]], ...]] = (
+    ("block_types", lambda f: f.block_types),
+    ("observability_categories", _realized_observability_categories),
+    ("identity_features", lambda f: f.identity_features),
+    ("supported_runtimes", _runtime_floor),
+    ("model_realizations", _model_floor),
+)
+
+
+def _vacuous_live_surfaces(facts: Mapping[str, PlatformFacts]) -> list[str]:
+    """Surfaces whose live union is empty (a comparison over nothing)."""
+    return [
+        surface
+        for surface, realized in _LIVE_UNION_SURFACES
+        if not any(realized(platform_facts) for platform_facts in facts.values())
+    ]
+
 
 def check_block_realization_parity() -> int:
     """Run the real gate over every installed platform.
 
     Returns:
-        Exit code (0 = every union coordinate is declared or exempted,
-        1 = at least one unexempted gap, 2 = fewer than
-        ``_MIN_PLATFORMS_FOR_COMPARISON`` platforms registered).
+        Exit code (0 = every capability is realized or carries its gap row,
+        1 = at least one violation, 2 = fewer than
+        ``_MIN_PLATFORMS_FOR_COMPARISON`` platforms registered or a vacuous
+        live comparison).
     """
     platforms = sorted(registered_platform_names())
     if len(platforms) < _MIN_PLATFORMS_FOR_COMPARISON:
@@ -783,39 +823,38 @@ def check_block_realization_parity() -> int:
         )
         return 2
 
-    per_platform = {name: declaration_for_provider(name) for name in platforms}
-    holes = load_holes()
-    violations = all_surface_violations(per_platform)
-
-    unexempted = [
-        v for v in violations
-        if (v.platform, v.surface, v.coordinate) not in holes
-    ]
-
-    for v in violations:
-        exempted = (v.platform, v.surface, v.coordinate) in holes
-        marker = "EXEMPTED" if exempted else "VIOLATION"
-        logger.info(
-            "%s platform=%s surface=%s coordinate=%s (declared by: %s)",
-            marker, v.platform, v.surface, v.coordinate, ", ".join(v.declaring_platforms),
+    facts = {name: extract_facts(name, declaration_for_provider(name)) for name in platforms}
+    vacuous = _vacuous_live_surfaces(facts)
+    if vacuous:
+        logger.error(
+            "D1 CANNOT RUN: the live platforms realize nothing on surface(s) %s, so the "
+            "comparison would be vacuous. Fix: check the extractor against the declarations.",
+            vacuous,
         )
+        return 2
 
-    if unexempted:
+    violations = surface_violations(facts)
+    for v in violations:
+        logger.error(
+            "VIOLATION platform=%s surface=%s capability=%s (realized by: %s) -- %s",
+            v.platform, v.surface, v.coordinate, ", ".join(v.declaring_platforms),
+            _accounting_hint(v),
+        )
+    if violations:
         by_surface: dict[str, int] = {}
-        for v in unexempted:
+        for v in violations:
             by_surface[v.surface] = by_surface.get(v.surface, 0) + 1
         logger.error(
-            "D1 VIOLATION: %d unexempted platform-capability gap(s) across "
-            "%d surface(s): %s. Add a reviewed entry to %s (with a real "
-            "reason) or fix the declaration.",
-            len(unexempted), len(by_surface), by_surface, HOLES_PATH,
+            "D1 VIOLATION: %d platform-capability gap(s) across %d surface(s): %s.",
+            len(violations), len(by_surface), by_surface,
         )
         return 1
 
     logger.info(
-        "D1 holds: every union coordinate across %d platforms (%s) is "
-        "declared or exempted. %d total gap(s), all covered by %s.",
-        len(platforms), platforms, len(violations), HOLES_PATH,
+        "D1 holds: every capability realized by any of %d platforms (%s) is realized by "
+        "all of them, and each platform's static hosting and custom-domain surfaces match "
+        "its own edge.",
+        len(platforms), platforms,
     )
     return 0
 
@@ -824,14 +863,15 @@ def main() -> int:
     """Entry point.
 
     Returns:
-        Exit code: 0 = D1 holds, 1 = an unexempted gap was found, 2 = the
-        self-test failed or fewer than 2 platforms are registered.
+        Exit code: 0 = D1 holds, 1 = a violation was found, 2 = the partition
+        guard or self-test failed or fewer than 2 platforms are registered.
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Prove every installed datrix.platforms plugin's declared "
-            "capability coordinates -- across all seven capability surfaces "
-            "-- are complete relative to the union all platforms declare."
+            "Prove every installed datrix.platforms plugin realizes every capability any "
+            "platform realizes -- across the seven capability surfaces (block types, "
+            "observability categories, runtime floor, identity features, static web hosting, "
+            "custom-domain surfaces, model realizations) -- or carries its own gap row."
         ),
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
@@ -845,9 +885,9 @@ def main() -> int:
     configure_logging(debug=args.debug)
 
     try:
-        _assert_scalar_field_partition_complete()
+        _assert_field_partition_complete(dataclasses.fields(PlatformCapabilityDeclaration))
     except AssertionError as e:
-        logger.error("SCALAR-FIELD PARTITION CHECK FAILED: %s", e)
+        logger.error("FIELD PARTITION CHECK FAILED: %s", e)
         return 2
 
     try:
