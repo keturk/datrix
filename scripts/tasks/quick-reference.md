@@ -136,12 +136,27 @@ Validates a phase's `dependencies.md` + task numbering: valid Step-7 JSON (legac
 
 **Parameters:** `-Phase <NN>` (required), `-NextTaskNumber`, `-BaseDir`, `-Output <path>`, `-Dbg`. **Exit codes:** validate mode 0 = PASS / 1 = FAIL / 2 = usage; `-NextTaskNumber` 0 with the number on stdout.
 
+## `tasks\retrofit-orientation.ps1`
+
+Gives tasks written **before** the `## Orientation` block existed one — deterministically, with no writer and no model. A Python file in a task's "Files to Review Before Starting" that the task does not edit becomes an exact `outline:` entry (definitions with line ranges plus the module summary), and its line leaves the list so the agent is no longer told to read it whole; a function a citation names whose definition is unique in the tree, in a file the task does not edit, becomes a `symbol:` entry. It does **not** write `refs:` or `explain:`: which callers matter and which question to ask about a test's style are a writer's judgment.
+
+Left alone: quality-gate tasks (reading the code is the job), tasks that already have a block (so it is idempotent), tasks with no review list or nothing the index can answer. A task is written only if the rewrite parses, every entry in it resolves, and the task's scope fields (`Depends on`, design reference and acceptance property, files to create/modify, targeted tests) read back unchanged. Dry run unless `-Apply`; `-Apply` first copies each original to `D:\datrix\.tmp\retrofit-orientation\<stamp>\`.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Dry run a phase** | `.\tasks\retrofit-orientation.ps1 -Phase 61` | Per task: entries it would add, review lines it would remove, KB of source the agent was told to read vs KB answered |
+| **Apply** | `.\tasks\retrofit-orientation.ps1 -Phase 61 -Apply` | Writes the rewritten tasks (originals copied aside first) |
+| **Given tasks** | `.\tasks\retrofit-orientation.ps1 -Task D:\datrix\datrix-codegen-typescript\.tasks\phase-61\task-61-04-delete-graphql-descriptor-copies.md` | One or more task files |
+
+**Parameters:** `-Task <file>[,<file>...]`, `-Phase <NN>`, `-Apply`, `-BaseDir`. **Exit codes:** 0 = done, 2 = usage error. Run `validate-task.ps1 -Phase <NN>` afterwards.
+
 ## `tasks\validate-task.ps1`
 
 Validates task files **against the tree as it is now**, deterministically and without a model. Run it on every task a writer produces, and again before an orchestrator dispatches a wave: a phase runs for days while other tasks change the same files, so a citation or an orientation entry written against last week's tree goes stale.
 
 - **Orientation** — the task's `## Orientation` block (see `agent-templates/task-implementation-agent.md`, "Orientation") parses, and every entry resolves: a `symbol` or `refs` the code index finds, an `outline` of a file that exists, an `explain` over files a local model may read (framework repos and test output). A question that asks *where something is defined* or *who calls it* is an error: a model invents those answers, and `symbol` / `refs` answer them exactly.
 - **Citations** — every `path:line` / `path:first-last` in the task's prose (never inside a code fence): ERROR when the file does not exist (unless the task creates it) or the lines are past its end; WARN when an identifier quoted on the same line is no longer within three lines of the cited range (the lines have moved). Paths with `...` and bare file names that are not unique in the task's repository are skipped, never guessed.
+- **Size** — the implementer reads the whole task before its first edit. ERROR when a task that is not COMPLETED exceeds 1500 lines (split it: one task per language or file group; replace code bodies with contracts); WARN above 600 lines; WARN when `## Implementation Notes` and `## How Solved` together exceed 60 lines. A COMPLETED task is exempt from the length limit.
 
 | Mode | Command | Description |
 |------|---------|-------------|

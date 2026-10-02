@@ -7,6 +7,8 @@ the same files. This checks, deterministically and without a model:
 * the ``## Orientation`` block parses, and every entry in it resolves: a ``symbol`` or ``refs`` the
   code index finds, an ``outline`` of a file that exists, an ``explain`` over files a local model may
   read (``tasks.task_orientation``);
+* the task is not oversized (``TASK_WARN_LINES`` / ``TASK_ERROR_LINES``; a COMPLETED task is exempt) and
+  the executor's record sections stay short;
 * every ``path:line`` citation in the task's prose points at a file that exists and lines that are in
   it, and the identifiers quoted beside it are still near those lines (``tasks.task_citations``).
 
@@ -49,6 +51,17 @@ from tasks.task_orientation import KIND_EXPLAIN, parse_orientation, resolve_fact
 EXIT_OK = 0
 EXIT_FINDINGS = 1
 EXIT_USAGE = 2
+
+# An implementer reads its whole task file before the first edit, so a task's length is a per-dispatch
+# cost. Past the warn line the task should be a contract, not a transcript of the code; past the error
+# line it must be split (one task per language or file group) before it is dispatched.
+TASK_WARN_LINES = 600
+TASK_ERROR_LINES = 1500
+# The executor's own record. Details belong in the code, the tests and the commit, not in the task file
+# the quality gate and orchestrator read again.
+RECORD_SECTIONS = ("## Implementation Notes", "## How Solved")
+RECORD_WARN_LINES = 60
+COMPLETED_HEADING_PREFIX = "# COMPLETED"
 
 
 @dataclass(frozen=True)
@@ -134,9 +147,47 @@ class Validator:
             return [Finding(LEVEL_ERROR, f"cannot parse the task: {exc}")]
         text = task_path.read_text(encoding="utf-8")
         try:
-            return [*self._orientation(meta), *self._citations(meta, text)]
+            return [*task_size_findings(text), *self._orientation(meta), *self._citations(meta, text)]
         except CodeIndexError as exc:
             return [Finding(LEVEL_ERROR, f"the code index could not answer: {exc}")]
+
+
+def record_section_lines(lines: list[str]) -> int:
+    """Lines the executor's record sections (Implementation Notes, How Solved) occupy in the task."""
+    total = 0
+    in_record = False
+    for line in lines:
+        if line.startswith("## "):
+            in_record = line.strip().startswith(RECORD_SECTIONS)
+        if in_record:
+            total += 1
+    return total
+
+
+def task_size_findings(text: str) -> list[Finding]:
+    """Size findings for one task: its length (open tasks only) and the length of the executor's record."""
+    lines = text.splitlines()
+    findings: list[Finding] = []
+    completed = any(line.startswith(COMPLETED_HEADING_PREFIX) for line in lines[:5])
+    if not completed and len(lines) > TASK_ERROR_LINES:
+        findings.append(Finding(
+            LEVEL_ERROR,
+            f"task is {len(lines)} lines (limit {TASK_ERROR_LINES}): the implementer reads all of it before its "
+            f"first edit. Split it into one task per language or file group that share the design text by "
+            f"reference, and replace code bodies with contracts (signature, ordering, invariants, "
+            f"'mirror <file:line>')"))
+    elif not completed and len(lines) > TASK_WARN_LINES:
+        findings.append(Finding(
+            LEVEL_WARN,
+            f"task is {len(lines)} lines (advised maximum {TASK_WARN_LINES}): state contracts, not code "
+            f"bodies, wherever the exact text is not itself the requirement"))
+    record = record_section_lines(lines)
+    if record > RECORD_WARN_LINES:
+        findings.append(Finding(
+            LEVEL_WARN,
+            f"Implementation Notes / How Solved take {record} lines (advised maximum {RECORD_WARN_LINES}): "
+            f"keep the decisions and the acceptance evidence, drop the per-file narration"))
+    return findings
 
 
 def task_files(args: argparse.Namespace, base_dir: Path) -> list[Path]:

@@ -387,6 +387,29 @@ def task_prose_lines(text: str) -> list[tuple[int, str]]:
             if role == _LINE_ROLE_TEXT]
 
 
+def task_sections(lines: list[str]) -> list[tuple[str, int, int]]:
+    """(lowercased ``## `` heading, body start index, body end index) for each section of a task.
+
+    Indexes are 0-based positions in ``lines``; a heading inside a code fence is not a section.
+    """
+    return _split_sections(lines, _classify_lines(lines))
+
+
+def line_path_tokens(line: str) -> list[str]:
+    """The path-like backticked tokens on one line, cleaned of trailing line references.
+
+    The same tokens a ``## Files to ...`` section contributes to ``files_to_review``, read per line so
+    a caller can tell which list item names which file.
+    """
+    tokens = (_clean_path_token(token) for token in _BACKTICK_TOKEN_PATTERN.findall(line))
+    return [token for token in tokens if token is not None]
+
+
+def is_list_item(line: str) -> bool:
+    """True when the line starts a markdown list item (``-``, ``*``, ``+`` or ``1.``)."""
+    return _LIST_ITEM_PATTERN.match(line) is not None
+
+
 def _parse_heading_status(heading: str) -> tuple[str, str]:
     """Split a task heading into (status, title).
 
@@ -590,8 +613,15 @@ def task_id_from_filename(task_path: Path) -> str:
 
 def parse_task_file(task_path: Path) -> TaskMetadata:
     """Parse one task markdown file into TaskMetadata. Read-only."""
+    return parse_task_text(task_path, task_path.read_text(encoding="utf-8"))
+
+
+def parse_task_text(task_path: Path, text: str) -> TaskMetadata:
+    """Parse ``text`` as the task file at ``task_path`` (the path names its id, repository and location).
+
+    For a caller that has a task's text but must not write it to disk before knowing it parses.
+    """
     task_id = task_id_from_filename(task_path)
-    text = task_path.read_text(encoding="utf-8")
     lines = text.splitlines()
     roles = _classify_lines(lines)
 

@@ -56,9 +56,15 @@ from task_metadata import (
     get_datrix_root,
     parse_dependencies_md,
     parse_task_file,
+    task_id_number,
     task_id_phase,
     write_json_output,
 )
+
+
+def _task_order_key(task_id: str) -> tuple[int, int, str]:
+    """Numeric task order (phase, number, id): `task-61-100` follows `task-61-99`, not `task-61-10`."""
+    return (task_id_phase(task_id), task_id_number(task_id), task_id)
 
 logger = logging.getLogger(__name__)
 
@@ -208,12 +214,15 @@ def _compute_kahn_waves(
     waves: list[list[str]] = []
     while remaining:
         ready = sorted(
-            task_id
-            for task_id in remaining
-            if all(dep in satisfied for dep in deps_map[task_id])
+            (
+                task_id
+                for task_id in remaining
+                if all(dep in satisfied for dep in deps_map[task_id])
+            ),
+            key=_task_order_key,
         )
         if not ready:
-            return waves, sorted(remaining)
+            return waves, sorted(remaining, key=_task_order_key)
         waves.append(ready)
         satisfied.update(ready)
         remaining.difference_update(ready)
@@ -327,7 +336,7 @@ def plan_waves(
 
     blockers: list[dict[str, str]] = []
     deps_map: dict[str, list[str]] = {}
-    for task_id in sorted(selected):
+    for task_id in sorted(selected, key=_task_order_key):
         task = selected[task_id]
         edges: list[str] = []
         for dep in task.depends_on:

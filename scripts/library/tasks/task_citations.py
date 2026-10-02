@@ -40,8 +40,11 @@ LEVEL_ERROR = "ERROR"
 LEVEL_WARN = "WARN"
 DRIFT_WINDOW = 3
 MIN_IDENTIFIER_CHARS = 4
-# The most text between a citation and the name it is about: a space, a comma, "at", an em dash.
+# The most text between a citation and the name it is about.
 MAX_ADJACENT_GAP = 12
+_CONNECTORS = r"(?:(?:is|are|at|in|of|as|see|defined|located)\s+){0,3}"
+_AFTER_GAP = re.compile(rf"^\s*(?:\(|--|—|–|:)?\s*{_CONNECTORS}$")
+_BEFORE_GAP = re.compile(rf"^\s*(?:{_CONNECTORS}|(?:--|—|–|:)\s*)$")
 GIT_TIMEOUT_SECONDS = 60
 
 _CITATION = re.compile(
@@ -162,27 +165,79 @@ def _identifier_of(span: str) -> str | None:
     return name if len(name) >= MIN_IDENTIFIER_CHARS and name not in _LANGUAGE_NAMES else None
 
 
-def _adjacent_identifiers(line: str, citation: re.Match[str]) -> list[str]:
-    """The names quoted right beside a citation: the backticked span just before it and just after it.
+def _citation_bounds(citation: re.Match[str], spans: list[tuple[int, int, str]]) -> tuple[int, int]:
+    """The citation's extent, widened to its backticked span when it is written inside one."""
+    for span_start, span_end, _ in spans:
+        if span_start < citation.start() and citation.end() < span_end:
+            return span_start, span_end
+    return citation.start(), citation.end()
 
-    ```_messaging_helpers.py:113-131` `enum_imports_used_in_body(service, body)` `` says the
-    function is at those lines. Names elsewhere in the sentence describe other things, so they are
-    not evidence about this range.
+
+def _gap_to(position: tuple[int, int], bounds: tuple[int, int]) -> int:
+    """Characters between two extents (0 when they touch or overlap)."""
+    if bounds[1] <= position[0]:
+        return position[0] - bounds[1]
+    if bounds[0] >= position[1]:
+        return bounds[0] - position[1]
+    return 0
+
+
+def _adjacent_identifiers(line: str, citation: re.Match[str]) -> list[str]:
+    """The names a writer put right at a citation, as the thing it points at.
+
+    ```_messaging_helpers.py:113-131` `enum_imports_used_in_body(service, body)` `` and
+    ``... `name` at `file.py:12` `` both say the name is at those lines. Nothing else in a sentence
+    is evidence about the range, so a name counts only when it is the FIRST span after the citation,
+    after nothing but a space, a dash, an opening parenthesis, a colon or "at/in/is/as"; or the LAST
+    span before it, after nothing but "at/in/of/is/see", a dash or a colon; and only when no other
+    citation in the line is nearer to it. A name after "to", "and", a closing parenthesis or a comma, or
+    the second item of a list, belongs to something else.
     """
     spans = [(m.start(), m.end(), m.group(1)) for m in _BACKTICK.finditer(line)]
-    start, end = citation.start(), citation.end()
-    for span_start, span_end, _ in spans:
-        if span_start < start and end < span_end:  # the citation is itself inside a backticked span
-            start, end = span_start, span_end
+    mine = _citation_bounds(citation, spans)
+    others = [_citation_bounds(other, spans) for other in _CITATION.finditer(line)
+              if other.start() != citation.start()]
+    after = next(((s, e, t) for s, e, t in spans if s >= mine[1]), None)
+    before = next(((s, e, t) for s, e, t in reversed(spans) if e <= mine[0]), None)
     names: list[str] = []
-    for span_start, span_end, text in spans:
-        gap = line[span_end:start] if span_end <= start else line[end:span_start] if span_start >= end else None
-        if gap is None or len(gap) > MAX_ADJACENT_GAP:
+    for span, gap_text, kind in ((after, line[mine[1]:after[0]] if after else "", "after"),
+                                 (before, line[before[1]:mine[0]] if before else "", "before")):
+        if span is None or len(gap_text) > MAX_ADJACENT_GAP:
             continue
-        name = _identifier_of(text)
+        if not (_AFTER_GAP if kind == "after" else _BEFORE_GAP).match(gap_text):
+            continue
+        nearest = min((_gap_to((span[0], span[1]), other) for other in others), default=len(gap_text) + 1)
+        precedes = any(other[1] <= span[0] for other in others)
+        if nearest < len(gap_text) or (nearest == len(gap_text) and kind == "before" and precedes):
+            continue  # another citation is nearer: the name is about that one
+        name = _identifier_of(span[2])
         if name is not None:
             names.append(name)
     return list(dict.fromkeys(names))
+
+
+def cited_identifiers(line: str) -> list[str]:
+    """The names a line writes right beside its ``path:line`` citations, in order, each once."""
+    names: list[str] = []
+    for match in _CITATION.finditer(line):
+        names.extend(_adjacent_identifiers(line, match))
+    return list(dict.fromkeys(names))
+
+
+def _where_now(path: Path, names: list[str]) -> str:
+    """Where each name is now: its definition line when the file defines it, else its first mention.
+
+    Makes a drift warning actionable: the writer corrects the range instead of searching for it.
+    """
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    found: list[str] = []
+    for name in names:
+        word = re.compile(rf"\b{re.escape(name)}\b")
+        definition = re.compile(rf"^\s*(?:async\s+def|def|class)\s+{re.escape(name)}\b|^\s*{re.escape(name)}\s*[:=]")
+        at = next((n for n, text in enumerate(lines, start=1) if definition.search(text)), None) or \
+            next((n for n, text in enumerate(lines, start=1) if word.search(text)), None)
+        found.append(f"{name} is now at line {at}" if at else f"{name} is not in {path.name} at all")
+    return "; ".join(found)
 
 
 def _drift(path: Path, first: int, last: int, names: list[str]) -> list[str]:
@@ -223,5 +278,5 @@ def check_citations(text: str, context: CitationContext) -> list[CitationFinding
                 findings.append(CitationFinding(
                     LEVEL_WARN, number, citation,
                     f"{', '.join(moved)}, written beside the citation, is not within {DRIFT_WINDOW} lines of the "
-                    f"cited range in {path.name}: the lines have probably moved"))
+                    f"cited range in {path.name}: the lines have probably moved ({_where_now(path, moved)})"))
     return findings
