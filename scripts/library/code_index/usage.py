@@ -28,6 +28,11 @@ CATEGORY_INDEX = "index"
 CATEGORY_GREP = "grep"
 CATEGORY_READ = "read"
 CATEGORY_SHELL_SEARCH = "shell_search"
+# Written by the redirect-large-read hook, not by the search hook: a whole read of a large file
+# that was answered with the file's outline (or a log's digest) instead.
+CATEGORY_READ_REDIRECT = "read_redirect"
+# The same agent's repeat of that read, which the hook let through: it read the whole file anyway.
+CATEGORY_READ_REDIRECT_REPEAT = "read_redirect_repeat"
 
 # A grep for one identifier (optionally a dotted path, a word boundary, a def/class prefix,
 # or a trailing call paren): a definition or reference lookup find_symbol/find_references answers.
@@ -72,7 +77,13 @@ class UsageReport:
         share = f"{100 * index_calls // total}%" if total else "n/a"
         lines = [f"Code-search usage since {self.since} ({self.sessions} sessions)"]
         lines.extend(f"  {name:13} {tally.render()}" for name, tally in sorted(self.categories.items()))
-        tools = ", ".join(f"{name} {count}" for name, count in self.index_tools.most_common()) or "none"
+        redirected = self.categories.get(CATEGORY_READ_REDIRECT)
+        if redirected is not None:
+            repeated = self.categories.get(CATEGORY_READ_REDIRECT_REPEAT, Tally()).calls
+            lines.append(f"Whole reads of large files answered with an outline or digest instead: {redirected.calls} "
+                         f"(the notices cost ~{redirected.chars // CHARS_PER_TOKEN:,} tokens in all); the agent read "
+                         f"the whole file anyway after {repeated} of them")
+        tools =", ".join(f"{name} {count}" for name, count in self.index_tools.most_common()) or "none"
         lines.append(f"Index tools used: {tools}")
         lines.append(f"Index could have answered: identifier greps {self.identifier_greps.render()}; "
                      f"whole reads of large .py files {self.large_full_reads.render()}")
