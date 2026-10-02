@@ -18,9 +18,11 @@ import sys
 from pathlib import Path
 from typing import Final
 
-_LIBRARY_DIR: Final = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))),
-    "scripts", "library")
+#: The workspace root: this file is <workspace>/datrix/claude-config/.claude/hooks/_hook_log.py.
+WORKSPACE: Final = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.realpath(__file__))))))
+#: The scripts library, for hooks that import ``shared.*`` or ``code_index.*``.
+LIBRARY_DIR: Final = os.path.join(WORKSPACE, "datrix", "scripts", "library")
 
 
 def append_record(log: str, record: dict[str, object], writer: str, max_bytes: int | None = None) -> None:
@@ -29,13 +31,13 @@ def append_record(log: str, record: dict[str, object], writer: str, max_bytes: i
     ``max_bytes`` left unset takes ``shared.capped_log.DEFAULT_MAX_BYTES`` -- the cap every log
     with no reason for its own shares, including logs a hook and a library script both write.
     """
-    if _LIBRARY_DIR not in sys.path:
-        sys.path.insert(0, _LIBRARY_DIR)
+    if LIBRARY_DIR not in sys.path:
+        sys.path.insert(0, LIBRARY_DIR)
     try:
         from shared.capped_log import DEFAULT_MAX_BYTES, append_line
     except ImportError as exc:
         sys.stderr.write(f"{writer}: could not append to {log}: shared.capped_log not importable from "
-                         f"{_LIBRARY_DIR}: {exc}\n")
+                         f"{LIBRARY_DIR}: {exc}\n")
         return
     try:
         append_line(Path(log), json.dumps(record, ensure_ascii=False),

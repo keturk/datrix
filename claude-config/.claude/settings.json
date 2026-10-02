@@ -97,6 +97,16 @@
         ]
       },
       {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/redirect-large-read.py\"",
+            "timeout": 120
+          }
+        ]
+      },
+      {
         "matcher": "AskUserQuestion",
         "hooks": [
           {
@@ -113,6 +123,26 @@
           {
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/track-mandatory-reads.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/digest-red-test-run.py\"",
+            "timeout": 150
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/inject-task-orientation.py\"",
+            "timeout": 150
           }
         ]
       },

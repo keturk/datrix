@@ -18,7 +18,7 @@ when the work calls for it. Read the doc — do not act from memory of it.
 | feel pressure to ship a smaller change than the defect deserves | execution-contract §14 |
 | call any repo script | `datrix/scripts/quick-reference.md` |
 | implement significant new logic, or look for a definition or its uses | code-index MCP tools (`find_canonical`, `find_symbol`, `find_references`, `outline`, `search`); no MCP → `datrix/scripts/dev/code-index.ps1` |
-| read a large file whole to answer a question about it, or read a test/generation/deploy log | local-model MCP tools `ask_files` / `digest_log` (`datrix-local-llm`): the answer cites `path:line` and is a lead — confirm the cited lines with a ranged Read before acting; no MCP → read by range |
+| read a large file whole to answer a question about it, or read a test/generation/deploy log | local-model MCP tools `ask_files` (what code does, how something is done — **not** definitions or call sites, which a model invents: use the code index) / `digest_log` (`datrix-local-llm`): the answer cites `path:line` and is a lead — confirm the cited lines with a ranged Read before acting; no MCP → read by range |
 
 **Architecture:** `datrix/docs/architecture/architecture-cheat-sheet.md`,
 `design-principles-cheat-sheet.md`, then `architecture-overview.md` (index).
@@ -138,6 +138,7 @@ doing the wrong thing.
 | `PreToolUse(Bash\|PowerShell)` | `guard-repo-temp-dirs.py` | opening a temp/scratch dir inside a package repo from a shell — the `mkdir`, the redirect, and the `-Output*` argument |
 | `PreToolUse(Write\|Edit\|NotebookEdit)` | `guard-repo-temp-dirs.py`, `guard-temp-file-policy.py` | temp/scratch dirs and files inside package repos |
 | `PreToolUse(Write\|Edit\|NotebookEdit)` | `gate-mandatory-reads.py` | any edit until the gated docs are read in this session (and re-read after a compaction) |
+| `PreToolUse(Read)` | `redirect-large-read.py` | the **first** whole read (no `offset`/`limit`) of a large `.py` file or test log in the framework repos — answered with the file's code-index outline, or a local model's digest of the log; repeat the same Read to get the whole file (shown once per file per agent) |
 | `PreToolUse(AskUserQuestion)` | `gate-decision-escalation.py` | handing a decision back to Jon mid-run instead of escalating |
 
 **Adding a check?** Put it in a hook or a test, not in this file. A rule written here is paid

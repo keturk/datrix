@@ -1,5 +1,6 @@
 ---
-model: sonnet
+model: claude-sonnet-5-5
+effort: medium
 ---
 
 # Evaluate Generated Service Skill

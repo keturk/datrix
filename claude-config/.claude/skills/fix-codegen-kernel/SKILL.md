@@ -1,6 +1,7 @@
 ---
 description: Diagnose and fix datrix-codegen-kernel test failures, errors, and warnings from structured test results
-model: sonnet
+model: claude-sonnet-5-5
+effort: medium
 ---
 
 # Fix Codegen Kernel

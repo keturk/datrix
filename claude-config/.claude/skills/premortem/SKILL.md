@@ -1,6 +1,7 @@
 ---
 description: Runs a premortem on any plan, launch, product, hire, strategy, or decision. Assumes it already failed 6 months later and works backward to find every reason why. Produces a revised plan with blind spots exposed.
-model: sonnet
+model: claude-sonnet-5-5
+effort: medium
 delegation-strategy:
   phases:
     - name: "context_gathering"

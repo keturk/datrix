@@ -1,6 +1,7 @@
 ---
 description: Diagnose and fix datrix-codegen-angular test failures, errors, and warnings from structured test results
-model: sonnet
+model: claude-sonnet-5-5
+effort: medium
 ---
 
 # Fix Codegen Angular

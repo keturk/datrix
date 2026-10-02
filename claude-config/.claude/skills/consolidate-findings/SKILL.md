@@ -1,4 +1,6 @@
 ---
+model: claude-opus-5-5
+effort: medium
 description: Merge every findings file under d:\datrix\reports\finding into one consolidated findings file — an existing one (merged into, IDs kept) or a new one. Splits umbrella files into single defects, merges duplicates that name the same defect, groups by owning surface, ranks by severity, and archives the ingested sources with a ledger so no finding and no cited path is lost. Use when Jon asks to "consolidate findings", "merge the findings", "clean up reports/finding", or runs /consolidate-findings.
 ---
 

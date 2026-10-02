@@ -1,6 +1,7 @@
 ---
 description: Analyze project bug reports from any deployment profile, classify as app-definition or generator-level, fix root causes without breaking sibling profiles, and update reports with resolution
-model: opus
+model: claude-opus-5-5
+effort: medium
 ---
 
 # Fix Bug Report

@@ -16,11 +16,11 @@ Read the task file at the path above. It contains everything you need: files to 
 
 ### 1. UNDERSTAND (Read Only — No Edits)
 
-- Read the task file completely
-- Read ALL files listed in "Files to Review Before Starting"
+- Read the task file completely. **If it has an `## Orientation` block, the harness answers it into your context right after you read the file** (a block starting "Orientation for task-NN-TT, answered for you just now"): exact code-index facts — definitions, callers, outlines — and a local model's cited reading of files the task says to understand but not edit. **Do not read the files that block covers.** Its explanations are leads: confirm a cited line with a ranged Read before you rely on it. An entry marked `UNRESOLVED` / `STALE TASK PREMISE` names code that is no longer as the task says: find its current form with the code-index tools (`find_symbol`, `search`) before editing, and say so in your report.
+- Read ALL files listed in "Files to Review Before Starting" — for a task written to the current template that is only the rules, the design sections and the edit sites (read the edit sites by line range)
 - Read existing code in files to be modified
 - Search for existing functions/utilities to reuse (DRY principle): code-index MCP `find_symbol` / `search` before grep
-- To learn what a module or a set of files does, or where something happens in them, ask before reading them whole: local-model MCP `ask_files` (paths or a glob plus a question) returns a short answer citing `path:line`. It is a lead — read the cited lines (ranged Read) before relying on it. The files you will modify you still read yourself.
+- To learn what a module or a set of files does, ask before reading them whole: local-model MCP `ask_files` (paths or a glob plus a question about what the code does or how something is done) returns a short answer citing `path:line`. It is a lead — read the cited lines (ranged Read) before relying on it. **Never ask it where something is defined or who calls it** (it invents both): use `find_symbol` / `find_references`, which are exact. The files you will modify you still read yourself.
 - Check logic map markers (code-index MCP `find_canonical`, or `datrix/scripts/dev/code-index.ps1 -Canonical <topic>`) before modifying marked code
 - **Ambiguity is not a blocker — it is a question you first try to answer yourself.** Read the design docs, the surrounding code, and existing patterns. Return `NEEDS_CONTEXT` **only** for a genuine B2 (two defensible designs, expensive to reverse, nothing in the docs settles it) or a missing user input you cannot derive — and when you do, state the options and **your recommendation**, never a bare question.
 - **You are a subagent: do NOT spawn subagents.** Do this work yourself, sequentially. A nested fan-out multiplies token cost with no added coverage, and `guard-no-nested-agents.py` refuses the call anyway.

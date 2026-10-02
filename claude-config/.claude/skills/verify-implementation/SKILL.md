@@ -1,7 +1,7 @@
 ---
 description: Code-review completed tasks against the design document they implement, then fix anything wrong or missing so the implementation conforms to the design
-model: sonnet
-effort: high
+model: claude-sonnet-5-5
+effort: medium
 disable-model-invocation: true
 ---
 

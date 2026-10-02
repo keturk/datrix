@@ -1,6 +1,7 @@
 ---
 description: Absorb a design document into existing docs across all repos, replace all references, and delete the source
-model: sonnet
+model: claude-sonnet-5-5
+effort: medium
 disable-model-invocation: true
 ---
 

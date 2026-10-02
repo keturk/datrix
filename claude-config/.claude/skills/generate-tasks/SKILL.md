@@ -1,5 +1,6 @@
 ---
-model: opus
+model: claude-opus-5-5
+effort: medium
 ---
 
 # Generate Tasks Skill
@@ -201,7 +202,19 @@ Key module paths: {list ONLY the module paths this task actually touches or cons
 1. **Agent rules:** `d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md` (index with links to sub-documents)
 2. **Test guidelines:** `d:\datrix\datrix-common\docs\contributing\test-guidelines\` (unit, integration, e2e — each an index with links to shared sub-documents under `shared/`)
 3. **Design doc:** `{absolute-design-doc-path}` -- Section(s) {X.Y}
-{4. Additional files: architecture docs, existing code, example .dtrx files relevant to this task — ALL with absolute paths}
+{4. **Edit sites** — the files this task changes, each with the line range to read: `{absolute-path}` (lines {a-b}) -- {why}. Architecture docs and example .dtrx files the task works from. ALL with absolute paths.}
+
+{One line: "The callers, the definitions and the test style are not listed here: they are in `## Orientation` below, answered for you when you read this file." — only when the task has orientation.}
+
+## Orientation
+
+```orientation
+{One entry per line; see "Orientation" below. Facts the implementer needs about code it will NOT edit.}
+symbol: {name}
+refs: {dotted.path.of.a.definition}
+outline: {absolute-or-workspace-relative-path}
+explain: {path}; {path} :: {a full question about what the code does or how something is built}
+```
 
 ## Files to Create
 
@@ -312,7 +325,39 @@ Mark with @pytest.mark.e2e.}
 ```
 ```
 
+#### Orientation (the `## Orientation` block)
+
+**Why.** An implementer used to be told to read every file under "Files to Review Before Starting". Measured over 82 implementing agents, 57% of the source and test tokens they read were on files they never edited — callers, definitions, neighbours, a test's style — read whole to learn a handful of facts. The task writer knows those facts. The `inject-task-orientation.py` hook answers the block when the agent reads the task file (every implementer reads it first), so the agent gets the facts without reading the files. A task with no block is simply not answered; none is required, but a task whose "Files to Review" lists files the agent will not edit is written wrong.
+
+**What goes where.** "Files to Review Before Starting" keeps only what the implementer must read itself: the agent rules, the design doc sections, and the **edit sites** (files it will change, with line ranges). Everything it reads only to *understand* becomes an orientation entry. A fenced block under `## Orientation`; one entry per line; blank lines and `#` comments are ignored:
+
+| Entry | Answered by | Use it for |
+|---|---|---|
+| `symbol: <name>` | the code index, exactly | where a function / class / constant is defined (`file:line`, signature, first docstring line) |
+| `refs: <dotted.path>` | the code index, exactly | every caller and import of a definition, resolved through aliases and re-exports (take the dotted path from `symbol`) |
+| `outline: <path>` | the code index, exactly | a file's definitions with line ranges, plus the module summary |
+| `canonical: <topic>` | the code index, exactly | the logic-map markers (`@canonical` / `@pattern` / `@invariant`) for a topic |
+| `explain: <path>; <path> :: <question>` | a local model reading the files | what code does or how something is built — a **lead** the agent confirms with a ranged Read, never a finding. At most 3 per task, 8 files each |
+
+**Never ask a model where something is defined or who calls it.** A local model asked that invents definitions and callers in files it was never given (observed). `symbol` and `refs` answer both exactly and cost nothing; `validate-task.ps1` rejects an `explain` question of that shape.
+
+**Learn the facts the way the implementer will.** Use the code-index tools (`find_symbol`, `find_references`, `outline`, or `dev/code-index.ps1`) and `ask_files` instead of reading source to write the task: the `file:line` facts in "Verified facts" are then exact copies of what the index says, not of what a reading remembered. An entry that does not resolve when the task is written is a premise that is already false.
+
+**Example** (a task that adds an identifier-boundary match to one helper):
+```
+symbol: enum_imports_used_in_body
+refs: datrix_codegen_typescript.generators.messaging._messaging_helpers.enum_imports_used_in_body
+symbol: collect_enums_for_service
+explain: d:\datrix\datrix-codegen-typescript\tests\unit\entity\test_enum_value_documentation.py :: How does a test in this file build a service that carries an enum?
+```
+
 ### Step 6: Validate Task Files
+
+**Validate every task against the tree as it is now** — the orientation block resolves, and no `path:line` citation is missing or out of range:
+```bash
+powershell -File "d:/datrix/datrix/scripts/tasks/validate-task.ps1" -Phase {NN} -RequireOrientation
+```
+Errors fail it (exit 1); fix each in the task. Warnings (a name written beside a citation that is not near its cited lines) mean the lines have probably moved: correct the citation. It is also the check an orchestrator runs before dispatching each wave, because a phase runs for days while other tasks change the same files.
 
 **Run the mechanical checks (1, 2, 3, part of 4a, and all of 17) with the validator AFTER Step 7 writes dependencies.md:**
 ```bash

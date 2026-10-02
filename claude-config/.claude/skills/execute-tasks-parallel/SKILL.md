@@ -1,6 +1,7 @@
 ---
 description: Execute multiple tasks in parallel — evaluate all tasks for blockers, then delegate each to a separate agent
-model: sonnet
+model: claude-sonnet-5-5
+effort: medium
 disable-model-invocation: true
 delegation-strategy:
   phases:
@@ -213,6 +214,10 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    - Self-check protocol
    - STUCK protocol
    - JSON result format
+
+   **Orientation (tell each agent this in its prompt):** its task's `## Orientation` block is answered into its context when it reads the task file (exact code-index facts, and a local model's cited reading of files to understand but not edit), so it does not read the files that block covers; it reads its edit sites by range and confirms any cited line it relies on with a ranged Read. The agent template carries the same instruction.
+
+   **Before spawning, validate every task of the batch against the tree as it is now** — other work changed code since the tasks were written: `powershell -File "d:/datrix/datrix/scripts/tasks/validate-task.ps1" -Task <the batch's task files, comma-separated>`. An `ERROR` (an orientation entry that no longer resolves, a `path:line` past its file's end, a missing file) is a stale premise: fix that task file yourself — it is data — using the code-index tools (`find_symbol`, `find_references`, `outline`), and re-run until it exits 0; never dispatch an agent on a task that names code that is not there. A `WARN` (a cited line moved): dispatch, and put the warning lines in that agent's prompt so it re-locates the code.
 
 2. **Spawn all agents in parallel** using a single message with multiple Task tool calls (all `run_in_background: true`, `max_turns: 40`)
 

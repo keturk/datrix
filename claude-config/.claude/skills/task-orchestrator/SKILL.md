@@ -1,7 +1,7 @@
 ---
 description: Fully automated multi-wave task orchestrator with dependency analysis and test gating
-model: opus
-effort: xhigh
+model: claude-opus-5-5
+effort: medium
 ---
 
 # Task Orchestrator
@@ -164,7 +164,7 @@ The audit is **read-only with respect to source code** — it authors task files
 
 1. **Coverage gap** — a design invariant/surface from the 1d contract with no task implementing it. Includes the case where a task covers *part* of an invariant's surface set (the guard on the easy surface, the rest silently dropped).
 2. **Enforcement ordering gap** — a validator / fail-loud guard / parser rejection exists as a task but is NOT a `Depends on` of every task that migrates or relies on content it governs (CLAUDE.md "Enforcement before what it governs"). Also the case where the *guard itself is missing* while its migration task exists.
-3. **Stale premise** — the task assumes code state that is no longer true: a file/class/function/constant it says to modify does not exist, has been renamed, or already carries the change. Verify each task's `## Files to Review Before Starting`, `## Files to Create` and the specific symbols it names against the code on disk.
+3. **Stale premise** — the task assumes code state that is no longer true: a file/class/function/constant it says to modify does not exist, has been renamed, or already carries the change. **Run `powershell -File "d:/datrix/datrix/scripts/tasks/validate-task.ps1" -Phase {NN}` first** — scripted, exact and free: every `ERROR` is a stale-premise finding with its evidence already attached (a `path:line` past the end of its file, a missing file, an `## Orientation` entry — a symbol, an outline, a reference target — that no longer resolves), and every `WARN` is a citation whose lines have probably moved. Then verify by judgment what a script cannot: the `## Files to Create` and any symbol the task names outside a citation or an orientation entry, against the code on disk.
 4. **Already-satisfied** — the current implementation already provides the task's design acceptance property. Prove it with the acceptance check (negative + positive); a task that merely *looks* done is not.
 5. **Under-specified task** — a non-trivial task with a blank / vacuous `**Design acceptance property:**` ("tests pass", "it generates"). Its completion cannot be verified, so 3g can never pass it honestly.
 6. **Missing dependency edge** — task B modifies or imports a file/symbol task A creates, but B does not `Depends on` A; or two tasks in the same prospective wave write the same file with no ordering.
@@ -396,13 +396,20 @@ Maintain these state variables throughout the loop:
 
 ### For Each Wave:
 
-#### 3a. Check for Skipped Tasks
+#### 3a. Check for Skipped Tasks, and for Tasks the Last Wave Made Stale
 
 Before executing a wave, check if any task in this wave depends on a `failed_task`:
 - If yes, add it to `skipped_tasks` with reason: `"Dependency {dep_id} failed"`
 - Transitively skip all downstream tasks that depend on skipped tasks
 - Remove skipped tasks from the wave
 - If the entire wave is skipped → emit checkpoint and move to next wave
+
+Then **validate the wave's tasks against the tree as the previous waves left it** (the tasks were written days ago, and every completed wave changed code):
+```bash
+powershell -File "d:/datrix/datrix/scripts/tasks/validate-task.ps1" -Task <the wave's task files, comma-separated>
+```
+- **`ERROR`** (an orientation entry no longer resolves, a `path:line` is past the end of its file or its file is gone) — the task's premise is stale. Fix the task file yourself — it is data: re-resolve the entry with the code-index tools (`find_symbol`, `find_references`, `outline`), correct the citation — and re-run the validator until it exits 0. Never dispatch an agent on a task that names code that is not there: it will spend its turns discovering that. A task that an earlier task in this run made *already satisfied* is the 1e audit's "already-satisfied" finding, handled there.
+- **`WARN`** (a name written beside a citation is not near its cited lines: the lines moved) — dispatch, and put the warning lines into the agent's prompt so it re-locates the code instead of trusting the line numbers.
 
 #### 3b. Spawn Implementation Agents (rolling pool)
 
@@ -417,6 +424,8 @@ Run the wave through a **rolling pool of up to 5 concurrent agents** (`CAP = 5`)
 5. **Wave join:** the pool being fully drained (`in_flight` empty, `wave_queue` empty) is the barrier before the test gate. Do NOT start 3d until the join — this preserves the "never test mid-wave" hard rule.
 
 A re-spawn (NEEDS_CONTEXT answered, or escalation recommendation ready) goes back through the pool like any other dispatch — it re-enters `wave_queue` and takes the next free slot.
+
+**What the agent's prompt says about reading.** Each implementer reads its own task file first; when it does, the `inject-task-orientation.py` hook answers the task's `## Orientation` block (exact code-index facts and a local model's cited reading) into the agent's context. Tell the agent in its prompt: *its task's orientation is answered when it reads the task file, so it does not read the files the orientation covers; it reads the edit sites it will change by range, and confirms any cited line it relies on with a ranged Read.* A task with no block is answered with nothing, and the agent reads what the task's "Files to Review" lists — which, for a task written to the current template, is only the rules, the design sections and the edit sites.
 
 **Task tool parameters:**
 - `subagent_type: "general-purpose"`

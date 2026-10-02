@@ -1,6 +1,7 @@
 ---
 description: Execute implementation tasks from task files — read, implement, verify, mark complete
-model: sonnet
+model: claude-sonnet-5-5
+effort: medium
 disable-model-invocation: true
 delegation-strategy:
   phases:
@@ -144,8 +145,9 @@ Process tasks one at a time in dependency order. For each task:
 
 #### Step 1: Understand (Read Only — No Edits)
 
-1. **Read the task file completely**
-2. **Read ALL files listed in "Files to Review Before Starting"**
+0. **Validate the task against the tree as it is now** (earlier tasks changed code since it was written): `powershell -File "d:/datrix/datrix/scripts/tasks/validate-task.ps1" -Task {task_path}`. An `ERROR` (an orientation entry that no longer resolves, a `path:line` past the end of its file, a missing file) means the task's premise is stale: fix the task file — it is data — with the code-index tools (`find_symbol`, `find_references`, `outline`), re-run until it exits 0, then continue. A `WARN` means a cited line moved: re-locate the code instead of trusting the number.
+1. **Read the task file completely.** If it has an `## Orientation` block, the harness answers it into your context right after you read the file (exact code-index facts, and a local model's cited reading of files you are to understand but not edit): **do not read the files that block covers.** Explanations are leads — confirm a cited line with a ranged Read before relying on it; an entry marked `STALE TASK PREMISE` names code that is no longer as the task says
+2. **Read ALL files listed in "Files to Review Before Starting"** (for a task written to the current template: the rules, the design sections and the edit sites — read the edit sites by line range)
 3. **Read existing code** in any files that will be modified (use Read tool)
 4. **Study existing Datrix implementation patterns** — do NOT reinvent anything
 5. **Search for existing functions/utilities** before writing new code (DRY principle)
