@@ -204,17 +204,6 @@ _CAPABILITY_GAP_LEDGER_FIELDS: Final[frozenset[str]] = frozenset({
     "capability_gaps",
 })
 
-#: Fields the foundation has retired but a declaration may still carry until
-#: their deletion lands. No surface reads them; they are subtracted from the
-#: optional population so the guard holds on a declaration that still has them
-#: and on one that no longer does. This constant is the only place the names
-#: survive.
-_RETIRED_FIELDS: Final[frozenset[str]] = frozenset({
-    "declared_set_exclusions",
-    "unrealizable_surfaces",
-    "declared_capability_reasons",
-})
-
 _OPTIONAL_BUCKETS: Final[tuple[tuple[str, frozenset[str]], ...]] = (
     ("_SURFACE_OWNED_OPTIONAL_FIELDS", _SURFACE_OWNED_OPTIONAL_FIELDS),
     ("_CONSTRUCTION_ENFORCED_OPTIONAL_FIELDS", _CONSTRUCTION_ENFORCED_OPTIONAL_FIELDS),
@@ -222,7 +211,6 @@ _OPTIONAL_BUCKETS: Final[tuple[tuple[str, frozenset[str]], ...]] = (
     ("_PLATFORM_FACT_FIELDS", _PLATFORM_FACT_FIELDS),
     ("_EMISSION_INVENTORY_FIELDS", _EMISSION_INVENTORY_FIELDS),
     ("_CAPABILITY_GAP_LEDGER_FIELDS", _CAPABILITY_GAP_LEDGER_FIELDS),
-    ("_RETIRED_FIELDS", _RETIRED_FIELDS),
 )
 
 #: Required fields compared by a dedicated surface: ``{field: surface that compares it}``.
@@ -261,7 +249,6 @@ def configure_logging(debug: bool = False) -> None:
 def _partition_problems(
     population: set[str],
     buckets: Sequence[tuple[str, frozenset[str]]],
-    ignored_stale: frozenset[str],
 ) -> list[str]:
     """Describe fields of *population* unaccounted for, stale bucket names and
     names claimed by more than one bucket."""
@@ -271,7 +258,7 @@ def _partition_problems(
         overlaps |= accounted & bucket
         accounted |= bucket
     missing = population - accounted
-    stale = accounted - population - ignored_stale
+    stale = accounted - population
     problems: list[str] = []
     if missing:
         problems.append(
@@ -306,12 +293,10 @@ def _assert_field_partition_complete(fields: Sequence[dataclasses.Field[object]]
     }
     required = {f.name for f in fields} - optional
     problems = [
-        f"required {problem}"
-        for problem in _partition_problems(required, _REQUIRED_BUCKETS, frozenset())
+        f"required {problem}" for problem in _partition_problems(required, _REQUIRED_BUCKETS)
     ]
     problems.extend(
-        f"optional {problem}"
-        for problem in _partition_problems(optional, _OPTIONAL_BUCKETS, _RETIRED_FIELDS)
+        f"optional {problem}" for problem in _partition_problems(optional, _OPTIONAL_BUCKETS)
     )
     if problems:
         raise AssertionError(
@@ -355,7 +340,8 @@ def extract_facts(platform: str, decl: PlatformCapabilityDeclaration) -> Platfor
             declared whether its gateway terminates TLS -- every registered
             platform states both, so an absent one is a defect, never a skip.
     """
-    origin = decl.static_web_hosting.origin
+    hosting = decl.static_web_hosting
+    origin = None if hosting is None else hosting.origin
     if origin is None:
         raise ValueError(
             f"Platform {platform!r} declares no static web hosting origin. Every registered "
@@ -731,11 +717,6 @@ def _self_test_partition(problems: list[str]) -> None:
         _assert_field_partition_complete(live)
     except AssertionError as error:
         problems.append(f"self-test [partition, live declaration]: {error}")
-    without_retired = [f for f in live if f.name not in _RETIRED_FIELDS]
-    try:
-        _assert_field_partition_complete(without_retired)
-    except AssertionError as error:
-        problems.append(f"self-test [partition, declaration without retired fields]: {error}")
     required = sorted(_REQUIRED_PLATFORM_FACT_FIELDS | set(_REQUIRED_FIELD_OWNERS))
     optional = sorted(_VOCABULARY_SET_FIELDS)
     _expect_partition_failure(
@@ -752,7 +733,6 @@ def _self_test_partition(problems: list[str]) -> None:
     doubly_claimed = _partition_problems(
         {"self_test_field"},
         (("X", frozenset({"self_test_field"})), ("Y", frozenset({"self_test_field"}))),
-        frozenset(),
     )
     if not any("more than one bucket" in p and "self_test_field" in p for p in doubly_claimed):
         problems.append(
