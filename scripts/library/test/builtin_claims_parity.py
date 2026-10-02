@@ -1,27 +1,27 @@
-"""Cross-language builtin-claims parity gate, reading per-group stances.
+"""Cross-language builtin-claims parity gate, reading each language's realized set.
 
 Two things are checked over every registered `datrix.languages` plugin's
-`LanguageCapabilityDeclaration.builtin_group_stances`:
+`LanguageCapabilityDeclaration`:
 
-1. STANCE KEY-SET IDENTITY. Every language declares a stance for exactly the same set
-   of BuiltinGroup names -- guaranteed identical by construction for any language whose
-   plugin loaded at all (the per-language, registration-time completeness check in
-   `register_builtin_capability` already enforces it, at plugin import).
-   Kept here as a non-vacuity proof, not because it can fail for
-   an installed set: a future change that decoupled per-language enforcement from this
-   repo-level check would be caught here first.
-2. PER-GROUP STANCE-VS-MAPPER COHERENCE. For every group, a language is 'supported' (and
-   maps every BUILTIN_REGISTRY row in that group) or 'unsupported' with a non-empty
-   reason. Re-derives the SAME completeness/coverage judgment
+1. CLAIM ACCOUNTING. A language's `realized_builtin_groups` names only real
+   BuiltinGroup members; every group a language is obligated to realize (derived from
+   the group's own `axis` by `obligated_groups`, never from a list here and never from
+   the language's own claim) is either in its realized set or carried as a
+   `builtin_group:<id>` row in its `capability_gaps`; and no group is both realized and
+   rowed (a stale row). The rows are read only to say which obligated groups are
+   accounted for -- they excuse nothing the mapper check below measures.
+2. REALIZED-GROUP-VS-MAPPER COHERENCE. Every BUILTIN_REGISTRY row whose group the
+   language realizes is mapped by that language's profile. Re-derives, as an independent
+   backstop, the same judgment
    `datrix_codegen_common.transpiler.parity_checker.register_builtin_capability` already
-   enforces at each language's own plugin import -- as a pure, dependency-injected
-   comparator over stance dicts and mapped-key frozensets (never a full LanguageProfile
-   construction), so this repo-level gate is testable with synthetic data and does not
-   duplicate the registration-time raise -- it is the belt-and-suspenders backstop.
+   enforces at each language's own plugin import -- as pure, dependency-injected
+   comparators over frozensets (never a full LanguageProfile construction), so this
+   repo-level gate is testable with synthetic data and is not a call-through to the
+   registration-time raise.
 
-The per-method reviewed-gap file this gate previously read is DELETED outright: a
-`supported` stance is fully mapped by construction (enforced at plugin import), so
-there is no more "mapped by some languages, not all" state left to catalogue.
+Every obligated group a language carries as a gap row is logged on a live run (one INFO
+line per `builtin_group:<id>` surface); the count belongs to the capability-gap ledger
+gate.
 
 Target set is NEVER hardcoded: languages are enumerated from the installed
 `datrix.languages` entry points at run time.
@@ -32,7 +32,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Final, cast
 
@@ -45,19 +44,20 @@ from shared.registered_targets import registered_language_names  # noqa: E402
 from datrix_codegen_common.transpiler.builtin_registry import (  # noqa: E402
     BUILTIN_REGISTRY,
     BuiltinGroup,
+    obligated_groups,
 )
 from datrix_codegen_common.transpiler.profile import TranspilerProfile  # noqa: E402
 from datrix_codegen_kernel.generation.discovery import get_language_plugin  # noqa: E402
-from datrix_common.plugin.language_capability import BuiltinGroupStance  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 _MIN_LANGUAGES_FOR_COMPARISON: Final[int] = 2
 
-_SELF_TEST_LANGUAGE_A: Final[str] = "self_test_lang_a"
-_SELF_TEST_LANGUAGE_B: Final[str] = "self_test_lang_b"
-_SELF_TEST_GROUP_SHARED: Final[str] = "self_test_group_shared"
-_SELF_TEST_GROUP_FORCED_GAP: Final[str] = "self_test_group_forced_gap"
+#: The `capability_gaps` surface prefix a builtin group's tracked gap is recorded under.
+_GROUP_GAP_PREFIX: Final[str] = "builtin_group:"
+
+#: The obligation axis a `LanguageCapabilityDeclaration` is measured on.
+_LANGUAGE_AXIS: Final[str] = "language"
 
 
 def configure_logging(debug: bool = False) -> None:
@@ -66,43 +66,100 @@ def configure_logging(debug: bool = False) -> None:
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
+def group_vocabulary() -> frozenset[str]:
+    """Every BuiltinGroup value -- the closed vocabulary a realized name must belong to."""
+    return frozenset(group.value for group in BuiltinGroup)
+
+
+def obligated_group_names() -> frozenset[str]:
+    """The group names a language is obligated to realize, derived from each group's axis."""
+    return frozenset(group.value for group in obligated_groups(axis=_LANGUAGE_AXIS))
+
+
 # ---------------------------------------------------------------------------
-# Surface 1: stance key-set identity
+# Surface 1: claim accounting
 # ---------------------------------------------------------------------------
 
 
-def stance_key_set(language: str) -> frozenset[str]:
-    """Return *language*'s declared builtin_group_stances key set (group names)."""
+def realized_group_names(language: str) -> frozenset[str]:
+    """Return the group names *language* realizes."""
     plugin = get_language_plugin(language)
-    return frozenset(plugin.capability.builtin_group_stances)
+    return plugin.capability.realized_builtin_groups
 
 
-def compare_stance_key_sets(
-    per_language: Mapping[str, frozenset[str]],
-) -> dict[str, frozenset[str]]:
-    """Compare every language's stance key set against the union of all.
+def gap_group_names(language: str) -> frozenset[str]:
+    """Return the group ids of *language*'s `builtin_group:<id>` capability gap rows."""
+    plugin = get_language_plugin(language)
+    return frozenset(
+        gap.surface.removeprefix(_GROUP_GAP_PREFIX)
+        for gap in plugin.capability.capability_gaps
+        if gap.surface.startswith(_GROUP_GAP_PREFIX)
+    )
 
-    Kept as a non-vacuity proof (see module docstring) -- this can only ever
-    return all-empty for a set of languages whose plugins all loaded, since
-    `register_builtin_capability` already enforces per-language completeness
-    against the same BuiltinGroup member set at import.
 
-    Raises:
-        ValueError: If *per_language* has fewer than
-            `_MIN_LANGUAGES_FOR_COMPARISON` entries.
+def claim_issues(
+    language: str,
+    *,
+    realized: frozenset[str],
+    obligated: frozenset[str],
+    gap_groups: frozenset[str],
+    vocabulary: frozenset[str],
+) -> list[str]:
+    """Every way *language*'s realized-group claim is unsound.
+
+    Mirrors the registration-time judgment as an independent backstop: a realized name
+    outside the group vocabulary denies; an obligated group that is neither realized nor
+    carried as a tracked gap is unaccounted for; a group that is both realized and
+    carried as a gap row is a stale row. The gap rows are read only to say which
+    obligated groups are accounted for -- they excuse nothing the mapper check below
+    measures.
+
+    Args:
+        language: Language name, used in issue messages only.
+        realized: The group names the language realizes.
+        obligated: The group names the language is obligated to realize.
+        gap_groups: The group ids the language carries as `builtin_group:<id>` rows.
+        vocabulary: Every valid BuiltinGroup value.
+
+    Returns:
+        Human-readable issue descriptions; empty means the claim is sound.
     """
-    if len(per_language) < _MIN_LANGUAGES_FOR_COMPARISON:
-        raise ValueError(
-            f"compare_stance_key_sets requires at least "
-            f"{_MIN_LANGUAGES_FOR_COMPARISON} languages, got "
-            f"{len(per_language)} ({sorted(per_language)})."
+    issues: list[str] = []
+    unknown_realized = sorted(realized - vocabulary)
+    if unknown_realized:
+        issues.append(
+            f"{language!r} realizes unknown builtin group(s) {unknown_realized}. "
+            f"Valid groups: {sorted(vocabulary)}. Fix: remove the name from "
+            f"realized_builtin_groups or correct its spelling."
         )
-    union: frozenset[str] = frozenset[str]().union(*per_language.values())
-    return {name: union - keys for name, keys in per_language.items()}
+    unknown_gapped = sorted(gap_groups - vocabulary)
+    if unknown_gapped:
+        issues.append(
+            f"{language!r} carries a 'builtin_group:<id>' gap row naming unknown "
+            f"group(s) {unknown_gapped}. Valid groups: {sorted(vocabulary)}. Fix: "
+            f"correct the row's group id."
+        )
+    unaccounted = sorted(obligated - realized - gap_groups)
+    if unaccounted:
+        issues.append(
+            f"{language!r} neither realizes obligated builtin group(s) {unaccounted} "
+            f"nor carries a tracked gap for them. Fix: add each name to "
+            f"realized_builtin_groups, or add CapabilityGap(surface="
+            f"'builtin_group:<id>', detail=<the missing runtime capability>) to "
+            f"capability_gaps."
+        )
+    stale = sorted(realized & gap_groups)
+    if stale:
+        issues.append(
+            f"{language!r} both realizes builtin group(s) {stale} and carries a "
+            f"'builtin_group:<id>' gap row for them (a stale row). Fix: delete the "
+            f"gap row, since the group is realized."
+        )
+    return issues
 
 
 # ---------------------------------------------------------------------------
-# Surface 2: per-group stance-vs-mapper coherence
+# Surface 2: realized-group-vs-mapper coherence
 # ---------------------------------------------------------------------------
 
 
@@ -113,44 +170,34 @@ def mapped_builtin_keys(language: str) -> frozenset[tuple[str, str]]:
     return frozenset(transpiler_profile.language_profile.builtins.mapper.mappings.keys())
 
 
-def stance_coverage_issues(
+def mapping_issues(
     language: str,
-    stances: Mapping[str, BuiltinGroupStance],
+    *,
+    realized: frozenset[str],
     mapped_keys: frozenset[tuple[str, str]],
 ) -> list[str]:
-    """Pure comparator: every BuiltinGroup member has a stance, and every group whose
-    stance is 'supported' has every one of its BUILTIN_REGISTRY rows in *mapped_keys*.
+    """Pure comparator: every BUILTIN_REGISTRY row whose group is in *realized* is in
+    *mapped_keys*.
 
     Dependency-injected on purpose (never reads a live plugin itself) so this repo-level
     gate's OWN comparator is testable with synthetic data, independent of
-    `register_builtin_capability` -- the belt-and-suspenders backstop this gate exists
-    to provide, not a call-through to the same function.
+    `register_builtin_capability`. It applies to every realized group regardless of any
+    gap row the language carries.
 
     Args:
         language: Language name, used in issue messages only.
-        stances: `{group name: BuiltinGroupStance}`.
+        realized: The group names the language realizes.
         mapped_keys: The `(category, method)` keys this language's profile maps.
 
     Returns:
-        Human-readable issue descriptions; empty means this language's stances are
-        complete and every 'supported' group is fully mapped.
+        Human-readable issue descriptions; empty means every realized group is fully
+        mapped.
     """
-    issues: list[str] = []
-    required_names = frozenset(group.value for group in BuiltinGroup)
-    missing = sorted(required_names - frozenset(stances))
-    if missing:
-        issues.append(
-            f"{language!r} declares no builtin_group_stances entry for group(s) "
-            f"{missing}."
-        )
-    for key, decl in BUILTIN_REGISTRY.items():
-        stance = stances.get(decl.group.value)
-        if stance is not None and stance.status == "supported" and key not in mapped_keys:
-            issues.append(
-                f"{language!r} declares group {decl.group.value!r} supported but "
-                f"does not map {key!r}."
-            )
-    return issues
+    return [
+        f"{language!r} realizes group {decl.group.value!r} but does not map {key!r}."
+        for key, decl in BUILTIN_REGISTRY.items()
+        if decl.group.value in realized and key not in mapped_keys
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -158,62 +205,109 @@ def stance_coverage_issues(
 # ---------------------------------------------------------------------------
 
 
+def _self_test_claim_cases() -> list[str]:
+    """Plant each claim shape as plain frozensets and check the verdict."""
+    problems: list[str] = []
+    vocabulary = group_vocabulary()
+    obligated = obligated_group_names()
+    client_only = sorted(vocabulary - obligated)
+    if not obligated or not client_only:
+        return [
+            "self-test: the BuiltinGroup axes yield no obligated group or no non-obligated "
+            "group, so the claim cases cannot be planted."
+        ]
+    one_obligated = sorted(obligated)[0]
+    unknown = "self_test_unknown_group"
+    no_rows: frozenset[str] = frozenset()
+    rowed = frozenset({one_obligated})
+    # (label, realized set, gap-row groups, must the comparator flag it?)
+    cases: list[tuple[str, frozenset[str], frozenset[str], bool]] = [
+        ("complete language, no client-axis group realized: clean", obligated, no_rows, False),
+        ("realized name outside the vocabulary: flagged", obligated | {unknown}, no_rows, True),
+        (
+            "obligated group neither realized nor rowed: flagged",
+            obligated - {one_obligated},
+            no_rows,
+            True,
+        ),
+        (
+            "obligated group rowed instead of realized: clean",
+            obligated - {one_obligated},
+            rowed,
+            False,
+        ),
+        ("group both realized and rowed (stale row): flagged", obligated, rowed, True),
+        (
+            "client-axis group extra in the realized set: clean",
+            (obligated - {one_obligated}) | {client_only[0]},
+            rowed,
+            False,
+        ),
+    ]
+    for label, realized, gaps, must_flag in cases:
+        issues = claim_issues(
+            "self_test",
+            realized=realized,
+            obligated=obligated,
+            gap_groups=gaps,
+            vocabulary=vocabulary,
+        )
+        logger.info("self-test case: %s -> %s", label, "flagged" if issues else "clean")
+        if bool(issues) != must_flag:
+            problems.append(
+                f"self-test: claim_issues {'did not flag' if must_flag else 'flagged'} "
+                f"the case '{label}' (issues: {issues})."
+            )
+    return problems
+
+
+def _self_test_mapping_cases() -> list[str]:
+    """Plant a fully-mapped and a one-key-removed realized language."""
+    problems: list[str] = []
+    realized = group_vocabulary()
+    fully_mapped = frozenset(BUILTIN_REGISTRY.keys())
+    logger.info(
+        "self-test case: realized groups fully mapped -> %s",
+        "flagged" if mapping_issues("self_test", realized=realized, mapped_keys=fully_mapped) else "clean",
+    )
+    if mapping_issues("self_test", realized=realized, mapped_keys=fully_mapped):
+        problems.append(
+            "self-test: mapping_issues flagged a fully-mapped synthetic language "
+            "-- over-triggering."
+        )
+    some_key = next(iter(BUILTIN_REGISTRY))
+    logger.info(
+        "self-test case: realized group with one registry key unmapped -> %s",
+        "flagged"
+        if mapping_issues("self_test", realized=realized, mapped_keys=fully_mapped - {some_key})
+        else "clean",
+    )
+    if not mapping_issues("self_test", realized=realized, mapped_keys=fully_mapped - {some_key}):
+        problems.append(
+            f"self-test: mapping_issues did not detect a realized group's unmapped "
+            f"builtin ({some_key!r} removed)."
+        )
+    unrealized_group = BUILTIN_REGISTRY[some_key].group.value
+    if mapping_issues(
+        "self_test",
+        realized=realized - {unrealized_group},
+        mapped_keys=fully_mapped - {some_key},
+    ):
+        problems.append(
+            f"self-test: mapping_issues flagged an unmapped builtin of group "
+            f"{unrealized_group!r}, which this synthetic language does not realize "
+            f"-- over-triggering."
+        )
+    return problems
+
+
 def run_self_test() -> list[str]:
-    """Prove both comparators detect a forced mismatch before any real comparison is trusted.
+    """Prove both comparators detect a planted defect before any real comparison is trusted.
 
     Returns:
         A list of failure descriptions -- empty means both comparators are sound.
     """
-    problems: list[str] = []
-
-    # --- Surface 1: stance key-set identity ---
-    matching_keys = {
-        _SELF_TEST_LANGUAGE_A: frozenset({_SELF_TEST_GROUP_SHARED}),
-        _SELF_TEST_LANGUAGE_B: frozenset({_SELF_TEST_GROUP_SHARED}),
-    }
-    if any(compare_stance_key_sets(matching_keys).values()):
-        problems.append(
-            "self-test: compare_stance_key_sets reported a divergence for a "
-            "synthetic MATCHING pair -- over-triggering."
-        )
-    mismatched_keys = {
-        _SELF_TEST_LANGUAGE_A: frozenset({_SELF_TEST_GROUP_SHARED, _SELF_TEST_GROUP_FORCED_GAP}),
-        _SELF_TEST_LANGUAGE_B: frozenset({_SELF_TEST_GROUP_SHARED}),
-    }
-    key_result = compare_stance_key_sets(mismatched_keys)
-    if _SELF_TEST_GROUP_FORCED_GAP not in key_result.get(_SELF_TEST_LANGUAGE_B, frozenset()):
-        problems.append(
-            "self-test: compare_stance_key_sets did not detect the forced key-set "
-            f"mismatch (got {key_result})."
-        )
-
-    # --- Surface 2: per-group stance-vs-mapper coherence ---
-    complete_stances = {
-        group.value: BuiltinGroupStance(status="supported") for group in BuiltinGroup
-    }
-    fully_mapped = frozenset(BUILTIN_REGISTRY.keys())
-    if stance_coverage_issues("self_test", complete_stances, fully_mapped):
-        problems.append(
-            "self-test: stance_coverage_issues flagged a fully-supported, "
-            "fully-mapped synthetic language -- over-triggering."
-        )
-
-    some_key = next(iter(BUILTIN_REGISTRY))
-    broken_mapped = fully_mapped - {some_key}
-    if not stance_coverage_issues("self_test", complete_stances, broken_mapped):
-        problems.append(
-            f"self-test: stance_coverage_issues did not detect a supported group's "
-            f"unmapped builtin ({some_key!r} removed)."
-        )
-
-    incomplete_stances = dict(complete_stances)
-    del incomplete_stances[next(iter(incomplete_stances))]
-    if not stance_coverage_issues("self_test", incomplete_stances, fully_mapped):
-        problems.append(
-            "self-test: stance_coverage_issues did not detect a missing group stance."
-        )
-
-    return problems
+    return _self_test_claim_cases() + _self_test_mapping_cases()
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +319,7 @@ def check_builtin_claims_parity() -> int:
     """Run the real gate over every registered language.
 
     Returns:
-        Exit code (0 = both surfaces hold, 1 = at least one divergence, 2 = fewer than
+        Exit code (0 = both surfaces hold, 1 = at least one defect, 2 = fewer than
         `_MIN_LANGUAGES_FOR_COMPARISON` languages registered).
     """
     languages = sorted(registered_language_names())
@@ -236,34 +330,30 @@ def check_builtin_claims_parity() -> int:
         )
         return 2
 
+    vocabulary = group_vocabulary()
+    obligated = obligated_group_names()
     ok = True
-
-    per_language_keys = {name: stance_key_set(name) for name in languages}
-    key_holes = compare_stance_key_sets(per_language_keys)
     for name in languages:
-        missing = key_holes[name]
-        if missing:
+        realized = realized_group_names(name)
+        gap_groups = gap_group_names(name)
+        for group in sorted(gap_groups & obligated):
+            logger.info("TRACKED GAP language=%s surface=%s%s", name, _GROUP_GAP_PREFIX, group)
+        issues = claim_issues(
+            name,
+            realized=realized,
+            obligated=obligated,
+            gap_groups=gap_groups,
+            vocabulary=vocabulary,
+        ) + mapping_issues(name, realized=realized, mapped_keys=mapped_builtin_keys(name))
+        for issue in issues:
             ok = False
-            logger.error(
-                "D2 SURFACE 1 VIOLATION: %s's builtin_group_stances is missing key(s) "
-                "%s (declared by at least one other registered language).",
-                name, sorted(missing),
-            )
-
-    for name in languages:
-        plugin = get_language_plugin(name)
-        stances = plugin.capability.builtin_group_stances
-        mapped = mapped_builtin_keys(name)
-        issues = stance_coverage_issues(name, stances, mapped)
-        if issues:
-            ok = False
-            for issue in issues:
-                logger.error("D2 SURFACE 2 VIOLATION: %s", issue)
+            logger.error("D2 VIOLATION: %s", issue)
 
     if ok:
         logger.info(
-            "D2 holds: stance key sets identical and every 'supported' group is "
-            "fully mapped, across %d languages (%s).", len(languages), languages,
+            "D2 holds: every obligated builtin group is realized or tracked as a gap, and "
+            "every realized group is fully mapped, across %d languages (%s).",
+            len(languages), languages,
         )
         return 0
     return 1
@@ -273,13 +363,14 @@ def main() -> int:
     """Entry point.
 
     Returns:
-        Exit code: 0 = D2 holds, 1 = a divergence was found, 2 = the self-test failed
+        Exit code: 0 = D2 holds, 1 = a defect was found, 2 = the self-test failed
         or fewer than 2 languages are registered.
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Prove every registered datrix.languages plugin's builtin_group_stances "
-            "are complete and that every 'supported' group is fully mapped."
+            "Prove every registered datrix.languages plugin accounts for every builtin "
+            "group it is obligated to realize (realized or tracked as a gap) and fully "
+            "maps every group it realizes."
         ),
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
@@ -299,7 +390,7 @@ def main() -> int:
         for p in problems:
             logger_.error("  %s", p)
         return 2
-    logger_.info("Non-vacuity self-test passed (both surfaces).")
+    logger_.info("Non-vacuity self-test passed (claim accounting and mapping coherence).")
 
     if args.self_test:
         return 0
