@@ -36,7 +36,7 @@ Every remaining check has a verdict that does not require knowing the author's i
 | Generated output compiles and its own tests pass | `generate.ps1` at `STANDARD` (compile pass per language), `run-complete.ps1` (generated project's unit + spec tests) |
 | Generation is deterministic — same code, N runs, one outcome | `datrix/scripts/test/generation-determinism-gate.ps1 -Language <name>` |
 | Every language emits the same set of domain roles for the same example | `datrix/scripts/test/artifact-role-parity-gate.ps1`, read from the **live** generated corpus (below) |
-| Every language declares a stance on every domain and realizes what it declares | `supported-domain-parity-gate.ps1`; the testkit's domain self-consistency gate inside each language package (declaration ↔ registration ↔ fixture output) |
+| Every language realizes every structural domain or carries a counted gap row for it, and realizes what it declares | `supported-domain-parity-gate.ps1`; the testkit's domain self-consistency gate inside each language package (declaration ↔ registration ↔ fixture output) |
 | A specific generator decision is preserved or ported | A test beside that code in the owning package, asserting the rendered output for a fixture |
 
 The last row is the replacement for "byte-identical output on the reference example": a claim

@@ -372,7 +372,7 @@ Use `env(...)` for environment variable references:
 
 ```dcfg
 host = env("POSTGRES_HOST");
-accessKey = env("MINIO_ACCESS_KEY", default: "minioadmin");
+apiToken = env("PAYMENTS_API_TOKEN", default: "dev-only-token");
 ```
 
 **String interpolation in env names:**

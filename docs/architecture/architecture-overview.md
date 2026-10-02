@@ -1530,13 +1530,13 @@ Decision 48 extends this decision from the backend-access layer to complete gene
 |---|---|---|
 | A1-1 | The union of declared GenDSL domain ids across registered languages equals the shared domain registry | Supported-domain parity gate, self-tested, **zero** tolerance and no exemption file |
 | A1-2 | Every language declares every universe id — realized with its glob, or counted as a `capability_gaps` row (amended by [Decision 52](#decision-52-capability-level-obligation-counted-gaps-and-population-wide-parity-gating-approved--implementation-in-progress)) | Domain self-consistency gate, extended with an undeclared-universe-id diagnostic, in each package's own suite |
-| A1-3 | No two languages spell one emission with two domain ids, and every rename is output-neutral | Negative: the union report lists zero ids whose stance reason names another id as the same emission. Positive: every renamed language's domain self-consistency gate (declaration ↔ registration ↔ fixture output) stays green with the same fixture output |
+| A1-3 | No two languages spell one emission with two domain ids, and every rename is output-neutral | Negative: the union report lists zero domain ids that two languages spell differently for one emission. Positive: every renamed language's domain self-consistency gate (declaration ↔ registration ↔ fixture output) stays green with the same fixture output |
 | A1-4 | A registered domain id outside the universe is a registration-time derivation error | Unit test in `datrix-codegen-common` planting one |
 | A2-1 | The builtin registry has zero ungrouped rows, and the declaration cannot express one | Registry unit test; constructor test |
-| A2-2 | Every language plugin declares a stance for every builtin group; an absent group fails construction or registration | Declaration unit test in `datrix-common`; per-package plugin test |
-| A2-3 | A `supported` group with an unmapped row fails at plugin registration, naming the rows | Per-package plant/observe/revert mutation test |
+| A2-2 | Every language plugin realizes every builtin group whose axis includes its own or carries a counted gap row for it; an obligated group that is neither fails construction or registration | Declaration unit test in `datrix-common`; per-package plugin test |
+| A2-3 | A realized group with an unmapped row fails at plugin registration, naming the rows | Per-package plant/observe/revert mutation test |
 | A2-4 | An application using a builtin from a group the language does not realize fails before any generator runs, naming the tracked gap and listing every offending use (amended by [Decision 52](#decision-52-capability-level-obligation-counted-gaps-and-population-wide-parity-gating-approved--implementation-in-progress)) | CLI pipeline test over a fixture application and the testkit fixture language plugin |
-| A2-5 | The per-method builtin mapping exemption file does not exist; the claims gate reads stances and self-tests both directions | Gate run plus a negative path check in the gate's own self-test |
+| A2-5 | The per-method builtin mapping exemption file does not exist; the claims gate reads each target's realized groups and gap rows and self-tests both directions | Gate run plus a negative path check in the gate's own self-test |
 | A2-6 | No error message discloses application source text beyond the builtin key and location | Negative assertion in the A2-4 test (Decision 41 invariant 9's rule applied to this stage) |
 | B-1 | Every domain compared by input maps to a typed context model production actually constructs; every other domain resolves to `None`; the fingerprint context has zero consumers | Registry test; hard-zero AST construction census over every registered `_RICH_CONTEXT_TYPES` model; negative scan for the fingerprint context landed as a test |
 | B-2 | A hoisted builder has one definition: no language package redefines the private name, and every package that carried a copy reaches the shared one | Per-symbol negative check plus AST call-graph proof beside each shared builder in `datrix-codegen-common`'s own suite |
@@ -1799,7 +1799,7 @@ replacing the scope file's `domains` list).
 | G11 | A block of UI code behaves identically on every client target | The language-axis behaviour-parity gate extended to every package that contributes a transpiler profile, including the client targets |
 | G12 | Backend and frontend containers never share a source file | Positive and negative fixtures for the file-mixing validation rule |
 | G13 | Adding a client target is exactly one new package | The existing shared-target-name and target-literal ratchets stay at their empty baselines with the UI contract in place |
-| G14 | A surface a target cannot realize fails before any file is written | A fixture per stance kind — builtin group, element, style property, push, native redirect — proving the failure happens at generation, not at runtime |
+| G14 | A surface a target cannot realize fails before any file is written | A fixture per surface kind — builtin group, element, style property, push, native redirect — proving the failure happens at generation, not at runtime |
 | G15 | Derived redirect URIs reach the identity provider verbatim | A per-platform identity test asserting each (provider, app, kind) registration lists exactly the derived browser or native URIs, over every registered platform, refusing to pass under two |
 | G16 | A UI-only capability never reaches a backend body, and a server-only capability never reaches a client body | Pipeline tests planting each violation and asserting the failure names the capability group, the reason, and the location |
 | G17 | The targets of one app realize the same behaviour, not just the same screen list | A computed behaviour manifest compared across targets, plus per-target rendered-output tests over one shared fixture app exercising every statement kind and every UI builtin |
@@ -2492,7 +2492,7 @@ two identity surfaces were emitted that nothing mints and nothing reads.
   exception text is never the logged reason.
 - **D8 — Ambient rows serve every scope that binds no request principal.** The registry has seven
   `Auth` principal reads: userId, user, token, hasRole, subject, profile and identity. Every
-  language realizes all seven; no language carries an `unsupported` stance for the `Auth` group.
+  language realizes all seven; no language carries a gap row for the `Auth` group.
   Each read has a declared ambient realization per language (TypeScript through the request
   context, Python through the context-variable readers), and those declared rows are the single
   mechanism in every scope that binds no request principal: service functions, `rest_api`

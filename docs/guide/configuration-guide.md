@@ -1655,8 +1655,6 @@ test:
   provider: minio                # minio, s3, azure-blob, gcs
   bucket: order-files
   endpoint: http://localhost:9000
-  accessKey: ${MINIO_ACCESS_KEY}
-  secretKey: ${MINIO_SECRET_KEY}
   region: us-east-1
 
 production:
@@ -1671,7 +1669,7 @@ production:
 
 | Provider | Platform | Configuration |
 |----------|----------|---------------|
-| `minio` | Self-hosted | Requires `endpoint`, `accessKey`, `secretKey` |
+| `minio` | Self-hosted | Requires `bucket`, `endpoint`. Credentials are never authored: they resolve through the fixed secret handles `minio_access_key` / `minio_secret_key`, and a block with a Datrix-provisioned Garage server delivers its secret key from one `.env` variable to both the server and the service |
 | `s3` | AWS | Requires `bucket`, `region`, `accessKey`, `secretKey` |
 | `azure-blob` | Azure | Requires `container`, `connectionString` |
 | `gcs` | Google Cloud | Requires `bucket`, `credentials` |
