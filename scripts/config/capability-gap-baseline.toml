@@ -1,0 +1,18 @@
+# Decrease-only, two-directional pin over the capability gap ledger.
+# A row suppresses nothing -- this file only bounds how many gap rows exist and where.
+# Seeded from `capability-gap-ledger-gate.ps1`'s own live census, never copied from a
+# document or another workspace's run. `total` must equal the sum of the per-target counts.
+# The gate fails when the live count is above a pin (a gap was added) and when it is below
+# a pin (rows were removed without lowering the pin in the same change). A target absent
+# from this file is pinned at zero.
+
+total = 20
+
+[per_target.languages]
+typescript = 16
+
+[per_target.client_targets]
+angular = 3
+
+[per_target.platforms]
+azure = 1
