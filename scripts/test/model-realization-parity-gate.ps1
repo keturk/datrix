@@ -25,7 +25,8 @@
  to this gate.
 
  Runs a built-in non-vacuity self-test on every invocation, before trusting
- any real comparison: a synthetic matching declaration pair must report
+ any real comparison (declarations are varied copies of the fixture
+ platform's valid declaration): a matching declaration pair must report
  zero violations; a synthetic pair with one planted out-of-domain flavor
  must be detected exactly once. Fails loud (exit 2) if fewer than 2
  platforms are registered.

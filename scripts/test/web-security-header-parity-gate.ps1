@@ -30,6 +30,10 @@
    * CSP SAFETY -- no emitted Content-Security-Policy value contains
      unsafe-inline or unsafe-eval, independent of family completeness.
 
+ Every registered platform serves static web hosting, so every one is
+ censused: a platform whose declaration carries no static_web_hosting origin
+ is a defect (exit 2), never skipped.
+
  Platform set from the installed datrix.platforms entry points at runtime;
  the declared header set read from datrix-common at runtime -- never a
  table here. Runs a built-in non-vacuity self-test on every invocation.

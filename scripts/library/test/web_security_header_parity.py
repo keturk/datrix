@@ -33,7 +33,8 @@ everywhere a platform realizes `static_web_hosting`): it is read from the
 platform's own `PlatformCapabilityDeclaration.static_web_hosting.origin`
 (`"loopback_port"` vs `"domain"`) and used to compute that platform's own
 topology-correct expected family set via the SAME shared builder, never a
-hand-typed exemption.
+hand-typed exemption. Every registered platform is censused: a platform whose
+declaration carries no origin is a defect that fails the run, never a skip.
 
 Platform set from the installed `datrix.platforms` entry points at runtime;
 the declared header set read from `datrix_codegen_kernel.platform.web_security_headers`
@@ -73,7 +74,6 @@ from shared.registered_targets import (  # noqa: E402
 
 if TYPE_CHECKING:
     from datrix_codegen_aws.iac.cdk_ir import CallExpr, Expr
-    from datrix_common.plugin.capability_cells import StaticWebHostingRealization
 
 logger = logging.getLogger(__name__)
 
@@ -346,48 +346,47 @@ def render_report(families: frozenset[str], verdicts: Mapping[str, PlatformVerdi
 # ---------------------------------------------------------------------------
 
 
-def _resolve_platform_origin(
-    label: str, realizations: Mapping[str, StaticWebHostingRealization]
-) -> tuple[str | None, str | None]:
-    """Return `(origin, unrealized_reason)` for one folded platform *label*
-    given the `StaticWebHostingRealization` of each of its constituent
-    registered names.
+def _resolve_platform_origin(label: str, origins: Mapping[str, str | None]) -> str:
+    """Return the static-hosting origin of one folded platform *label* given the
+    origin each of its constituent registered names declares.
 
-    Exactly one element of the pair is non-`None`. Every constituent name
-    unrealized yields `(None, joined reasons)` -- set aside, never counted as
-    passing silently. At least one realized name yields its origin; two
-    realized names within the SAME package that disagree on origin is a real
-    configuration defect (the platform axis assumes one physical realization
-    per package) and raises rather than picking one silently.
+    Every registered platform serves static web hosting, so a constituent name
+    that declares no origin is a defect, never a skip. Constituent names within
+    the SAME package that disagree on origin is a real configuration defect (the
+    platform axis assumes one physical realization per package) and raises
+    rather than picking one silently.
 
     Args:
         label: The folded platform label (`discover_target_package_src_dirs`
             output), e.g. `"docker+local"`.
-        realizations: `{registered name: its static_web_hosting declaration}`
-            for every name folded into *label*.
+        origins: `{registered name: its static_web_hosting.origin}` for every
+            name folded into *label*.
 
     Returns:
-        `(origin, None)` when realized, `(None, reason)` when not.
+        The single origin every constituent name declares.
 
     Raises:
-        ValueError: Two realized constituent names disagree on origin.
+        ValueError: A constituent name declares no origin, or constituent
+            names disagree on origin.
     """
-    realized_origins = {
-        name: realization.origin for name, realization in realizations.items() if realization.is_realized
-    }
-    if not realized_origins:
-        reasons = "; ".join(f"{name}: {realization.reason}" for name, realization in sorted(realizations.items()))
-        return None, reasons
-    distinct_origins = frozenset(realized_origins.values())
+    originless = sorted(name for name, origin in origins.items() if origin is None)
+    if originless:
+        raise ValueError(
+            f"{label}: registered name(s) {originless} declare no static_web_hosting "
+            f"origin. Expected: every registered platform serves static web hosting, "
+            f"a loopback platform at 'loopback_port'. Fix: declare the origin on "
+            f"that platform's capability declaration."
+        )
+    distinct_origins = frozenset(origin for origin in origins.values() if origin is not None)
     if len(distinct_origins) != 1:
         raise ValueError(
-            f"{label}: registered names {sorted(realized_origins)} realize "
-            f"static_web_hosting with disagreeing origins {sorted(distinct_origins)} "
+            f"{label}: registered names {sorted(origins)} declare static_web_hosting "
+            f"with disagreeing origins {sorted(distinct_origins)} "
             f"-- the platform axis assumes one physical realization per package. "
             f"Fix: reconcile the declarations, or split the package so each origin "
             f"shape gets its own comparison entry."
         )
-    return next(iter(distinct_origins)), None
+    return next(iter(distinct_origins))
 
 
 # ---------------------------------------------------------------------------
@@ -711,27 +710,24 @@ def _require_min_platforms(platform_names: frozenset[str]) -> None:
         raise SystemExit(EXIT_USAGE)
 
 
-def scan_all_registered_platforms() -> tuple[dict[str, PlatformCensus], dict[str, str]]:
-    """Census every package backing a registered `datrix.platforms` entry
-    that realizes `static_web_hosting`, driving its real generation
-    composition for the shared fixture. A package whose realizing name(s)
-    all declare the capability unrealized is set aside in the second return
-    value with its reason -- never counted as passing silently (see module
-    docstring).
+def scan_all_registered_platforms() -> dict[str, PlatformCensus]:
+    """Census every package backing a registered `datrix.platforms` entry,
+    driving its real generation composition for the shared fixture. Every
+    registered platform serves static web hosting, so every one is censused;
+    a platform declaring no origin is a defect (see `_resolve_platform_origin`).
 
     Returns:
-        `({label: PlatformCensus}, {label: unrealized reason})`.
+        `{label: PlatformCensus}` for every registered platform label.
 
     Raises:
-        ValueError: A realizing package has no entry in `_PLATFORM_DRIVERS`,
-            or its constituent registered names disagree on origin (see
-            `_resolve_platform_origin`).
+        ValueError: A package has no entry in `_PLATFORM_DRIVERS`, or its
+            constituent registered names declare no origin or disagree on
+            origin (see `_resolve_platform_origin`).
     """
     platform_names = registered_platform_names()
     _require_min_platforms(platform_names)
     src_dirs = discover_target_package_src_dirs(AXIS_PLATFORMS, platform_names, WORKSPACE_ROOT)
     censuses: dict[str, PlatformCensus] = {}
-    unrealized: dict[str, str] = {}
     for label, platform_src_dirs in sorted(src_dirs.items()):
         # The census drives the registering package's own generation
         # composition: the first src dir is always the package whose entry
@@ -739,12 +735,8 @@ def scan_all_registered_platforms() -> tuple[dict[str, PlatformCensus], dict[str
         src_dir = platform_src_dirs[0]
         package = src_dir.parents[1].name
         member_names = label.split(_LABEL_JOIN_SEPARATOR)
-        realizations = {name: declaration_for_provider(name).static_web_hosting for name in member_names}
-        origin, reason = _resolve_platform_origin(label, realizations)
-        if origin is None:
-            unrealized[label] = reason or ""
-            logger.debug("platform=%s package=%s unrealized reason=%s", label, package, reason)
-            continue
+        declared_origins = {name: declaration_for_provider(name).static_web_hosting.origin for name in member_names}
+        origin = _resolve_platform_origin(label, declared_origins)
         is_loopback = origin == "loopback_port"
         import_name = src_dir.name
         driver = _PLATFORM_DRIVERS.get(import_name)
@@ -774,7 +766,7 @@ def scan_all_registered_platforms() -> tuple[dict[str, PlatformCensus], dict[str
             origin,
             len(header_spellings),
         )
-    return censuses, unrealized
+    return censuses
 
 
 # ---------------------------------------------------------------------------
@@ -914,40 +906,24 @@ def _self_test_comparator(
 
 
 def _self_test_origin_resolution() -> bool:
-    from datrix_common.plugin.capability_cells import StaticWebHostingRealization
-
     ok = True
-    unrealized_only = {
-        "docker": StaticWebHostingRealization(status="unrealized", reason="planted: no loopback pairing"),
-    }
-    origin, reason = _resolve_platform_origin("docker", unrealized_only)
-    ok &= _assert(
-        origin is None and reason == "docker: planted: no loopback pairing",
-        "every-name-unrealized yields (None, reason)",
-    )
+    origin = _resolve_platform_origin("docker+local", {"local": "loopback_port"})
+    ok &= _assert(origin == "loopback_port", "one name yields its origin")
 
-    single_realized = {
-        "local": StaticWebHostingRealization(status="realized", origin="loopback_port"),
-    }
-    origin, reason = _resolve_platform_origin("docker+local", single_realized)
-    ok &= _assert(origin == "loopback_port" and reason is None, "one realized name yields its origin")
+    origin = _resolve_platform_origin("azure+azure-vm", {"azure": "domain", "azure-vm": "domain"})
+    ok &= _assert(origin == "domain", "two agreeing names yield their shared origin")
 
-    agreeing = {
-        "azure": StaticWebHostingRealization(status="realized", origin="domain"),
-        "azure-vm": StaticWebHostingRealization(status="realized", origin="domain"),
-    }
-    origin, reason = _resolve_platform_origin("azure+azure-vm", agreeing)
-    ok &= _assert(origin == "domain" and reason is None, "two agreeing realized names yield their shared origin")
-
-    disagreeing = {
-        "alpha": StaticWebHostingRealization(status="realized", origin="domain"),
-        "beta": StaticWebHostingRealization(status="realized", origin="loopback_port"),
-    }
     try:
-        _resolve_platform_origin("alpha+beta", disagreeing)
-        ok &= _assert(False, "two disagreeing realized names raise")
+        _resolve_platform_origin("alpha+beta", {"alpha": "domain", "beta": "loopback_port"})
+        ok &= _assert(False, "two disagreeing names raise")
     except ValueError:
-        ok &= _assert(True, "two disagreeing realized names raise")
+        ok &= _assert(True, "two disagreeing names raise")
+
+    try:
+        _resolve_platform_origin("alpha", {"alpha": None})
+        ok &= _assert(False, "a name declaring no origin raises")
+    except ValueError:
+        ok &= _assert(True, "a name declaring no origin raises")
     return ok
 
 
@@ -977,7 +953,7 @@ def _self_test_live_scan(families: frozenset[str]) -> bool:
     """The live scan must find every declared family realized by at least one
     REAL registered platform -- driving the real generation composition, not
     a fixture. A scan that finds nothing is broken, not clean."""
-    censuses, _ = scan_all_registered_platforms()
+    censuses = scan_all_registered_platforms()
     realized_anywhere: frozenset[str] = (
         frozenset().union(*(realized_families(census) for census in censuses.values())) if censuses else frozenset()
     )
@@ -1031,7 +1007,7 @@ def main(argv: list[str] | None = None) -> int:
 
     families = declared_header_families()
     try:
-        censuses, unrealized = scan_all_registered_platforms()
+        censuses = scan_all_registered_platforms()
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -1041,10 +1017,6 @@ def main(argv: list[str] | None = None) -> int:
         f"{len(families)} declared header family(ies)):"
     )
     print(render_report(families, verdicts))
-    if unrealized:
-        print("\nPlatforms declaring static_web_hosting unrealized (set aside, not counted):")
-        for label, reason in sorted(unrealized.items()):
-            print(f"  - {label}: {reason}")
     if problems:
         print(f"\nError: {len(problems)} web-security-header parity violation(s):", file=sys.stderr)
         for problem in problems:

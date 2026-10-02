@@ -50,10 +50,10 @@ from datrix_common.errors.generation import GenerationError
 #   f"not natively realize {category} provider {provider_value!r}. "
 # This substring ("does not natively realize <category> provider '<value>'")
 # is unique to that one validator (grepped the whole datrix-common src tree --
-# no other GenerationError site uses it, e.g. validate_unrealizable_surfaces
-# raises "... is not realizable on platform ..." instead), so a match proves
-# the GenerationError came from the native-only observability guard and not
-# from an unrelated config defect (bad config-store compatibility, an
+# no other GenerationError site uses it, e.g. the platform-surface checks word
+# their refusals as "... is not realizable on platform ..." instead), so a match
+# proves the GenerationError came from the native-only observability guard and
+# not from an unrelated config defect (bad config-store compatibility, an
 # unrealizable network/serviceDiscovery/registry surface, etc).
 _NATIVE_ONLY_VIOLATION_PATTERN = re.compile(
     r"^Platform '(?P<platform>[^']+)' \([^)]*\) does not natively realize "

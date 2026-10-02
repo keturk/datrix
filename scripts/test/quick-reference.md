@@ -1095,7 +1095,7 @@ Framework header parity gate: every registered language spells the framework-min
 
 ### `test\web-security-header-parity-gate.ps1`
 
-Web security header parity gate: every registered platform realizing `static_web_hosting` (docker/local's loopback nginx static site, AWS's CloudFront response-headers policy, Azure's Static Web Apps `staticwebapp.config.json`) emits the ONE declared security-header set from datrix-common's one builder (`datrix_codegen_kernel.platform.web_security_headers.build_web_security_headers` — Content-Security-Policy, Strict-Transport-Security, X-Content-Type-Options, Referrer-Policy, Permissions-Policy). None of the three platforms spells a header name literally in its own source — each threads the shared builder's `WebSecurityHeaderSet.as_header_dict()` straight into its own rendering primitive — so this gate DRIVES each platform's real generation composition for one shared fixture (app, web target, environment) rather than censusing source text, then parses the EMITTED artifact structurally (nginx `add_header` directives at server level, the CloudFront response-headers policy's CDK IR, the parsed `staticwebapp.config.json`). **Realization:** every header family the platform's own topology expects (read from `PlatformCapabilityDeclaration.static_web_hosting.origin` — a loopback platform correctly omits Strict-Transport-Security, never a per-platform declared hole) must be realized in the emitted artifact; there is no exemption path for this gate — a platform realizing `static_web_hosting` must realize its full topology-appropriate set, always. **CSP safety:** no emitted Content-Security-Policy value contains `unsafe-inline` or `unsafe-eval`, checked independently of family completeness. A platform whose registered name(s) all declare `static_web_hosting` unrealized is set aside with its reason, never counted as passing silently. Platform set from the installed `datrix.platforms` entry points; the declared header set read from datrix-common — never a table in the script. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+Web security header parity gate: every registered platform realizing `static_web_hosting` (docker/local's loopback nginx static site, AWS's CloudFront response-headers policy, Azure's Static Web Apps `staticwebapp.config.json`) emits the ONE declared security-header set from datrix-common's one builder (`datrix_codegen_kernel.platform.web_security_headers.build_web_security_headers` — Content-Security-Policy, Strict-Transport-Security, X-Content-Type-Options, Referrer-Policy, Permissions-Policy). None of the three platforms spells a header name literally in its own source — each threads the shared builder's `WebSecurityHeaderSet.as_header_dict()` straight into its own rendering primitive — so this gate DRIVES each platform's real generation composition for one shared fixture (app, web target, environment) rather than censusing source text, then parses the EMITTED artifact structurally (nginx `add_header` directives at server level, the CloudFront response-headers policy's CDK IR, the parsed `staticwebapp.config.json`). **Realization:** every header family the platform's own topology expects (read from `PlatformCapabilityDeclaration.static_web_hosting.origin` — a loopback platform correctly omits Strict-Transport-Security, never a per-platform declared hole) must be realized in the emitted artifact; there is no exemption path for this gate — a platform realizing `static_web_hosting` must realize its full topology-appropriate set, always. **CSP safety:** no emitted Content-Security-Policy value contains `unsafe-inline` or `unsafe-eval`, checked independently of family completeness. Every registered platform serves static web hosting and is censused; a platform whose declaration carries no `static_web_hosting.origin` (or whose folded names disagree on origin) is a defect that fails the run with exit 2, never skipped. Platform set from the installed `datrix.platforms` entry points; the declared header set read from datrix-common — never a table in the script. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -1109,9 +1109,9 @@ Web security header parity gate: every registered platform realizing `static_web
 - Realization, per realizing platform and family: every family in that platform's own topology-derived expected set (`_topology_families`, keyed by `static_web_hosting.origin`) is realized in the emitted artifact; a realized family outside the declared vocabulary is also a violation.
 - CSP safety: no censused `Content-Security-Policy` value contains `unsafe-inline` or `unsafe-eval`, regardless of family completeness.
 - Registry: every declared family is realized by at least one registered platform.
-- Non-vacuity self-test (every invocation): two fully realizing planted platforms report no problem; a platform missing an expected family is exactly one problem naming the platform and family; a loopback platform legitimately omitting Strict-Transport-Security is NOT a violation, and its verdict records the topology-narrowed expected set; a realized header outside the declared vocabulary is exactly one problem; a planted `unsafe-inline`/`unsafe-eval` CSP sample is exactly one problem independent of family completeness; a family nobody realizes anywhere is reported as a dead contract; platform-origin resolution is proven directly (every-name-unrealized, one realized name, two agreeing realized names, two disagreeing realized names raising); a single-platform set is refused; the **live** scan drives every real registered platform's generation composition, finds every declared family realized somewhere, and passes `evaluate()` with zero violations.
+- Non-vacuity self-test (every invocation): two fully realizing planted platforms report no problem; a platform missing an expected family is exactly one problem naming the platform and family; a loopback platform legitimately omitting Strict-Transport-Security is NOT a violation, and its verdict records the topology-narrowed expected set; a realized header outside the declared vocabulary is exactly one problem; a planted `unsafe-inline`/`unsafe-eval` CSP sample is exactly one problem independent of family completeness; a family nobody realizes anywhere is reported as a dead contract; platform-origin resolution is proven directly (one name, two agreeing names, two disagreeing names raising, a name declaring no origin raising); a single-platform set is refused; the **live** scan drives every real registered platform's generation composition, finds every declared family realized somewhere, and passes `evaluate()` with zero violations.
 
-**Exit codes:** 0 = every realizing platform passes both rules (or a successful `-SelfTest`), 1 = a violation was found, 2 = the self-test failed, fewer than two platforms are registered, or a realizing platform has no census driver.
+**Exit codes:** 0 = every realizing platform passes both rules (or a successful `-SelfTest`), 1 = a violation was found, 2 = the self-test failed, fewer than two platforms are registered, a platform has no census driver, or a platform declares no / a disagreeing static-hosting origin.
 
 ---
 
@@ -1275,34 +1275,42 @@ configs are skipped) through `datrix_common.config.unified_loader.load_service_c
 
 ### `test\block-realization-parity-gate.ps1`
 
-Cross-platform capability-declaration parity gate: the platform-axis counterpart of
-`supported-domain-parity-gate.ps1`. Every installed `datrix.platforms` plugin declares a
-`PlatformCapabilityDeclaration` — block realizations, secret backends, observability providers,
-deployment runtimes, identity providers/features, and roughly a dozen scalar/mapping capability
-flags. This gate computes the union of every capability coordinate any installed platform
-declares, across seven surfaces (block-realization cells, secret backends, native observability
-providers per category, deployment runtimes, identity `(provider_type, feature)` cells, every
-remaining optional scalar/mapping field, and `unrealizable_surfaces`), and fails loud if another
-installed platform has made no decision at all about a coordinate — unless the gap carries a
-reviewed entry in `datrix/scripts/config/platform-capability-holes.json`.
+Cross-platform capability parity gate: the platform-axis counterpart of
+`supported-domain-parity-gate.ps1`. It compares CAPABILITIES, never implementations. A platform that
+lacks one flavor, vendor product or provider another platform has is not a gap; a capability a platform
+realizes by no implementation is recorded as a `<kind>:<id>` row in that platform's own
+`capability_gaps`. A row accounts for the violation here and suppresses nothing in any other gate.
+There is no exemption file.
 
-Derives its target platform set from `importlib.metadata.entry_points(group="datrix.platforms")`
-at runtime — never a hardcoded `aws`/`azure`/`docker`/`local` literal.
+Declarations are read through one extractor (presence only) and compared as plain facts. Seven surfaces:
+1. block types: every block type any platform realizes by at least one flavor is realized by at least one
+   flavor on every platform (`block_type:<id>` row).
+2. observability categories: at least one native provider per category any platform realizes
+   (`observability_category:<id>` row).
+3. supported runtimes: a floor of at least one runtime (no row kind).
+4. identity features: offered through at least one provider on every platform (`identity_feature:<id>` row).
+5. static web hosting: each platform's origin equals its OWN edge (`domain` when the edge binds custom
+   domains, `loopback_port` otherwise).
+6. custom-domain surfaces: an edge-binding platform carries both `gateway` and `web`, any other carries neither.
+7. model realizations: at least one provider with a flavor cell.
 
-**Built-in non-vacuity self-test, every invocation.** Feeds the comparator a synthetic matching
-declaration pair (must report zero gaps) and a synthetic pair with one planted missing union cell
-(must report exactly that gap). Fails loud (exit 2) if fewer than 2 platforms are registered.
+Retired surfaces: secret backends and deployable constructs (construction-time floors, product vocabulary),
+the set-shaped optional fields (each platform's own vocabulary) and the presence-shaped optional fields
+(per-platform topology facts). A field partition guard still forces every declaration field, required or
+optional, into a named bucket. Derives platforms from
+`importlib.metadata.entry_points(group="datrix.platforms")`; the self-test plants facts every run; exit 2 if
+fewer than 2 platforms are registered or a live surface unions over nothing.
 
 | Mode | Command | Description |
 |------|---------|--------------|
-| **Run gate** | `.\test\block-realization-parity-gate.ps1` | Compare every registered platform's declared capability coordinates |
+| **Run gate** | `.\test\block-realization-parity-gate.ps1` | Compare every registered platform's capabilities |
 | **Debug** | `.\test\block-realization-parity-gate.ps1 -Dbg` | Debug logging |
-| **Self-test only** | `.\test\block-realization-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
+| **Self-test only** | `.\test\block-realization-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test |
 
 **Parameters:** `-Dbg`, `-SelfTest`
 
-**Exit codes:** 0 = every union coordinate is declared or exempted, 1 = at least one unexempted
-gap was found, 2 = the non-vacuity self-test failed or fewer than 2 platforms are registered.
+**Exit codes:** 0 = every capability realized or accounted for, 1 = at least one violation, 2 = self-test or
+partition guard failed, fewer than 2 platforms, or a vacuous live surface.
 
 ---
 
@@ -1463,29 +1471,22 @@ registered.
 
 ### `test\builtin-claims-parity-gate.ps1`
 
-Cross-language builtin-claims parity gate. Reads every registered `datrix.languages`
-plugin's `LanguageCapabilityDeclaration.builtin_group_stances` and checks two surfaces, neither
-with a reviewed-gap path (a divergence is always a real defect):
+Cross-language builtin-claims parity gate. Reads every registered `datrix.languages` plugin's
+`LanguageCapabilityDeclaration.realized_builtin_groups` and `capability_gaps` and checks two surfaces,
+neither with a reviewed-gap path (a divergence is always a real defect):
 
-1. **Stance key-set identity** — every language declares a stance for exactly the same set of
-   `BuiltinGroup` names. A non-vacuity proof: per-language completeness is already enforced at
-   each language's own plugin import; this repo-level check exists to catch a future decoupling.
-2. **Per-group stance-vs-mapper coherence** — every group has a declared stance, and every group
-   a language declares `supported` has every one of its `BUILTIN_REGISTRY` rows actually mapped
-   by that language's profile. Re-derives, as an independent backstop, the same judgment
-   `register_builtin_capability` enforces at each language's own plugin import.
+1. **Claim accounting** — a language's realized set names only real `BuiltinGroup` members; every group it is
+   obligated to realize (derived from the group's own axis through `obligated_groups`) is realized or carried
+   as a `builtin_group:<id>` gap row; a group both realized and rowed is a stale row. Each tracked gap row is
+   logged on a live run.
+2. **Realized-group mapping coherence** — every `BUILTIN_REGISTRY` row whose group the language realizes is
+   mapped by its profile, whether or not the language carries a gap row. Re-derives, as an independent
+   backstop, the judgment `register_builtin_capability` enforces at plugin import.
 
-A `supported` stance is fully mapped by construction, so there is no "mapped by some languages,
-not all" state left to catalogue as a reviewed exception — unlike the hand-typed claimed-group
-set plus per-method reviewed-gap design this gate replaced, this one has no such config file.
-
-Derives its target language set from `importlib.metadata.entry_points(group="datrix.languages")`
-at runtime — never a hardcoded language-name literal.
-
-**Built-in non-vacuity self-test, every invocation.** Feeds both comparators a synthetic matching
-pair (must report zero divergence) and a synthetic forced-mismatch pair (must report the planted
-gap), using real `BuiltinGroup`/`BUILTIN_REGISTRY` data for surface 2. Fails loud (exit 2) if
-fewer than 2 languages are registered.
+Language set from the installed `datrix.languages` entry points. Built-in non-vacuity self-test every
+invocation: planted frozensets (a clean language, an unknown realized name, an unaccounted obligated group, a
+rowed obligated group, a stale row, an unmapped key of a realized group, an extra client-axis group). Exit 2
+if fewer than 2 languages are registered.
 
 | Mode | Command | Description |
 |------|---------|--------------|

@@ -40,25 +40,17 @@ if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
 
 from shared.registered_targets import registered_platform_names  # noqa: E402
 
-from datrix_common.config.serverless.models import ServerlessPlatform  # noqa: E402
-from datrix_common.deployment.cache_connection_identity import CacheConnectionIdentity  # noqa: E402
-from datrix_common.deployment.rdbms_connection_identity import RdbmsConnectionIdentity  # noqa: E402
-from datrix_common.deployment.secret_backend import SecretBackend  # noqa: E402
-from datrix_common.deployment.signing_backend import SigningBackend  # noqa: E402
 from datrix_common.plugin.capability import (  # noqa: E402
     PlatformCapabilityDeclaration,
 )
-from datrix_common.plugin.capability_cells import (  # noqa: E402
-    BlockRealization,
-    DeployableConstruct,
-)
 from datrix_common.plugin.capability_resolution import declaration_for_provider  # noqa: E402
-from datrix_common.plugin.identity import RuntimeId  # noqa: E402
-from datrix_common.plugin.model_realization import (
-    # noqa: E402
+from datrix_common.plugin.model_realization import (  # noqa: E402
     ModelFlavorCell,
     ModelRealization,
     SchemaConstrainedOutputMode,
+)
+from datrix_testing.conformance.fixture_platform import (  # noqa: E402
+    build_complete_fixtureplat,
 )
 
 logger = logging.getLogger(__name__)
@@ -206,25 +198,15 @@ _SELF_TEST_OFFENDING_FLAVOR: Final[str] = "self_test_bogus_flavor"
 def _synthetic_declaration(
     platform_label: str, *, model_realizations: dict[str, ModelRealization]
 ) -> PlatformCapabilityDeclaration:
-    """A minimal, valid ``PlatformCapabilityDeclaration`` for the self-test only -- never a
-    stand-in for a real platform. Every other required field takes the same minimal value
-    ``block_realization_parity._synthetic_declaration`` uses; only ``model_realizations`` varies.
+    """A valid ``PlatformCapabilityDeclaration`` for the self-test only -- never a stand-in
+    for a real platform. It varies ONE valid declaration (the fixture platform's own) by
+    ``platform_label`` and ``model_realizations``; ``dataclasses.replace`` re-runs the
+    declaration's own validation and no cell type is constructed here, so a later change to a
+    cell's constructor cannot break this builder.
     """
-    return PlatformCapabilityDeclaration(
-        deployable_constructs=frozenset({DeployableConstruct.REST_API}),
+    return dataclasses.replace(
+        build_complete_fixtureplat().declared_capabilities(),
         platform_label=platform_label,
-        default_secret_backend=SecretBackend.FILE,
-        crypto_signing_backend=SigningBackend.LOCAL_KEY,
-        rdbms_connection_identity=RdbmsConnectionIdentity.PASSWORD,
-        cache_connection_identity=CacheConnectionIdentity.PASSWORD,
-        supported_secret_backends=frozenset({SecretBackend.FILE}),
-        supported_runtimes=frozenset({RuntimeId("self-test-runtime")}),
-        serverless_compute_model=ServerlessPlatform.CONTAINER,
-        block_realizations={
-            ("rdbms", "container"): BlockRealization(
-                supported=True, structural_pattern="*/infra/rdbms/container/*.py"
-            )
-        },
         model_realizations=model_realizations,
     )
 
