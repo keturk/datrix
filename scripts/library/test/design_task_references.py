@@ -70,7 +70,7 @@ import tempfile
 # on `subtask43-01` or on an identifier like `DESIGN2024`.
 _SEP = r"[-_\s]*"
 PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("task-file id", re.compile(rf"\btasks?{_SEP}\d{{2}}-\d{{2,3}}\b", re.IGNORECASE)),
+    ("task-file id", re.compile(rf"\btasks?{_SEP}\d{{2,3}}-\d{{2,3}}\b", re.IGNORECASE)),
     ("design path", re.compile(r"designs?[/\\]\d{3}-[a-z0-9-]+", re.IGNORECASE)),
     (
         "design doc number",
@@ -79,7 +79,7 @@ PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             re.IGNORECASE,
         ),
     ),
-    ("phase dir", re.compile(r"\.tasks[/\\]phase-\d{2}")),
+    ("phase dir", re.compile(r"\.tasks[/\\]phase-\d{2,3}")),
 )
 
 # Deliberately NOT a pattern: a bare ``phase 88``. The committed architecture
