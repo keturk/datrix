@@ -4,22 +4,22 @@
  Cross-language builtin-claims parity gate.
 
 .DESCRIPTION
- Proves every registered `datrix.languages` plugin's declared
- `builtin_group_stances` are sound, over two surfaces, neither with a
- reviewed-gap path (a divergence here is always a real defect):
+ Proves every registered `datrix.languages` plugin's declared builtin-group
+ claim is sound, over two surfaces, neither with a reviewed-gap path (a
+ divergence here is always a real defect):
 
- 1. Stance key-set identity -- every language declares a stance for exactly
-    the same set of `BuiltinGroup` names. A non-vacuity proof:
-    `register_builtin_capability`'s per-language completeness check already
-    enforces this
-    at plugin import, so this repo-level check exists to catch a future
-    decoupling, not because it can fail against an installed set.
- 2. Per-group stance-vs-mapper coherence -- every group has a declared
-    stance, and every group a language declares `supported` has every one
-    of its `BUILTIN_REGISTRY` rows actually mapped by that language's
-    profile. Re-derives, as an independent belt-and-suspenders backstop,
-    the same judgment `register_builtin_capability` enforces at each
-    language's own plugin import.
+ 1. Claim accounting -- a language's `realized_builtin_groups` names only
+    real `BuiltinGroup` members; every group the language is obligated to
+    realize (derived from the group's own axis by `obligated_groups`) is in
+    its realized set or carried as a `builtin_group:<id>` row in its
+    `capability_gaps`; and no group is both realized and rowed (a stale
+    row). Each tracked gap row is logged on a live run.
+ 2. Realized-group mapping coherence -- every `BUILTIN_REGISTRY` row whose
+    group the language realizes is actually mapped by that language's
+    profile, whether or not the language carries a gap row. Re-derives, as
+    an independent belt-and-suspenders backstop, the same judgment
+    `register_builtin_capability` enforces at each language's own plugin
+    import.
 
  Derives its target language set from
  `importlib.metadata.entry_points(group="datrix.languages")` at runtime --
@@ -27,9 +27,10 @@
  package is covered automatically with no edit to this gate.
 
  Runs a built-in non-vacuity self-test on every invocation, before trusting
- any real comparison: feeds both comparators a synthetic matching pair (must
- report zero divergence) and a synthetic forced-mismatch pair (must report
- the planted gap). Fails loud (exit 2) if fewer than 2 languages are
+ any real comparison: feeds both comparators planted realized sets (a clean
+ language must report nothing; an unknown realized name, an unaccounted
+ obligated group, a stale row and an unmapped builtin of a realized group
+ must each be reported). Fails loud (exit 2) if fewer than 2 languages are
  registered.
 
  Repo-level validation script (per the datrix showcase boundary -- no
