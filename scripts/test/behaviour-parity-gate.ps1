@@ -1,12 +1,14 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Language-axis (and platform-axis, report-only) behaviour-parity gate.
+ Language-axis and platform-axis behaviour-parity gate.
 
 .DESCRIPTION
  Wraps datrix/scripts/library/test/behaviour_parity.py. Groups functions
- across registered target packages into roles (by shared-typed signature or
- normalized name), classifies each into identical / same-behaviour /
+ across registered target packages into roles (on the platform axis, first by
+ the block type a platform's own realization table registers the function a
+ plan builder for; then by shared-typed signature or normalized name),
+ classifies each into identical / same-behaviour /
  divergent by comparing behaviour skeletons rather than bodies. A role fails
  when it is not adapter-exempt (identical / same-behaviour) or when its
  member packages still split into more than one skeleton group (divergent);
@@ -18,8 +20,8 @@
  directions with the pin in
  datrix/scripts/config/behaviour-parity-baseline.toml: more failing roles
  than the pin fails (a regression), fewer fails too unless the pin is
- lowered in the same change (an improvement must be banked). The platform
- axis (-Axis platforms) is report-only and never fails.
+ lowered in the same change (an improvement must be banked). Both axes gate,
+ each against its own section ([languages], [platforms]) of that file.
 
  Runs a non-vacuity self-test on every invocation -- the five-bucket role
  grouping/classification cases, and the fingerprint pass's own non-vacuity
