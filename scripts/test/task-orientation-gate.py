@@ -51,7 +51,14 @@ from tasks.task_citations import (  # noqa: E402
     RepoFiles,
     check_citations,
 )
-from tasks.task_metadata import parse_task_file, task_prose_lines  # noqa: E402
+from tasks.retrofit_orientation import (  # noqa: E402
+    OUTCOME_CONVERTED,
+    OUTCOME_SKIPPED,
+    RetrofitResult,
+    convert,
+)
+from tasks.retrofit_orientation import apply as apply_retrofit  # noqa: E402
+from tasks.task_metadata import parse_task_file, parse_task_text, task_prose_lines  # noqa: E402
 from tasks.task_orientation import (  # noqa: E402
     MAX_EXPLAIN_ITEMS,
     MAX_ITEMS,
@@ -59,7 +66,15 @@ from tasks.task_orientation import (  # noqa: E402
     parse_orientation,
     resolve_orientation,
 )
-from tasks.validate_task import EXIT_FINDINGS, EXIT_OK, Validator, main as validate_main  # noqa: E402
+from tasks.validate_task import (  # noqa: E402
+    EXIT_FINDINGS,
+    EXIT_OK,
+    RECORD_WARN_LINES,
+    TASK_ERROR_LINES,
+    TASK_WARN_LINES,
+    Validator,
+    main as validate_main,
+)
 
 CheckFunc = Callable[[], None]
 
@@ -423,6 +438,137 @@ def check_validator_phase_mode_counts_files_other_tasks_create() -> None:
             validator.close()
 
 
+def check_validator_bounds_task_length_and_the_executor_record() -> None:
+    padding = "\n".join(f"line {n}" for n in range(TASK_ERROR_LINES + 1))
+    warn_padding = "\n".join(f"line {n}" for n in range(TASK_WARN_LINES + 1))
+    record = "\n".join(f"- decision {n}" for n in range(RECORD_WARN_LINES + 1))
+    with _workspace() as root:
+        oversized = _write(root / "datrix-alpha/.tasks/phase-90/task-90-01-big.md", _task("Big", padding))
+        long = _write(root / "datrix-alpha/.tasks/phase-90/task-90-02-long.md", _task("Long", warn_padding, number=2))
+        chatty = _write(root / "datrix-alpha/.tasks/phase-90/task-90-03-chatty.md",
+                        _task("Chatty", "Nothing.", number=3, extra_sections=f"\n## How Solved\n{record}\n"))
+        done = _write(root / "datrix-alpha/.tasks/phase-90/task-90-04-done.md",
+                      _task("Done", padding, number=4).replace("# Task", "# COMPLETED: Task", 1))
+        validator = Validator(root)
+        try:
+            levels = {path.name: [f.level for f in validator.validate(path)]
+                      for path in (oversized, long, chatty, done)}
+        finally:
+            validator.close()
+        assert levels["task-90-01-big.md"] == [LEVEL_ERROR], f"over {TASK_ERROR_LINES} lines must fail: {levels}"
+        assert levels["task-90-02-long.md"] == [LEVEL_WARN], f"over {TASK_WARN_LINES} lines must warn: {levels}"
+        assert levels["task-90-03-chatty.md"] == [LEVEL_WARN], f"a long record must warn: {levels}"
+        assert levels["task-90-04-done.md"] == [], f"a COMPLETED task is exempt from the length limit: {levels}"
+
+
+# ===========================================================================
+# the retrofit
+# ===========================================================================
+
+
+def _retrofit_task(root: Path, name: str, review: list[str], body: str = "", modify: list[str] | None = None,
+                   *, number: int = 5, category: str = "", newline: str = "\n") -> Path:
+    edits = "".join(f"### {n}. `{path}` -- change it\n" for n, path in enumerate(modify or [], start=1))
+    text = (f"# Task 90-{number:02d}: {name}\n\n## Overview\nA fixture.\n\n**Package:** `datrix-alpha`\n"
+            f"{f'**Category:** {category}{chr(10)}' if category else ''}**Depends on:** None\n\n"
+            f"## Files to Review Before Starting\n{chr(10).join(review)}\n\n"
+            f"## Files to Modify\n{edits}\n## Notes\n{body}\n")
+    path = root / f"datrix-alpha/.tasks/phase-90/task-90-{number:02d}-{name.lower().replace(' ', '-')}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(text.replace("\n", newline).encode("utf-8"))
+    return path
+
+
+def _retrofit(root: Path, task: Path, *, write: bool = False) -> RetrofitResult:
+    session = open_session(root)
+    try:
+        session.refresh()
+        result = convert(task, root, session)
+        if write and result.outcome == OUTCOME_CONVERTED:
+            apply_retrofit(result, root, "gate")
+        return result
+    finally:
+        session.close()
+
+
+def check_retrofit_converts_only_whole_file_orientation_items_and_nothing_else() -> None:
+    with _workspace() as root:
+        src = root / "datrix-alpha/src/alpha_pkg"
+        _write(src / "helper.py", "def helper_function(x: int) -> int:\n    return x\n")
+        _write(src / "other.py", "def lonely_function(x: int) -> int:\n    return x\n")
+        _write(src / "twin_a.py", "def dup_function() -> int:\n    return 1\n")
+        _write(src / "twin_b.py", "def dup_function() -> int:\n    return 2\n")
+        edited = src / "edited.py"
+        _write(edited, "def edited_function() -> int:\n    return 3\n")
+        core, long = src / "core.py", src / "long.py"
+        task = _retrofit_task(
+            root, "Retrofit fixture",
+            [f"1. `rules.md` -- the rules", f"2. `{core}` -- the module it works with", f"3. `{long}` (lines 10-20)",
+             f"4. `{edited}` -- the file it edits", f"5. `{src / 'helper.py'}` -- a helper",
+             f"6. `{core}` and `{src / 'helper.py'}` -- two files on one item"],
+            body=(f"`{src / 'other.py'}:1` `lonely_function(x)` is cited, and `{src / 'twin_a.py'}:1` `dup_function()` too.\n"),
+            modify=[str(edited)])
+        before = task.read_bytes()
+        planned = _retrofit(root, task)
+        assert task.read_bytes() == before, "a dry run writes nothing"
+        assert planned.outcome == OUTCOME_CONVERTED and planned.outlines == (
+            "datrix-alpha/src/alpha_pkg/core.py", "datrix-alpha/src/alpha_pkg/helper.py"), planned
+        assert planned.symbols == ("symbol: lonely_function",), (
+            "a unique definition in a file the task does not edit; an ambiguous name is not guessed", planned.symbols)
+        written = _retrofit(root, task, write=True)
+        assert written.removed_lines == 2
+        after = task.read_text(encoding="utf-8")
+        review = after.split("## Files to Review Before Starting")[1].split("## Orientation")[0]
+        assert "`rules.md`" in review and f"`{long}` (lines 10-20)" in review and f"`{edited}`" in review, \
+            "rules, a ranged read and an edit site stay in the review list"
+        assert f"`{core}` and" in review, "an item naming two files is left alone"
+        assert [line.split(".")[0] for line in review.splitlines() if line[:1].isdigit()] == ["1", "2", "3", "4"], \
+            "the remaining items are numbered 1..n again"
+        assert "```orientation\noutline: datrix-alpha/src/alpha_pkg/core.py\noutline: " in after and "symbol: lonely_function" in after
+        assert "are not listed here" in after
+        meta, old = parse_task_file(task), parse_task_text(task, before.decode("utf-8"))
+        assert meta.depends_on == old.depends_on and meta.files_to_create_modify == old.files_to_create_modify
+        validator = Validator(root)
+        try:
+            errors = [f.message for f in validator.validate(task) if f.level == LEVEL_ERROR]
+        finally:
+            validator.close()
+        assert not errors, f"a retrofitted task validates: {errors}"
+        backup = next((root / ".tmp/retrofit-orientation/gate").iterdir())
+        assert backup.read_bytes() == before, "the original is copied aside before the task is rewritten"
+        assert _retrofit(root, task).outcome == OUTCOME_SKIPPED, "a converted task has a block: idempotent"
+
+
+def check_retrofit_leaves_alone_what_it_should() -> None:
+    with _workspace() as root:
+        core = root / "datrix-alpha/src/alpha_pkg/core.py"
+        gate = _retrofit_task(root, "Gate", [f"1. `{core}` -- verify it"], number=6, category="Quality Gate")
+        assert _retrofit(root, gate).reason.startswith("quality gate"), "reading the code is a quality gate's job"
+        none = _retrofit_task(root, "Nothing", ["1. `rules.md` -- the rules", f"2. `{core}` (lines 1-5)"], number=7)
+        assert _retrofit(root, none).reason.startswith("nothing the index can answer"), "only a ranged item"
+        absent = _retrofit_task(root, "Absent", [f"1. `{root / 'datrix-alpha/src/alpha_pkg/gone.py'}` -- gone"], number=8)
+        assert _retrofit(root, absent).outcome == OUTCOME_SKIPPED, "a file that does not exist is not converted"
+        noreview = root / "datrix-alpha/.tasks/phase-90/task-90-09-no-review.md"
+        noreview.write_text("# Task 90-09: No review\n\n## Overview\nNothing.\n", encoding="utf-8")
+        assert _retrofit(root, noreview).reason == "no Files to Review section"
+
+
+def check_retrofit_preserves_line_endings_and_respects_the_caps() -> None:
+    with _workspace() as root:
+        src = root / "datrix-alpha/src/alpha_pkg"
+        for n in range(10):
+            _write(src / f"mod{n}.py", f"def function_{n}() -> int:\n    return {n}\n")
+        review = [f"{n + 1}. `{src / f'mod{n}.py'}` -- module {n}" for n in range(10)]
+        crlf = _retrofit_task(root, "Crlf", review, number=10, newline="\r\n")
+        result = _retrofit(root, crlf, write=True)
+        assert len(result.outlines) == 8 and result.removed_lines == 8, "at most 8 outline entries"
+        raw = crlf.read_bytes()
+        assert b"\r\n" in raw and b"\n" not in raw.replace(b"\r\n", b""), "line endings are kept as the task had them"
+        left = [line for line in raw.decode("utf-8").split("\r\n") if line[:1].isdigit() and "`" in line]
+        assert len(left) == 2 and left[0].startswith("1. ") and left[1].startswith("2. "), left
+        assert "mod8.py" in left[0] and "mod9.py" in left[1], "the items past the cap stay, to be read as before"
+
+
 # ===========================================================================
 # harness
 # ===========================================================================
@@ -452,6 +598,10 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_citations_warn_only_when_the_name_beside_them_is_not_near_the_lines,
     check_validator_reports_stale_orientation_and_citations_and_sets_the_exit_code,
     check_validator_phase_mode_counts_files_other_tasks_create,
+    check_validator_bounds_task_length_and_the_executor_record,
+    check_retrofit_converts_only_whole_file_orientation_items_and_nothing_else,
+    check_retrofit_leaves_alone_what_it_should,
+    check_retrofit_preserves_line_endings_and_respects_the_caps,
 ]
 
 
