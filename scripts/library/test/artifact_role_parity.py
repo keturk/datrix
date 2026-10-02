@@ -2102,6 +2102,7 @@ def _self_test_vacuity_records() -> list[str]:
                 f"self-test: _parse_vacuity_record mangled a declared status: "
                 f"{parsed.status!r} != {status!r}"
             )
+    refused_undeclared_status = False
     try:
         _parse_vacuity_record(
             0,
@@ -2112,12 +2113,13 @@ def _self_test_vacuity_records() -> list[str]:
                 "reason": "self-test: should be rejected",
             },
         )
+    except ValueError:
+        refused_undeclared_status = True
+    if not refused_undeclared_status:
         problems.append(
             "self-test: _parse_vacuity_record accepted a status outside the "
             "declared set"
         )
-    except ValueError:
-        pass  # expected -- the loader correctly refused an undeclared status
     return problems
 
 
