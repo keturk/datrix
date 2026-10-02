@@ -135,3 +135,19 @@ Validates a phase's `dependencies.md` + task numbering: valid Step-7 JSON (legac
 | **Custom base dir** | `.\tasks\validate-dependencies.ps1 -Phase 31 -BaseDir D:\other` | Different workspace |
 
 **Parameters:** `-Phase <NN>` (required), `-NextTaskNumber`, `-BaseDir`, `-Output <path>`, `-Dbg`. **Exit codes:** validate mode 0 = PASS / 1 = FAIL / 2 = usage; `-NextTaskNumber` 0 with the number on stdout.
+
+## `tasks\validate-task.ps1`
+
+Validates task files **against the tree as it is now**, deterministically and without a model. Run it on every task a writer produces, and again before an orchestrator dispatches a wave: a phase runs for days while other tasks change the same files, so a citation or an orientation entry written against last week's tree goes stale.
+
+- **Orientation** — the task's `## Orientation` block (see `agent-templates/task-implementation-agent.md`, "Orientation") parses, and every entry resolves: a `symbol` or `refs` the code index finds, an `outline` of a file that exists, an `explain` over files a local model may read (framework repos and test output). A question that asks *where something is defined* or *who calls it* is an error: a model invents those answers, and `symbol` / `refs` answer them exactly.
+- **Citations** — every `path:line` / `path:first-last` in the task's prose (never inside a code fence): ERROR when the file does not exist (unless the task creates it) or the lines are past its end; WARN when an identifier quoted on the same line is no longer within three lines of the cited range (the lines have moved). Paths with `...` and bare file names that are not unique in the task's repository are skipped, never guessed.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **A phase** | `.\tasks\validate-task.ps1 -Phase 61` | Every task of the phase in every repo; exit 1 on any error |
+| **Given tasks** | `.\tasks\validate-task.ps1 -Task D:\datrix\datrix-codegen-typescript\.tasks\phase-61\task-61-05-enum-import-identifier-boundary.md` | One or more task files |
+| **Warnings fail** | `.\tasks\validate-task.ps1 -Phase 61 -Strict` | A moved line fails the run |
+| **Orientation required** | `.\tasks\validate-task.ps1 -Phase 62 -RequireOrientation` | A task with no `## Orientation` is an error (for tasks written to the new template) |
+
+**Parameters:** `-Task <file>[,<file>...]`, `-Phase <NN>`, `-Strict`, `-RequireOrientation`, `-BaseDir`. **Exit codes:** 0 = no errors (and, with `-Strict`, no warnings), 1 = errors, 2 = usage error.

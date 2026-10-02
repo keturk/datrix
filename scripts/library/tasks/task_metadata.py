@@ -27,6 +27,9 @@ d:/datrix/datrix/claude-config/.claude/agent-templates/dependencies-format.md):
   Create / Modify, Migrate, Delete, Update, ...) feeds ``files_to_create_modify``.
 - ``targeted_tests`` are the command lines inside fenced code blocks of the
   ``## Targeted Tests`` section (ready-to-run invocations).
+- ``orientation`` are the lines inside fenced code blocks of the ``## Orientation``
+  section: the facts and questions the harness answers for the implementer when it reads the
+  task (``task_orientation.py`` parses and resolves them).
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ import importlib.util
 import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
@@ -67,6 +70,7 @@ _KNOWN_FIELDS = (
 _SECTION_FILES_PREFIX = "files to "
 _SECTION_FILES_REVIEW_PREFIX = "files to review"
 _SECTION_TARGETED_TESTS_PREFIX = "targeted tests"
+_SECTION_ORIENTATION_PREFIX = "orientation"
 
 _QUALITY_GATE_CATEGORY_MARKER = "quality gate"
 
@@ -224,6 +228,9 @@ class TaskMetadata:
     has_how_solved: bool
     how_solved_redflags: list[str]
     languages: list[str]
+    # The non-empty lines of the fenced block(s) of an ``## Orientation`` section: the questions the
+    # harness answers for the implementer when it reads the task (``tasks.task_orientation``).
+    orientation: list[str] = field(default_factory=list)
 
     @property
     def is_quality_gate(self) -> bool:
@@ -253,6 +260,7 @@ class TaskMetadata:
             "has_how_solved": self.has_how_solved,
             "how_solved_redflags": list(self.how_solved_redflags),
             "languages": list(self.languages),
+            "orientation": list(self.orientation),
         }
 
 
@@ -366,6 +374,17 @@ def _classify_lines(lines: list[str]) -> list[str]:
         else:
             roles.append(_LINE_ROLE_TEXT)
     return roles
+
+
+def task_prose_lines(text: str) -> list[tuple[int, str]]:
+    """(1-based line number, line) for every line of a task that is not inside a code fence.
+
+    What a reader of the task takes as statements about the tree; code blocks hold code to
+    write, whose ``name:1`` strings are not citations.
+    """
+    lines = text.splitlines()
+    return [(index, line) for index, (line, role) in enumerate(zip(lines, _classify_lines(lines)), start=1)
+            if role == _LINE_ROLE_TEXT]
 
 
 def _parse_heading_status(heading: str) -> tuple[str, str]:
@@ -586,8 +605,11 @@ def parse_task_file(task_path: Path) -> TaskMetadata:
     files_to_review: list[str] = []
     files_to_create_modify: list[str] = []
     targeted_tests: list[str] = []
+    orientation: list[str] = []
     for name, start, end in _split_sections(lines, roles):
-        if name.startswith(_SECTION_FILES_REVIEW_PREFIX):
+        if name.startswith(_SECTION_ORIENTATION_PREFIX):
+            orientation.extend(_extract_code_lines(lines, roles, start, end))
+        elif name.startswith(_SECTION_FILES_REVIEW_PREFIX):
             files_to_review.extend(_extract_section_paths(lines, roles, start, end))
         elif name.startswith(_SECTION_FILES_PREFIX):
             files_to_create_modify.extend(_extract_section_paths(lines, roles, start, end))
@@ -620,6 +642,7 @@ def parse_task_file(task_path: Path) -> TaskMetadata:
         has_how_solved=has_how_solved,
         how_solved_redflags=_redflags_in("\n".join(how_solved_lines)),
         languages=_languages_of(files_to_create_modify),
+        orientation=orientation,
     )
 
 
