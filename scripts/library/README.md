@@ -117,6 +117,9 @@ Task-file management and phase analysis.
 | `phase_status.py` | `tasks/phase-status.ps1` | Full per-task metadata snapshot of a phase across all repos |
 | `plan_waves.py` | `tasks/plan-waves.ps1` | Kahn waves, cycle/conflict/blocker detection, QG-last ordering |
 | `validate_dependencies.py` | `tasks/validate-dependencies.ps1` | dependencies.md + numbering validation; `-NextTaskNumber` mode |
+| `task_orientation.py` | (shared module) | A task's `## Orientation` block: parse and validate (rejects "where is X defined / who calls X" questions), resolve facts from the code index and explanations through a local model |
+| `task_citations.py` | (shared module) | Checks every `path:line` citation in a task's prose against the tree (missing file, line past the end, name beside the citation no longer near its lines); never guesses between same-named files |
+| `validate_task.py` | `tasks/validate-task.ps1` | Validates task files against the tree as it is now: orientation resolves, citations hold; run by writers, by orchestrators before each wave |
 
 ## review/
 
