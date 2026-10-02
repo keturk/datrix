@@ -813,7 +813,7 @@ section.
 prints (a role prints when its domain and its verdict satisfy every filter given), print a
 `BEHAVIOUR-PARITY REPORT FILTER` line, and never change the failing-role count, the ratchet
 comparison or the exit code. An unknown id is a usage error naming the valid options, and both
-are refused on a run that renders no gate report (`-Axis platforms`, `--report-only`).
+are refused on a `--report-only` run.
 
 **Non-vacuity is enforced on every run.** A synthetic five-bucket tree (one identical role, one
 same-behaviour role, one divergent role, one role split only by a language token, one role
@@ -834,8 +834,15 @@ checked the same way: a renamed cross-language pair must be reported, and a cove
 name in both packages), an under-size pair, a no-model-attribute-read pair, and a pair of renamed
 copies inside one package must not.
 
-**The platform axis (`-Axis platforms`) is report-only and never fails** — the platform packages
-realize different infrastructure by design.
+**The platform axis (`-Axis platforms`) gates against its own `[platforms]` pin** in
+`behaviour-parity-baseline.toml`, exactly like the language axis. Before the signature and
+normalized-name keys it tries a COORDINATE role key: the block type a platform's own
+`RealizationTable` (`load_realization_table`) registers a function as `plan_builder` for (flavor
+builders of one block type fold into one role; a builder bound to several block types keeps the name
+key; a bound method or one-delegate closure adapter resolves to the function holding the behaviour).
+A platform whose tables cannot be located or imported fails the run (exit 2) rather than falling
+back to name keys. The self-test asserts a floor of live coordinate roles spanning at least two
+platform packages.
 
 **Fingerprint pass (report-only, `-Fingerprint`).** The role/name grouping above only compares
 functions that already share a signature or normalized-name role; a parallel implementation each
@@ -873,12 +880,12 @@ plugin answers to the same name — never guessed from the bare registered name 
 | **List every role** | `.\test\behaviour-parity-gate.ps1 -Dbg` | Debug logging; also prints every passing role (failing roles always print) |
 | **Filter by domain** | `.\test\behaviour-parity-gate.ps1 -Dbg -Scope queue,cache` | Print only these domains' role lines (add `undomained` to see those); never changes the exit code |
 | **Filter by bucket** | `.\test\behaviour-parity-gate.ps1 -Dbg -Buckets identical` | Print only these verdict buckets' role lines (identical, same-behaviour, divergent); never changes the exit code |
-| **Platform axis** | `.\test\behaviour-parity-gate.ps1 -Axis platforms` | Report only, always exits 0 |
+| **Platform axis** | `.\test\behaviour-parity-gate.ps1 -Axis platforms` | Failing-role count against the `[platforms]` pin, both directions; exit 0 on exact match, 1 otherwise |
 | **Self-test only** | `.\test\behaviour-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test |
 
 **Parameters:** `-Axis <languages|platforms>` (default: languages), `-Scope <id,...>`, `-Buckets <id,...>`, `-Dbg`, `-SelfTest`, `-Fingerprint`
 
-**Exit codes:** 0 = the failing-role count equals its pin (or a successful `-SelfTest`, or `-Axis platforms`),
+**Exit codes:** 0 = the failing-role count equals its pin (or a successful `-SelfTest`),
 1 = the count differs from its pin (above it: a regression; below it: an improvement whose pin was not lowered in the same change),
 2 = usage/discovery/parse error, an unreadable or malformed baseline, or the self-test failed.
 
@@ -1311,6 +1318,29 @@ fewer than 2 platforms are registered or a live surface unions over nothing.
 
 **Exit codes:** 0 = every capability realized or accounted for, 1 = at least one violation, 2 = self-test or
 partition guard failed, fewer than 2 platforms, or a vacuous live surface.
+
+---
+
+### `test\capability-gap-ledger-gate.ps1`
+
+Capability gap ledger gate. Every target package carries its own gaps as `capability_gaps` rows on its own capability declaration; the declarations ARE the ledger (no separate file). The gate censuses those rows from the live declarations of every registered language, client target and platform, prints the row count, enforces a decrease-only two-directional pin on the total and per-target split (`scripts/config/capability-gap-baseline.toml`), and fails a surface that EVERY distinct implementation of an axis carries a row for (a defect in the shared layer, never a per-target gap: a builtin group obligated on the wrong axis, a config surface with no consumer, or an obligation that should not exist). A row suppresses nothing in any other gate; this gate only counts and bounds the ledger.
+
+The pin fails in both directions: live above a pin (a gap was added), live below a pin (rows removed without lowering the pin in the same change), and a row on a target absent from the pin (pinned at zero). The baseline's `total` must equal the sum of its per-target counts.
+
+Derives its target sets from the installed `datrix.languages`, `datrix.generators` (client targets) and `datrix.platforms` entry points at runtime -- never a hardcoded target literal. Registered names sharing one on-disk package fold into one implementation, so the floor and the shared-layer comparison count distinct implementations.
+
+**Built-in non-vacuity self-test, every invocation.** Plants an over-count, an under-count, a per-target split skew, an unpinned row, a synthetic 2-target axis sharing a surface, folded-implementation cases, the two-implementation floor, malformed baselines and a clean matching case. Fails loud (exit 2) if an axis has fewer than 2 distinct implementations or the baseline is unreadable.
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate** | `.\test\capability-gap-ledger-gate.ps1` | Census every registered target's gap rows and apply the pin and the shared-layer check |
+| **Debug** | `.\test\capability-gap-ledger-gate.ps1 -Dbg` | Print every censused row (target, surface, detail) and the total |
+| **Self-test only** | `.\test\capability-gap-ledger-gate.ps1 -SelfTest` | Run only the non-vacuity self-test |
+| **Alternate pin** | `.\test\capability-gap-ledger-gate.ps1 -BaselinePath <file.toml>` | Compare against another baseline file (proves a raised or lowered pin fails) |
+
+**Parameters:** `-Dbg`, `-SelfTest`, `-BaselinePath`
+
+**Exit codes:** 0 = ledger equals the pin and no surface is carried by every implementation, 1 = a ratchet violation (either direction) or a shared-layer defect, 2 = self-test failed, fewer than 2 distinct implementations on an axis, or the baseline is unreadable or invalid.
 
 ---
 

@@ -193,6 +193,30 @@ def declarations_by_language(
     return result
 
 
+_DOMAIN_GAP_PREFIX = "domain:"
+
+
+def domain_gap_rows_by_language(
+    language_names: Iterable[str],
+) -> dict[str, frozenset[str]]:
+    """The structural domain ids each language carries as a tracked ``domain:<id>`` gap row.
+
+    Args:
+        language_names: `datrix.languages` entry-point names.
+
+    Returns:
+        `{language_name: domain ids named by that language's domain gap rows}`.
+    """
+    return {
+        name: frozenset(
+            gap.surface[len(_DOMAIN_GAP_PREFIX):]
+            for gap in get_language_plugin(name).capability.capability_gaps
+            if gap.surface.startswith(_DOMAIN_GAP_PREFIX)
+        )
+        for name in language_names
+    }
+
+
 def compiled_domain_ids_by_language(
     language_names: Iterable[str],
 ) -> dict[str, frozenset[str]]:
@@ -268,12 +292,16 @@ def check_declaration_presence(
     *,
     registry_ids: frozenset[str] | None = None,
     structural_ids: frozenset[str] | None = None,
+    gap_rows: Mapping[str, frozenset[str]] | None = None,
 ) -> tuple[dict[str, frozenset[str]], dict[str, frozenset[str]]]:
-    """Prove every language declares every structural domain id, and nothing outside the universe.
+    """Prove every language realizes or tracks every structural domain id, and declares nothing outside the universe.
 
     This is a PRESENCE check, never an agreement check: a language MAY declare
     a registered non-structural id (``discovery``, ``resilience``) and is never
     required to, and two languages are free to emit a domain to different globs.
+    A structural id a language does not declare is accounted for only by that
+    language's own ``domain:<id>`` gap row (``gap_rows``); the ledger gate counts
+    the rows, this check only requires that an absent domain is tracked.
 
     Args:
         per_language: `{language_name: {domain_id: DomainDeclaration}}`
@@ -300,13 +328,50 @@ def check_declaration_presence(
     out_of_universe_by_language: dict[str, frozenset[str]] = {}
     for language, declarations in per_language.items():
         declared = frozenset(declarations)
-        undeclared = required - declared
+        tracked = gap_rows.get(language, frozenset()) if gap_rows is not None else frozenset()
+        undeclared = required - declared - tracked
         out_of_universe = declared - universe
         if undeclared:
             undeclared_by_language[language] = undeclared
         if out_of_universe:
             out_of_universe_by_language[language] = out_of_universe
     return undeclared_by_language, out_of_universe_by_language
+
+
+def check_domain_gap_rows(
+    per_language: Mapping[str, Mapping[str, DomainDeclaration]],
+    gap_rows: Mapping[str, frozenset[str]],
+    *,
+    structural_ids: frozenset[str] | None = None,
+) -> tuple[dict[str, frozenset[str]], dict[str, frozenset[str]]]:
+    """Prove every ``domain:<id>`` gap row names a structural domain the language really lacks.
+
+    A row is stale when its language also declares the domain (the domain is
+    realized, so the row records a gap that no longer exists), and unknown when
+    it names an id outside the structural set (a typo or a retired id would
+    otherwise account for nothing and never be noticed).
+
+    Args:
+        per_language: `{language_name: {domain_id: DomainDeclaration}}`.
+        gap_rows: `{language_name: domain ids named by its domain gap rows}`.
+        structural_ids: The structural ids a row may name. Defaults to the
+            kernel's real `STRUCTURAL_DOMAIN_IDS`; a test passes a synthetic set.
+
+    Returns:
+        `(stale_by_language, unknown_by_language)`, each mapping a language to
+        the offending ids; a language with none is absent.
+    """
+    allowed = structural_ids if structural_ids is not None else frozenset(STRUCTURAL_DOMAIN_IDS)
+    stale_by_language: dict[str, frozenset[str]] = {}
+    unknown_by_language: dict[str, frozenset[str]] = {}
+    for language, rows in gap_rows.items():
+        stale = rows & frozenset(per_language.get(language, {}))
+        unknown = rows - allowed
+        if stale:
+            stale_by_language[language] = stale
+        if unknown:
+            unknown_by_language[language] = unknown
+    return stale_by_language, unknown_by_language
 
 
 def _declarations_for_domain(
@@ -357,9 +422,18 @@ def print_declaration_report(
             from `declarations_by_language`.
         structural_ids: The structural domain ids to report, in report order.
     """
-    logger = logging.getLogger(__name__)
     languages = sorted(per_language)
+    _log_declaration_table(per_language, structural_ids, languages)
+    _log_divergence_block(per_language, structural_ids, languages)
 
+
+def _log_declaration_table(
+    per_language: Mapping[str, Mapping[str, DomainDeclaration]],
+    structural_ids: Sequence[str],
+    languages: Sequence[str],
+) -> None:
+    """Log one ``DECLARATION:`` row per structural domain id per declaring language."""
+    logger = logging.getLogger(__name__)
     for domain_id in structural_ids:
         for language, declaration in _declarations_for_domain(domain_id, per_language, languages).items():
             pattern = (
@@ -369,6 +443,14 @@ def print_declaration_report(
             )
             logger.info("DECLARATION: %s.%s = %s", language, domain_id, pattern)
 
+
+def _log_divergence_block(
+    per_language: Mapping[str, Mapping[str, DomainDeclaration]],
+    structural_ids: Sequence[str],
+    languages: Sequence[str],
+) -> None:
+    """Log the divergence block: every structural id some language declares without a pattern or omits."""
+    logger = logging.getLogger(__name__)
     divergent_ids = [
         domain_id
         for domain_id in structural_ids
@@ -496,6 +578,22 @@ def run_self_test() -> None:
             f"out_of_universe={out_of_universe}, undeclared={undeclared})."
         )
 
+    undeclared, out_of_universe = check_declaration_presence(
+        incomplete_table,
+        registry_ids=synthetic_universe,
+        structural_ids=structural_ids,
+        gap_rows={_SELF_TEST_LANGUAGE_A: frozenset({_SELF_TEST_DOMAIN_FORCED_GAP})},
+    )
+    if undeclared or out_of_universe:
+        raise AssertionError(
+            f"Non-vacuity self-test FAILED: check_declaration_presence reported "
+            f"{_SELF_TEST_LANGUAGE_A!r}'s omitted structural id "
+            f"{_SELF_TEST_DOMAIN_FORCED_GAP!r} although the language carries a "
+            f"'domain:{_SELF_TEST_DOMAIN_FORCED_GAP}' gap row for it "
+            f"(undeclared={undeclared}, out_of_universe={out_of_universe}) -- a tracked "
+            f"gap is the one accounting for an absent domain."
+        )
+
     optional_declarations = dict(complete_declarations)
     optional_declarations[_SELF_TEST_DOMAIN_NON_STRUCTURAL] = _synthetic_declaration(
         _SELF_TEST_DOMAIN_NON_STRUCTURAL
@@ -514,6 +612,67 @@ def run_self_test() -> None:
             f"{_SELF_TEST_DOMAIN_NON_STRUCTURAL!r} beside the structural ids "
             f"(undeclared={undeclared}, out_of_universe={out_of_universe}) -- a "
             f"non-structural id is optional: never required, never out-of-universe."
+        )
+
+
+def run_gap_row_self_test() -> None:
+    """Prove check_domain_gap_rows reports a stale row and an unknown row, and
+    stays silent for a row that tracks a genuinely absent structural domain.
+
+    Every input is synthetic (never a real language name or domain id).
+
+    Raises:
+        AssertionError: If any of the synthetic cases does not produce the
+            expected result.
+    """
+    structural_ids = frozenset({_SELF_TEST_DOMAIN_SHARED, _SELF_TEST_DOMAIN_FORCED_GAP})
+    complete_declarations: Mapping[str, DomainDeclaration] = {
+        domain_id: _synthetic_declaration(domain_id) for domain_id in sorted(structural_ids)
+    }
+    absent_declarations: Mapping[str, DomainDeclaration] = {
+        _SELF_TEST_DOMAIN_SHARED: complete_declarations[_SELF_TEST_DOMAIN_SHARED]
+    }
+    table = {
+        _SELF_TEST_LANGUAGE_A: absent_declarations,
+        _SELF_TEST_LANGUAGE_B: complete_declarations,
+    }
+
+    stale, unknown = check_domain_gap_rows(
+        table,
+        {
+            _SELF_TEST_LANGUAGE_A: frozenset({_SELF_TEST_DOMAIN_FORCED_GAP}),
+            _SELF_TEST_LANGUAGE_B: frozenset(),
+        },
+        structural_ids=structural_ids,
+    )
+    if stale or unknown:
+        raise AssertionError(
+            f"Non-vacuity self-test FAILED: check_domain_gap_rows reported a finding for a row "
+            f"tracking a domain the language really lacks (stale={stale}, unknown={unknown})."
+        )
+
+    stale, unknown = check_domain_gap_rows(
+        table,
+        {_SELF_TEST_LANGUAGE_B: frozenset({_SELF_TEST_DOMAIN_FORCED_GAP})},
+        structural_ids=structural_ids,
+    )
+    if stale != {_SELF_TEST_LANGUAGE_B: frozenset({_SELF_TEST_DOMAIN_FORCED_GAP})} or unknown:
+        raise AssertionError(
+            f"Non-vacuity self-test FAILED: check_domain_gap_rows did not report exactly "
+            f"{_SELF_TEST_LANGUAGE_B!r}'s stale row for the domain it declares "
+            f"(stale={stale}, unknown={unknown})."
+        )
+
+    stale, unknown = check_domain_gap_rows(
+        table,
+        {_SELF_TEST_LANGUAGE_A: frozenset({_SELF_TEST_DOMAIN_OUT_OF_UNIVERSE})},
+        structural_ids=structural_ids,
+    )
+    if unknown != {_SELF_TEST_LANGUAGE_A: frozenset({_SELF_TEST_DOMAIN_OUT_OF_UNIVERSE})} or stale:
+        raise AssertionError(
+            f"Non-vacuity self-test FAILED: check_domain_gap_rows did not report exactly "
+            f"{_SELF_TEST_LANGUAGE_A!r}'s row naming the non-structural id "
+            f"{_SELF_TEST_DOMAIN_OUT_OF_UNIVERSE!r} (stale={stale}, unknown={unknown})."
         )
 
 
@@ -651,9 +810,29 @@ def check_supported_domain_parity() -> int:
         list(STRUCTURAL_DOMAIN_IDS),
     )
     per_language = declarations_by_language(languages)
+    gap_rows = domain_gap_rows_by_language(languages)
     undeclared_by_language, out_of_universe_by_language = check_declaration_presence(
-        per_language
+        per_language, gap_rows=gap_rows
     )
+    stale_by_language, unknown_by_language = check_domain_gap_rows(per_language, gap_rows)
+    for name, stale in sorted(stale_by_language.items()):
+        logger.error(
+            "STALE DOMAIN GAP ROW: %s declares %s and also carries a 'domain:<id>' gap row "
+            "for it. Fix: delete the gap row (the domain is realized).",
+            name, sorted(stale),
+        )
+    for name, unknown in sorted(unknown_by_language.items()):
+        logger.error(
+            "UNKNOWN DOMAIN GAP ROW: %s carries a 'domain:<id>' gap row for %s, which is not a "
+            "structural domain id (valid ids: %s). Fix: correct the surface on the language's "
+            "capability_gaps row, or delete it.",
+            name, sorted(unknown), list(STRUCTURAL_DOMAIN_IDS),
+        )
+    if stale_by_language or unknown_by_language:
+        return 1
+    for name in languages:
+        for domain_id in sorted(gap_rows[name]):
+            logger.info("TRACKED GAP language=%s surface=domain:%s", name, domain_id)
 
     presence_ok = True
     for name in languages:
@@ -661,10 +840,11 @@ def check_supported_domain_parity() -> int:
         if undeclared:
             presence_ok = False
             logger.error(
-                "DECLARATION PRESENCE VIOLATION: %s declares no structural domain %s. Every "
-                "registered language is obligated to realize every structural domain id; one a "
-                "language does not realize is a counted capability gap and still fails here. "
-                "Fix: realize the domain and declare its structural_pattern.",
+                "DECLARATION PRESENCE VIOLATION: %s declares no structural domain %s and carries "
+                "no 'domain:<id>' gap row for it. Every registered language is obligated to "
+                "realize every structural domain id; one it realizes by no implementation must be "
+                "a tracked gap row on its own capability declaration. "
+                "Fix: realize the domain and declare its structural_pattern, or record the gap row.",
                 name, sorted(undeclared),
             )
         out_of_universe = out_of_universe_by_language.get(name, frozenset())
@@ -722,6 +902,7 @@ def main() -> int:
 
     try:
         run_self_test()
+        run_gap_row_self_test()
         run_universe_closure_self_test()
     except AssertionError as e:
         logger.error(
@@ -734,7 +915,9 @@ def main() -> int:
         "zero findings for a synthetic complete declaration table, correctly "
         "detects both a synthetic omitted structural id and a synthetic "
         "out-of-universe declaration, and neither requires nor rejects a "
-        "non-structural id; check_domain_universe_closure "
+        "non-structural id; check_domain_gap_rows reports a stale 'domain:<id>' row (the "
+        "language declares the domain) and an unknown one (not a structural id) and "
+        "accepts a row for a domain the language really lacks; check_domain_universe_closure "
         "correctly detects both a synthetic missing-from-registry id and a "
         "synthetic dead registry entry."
     )

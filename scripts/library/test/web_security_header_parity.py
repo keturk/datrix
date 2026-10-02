@@ -74,6 +74,7 @@ from shared.registered_targets import (  # noqa: E402
 
 if TYPE_CHECKING:
     from datrix_codegen_aws.iac.cdk_ir import CallExpr, Expr
+    from datrix_common.plugin.capability import PlatformCapabilityDeclaration
 
 logger = logging.getLogger(__name__)
 
@@ -273,42 +274,9 @@ def evaluate(
     for platform in sorted(censuses):
         census = censuses[platform]
         realized = realized_families(census)
-        for family in sorted(realized - families):
-            problems.append(
-                f"{census.package} ({platform}): emits header {family!r}, which is "
-                f"not part of the one declared web-security header set "
-                f"(datrix_codegen_kernel.platform.web_security_headers). Fix: remove the "
-                f"hand-written header, or thread it through build_web_security_headers "
-                f"so every platform stays on the one declared set."
-            )
-        for family in sorted(census.expected_families - realized):
-            problems.append(
-                f"{census.package} ({platform}): does not realize declared header "
-                f"family {family!r} for its own topology. Fix: thread "
-                f"build_web_security_headers's output for this header into the "
-                f"platform's rendering path -- there is no declared-hole escape for "
-                f"this gate."
-            )
-        for spelling in census.header_spellings:
-            expected_value = census.expected_headers.get(spelling.header_name)
-            if expected_value is None or spelling.value == expected_value:
-                continue
-            problems.append(
-                f"{census.package} ({platform}): {spelling.relative_path}:{spelling.line}: "
-                f"emits {spelling.header_name!r} as {spelling.value!r}, but the one declared "
-                f"set computes {expected_value!r} for this platform's topology. Fix: emit "
-                f"build_web_security_headers's value unchanged -- a platform never rewrites "
-                f"a declared header value."
-            )
-        for sample in census.csp_samples:
-            for token in _UNSAFE_CSP_TOKENS:
-                if token in sample.directive_text:
-                    problems.append(
-                        f"{census.package} ({platform}): {sample.relative_path}:"
-                        f"{sample.line}: Content-Security-Policy contains {token!r}, "
-                        f"forbidden regardless of family completeness. Fix: remove "
-                        f"the unsafe directive token from the CSP the platform emits."
-                    )
+        problems.extend(_family_problems(platform, census, realized, families))
+        problems.extend(_value_problems(platform, census))
+        problems.extend(_csp_problems(platform, census))
         verdicts[platform] = PlatformVerdict(platform, realized, census.expected_families)
     realized_anywhere: frozenset[str] = (
         frozenset().union(*(verdict.realized for verdict in verdicts.values())) if verdicts else frozenset()
@@ -320,6 +288,65 @@ def evaluate(
             f"one platform, or remove it from the shared builder."
         )
     return problems, verdicts
+
+
+def _family_problems(
+    platform: str,
+    census: PlatformCensus,
+    realized: frozenset[str],
+    families: frozenset[str],
+) -> list[str]:
+    """Violations of the header NAME set: an emitted family outside the declared
+    vocabulary, and a declared family the platform does not realize."""
+    problems: list[str] = []
+    for family in sorted(realized - families):
+        problems.append(
+            f"{census.package} ({platform}): emits header {family!r}, which is "
+            f"not part of the one declared web-security header set "
+            f"(datrix_codegen_kernel.platform.web_security_headers). Fix: remove the "
+            f"hand-written header, or thread it through build_web_security_headers "
+            f"so every platform stays on the one declared set."
+        )
+    for family in sorted(census.expected_families - realized):
+        problems.append(
+            f"{census.package} ({platform}): does not realize declared header "
+            f"family {family!r} for its own topology. Fix: thread "
+            f"build_web_security_headers's output for this header into the "
+            f"platform's rendering path -- there is no declared-hole escape for "
+            f"this gate."
+        )
+    return problems
+
+
+def _value_problems(platform: str, census: PlatformCensus) -> list[str]:
+    """Violations of the header VALUES: an emitted value that differs from the one
+    the shared builder computed for the platform's topology."""
+    problems: list[str] = []
+    for spelling in census.header_spellings:
+        expected_value = census.expected_headers.get(spelling.header_name)
+        if expected_value is None or spelling.value == expected_value:
+            continue
+        problems.append(
+            f"{census.package} ({platform}): {spelling.relative_path}:{spelling.line}: "
+            f"emits {spelling.header_name!r} as {spelling.value!r}, but the one declared "
+            f"set computes {expected_value!r} for this platform's topology. Fix: emit "
+            f"build_web_security_headers's value unchanged -- a platform never rewrites "
+            f"a declared header value."
+        )
+    return problems
+
+
+def _csp_problems(platform: str, census: PlatformCensus) -> list[str]:
+    """Violations of the CSP negative check: every unsafe token in an emitted CSP."""
+    return [
+        f"{census.package} ({platform}): {sample.relative_path}:"
+        f"{sample.line}: Content-Security-Policy contains {token!r}, "
+        f"forbidden regardless of family completeness. Fix: remove "
+        f"the unsafe directive token from the CSP the platform emits."
+        for sample in census.csp_samples
+        for token in _UNSAFE_CSP_TOKENS
+        if token in sample.directive_text
+    ]
 
 
 def render_report(families: frozenset[str], verdicts: Mapping[str, PlatformVerdict]) -> str:
@@ -344,6 +371,13 @@ def render_report(families: frozenset[str], verdicts: Mapping[str, PlatformVerdi
 # Platform-axis resolution (which packages realize static_web_hosting, and
 # in what origin shape)
 # ---------------------------------------------------------------------------
+
+
+def _declared_hosting_origin(declaration: PlatformCapabilityDeclaration) -> str | None:
+    """The origin a platform's static web hosting declares, or `None` when it
+    serves no static site (presence only; `_resolve_platform_origin` refuses a `None`)."""
+    hosting = declaration.static_web_hosting
+    return None if hosting is None else hosting.origin
 
 
 def _resolve_platform_origin(label: str, origins: Mapping[str, str | None]) -> str:
@@ -735,7 +769,9 @@ def scan_all_registered_platforms() -> dict[str, PlatformCensus]:
         src_dir = platform_src_dirs[0]
         package = src_dir.parents[1].name
         member_names = label.split(_LABEL_JOIN_SEPARATOR)
-        declared_origins = {name: declaration_for_provider(name).static_web_hosting.origin for name in member_names}
+        declared_origins = {
+            name: _declared_hosting_origin(declaration_for_provider(name)) for name in member_names
+        }
         origin = _resolve_platform_origin(label, declared_origins)
         is_loopback = origin == "loopback_port"
         import_name = src_dir.name
