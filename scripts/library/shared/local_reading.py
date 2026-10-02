@@ -268,13 +268,49 @@ def unmatched_citations(text: str, sections: list[Section], *, only_sent_files: 
     return list(dict.fromkeys(unmatched))
 
 
+# Code a model quotes: a fenced block, or an inline span long enough to be code rather than a name.
+_FENCED_CODE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+_INLINE_CODE = re.compile(r"`([^`\n]+)`")
+MIN_QUOTED_CHARS = 16
+_WHITESPACE = re.compile(r"\s+")
+# A path, a path:line, or a dotted identifier: a reference to something, not a claim about what code says.
+_REFERENCE = re.compile(r"^[\w.\-/\\]+(?::\d+(?:-\d+)?)?$")
+
+
+def _squeezed(text: str) -> str:
+    return _WHITESPACE.sub(" ", text).strip()
+
+
+def unmatched_quotes(text: str, sections: list[Section]) -> list[str]:
+    """Each piece of code the answer quotes that does not appear, whitespace aside, in what it was sent.
+
+    A model that quotes code it was not given -- a plausible-looking ``re.search`` line, a
+    definition it half remembers from elsewhere -- is the failure a citation check cannot see,
+    because the invented line carries no ``path:line``. Spans that are only a reference -- a
+    path, a ``path:line``, a dotted name, or anything shorter than ``MIN_QUOTED_CHARS`` -- are
+    skipped: they point at something, they do not claim what the code says.
+    """
+    sent = _squeezed("\n".join(line.split("| ", 1)[-1] for section in sections for line in section.lines))
+    quoted = [match.group(1) for match in _FENCED_CODE.finditer(text)]
+    quoted += [match.group(1) for match in _INLINE_CODE.finditer(_FENCED_CODE.sub("", text))]
+    unmatched = [snippet.strip() for snippet in quoted
+                 if len(_squeezed(snippet)) >= MIN_QUOTED_CHARS and not _REFERENCE.match(snippet.strip())
+                 and _squeezed(snippet) not in sent]
+    return list(dict.fromkeys(unmatched))
+
+
 def _checked(answer: LocalAnswer, sections: list[Section], *, only_sent_files: bool) -> LocalAnswer:
+    notes = list(answer.notes)
     unmatched = unmatched_citations(answer.text, sections, only_sent_files=only_sent_files)
-    if not unmatched:
-        return answer
-    note = (f"These citations name a file or line the model was not sent, so they are wrong: "
-            f"{', '.join(unmatched)}.")
-    return replace(answer, notes=(*answer.notes, note))
+    if unmatched:
+        notes.append(f"These citations name a file or line the model was not sent, so they are wrong: "
+                     f"{', '.join(unmatched)}.")
+    invented = unmatched_quotes(answer.text, sections)
+    if invented:
+        shown = "; ".join(snippet.replace("\n", " ")[:90] for snippet in invented[:4])
+        notes.append(f"{len(invented)} quoted code snippet(s) do not appear in the files the model was sent, so "
+                     f"they are invented or altered: {shown}.")
+    return replace(answer, notes=tuple(notes))
 
 
 def _request(system: str, question: str, body: str) -> ChatRequest:

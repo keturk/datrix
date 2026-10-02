@@ -1744,7 +1744,7 @@ Behaviour checks for the code index (`scripts/library/code_index`) and its entry
 - the method-reference caveat
 - the logic-map rewrite happening only when markers change
 - search and canonical topic matching
-- model summaries against a real loopback model server
+- model summaries against a real loopback model server, the summarize lock (exclusive, stale locks taken over), and the background summarize run (started only when modules are pending and no run holds the lock, by the CLI and by the MCP server when its refresh changes files)
 - the MCP protocol, in-process and as a subprocess whose stdout must carry only protocol
 - the code scan's additions (`dev/code-scan.ps1`): index verdicts for dead-code findings (dead, test-only, refuted by another file's use, unmatched), names used through strings and templates, and changed-package selection
 
@@ -1755,6 +1755,30 @@ It is a repo-level validation **script**, not a pytest suite.
 | **Run the gate** | `.\test\code-index-gate.ps1` | Run every check |
 | **One area** | `.\test\code-index-gate.ps1 -Only check_references` | Checks whose name starts with the prefix |
 | **Harness self-test** | `.\test\code-index-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
+
+**Parameters:** `-Only`, `-HarnessSelfTest`, `-Dbg`
+
+**Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
+
+---
+
+### `test\task-orientation-gate.ps1`
+
+Behaviour checks for task orientation and citation validation (`scripts/library/tasks/task_orientation.py`, `task_citations.py`, `validate_task.py`, wrapped by `tasks/validate-task.ps1`). Each check builds a real workspace in a temporary directory (framework repositories with real Python, task files under `.tasks/phase-NN`) and runs the real code index over it; explanations are answered by a real model server on loopback, never the network's. The checks cover:
+
+- the `## Orientation` block read by the one task parser (`parse_task_file`), and prose lines that exclude code fences
+- every malformed entry rejected with what to write instead; every question that asks where something is defined or who calls it rejected (a local model invents those answers; `symbol` / `refs` answer them exactly)
+- the resolver: facts exact from the index, a stale entry called out as a stale premise, an explanation marked as a lead, no model server leaving the facts intact
+- the citation checker: missing file / line past the end / backwards range are errors; an abbreviated path, a relative path or bare file name that several repositories carry, and a file another task of the phase creates are not errors; a name written beside a citation that is nowhere near its lines is a warning; names elsewhere in the sentence, language names and code fences are ignored
+- the validator end to end (`--phase`, `--require-orientation`) and its exit codes
+
+It is a repo-level validation **script**, not a pytest suite.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\task-orientation-gate.ps1` | Run every check |
+| **One area** | `.\test\task-orientation-gate.ps1 -Only check_citations` | Checks whose name starts with the prefix |
+| **Harness self-test** | `.\test\task-orientation-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
 
 **Parameters:** `-Only`, `-HarnessSelfTest`, `-Dbg`
 

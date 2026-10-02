@@ -269,6 +269,23 @@ def check_ask_files_sends_numbered_lines_and_checks_citations() -> None:
         assert [(e["caller"], e["outcome"]) for e in entries] == [("gate", "ok")], entries
 
 
+def check_ask_files_flags_quoted_code_the_model_was_not_sent() -> None:
+    answer = ("The helper is `def alpha():` at datrix-alpha/src/a.py:1, returning `return 1`.\n"
+              "It also checks:\n```python\nreturn {e for e in enums if re.search(rf\"\\b{e}\\b\", body)}\n```\n"
+              "and defers to `to_words`.")
+    with _workspace() as root, _ModelServer("gate-model", lambda _s, _u: answer) as server:
+        result = ask_files(ReadScope(root), _pool(server, root / "usage.jsonl"), ["datrix-alpha/src/a.py"], "q")
+        notes = " ".join(result.notes)
+        assert "1 quoted code snippet(s) do not appear" in notes and "re.search" in notes, result.notes
+        assert "def alpha" not in notes and "return 1" not in notes, "code that really is in the file is not flagged"
+        assert "to_words" not in notes, "a short span is a name, not a quotation, and is not checked"
+    honest = ("It is:\n```python\ndef beta():\n    return 2\n```\ndefined in `datrix-alpha/src/a.py:5` and used by "
+              "`EventGenerator._render_event_handlers_for_every_service`.")
+    with _workspace() as root, _ModelServer("gate-model", lambda _s, _u: honest) as server:
+        quiet = ask_files(ReadScope(root), _pool(server, root / "usage.jsonl"), ["datrix-alpha/src/a.py"], "q")
+        assert not quiet.notes, f"a faithful quotation (whitespace aside) must not be flagged: {quiet.notes}"
+
+
 def check_ask_over_many_chunks_maps_then_merges() -> None:
     body = "".join(f"value_{n} = {n}  # padding to make the file long enough\n" for n in range(2000))
 
@@ -406,6 +423,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_chunks_carry_headers_and_original_line_numbers,
     check_reduce_log_keeps_error_context_or_the_tail,
     check_ask_files_sends_numbered_lines_and_checks_citations,
+    check_ask_files_flags_quoted_code_the_model_was_not_sent,
     check_ask_over_many_chunks_maps_then_merges,
     check_digest_log_checks_only_its_own_line_citations,
     check_mcp_server_answers_and_refuses_out_of_scope,
