@@ -168,7 +168,7 @@ For each task, create a file following this exact structure:
 - Path: `d:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md`
 - `{repo}` MUST be one of the 20 framework projects in the **Task Location Allowlist** above — never a customer/generated project. If the task fits no specific package, use `datrix` (the fallback bucket).
 - `{NN}` = zero-padded phase number (e.g., `01`, `02`)
-- `{TT}` = zero-padded task number within phase (e.g., `01`, `02`)
+- `{TT}` = task number within phase, zero-padded to a minimum of two digits with no maximum (`01`, `02`, `99`, `100`, `104`). Always take it from `validate-dependencies.ps1 -Phase {NN} -NextTaskNumber`. `{NN}` follows the same rule, so a phase may be `100` or more
 - `{slug}` = kebab-case description (e.g., `generator-base-and-file-writer`)
 
 #### File Structure
@@ -220,18 +220,23 @@ explain: {path}; {path} :: {a full question about what the code does or how some
 
 ### 1. `{relative-path}` -- {Purpose}
 
-{Detailed description of what to implement.}
+{What the file is for and the contract it must satisfy.}
 
 ```python
-{Code skeleton with class/function signatures, type hints, docstrings.}
+{CONTRACT, not implementation: signatures with type hints, one-line docstrings, the order of the steps a
+function performs, the exceptions it raises. No function bodies, except where the exact text IS the
+requirement (a template, a regex, a literal table, an emitted string).}
 ```
 
+**Mirror:** `{absolute-path}:{line-range}` -- {the existing code whose shape, naming and style this follows; the implementer reads it instead of this task restating it}
+
 **Implementation notes:**
-- {Specific implementation guidance}
-- {Patterns to follow}
+- {Specific guidance the signature cannot carry: an invariant, an ordering, an edge case}
 - {Edge cases to handle}
 
 {Repeat ### N. for each file to create/modify}
+
+> **Size rule.** A task is a contract the implementer reads in full before its first edit, so every line costs a read per dispatch. Aim for 600 lines or fewer; `validate-task.ps1` warns past 600 and fails past 1500 (a COMPLETED task is exempt). A task that cannot fit is two tasks: split per language or per file group, and let the pieces share design text by reference to the earlier task, not by copy. Do not paste a body the implementer will rewrite anyway.
 
 ## Architecture Constraints
 
@@ -296,33 +301,19 @@ When generating this section:
 
 ### Unit Tests — `tests/unit/{test-path}`
 
-{Description of unit test coverage — single component, isolated.}
-
-```python
-{Complete test code with fixtures, test classes, and assertions.
-Include happy path, error cases, and edge cases.
-Mark with @pytest.mark.unit.}
-```
+{One line on what the module covers, then a TEST LIST, not test code. One bullet per test:
+`test_name` -- the input it builds (name the fixture or factory to reuse, with `file:line`) and the exact
+assertion that would fail if the behaviour broke. Cover the happy path, each error case and each edge
+case. State the feature tag(s) the module carries. Write test bodies only for a fixture or helper that
+does not exist yet and that several tests share.}
 
 ### Integration Tests — `tests/integration/{test-path}` (if applicable)
 
-{Description of integration test coverage — multi-component pipelines, full generation.}
-
-```python
-{Tests that exercise multiple components together.
-Full .dtrx → parse → generate → validate all files.
-Mark with @pytest.mark.integration.}
-```
+{The same shape: a test list for multi-component pipelines and full generation.}
 
 ### E2E Tests — `tests/e2e/{test-path}` (if applicable)
 
-{Description of E2E test coverage — full project generation, CLI workflows.}
-
-```python
-{Tests that verify the complete user-facing workflow.
-CLI E2E, full project structure.
-Mark with @pytest.mark.e2e.}
-```
+{The same shape: a test list for full project generation and CLI workflows.}
 ```
 
 #### Orientation (the `## Orientation` block)
@@ -445,19 +436,21 @@ The summary must:
 
 When an agent finishes a task, it should update the task file:
 1. Change the title from `# Task {NN}-{TT}: {Title}` to `# COMPLETED: Task {NN}-{TT}: {Title}`
-2. Add a `## How solved` section immediately after the title with:
-   - Bullet points per file created/modified
-   - Bold file names followed by implementation summary
-   - Key design decisions made
-   - Test coverage summary
+2. Add a `## How solved` section immediately after the title, **at most 40 lines** (`validate-task.ps1` warns above 60 across Implementation Notes and How Solved together):
+   - One bullet per file created/modified: the path and one clause on what changed
+   - The design decisions that are not obvious from the code (each one line)
+   - The acceptance evidence: the command and its result line, and the test names that pin the behaviour
+   - No restatement of the task, no code, no per-function narration — the code, the tests and the commit carry that
 
 ## Task Decomposition Guidelines
 
-### Sizing
-- Each task should be completable by an AI agent in a single session
-- Target 200-500 lines of production code per task
+### Sizing — bite-size tasks
+- **Many small tasks beat a few large ones.** A dispatch pays its startup (shared context, the whole task file, the surrounding code) once per task, but a large task also makes the implementer read every part of it to edit one part, and a stale part sits beside a live one. Phase and task numbers have no ceiling: `task-NN-TT` grows to three digits (`task-61-104`, `task-112-07`) and the tooling (ID grammar, dispenser, wave planner, validators) already handles it. Never merge tasks to keep a number short.
+- Target 80-250 lines of production code per task, a task file of about 300 lines, and one cohesive change: one file or one tightly coupled file group, one language, one behaviour. Hard limits: `validate-task.ps1` warns above 600 lines and fails above 1500.
+- Split by language (a hoist ported to four languages is a shared task plus one task per language, each `Depends on` the shared one), by file group, and by behaviour (a validator and the migration it polices are two tasks, the validator first).
+- Co-dispatch is the orchestrator's job (task-orchestrator 3b): several small tasks on one surface are batched into one agent there. Do not pre-merge them in the files to save dispatches.
 - Include test code estimates (usually 1:1 ratio with production code)
-- Complex tasks should be split into sub-tasks
+- If a task needs more than about five "Files to Create" entries or more than one language, split it
 
 ### Task Categories
 
@@ -650,8 +643,10 @@ When creating tasks, point agents to relevant example `.dtrx` files:
 2. **Do NOT generate summary documents** — only task files
 3. **Every task file MUST start with the agent rules perusal instruction**
 4. **Task title format is strict:** `# Task {NN}-{TT}: {Title}` — scripts detect the "Task " prefix
-5. **Include complete code skeletons** — not outlines or pseudocode
-6. **Include complete test code** — agents should be able to run tests immediately
+5. **State contracts, not transcripts** — signatures with type hints, step order, raised exceptions, and a `**Mirror:**` pointer (`file:line`) to the code whose shape to follow. Full code only where the exact text is the requirement (templates, regexes, literal tables, emitted strings). Never pseudocode, and never a pasted function body the implementer will retype
+6. **Specify tests as a test list** — name, input (the fixture or factory to reuse, `file:line`), and the assertion that fails if the behaviour breaks. Test bodies appear only for a shared helper that does not exist yet. The implementer writes the tests, so a list that is precise about the assertions is complete
+6a. **Keep the task short** — 600 lines or fewer (`validate-task.ps1` warns above 600 and fails above 1500). A multi-language port is one task per language, not one task carrying every language's code
+6b. **Inline design text sparingly** — the invariant itself and the rationale an implementer cannot guess, at most about 15 lines, plus the design section it comes from. Do not restate what the orchestrator's shared-context digest or `## Orientation` already delivers
 7. **Reference specific design document sections** — not just the whole document
 8. **Reference specific example files** — not just "look at examples"
 9. **All module paths must be valid** — check against the canonical and non-existent module lists

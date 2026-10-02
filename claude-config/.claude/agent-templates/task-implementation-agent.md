@@ -16,7 +16,7 @@ Read the task file at the path above. It contains everything you need: files to 
 
 ### 1. UNDERSTAND (Read Only — No Edits)
 
-- Read the task file completely. **If it has an `## Orientation` block, the harness answers it into your context right after you read the file** (a block starting "Orientation for task-NN-TT, answered for you just now"): exact code-index facts — definitions, callers, outlines — and a local model's cited reading of files the task says to understand but not edit. **Do not read the files that block covers.** Its explanations are leads: confirm a cited line with a ranged Read before you rely on it. An entry marked `UNRESOLVED` / `STALE TASK PREMISE` names code that is no longer as the task says: find its current form with the code-index tools (`find_symbol`, `search`) before editing, and say so in your report.
+- Read the task file completely (a long file takes several ranged Reads — page with `offset`/`limit` rather than skipping parts). **If it has an `## Orientation` block, the harness answers it into your context right after you read the file** (a block starting "Orientation for task-NN-TT, answered for you just now"): exact code-index facts — definitions, callers, outlines — and a local model's cited reading of files the task says to understand but not edit. **Do not read the files that block covers.** Its explanations are leads: confirm a cited line with a ranged Read before you rely on it. An entry marked `UNRESOLVED` / `STALE TASK PREMISE` names code that is no longer as the task says: find its current form with the code-index tools (`find_symbol`, `search`) before editing, and say so in your report.
 - Read ALL files listed in "Files to Review Before Starting" — for a task written to the current template that is only the rules, the design sections and the edit sites (read the edit sites by line range)
 - Read existing code in files to be modified
 - Search for existing functions/utilities to reuse (DRY principle): code-index MCP `find_symbol` / `search` before grep
@@ -100,11 +100,12 @@ The runner prints its saved run folder (`…/.test_results/test-results-…/`). 
 
 Do NOT update the task file title (the orchestrator marks completion after its targeted-test and conformance gates).
 
-Add a `## Implementation Notes` section at the end of the task file with:
-- Files created/modified with summaries
-- Design decisions made
-- Line counts for created files
-- Targeted test results (if run)
+Add a `## Implementation Notes` section at the end of the task file, **at most 30 lines** (the quality gate and orchestrator read it again, and `validate-task.ps1` warns past 60 lines across Implementation Notes and How Solved together):
+- One line per file created/modified: the path and what changed
+- Design decisions that are not obvious from the code, one line each
+- Targeted test result: the command and its result line
+
+No code, no per-function narration, no restating the task: the code, the tests and the commit carry that.
 
 Return a JSON report as the LAST thing in your output:
 
