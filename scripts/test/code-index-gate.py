@@ -26,9 +26,11 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -81,6 +83,12 @@ from dev.generate_test_rules import seed_topics_from_index  # noqa: E402
 from dev.logic_map import parse_markers  # noqa: E402
 from metrics.dead_code_report import Finding  # noqa: E402
 from shared.local_llm import LocalLlmPool, LocalLlmSettings  # noqa: E402
+from code_index.background import (  # noqa: E402
+    LOCK_STALE_SECONDS,
+    SummarizeBusy,
+    start_background_summaries,
+    summarize_lock,
+)
 from shared.capped_log import rotated_path  # noqa: E402
 from shared.local_llm_usage import USAGE_LOG_VARIABLE  # noqa: E402
 
@@ -497,6 +505,104 @@ def check_summaries_are_stored_by_content_hash_and_searchable() -> None:
         assert again.summarized == 0 and len(server.prompts) == 1, "an unchanged module must not be sent again"
 
 
+_BIG_MODULE = "\n".join(['"""A long module about quasar calibration."""'] +
+                        [f"CONSTANT_{n} = {n}" for n in range(MIN_SUMMARY_LINES + 5)]) + "\n"
+
+
+class _RecordingLauncher:
+    """Collects the commands a background summarize run would be started with, instead of starting one."""
+
+    def __init__(self) -> None:
+        self.commands: list[list[str]] = []
+        self.logs: list[Path] = []
+
+    def __call__(self, command: list[str], log: Path) -> None:
+        self.commands.append(command)
+        self.logs.append(log)
+
+
+def check_summarize_lock_is_exclusive_and_breaks_when_stale() -> None:
+    with TemporaryDirectory() as temp:
+        workspace = Path(temp)
+        with summarize_lock(workspace):
+            try:
+                with summarize_lock(workspace):
+                    raise AssertionError("a second summarize run took the lock while the first held it")
+            except SummarizeBusy as exc:
+                assert "already holds" in str(exc), exc
+        lock = index_dir(workspace) / "summarize.lock"
+        assert not lock.exists(), "the lock must be released when the run ends"
+        # Too old, though its owner (this process) is alive and nothing refreshed it.
+        lock.write_text(f"{os.getpid()}\n", encoding="utf-8")
+        stale = time.time() - LOCK_STALE_SECONDS - 60
+        os.utime(lock, (stale, stale))
+        with summarize_lock(workspace):
+            assert lock.read_text(encoding="utf-8").strip() == str(os.getpid()), "a stale lock must be taken over"
+        # A live owner that keeps refreshing the lock holds it however long the run takes.
+        with summarize_lock(workspace) as keep_fresh:
+            os.utime(lock, (stale, stale))
+            keep_fresh()
+            assert time.time() - lock.stat().st_mtime < LOCK_STALE_SECONDS, "touch must refresh the lock"
+            try:
+                with summarize_lock(workspace):
+                    raise AssertionError("a refreshed lock of a live run must hold")
+            except SummarizeBusy:
+                pass
+
+
+def check_summarize_lock_of_a_dead_process_is_taken_over_at_once() -> None:
+    with TemporaryDirectory() as temp:
+        workspace = Path(temp)
+        lock = index_dir(workspace) / "summarize.lock"
+        lock.parent.mkdir(parents=True)
+        exited = subprocess.Popen([sys.executable, "-c", "pass"])
+        exited.wait()
+        lock.write_text(f"{exited.pid}\n", encoding="utf-8")  # just written: fresh by age
+        assert time.time() - lock.stat().st_mtime < LOCK_STALE_SECONDS, "fixture: the lock must look fresh by age"
+        with summarize_lock(workspace):
+            assert lock.read_text(encoding="utf-8").strip() == str(os.getpid()), (
+                "a lock whose process is gone (a killed run never releases it) must be taken over at once")
+        # Non-vacuity: the same lock held by a live process is respected.
+        lock.write_text(f"{os.getpid()}\n", encoding="utf-8")
+        try:
+            with summarize_lock(workspace):
+                raise AssertionError("a lock held by a live process must be respected")
+        except SummarizeBusy:
+            pass
+
+
+def check_background_summaries_start_only_when_pending_and_unlocked() -> None:
+    with _workspace({"src/alpha_pkg/big.py": _BIG_MODULE}) as session:
+        session.refresh()
+        launcher = _RecordingLauncher()
+        with summarize_lock(session.workspace):
+            assert not start_background_summaries(session, launcher), "no second run while one holds the lock"
+        assert start_background_summaries(session, launcher), "a pending module with no run going must start one"
+        command = launcher.commands[0]
+        assert command[0] == sys.executable and command[1].endswith("code_index_cli.py"), command
+        assert command[2:] == ["summarize", "--limit", "0"], command
+        assert launcher.logs[0] == index_dir(session.workspace) / "summarize.log", launcher.logs
+    with _workspace() as session:
+        session.refresh()
+        assert not start_background_summaries(session, _RecordingLauncher()), "nothing pending: nothing to start"
+
+
+def check_mcp_server_starts_summaries_when_its_refresh_changes_files() -> None:
+    with _workspace({"src/alpha_pkg/big.py": _BIG_MODULE}) as session:
+        launcher = _RecordingLauncher()
+        factory = lambda: IndexSession(open_index(index_dir(session.workspace)), session.workspace, _CONFIG)  # noqa: E731
+        call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "find_symbol", "arguments": {"name": "to_words"}}}
+        server = CodeIndexServer(session_factory=factory, summary_launcher=launcher)
+        assert server.handle(call) is not None and len(launcher.commands) == 1, "the first call finds the pending module"
+        server.handle(call)
+        assert len(launcher.commands) == 1, "a call whose refresh changed nothing starts no run"
+        _write(session.workspace / "alpha", {"src/alpha_pkg/big.py": _BIG_MODULE + "EXTRA = 1\n"})
+        server.handle(call)
+        assert len(launcher.commands) == 2, "an edit seen by the refresh starts a run for the changed module"
+        server.close()
+
+
 # ===========================================================================
 # MCP server
 # ===========================================================================
@@ -843,6 +949,20 @@ def check_usage_hook_points_at_local_models_only_where_registered() -> None:
         assert "ask_files" not in _hook_hint(sandbox, big_py), "no local-model tools: ask_files is not named"
 
 
+def check_usage_report_counts_redirected_reads() -> None:
+    with TemporaryDirectory() as temp:
+        workspace = Path(temp)
+        log = workspace / ".code-index" / "usage.jsonl"
+        log.parent.mkdir()
+        notice = {"category": "read_redirect", "tool": "Read", "detail": "alpha/src/big.py", "response_chars": 8000,
+                  "session": "s1", "agent": "a1", "ts": datetime.now(UTC).isoformat(timespec="seconds")}
+        repeat = {**notice, "category": "read_redirect_repeat", "response_chars": 0}
+        log.write_text("".join(json.dumps(e) + "\n" for e in (notice, notice, repeat)), encoding="utf-8")
+        rendered = usage_report(workspace, 0).render()
+        assert ("answered with an outline or digest instead: 2 (the notices cost ~4,000 tokens in all); "
+                "the agent read the whole file anyway after 1 of them") in rendered, rendered
+
+
 def check_usage_hook_never_writes_into_the_datrix_repository() -> None:
     stray = _USAGE_HOOK.parents[2] / ".code-index"
     assert not stray.exists(), (
@@ -884,12 +1004,17 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_canonical_matches_topic_segments_and_hides_test_rules,
     check_generate_test_rules_seeds_topics_from_the_index,
     check_summaries_are_stored_by_content_hash_and_searchable,
+    check_summarize_lock_is_exclusive_and_breaks_when_stale,
+    check_summarize_lock_of_a_dead_process_is_taken_over_at_once,
+    check_background_summaries_start_only_when_pending_and_unlocked,
+    check_mcp_server_starts_summaries_when_its_refresh_changes_files,
     check_mcp_server_answers_the_protocol_and_tools,
     check_mcp_server_stdout_carries_only_protocol,
     check_usage_hook_log_is_what_the_report_reads,
     check_usage_hook_points_at_the_index_a_few_times_per_session,
     check_usage_hook_names_the_shell_where_the_session_has_no_index_tools,
     check_usage_hook_points_at_local_models_only_where_registered,
+    check_usage_report_counts_redirected_reads,
     check_usage_hook_never_writes_into_the_datrix_repository,
     check_code_scan_index_verdicts,
     check_code_scan_sees_names_used_through_strings,
