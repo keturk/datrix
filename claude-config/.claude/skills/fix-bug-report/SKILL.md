@@ -1,6 +1,6 @@
 ---
-description: Analyze project bug reports from any deployment profile, classify as app-definition or generator-level, fix root causes without breaking sibling profiles, and update reports with resolution
-model: claude-opus-5-5
+description: Analyze bug reports from any product and any of its deployment profiles, classify as app-definition or generator-level, fix root causes product-neutrally without breaking other products or sibling profiles, and update reports with resolution
+model: claude-sonnet-5-5
 effort: medium
 ---
 
@@ -10,16 +10,24 @@ effort: medium
 
 Analyze structured bug reports, classify each as an **app-definition fix** or a **generator-level fix**, implement the appropriate changes, and update each bug report with the resolution.
 
-**Reports arrive from several deployment profiles of the same product**, each with its own generated tree and its own inherited config. Two failures are equally wrong: a fix that cures the reporting profile and leaves the same defect standing in a sibling, and a fix that cures one profile by changing a value another profile depended on. Every fix therefore carries an explicit profile scope — see "Deployment Profiles" below, which governs Phases 1–4.
+**This skill serves every product built on Datrix, and carries no knowledge of any of them.** Reports arrive from different products, and each product has several deployment profiles with its own generated tree and inherited config. The generator is shared by all of them; a product's DSL belongs to that product alone. Four failures are equally wrong:
 
-Bug reports are written by another agent that operates directly on a deployed product's generated code (e.g. on a staging server). That agent **cannot see the Datrix toolchain, generators, or app definitions** — it can only patch generated output in place. **Every fix it describes is a temporary patch that will be overwritten on the next regeneration.** Your job is to make the fix permanent in the source that survives regeneration: the **app definition** or the **generator/template**. Treat the report's "Files Modified" / "What Was Changed" sections as diagnostic evidence of the correct output, not as completed work — do not skip or classify a bug as already-resolved just because the deployed patch currently works; it vanishes on the next regeneration.
+- a fix that cures the reporting profile and leaves the same defect in a sibling profile;
+- a fix that cures one profile by changing a value another profile depended on;
+- a generator fix that cures one product by changing what another product's source emits;
+- a generator fix shaped by one product (its names, values, profile names, or domain) rather than by the defect.
+
+Every fix therefore carries an explicit product scope and profile scope — see "Product Isolation" and "Deployment Profiles" below, which govern Phases 1–4. **Nothing in this skill, and nothing a run of it writes into a framework repo, may name a product, customer, service, or profile.**
+
+Bug reports are written by another agent that operates directly on a deployed product's generated code (e.g. on a remote server). That agent **cannot see the Datrix toolchain, generators, or app definitions** — it can only patch generated output in place. **Every fix it describes is a temporary patch that will be overwritten on the next regeneration.** Your job is to make the fix permanent in the source that survives regeneration: the **app definition** or the **generator/template**. Treat the report's "Files Modified" / "What Was Changed" sections as diagnostic evidence of the correct output, not as completed work — do not skip or classify a bug as already-resolved just because the deployed patch currently works; it vanishes on the next regeneration.
 
 ## How to Invoke
 
 ```
 /fix-bug-report D:\<Product>\.bug-report\2026-05-29-some-bug.md
-/fix-bug-report D:\<Product>\<product>-platform\.bug-report\bug-1.md D:\<Product>\<product>-platform\.bug-report\bug-2.md
-/fix-bug-report D:\<Product>\<product>-platform\.bug-report\*.md
+/fix-bug-report D:\<Workspace>\<ops-repo>\.bug-report\bug-1.md D:\<Workspace>\<ops-repo>\.bug-report\bug-2.md
+/fix-bug-report D:\<Workspace>\<ops-repo>\.bug-report\*.md
+/fix-bug-report D:\<ProductA>\.bug-report\a.md D:\<ProductB>\.bug-report\b.md
 ```
 
 The argument is one or more absolute paths to bug report markdown files (or a glob pattern).
@@ -37,26 +45,52 @@ A customer/product consumes the Datrix toolchain from outside it. There is **no 
 |---|---|---|
 | **Datrix toolchain** | `$env:DATRIX_HOME` (default `D:\datrix`) | same |
 | **Product root** | the directory holding `.bug-report\` — a git repo | the **workspace** directory holding the sibling repos — **not** a git repo |
-| **Bug reports (input)** | `<product-root>\.bug-report\` | `<workspace>\<name>-platform\.bug-report\` — in the ops/platform repo. Gitignored, local-only, in both shapes. |
-| **App definition (DSL)** | `<product-root>\<name>-backend\` | `<workspace>\<name>-backend\` — **its own repo**. `.dtrx` / `.dcfg` source of truth; app-definition fixes go here. |
-| **Generated code (output)** | `<product-root>\generated\<profile>\` | `<workspace>\<name>-generated\<profile>\` — **its own repo, with no `generated\` wrapper level**. Auto-generated; **never edit**. |
-| **Generation wrapper** | `<product-root>\scripts\<profile>\generate.ps1` | `<workspace>\<name>-platform\scripts\<profile>\generate.ps1` — same repo as `.bug-report\`. Local-only; deploys nothing. |
-| **Migration ledger** | `<dsl-root>\.datrix\rdbms-migrations\` | same — it follows the **DSL root**, so under Shape 2 it is tracked inside the `*-backend` repo, never in the generated repo |
+| **Bug reports (input)** | `<product-root>\.bug-report\` | `<report-repo>\.bug-report\` — in the ops/platform repo. Gitignored, local-only, in both shapes. |
+| **App definition (DSL)** | the directory holding `system.dtrx` | the directory holding `system.dtrx` — **its own repo**. `.dtrx` / `.dcfg` source of truth; app-definition fixes go here. |
+| **Generated code (output)** | the output directory the generation wrapper writes, typically `<product-root>\generated\<profile>\` | the output directory the wrapper writes — **its own repo, often with no `generated\` wrapper level**. Auto-generated; **never edit**. |
+| **Generation wrapper** | `<scripts-root>\<profile>\generate.ps1` | `<scripts-root>\<profile>\generate.ps1` — usually in the same repo as `.bug-report\`. Local-only; deploys nothing. |
+| **Migration ledger** | `<dsl-root>\.datrix\rdbms-migrations\` | same — it follows the **DSL root**, so under Shape 2 it is tracked inside the DSL repo, never in the generated repo |
+
+Directory names (`*-backend`, `*-platform`, `*-generated`, `generated\`, `scripts\`) are conventions a product may or may not follow. **Identify each role by what the directory contains, never by what it is called:** the DSL root is the directory holding `system.dtrx`; the scripts root is where the `<profile>\generate.ps1` wrappers live; the generated root is the output path *read from a wrapper*, not guessed from a name.
 
 **Derive it, in this order, and stop on the first that resolves:**
 
 1. `<report-repo>` = the directory holding the `.bug-report\` directory the report sits in.
-2. **Shape 1** if `<report-repo>` itself contains a `*-backend` directory holding the DSL (`system.dtrx` / `.dtrx` files). Product root = `<report-repo>`.
-3. **Shape 2** if the *parent* of `<report-repo>` contains a `*-backend` **sibling** holding the DSL. Workspace = that parent; DSL root = the `*-backend` sibling; generated root = the `*-generated` sibling; scripts root = `<report-repo>\scripts\`.
+2. **Shape 1** if `<report-repo>` itself contains a directory holding the DSL (`system.dtrx` / `.dtrx` files). Product root = `<report-repo>`.
+3. **Shape 2** if a **sibling** of `<report-repo>` (a child of its parent) holds the DSL. Workspace = that parent; DSL root = that sibling; scripts root = the directory under `<report-repo>` holding the profile wrappers; generated root = the output path the wrappers write.
 4. **Neither resolves → stop and say what you looked for and where.** A plausible-but-wrong product root is how a fix lands in the ops repo and the DSL is never touched. Read the report's "Files Modified" paths and the actual directory listing; do not guess.
 
-**A report's paths are the *deployed* server's paths, not necessarily yours.** The remote tree keeps the `generated/<profile>/` layout even for products that no longer have a `generated\` directory locally, so a report saying `generated/devd/services/...` maps to `<workspace>\<name>-generated\devd\services\...` under Shape 2. Map it; do not assume the string is a local path.
+**Several products in one invocation are several derivations.** If the argument paths resolve to different report repos, each is its own product with its own roots, profiles and generated tree. Derive each separately; never carry a root, profile set, or `extends` edge from one product to another.
+
+**A report's paths are the *deployed* server's paths, not necessarily yours.** The remote tree keeps a `generated/<profile>/` layout even for products that no longer have a `generated\` directory locally, so a report path of that form maps to `<generated-root>\<profile>\...` under Shape 2. Map it through the wrapper's output path; do not assume the string is a local path.
+
+---
+
+## Product Isolation — a Fix Lands in Exactly One Scope
+
+Three scopes exist, and every fix belongs to exactly one:
+
+| Scope | Lives in | Who it changes |
+|---|---|---|
+| **This product** | its `.dtrx` / `.dcfg` | this product only — no other product can be affected |
+| **The toolchain** | a `datrix-*` package | **every product, present and future**, whether or not it was reported and whether or not it is on this machine |
+
+A toolchain fix is therefore never "for" the reporting product. It is a change to what a *source construct* emits, and it must be right for every source containing that construct. The rules that follow from that:
+
+1. **The defect is characterized by the construct, not the product.** Reduce it to: *which DSL construct, under which runtime/provider/language target, produced which wrong artifact, and what the correct artifact is.* If you cannot state it without a product's names or values, you have not found the root cause yet — keep reading.
+2. **Reproduce it with a neutral fixture.** The test that pins the fix uses the neutral e-commerce domain (Product, Order, Customer, Warehouse, Variant, LineItem) or a fictional one — never the reporting product's entities, services, field names, values, or profile names. Customer domain language in a framework repo is a hard gate failure (`customer-domain-isolation-gate.ps1`, and `commit-and-push` runs it) — and it applies to code, tests, docs, comments, findings, and commit messages alike. Carry over the *shape* of the failing input, not its vocabulary.
+3. **No product, customer, service, or profile identity in the generator** — not as a branch, a table key, a default, a path, an exclusion, or a comment. Profiles are a product's config and invisible to the generator, which sees only runtime/provider/target. A generator fix that needs to know *who* is generating is the wrong fix: either the behaviour is wrong for everyone (fix it for everyone) or the input is wrong (Category A).
+4. **No product-tuned defaults.** A value chosen because it suits the reporting product — a timeout, limit, name, port, size — is an app-definition value. It becomes an emitted default only if it is correct for any source that does not set it, and an insecure or merely convenient default is never correct (execution-contract §13).
+5. **Prove the fix cannot move what was already correct.** The reach of a toolchain fix cannot be enumerated by reading other products, so it is bounded by construction: (a) a test that the defective construct now emits the correct artifact, **and** (b) a test that a neighbouring construct that was already emitted correctly is **byte-identical** before and after. Then run the existing tests of every package the change reaches, by feature tag (`.claude/skills/_shared/verification-strategy.md`, "Which packages a change reaches"). A deliberate change to what other sources emit is declared and pinned by its own test, never landed silently.
+6. **Never read, edit, or regenerate another product's tree** to check a toolchain fix. Another product's DSL and generated output are not evidence you are entitled to touch, and a corpus sweep proves once what a test proves forever.
+7. **An app-definition fix never reaches the toolchain, and a toolchain fix never carries product data.** Do not move a product's workaround into a generator to avoid editing its DSL, and do not paper over a generator defect in the DSL when it would force every product to repeat the workaround.
+8. **A fix that is correct for the reporting product only because of what it happens to contain is not a fix** — it is the same defect waiting in the next product. Place it at the most language/platform-agnostic layer that can own it, and write the test that fails when the next product hits the same construct.
 
 ---
 
 ## Deployment Profiles — Every Fix Has a Profile Scope
 
-**A product declares several deployment profiles (environments), and the bug reports you are given come from more than one of them.** Enumerate the product's actual profile set from the **scripts root**: a profile is a subdirectory holding a `generate.ps1`. Cross-check against the generated root (`<product-root>\generated\` under Shape 1, the `*-generated` repo under Shape 2) — but the two sets are **not** required to match: the generated root holds a tree only for profiles that have actually been generated on this machine, so a profile with a wrapper and no tree is normal and is **not** evidence the profile does not exist. Never assume a set, a count, or which profiles a given product runs.
+**A product declares several deployment profiles (environments), and the bug reports you are given come from more than one of them.** Enumerate the product's actual profile set from the **scripts root**: a profile is a subdirectory holding a `generate.ps1`. Cross-check against the generated root (the output path the wrappers write — see "Project Layout") — but the two sets are **not** required to match: the generated root holds a tree only for profiles that have actually been generated on this machine, so a profile with a wrapper and no tree is normal and is **not** evidence the profile does not exist. Never assume a set, a count, or which profiles a given product runs.
 
 **Identify each report's profile before triaging it.** Reports name it in the filename segment and/or a `Platform:` / `Environment:` field; failing that, the `generated/<profile>/...` paths under "Files Modified" name it (that is the deployed server's layout — map it to the local tree per "Project Layout"). A report carrying its own generated-tree sweep already names the other profile trees it found the pattern in — read that as evidence and confirm it; do not accept it on faith and do not skip doing your own.
 
@@ -91,12 +125,13 @@ It cuts both ways, and both directions are your work:
 
 Static first (CLAUDE.md's ladder): compute the reach set from the `extends` graph and the emitter. The reach set is the set of profiles your fix must be *correct* for; it is **not** the set you regenerate.
 
-**Regenerate `devd` and `staging` only — and only those of the two that are in the reach set.** Every other profile is regenerated only when Jon names it in the request. A reach set of five python profiles still means two regeneration runs, not five: `test`, `dev`, `prod` and any other profile are verified by reading — the `extends` clause that puts them in the reach set and the emitter that feeds them — never by a run nobody asked for. Each run uses its own wrapper; regeneration is local and deploys nothing.
+**Regenerate the fewest profiles that prove the fix, chosen by the emitter and never by name.** Group the exhibiting profiles that are in the reach set by what selects the emitter — `deployment { runtime, provider }` plus the language — and regenerate **one representative per group**, preferring a profile a report was actually filed against. Every other profile in the reach set is verified by reading: the `extends` clause that puts it there and the emitter that feeds it. A profile outside the groups, or one Jon did not name, is never regenerated. A reach set of five profiles on one runtime/provider/language is one regeneration run, not five; two groups are two runs. Each run uses that profile's own wrapper; regeneration is local and deploys nothing.
 
 ```
-powershell -File "<scripts-root>/devd/generate.ps1"
-powershell -File "<scripts-root>/staging/generate.ps1"
+powershell -File "<scripts-root>/<profile>/generate.ps1"
 ```
+
+Regeneration is also bounded by product: only the product whose report you are processing is ever regenerated, and never another product's tree.
 
 Then census the result. **Census every repo the run can write**, which is shape-dependent — a census that covers one repo of a split product silently misses the other:
 
@@ -174,22 +209,24 @@ Report layout varies between products (a product may use a richer template with 
 
 4. **Classify each bug into one of three categories:**
 
-   **Default assumption: fix the product's app definition.** Only classify as a generator fix when the evidence unambiguously points to a systematic generator defect that would affect any project — not just this one. When classification is ambiguous, choose Category A.
+   **There is no preferred category.** Classify by where the defect lives, decided by one test: *would a different product, with a correct source for this construct, get the same wrong artifact?* If yes, the generator is wrong and the fix lands there — a change that is right regardless of the product belongs in the toolchain, and editing the product's DSL to avoid it leaves the defect for the next product. If no, the product's input is wrong and the fix lands in its DSL. When the evidence does not yet settle the test, keep reading the emitter and the source until it does; ambiguity is not a tiebreak toward either side.
 
-   **Category A — App Definition Fix (preferred):**
-   The bug can be resolved by modifying `.dtrx` or `.dcfg` files in the app definition directory. Decisive indicators:
-   - The "Implications" section says "not a codegen issue" or describes DSL-level misconfiguration
-   - The fix is project-specific — other projects using the same generator would not have this bug
+   **Category A — App Definition Fix:**
+   The bug can be resolved by modifying `.dtrx` or `.dcfg` files in the app definition directory, and a different product with a correct source would not hit it. Decisive indicators:
+   - The "Implications" section describes DSL-level misconfiguration
    - The generated code structure is correct but the inputs (DSL definitions) are wrong (e.g. wrong API URLs, field mappings, config values, missing validators/constraints)
+   - The corrected value is a fact about this product, not a rule about the construct
 
-   **Category B — Generator/Template Fix (only when necessary):**
-   The bug requires changing Datrix generator code (`datrix-codegen-*` packages). **Only use this category when there is clear evidence of a systematic generator defect.** Decisive indicators:
-   - The "Implications" section describes a systematic pattern that would affect ANY project using this generator
-   - The same bug would occur in any project using the same generator features — it is NOT specific to this product
-   - The bug report title or implications mention "codegen", "template", "generator", or "transpiler", or describe wrong emitted syntax/type mappings/missing null-safety in generated code
+   **Category B — Generator/Template Fix:**
+   The bug requires changing Datrix generator code (`datrix-codegen-*` packages or a shared layer), and the correct behaviour holds for every product. Decisive indicators:
+   - The emitted artifact is wrong for a source that is itself correct — wrong syntax, type mapping, missing null-safety, a dropped field, an unsafe default
+   - Any project using the same construct under the same runtime/provider/target would get the same wrong output
+   - The fix can be stated without naming this product — construct → wrong artifact → correct artifact
+
+   A defect that is valid on both sides (a generator that should reject or correct the input, *and* a DSL value that is wrong) is Category C. A DSL workaround for a generator defect is never the fix.
 
    **Category C — Both App and Generator Fix:**
-   The bug has aspects requiring changes in both. Handle the app definition fix first (Category A), then the generator fix (Category B) only if the generator defect is confirmed.
+   The bug has aspects requiring changes in both. Land the generator fix first when the app-definition change depends on it (so the DSL is edited against the corrected emitter), otherwise either order; both land.
 
    **Category D — Cannot Fix (Report Only):**
    The bug describes issues outside the scope of app definitions and code generators. Examples: external API changes/outages, infrastructure/deployment issues.
@@ -199,13 +236,12 @@ Report layout varies between products (a product may use a richer template with 
    - If multiple bugs share the same generator root cause (e.g., several bugs all caused by `.to_string()` emission), group them under a single fix
    - Note which individual bug reports will be resolved by each grouped fix
    - **Group across profiles too:** two reports from two profiles with one root cause are one fix with a union `Exhibiting` set — not two fixes, and never one fix that quietly serves only the profile you read first
+   - **Group across products for toolchain fixes only:** two products hitting the same generator defect are one generator fix, stated in neutral terms (see "Product Isolation"). App-definition fixes are never grouped across products — each product's DSL is edited on its own evidence
    - Grouping reduces redundant work and prevents conflicting edits
 
 6. **Plan execution order:**
-   - App definition fixes first (Category A) — prioritize fixing the product's app
-   - Generator fixes second (Category B) — only when a systematic generator defect is confirmed
-   - Combined fixes (Category C) — app definition part first, then generator part only if confirmed necessary
-   - Within each category, fix higher-severity bugs first
+   - Order by dependency first: a generator fix that an app-definition edit relies on (or that makes it unnecessary) goes before it
+   - Otherwise order by severity, highest first, regardless of category
    - **Batch by reach:** order fixes so each profile's tree is regenerated once at the end, after every edit that reaches it — not once per bug
 
 7. **End-of-phase report:**
@@ -214,7 +250,8 @@ Report layout varies between products (a product may use a richer template with 
    TRIAGE COMPLETE
 
    Bug reports analyzed: {N}
-   Product shape: {single repo | sibling repos}   (derived per "Project Layout")
+   Products: {product-root per distinct report repo}   (each derived separately per "Project Layout")
+   Product shape: {single repo | sibling repos}   (per product)
    Profiles in this product: {profile-1, profile-2, …}   (wrappers in the scripts root; trees present in the generated root: {…})
 
    Category A (App Definition Fix): {count}
@@ -239,8 +276,9 @@ Report layout varies between products (a product may use a richer template with 
    ...
 
    Union of reach sets: {profiles}
-   Profiles to regenerate (devd/staging ∩ reach, plus any Jon named): {profiles}
+   Profiles to regenerate (one representative per runtime/provider/language group in exhibiting ∩ reach, plus any Jon named): {profiles}
    Reached, verified by reading only: {profiles}
+   Toolchain fixes: construct = {DSL construct}, neutral fixture = {…}, already-correct neighbour pinned byte-identical = {…}
    ```
 
 8. **Scope gate:**
@@ -255,9 +293,9 @@ Report layout varies between products (a product may use a richer template with 
 
 ### Phase 2: Fix (Write Code)
 
-Process fixes in the planned order from Phase 1 (app definition fixes first).
+Process fixes in the planned order from Phase 1.
 
-#### For App Definition Fixes (Category A — do these first):
+#### For App Definition Fixes (Category A):
 
 1. **Read the bug report's Summary and What Was Changed sections** to understand what's wrong
 2. **Read the relevant `.dtrx` or `.dcfg` files** in the product's app definition directory (`<dsl-root>`, derived per "Project Layout")
@@ -272,7 +310,7 @@ Process fixes in the planned order from Phase 1 (app definition fixes first).
    - Remember lists **replace** rather than merge: a list edit in `base` misses every profile that redeclares that list
 5. **Read surrounding context** in the `.dtrx` file to ensure consistency with adjacent definitions
 
-#### For Generator/Template Fixes (Category B — only when a generator defect is confirmed):
+#### For Generator/Template Fixes (Category B):
 
 1. **Read the "Implications for the Datrix Code Generator" section** — this describes the root cause and often suggests the fix approach
 2. **Locate the generator/template code** under `$DATRIX_HOME`:
@@ -308,7 +346,9 @@ Bug reports resolved by this fix: {list of bug filenames}
 
 #### Profile Gate (after the last edit that reaches a given profile):
 
-Regenerate `devd` and `staging` (those in the union of the reach sets, plus any profile Jon named) with their own wrappers, then produce the census and the per-profile artifact evidence described in "Deployment Profiles → Verification is per profile, on the artifact". Paste the command and its output — a regeneration you did not run, or a profile tree you did not look at, is an unverified claim. A regeneration nobody asked for is not extra evidence; it is a profile tree churned for nothing.
+Regenerate one representative profile per runtime/provider/language group of the exhibiting profiles (plus any profile Jon named) with its own wrapper, then produce the census and the per-profile artifact evidence described in "Deployment Profiles → Verification is per profile, on the artifact". Paste the command and its output — a regeneration you did not run, or a profile tree you did not look at, is an unverified claim. A regeneration nobody asked for is not extra evidence; it is a profile tree churned for nothing.
+
+For a toolchain fix the gate also requires, pasted as command + output: the neutral-fixture test showing the defective construct now correct, the test showing the already-correct neighbouring construct byte-identical, and the tagged tests of every package the change reaches (never a whole suite). A toolchain fix with no neutral-fixture test is unproven however the reporting product's tree looks.
 
 The gate passes only when all four hold:
 
@@ -420,7 +460,7 @@ See `d:\datrix\.claude\skills\_shared\fix-conventions.md` (also applies per-bug:
 
 ## Anti-Patterns
 
-- **NO fixing generated code directly** — fix generators/templates or app definitions; everything under the generated root is overwritten on regeneration, whether that root is `<product-root>\generated\` or a `*-generated` repo of its own
+- **NO fixing generated code directly** — fix generators/templates or app definitions; everything under the generated root is overwritten on regeneration, wherever the wrapper writes it
 - **NO deriving the product root by assuming a shape** — the repo holding `.bug-report\` is the product root in Shape 1 and the *ops* repo in Shape 2, where the DSL is a sibling. Run the "Project Layout" derivation and stop if neither branch resolves
 - **NO hardcoding customer names or `datrix-projects\...` paths** — that container was retired; derive product paths from the bug-report argument and `$DATRIX_HOME`
 - **NO editing without a stated profile scope** — the `Exhibiting` and `Reached` sets are written down before the edit, not reconstructed after it
@@ -429,7 +469,11 @@ See `d:\datrix\.claude\skills\_shared\fix-conventions.md` (also applies per-bug:
 - **NO stopping at the reporting profile** — the same emitter or config key feeding another profile makes that profile yours too; a latent copy is a defect, not a coincidence
 - **NO "fixed in `base`, so all profiles are fixed"** — a profile overriding that key is still broken. Per-profile artifact evidence, or it is unproven
 - **NO branching on a profile name inside a generator** — profiles are product config; the generator sees runtime/provider/target only
-- **NO regenerating any profile other than `devd` and `staging`** unless Jon names it in the request — a reach set of five is still two runs; the rest are verified by reading. **NO regenerating a profile outside the reach set** either, and **NO deploy/sync/release/provision of any profile** — regeneration wrappers and reads are the whole verification toolkit here
+- **NO regenerating more than one representative per runtime/provider/language group** unless Jon names more in the request — a reach set of five profiles on one emitter is one run; the rest are verified by reading. **NO regenerating a profile outside the reach set** either, **NO regenerating or reading another product's tree**, and **NO deploy/sync/release/provision of any profile** — regeneration wrappers and reads are the whole verification toolkit here
+- **NO product, customer, service, or profile names in framework code, tests, docs, comments, findings, or commit messages** — reproduce with a neutral fixture; the isolation gate rejects the commit otherwise
+- **NO generator fix shaped by one product** — no branch, table key, default, or exclusion that exists because of who reported the bug. State the defect as construct → wrong artifact → correct artifact, or you have not found the root cause
+- **NO generator fix without a test that the already-correct neighbouring construct is byte-identical** — fixing one product by changing what another product's source emits is the failure this skill exists to prevent
+- **NO inferring a product's layout from directory names** — roles come from contents (`system.dtrx`, the wrapper's output path), and nothing is carried from one product to the next
 - **NO debug scatter** — zero temporary logging statements
 - **NO modifying original bug report content** — only append the Resolution section
 - **NO committing changes** — user decides when to commit
@@ -439,4 +483,4 @@ See `d:\datrix\.claude\skills\_shared\fix-conventions.md` (also applies per-bug:
 - **NO batch-modifying multiple generators without checkpoints** — one fix at a time with verification
 - **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
 - **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
-- **NO treating staging fixes as resolved** — bug reports describe temporary patches to generated code made by an agent without Datrix access; every bug still needs a permanent fix in the app definition or generator
+- **NO treating deployed patches as resolved** — bug reports describe temporary patches to generated code made by an agent without Datrix access; every bug still needs a permanent fix in the app definition or generator
