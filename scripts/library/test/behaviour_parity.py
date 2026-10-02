@@ -3150,9 +3150,7 @@ def _self_test_case_declared_hole_still_fails() -> bool:
 _REMOVED_DECLARATION_NAMES: Final[frozenset[str]] = frozenset(
     {
         "DomainDeclaration",
-        "BuiltinGroupStance",
         "stance_table_by_language",
-        "builtin_group_stances",
         "capability_gaps",
         "CapabilityGap",
     }
@@ -3182,10 +3180,10 @@ def _self_test_case_no_declaration_reader() -> bool:
     planted = (
         "from datrix_codegen_kernel.parity.domain_declaration import DomainDeclaration\n"
         "def read(declaration):\n"
-        "    return declaration.builtin_group_stances, stance_table_by_language, declaration.capability_gaps\n"
+        "    return stance_table_by_language, declaration.capability_gaps\n"
     )
     return _declaration_names_referenced(planted) == sorted(
-        {"DomainDeclaration", "builtin_group_stances", "stance_table_by_language", "capability_gaps"}
+        {"DomainDeclaration", "stance_table_by_language", "capability_gaps"}
     ) and not _declaration_names_referenced(Path(__file__).read_text(encoding="utf-8"))
 
 
@@ -4188,7 +4186,7 @@ _SELF_TEST_PLATFORM_ALPHA_SOURCE: Final[str] = '''
     from datrix_codegen_kernel.platform.realization_dsl import load_realization_table
     from datrix_common.plugin.capability_cells import BlockRealization
 
-    _CELL = BlockRealization(supported=True, structural_pattern="*/infra/main.tf")
+    _CELL = BlockRealization(structural_pattern="*/infra/main.tf")
 
 
     class Infra:
@@ -4240,7 +4238,7 @@ _SELF_TEST_PLATFORM_BETA_SOURCE: Final[str] = '''
     from datrix_codegen_kernel.platform.realization_dsl import load_realization_table
     from datrix_common.plugin.capability_cells import BlockRealization
 
-    _CELL = BlockRealization(supported=True, structural_pattern="*/infra/main.bicep")
+    _CELL = BlockRealization(structural_pattern="*/infra/main.bicep")
 
 
     class BetaInfra:
