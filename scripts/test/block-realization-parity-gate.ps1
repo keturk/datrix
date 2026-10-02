@@ -4,18 +4,27 @@
  Cross-platform capability-declaration parity gate.
 
 .DESCRIPTION
- Proves every installed `datrix.platforms` plugin's declared
- PlatformCapabilityDeclaration is complete relative to the union of
- capability coordinates every installed platform declares, across eight
- surfaces: block-realization (block_type, flavor) cells, supported secret
- backends, native observability providers (per category), supported
- deployment runtimes, identity (provider_type, feature) cells, every
- remaining optional scalar/mapping capability field, unrealizable_surfaces,
- and deployable_constructs (which DeployableConstruct values a platform
- counts as making a service deployable). A coordinate present on one
- platform and entirely undeclared (never an explicit supported=False/reason
- or truthy value) on another fails the gate, unless a reviewed entry exists
- in `datrix/scripts/config/platform-capability-holes.json`.
+ Proves every installed `datrix.platforms` plugin realizes every CAPABILITY
+ any installed platform realizes, across seven surfaces: block types (a
+ platform realizes each block type by at least one flavor), observability
+ categories (at least one native provider per category), a supported-runtime
+ floor, identity features (offered through at least one provider), static web
+ hosting origin and custom-domain surfaces (each platform against its OWN
+ edge: `domain` and both surfaces when the edge binds custom domains,
+ `loopback_port` and neither otherwise), and model realizations (at least one
+ provider with a flavor cell). Compares capabilities, never implementations:
+ a platform that lacks one flavor, vendor product or provider another has is
+ not a gap. A capability a platform realizes by no implementation is a
+ `<kind>:<id>` row in that platform's own `capability_gaps`, which accounts
+ for the violation here and suppresses nothing elsewhere. There is no
+ exemption file.
+
+ Declarations are read through one extractor (presence only) and compared as
+ plain facts. Secret backends, deployable constructs, the set-shaped optional
+ fields and the presence-shaped topology fields are not compared across
+ platforms (product vocabulary / per-platform topology); a field partition
+ guard still forces every present and future declaration field, required or
+ optional, into a named bucket.
 
  Derives its target platform set from
  `importlib.metadata.entry_points(group="datrix.platforms")` at runtime --
@@ -24,9 +33,10 @@
  to this gate.
 
  Runs a built-in non-vacuity self-test on every invocation, before trusting
- any real comparison: a synthetic matching declaration pair must report
- zero gaps; a synthetic pair with one planted missing union cell must be
- detected. Fails loud (exit 2) if fewer than 2 platforms are registered.
+ any real comparison: planted facts for a clean pair must report zero gaps,
+ each planted divergence must be detected as exactly one violation, and a
+ merely different vocabulary must not. Fails loud (exit 2) if fewer than 2
+ platforms are registered or a live surface unions over nothing.
 
  Repo-level validation script (per the datrix showcase boundary -- no
  pytest suite lives in datrix).
@@ -95,7 +105,7 @@ try {
         $pythonArgs += "--self-test"
     }
 
-    Write-Host "Running block-realization capability parity gate (all registered platforms, D1)" -ForegroundColor Cyan
+    Write-Host "Running block-realization capability parity gate (all registered platforms, seven surfaces)" -ForegroundColor Cyan
     python @pythonArgs
     $exitCode = $LASTEXITCODE
 
