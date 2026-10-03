@@ -17,6 +17,14 @@
  datrix/scripts/config/body-wire-naming-exemptions.json (coordinates +
  reason).
 
+ A second census covers a transform applied AFTER serialization, which the
+ comparison above cannot see: each registered language declares the regular
+ expressions that spell a response-body transform in its framework
+ (LanguageCapabilityDeclaration.response_body_transform_idioms), the gate
+ greps the same generated tree for them, and every hit must be a typed
+ `transform_exemptions` entry in the exemption file. An unexempted hit, a
+ stale exemption and a language with no declaration each fail by name.
+
  Derives its target language set from
  `importlib.metadata.entry_points(group="datrix.languages")` at runtime --
  never a hardcoded language literal -- so a future `datrix-codegen-<lang>`
