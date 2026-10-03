@@ -82,10 +82,12 @@
  Run the G2 shared-layer target-name ratchet check (Decision D4, Invariant
  I3) in addition to the import-boundary check. Fails when a class,
  function, dataclass field, type alias, or type reference declared in
- datrix_codegen_common carries a registered LANGUAGE name (datrix.languages
- only -- datrix.platforms is never consulted) as an identifier segment.
- Compares current per-file counts against the frozen baseline at
- scripts/config/shared-target-name-baseline.toml.
+ datrix_codegen_common or datrix_codegen_kernel carries a registered LANGUAGE
+ name or any of that language's declared alias tokens (name_tokens) as an
+ identifier segment (datrix.languages only -- datrix.platforms is never
+ consulted). Compares current per-file counts against the frozen baseline at
+ scripts/config/shared-target-name-baseline.toml; every baseline entry
+ carries a written `reason`, and -UpdateBaseline preserves each one.
 
 .PARAMETER CheckCrossPackageVocabulary
  Run the G3 cross-package vocabulary ratchet check (Decision D2.1-D2.4) in

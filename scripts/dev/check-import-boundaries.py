@@ -85,20 +85,23 @@ set, and a bare-literal redeclaration of either is the same defect.
 overwrites that baseline.
 
 Also implements the G2 shared-layer target-name ratchet (Decision D4, Invariant I3):
-opt-in via --check-shared-target-names, it AST-scans ONLY datrix_codegen_common's
-src/ tree (SHARED_TARGET_NAME_PACKAGES, a single-package tuple -- deliberately
-narrower than I1's three-package scope) for any class, function, dataclass field,
-type alias, or type reference whose identifier carries a registered LANGUAGE name
-as an identifier segment (read live via registered_language_names() --
+opt-in via --check-shared-target-names, it AST-scans ONLY the src/ trees of
+SHARED_TARGET_NAME_PACKAGES (datrix_codegen_common and datrix_codegen_kernel --
+deliberately narrower than I1's derived shared-package scope) for any class,
+function, dataclass field, type alias, or type reference whose identifier carries
+a registered LANGUAGE name OR one of that language's declared ALIAS tokens
+(``declaration_for_language(lang).name_tokens``, e.g. ``ts``) as an identifier
+segment (read live via shared_target_name_vocabulary() --
 datrix.platforms is never consulted, since the registered platform name "local" is
 also an ordinary English word). This is a DIFFERENT check from I1 -- I1 matches a
 frozen list of specific central-table names, G2 matches the SHAPE of an identifier
 against an open, runtime-derived vocabulary, so it would catch a brand-new
 language-named class I1's frozen list has never heard of. Fails if any file's
 count increases past its frozen baseline
-(scripts/config/shared-target-name-baseline.toml).
---update-baseline (combined with --check-shared-target-names) recomputes and
-overwrites that baseline.
+(scripts/config/shared-target-name-baseline.toml), or if a baseline entry carries
+no written ``reason``.
+--update-baseline (combined with --check-shared-target-names) recomputes the
+counts and preserves every written reason.
 
 Also implements the I4 own-target-name ratchet (Decision D5, Invariant I4):
 opt-in via --check-own-target-names, it AST-scans EVERY registered LANGUAGE
@@ -3886,11 +3889,11 @@ def _identifier_carries_target_name(
 
     Args:
         identifier: The identifier to test.
-        target_names: Registered language names, lowercased
-            (``registered_language_names()``).
+        target_names: Registered language names and their declared alias
+            tokens, lowercased (``shared_target_name_vocabulary()``).
 
     Returns:
-        The matched target name, or ``None``.
+        The matched target name or alias token, or ``None``.
     """
     segments = _identifier_segments(identifier)
     for start in range(len(segments)):
@@ -4034,8 +4037,8 @@ def scan_file_for_shared_target_names(
 
     Args:
         file_path: Path to Python source file.
-        target_names: Registered language names (lowercased), from
-            ``registered_language_names()``.
+        target_names: Registered language names and their declared alias
+            tokens (lowercased), from ``shared_target_name_vocabulary()``.
 
     Returns:
         List of hits found in the file, in AST-walk order.
@@ -4118,7 +4121,7 @@ def scan_shared_target_names(
         Mapping of file path -> hits in that file (files with zero hits omitted).
     """
     results: dict[Path, list[SharedTargetNameHit]] = {}
-    target_names = frozenset(name.lower() for name in registered_language_names())
+    target_names = shared_target_name_vocabulary()
 
     for package_name in SHARED_TARGET_NAME_PACKAGES:
         package_info = packages.get(package_name)
@@ -4152,67 +4155,81 @@ def scan_shared_target_names(
     return results
 
 
-def load_shared_target_name_baseline(baseline_path: Path) -> dict[str, int]:
-    """Load ``{relative_file: frozen_count}`` from the shared-target-name
-    baseline TOML. Returns an empty dict if the file does not exist yet."""
-    if not baseline_path.exists():
-        return {}
+@dataclass(frozen=True)
+class SharedTargetNameBaseline:
+    """The frozen shared-target-name baseline: a count per file plus the
+    written reason for every entry that carries one. A reason is part of the
+    frozen record: ``--update-baseline`` reads it back and re-emits it."""
 
-    try:
-        import tomllib  # Python 3.11+
-    except ImportError:
-        try:
-            import tomli as tomllib  # type: ignore[no-redef, import-not-found]
-        except ImportError:
-            print(
-                "Warning: TOML library not available. Install tomli for baseline support.",
-                file=sys.stderr,
-            )
-            return {}
+    counts: dict[str, int]
+    reasons: dict[str, str]
+
+
+def load_shared_target_name_baseline(baseline_path: Path) -> SharedTargetNameBaseline:
+    """Load ``{relative_file: frozen_count}`` and ``{relative_file: reason}``
+    from the shared-target-name baseline TOML. A ``reason`` is accepted only
+    when it is a non-blank string. Returns an empty baseline if the file does
+    not exist yet."""
+    if not baseline_path.exists():
+        return SharedTargetNameBaseline(counts={}, reasons={})
 
     with baseline_path.open("rb") as f:
         data = tomllib.load(f)
 
     counts: dict[str, int] = {}
+    reasons: dict[str, str] = {}
     for entry in data.get("baseline", []):
         if not isinstance(entry, dict):
             continue
         file_rel = entry.get("file", "")
         count = entry.get("count")
-        if file_rel and isinstance(count, int):
-            counts[file_rel] = count
+        if not (file_rel and isinstance(count, int)):
+            continue
+        counts[file_rel] = count
+        reason = entry.get("reason")
+        if isinstance(reason, str) and reason.strip():
+            reasons[file_rel] = reason
 
-    return counts
+    return SharedTargetNameBaseline(counts=counts, reasons=reasons)
 
 
-def write_shared_target_name_baseline(baseline_path: Path, counts: dict[str, int]) -> None:
+def write_shared_target_name_baseline(
+    baseline_path: Path, counts: dict[str, int], reasons: dict[str, str]
+) -> None:
     """Write ``counts`` to the shared-target-name baseline TOML as
-    ``[[baseline]] file=... count=...`` entries, sorted by file."""
+    ``[[baseline]] file=... count=... [reason=...]`` entries, sorted by file.
+
+    A ``reason`` is emitted for every file in ``reasons`` that still has a
+    count, as a TOML basic string, so a hand-written reason survives every
+    ``--update-baseline`` regeneration. A file without a reason is written
+    without one -- a reason is never invented here."""
     header = (
         "# G2 Shared-Layer Target-Name Ratchet Baseline (Decision D4, Invariant I3)\n"
         "#\n"
         "# Frozen per-file counts of shared-layer identifiers (class, function,\n"
         "# dataclass field, type alias, or type reference) carrying a registered\n"
-        "# language name as an identifier segment, in datrix_codegen_common.\n"
+        "# language name OR one of that language's declared alias tokens\n"
+        "# (declaration_for_language(lang).name_tokens) as an identifier segment,\n"
+        "# in datrix_codegen_common and datrix_codegen_kernel.\n"
         "# Any INCREASE in a file's count fails\n"
         "# datrix/scripts/dev/check-import-boundaries.py --check-shared-target-names.\n"
         "# Decreases are always allowed and should be captured by re-running with\n"
         "# --update-baseline once a later change deletes a target-named surface.\n"
-        "# The terminal state is a single reviewed exemption entry --\n"
-        "# container_image_supply.py count 1, the scope-fenced PYTHON_BASE_IMAGE_DIR\n"
-        "# (the shared per-system base-image directory name every platform emitter\n"
-        "# must agree on byte-for-byte) -- every other entry drives to 0 as later\n"
-        "# migration work removes each remaining target-named surface. The four\n"
-        "# sql/nosql-substring identifiers considered during this ratchet's design\n"
-        "# (sql_engine, sql_dialect, NoSQLSeedWriter, NoSqlFilterSyntax) are NOT hits\n"
-        "# under this ratchet's languages-only vocabulary (sql is not a registered\n"
-        "# datrix.languages entry) -- they are proven non-matches by this ratchet's\n"
-        "# own self-test, not baseline entries.\n"
+        "# Every entry is a reviewed exemption and MUST carry a written `reason`\n"
+        "# naming the identifiers, why they stay, and what drives them to zero;\n"
+        "# an entry without one fails the check. --update-baseline reads every\n"
+        "# reason back and re-emits it, and names a reasoned entry that no longer\n"
+        "# has a hit. The four sql/nosql-substring identifiers considered during\n"
+        "# this ratchet's design (sql_engine, sql_dialect, NoSQLSeedWriter,\n"
+        "# NoSqlFilterSyntax) are NOT hits under this ratchet's languages-only\n"
+        "# vocabulary (sql is not a registered datrix.languages entry) -- they are\n"
+        "# proven non-matches by this ratchet's own self-test, not baseline entries.\n"
         "#\n"
         "# Format:\n"
         "#   [[baseline]]\n"
         '#   file = "path/relative/to/monorepo-root, forward slashes"\n'
         "#   count = <int>\n"
+        '#   reason = "identifiers, why they stay, what drives them to zero"\n'
     )
 
     lines = [header]
@@ -4220,9 +4237,26 @@ def write_shared_target_name_baseline(baseline_path: Path, counts: dict[str, int
         lines.append("\n[[baseline]]\n")
         lines.append(f'file = "{file_rel}"\n')
         lines.append(f"count = {counts[file_rel]}\n")
+        if file_rel in reasons:
+            # json.dumps yields a TOML basic string: the escapes it emits
+            # (\" \\ \n \r \t \b \f \uXXXX) are all TOML basic-string escapes.
+            lines.append(f"reason = {json.dumps(reasons[file_rel])}\n")
 
     baseline_path.parent.mkdir(parents=True, exist_ok=True)
     baseline_path.write_text("".join(lines), encoding="utf-8")
+
+
+def check_shared_target_name_reasons(baseline: SharedTargetNameBaseline) -> list[str]:
+    """Return one message per baseline entry that carries no written reason.
+    Every surviving entry is a reviewed exemption, never a silent count."""
+    return [
+        f"{file_rel}: baseline entry carries no reason. Every surviving "
+        f"shared-target-name entry is a reviewed exemption: add reason = "
+        f'"<identifiers, why they stay, what drives them to zero>", or rename '
+        f"the identifiers and lower the count."
+        for file_rel in sorted(baseline.counts.keys())
+        if file_rel not in baseline.reasons
+    ]
 
 
 def check_shared_target_name_ratchet(
@@ -4324,6 +4358,28 @@ def scan_file_for_own_target_names(
     return hits
 
 
+def _language_name_tokens(language_name: str) -> frozenset[str]:
+    """One language's identifier vocabulary: its registered name plus every
+    declared alias (``declaration_for_language(...).name_tokens``), lowercase."""
+    return frozenset(
+        token.lower()
+        for token in (*declaration_for_language(language_name).name_tokens, language_name)
+    )
+
+
+def shared_target_name_vocabulary() -> frozenset[str]:
+    """Every registered language's name and declared alias tokens.
+
+    A registered language name is spelled by ``registered_language_names()``
+    (the installed ``datrix.languages`` entry points); the aliases are that
+    language's own declaration, never a literal list in this script.
+    """
+    vocabulary: set[str] = set()
+    for language_name in sorted(registered_language_names()):
+        vocabulary |= _language_name_tokens(language_name)
+    return frozenset(vocabulary)
+
+
 def _own_target_name_tokens_by_package(
     language_packages: tuple[str, ...],
 ) -> dict[str, frozenset[str]]:
@@ -4367,9 +4423,7 @@ def _own_target_name_tokens_by_package(
                 f"package is installed into the active virtual environment and "
                 f"its pyproject.toml entry-point name matches the installed one."
             )
-        tokens_by_package[import_name] = declaration_for_language(
-            language_name
-        ).name_tokens | {language_name}
+        tokens_by_package[import_name] = _language_name_tokens(language_name)
     return tokens_by_package
 
 
@@ -7260,6 +7314,36 @@ def _self_test_shared_target_name_scanner() -> bool:
             _identifier_carries_target_name(lookalike, target_names) is None,
         )
 
+    # Declared alias tokens: an alias segment matches, the name-only
+    # vocabulary misses the same identifier (the non-vacuity pair), and the
+    # match is segment-exact so ordinary words containing the alias do not hit.
+    alias_vocabulary = frozenset({"python", "py", "typescript", "ts"})
+    name_only_vocabulary = frozenset({"python", "typescript"})
+    ok &= _check(
+        "GraphqlTsFieldSpec carries the declared alias segment 'ts'",
+        _identifier_carries_target_name("GraphqlTsFieldSpec", alias_vocabulary) == "ts",
+    )
+    ok &= _check(
+        "GraphqlTsFieldSpec is MISSED by the registered-name-only vocabulary",
+        _identifier_carries_target_name("GraphqlTsFieldSpec", name_only_vocabulary) is None,
+    )
+    for ordinary_word in ("tsunami", "timestamps"):
+        ok &= _check(
+            f"{ordinary_word!r} does NOT match the alias 'ts' (segment-exact, not substring)",
+            _identifier_carries_target_name(ordinary_word, alias_vocabulary) is None,
+        )
+    live_vocabulary = shared_target_name_vocabulary()
+    registered_names = frozenset(name.lower() for name in registered_language_names())
+    ok &= _check(
+        "shared_target_name_vocabulary() contains every registered language name",
+        registered_names <= live_vocabulary,
+    )
+    ok &= _check(
+        "at least one registered language declares an alias, so the vocabulary "
+        "is strictly larger than the registered names (a vacuous extension is not a pass)",
+        live_vocabulary > registered_names,
+    )
+
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"shared-target-scanner-{uuid.uuid4().hex}"
     scratch_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -7386,10 +7470,19 @@ def _self_test_shared_target_name_build_fixture_monorepo(tmp_root: Path) -> Path
     (config_dir / "shared-target-name-baseline.toml").write_text(
         "[[baseline]]\n"
         'file = "datrix-codegen-common/src/datrix_codegen_common/sample_slice.py"\n'
-        "count = 0\n",
+        "count = 0\n"
+        'reason = "fixture entry pinned at zero for the plant/observe/revert proof"\n',
         encoding="utf-8",
     )
     return module_path
+
+
+def _self_test_live_alias_token() -> str | None:
+    """A declared alias that is not any registered language's name, or None
+    when no registered language declares one."""
+    registered = {name.lower() for name in registered_language_names()}
+    aliases = sorted(shared_target_name_vocabulary() - registered)
+    return max(aliases, key=len) if aliases else None
 
 
 def _self_test_shared_target_name_run_cli(tmp_root: Path) -> subprocess.CompletedProcess[str]:
@@ -7420,7 +7513,8 @@ def _self_test_shared_target_name_cli_non_vacuity() -> bool:
     """
     _step(
         "Self-test 16/25: shared-target-name ratchet CLI mutation non-vacuity "
-        "('class PythonFooSlice' exits 1; 'class FooSliceProtocol' exits 0)"
+        "('class PythonFooSlice' and a live alias-token class exit 1; "
+        "'class FooSliceProtocol' exits 0)"
     )
     ok = True
     tmp_root = _SELF_TEST_SCRATCH_ROOT / f"shared-target-cli-{uuid.uuid4().hex}"
@@ -7456,6 +7550,46 @@ def _self_test_shared_target_name_cli_non_vacuity() -> bool:
             f"reverting the mutation clears the failure, got exit {reverted_result.returncode}",
             reverted_result.returncode == 0,
         )
+
+        alias = _self_test_live_alias_token()
+        ok &= _check(
+            "the live registry declares at least one alias token that is not a "
+            "registered language name (otherwise the alias case below is vacuous)",
+            alias is not None,
+        )
+        if alias is not None:
+            module_path.write_text(
+                f"class {alias.capitalize()}FooSlice:\n    value: str\n", encoding="utf-8"
+            )
+            registered_name_hits = scan_file_for_shared_target_names(
+                module_path, frozenset(name.lower() for name in registered_language_names())
+            )
+            ok &= _check(
+                f"the registered-NAME-only vocabulary reports zero hits on "
+                f"'{alias.capitalize()}FooSlice' (the failure below is caused by alias matching)",
+                registered_name_hits == [],
+            )
+            alias_result = _self_test_shared_target_name_run_cli(tmp_root)
+            ok &= _check(
+                f"alias-token fixture ({alias.capitalize()}FooSlice) exits 1, "
+                f"got {alias_result.returncode}",
+                alias_result.returncode == 1,
+            )
+            ok &= _check(
+                "alias failure output names the mutated file",
+                "sample_slice.py" in alias_result.stdout,
+            )
+            ok &= _check(
+                "alias failure output names the exact count delta (0 -> 1)",
+                "increased from baseline 0 to 1" in alias_result.stdout,
+            )
+            module_path.write_text(clean_source, encoding="utf-8")
+            alias_reverted_result = _self_test_shared_target_name_run_cli(tmp_root)
+            ok &= _check(
+                f"reverting the alias mutation clears the failure, got exit "
+                f"{alias_reverted_result.returncode}",
+                alias_reverted_result.returncode == 0,
+            )
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)
     return ok
@@ -7794,6 +7928,46 @@ def _self_test_ratchets() -> bool:
         len(shared_target_name_missing_baseline) == 1
         and "increased from baseline 0 to 1" in shared_target_name_missing_baseline[0],
     )
+
+    reasoned_file = "datrix-codegen-common/src/datrix_codegen_common/reasoned.py"
+    reasonless_file = "datrix-codegen-common/src/datrix_codegen_common/reasonless.py"
+    awkward_reason = 'identifiers "Foo" and C:\\bar stay; driven to zero by a rename'
+    reason_messages = check_shared_target_name_reasons(
+        SharedTargetNameBaseline(
+            counts={reasoned_file: 1, reasonless_file: 2},
+            reasons={reasoned_file: awkward_reason},
+        )
+    )
+    ok &= _check(
+        "shared-target-name reasons: fires once, for the entry without a reason only",
+        len(reason_messages) == 1
+        and reasonless_file in reason_messages[0]
+        and "baseline entry carries no reason" in reason_messages[0],
+    )
+
+    reason_scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"shared-target-reasons-{uuid.uuid4().hex}"
+    reason_scratch_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        round_trip_path = reason_scratch_dir / "baseline.toml"
+        write_shared_target_name_baseline(
+            round_trip_path,
+            {reasoned_file: 1, reasonless_file: 2},
+            {reasoned_file: awkward_reason},
+        )
+        loaded = load_shared_target_name_baseline(round_trip_path)
+        ok &= _check(
+            "shared-target-name baseline: a reason with a double quote and a backslash "
+            "survives write/load byte-for-byte",
+            loaded.reasons.get(reasoned_file) == awkward_reason,
+        )
+        ok &= _check(
+            "shared-target-name baseline: an entry written without a reason loads without "
+            "one (a reason is never invented) and counts round-trip",
+            reasonless_file not in loaded.reasons
+            and loaded.counts == {reasoned_file: 1, reasonless_file: 2},
+        )
+    finally:
+        shutil.rmtree(reason_scratch_dir, ignore_errors=True)
 
     return ok
 
@@ -10180,10 +10354,28 @@ def main() -> int:
                 str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
                 for file_path, hits in shared_target_name_hits_by_file.items()
             }
-            write_shared_target_name_baseline(shared_target_name_baseline_path, current_counts)
+            # Reasons are part of the frozen record: carry every written reason
+            # across the regeneration, and name any reasoned entry whose hit
+            # has since vanished so the reviewer sees it.
+            previous_reasons = load_shared_target_name_baseline(
+                shared_target_name_baseline_path
+            ).reasons
+            write_shared_target_name_baseline(
+                shared_target_name_baseline_path, current_counts, previous_reasons
+            )
+            for vanished in sorted(previous_reasons.keys() - current_counts.keys()):
+                print(
+                    f"Warning: G2 baseline entry {vanished} carried a reason but has "
+                    f"no shared-target-name hit any more; its entry and reason were "
+                    f"dropped. Expected only when the identifier was deliberately "
+                    f"renamed or removed -- if it still exists, the scanner no longer "
+                    f"sees it.",
+                    file=sys.stderr,
+                )
             print(
                 f"Updated G2 shared-target-name baseline: {len(current_counts)} file(s) "
-                f"recorded at {shared_target_name_baseline_path.relative_to(monorepo_root)}"
+                f"recorded at {shared_target_name_baseline_path.relative_to(monorepo_root)} "
+                f"({len(previous_reasons.keys() & current_counts.keys())} carrying a reason)"
             )
             updated_any = True
 
@@ -10414,15 +10606,17 @@ def main() -> int:
             )
             return 2
 
-        baseline = load_shared_target_name_baseline(shared_target_name_baseline_path)
+        shared_target_name_baseline = load_shared_target_name_baseline(
+            shared_target_name_baseline_path
+        )
         shared_target_name_hits_by_file = scan_shared_target_names(packages, monorepo_root)
         current_counts = {
             str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
             for file_path, hits in shared_target_name_hits_by_file.items()
         }
         shared_target_name_messages = check_shared_target_name_ratchet(
-            current_counts, baseline
-        )
+            current_counts, shared_target_name_baseline.counts
+        ) + check_shared_target_name_reasons(shared_target_name_baseline)
 
     cross_package_vocabulary_messages: list[str] = []
     if args.check_cross_package_vocabulary:
