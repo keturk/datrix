@@ -323,7 +323,7 @@ For each entity with lifecycle hooks:
 1. **Read the DSL source** for each hook definition (beforeCreate, afterCreate, beforeUpdate, afterUpdate, beforeDelete, afterDelete)
 2. **Read the generated Python/TypeScript code** for the corresponding lifecycle hook method
 3. **Verify semantic correctness:**
-   - Built-in function calls work correctly (e.g., `Auth.hashPassword(field)`)
+   - Built-in function calls work correctly (e.g., `Crypto.sha256(field)`)
    - Field assignments transpile correctly
    - Conditional logic in hooks transpiles correctly
    - Error handling/validation logic is correct
