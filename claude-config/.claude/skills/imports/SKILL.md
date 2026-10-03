@@ -18,7 +18,7 @@ disable-model-invocation: true
 - `datrix_common.types.base` → `ScalarType`, `DatrixType`
 - `datrix_semantic` → `SemanticAnalyzer`, `AnalysisResult`
 - `datrix_common.cross_service.contract` → `EndpointContract`, `get_cross_service_contract`
-- `datrix_common.rendering` → `render`; `datrix_common.rendering.options` → `RenderOptions`
+- `datrix_common.rendering.expressions` → `render_expression_source`; `datrix_language.formatting` → `FormatOptions`, `format_dtrx_source`, `verify_lossless`
 - `datrix_common.config_resolution` → `resolve_service_configs`, `resolve_infrastructure_configs`
 - `datrix_language.parser` → `TreeSitterParser`
 - `datrix_codegen_kernel.generation.template_generator` → `TemplateGenerator`
