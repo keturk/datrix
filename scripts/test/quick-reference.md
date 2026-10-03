@@ -730,7 +730,7 @@ files not found).
 Two checks, in order, both against a live-computed universe never a fixed count quoted here (the universe grows as domains are added — run the gate for its live output):
 
 1. **Domain-universe closure.** Before checking declarations, computes the union of every registered language's COMPILED GenDSL IR domain ids (`get_definitions(<lang>)`, read directly — independent of any declaration a plugin later commits) and asserts it equals `datrix_codegen_common.parity.domain_registry.SHARED_CONTEXT_TYPES.keys()` exactly. A domain id some language's compiled IR declares but the registry omits fails naming the declaring language(s); a registry id no registered language's compiled IR declares fails as a dead entry (dead surfaces are deleted, never deprecated in place). Zero tolerance, no exemption file — this check short-circuits the gate (exit 1) before the declaration-presence check runs, since a wrong universe makes that check meaningless.
-2. **Per-language declaration presence.** EVERY registered `datrix.languages` plugin must declare every STRUCTURAL domain id (`datrix_codegen_kernel.parity.domain_ids.STRUCTURAL_DOMAIN_IDS`) and nothing outside the full registration universe (`SHARED_CONTEXT_TYPES`). `discovery` and `resilience` keep their GenDSL registration but carry no structural-pattern obligation: no language is required to declare either, and a language that does is not reported out-of-universe. The gate reads only membership (`domain_id in plugin.domain_declarations`) and a declaration's `structural_pattern`. A structural id a language does not declare, or an out-of-universe declaration, is a fail-loud `DECLARATION PRESENCE VIOLATION` naming the language and the id; a domain a language does not realize is counted here, never excused. Derives its target LANGUAGE set from `importlib.metadata.entry_points(group="datrix.languages")` at runtime — never a hardcoded language literal — so a future `datrix-codegen-<lang>` package is covered automatically with no edit to this gate. This is a presence check, never an agreement check: languages may emit a domain to different globs.
+2. **Per-language declaration presence.** EVERY registered `datrix.languages` plugin must declare every STRUCTURAL domain id (`datrix_codegen_kernel.parity.domain_ids.STRUCTURAL_DOMAIN_IDS`) and nothing outside the full registration universe (`SHARED_CONTEXT_TYPES`). `discovery` and `resilience` keep their GenDSL registration but carry no structural-pattern obligation: no language is required to declare either, and a language that does is not reported out-of-universe. The gate reads only membership (`domain_id in plugin.domain_declarations`) and a declaration's `structural_pattern`. A structural id a language does not declare, or an out-of-universe declaration, is a fail-loud `DECLARATION PRESENCE VIOLATION` naming the language and the id; a domain a language does not realize is accounted for only by that language's own `domain:<id>` gap row (logged as a `TRACKED GAP` line; a row for a declared domain (stale) or for a non-structural id (unknown) fails the gate). Derives its target LANGUAGE set from `importlib.metadata.entry_points(group="datrix.languages")` at runtime — never a hardcoded language literal — so a future `datrix-codegen-<lang>` package is covered automatically with no edit to this gate. This is a presence check, never an agreement check: languages may emit a domain to different globs.
 
 On success, the gate prints, for every STRUCTURAL domain id, each registered language's declared `structural_pattern` (or `no structural pattern`) as `DECLARATION: <lang>.<id> = ...`, then a divergence block listing the languages that declare a structural id with no structural pattern or do not declare it. `discovery`/`resilience` appear nowhere in the report. The report is diagnostic and never itself a failure condition.
 
@@ -888,6 +888,62 @@ plugin answers to the same name — never guessed from the bare registered name 
 **Exit codes:** 0 = the failing-role count equals its pin (or a successful `-SelfTest`),
 1 = the count differs from its pin (above it: a regression; below it: an improvement whose pin was not lowered in the same change),
 2 = usage/discovery/parse error, an unreadable or malformed baseline, or the self-test failed.
+
+---
+
+### `test\shared-home-body-gate.ps1`
+
+A function with a shared home has exactly one definition. The homes are `datrix-common`,
+`datrix-codegen-kernel` and `datrix-codegen-common`; a private copy elsewhere is usually a renamed
+one, so this gate compares **normalized bodies**, not names or text (the sibling hoist tests prove a
+copy is gone by name; Pylint's similar-lines check is textual and misses a renamed copy).
+
+**What a hit is.** The gate AST-walks every public function of the three homes (no segment of the
+qualified name starts with `_`) and every function, public or private, of every discovered
+`datrix-*` package's `src/` tree. A function qualifies at **8 lines and 40 AST nodes** (measured on
+the docstring-free body; the floor removes Protocol `...` stubs and one-line accessors). Its body is
+normalized: the function's own name, decorators, annotations and docstring are dropped; every
+parameter and locally bound name becomes a positional token; every constant collapses to its type
+name; **attribute names, keyword-argument names and non-local call targets are kept**, so two
+functions that read different attributes or call different functions never compare equal. A function
+in package P is a hit when its normalized body equals a public home function's in a package other
+than P. The rule is symmetric across homes: when two public home functions in different home
+packages are duplicates, both are hits (deleting one clears both); equal bodies inside the same
+package are not hits.
+
+**The verdict is a decrease-only per-package count** pinned in
+`datrix/scripts/config/shared-home-body-baseline.toml`: `[[baseline]]` entries with exactly the keys
+`package` (import name), `count`, `seed` and `reason`. A live count above its `count` fails; a
+decrease passes and logs the command to lower the pin. A package with no entry is pinned at 0.
+`seed` is the first measurement and never changes (the closing check proves each package's count
+strictly below its seed). The loader refuses a missing or malformed file, an unrecognized key, a
+duplicate package, a negative or non-integer count, `count > seed` and an empty `reason`.
+
+**Self-test, run first on every invocation.** On a fixture tree under `D:\datrix\.tmp`: a planted
+renamed copy raises its package's count by exactly 1 and the ratchet message names the package, the
+live count and the pin; reverting clears it; docstring-only and constant-only differences are hits;
+attribute-name and call-target differences are not; a below-floor pair and a copy of a private home
+function are not; same-package equal bodies are not hits and a cross-home pair counts symmetrically;
+the ratchet verdicts (above, below, no entry, unknown package); the baseline round trip (seed,
+load, lower, refuse a rise, refuse each malformed form); and an unparseable source file fails the
+scan naming the file. Run `-Symbol <name>` over the real tree to confirm a known real renamed copy is
+found.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\shared-home-body-gate.ps1` | Per-package duplicate count against the decrease-only pin; exit 0 when no package exceeds its pin |
+| **List every hit** | `.\test\shared-home-body-gate.ps1 -Hits` | Print every `SHARED-HOME BODY HIT:` line (copy location and name == home location and name) |
+| **Check named copies** | `.\test\shared-home-body-gate.ps1 -Symbol event_for_replay_plan,_iter_calls` | Print only the hit lines whose copy has one of these bare names; `0 hit line(s) shown` proves a removed copy is gone. A report filter only |
+| **Seed / lower the pin** | `.\test\shared-home-body-gate.ps1 -UpdateBaseline` | Seed the baseline when the file does not exist (`count = seed = measured`); otherwise lower every `count` to the live value, keeping `seed` and `reason`. Refuses (exit 1, file untouched) when any count would rise |
+| **Debug logging** | `.\test\shared-home-body-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\shared-home-body-gate.ps1 -SelfTest` | Run only the plant / observe / revert self-test |
+
+**Parameters:** `-Hits`, `-Symbol <name,...>`, `-UpdateBaseline`, `-Dbg`, `-SelfTest`
+
+**Exit codes:** 0 = no package exceeds its pin (or a successful `-SelfTest` / `-UpdateBaseline`),
+1 = a package's count is above its pin, or `-UpdateBaseline` was refused because a count would rise,
+2 = the self-test failed, the baseline is unreadable or malformed, a source file cannot be parsed,
+or a home package is missing from disk.
 
 ---
 
