@@ -16,6 +16,12 @@
     "full of source. That is the exact defect class the gate exists to catch,",
     "and a blanket entry would hide it.",
     "",
+    "gitignore is a path glob with the same segment-aware syntax as path_glob,",
+    "matched against the repo-relative path of the .gitignore file git blames.",
+    "A literal path (.gitignore) matches only that file; a glob such as",
+    "examples/**/generated/**/.gitignore matches the nested files a generator",
+    "writes into each project it emits.",
+    "",
     "repos is a list of repo names, or [\"*\"] for every framework repo. The",
     "wildcard is what keeps a newly cloned datrix-* package covered with no",
     "edit here: a bytecode cache is a bytecode cache in every package.",
@@ -177,6 +183,76 @@
       "pattern": "node_modules/",
       "path_glob": "node_modules/**",
       "reason": "npm-installed dependency tree, restored from the lockfile; never authored and never published."
+    },
+    {
+      "repos": ["datrix"],
+      "gitignore": "examples/**/generated/**/.gitignore",
+      "pattern": "node_modules/",
+      "path_glob": "examples/**/node_modules/**",
+      "reason": "npm/pnpm-installed dependency tree inside a generated example project. The generator emits its own .gitignore into every project it writes, and that nested file hides node_modules/ from the showcase repo; the tree is restored from the project's lockfile and never authored. Scoped to the .gitignore files the generator writes under generated/ so the same pattern in any hand-written .gitignore stays a finding."
+    },
+    {
+      "repos": ["datrix"],
+      "gitignore": "examples/**/generated/**/.gitignore",
+      "pattern": "secrets/*/",
+      "path_glob": "examples/**/secrets/**",
+      "reason": "per-worker secret files a generated project materializes locally for its compose stack. Deliberately unpublished: a credential file must never reach a clone, so the generated .gitignore hiding it is the correct outcome, not a shadowed source."
+    },
+    {
+      "repos": ["datrix"],
+      "gitignore": "examples/**/generated/**/.gitignore",
+      "pattern": ".dart_tool/",
+      "path_glob": "examples/**/.dart_tool/**",
+      "reason": "Dart/Flutter pub resolution cache written by `flutter pub get` in a generated Flutter client; regenerated from pubspec, never authored."
+    },
+    {
+      "repos": ["datrix"],
+      "gitignore": "examples/**/generated/**/.gitignore",
+      "pattern": ".flutter-plugins-dependencies",
+      "path_glob": "examples/**/.flutter-plugins-dependencies",
+      "reason": "plugin dependency manifest written by the Flutter tool in a generated Flutter client; regenerated, never authored."
+    },
+    {
+      "repos": ["datrix"],
+      "gitignore": "examples/**/generated/**/.gitignore",
+      "pattern": "GeneratedPluginRegistrant.java",
+      "path_glob": "examples/**/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java",
+      "reason": "Android plugin registrant the Flutter tool writes into a generated Flutter client; regenerated on every build, never authored."
+    },
+    {
+      "repos": ["datrix"],
+      "gitignore": "examples/**/generated/**/.gitignore",
+      "pattern": "/local.properties",
+      "path_glob": "examples/**/android/local.properties",
+      "reason": "machine-local Android SDK paths the Flutter tool writes into a generated Flutter client; specific to one developer machine, never published."
+    },
+    {
+      "repos": ["datrix"],
+      "gitignore": "examples/**/generated/**/.gitignore",
+      "pattern": "Flutter/Generated.xcconfig",
+      "path_glob": "examples/**/ios/Flutter/Generated.xcconfig",
+      "reason": "iOS build settings the Flutter tool writes into a generated Flutter client; machine-specific, regenerated, never authored."
+    },
+    {
+      "repos": ["datrix"],
+      "gitignore": "examples/**/generated/**/.gitignore",
+      "pattern": "Flutter/ephemeral/",
+      "path_glob": "examples/**/ios/Flutter/ephemeral/**",
+      "reason": "iOS plugin build scratch directory the Flutter tool writes into a generated Flutter client; regenerated, never authored."
+    },
+    {
+      "repos": ["datrix"],
+      "gitignore": "examples/**/generated/**/.gitignore",
+      "pattern": "Flutter/flutter_export_environment.sh",
+      "path_glob": "examples/**/ios/Flutter/flutter_export_environment.sh",
+      "reason": "build environment script the Flutter tool writes into a generated Flutter client; machine-specific, regenerated, never authored."
+    },
+    {
+      "repos": ["datrix"],
+      "gitignore": "examples/**/generated/**/.gitignore",
+      "pattern": "Runner/GeneratedPluginRegistrant.*",
+      "path_glob": "examples/**/ios/Runner/GeneratedPluginRegistrant.*",
+      "reason": "iOS plugin registrant the Flutter tool writes into a generated Flutter client; regenerated on every build, never authored."
     },
     {
       "repos": ["datrix-vscode"],
