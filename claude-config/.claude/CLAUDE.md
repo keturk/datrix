@@ -332,7 +332,8 @@ outcome — never submit it. An unproven BLOCKED is the second worst.**
 ## Skills
 
 **You can invoke these:** `/fix-issue`, `/fix-bug-report`, `/fix-tests`, `/checkpoint-debug`,
-`/codegen-fix-loop`, `/operationalize-design`, `/task-orchestrator`, `/commit-and-push`,
+`/codegen-fix-loop`, `/operationalize-design`, `/task-orchestrator`, `/verify-implementation`,
+`/absorb-design`, `/commit-and-push`,
 `/evaluate-generated`, `/evaluate-generated-service`, `/consolidate-findings`, `/fix-cli`, `/fix-common`,
 `/fix-extensions`, `/fix-language`, `/fix-migration`, `/fix-semantic`, `/fix-testing`,
 `/fix-vscode`,
@@ -340,7 +341,7 @@ outcome — never submit it. An unproven BLOCKED is the second worst.**
 
 **Jon types these — you cannot:** `/delegate`, `/imports`,
 `/logic-map`, `/fix`, `/scope`, `/codegen-review`, `/execute-tasks`,
-`/execute-tasks-parallel`, `/absorb-design`, `/verify-implementation`, `/resolve-conflicts`. They are
+`/execute-tasks-parallel`, `/implement-design`, `/resolve-conflicts`. They are
 `disable-model-invocation`: the Skill tool returns a hard error and forbids reproducing the
 workflow another way. **Do not attempt one, and never file the refusal as BLOCKED** — a
 skill reserved for Jon is not B1–B4, it is not a blocker, and reporting it as one turns a

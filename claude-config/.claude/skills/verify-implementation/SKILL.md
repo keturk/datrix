@@ -2,7 +2,6 @@
 description: Code-review completed tasks against the design document they implement, then fix anything wrong or missing so the implementation conforms to the design
 model: claude-sonnet-5-5
 effort: medium
-disable-model-invocation: true
 ---
 
 # Verify Implementation
@@ -40,7 +39,8 @@ FIX: false          # review only — report findings, do not modify code
 | Parameter | Required | Description |
 |-----------|----------|-------------|
 | DESIGN | Yes | Path to the design document the tasks implement |
-| TASKS | No | A phase folder, a list of task files, or a phase number. If omitted, auto-detect: grep all `D:\datrix\*/.tasks/` files whose `**Design reference:**` line points at DESIGN |
+| TASKS | No | A phase folder, a list of task files, or a phase number. If omitted, auto-detect: grep all `D:\datrix\*/.tasks/` files whose `**Design reference:**` line points at DESIGN. `none` means the design was implemented directly with no tasks: skip the task mapping in Phase 1, treat every requirement as owned by the direct implementation, and take the code to review from FILES |
+| FILES | With `TASKS: none` | The files the direct implementation changed. Review them, plus whatever else the design's surface sets reach |
 | FIX | No | If `false`, produce the conformance report but make NO code changes (default: fix what is wrong or missing) |
 
 ## Prereqs — read first

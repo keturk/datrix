@@ -10,8 +10,8 @@ architecture before implementing. **Design docs are scope boundaries** — do no
 unspecified features.
 
 - Operationalize before coding: `/operationalize-design`.
-- Absorb after completion: `/absorb-design` — **Jon types this one**; you cannot invoke it.
-  Do not attempt it and do not report the refusal as a blocker.
+- Absorb after completion: `/absorb-design`, only after `/verify-implementation` reports the
+  design PROVEN. `/implement-design` (Jon types it) runs implement → verify → absorb as one chain.
 - **Never modify a design doc during implementation.**
 
 **One exception, and it is exactly one line.** At the very end of a `/task-orchestrator`
