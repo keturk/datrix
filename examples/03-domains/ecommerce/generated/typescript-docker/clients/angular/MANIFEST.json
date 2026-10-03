@@ -1,7 +1,7 @@
 {
   "files": {
     "README.md": "4912f765417dfb6ce7827dd8f2149afd5f5404bad38b2cf912130d92fdb8164c",
-    "angular.json": "117301ef05afef7c352f2f139c24ded5a44e4cd87c71f783e6fcc81d51b0756c",
+    "angular.json": "b89586404b04ddc9549d4aed851eb65db20b25844f2e95444624cde2c67d2017",
     "apps/admin/src/app/app-state.service.ts": "075e02dba84ca160f0ee82930084e80d7fe875d33ced9ff9530b09effce26886",
     "apps/admin/src/app/app-strings.ts": "69e9fed54f4e049b808e7739f9eed7fd2ee15928b61c304936a3b1bf5aa1aac5",
     "apps/admin/src/app/app.config.ts": "b45ddc3a935002a1bee4899062fd2427d73e30d3964012035f18aa7261b0605b",

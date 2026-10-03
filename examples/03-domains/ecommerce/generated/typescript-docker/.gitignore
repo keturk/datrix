@@ -8,6 +8,7 @@ build/
 .cache/
 coverage/
 .nyc_output/
+.tsc_cache/
 
 # Written into this tree by the deployment tooling after generation; never commit.
 # Virtual environment the scripts/deploy.sh and scripts/deploy.ps1 entrypoints

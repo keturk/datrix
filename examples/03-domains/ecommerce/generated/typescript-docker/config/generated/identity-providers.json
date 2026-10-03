@@ -37,10 +37,10 @@
       },
       "audience": "customer",
       "credential": "jwt",
-      "discoveryUri": "http://localhost:8080/.well-known/openid-configuration",
-      "issuer": "http://localhost:8080",
+      "discoveryUri": "http://localhost:8085/.well-known/openid-configuration",
+      "issuer": "http://localhost:8085",
       "jwksCacheTtlSeconds": 3600,
-      "jwksUri": "http://localhost:8080/oauth/v2/keys",
+      "jwksUri": "http://localhost:8085/oauth/v2/keys",
       "localIdentity": {
         "mode": "deterministicUuid5",
         "namespace": "c9a255a1-350b-4414-beb9-7f06f7dfd92d"
@@ -75,10 +75,10 @@
       "attributeMappings": {},
       "audience": "machine",
       "credential": "jwt",
-      "discoveryUri": "http://localhost:8080/.well-known/openid-configuration",
-      "issuer": "http://localhost:8080",
+      "discoveryUri": "http://localhost:8085/.well-known/openid-configuration",
+      "issuer": "http://localhost:8085",
       "jwksCacheTtlSeconds": 3600,
-      "jwksUri": "http://localhost:8080/oauth/v2/keys",
+      "jwksUri": "http://localhost:8085/oauth/v2/keys",
       "localIdentity": {
         "mode": "deterministicUuid5",
         "namespace": "c9a255a1-350b-4414-beb9-7f06f7dfd92d"

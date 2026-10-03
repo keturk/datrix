@@ -17,7 +17,7 @@ in the **test** deployment environment.
 | Audience | `customer` |
 | Mode | `platformManaged` |
 | Credential | `jwt` |
-| Issuer | `http://localhost:8080` |
+| Issuer | `http://localhost:8085` |
 | Revocation Mode | `none` |
 | Public Client Metadata | `identity-client-identity.test.json` |
 
@@ -42,7 +42,7 @@ Datrix generates client code and configuration; it does not provision the provid
 | Audience | `machine` |
 | Mode | `platformManaged` |
 | Credential | `jwt` |
-| Issuer | `http://localhost:8080` |
+| Issuer | `http://localhost:8085` |
 | Revocation Mode | `none` |
 
 #### Revocation Guarantee
