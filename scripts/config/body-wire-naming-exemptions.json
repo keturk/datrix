@@ -6,7 +6,21 @@
     "",
     "This is a DELIBERATELY MAINTAINED SCOPE BOUNDARY, not an auto-heal: every entry is a real,",
     "reviewed divergence in a language's response-schema template, catalogued here until its owning",
-    "fix removes both the divergence and this entry IN THE SAME CHANGE."
+    "fix removes both the divergence and this entry IN THE SAME CHANGE.",
+    "",
+    "transform_exemptions: every place a language's generated tree spells one of its declared",
+    "response_body_transform_idioms (a framework-level transform applied to every outgoing",
+    "response body) must be a reviewed entry here -- language, the file's trailing path segments,",
+    "the exact matched text, and why the hit leaves every response body untouched. An entry that",
+    "matches nothing is stale and fails the gate."
   ],
-  "exemptions": []
+  "exemptions": [],
+  "transform_exemptions": [
+    {
+      "language": "typescript",
+      "path_suffix": "src/app.module.ts",
+      "matched_text": "APP_INTERCEPTOR",
+      "reason": "Registers the MetricsInterceptor, which times each request and records its metrics from the request and the response status; it never reads or rewrites the handler's returned body."
+    }
+  ]
 }

@@ -23,4 +23,4 @@
 # `PINNED GAP language=<l> family=<f>` lines), never from a document.
 
 [languages]
-typescript = 7
+typescript = 5

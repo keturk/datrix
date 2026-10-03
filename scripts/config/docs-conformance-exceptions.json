@@ -22,6 +22,11 @@
       "reason": "migration-history reference to a deliberately-removed file; the doc's own text states it was removed"
     },
     {
+      "span": "datrix/scripts/config/target-capability-gaps.toml",
+      "doc": "datrix/docs/architecture/architecture-overview.md",
+      "reason": "negative/prohibition claim ('no ... toml file exists'), not an existence assertion"
+    },
+    {
       "span": "datrix/tests/",
       "doc": "datrix/docs/architecture/architecture/repository-architecture.md",
       "reason": "negative/prohibition claim ('must never contain a tests/ pytest suite'), not an existence assertion"
