@@ -247,7 +247,7 @@ A `keywords('PU', 'IT')` attribute on an enum value, plus two generated static c
 
 | # | Invariant | Enforcement mechanism |
 |---|---|---|
-| 1 | Declared keyword metadata survives parse → model → render losslessly | Round-trip test over a `keywords('a','b')` enum in datrix-language and datrix-common; the renderer re-emits the attribute after `value('…')` |
+| 1 | Declared keyword metadata survives parse → model, and formatting preserves it byte for byte | Transform test over a `keywords('a','b')` enum in datrix-language (`test_enum_keywords_transform.py`); formatter token-identity test over the same enum |
 | 2 | Enum-value attributes are a closed set and fail loud | New `ENUM*` code family: `ENUM001`/`ENUM002`/`ENUM004`/`ENUM005` at the declaration site, `ENUM003`/`ENUM006` at the call site. An unrecognized attribute is rejected rather than silently dropped, which is what happens today |
 | 3 | Every enum-emitting target realizes both classifiers identically; a target that does not is a counted gap, never a declared exemption | Runtime-derived conformance gate under `datrix/scripts/test/` that enumerates its targets from the `datrix.languages` entry-point group, self-tests its own non-vacuity every run, hard zero, and refuses to pass with fewer than two targets |
 | 4 | A no-match error discloses neither the received value nor the declared vocabulary | Negative assertion per target: the generated message contains no interpolation and no keyword literal |
