@@ -56,6 +56,15 @@ config strings ecommerce.Storefront locale "tr-TR" {
     framework.navigation         = "Gezinme";
     framework.collapseNavigation = "Gezinmeyi daralt";
     framework.expandNavigation   = "Gezinmeyi genişlet";
+    framework.search       = "Ara";
+    framework.clear        = "Temizle";
+    framework.clearFilters = "Filtreleri temizle";
+    framework.all          = "Tümü";
+    framework.yes          = "Evet";
+    framework.no           = "Hayır";
+    framework.noMatches    = "Bu filtrelerle eşleşen sonuç yok";
+    framework.showingRange = "{from}–{to} arası gösteriliyor";
+    framework.back = "Geri";
     framework.formatting   = "Biçimlendirme";
     framework.bold         = "Kalın";
     framework.italic       = "İtalik";
