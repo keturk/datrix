@@ -132,11 +132,6 @@ count = 1
 reason = "plugin.platform_runtime_spec <-> deployment.runtime_bootstrap: runtime_bootstrap imports PlatformRuntimeSpec from platform_runtime_spec at module top, so the RuntimeBootstrap annotation stays TYPE_CHECKING-only."
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/rendering/expressions.py"
-count = 1
-reason = "rendering.expressions <-> rendering.renderer: renderer imports _render_expr/_render_stmts from expressions at module top, so the _ASTRenderer annotation stays TYPE_CHECKING-only."
-
-[[baseline]]
 file = "datrix-common/src/datrix_common/types/ref.py"
 count = 3
 reason = "types.ref -> datrix_model.entity/enums/cqrs -> datrix_model.base -> types.ref: entity, enums and cqrs import datrix_model.base, which imports EnumType/StructType from types.ref at module top, and ref's own annotations name datrix_model types (Ref[Entity]); the three imports are annotation-only under TYPE_CHECKING (from __future__ import annotations), so a runtime import would be a direct cycle whichever module loads first."
