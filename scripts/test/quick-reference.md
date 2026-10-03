@@ -550,9 +550,9 @@ Docs-conformance Invariant I5 gate: extracts repo-relative path references and P
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run gate** | `.\test\check-docs-conformance.ps1` | Scan all 38 architecture docs, fail on unresolved references |
+| **Run gate** | `.\test\check-docs-conformance.ps1` | Scan every architecture doc and API/reference doc, fail on unresolved references |
 | **Warning mode** | `.\test\check-docs-conformance.ps1 -Warn` | Report unresolved references but exit 0 |
-| **Show files** | `.\test\check-docs-conformance.ps1 -ShowFiles` | Print each architecture doc file being scanned |
+| **Show files** | `.\test\check-docs-conformance.ps1 -ShowFiles` | Print each doc file being scanned |
 | **Self-test only** | `.\test\check-docs-conformance.ps1 -SelfTest` | Run only the scanner's own edge-case self-test suite; skip the real docs scan |
 | **Custom base dir** | `.\test\check-docs-conformance.ps1 -BaseDir D:\datrix` | Specify monorepo root explicitly |
 | **Debug** | `.\test\check-docs-conformance.ps1 -Dbg` | Debug logging |
@@ -1602,10 +1602,23 @@ A language whose response surface genuinely diverges declares it via a reviewed 
 in `datrix/scripts/config/body-wire-naming-exemptions.json` (`{language, schema_kind, template,
 reason}`).
 
+**Response-body transform census.** The comparison above reads the emitted response classes, so a
+transform applied after serialization (a global interceptor, a response-model setting that changes
+field names) is invisible to it. Each registered language declares the regular expressions that
+spell such a transform in its framework
+(`LanguageCapabilityDeclaration.response_body_transform_idioms`, required and non-empty); the gate
+greps the same generated tree for them. Every hit must be a typed `transform_exemptions` entry in
+`body-wire-naming-exemptions.json` (`{language, path_suffix, matched_text, reason}`) -- the
+TypeScript `MetricsInterceptor` registration (`APP_INTERCEPTOR` in `src/app.module.ts`), which never
+touches the body, is the one entry. An unexempted hit, an exemption that matches nothing, and a
+language with no declaration each fail by name.
+
 Derives its target language set from `importlib.metadata.entry_points(group="datrix.languages")`
 at runtime -- never a hardcoded language-name literal.
 
-**Built-in non-vacuity self-test, every invocation.** Proves the comparator flags a genuinely
+**Built-in non-vacuity self-test, every invocation.** Plants a `useGlobalInterceptors(` hit in a
+scratch tree and requires the transform census to report it at its coordinates (and to honour an
+exemption, flag a stale one, ignore a clean file and refuse an undeclared language). Proves the comparator flags a genuinely
 divergent field, does not flag a genuinely conformant one, does not flag a single-word field with
 no wire-renaming mechanism (the real `problem_details.py.j2` shape), correctly suppresses a
 divergence covered by a real exemption entry, and reads the EFFECTIVE serialization wire name
@@ -1621,9 +1634,9 @@ divergence covered by a real exemption entry, and reads the EFFECTIVE serializat
 **Parameters:** `-Dbg`, `-SelfTest`
 
 **Exit codes:** 0 = every registered language's response bodies serialize camelCase (or every
-divergence is exempted), 1 = an unexempted divergence was found (or a registered language has no
-implemented extractor), 2 = the non-vacuity self-test failed or fewer than 2 languages are
-registered.
+divergence is exempted) and no unreviewed response-body transform exists, 1 = an unexempted
+divergence or transform was found (or a registered language has no implemented extractor), 2 = the
+non-vacuity self-test failed or fewer than 2 languages are registered.
 
 ---
 

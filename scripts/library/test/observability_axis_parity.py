@@ -304,6 +304,7 @@ def _assert_self_test_leg1() -> None:
         _SELF_TEST_LANGUAGE: LanguageCapabilityDeclaration(
             language_label=_SELF_TEST_LANGUAGE,
             name_tokens=frozenset({_SELF_TEST_LANGUAGE_TOKEN}),
+            response_body_transform_idioms=(r"\bselfTestResponseTransform\(",),
             realized_observability_providers={c: frozenset() for c in _CATEGORY_BINDINGS},
         )
     }
@@ -319,6 +320,7 @@ def _assert_self_test_leg1() -> None:
         _SELF_TEST_LANGUAGE: LanguageCapabilityDeclaration(
             language_label=_SELF_TEST_LANGUAGE,
             name_tokens=frozenset({_SELF_TEST_LANGUAGE_TOKEN}),
+            response_body_transform_idioms=(r"\bselfTestResponseTransform\(",),
             realized_observability_providers={category: frozenset({provider_value})},
         )
     }
@@ -357,6 +359,7 @@ def _assert_self_test_leg2() -> None:
         _SELF_TEST_LANGUAGE: LanguageCapabilityDeclaration(
             language_label=_SELF_TEST_LANGUAGE,
             name_tokens=frozenset({_SELF_TEST_LANGUAGE_TOKEN}),
+            response_body_transform_idioms=(r"\bselfTestResponseTransform\(",),
             realized_observability_providers={category: frozenset()},
         )
     }

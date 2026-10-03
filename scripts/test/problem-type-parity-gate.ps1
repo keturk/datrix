@@ -12,12 +12,16 @@
  served the request. The vocabulary has one home,
  datrix_common.datrix_model.problem_types (urn:datrix:error:<slug>). This gate
  censuses the .py and .j2 sources under every registered language package
- for urn:datrix:error: literals and holds each language to:
+ and holds each language to:
 
-   * SPELLING -- every literal slug is a registered family (a private slug
-     has no exemption path: register it or spell the registered one);
-   * REALIZATION -- every registered language is obligated to spell every
-     registered family. A (language, family) cell a language does not spell
+   * REFERENCE, NEVER LITERAL -- no source spells a urn:datrix:error:<slug>
+     literal at all (registered or private slug alike, no exemption path);
+     a language renders a problem type from the registry;
+   * REALIZATION -- every registered language is obligated to realize every
+     registered family: a .j2 source references its PROBLEM_<FAMILY> template
+     global (or renders the GENERIC_PROBLEM_FAMILY_BY_STATUS table), or a .py
+     source calls problem_type_for("<family>"). A (language, family) cell a
+     language does not realize
      is counted (printed as PINNED GAP language=<l> family=<f>) against the
      language's pin in scripts/config/problem-type-parity-baseline.toml: a
      count above the pin fails (EXCEED), a count below it fails until the pin

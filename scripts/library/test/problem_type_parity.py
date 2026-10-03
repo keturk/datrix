@@ -14,17 +14,22 @@ another emitted ``https://httpstatuses.com/<status>`` for everything.
 
 The gate censuses the ``.py`` and ``.j2`` sources under every package
 implementing each registered language -- its backend and every language core
-the backend requires -- for ``urn:datrix:error:`` literals and holds each
-language to:
+the backend requires -- and holds each language to:
 
-* **Spelling.** Every literal slug is a registered family. A private slug is a
-  defect with no exemption path: register the family or spell the registered
-  one. (A slug the generator composes at runtime for a declared exception is
-  not a literal and is minted by the shared algorithm.)
-* **Realization.** Every registered language is obligated to spell every
-  registered family. A (language, family) cell a language does not spell is an
-  *unspelled cell*; no declaration can excuse it. A family no language spells
-  is a dead registry entry and fails outright.
+* **Reference, never literal.** A language renders a framework problem type
+  from the registry, so its sources carry no ``urn:datrix:error:<slug>``
+  literal at all -- a registered slug and a private one fail alike, with no
+  exemption path. The bare prefix stays legal: the shared exception-declaration
+  algorithm composes a declared exception's URN from it at runtime.
+* **Realization.** A family is *realized* by a language when a ``.j2`` source
+  references its template global ``PROBLEM_<FAMILY_UPPER_SNAKE>`` or renders the
+  bare-status table (``GENERIC_PROBLEM_FAMILY_BY_STATUS``, which realizes every
+  family that table holds), or a ``.py`` source calls
+  ``problem_type_for("<family>")``. Every registered language is
+  obligated to realize every registered family. A (language, family) cell a
+  language does not realize is an *unspelled cell*; no declaration can excuse
+  it. A family no language realizes is a dead registry entry and fails
+  outright.
 
 The unspelled cells are counted per language and held to a two-directional
 pin in ``scripts/config/problem-type-parity-baseline.toml``: a count above the
@@ -59,8 +64,12 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
+from datrix_codegen_common.generation.problem_template_globals import (  # noqa: E402
+    problem_family_global_name,
+)
 from datrix_common.datrix_model.problem_types import (  # noqa: E402
     FRAMEWORK_PROBLEM_TYPES,
+    GENERIC_PROBLEM_FAMILY_BY_STATUS,
     PROBLEM_TYPE_URN_PREFIX,
     ProblemType,
 )
@@ -94,6 +103,19 @@ _URN_LITERAL_RE: Final[re.Pattern[str]] = re.compile(
     re.escape(PROBLEM_TYPE_URN_PREFIX) + r"([a-z0-9][a-z0-9-]*)"
 )
 
+#: A template reference to a family global: ``PROBLEM_`` plus upper-snake words.
+#: Whether the name is a family's is decided against the registry afterwards
+#: (``PROBLEM_TYPES`` and the like are globals but not families).
+_TEMPLATE_REFERENCE_RE: Final[re.Pattern[str]] = re.compile(r"\bPROBLEM_([A-Z][A-Z0-9_]*)\b")
+
+#: The template global holding the registry's bare-status -> family table.
+_GENERIC_TABLE_GLOBAL: Final[str] = "GENERIC_PROBLEM_FAMILY_BY_STATUS"
+
+#: A ``.py`` reference to a registered family: ``problem_type_for("<family>")``.
+_LOOKUP_REFERENCE_RE: Final[re.Pattern[str]] = re.compile(
+    r"\bproblem_type_for\(\s*[\"']([a-z0-9][a-z0-9-]*)[\"']\s*\)"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Spelling:
@@ -108,6 +130,11 @@ class Spelling:
 class LanguageCensus:
     language: str
     spellings: tuple[Spelling, ...]
+    """Every literal ``urn:datrix:error:<slug>`` -- each one a defect."""
+    references: tuple[Spelling, ...] = ()
+    """Every registry reference -- ``PROBLEM_<FAMILY>`` in a ``.j2`` source,
+    ``problem_type_for("<family>")`` in a ``.py`` source; ``slug`` is the
+    family the reference names."""
 
 
 def _iter_source_files(src_dir: Path) -> list[Path]:
@@ -121,14 +148,43 @@ def _iter_source_files(src_dir: Path) -> list[Path]:
     return files
 
 
-def census_sources(language: str, src_dirs: tuple[Path, ...]) -> LanguageCensus:
-    """Every literal ``urn:datrix:error:<slug>`` (``.py`` and ``.j2``) under every
-    package implementing *language* -- its backend and each language core.
+def _line_references(
+    suffix: str, line: str, family_by_global: Mapping[str, str]
+) -> list[str]:
+    """The families *line* references, by the reference form its file type uses."""
+    if suffix == ".j2":
+        referenced = [
+            family_by_global[match.group(0)]
+            for match in _TEMPLATE_REFERENCE_RE.finditer(line)
+            if match.group(0) in family_by_global
+        ]
+        if _GENERIC_TABLE_GLOBAL in line:
+            # A template that renders the whole bare-status table realizes every
+            # family in it: a family minted only from a status (not-found, conflict,
+            # rate-limit-exceeded, ...) has no per-family reference to carry without
+            # re-typing the status table the registry owns.
+            referenced.extend(GENERIC_PROBLEM_FAMILY_BY_STATUS.values())
+        return referenced
+    return [match.group(1) for match in _LOOKUP_REFERENCE_RE.finditer(line)]
 
-    Each ``src_dir`` is ``<package>/src/<import_name>``; a spelling records the
-    package it was found in.
+
+def census_sources(
+    language: str,
+    src_dirs: tuple[Path, ...],
+    registry: tuple[ProblemType, ...] = FRAMEWORK_PROBLEM_TYPES,
+) -> LanguageCensus:
+    """Every literal ``urn:datrix:error:<slug>`` and every registry reference
+    (``.py`` and ``.j2``) under every package implementing *language* -- its
+    backend and each language core.
+
+    Each ``src_dir`` is ``<package>/src/<import_name>``; a spelling or
+    reference records the package it was found in.
     """
+    family_by_global = {
+        problem_family_global_name(problem_type.family): problem_type.family for problem_type in registry
+    }
     spellings: list[Spelling] = []
+    references: list[Spelling] = []
     for src_dir in src_dirs:
         package = src_dir.parents[1].name
         for path in _iter_source_files(src_dir):
@@ -136,7 +192,9 @@ def census_sources(language: str, src_dirs: tuple[Path, ...]) -> LanguageCensus:
             for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
                 for match in _URN_LITERAL_RE.finditer(line):
                     spellings.append(Spelling(language, package, relative, line_number, match.group(1)))
-    return LanguageCensus(language, tuple(spellings))
+                for family in _line_references(path.suffix, line, family_by_global):
+                    references.append(Spelling(language, package, relative, line_number, family))
+    return LanguageCensus(language, tuple(spellings), tuple(references))
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +218,7 @@ class Evaluation:
 
 def realized_families(census: LanguageCensus, registry: tuple[ProblemType, ...]) -> frozenset[str]:
     families = {problem_type.family for problem_type in registry}
-    return frozenset(spelling.slug for spelling in census.spellings if spelling.slug in families)
+    return frozenset(reference.slug for reference in census.references if reference.slug in families)
 
 
 def evaluate(
@@ -174,14 +232,19 @@ def evaluate(
     for language in sorted(censuses):
         census = censuses[language]
         for spelling in census.spellings:
-            if spelling.slug not in families:
-                problems.append(
-                    f"{spelling.package}: {spelling.relative_path}:{spelling.line}: spells "
-                    f"{PROBLEM_TYPE_URN_PREFIX}{spelling.slug!s}, which is not a registered "
-                    f"problem-type family. A private slug has no exemption path. Fix: spell a "
-                    f"registered family, or register it in datrix_common.datrix_model.problem_types "
-                    f"so every target mints it."
-                )
+            registration = (
+                "a registered family"
+                if spelling.slug in families
+                else "not a registered problem-type family"
+            )
+            problems.append(
+                f"{spelling.package}: {spelling.relative_path}:{spelling.line}: spells the literal "
+                f"{PROBLEM_TYPE_URN_PREFIX}{spelling.slug!s} ({registration}). A language renders a "
+                f"problem type from the registry and carries no URN literal; there is no exemption "
+                f"path. Fix: reference the family (PROBLEM_<FAMILY> in a template, "
+                f"problem_type_for(\"<family>\") in Python), or register it in "
+                f"datrix_common.datrix_model.problem_types so every target mints it."
+            )
         realized = realized_families(census, registry)
         verdicts[language] = LanguageVerdict(language, realized)
         unspelled[language] = tuple(sorted(families - realized))
@@ -271,9 +334,10 @@ def ratchet_problems(
         if live > pinned:
             problems.append(
                 f"{language}: EXCEED -- {live} unspelled problem-type cell(s) against a pin of "
-                f"{pinned} (+{live - pinned}): {', '.join(families)}. A family stopped being spelled "
-                f"or a new family was registered unspelled. Fix: spell the registered URN in the "
-                f"language's sources; never raise the pin in {BASELINE_PATH.name}."
+                f"{pinned} (+{live - pinned}): {', '.join(families)}. A family stopped being realized "
+                f"or a new family was registered unrealized. Fix: reference the family in the "
+                f"language's sources (PROBLEM_<FAMILY> in a template, problem_type_for(\"<family>\") "
+                f"in Python); never raise the pin in {BASELINE_PATH.name}."
             )
         elif live < pinned:
             problems.append(
@@ -343,11 +407,17 @@ def _assert(condition: bool, label: str) -> bool:
     return condition
 
 
-def _planted(language: str, slugs: tuple[str, ...]) -> LanguageCensus:
-    spellings = tuple(
+def _planted(
+    language: str, slugs: tuple[str, ...], *, literals: tuple[str, ...] = ()
+) -> LanguageCensus:
+    """A census where *slugs* are registry references and *literals* are URN literals."""
+    references = tuple(
         Spelling(language, f"datrix-codegen-{language}", "planted.j2", i + 1, slug) for i, slug in enumerate(slugs)
     )
-    return LanguageCensus(language, spellings)
+    spellings = tuple(
+        Spelling(language, f"datrix-codegen-{language}", "planted.j2", i + 1, slug) for i, slug in enumerate(literals)
+    )
+    return LanguageCensus(language, spellings, references)
 
 
 def _self_test_comparator(registry: tuple[ProblemType, ...]) -> bool:
@@ -360,11 +430,27 @@ def _self_test_comparator(registry: tuple[ProblemType, ...]) -> bool:
         "two fully realizing languages report no problem and no unspelled cell",
     )
 
-    private = {"alpha": _planted("alpha", full + ("private-thing",)), "beta": clean["beta"]}
+    private = {"alpha": _planted("alpha", full, literals=("private-thing",)), "beta": clean["beta"]}
     evaluation = evaluate(registry, private)
     ok &= _assert(
         len(evaluation.problems) == 1 and "not a registered problem-type family" in evaluation.problems[0],
         "a spelled private slug is one unpinned hard problem",
+    )
+
+    literal = {"alpha": _planted("alpha", full, literals=(full[0],)), "beta": clean["beta"]}
+    evaluation = evaluate(registry, literal)
+    ok &= _assert(
+        len(evaluation.problems) == 1
+        and "a registered family" in evaluation.problems[0]
+        and "no exemption path" in evaluation.problems[0]
+        and all(cells == () for cells in evaluation.unspelled.values()),
+        "a literal URN of a REGISTERED family still fails, with no exemption, and does not count as realization",
+    )
+    only_literals = {"alpha": _planted("alpha", (), literals=full), "beta": clean["beta"]}
+    evaluation = evaluate(registry, only_literals)
+    ok &= _assert(
+        evaluation.unspelled["alpha"] == tuple(sorted(full)),
+        "a language that spells every family only as literals realizes none of them",
     )
 
     missing = full[-1]
@@ -457,18 +543,38 @@ def _self_test_census(tmp_root: Path) -> bool:
     (src / "templates" / "planted.j2").write_text(
         "type = 'urn:datrix:error:validation'\n"
         "prefix = 'urn:datrix:error:'\n"
-        "other = `${PREFIX}http-${status}`\n",
+        "other = `${PREFIX}http-${status}`\n"
+        "kind = {{ PROBLEM_REQUEST_VALIDATION }}\n"
+        "table = {{ PROBLEM_TYPES | tojson }}\n"
+        "event = {{ PROBLEM_RESPONSE_LOG_EVENT }}\n"
+        "status = {{ GENERIC_PROBLEM_FAMILY_BY_STATUS | tojson }}\n",
         encoding="utf-8",
     )
-    (src / "handler.py").write_text('URN = "urn:datrix:error:internal"\n', encoding="utf-8")
-    (src / "notes.md").write_text("urn:datrix:error:ignored-because-markdown\n", encoding="utf-8")
+    (src / "handler.py").write_text(
+        'URN = "urn:datrix:error:internal"\nTYPE = problem_type_for("bad-request")\n'
+        'OTHER = problem_type_for(family)\n',
+        encoding="utf-8",
+    )
+    (src / "notes.md").write_text(
+        "urn:datrix:error:ignored-because-markdown\nPROBLEM_INTERNAL\n", encoding="utf-8"
+    )
     (src / "__pycache__" / "stale.py").write_text("'urn:datrix:error:ignored-because-cache'\n", encoding="utf-8")
     census = census_sources("fixture", (src,))
     slugs = sorted(spelling.slug for spelling in census.spellings)
-    return _assert(
+    references = sorted(reference.slug for reference in census.references)
+    ok = _assert(
         slugs == ["internal", "validation"],
         f"planted sources yield exactly their two literal slugs; the bare prefix is not one (got {slugs})",
     )
+    generic = sorted(set(GENERIC_PROBLEM_FAMILY_BY_STATUS.values()))
+    expected = sorted(["bad-request", "request-validation", *GENERIC_PROBLEM_FAMILY_BY_STATUS.values()])
+    ok &= _assert(
+        references == expected,
+        "a PROBLEM_REQUEST_VALIDATION template reference, a problem_type_for(\"bad-request\") call and a "
+        "rendered GENERIC_PROBLEM_FAMILY_BY_STATUS table count as realization; PROBLEM_TYPES, a "
+        f"variable argument and markdown do not (got {references}, generic={generic})",
+    )
+    return ok
 
 
 def _self_test_language_core(tmp_root: Path) -> bool:
@@ -480,12 +586,12 @@ def _self_test_language_core(tmp_root: Path) -> bool:
     backend.mkdir(parents=True)
     core.mkdir(parents=True)
     (backend / "plugin.py").write_text("NAME = 'splitlang'\n", encoding="utf-8")
-    (core / "errors.py").write_text('URN = "urn:datrix:error:internal"\n', encoding="utf-8")
+    (core / "errors.py").write_text('URN = problem_type_for("internal").urn\n', encoding="utf-8")
     split = census_sources("splitlang", (backend, core))
     backend_only = census_sources("splitlang", (backend,))
-    found = [(spelling.package, spelling.slug) for spelling in split.spellings]
+    found = [(reference.package, reference.slug) for reference in split.references]
     return _assert(
-        found == [("datrix-codegen-splitlang-core", "internal")] and not backend_only.spellings,
+        found == [("datrix-codegen-splitlang-core", "internal")] and not backend_only.references,
         f"a fixture language split into a backend and a core: the census sees the URN planted in the core "
         f"(got {found}); a backend-only census does not",
     )

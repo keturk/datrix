@@ -901,6 +901,22 @@ _NODE_JUNIT_FAILING_PLACEHOLDER = """\
 </testsuites>
 """
 
+_NODE_JUNIT_PATH_NAMED_PLACEHOLDER = """\
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+\t<testcase name="C:\\\\pkg\\\\out\\\\test\\\\a.test.js" time="0.28" classname="test"/>
+</testsuites>
+"""
+
+_NODE_JUNIT_FAILING_PATH_NAMED_PLACEHOLDER = """\
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+\t<testcase name="C:\\\\pkg\\\\out\\\\test\\\\a.test.js" time="0.28" classname="test">
+\t\t<failure type="testCodeFailure" message="SyntaxError">stack text</failure>
+\t</testcase>
+</testsuites>
+"""
+
 _NODE_JUNIT_TAGGED = """\
 <?xml version="1.0" encoding="utf-8"?>
 <testsuites>
@@ -930,6 +946,22 @@ def _check_node_file_placeholder_is_not_counted_as_a_test() -> None:
         failing = root / "junit-node-002.xml"
         failing.write_text(_NODE_JUNIT_FAILING_PLACEHOLDER, encoding="utf-8")
         counts = merge_junit_xml([("src/test/a.test.ts", failing)], root / "merged-2.xml", 0.1)
+        assert counts == {"passed": 0, "failed": 1, "error": 0, "skipped": 0}, counts
+
+        # The same placeholder as a Node whose reporter names it by absolute path and
+        # states no `file` attribute: still no test case, never an untagged one, and a
+        # file that failed to load is still a failure.
+        by_path = root / "junit-node-003.xml"
+        by_path.write_text(_NODE_JUNIT_PATH_NAMED_PLACEHOLDER, encoding="utf-8")
+        counts = merge_junit_xml([("src/test/a.test.ts", by_path)], root / "merged-3.xml", 0.1)
+        assert counts == {"passed": 0, "failed": 0, "error": 0, "skipped": 0}, counts
+        assert untagged_cases([("src/test/a.test.ts", by_path)]) == []
+
+        by_path_failing = root / "junit-node-004.xml"
+        by_path_failing.write_text(_NODE_JUNIT_FAILING_PATH_NAMED_PLACEHOLDER, encoding="utf-8")
+        counts = merge_junit_xml(
+            [("src/test/a.test.ts", by_path_failing)], root / "merged-4.xml", 0.1
+        )
         assert counts == {"passed": 0, "failed": 1, "error": 0, "skipped": 0}, counts
 
 

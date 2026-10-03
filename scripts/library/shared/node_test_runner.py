@@ -52,7 +52,7 @@ from collections.abc import Callable, Iterable
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from tempfile import TemporaryDirectory
 
 from shared.logging_utils import ColorCodes, LogConfig, TeeLogger, colorize
@@ -97,6 +97,8 @@ BUILD_SCRIPT_KEY = "build"
 _MERGED_SUITE_NAME = "node"
 
 _MERGED_XML_NAME = "junit-node.xml"
+#: Extensions of a compiled Node test file, the only thing a placeholder case is named after.
+_TEST_FILE_SUFFIXES = frozenset({".js", ".mjs", ".cjs"})
 
 
 class NodeSuiteError(RuntimeError):
@@ -478,14 +480,23 @@ def merge_junit_xml(
 def _is_file_placeholder(testcase: ET.Element, root: ET.Element) -> bool:
     """True for the passing case Node reports for a file in which no test ran.
 
-    It sits directly under ``<testsuites>`` and is named after the file its own
-    ``file`` attribute names. A failing one is a file that could not load, and
-    is never treated as a placeholder.
+    It sits directly under ``<testsuites>`` and is named after its file. Node
+    states that two ways depending on its version: the file's base name beside a
+    ``file`` attribute, or the file's absolute path as the name with no ``file``
+    attribute at all. A failing one is a file that could not load, and is never
+    treated as a placeholder.
     """
-    file_attribute = testcase.get("file")
-    if file_attribute is None or testcase not in list(root):
+    if testcase not in list(root):
         return False
-    is_named_after_its_file = Path(file_attribute).name == testcase.get("name")
+    name = testcase.get("name") or ""
+    file_attribute = testcase.get("file")
+    if file_attribute is not None:
+        is_named_after_its_file = Path(file_attribute).name == name
+    else:
+        reported = PureWindowsPath(name)
+        is_named_after_its_file = (
+            reported.is_absolute() or PurePosixPath(name).is_absolute()
+        ) and reported.suffix in _TEST_FILE_SUFFIXES
     return is_named_after_its_file and _outcome_of(testcase) == "passed"
 
 
