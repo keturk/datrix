@@ -39,7 +39,6 @@ config strings ecommerce.Storefront locale "tr-TR" {
     framework.retry        = "Tekrar dene";
     framework.confirm      = "Onayla";
     framework.cancel       = "Vazgeç";
-    framework.notFound     = "Bulunamadı";
     framework.forbidden    = "Bu sayfaya erişiminiz yok";
     framework.failed       = "Bir şeyler ters gitti";
     framework.submit       = "Gönder";
@@ -67,6 +66,17 @@ config strings ecommerce.Storefront locale "tr-TR" {
     framework.back = "Geri";
     framework.optional = "(isteğe bağlı)";
     framework.notProvided = "Belirtilmedi";
+    framework.signInTitle = "Giriş yap";
+    framework.signInSubtitle = "Devam etmek için giriş yapın.";
+    framework.signIn = "Giriş yap";
+    framework.signInFailed = "Giriş tamamlanamadı";
+    framework.signInFailedDetail = "Giriş yapılırken bir sorun oluştu. Tekrar deneyin.";
+    framework.tryAgain = "Tekrar dene";
+    framework.signOut = "Çıkış yap";
+    framework.forbiddenDetail = "Hesabınız bu sayfa için gereken erişime sahip değil. Farklı bir hesapla devam etmek için çıkış yapın.";
+    framework.notFoundTitle = "Sayfa bulunamadı";
+    framework.notFoundDetail = "Aradığınız sayfa mevcut değil ya da taşınmış.";
+    framework.goHome = "Ana sayfaya git";
     framework.formatting   = "Biçimlendirme";
     framework.bold         = "Kalın";
     framework.italic       = "İtalik";
