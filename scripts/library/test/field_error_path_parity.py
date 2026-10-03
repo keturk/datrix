@@ -50,7 +50,11 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from datrix_common.datrix_model.problem_types import FIELD_ERROR_PATH_RULE  # noqa: E402
+from datrix_common.datrix_model.problem_types import (  # noqa: E402
+    FIELD_ERROR_PATH_RULE,
+    FieldErrorCode,
+    FieldErrorLocation,
+)
 
 from shared.registered_targets import registered_language_names  # noqa: E402
 from shared.registered_targets import (  # noqa: E402
@@ -75,6 +79,22 @@ _MIN_LANGUAGES_FOR_COMPARISON: Final[int] = 2
 #: literal, so the fixture can never drift from the rule it tests.
 _CANONICAL_LOC: Final[tuple[str | int, ...]] = ("body", "shippingAddress", "postalCode")
 _CANONICAL_PATH: Final[str] = FIELD_ERROR_PATH_RULE.format(_CANONICAL_LOC)
+
+#: The located fixture that proves `location` and `code` beside the body path:
+#: a missing path parameter, a query value of the wrong type and an unknown body
+#: field, as pydantic reports them, and the `(location, field, code)` entries the
+#: registry's vocabulary derives from them.
+_CANONICAL_LOCATED_ERRORS: Final[tuple[dict[str, object], ...]] = (
+    {"loc": ("path", "sku"), "type": "missing"},
+    {"loc": ("query", "limit"), "type": "int_parsing"},
+    {"loc": _CANONICAL_LOC, "type": "extra_forbidden"},
+)
+_CANONICAL_LOCATED: Final[tuple[tuple[str, str, str], ...]] = (
+    (FieldErrorLocation.PATH, "sku", FieldErrorCode.REQUIRED),
+    (FieldErrorLocation.QUERY, "limit", FieldErrorCode.INVALID),
+    (FieldErrorLocation.BODY, _CANONICAL_PATH, FieldErrorCode.UNKNOWN_FIELD),
+)
+_CANONICAL_PATH_FIELD_NAMES: Final[dict[str, str]] = {"sku": "sku"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,9 +140,10 @@ def _iter_source_files(src_dir: Path) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 _PYTHON_FORMATTER_DEF_RE: Final[re.Pattern[str]] = re.compile(r"def\s+format_field_error_path\(")
-_TS_BUILDER_DEF_RE: Final[re.Pattern[str]] = re.compile(r"function\s+buildValidationFieldErrors\(")
-_TS_ARRAY_BRACKET_RE: Final[re.Pattern[str]] = re.compile(r"\$\{parentPath\}\[\$\{error\.property\}\]")
-_TS_DOT_JOIN_RE: Final[re.Pattern[str]] = re.compile(r"\$\{parentPath\}\.\$\{error\.property\}")
+_PYTHON_CLASSIFIER_DEF_RE: Final[re.Pattern[str]] = re.compile(r"def\s+classify_request_validation\(")
+_TS_BUILDER_DEF_RE: Final[re.Pattern[str]] = re.compile(r"function\s+joinPath\(")
+_TS_ARRAY_BRACKET_RE: Final[re.Pattern[str]] = re.compile(r"\$\{parentPath\}\[\$\{property\}\]")
+_TS_DOT_JOIN_RE: Final[re.Pattern[str]] = re.compile(r"\$\{parentPath\}\.\$\{property\}")
 
 
 def _load_module_from_path(path: Path) -> ModuleType:
@@ -137,23 +158,69 @@ def _load_module_from_path(path: Path) -> ModuleType:
     Raises:
         ImportError: `path` cannot be turned into a loadable module spec.
     """
-    spec = importlib.util.spec_from_file_location("_field_error_path_census", path)
+    name = f"_field_error_path_census_{path.stem}"
+    spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot load a module spec for {path}.")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # A dataclass resolves its string annotations through its own module's entry
+    # in sys.modules, so the module is registered for the length of the exec.
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        del sys.modules[name]
     return module
+
+
+def _classifier_divergence(path: Path) -> str | None:
+    """What `classify_request_validation` produces for the located canonical
+    fixture when that differs from the registry's derivation, else `None`.
+
+    The classifier takes the body formatter as an argument; the realization that
+    ships beside it (`field_error_path.py`) is the one it is executed with."""
+    classify = getattr(_load_module_from_path(path), "classify_request_validation", None)
+    if classify is None:
+        return None
+    formatter_path = path.with_name("field_error_path.py")
+    formatter = getattr(_load_module_from_path(formatter_path), "format_field_error_path", None)
+    if formatter is None:
+        return f"no format_field_error_path beside {path.name}"
+    refusal = classify(
+        _CANONICAL_LOCATED_ERRORS,
+        path_field_names=_CANONICAL_PATH_FIELD_NAMES,
+        format_body_path=formatter,
+    )
+    produced = tuple((e.location, e.field, e.code) for e in refusal.errors)
+    if produced == _CANONICAL_LOCATED:
+        return None
+    return f"located entries {produced!r}, expected {_CANONICAL_LOCATED!r}"
 
 
 def _census_python(package: str, src_dir: Path, files: list[Path]) -> tuple[RealizationSite, ...]:
     """Python realizes the rule with a real, callable mapping function --
-    found by its definition, then EXECUTED against the canonical fixture."""
+    found by its definition, then EXECUTED against the canonical fixture. The
+    request classifier is executed against the located fixture too: a path or
+    query entry that lands in the wrong location, field or code is a divergence
+    recorded at the classifier's definition."""
     sites: list[RealizationSite] = []
     for path in files:
         if path.suffix != ".py":
             continue
         text = path.read_text(encoding="utf-8")
         for line_number, line in enumerate(text.splitlines(), start=1):
+            if _PYTHON_CLASSIFIER_DEF_RE.search(line):
+                divergence = _classifier_divergence(path)
+                if divergence is not None:
+                    sites.append(
+                        RealizationSite(
+                            "python",
+                            package,
+                            path.relative_to(src_dir).as_posix(),
+                            line_number,
+                            f"{_CANONICAL_PATH} ({divergence})",
+                        )
+                    )
             if not _PYTHON_FORMATTER_DEF_RE.search(line):
                 continue
             module = _load_module_from_path(path)
@@ -169,8 +236,8 @@ def _census_python(package: str, src_dir: Path, files: list[Path]) -> tuple[Real
 
 def _census_typescript(package: str, src_dir: Path, files: list[Path]) -> tuple[RealizationSite, ...]:
     """TypeScript realizes the rule with a hand-written recursive builder over
-    class-validator's own `ValidationError` tree (`main.ts.j2`'s
-    `buildValidationFieldErrors`). class-validator's tree starts at the DTO's
+    class-validator's own `ValidationError` tree (`request-validation.ts.j2`'s
+    `joinPath`). class-validator's tree starts at the DTO's
     own properties (no `body` wrapper), so the rule is realized exactly when
     the builder joins named segments with `.` and numeric-string segments
     with `[n]`; a builder present but missing either construction line is a
@@ -364,6 +431,28 @@ _CANONICAL_FORMATTER_SOURCE: Final[str] = (
 )
 
 
+#: A self-contained `classify_request_validation` for the self-test; the
+#: `{location_expr}` hole is what decides each entry's location.
+_FIXTURE_CLASSIFIER_SOURCE: Final[str] = (
+    "from collections import namedtuple\n"
+    "Entry = namedtuple('Entry', 'location field code')\n"
+    "Result = namedtuple('Result', 'errors')\n"
+    "CODES = {{'missing': 'required', 'extra_forbidden': 'unknown_field'}}\n"
+    "def classify_request_validation(errors, *, path_field_names, format_body_path):\n"
+    "    out = []\n"
+    "    for error in errors:\n"
+    "        loc = error['loc']\n"
+    "        if loc[0] == 'body':\n"
+    "            field = format_body_path(loc)\n"
+    "        elif loc[0] == 'path':\n"
+    "            field = path_field_names[loc[1]]\n"
+    "        else:\n"
+    "            field = loc[1]\n"
+    "        out.append(Entry({location_expr}, field, CODES.get(error['type'], 'invalid')))\n"
+    "    return Result(tuple(out))\n"
+)
+
+
 def _fixture_src(tmp_root: Path, package: str) -> Path:
     """A fixture ``<package>/src/<import_name>`` tree, the shape every
     discovered src dir has."""
@@ -395,11 +484,34 @@ def _self_test_census(tmp_root: Path) -> bool:
         f"a divergent python formatter's real execution surfaces its actual wrong output (got {sites})",
     )
 
+    classified_good = _fixture_src(tmp_root, "python-classifier-good")
+    (classified_good / "field_error_path.py").write_text(_CANONICAL_FORMATTER_SOURCE, encoding="utf-8")
+    (classified_good / "request_validation.py").write_text(
+        _FIXTURE_CLASSIFIER_SOURCE.format(location_expr="loc[0]"), encoding="utf-8"
+    )
+    sites = census_sources("python", (classified_good,))
+    ok &= _assert(
+        len(sites) == 1 and sites[0].spelled_path == _CANONICAL_PATH,
+        f"a classifier placing path, query and body entries in their own locations is canonical (got {sites})",
+    )
+
+    classified_bad = _fixture_src(tmp_root, "python-classifier-bad")
+    (classified_bad / "field_error_path.py").write_text(_CANONICAL_FORMATTER_SOURCE, encoding="utf-8")
+    (classified_bad / "request_validation.py").write_text(
+        _FIXTURE_CLASSIFIER_SOURCE.format(location_expr="'body'"), encoding="utf-8"
+    )
+    sites = census_sources("python", (classified_bad,))
+    ok &= _assert(
+        len(sites) == 2
+        and any("located entries" in site.spelled_path for site in sites),
+        f"a classifier reporting every entry at the body location surfaces a location divergence (got {sites})",
+    )
+
     ts_good = _fixture_src(tmp_root, "typescript-good")
-    (ts_good / "main.ts.j2").write_text(
-        "function buildValidationFieldErrors(errors, parentPath = '') {\n"
-        "  if (isArrayIndex) { path = `${parentPath}[${error.property}]`; }\n"
-        "  else if (parentPath) { path = `${parentPath}.${error.property}`; }\n"
+    (ts_good / "request-validation.ts.j2").write_text(
+        "function joinPath(parentPath: string, property: string): string {\n"
+        "  if (isArrayIndex) { return `${parentPath}[${property}]`; }\n"
+        "  return parentPath === '' ? property : `${parentPath}.${property}`;\n"
         "}\n",
         encoding="utf-8",
     )
@@ -410,9 +522,9 @@ def _self_test_census(tmp_root: Path) -> bool:
     )
 
     ts_bad = _fixture_src(tmp_root, "typescript-bad")
-    (ts_bad / "main.ts.j2").write_text(
-        "function buildValidationFieldErrors(errors, parentPath = '') {\n"
-        "  path = `${parentPath}.${error.property}`;\n"
+    (ts_bad / "request-validation.ts.j2").write_text(
+        "function joinPath(parentPath: string, property: string): string {\n"
+        "  return `${parentPath}.${property}`;\n"
         "}\n",
         encoding="utf-8",
     )
