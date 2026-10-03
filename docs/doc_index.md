@@ -5,13 +5,17 @@ Quick-reference index for AI agents. All paths relative to `D:/datrix/`.
 ## 🎯 Start Here (High Priority)
 
 **When:** First time working with Datrix or need architectural overview
-- [architecture-overview.md](datrix/docs/architecture/architecture-overview.md) → System architecture, pipeline, capabilities
-- [design-principles.md](datrix/docs/architecture/design-principles.md) → Core philosophy, design patterns
-- [ai-agent-rules.md](datrix-common/docs/contributing/ai-agent-rules.md) → **MANDATORY before any task**
 
-**Quick refs:**
-- [architecture-cheat-sheet.md](datrix/docs/architecture/architecture-cheat-sheet.md)
-- [design-principles-cheat-sheet.md](datrix/docs/architecture/design-principles-cheat-sheet.md)
+**Two short cores (MANDATORY before any task):**
+- [architecture-cheat-sheet.md](datrix/docs/architecture/architecture-cheat-sheet.md) → the architecture map, with the index of knowledge packs (`datrix/docs/architecture/packs/`, one per subsystem — open the one for the area you touch)
+- [ai-agent-rules.md](datrix-common/docs/contributing/ai-agent-rules.md) → core rules, with the read-when index into the agent-rule packs (`datrix-common/docs/contributing/ai-agent-rules/`)
+
+**Don't know where something is documented? Ask, don't browse:** `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` → brief answer with the file and line range to open (`datrix/scripts/dev/quick-reference.md`). Answers learned by a local model are kept in `datrix/docs/knowledge/learned/`.
+
+**On demand:**
+- [design-principles-cheat-sheet.md](datrix/docs/architecture/design-principles-cheat-sheet.md) → design principles, operative summary
+- [architecture-overview.md](datrix/docs/architecture/architecture-overview.md) → the numbered decision log (the *why*)
+- [design-principles.md](datrix/docs/architecture/design-principles.md) → full design principles
 
 ## 🏗️ Architecture Deep Dive
 
@@ -211,7 +215,11 @@ Quick-reference index for AI agents. All paths relative to `D:/datrix/`.
 
 ### MANDATORY Reading
 
-- [ai-agent-rules.md](datrix-common/docs/contributing/ai-agent-rules.md) → **Read before ANY task**
+- [ai-agent-rules.md](datrix-common/docs/contributing/ai-agent-rules.md) → **Read before ANY task** (short core; the packs below are read when its index says to)
+  - [secure-by-default.md](datrix-common/docs/contributing/ai-agent-rules/secure-by-default.md) → The more secure option wins; fail closed
+  - [static-analysis-first.md](datrix-common/docs/contributing/ai-agent-rules/static-analysis-first.md) → Verification ladder, seams, set comparisons
+  - [multi-target-invariants.md](datrix-common/docs/contributing/ai-agent-rules/multi-target-invariants.md) → Cross-surface impact, generality, same behaviour
+  - [logic-map.md](datrix-common/docs/contributing/ai-agent-rules/logic-map.md) → Canonical implementations and markers
   - [prohibited-patterns.md](datrix-common/docs/contributing/ai-agent-rules/prohibited-patterns.md) → 8 absolute prohibitions
   - [code-quality-standards.md](datrix-common/docs/contributing/ai-agent-rules/code-quality-standards.md) → Type hints, docstrings, testing
   - [repo-specific-rules.md](datrix-common/docs/contributing/ai-agent-rules/repo-specific-rules.md) → Per-repo rules

@@ -653,7 +653,7 @@ Service startup
 - `datrix-codegen-sql` is an independent artifact plugin activated by the presence of declared `rdbms` blocks regardless of target language; `python_http_contract_overlay` has its own activation predicate under the same activation-by-declared-need pattern
 - Repo topology is unchanged — the one-repo-per-package split stays (fifteen installable packages, the `datrix-vscode` client, and the showcase repo at the time of writing; the count grows with each target); shared-layer changes affecting multiple packages remain coordinated multi-repo trains under the existing cross-surface impact rule
 
-The design's seven end-state invariants (I1–I7) hold today as executable gates — see [Architecture Cheat Sheet — Multi-Target Plugin Architecture](architecture-cheat-sheet.md#multi-target-plugin-architecture) for the invariant table and the exact check commands.
+The design's seven end-state invariants (I1–I7) hold today as executable gates — see [Target Plugins pack — Multi-Target Plugin Architecture](packs/target-plugins.md#multi-target-plugin-architecture) for the invariant table and the exact check commands.
 
 **Reference:** [datrix-common API — LanguagePlugin, Open identity, PlatformCapabilityDeclaration, PlatformRuntimeSpec](../../../datrix-common/docs/datrix-common-api.md#languageplugin) | [Import Boundaries](../../../datrix-common/docs/architecture/import-boundaries.md) | [datrix-codegen-common architecture — Derived Domain Parity Table](../../../datrix-codegen-common/docs/architecture.md#derived-domain-parity-table-structural-verification)
 
@@ -2889,7 +2889,7 @@ member-list change, so it refuses a relabel by name like an append.
 `pending_review`; Python persists a declared `value('…')` where it persisted the snake name.
 
 **Status:** Adopted. Invariants are held by the checks named in the
-[cheat sheet](./architecture-cheat-sheet.md#enum-wire-and-stored-values).
+[DSL Features pack](./packs/dsl-features.md#enum-wire-and-stored-values).
 
 ---
 

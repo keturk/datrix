@@ -1,27 +1,27 @@
 # Design Principles Cheat Sheet
 
-**What Datrix is:** a **multi-language, multi-platform code generator** (`.dtrx` domain specs → production-ready applications) — NOT limited to Python/TypeScript, NOT limited to Docker/AWS/Azure. Every principle below is read through that lens: fixes for one language/platform must not break another, and designs must preserve the generator's multi-language, multi-platform nature.
+**What Datrix is:** a **multi-language, multi-platform code generator** (`.dtrx` domain specs → production-ready applications) — NOT limited to Python/TypeScript, NOT limited to Docker/AWS/Azure. Read every principle through that lens: a fix for one language/platform must not break another, and designs must preserve the multi-language, multi-platform nature.
 
 ## Core Principles
 
 1. **Fail Fast, Fail Loud** -- Errors at generation time, not runtime. Raise with context, never return None.
-2. **Templates + Formatter** -- Jinja2 templates; after write, `LanguageHooks` run language-specific formatters (ruff for Python, etc.) or validation-only (tsc --noEmit for TypeScript) when `format_output` is on. No raw string concatenation.
+2. **Templates + Formatter** -- Jinja2 templates; after write, `LanguageHooks` run the language formatter (ruff for Python) or validation-only (`tsc --noEmit` for TypeScript) when `format_output` is on. No raw string concatenation.
 3. **Exhaustive Type Mappings** -- Every type explicitly mapped per language. Unmapped = error. No defaults/fallbacks.
-4. **Immutability — Build-Then-Sealed (Adopted)** -- AST model is mutable through parse/transform and semantic analysis; `analyze()` seals it via a recursive `__setattr__` guard on `Node`. Generators receive a sealed application; any post-seal mutation raises immediately.
+4. **Immutability — Build-Then-Sealed (Adopted)** -- The AST is mutable through parse/transform and semantic analysis; `analyze()` seals it via a recursive `__setattr__` guard on `Node`. Generators receive a sealed application; post-seal mutation raises.
 5. **Single Responsibility** -- One clear purpose per package/module.
 6. **Dependency Inversion** -- Depend on protocols, not concretions.
 7. **Explicit Over Implicit** -- No magic. All parameters explicit. Builtin traits are opt-in.
-8. **Domain extensions** -- `use extension <name>;` in `system.dtrx` (DSL). Packs own definitions (`DatrixExtension`); language generators own all per-language maps (`PYTHON_EXTENSION_MAPS`, etc.), merged by the shared `build_type_map`. Core stays lean; infra-heavy domain types move to packs.
-9. **No backward compatibility in the DSL** -- One supported syntax path at a time. When syntax changes (for example removing `@` on types for server-managed fields), old forms are removed rather than deprecated in parallel.
-10. **Minimal reserved words / contextual keywords** -- Modifiers such as `server`, `unique`, and `indexed` appear only in modifier lists after `:` on fields (and similar positions). They are not a separate global “keyword soup”; the grammar keeps reserved words tight and uses contextual positions for these identifiers.
-11. **Protocol dispatch over isinstance** -- Use `ExpressionVisitor` / `StatementVisitor` and `node.accept(visitor)` for AST operations; use `CallTargetEmitter` + `dispatch_call()` for call targets. Do not grow `isinstance` ladders on expression nodes.
-12. **Explicit data flow** -- Service-wide config is frozen (`TranspileContext`). Per-file sibling state uses fresh `FileScope` objects. Visit results return `TranspileResult` (merge with `merge_artifacts`) — not hidden mutation on the transpiler for imports/flags.
-13. **Staged transpilation** -- Name resolution and query expansion run as explicit Stages 1–2 (`StagePipeline`); each language emitter is Stage 3. Keep stage boundaries and side-tables (`ResolutionTable`) instead of monolithic “do everything in one visit” growth.
-14. **Construct-mapped platform realization** -- `.dtrx` = platform-agnostic logic; `.dcfg` = deployment target (runtime + provider + sizing); generator maps each DSL block to the target's native primitive. Service shape is derived from declared blocks, not from a service-flavor selector (retired). No silent ignore: unsupported combinations raise with actionable errors. No defaults: every deployment choice must be explicit in config.
-15. **Credentials fail closed** -- A missing/empty credential never silently disables auth (BD5 insecure-fallback applied to secrets). The only valid state for secret-backed auth is "required and present" — fail loud before constructing any unauthenticated client; unauthenticated operation is an explicit config declaration, never implied by an absent value. `.dtrx`/`.dcfg` carry only logical secret **handles** (never values, never derived/fallback); errors and logs name the logical secret + backend class, never the secret value.
-16. **Shared layers ask, target plugins answer (Adopted)** -- No language/provider name in `datrix-common`/`datrix-codegen-common`/`datrix-cli` source; `dict[TargetId, policy]` or `if target == X:` in a shared layer is a defect. Target facts live with the target's plugin. Enforced by the I1 lint ratchet, which passes at zero (`check-import-boundaries.ps1 -CheckTargetLiterals`).
-17. **A declared knob must be realized (Adopted)** -- A configuration field the system accepts is a promise it keeps: perturbing the field must change the emitted artifact in a functional position, not just pass load-time validation or land in a generated comment/docstring/log line. Every consumed field is realization-proven by an executable perturb-and-diff check or carries a reviewed, written exemption; a target that realizes a portable field's capability by no implementation records a gap on its own capability declaration instead of silently no-op'ing — it never declares the field unsupported. Enforced by the per-package perturb/regenerate/diff conformance kit (`datrix_testing.conformance.config_realization`), which every consuming package runs in its own suite against its own pinned exemption baseline (Decision 32).
-18. **Purposeful mini-DSLs** -- Datrix's declarative layer is a family of small single-concern surfaces (ConfigDSL, SeedDSL, genDSL, RealizationDSL, EmitDSL, per-language declared dependency tables, ...). RealizationDSL is typed platform-capability cells that drive provisioning dispatch -- the authoring unit is a table cell, not text. EmitDSL is typed per-language emit-table declarations validated against the closed builtin registry -- the authoring unit is a table row, not text. Per-language declared dependency tables map a feature plus a typed qualifier to package name and scope -- versions stay in the existing dependency catalog and a row never carries one; the authoring unit is a table row, not text. Declarations drive execution and are the *only* emission path for the concern they own -- a parallel imperative path emitting the same artifacts is a bypass to be closed, not tolerated; where the schema can't yet express a routing decision, it gains typed predicate columns rather than falling back to text. Compilation is closed (unknown reference = load-time error), and text is earned (typed data declarations by default; computation stays in Python). Never fold a new concern into an existing DSL because it happens to be declarative -- and never open a new surface for a concern an existing declaration already owns: identifier casing is served by `LanguageProfile.naming`'s declared casers, so the work there is threading the declaration into shared algorithms, never authoring a "CasingDSL". A large duplicated family is not by itself evidence that a surface is missing; it is often evidence that one is under-used.
+8. **Domain extensions** -- `use extension <name>;` in `system.dtrx`. Packs own definitions (`DatrixExtension`); language generators own their per-language maps (`PYTHON_EXTENSION_MAPS`, …), merged by the shared `build_type_map`. Core stays lean; infra-heavy domain types move to packs.
+9. **No backward compatibility in the DSL** -- One supported syntax path. When syntax changes, old forms are removed, not deprecated in parallel.
+10. **Minimal reserved words** -- Modifiers (`server`, `unique`, `indexed`) are contextual: they appear only in modifier lists after `:` on fields (and similar positions), never as global keywords.
+11. **Protocol dispatch over isinstance** -- `ExpressionVisitor` / `StatementVisitor` with `node.accept(visitor)` for AST operations; `CallTargetEmitter` + `dispatch_call()` for call targets. Do not grow `isinstance` ladders on expression nodes.
+12. **Explicit data flow** -- Service-wide config is frozen (`TranspileContext`). Per-file sibling state uses fresh `FileScope` objects. Visits return `TranspileResult` (merge with `merge_artifacts`), never hidden mutation on the transpiler.
+13. **Staged transpilation** -- Name resolution and query expansion are explicit Stages 1–2 (`StagePipeline`); each language emitter is Stage 3. Keep stage boundaries and side-tables (`ResolutionTable`).
+14. **Construct-mapped platform realization** -- `.dtrx` = platform-agnostic logic; `.dcfg` = deployment target (runtime + provider + sizing); the generator maps each DSL block to the target's native primitive. Service shape derives from declared blocks, not a service-flavor selector. No silent ignore: unsupported combinations raise actionable errors. No defaults: every deployment choice is explicit in config.
+15. **Credentials fail closed** -- A missing/empty credential never silently disables auth. The only valid state for secret-backed auth is "required and present": fail loud before constructing any unauthenticated client; unauthenticated operation is an explicit config declaration, never implied by an absent value. `.dtrx`/`.dcfg` carry only logical secret **handles**, never values or fallbacks; errors and logs name the logical secret and backend class, never the value.
+16. **Shared layers ask, target plugins answer (Adopted)** -- No language/provider name in `datrix-common`/`datrix-codegen-common`/`datrix-cli` source; `dict[TargetId, policy]` or `if target == X:` in a shared layer is a defect. Target facts live with the target's plugin. Enforced by the I1 ratchet at zero (`check-import-boundaries.ps1 -CheckTargetLiterals`).
+17. **A declared knob must be realized (Adopted)** -- A config field the system accepts is a promise: perturbing it must change the emitted artifact in a functional position, not just pass validation or land in a comment/docstring/log line. Every consumed field is proven by a perturb-and-diff check (`datrix_testing.conformance.config_realization`, run by each consuming package against its own pinned exemption baseline) or carries a reviewed, written exemption. A target that realizes a portable capability by no implementation records a `capability_gaps` row on its own declaration; it never declares the field unsupported.
+18. **Purposeful mini-DSLs** -- Datrix's declarative layer is a family of small single-concern surfaces: ConfigDSL, SeedDSL, genDSL, RealizationDSL (typed platform-capability cells driving provisioning dispatch), EmitDSL (typed per-language emit-table rows validated against the closed builtin registry), and per-language declared dependency tables (feature + typed qualifier → package name and scope; versions stay in the dependency catalog). The authoring unit is a table cell or row, not text. Declarations are the *only* emission path for their concern — a parallel imperative path is a bypass to close; where the schema cannot express a routing decision it gains typed predicate columns. Compilation is closed (unknown reference = load-time error); text is earned (typed data by default, computation stays in Python). Never fold a new concern into an existing DSL because it happens to be declarative, and never open a new surface for a concern an existing declaration already owns (casing is served by `LanguageProfile.naming`'s casers — thread the declaration into shared algorithms, never author a "CasingDSL"). A large duplicated family is often evidence a surface is under-used, not missing.
 
 ## DSL vs YAML Boundary
 
@@ -31,19 +31,19 @@
 | Entity structure, validation rules | CORS origins, JWT secrets |
 | Service version, topology | Job schedules, retry/timeout defaults |
 | Computed fields, spec tests | Provider credentials, replica count |
-| **`use extension`** (which domain packs are enabled) | (not used for extension enablement) |
+| **`use extension`** (which packs are enabled) | (not used for extension enablement) |
 
-## Standard library (product rules)
+## Standard Library (product rules)
 
-Shipped `.dtrx` modules in `datrix-language` (see [datrix-stdlib-reference.md](../../../datrix-language/docs/reference/datrix-stdlib-reference.md)) are part of the language distribution, not optional user packages.
+Shipped `.dtrx` modules in `datrix-language` ([datrix-stdlib-reference.md](../../../datrix-language/docs/reference/datrix-stdlib-reference.md)) are part of the language distribution, not optional user packages.
 
-- **Implicit availability** — Stdlib exports (`BaseEntity`, `Address`, `hashPassword`, …) resolve from global scope without `import` / `use` in user modules (same rules as the semantic pipeline; qualified `datrix.*` names still work when you need them).
-- **Lazy loading** — Serialized stdlib module ASTs deserialize only when a reference forces it; unused stdlib modules incur no deserialization work.
-- **User-first shadowing** — User definitions win over stdlib; use qualified names when you need the stdlib shape explicitly. Shadowing is intentional, not a warning surface.
-- **Concrete codegen** — Unlike builtins (mostly abstract mappings into host languages), stdlib entities, structs, and functions become real generated artifacts (tables, classes, transpiled methods) when referenced.
-- **Database-agnostic** — Stdlib uses builtin scalars only; no PostGIS/Timescale-style coupling. Infrastructure-specific types belong in **domain extensions**, not stdlib.
-- **Versions with `datrix-language`** — No separate stdlib semver; upgrading the language package upgrades stdlib.
-- **Low bar for inclusion** — Shared patterns used by more than one real project are candidates; lazy loading keeps unused modules cheap.
+- **Implicit availability** — Stdlib exports (`BaseEntity`, `Address`, `hashPassword`, …) resolve from global scope without `import`/`use`; qualified `datrix.*` names also work.
+- **Lazy loading** — A stdlib module deserializes only when a reference forces it.
+- **User-first shadowing** — User definitions win over stdlib; shadowing is intentional, not a warning. Use qualified names for the stdlib shape.
+- **Concrete codegen** — Unlike mostly-abstract builtins, referenced stdlib entities, structs and functions become real generated artifacts.
+- **Database-agnostic** — Builtin scalars only. Infrastructure-specific types (PostGIS/Timescale-style) belong in domain extensions.
+- **Versions with `datrix-language`** — No separate stdlib semver.
+- **Low bar for inclusion** — Patterns used by more than one real project are candidates.
 
 ## Code Generation Principles
 
@@ -51,7 +51,6 @@ Shipped `.dtrx` modules in `datrix-language` (see [datrix-stdlib-reference.md](.
 - **No dead code** -- only generate what's used
 - **Readable** output -- docstrings, type hints, clear names
 - **Spec-level tests** -- `test("...") { }` blocks compile to real test cases (pytest / Jest)
-- **Purposeful mini-DSLs, closed and driving** -- genDSL/ConfigDSL/SeedDSL/RealizationDSL/EmitDSL/per-language declared dependency tables are single-concern surfaces whose declarations are the *only* execution/emission path for the concern they own (never mere description, never a parallel imperative bypass), reject unknown references at load time, and default to typed data over text
 
 ## Full doc
 

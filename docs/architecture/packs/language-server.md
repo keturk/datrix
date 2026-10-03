@@ -1,0 +1,11 @@
+# Pack: Language Server (LSP) and Editor Client
+
+**Read when:** you touch `datrix-language/src/datrix_language/lsp/`, `datrix lsp`, the keyword manifest, `.dtrx`/`.dcfg` editor features, or `datrix-vscode`.
+**Not for:** the parser or semantic analyzer themselves.
+**Core map:** [architecture-cheat-sheet.md](../architecture-cheat-sheet.md)
+
+[Decision 41](../architecture-overview.md#decision-41-datrix-language-server--editor-intelligence-over-lsp-adopted) — Adopted.
+
+LSP for `.dtrx`/`.dcfg` (diagnostics, completion, hover, definition, references, symbols) in `datrix-language/src/datrix_language/lsp/`, launched by `datrix lsp` (optional `datrix-language[lsp]` extra, imported lazily). It never runs generation, generator/platform discovery, or a formatter; analyzes an application at most once per text version; analyzes only structurally complete parses; publishes diagnostics per owning file; has one home per language vocabulary (generated keyword manifest feeds completion and the editor grammars; delimiters come from `DTRX_*`/`CONFIGDSL_*` constants beside each parser); uses stdio only and runs no workspace-supplied code; bounds untrusted input (4 MiB documents, 64 ConfigDSL nesting depth); cannot navigate outside the workspace; carries no document content in logs or diagnostics; resolves `datrix lsp` from the user's `PATH` only. `.dcfg` gets exactly what its fail-fast, location-free AST supports (one syntax diagnostic per file, inbound navigation, highlighting).
+
+**datrix-vscode** is the TypeScript client: no `pyproject.toml` (absent from the venv and Python scans), a Node test suite run by `test.ps1`. It consumes the keyword manifest of `datrix-language` through a subprocess contract no import scan sees, declared in `datrix/scripts/config/cross-ecosystem-dependencies.json`, because the packaged `.vsix` must name no framework package.

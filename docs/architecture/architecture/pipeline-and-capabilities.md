@@ -191,7 +191,7 @@ Cross-cutting behavior described here matches the **current** generators; see [c
 
 ### Phase 03 capabilities (Stable) (Python, Docker)
 
-- **GraphQL DataLoaders** (Stable) — `GraphqlResolverGenerator` (`datrix_codegen_python.generators.api.graphql_resolver_generator`) emits Strawberry DataLoader wiring and batch resolvers from DSL definitions so related fields load in grouped queries instead of per-row round-trips.
+- **GraphQL DataLoaders** (Stable) — `GraphqlResolverGenerator` (`datrix_codegen_python.generators.api.graphql_resolver_generator`) emits Strawberry DataLoader wiring and batch resolvers from DSL definitions so related fields load in grouped queries instead of per-row round-trips. The TypeScript backend renders the same shared loader resolution as request-scoped NestJS providers consumed by `@ResolveField` classes; both languages require the declared `maxBatchSize`.
 
 - **Rate limiting** (Stable) — A unified plan-based system requiring a Redis/Valkey-backed cache block:
 

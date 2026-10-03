@@ -1,0 +1,26 @@
+# Pack: Parity, Capability Obligation, Realization Conformance
+
+**Read when:** two targets (languages, platforms, client targets) behave differently over the same source; you add or touch a `capability_gaps` row, a parity gate, a portable config field, or a telemetry/diagnostics setting; a gate under `datrix/scripts/test/` goes red.
+**Not for:** hoisting duplicated code ([shared-layer-and-one-fact.md](./shared-layer-and-one-fact.md)) or plugin wiring ([target-plugins.md](./target-plugins.md)).
+**Core map:** [architecture-cheat-sheet.md](../architecture-cheat-sheet.md)
+
+## Parity and Obligation
+
+Decisions [28](../architecture-overview.md#decision-28-cross-target-parity-enforcement--derived-gates-and-declared-capability-holes-adopted) · [29](../architecture-overview.md#decision-29-language-target-capability-parity-to-the-reference-surface-approved--implementation-in-progress) · [30](../architecture-overview.md#decision-30-platform-target-validation-floor-and-realization-parity-adopted) · [31](../architecture-overview.md#decision-31-mini-dsl-consolidation--declared-surfaces-replace-imperative-bypasses-adopted) · [44](../architecture-overview.md#decision-44-parity-by-construction--declared-universes-shared-plan-modules-and-declared-routing-on-the-language-axis-adopted) · [47](../architecture-overview.md#decision-47-language-axis-behaviour-parity--roles-behaviour-skeletons-and-the-best-realization-as-reference-approved--implementation-in-progress) · [55](../architecture-overview.md#decision-55-capability-level-obligation-counted-gaps-and-population-wide-parity-gating-adopted).
+
+**A per-target difference in behaviour is a defect with N copies; only rendering differs per target.** Same validated `Application` in, same behaviour out.
+
+- **Obligation exists only at the capability level** (block type, builtin group, GenDSL domain, portable config surface, observability category, notification channel, identity feature, push, web build, documented construct). A flavor/provider/product/topology a target does not offer is that target's vocabulary, not a gap; selecting it fails closed, naming what the target offers.
+- **A gap** is a target realizing a capability by no implementation: one `capability_gaps` row (`surface`, `detail`; no reason field) on that target's own declaration. A row suppresses nothing; every gate keeps counting it. `capability-gap-ledger-gate.ps1` pins totals two-directionally in `datrix/scripts/config/capability-gap-baseline.toml`.
+- **Repo-level gates** enumerate targets from entry points at runtime, self-test non-vacuity every run, refuse to pass with fewer than two targets, and derive inventories from registration, never hand-written lists.
+- **Config surfaces no target consumes are deleted**, not deprecated. Per-target behaviour is declared once; a declared surface is the only emission path (EmitDSL predicate columns, shared test-generator plans, closed seed pipeline, queue/serverless block dispatch).
+- **Language axis (D44, D47):** the domain universe is the *union* of what any language declares; every builtin row belongs to a capability group; a language's builtin capability is its `realized_builtin_groups` set; a single-step routing decision is a declared EmitDSL row consulted *first* (`emit_function_for`). `behaviour-parity-gate.ps1 -Axis languages|platforms` groups functions by role, compares behaviour skeletons, and is pinned per axis in `behaviour-parity-baseline.toml`. **There is no reference language:** when copies disagree the shared implementation takes the strongest behaviour on four ordered axes — fails closed, reads everything the DSL declares, most secure, most correct output. A hoist follows parity, never precedes it. No function in a language package carries its own language's name (`name_tokens` per language).
+- **Further gates (`datrix/scripts/test/`):** `block-realization-parity-gate.ps1`, `standing-conformance-gate.ps1`, `observability-axis-parity-gate.ps1`, `framework-header-parity-gate.ps1`, `problem-type-parity-gate.ps1`, `zero-environment-runtime-gate.ps1`. A generated-suite parity layer compares emitted test-name/pass sets per example at Jon's full-suite cadence, never inside an agent's fix.
+
+## Portable Telemetry Volume and Realization Conformance
+
+[Decision 32](../architecture-overview.md#decision-32-portable-telemetry-volume-and-platform-diagnostics-contracts-with-realization-conformance-adopted) — Adopted.
+
+- Portable export-volume fields: `logging.exportLevel`, `metrics.exportIntervalSeconds`, trace sampling rate, and one `diagnostics { verbosity; retentionDays; dailyBudgetGb }` platform block projected by each platform. No platform defines its own retention or verbosity field. New fields default to today's effective behaviour.
+- **A knob a target accepts is a knob it realizes.** Per-package perturb/regenerate/diff conformance (`datrix_testing.conformance.config_realization`): Tier 1 catches an inert field, Tier 2 a comments-and-strings-only change. A legitimately inert field is a reviewed exemption in the package's baseline (written reason, no field named twice). The gate proves its own non-vacuity every run.
+- **(provider × target) realization is one fact per target**, read through `capability_resolution.declaration_for_language` / `declaration_for_provider`; never an assembled table in shared code.
