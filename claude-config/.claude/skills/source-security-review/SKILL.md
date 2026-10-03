@@ -1,6 +1,6 @@
 ---
 name: source-security-review
-model: claude-opus-5-5
+model: claude-sonnet-5-5
 effort: medium
 description: >-
   Security-review the SOURCE CODE under a given folder and produce a vulnerability

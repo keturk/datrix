@@ -1,6 +1,6 @@
 ---
 description: Implement a design document directly, with no task generation and no orchestrator - build it in this session from the design itself, then verify against the design and absorb it into the docs
-model: claude-opus-5-5
+model: claude-sonnet-5-5
 effort: medium
 disable-model-invocation: true
 ---

@@ -1,6 +1,6 @@
 ---
 description: Implement a design document end to end - operationalize and orchestrate tasks when the design is large, implement directly when it is small, then verify against the design and absorb it into the docs
-model: claude-opus-5-5
+model: claude-sonnet-5-5
 effort: medium
 disable-model-invocation: true
 ---

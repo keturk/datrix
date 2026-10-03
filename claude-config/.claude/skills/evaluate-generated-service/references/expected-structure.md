@@ -82,6 +82,7 @@
 {service_dir}/
 +-- package.json
 +-- tsconfig.json
++-- tsconfig.check.json                    # only with an RDBMS block
 +-- tsconfig.build.json
 +-- Dockerfile
 +-- .dockerignore
@@ -91,8 +92,8 @@
 |   +-- app.module.ts
 |   +-- config/
 |   |   +-- app.config.ts
-|   +-- entities/{block_name}/             # per RDBMS block (snake_case)
-|   |   +-- {entity_snake}.entity.ts       # per non-abstract entity
+|   +-- {service_dir}/entities/{block_name}/   # per RDBMS block (snake_case)
+|   |   +-- {entity_kebab}.entity.ts       # per non-abstract entity
 |   +-- dto/{block_name}/                  # per RDBMS block
 |   |   +-- create-{entity_kebab}.dto.ts   # per non-abstract entity
 |   |   +-- update-{entity_kebab}.dto.ts
