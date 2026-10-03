@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatDate,
   formatDateTime,
+  formatInitials,
   formatMoney,
   formatNumber,
   formatPercent,
@@ -114,4 +115,23 @@ describe('format-core CLDR fixture conformance', () => {
     expect(pluralCategory(11, "tr-TR")).toBe("other");
     expect(pluralCategory(21, "tr-TR")).toBe("other");
   });
+});
+
+// `formatInitials` is locale-free, so it has no case in the shared CLDR fixture;
+// its cases are written here directly.
+describe('formatInitials', () => {
+  const cases: readonly (readonly [string, string])[] = [
+    ['Ada Lovelace', 'AL'],
+    ['ada', 'A'],
+    ['   ', ''],
+    ['', ''],
+    ['Jean-Luc Picard', 'JP'],
+    ['Augusta Ada King Lovelace', 'AL'],
+    ['👩‍💻 Ada', '👩‍💻A'],
+  ];
+  for (const [text, initials] of cases) {
+    it(`reads ${JSON.stringify(text)} as ${JSON.stringify(initials)}`, () => {
+      expect(formatInitials(text)).toBe(initials);
+    });
+  }
 });

@@ -13,6 +13,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:datrix_client/core/binding.dart';
+import 'package:datrix_client/core/persisted_state.dart';
 import 'package:datrix_client/core/runtime.dart';
 import 'package:datrix_client/core/style.dart';
 
@@ -165,6 +166,185 @@ class DtxLayoutScaffold extends StatelessWidget {
       ),
       body: content,
     );
+  }
+}
+
+/// A run of consecutive nav links under one heading; [heading] is null for a
+/// run of links that declare none.
+class DtxNavGroup {
+  const DtxNavGroup({this.heading, required this.links});
+
+  final String? heading;
+  final List<DtxNavLink> links;
+}
+
+/// A layout that declares an app shell: a `sidebar`, a `topBar`, or both.
+///
+/// With a [sidebar], the sidebar is a persistent panel at and above
+/// [sidebarBreakpoint] (256 logical pixels wide, or 64 and icon-only while
+/// [collapsed] holds true) and the content of a drawer, opened from the app
+/// bar's menu button, below it. Nav links render under their group headings (a
+/// divider replaces the headings while the panel is icon-only). A non-null
+/// [collapsed] makes the panel collapsible, and the user's choice is kept in
+/// it. Without a sidebar the nav follows [idiom], as a layout without a shell
+/// does. The [topBar] widgets render in the app bar: the first as its title,
+/// the rest as its actions.
+class DtxShellScaffold extends StatefulWidget {
+  const DtxShellScaffold({super.key, required this.idiom, required this.groups, required this.body, this.sidebar, this.topBar, this.sidebarBreakpoint, this.collapsed});
+
+  final DtxNavIdiom idiom;
+  final List<DtxNavGroup> groups;
+  final Widget body;
+  final Widget? sidebar;
+  final List<Widget>? topBar;
+  final double? sidebarBreakpoint;
+  final PersistedValue<bool>? collapsed;
+
+  @override
+  State<DtxShellScaffold> createState() => _DtxShellScaffoldState();
+}
+
+class _DtxShellScaffoldState extends State<DtxShellScaffold> {
+  static const double _expandedWidth = 256;
+  static const double _collapsedWidth = 64;
+  static const double _headingSize = 10;
+  static const IconData _defaultIcon = Icons.circle_outlined;
+
+  List<DtxNavLink> get _shown => [
+    for (final group in widget.groups)
+      for (final link in group.links)
+        if (link.visible) link,
+  ];
+
+  Widget _icon(DtxNavLink link) {
+    final badge = link.badge;
+    final icon = Icon(link.icon ?? _defaultIcon);
+    return badge == null || badge.isEmpty ? icon : Badge(label: Text(badge), child: icon);
+  }
+
+  PreferredSizeWidget _appBar() {
+    final children = widget.topBar;
+    if (children == null || children.isEmpty) {
+      return AppBar();
+    }
+    return AppBar(title: children.first, actions: children.sublist(1));
+  }
+
+  void _open(BuildContext context, DtxNavLink link, {required bool closeDrawer}) {
+    if (closeDrawer) {
+      Navigator.of(context).pop();
+    }
+    GoRouter.of(context).go(link.path);
+  }
+
+  List<Widget> _entries(BuildContext context, String location, {required bool collapsed, required bool closeDrawer}) {
+    final entries = <Widget>[];
+    for (final group in widget.groups) {
+      final links = group.links.where((link) => link.visible).toList();
+      final heading = group.heading;
+      if (links.isEmpty) {
+        continue;
+      }
+      if (heading != null) {
+        entries.add(collapsed ? const Divider() : _heading(context, heading));
+      }
+      for (final link in links) {
+        final selected = link.path == location;
+        entries.add(
+          collapsed
+              ? Tooltip(
+                  message: link.label,
+                  child: IconButton(isSelected: selected, icon: _icon(link), onPressed: () => _open(context, link, closeDrawer: closeDrawer)),
+                )
+              : ListTile(leading: _icon(link), title: Text(link.label), selected: selected, onTap: () => _open(context, link, closeDrawer: closeDrawer)),
+        );
+      }
+    }
+    return entries;
+  }
+
+  Widget _heading(BuildContext context, String heading) {
+    final theme = Theme.of(context);
+    final tokens = DtxTokens.of(context);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(tokens.inset, tokens.inset, tokens.inset, tokens.gap / 2),
+      child: Text(heading.toUpperCase(), style: theme.textTheme.labelSmall?.copyWith(fontSize: _headingSize, color: theme.colorScheme.onSurfaceVariant)),
+    );
+  }
+
+  Widget _persistent(BuildContext context, Widget sidebar, String location) {
+    final collapsed = widget.collapsed;
+    final isCollapsed = collapsed != null && collapsed.value;
+    final localizations = MaterialLocalizations.of(context);
+    final panel = ListView(
+      children: [
+        if (collapsed != null)
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: IconButton(
+              icon: Icon(isCollapsed ? Icons.chevron_right : Icons.chevron_left),
+              tooltip: isCollapsed ? localizations.collapsedIconTapHint : localizations.expandedIconTapHint,
+              onPressed: () => setState(() => collapsed.value = !collapsed.value),
+            ),
+          ),
+        if (!isCollapsed) sidebar,
+        ..._entries(context, location, collapsed: isCollapsed, closeDrawer: false),
+      ],
+    );
+    return Scaffold(
+      appBar: widget.topBar == null ? null : _appBar(),
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(width: isCollapsed ? _collapsedWidth : _expandedWidth, child: SafeArea(child: panel)),
+          const VerticalDivider(width: 1),
+          Expanded(child: SafeArea(child: widget.body)),
+        ],
+      ),
+    );
+  }
+
+  Widget _drawer(BuildContext context, Widget? sidebar, String location) {
+    return Scaffold(
+      appBar: _appBar(),
+      drawer: Drawer(
+        child: SafeArea(
+          child: ListView(
+            children: [if (sidebar != null) sidebar, ..._entries(context, location, collapsed: false, closeDrawer: true)],
+          ),
+        ),
+      ),
+      body: SafeArea(child: widget.body),
+    );
+  }
+
+  Widget _bottomBar(BuildContext context, List<DtxNavLink> shown, String location) {
+    final selected = shown.indexWhere((link) => link.path == location);
+    return Scaffold(
+      appBar: widget.topBar == null ? null : _appBar(),
+      body: SafeArea(child: widget.body),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: selected < 0 ? 0 : selected,
+        onDestinationSelected: (index) => GoRouter.of(context).go(shown[index].path),
+        destinations: [for (final link in shown) NavigationDestination(icon: _icon(link), label: link.label)],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final location = GoRouter.of(context).routeInformationProvider.value.uri.path;
+    final sidebar = widget.sidebar;
+    final breakpoint = widget.sidebarBreakpoint;
+    if (sidebar == null || breakpoint == null) {
+      final shown = _shown;
+      if (widget.idiom == DtxNavIdiom.bottomBar && shown.length >= 2) {
+        return _bottomBar(context, shown, location);
+      }
+      return _drawer(context, null, location);
+    }
+    // The window's width, the same width the web target's media rule tests.
+    return MediaQuery.sizeOf(context).width >= breakpoint ? _persistent(context, sidebar, location) : _drawer(context, sidebar, location);
   }
 }
 

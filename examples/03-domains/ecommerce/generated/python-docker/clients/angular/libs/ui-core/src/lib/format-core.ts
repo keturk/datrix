@@ -557,6 +557,34 @@ export function formatRelativeAmount(unit: string, amount: number, locale: strin
   return template.replace('{0}', String(amount));
 }
 
+const WHITESPACE_RUN = /\s+/u;
+const GRAPHEME_SEGMENTER = new Intl.Segmenter('und', { granularity: 'grapheme' });
+
+/** The first user-perceived character (grapheme cluster) of *word*, uppercased. */
+function firstGraphemeUpper(word: string): string {
+  for (const part of GRAPHEME_SEGMENTER.segment(word)) {
+    return part.segment.toUpperCase();
+  }
+  return '';
+}
+
+/** Up to two uppercase initials: the first grapheme of the first and of the
+ * last whitespace-separated word. One word yields one initial; no words yield
+ * `''`. Deliberately locale-free (`toUpperCase()` takes no locale and grapheme
+ * segmentation carries no locale data), so it is not part of the CLDR fixture
+ * and the shared fixture has no case for it. */
+export function formatInitials(text: string): string {
+  const words = text.split(WHITESPACE_RUN).filter((word) => word.length > 0);
+  if (words.length === 0) {
+    return '';
+  }
+  const first = firstGraphemeUpper(words[0]);
+  if (words.length === 1) {
+    return first;
+  }
+  return first + firstGraphemeUpper(words[words.length - 1]);
+}
+
 /** The (unit, amount) an elapsed `Date` delta resolves to, per
  * `RELATIVE_TIME_THRESHOLDS` -- factored out of `FormatService.relative` so
  * it, too, is independently callable. */

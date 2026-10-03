@@ -22,8 +22,10 @@
   --onDanger: #ffffff;
   --space-md: 16;
   --radius-card: 8;
-  --font-body: 400 16px Inter;
+  --font-body: 400 16px Inter, system-ui, sans-serif;
   --breakpoint-wide: 900;
+  --breakpoint-md: 768;
+  --breakpoint-lg: 1024;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -33,7 +35,7 @@
 }
 /* Below the theme's widest breakpoint a layout's nav is a menu button whose
  * popover holds the links (the element library shows them inline above it). */
-@media (width < 900px) {
+@media (width < 1024px) {
   .ui-nav-toggle {
     display: inline-flex;
   }
@@ -47,10 +49,80 @@
     position: fixed;
     inset: 3.5rem 1rem auto auto;
     padding: 1rem;
-    border: 1px solid CanvasText;
-    background: Canvas;
-    color: CanvasText;
+    border: 1px solid var(--ui-line-strong);
+    background: var(--ui-surface);
+    color: var(--ui-on-surface);
+    border-radius: var(--ui-radius);
+    box-shadow: var(--ui-shadow);
   }
+}
+/* Below the layout's sidebar breakpoint the persistent rail gives way to the
+ * drawer its opener button shows (the element library hides the opener at and
+ * above it). A rail inside the drawer itself stays. */
+@media (width < 1024px) {
+  :where([data-kind="sidebar"]:not([data-part="drawer"] [data-kind="sidebar"])) {
+    display: none;
+  }
+
+  :where([data-part="drawer-opener"]) {
+    display: inline-flex;
+  }
+}
+/* Elements marked `from(md)` are hidden below 768px. */
+@media (width < 768px) {
+  [data-from="md"] {
+    display: none;
+  }
+}
+/* Tone `danger`: the colour pair behind `tone(danger)` and `kind(danger)`. */
+:where([data-tone="danger"], [data-variant="danger"]) {
+  background-color: var(--danger);
+  color: var(--onDanger);
+  border-color: transparent;
+}
+
+:where([data-variant="danger"]:not(:disabled):hover) {
+  background-color: color-mix(in srgb, var(--danger) 88%, black);
+}
+/* Tone `primary`: the colour pair behind `tone(primary)` and `kind(primary)`. */
+:where([data-tone="primary"], [data-variant="primary"]) {
+  background-color: var(--primary);
+  color: var(--onPrimary);
+  border-color: transparent;
+}
+
+:where([data-variant="primary"]:not(:disabled):hover) {
+  background-color: color-mix(in srgb, var(--primary) 88%, black);
+}
+/* Tone `success`: the colour pair behind `tone(success)` and `kind(success)`. */
+:where([data-tone="success"], [data-variant="success"]) {
+  background-color: var(--success);
+  color: var(--onSuccess);
+  border-color: transparent;
+}
+
+:where([data-variant="success"]:not(:disabled):hover) {
+  background-color: color-mix(in srgb, var(--success) 88%, black);
+}
+/* Tone `surface`: the colour pair behind `tone(surface)` and `kind(surface)`. */
+:where([data-tone="surface"], [data-variant="surface"]) {
+  background-color: var(--surface);
+  color: var(--onSurface);
+  border-color: transparent;
+}
+
+:where([data-variant="surface"]:not(:disabled):hover) {
+  background-color: color-mix(in srgb, var(--surface) 88%, black);
+}
+/* Tone `warning`: the colour pair behind `tone(warning)` and `kind(warning)`. */
+:where([data-tone="warning"], [data-variant="warning"]) {
+  background-color: var(--warning);
+  color: var(--onWarning);
+  border-color: transparent;
+}
+
+:where([data-variant="warning"]:not(:disabled):hover) {
+  background-color: color-mix(in srgb, var(--warning) 88%, black);
 }
 .style-cardList {
   display: grid;

@@ -23,9 +23,18 @@ config strings ecommerce.Storefront locale "en-US" {
     notFound        = "Page not found";
     home            = "Home";
     customerRequest = "Cancelled by customer";
+    appName          = "Acme Shop";
+    organizationName = "Acme Retail";
+    notifications    = "Notifications";
+    markAllRead      = "Mark all as read";
+    account          = "Account";
+    signOut          = "Sign out";
+    navShop          = "Shop";
+    navAccount       = "My account";
   }
   labels {
     page.OrderList                          = "My orders";
+    empty.notices                           = "No new notifications";
     field.CreateOrderRequest.billingAddress = "Billing address (optional)";
     enum.OrderStatus.Pending                = "Pending";
     enum.OrderStatus.PaymentPending         = "Awaiting payment";

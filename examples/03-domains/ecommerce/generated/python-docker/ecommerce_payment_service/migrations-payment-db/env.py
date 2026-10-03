@@ -17,7 +17,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 import ecommerce_payment_service.config._secrets_resolver as _secrets_resolver
 import ecommerce_payment_service.models.payment_db.payment  # noqa: F401
+import ecommerce_payment_service.models.payment_db.payment_audit_log  # noqa: F401
 import ecommerce_payment_service.models.payment_db.refund  # noqa: F401
+import ecommerce_payment_service.models.payment_db.refund_audit_log  # noqa: F401
 from ecommerce_payment_service.config.remote_config import (
     build_client as _build_config_client,
 )
@@ -499,16 +501,74 @@ def get_database_url() -> str:
     return asyncio.run(_assemble_db_url_async())
 
 
-_ENUM_SYNC_VALUES: list[tuple[str, str, str]] = [
-    ("", "payment_method", "credit_card"),
-    ("", "payment_method", "debit_card"),
-    ("", "payment_method", "pay_pal"),
-    ("", "payment_method", "bank_transfer"),
-    ("", "payment_status", "pending"),
-    ("", "payment_status", "processing"),
-    ("", "payment_status", "completed"),
-    ("", "payment_status", "failed"),
-    ("", "payment_status", "refunded"),
+# (schema, type name, label, the type's CREATE statement, this label's ADD VALUE
+# statement). The statements are rendered at generation time through the same
+# dialect-aware quoting the baseline revision uses; a label is author text and is
+# never spliced into SQL here.
+_ENUM_SYNC_VALUES: list[tuple[str, str, str, str, str]] = [
+    (
+        "",
+        "payment_method",
+        "credit_card",
+        "DO $$ BEGIN CREATE TYPE \"payment_method\" AS ENUM ('credit_card', 'debit_card', 'pay_pal', 'bank_transfer'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"payment_method\" ADD VALUE IF NOT EXISTS 'credit_card'",
+    ),
+    (
+        "",
+        "payment_method",
+        "debit_card",
+        "DO $$ BEGIN CREATE TYPE \"payment_method\" AS ENUM ('credit_card', 'debit_card', 'pay_pal', 'bank_transfer'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"payment_method\" ADD VALUE IF NOT EXISTS 'debit_card'",
+    ),
+    (
+        "",
+        "payment_method",
+        "pay_pal",
+        "DO $$ BEGIN CREATE TYPE \"payment_method\" AS ENUM ('credit_card', 'debit_card', 'pay_pal', 'bank_transfer'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"payment_method\" ADD VALUE IF NOT EXISTS 'pay_pal'",
+    ),
+    (
+        "",
+        "payment_method",
+        "bank_transfer",
+        "DO $$ BEGIN CREATE TYPE \"payment_method\" AS ENUM ('credit_card', 'debit_card', 'pay_pal', 'bank_transfer'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"payment_method\" ADD VALUE IF NOT EXISTS 'bank_transfer'",
+    ),
+    (
+        "",
+        "payment_status",
+        "pending",
+        "DO $$ BEGIN CREATE TYPE \"payment_status\" AS ENUM ('pending', 'processing', 'completed', 'failed', 'refunded'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"payment_status\" ADD VALUE IF NOT EXISTS 'pending'",
+    ),
+    (
+        "",
+        "payment_status",
+        "processing",
+        "DO $$ BEGIN CREATE TYPE \"payment_status\" AS ENUM ('pending', 'processing', 'completed', 'failed', 'refunded'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"payment_status\" ADD VALUE IF NOT EXISTS 'processing'",
+    ),
+    (
+        "",
+        "payment_status",
+        "completed",
+        "DO $$ BEGIN CREATE TYPE \"payment_status\" AS ENUM ('pending', 'processing', 'completed', 'failed', 'refunded'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"payment_status\" ADD VALUE IF NOT EXISTS 'completed'",
+    ),
+    (
+        "",
+        "payment_status",
+        "failed",
+        "DO $$ BEGIN CREATE TYPE \"payment_status\" AS ENUM ('pending', 'processing', 'completed', 'failed', 'refunded'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"payment_status\" ADD VALUE IF NOT EXISTS 'failed'",
+    ),
+    (
+        "",
+        "payment_status",
+        "refunded",
+        "DO $$ BEGIN CREATE TYPE \"payment_status\" AS ENUM ('pending', 'processing', 'completed', 'failed', 'refunded'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"payment_status\" ADD VALUE IF NOT EXISTS 'refunded'",
+    ),
 ]
 
 
@@ -530,18 +590,18 @@ def _ensure_enum_types(connection: object) -> None:
     left untouched (the ``duplicate_object`` guard); ``_sync_enum_values`` then
     reconciles its members.
     """
-    grouped: dict[tuple[str, str], list[str]] = {}
-    for schema, type_name, value in _ENUM_SYNC_VALUES:
-        grouped.setdefault((schema, type_name), []).append(value)
-    for (schema, type_name), values in grouped.items():
-        qualified = f'"{schema}"."{type_name}"' if schema else f'"{type_name}"'
-        labels = ", ".join(f"'{value}'" for value in values)
-        connection.execute(
-            sa.text(
-                f"DO $$ BEGIN CREATE TYPE {qualified} AS ENUM ({labels}); "
-                "EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;"
-            )
-        )
+    created: set[tuple[str, str]] = set()
+    for (
+        schema,
+        type_name,
+        _label,
+        create_statement,
+        _add_statement,
+    ) in _ENUM_SYNC_VALUES:
+        if (schema, type_name) in created:
+            continue
+        created.add((schema, type_name))
+        connection.execute(sa.text(create_statement))
 
 
 def _sync_enum_values(connection: object) -> None:
@@ -553,11 +613,14 @@ def _sync_enum_values(connection: object) -> None:
     depending on the connection ``search_path``. Idempotent — safe to call on
     every migration invocation.
     """
-    for schema, type_name, value in _ENUM_SYNC_VALUES:
-        qualified = f'"{schema}"."{type_name}"' if schema else f'"{type_name}"'
-        connection.execute(
-            sa.text(f"ALTER TYPE {qualified} ADD VALUE IF NOT EXISTS '{value}'")
-        )
+    for (
+        _schema,
+        _type_name,
+        _label,
+        _create_statement,
+        add_statement,
+    ) in _ENUM_SYNC_VALUES:
+        connection.execute(sa.text(add_statement))
 
 
 def run_migrations_offline() -> None:

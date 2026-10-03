@@ -96,6 +96,7 @@ export class StorefrontStateService {
     pushDeviceApi: inject(PushDeviceApiClient),
   };
   readonly cart = signal<OrderLineInput[]>(_loadCart());
+  readonly notices = signal<string[]>([]);
 
   constructor() {
     this.__session.registerLogoutHook(() => localStorage.removeItem('Storefront.cart'));
@@ -120,5 +121,17 @@ export class StorefrontStateService {
       total = (total + line.quantity);
     }
     return total;
+  }
+
+  pushNotice(text: string): void {
+    this.notices.set([...this.notices(), text]);
+  }
+
+  clearNotices(): void {
+    this.notices.set([]);
+  }
+
+  unreadCount(): number {
+    return this.notices().length;
   }
 }

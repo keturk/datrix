@@ -4,12 +4,12 @@ CREATE TABLE "shipment_events" (
     "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "timestamp" TIMESTAMPTZ NOT NULL,
-    "status" VARCHAR(50) NOT NULL,
+    "status" VARCHAR(63) NOT NULL,
     "location" VARCHAR(200) NOT NULL,
     "description" TEXT,
     "shipment_id" UUID NOT NULL,
     CONSTRAINT pk_shipment_events PRIMARY KEY (id),
-    CONSTRAINT chk_shipment_events_status_enum CHECK (status IN ('Pending', 'PickedUp', 'InTransit', 'OutForDelivery', 'Delivered', 'Failed', 'Returned'))
+    CONSTRAINT chk_shipment_events_status_enum CHECK (status IN ('pending', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'failed', 'returned'))
 );
 
 

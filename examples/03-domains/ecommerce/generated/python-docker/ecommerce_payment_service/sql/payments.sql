@@ -5,16 +5,16 @@ CREATE TABLE "payments" (
     "order_id" UUID NOT NULL,
     "customer_id" UUID NOT NULL,
     "amount" DECIMAL(19,4) NOT NULL,
-    "method" VARCHAR(50) NOT NULL,
-    "status" VARCHAR(50) NOT NULL DEFAULT 'Pending',
+    "method" VARCHAR(63) NOT NULL,
+    "status" VARCHAR(63) NOT NULL DEFAULT 'pending',
     "transaction_id" VARCHAR(100) NOT NULL,
     "gateway_response" TEXT,
     "error_message" TEXT,
     "processed_at" TIMESTAMPTZ,
     CONSTRAINT pk_payments PRIMARY KEY (id),
     CONSTRAINT uq_payments_transaction_id UNIQUE (transaction_id),
-    CONSTRAINT chk_payments_method_enum CHECK (method IN ('CreditCard', 'DebitCard', 'PayPal', 'BankTransfer')),
-    CONSTRAINT chk_payments_status_enum CHECK (status IN ('Pending', 'Processing', 'Completed', 'Failed', 'Refunded'))
+    CONSTRAINT chk_payments_method_enum CHECK (method IN ('credit_card', 'debit_card', 'pay_pal', 'bank_transfer')),
+    CONSTRAINT chk_payments_status_enum CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'refunded'))
 );
 
 

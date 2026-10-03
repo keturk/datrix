@@ -79,6 +79,7 @@ class _CreateOrderFormState extends State<CreateOrderForm> with DatrixOwnerState
 
   void placed(String id, String orderNumber) {
     appState.cart = [];
+    appState.pushNotice(datrixRuntime.messages.key('orderPlaced', <String, Object?>{'orderNumber': orderNumber}).text);
     datrixRuntime.ui.toast(datrixRuntime.messages.key('orderPlaced', <String, Object?>{'orderNumber': orderNumber}));
     datrixRuntime.nav.to('/orders/:id', <String, Object?>{'id': id});
   }

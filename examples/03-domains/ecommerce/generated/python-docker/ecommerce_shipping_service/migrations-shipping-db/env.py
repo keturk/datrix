@@ -500,18 +500,88 @@ def get_database_url() -> str:
     return asyncio.run(_assemble_db_url_async())
 
 
-_ENUM_SYNC_VALUES: list[tuple[str, str, str]] = [
-    ("", "shipment_status", "pending"),
-    ("", "shipment_status", "picked_up"),
-    ("", "shipment_status", "in_transit"),
-    ("", "shipment_status", "out_for_delivery"),
-    ("", "shipment_status", "delivered"),
-    ("", "shipment_status", "failed"),
-    ("", "shipment_status", "returned"),
-    ("", "shipping_carrier", "fed_ex"),
-    ("", "shipping_carrier", "ups"),
-    ("", "shipping_carrier", "usps"),
-    ("", "shipping_carrier", "dhl"),
+# (schema, type name, label, the type's CREATE statement, this label's ADD VALUE
+# statement). The statements are rendered at generation time through the same
+# dialect-aware quoting the baseline revision uses; a label is author text and is
+# never spliced into SQL here.
+_ENUM_SYNC_VALUES: list[tuple[str, str, str, str, str]] = [
+    (
+        "",
+        "shipment_status",
+        "pending",
+        "DO $$ BEGIN CREATE TYPE \"shipment_status\" AS ENUM ('pending', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'failed', 'returned'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"shipment_status\" ADD VALUE IF NOT EXISTS 'pending'",
+    ),
+    (
+        "",
+        "shipment_status",
+        "picked_up",
+        "DO $$ BEGIN CREATE TYPE \"shipment_status\" AS ENUM ('pending', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'failed', 'returned'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"shipment_status\" ADD VALUE IF NOT EXISTS 'picked_up'",
+    ),
+    (
+        "",
+        "shipment_status",
+        "in_transit",
+        "DO $$ BEGIN CREATE TYPE \"shipment_status\" AS ENUM ('pending', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'failed', 'returned'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"shipment_status\" ADD VALUE IF NOT EXISTS 'in_transit'",
+    ),
+    (
+        "",
+        "shipment_status",
+        "out_for_delivery",
+        "DO $$ BEGIN CREATE TYPE \"shipment_status\" AS ENUM ('pending', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'failed', 'returned'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"shipment_status\" ADD VALUE IF NOT EXISTS 'out_for_delivery'",
+    ),
+    (
+        "",
+        "shipment_status",
+        "delivered",
+        "DO $$ BEGIN CREATE TYPE \"shipment_status\" AS ENUM ('pending', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'failed', 'returned'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"shipment_status\" ADD VALUE IF NOT EXISTS 'delivered'",
+    ),
+    (
+        "",
+        "shipment_status",
+        "failed",
+        "DO $$ BEGIN CREATE TYPE \"shipment_status\" AS ENUM ('pending', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'failed', 'returned'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"shipment_status\" ADD VALUE IF NOT EXISTS 'failed'",
+    ),
+    (
+        "",
+        "shipment_status",
+        "returned",
+        "DO $$ BEGIN CREATE TYPE \"shipment_status\" AS ENUM ('pending', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'failed', 'returned'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"shipment_status\" ADD VALUE IF NOT EXISTS 'returned'",
+    ),
+    (
+        "",
+        "shipping_carrier",
+        "fed_ex",
+        "DO $$ BEGIN CREATE TYPE \"shipping_carrier\" AS ENUM ('fed_ex', 'ups', 'usps', 'dhl'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"shipping_carrier\" ADD VALUE IF NOT EXISTS 'fed_ex'",
+    ),
+    (
+        "",
+        "shipping_carrier",
+        "ups",
+        "DO $$ BEGIN CREATE TYPE \"shipping_carrier\" AS ENUM ('fed_ex', 'ups', 'usps', 'dhl'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"shipping_carrier\" ADD VALUE IF NOT EXISTS 'ups'",
+    ),
+    (
+        "",
+        "shipping_carrier",
+        "usps",
+        "DO $$ BEGIN CREATE TYPE \"shipping_carrier\" AS ENUM ('fed_ex', 'ups', 'usps', 'dhl'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"shipping_carrier\" ADD VALUE IF NOT EXISTS 'usps'",
+    ),
+    (
+        "",
+        "shipping_carrier",
+        "dhl",
+        "DO $$ BEGIN CREATE TYPE \"shipping_carrier\" AS ENUM ('fed_ex', 'ups', 'usps', 'dhl'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"shipping_carrier\" ADD VALUE IF NOT EXISTS 'dhl'",
+    ),
 ]
 
 
@@ -533,18 +603,18 @@ def _ensure_enum_types(connection: object) -> None:
     left untouched (the ``duplicate_object`` guard); ``_sync_enum_values`` then
     reconciles its members.
     """
-    grouped: dict[tuple[str, str], list[str]] = {}
-    for schema, type_name, value in _ENUM_SYNC_VALUES:
-        grouped.setdefault((schema, type_name), []).append(value)
-    for (schema, type_name), values in grouped.items():
-        qualified = f'"{schema}"."{type_name}"' if schema else f'"{type_name}"'
-        labels = ", ".join(f"'{value}'" for value in values)
-        connection.execute(
-            sa.text(
-                f"DO $$ BEGIN CREATE TYPE {qualified} AS ENUM ({labels}); "
-                "EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;"
-            )
-        )
+    created: set[tuple[str, str]] = set()
+    for (
+        schema,
+        type_name,
+        _label,
+        create_statement,
+        _add_statement,
+    ) in _ENUM_SYNC_VALUES:
+        if (schema, type_name) in created:
+            continue
+        created.add((schema, type_name))
+        connection.execute(sa.text(create_statement))
 
 
 def _sync_enum_values(connection: object) -> None:
@@ -556,11 +626,14 @@ def _sync_enum_values(connection: object) -> None:
     depending on the connection ``search_path``. Idempotent — safe to call on
     every migration invocation.
     """
-    for schema, type_name, value in _ENUM_SYNC_VALUES:
-        qualified = f'"{schema}"."{type_name}"' if schema else f'"{type_name}"'
-        connection.execute(
-            sa.text(f"ALTER TYPE {qualified} ADD VALUE IF NOT EXISTS '{value}'")
-        )
+    for (
+        _schema,
+        _type_name,
+        _label,
+        _create_statement,
+        add_statement,
+    ) in _ENUM_SYNC_VALUES:
+        connection.execute(sa.text(add_statement))
 
 
 def run_migrations_offline() -> None:

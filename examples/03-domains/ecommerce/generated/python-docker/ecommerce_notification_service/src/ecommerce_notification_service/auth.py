@@ -454,8 +454,24 @@ def _public_path_matches(pattern: str, request_path: str) -> bool:
     if len(pattern_parts) != len(request_parts):
         return False
     return all(
-        p.startswith(":") or p == r for p, r in zip(pattern_parts, request_parts)
+        _public_segment_matches(p, r) for p, r in zip(pattern_parts, request_parts)
     )
+
+
+def _public_segment_matches(pattern_segment: str, request_segment: str) -> bool:
+    """Return True when one request segment matches one DSL pattern segment.
+
+    A literal segment matches only itself.  A ``:name`` segment matches any
+    non-empty segment; ``:name.ext`` additionally requires the request segment
+    to carry that exact extension after a non-empty value.
+    """
+    if not pattern_segment.startswith(":"):
+        return pattern_segment == request_segment
+    _name, dot, extension = pattern_segment.partition(".")
+    if not dot:
+        return True
+    suffix = dot + extension
+    return request_segment.endswith(suffix) and len(request_segment) > len(suffix)
 
 
 def is_path_excluded(request_method: str, request_path: str) -> bool:

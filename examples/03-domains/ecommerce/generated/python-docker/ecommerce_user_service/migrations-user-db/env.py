@@ -501,14 +501,60 @@ def get_database_url() -> str:
     return asyncio.run(_assemble_db_url_async())
 
 
-_ENUM_SYNC_VALUES: list[tuple[str, str, str]] = [
-    ("", "user_role", "customer"),
-    ("", "user_role", "admin"),
-    ("", "user_role", "support"),
-    ("", "user_status", "active"),
-    ("", "user_status", "inactive"),
-    ("", "user_status", "suspended"),
-    ("", "user_status", "pending"),
+# (schema, type name, label, the type's CREATE statement, this label's ADD VALUE
+# statement). The statements are rendered at generation time through the same
+# dialect-aware quoting the baseline revision uses; a label is author text and is
+# never spliced into SQL here.
+_ENUM_SYNC_VALUES: list[tuple[str, str, str, str, str]] = [
+    (
+        "",
+        "user_role",
+        "customer",
+        "DO $$ BEGIN CREATE TYPE \"user_role\" AS ENUM ('customer', 'admin', 'support'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"user_role\" ADD VALUE IF NOT EXISTS 'customer'",
+    ),
+    (
+        "",
+        "user_role",
+        "admin",
+        "DO $$ BEGIN CREATE TYPE \"user_role\" AS ENUM ('customer', 'admin', 'support'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"user_role\" ADD VALUE IF NOT EXISTS 'admin'",
+    ),
+    (
+        "",
+        "user_role",
+        "support",
+        "DO $$ BEGIN CREATE TYPE \"user_role\" AS ENUM ('customer', 'admin', 'support'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"user_role\" ADD VALUE IF NOT EXISTS 'support'",
+    ),
+    (
+        "",
+        "user_status",
+        "active",
+        "DO $$ BEGIN CREATE TYPE \"user_status\" AS ENUM ('active', 'inactive', 'suspended', 'pending'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"user_status\" ADD VALUE IF NOT EXISTS 'active'",
+    ),
+    (
+        "",
+        "user_status",
+        "inactive",
+        "DO $$ BEGIN CREATE TYPE \"user_status\" AS ENUM ('active', 'inactive', 'suspended', 'pending'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"user_status\" ADD VALUE IF NOT EXISTS 'inactive'",
+    ),
+    (
+        "",
+        "user_status",
+        "suspended",
+        "DO $$ BEGIN CREATE TYPE \"user_status\" AS ENUM ('active', 'inactive', 'suspended', 'pending'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"user_status\" ADD VALUE IF NOT EXISTS 'suspended'",
+    ),
+    (
+        "",
+        "user_status",
+        "pending",
+        "DO $$ BEGIN CREATE TYPE \"user_status\" AS ENUM ('active', 'inactive', 'suspended', 'pending'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;",
+        "ALTER TYPE \"user_status\" ADD VALUE IF NOT EXISTS 'pending'",
+    ),
 ]
 
 
@@ -530,18 +576,18 @@ def _ensure_enum_types(connection: object) -> None:
     left untouched (the ``duplicate_object`` guard); ``_sync_enum_values`` then
     reconciles its members.
     """
-    grouped: dict[tuple[str, str], list[str]] = {}
-    for schema, type_name, value in _ENUM_SYNC_VALUES:
-        grouped.setdefault((schema, type_name), []).append(value)
-    for (schema, type_name), values in grouped.items():
-        qualified = f'"{schema}"."{type_name}"' if schema else f'"{type_name}"'
-        labels = ", ".join(f"'{value}'" for value in values)
-        connection.execute(
-            sa.text(
-                f"DO $$ BEGIN CREATE TYPE {qualified} AS ENUM ({labels}); "
-                "EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;"
-            )
-        )
+    created: set[tuple[str, str]] = set()
+    for (
+        schema,
+        type_name,
+        _label,
+        create_statement,
+        _add_statement,
+    ) in _ENUM_SYNC_VALUES:
+        if (schema, type_name) in created:
+            continue
+        created.add((schema, type_name))
+        connection.execute(sa.text(create_statement))
 
 
 def _sync_enum_values(connection: object) -> None:
@@ -553,11 +599,14 @@ def _sync_enum_values(connection: object) -> None:
     depending on the connection ``search_path``. Idempotent — safe to call on
     every migration invocation.
     """
-    for schema, type_name, value in _ENUM_SYNC_VALUES:
-        qualified = f'"{schema}"."{type_name}"' if schema else f'"{type_name}"'
-        connection.execute(
-            sa.text(f"ALTER TYPE {qualified} ADD VALUE IF NOT EXISTS '{value}'")
-        )
+    for (
+        _schema,
+        _type_name,
+        _label,
+        _create_statement,
+        add_statement,
+    ) in _ENUM_SYNC_VALUES:
+        connection.execute(sa.text(add_statement))
 
 
 def run_migrations_offline() -> None:

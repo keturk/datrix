@@ -17,7 +17,16 @@
               "sourceMap": true
             },
             "production": {
-              "optimization": true,
+              "optimization": {
+                "fonts": {
+                  "inline": false
+                },
+                "scripts": true,
+                "styles": {
+                  "inlineCritical": false,
+                  "minify": true
+                }
+              },
               "outputHashing": "all",
               "sourceMap": false
             }
@@ -68,7 +77,16 @@
               "sourceMap": true
             },
             "production": {
-              "optimization": true,
+              "optimization": {
+                "fonts": {
+                  "inline": false
+                },
+                "scripts": true,
+                "styles": {
+                  "inlineCritical": false,
+                  "minify": true
+                }
+              },
               "outputHashing": "all",
               "sourceMap": false
             }

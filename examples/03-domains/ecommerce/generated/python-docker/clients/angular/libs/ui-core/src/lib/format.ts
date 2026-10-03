@@ -2,7 +2,7 @@
 //
 // The `FORMAT` builtin group's Angular DI wrapper:
 // `Fmt.number/money/percent/date/time/dateTime/relative` -> `String` in the
-// session locale. Every actual computation lives in `./format-core`
+// session locale; `Fmt.initials` -> `String`, locale-independent. Every actual computation lives in `./format-core`
 // (framework-free, decorator-free, directly Node-executable for the G18
 // fixture test) -- this class only reads `this.session.locale`, reads its
 // argument as the value it carries, and delegates.
@@ -17,7 +17,7 @@ import { Injectable } from '@angular/core';
 
 import { ValidationError } from './exceptions';
 import {
-  formatDate, formatDateTime, formatMoney, formatNumber, formatPercent,
+  formatDate, formatDateTime, formatInitials, formatMoney, formatNumber, formatPercent,
   formatRelativeAmount, formatTime, relativeUnitAndAmount,
 } from './format-core';
 import { SessionService } from './session';
@@ -94,5 +94,9 @@ export class FormatService {
     const absSeconds = Math.abs(Math.round((Date.now() - dateOf(value).getTime()) / 1000));
     const [unit, amount] = relativeUnitAndAmount(absSeconds);
     return formatRelativeAmount(unit, amount, locale);
+  }
+
+  initials(text: string): string {
+    return formatInitials(text);
   }
 }

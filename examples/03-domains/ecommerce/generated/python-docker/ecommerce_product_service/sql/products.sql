@@ -11,14 +11,14 @@ CREATE TABLE "products" (
     "inventory" BIGINT NOT NULL DEFAULT 0,
     "name" VARCHAR(200) NOT NULL,
     "description" TEXT NOT NULL,
-    "status" VARCHAR(50) NOT NULL DEFAULT 'Draft',
+    "status" VARCHAR(63) NOT NULL DEFAULT 'draft',
     "product_metadata" JSONB,
     "images" JSONB NOT NULL,
     "tags" JSONB NOT NULL,
     "category_id" UUID NOT NULL,
     CONSTRAINT pk_products PRIMARY KEY (id),
     CONSTRAINT uq_products_slug UNIQUE (slug),
-    CONSTRAINT chk_products_status_enum CHECK (status IN ('Draft', 'Active', 'Discontinued'))
+    CONSTRAINT chk_products_status_enum CHECK (status IN ('draft', 'active', 'discontinued'))
 );
 
 

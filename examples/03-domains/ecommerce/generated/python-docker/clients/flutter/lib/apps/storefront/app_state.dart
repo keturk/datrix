@@ -18,6 +18,15 @@ class StorefrontAppState extends DatrixAppState {
     changed();
   }
 
+  late List<String> _notices = [];
+
+  List<String> get notices => _notices;
+
+  set notices(List<String> value) {
+    _notices = value;
+    changed();
+  }
+
   void addToCart(String productId, int quantity) {
     for (final line in cart) {
       if (line.productId == productId) {
@@ -36,6 +45,18 @@ class StorefrontAppState extends DatrixAppState {
       total = total + line.quantity;
     }
     return total;
+  }
+
+  void pushNotice(String text) {
+    notices = [...notices, text];
+  }
+
+  void clearNotices() {
+    notices = [];
+  }
+
+  int unreadCount() {
+    return notices.length;
   }
 }
 

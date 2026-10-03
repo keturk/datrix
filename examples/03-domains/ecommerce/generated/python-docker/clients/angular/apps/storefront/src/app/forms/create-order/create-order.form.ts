@@ -149,6 +149,7 @@ export class CreateOrderForm implements OnInit {
 
   placed(id: Uuid, orderNumber: string): void {
     this.__app.cart.set([]);
+    this.__app.pushNotice(this.__messages.key("orderPlaced", { "orderNumber": orderNumber }).text);
     this.__ui.toast(this.__messages.key("orderPlaced", { "orderNumber": orderNumber }));
     this.__nav.to("/orders/:id", { "id": id });
   }

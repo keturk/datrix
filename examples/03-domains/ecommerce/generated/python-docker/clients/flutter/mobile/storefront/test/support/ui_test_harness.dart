@@ -436,21 +436,12 @@ class DtxScreen {
   }
 }
 
-bool _menuItem(Widget widget, String label) {
-  if (widget is! PopupMenuItem) {
-    return false;
-  }
-  final child = widget.child;
-  final text = child is DtxStack && child.children.isNotEmpty ? child.children.first : child;
-  return text is Text && text.data == label;
-}
-
 /// Each findable element kind, and how a widget is that kind with that label.
 final Map<String, bool Function(Widget widget, String label)> _kinds = {
   'button': (widget, label) => widget is DtxButton && widget.label == label,
   'iconButton': (widget, label) => widget is DtxIconButton && widget.label == label,
   'link': (widget, label) => widget is DtxLink && widget.label == label,
-  'menuItem': _menuItem,
+  'menuItem': (widget, label) => widget is DtxMenuItem && widget.label == label,
   'tab': (widget, label) => widget is Tab && widget.text == label,
   'input': (widget, label) => widget is DtxTextInput && widget.kind == DtxTextKind.text && widget.label == label,
   'textArea': (widget, label) => widget is DtxTextInput && widget.kind == DtxTextKind.multiline && widget.label == label,

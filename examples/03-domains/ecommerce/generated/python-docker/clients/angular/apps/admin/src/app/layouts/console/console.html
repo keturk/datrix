@@ -4,12 +4,14 @@
   </button>
   <ul #__navLinks id="ui-nav-links" class="ui-nav-links" popover (click)="__navLinks.hidePopover()">
     <li>
-      <a routerLink="/products">
+      <a routerLink="/products" routerLinkActive="ui-active" ariaCurrentWhenActive="page">
         {{ __navLabel0() }}
       </a>
     </li>
   </ul>
 </nav>
 
+<main class="ui-content">
 <router-outlet />
+</main>
 

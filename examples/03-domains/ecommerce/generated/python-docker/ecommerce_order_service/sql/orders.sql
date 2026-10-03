@@ -5,7 +5,7 @@ CREATE TABLE "orders" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "customer_id" UUID NOT NULL,
     "order_number" VARCHAR(20) NOT NULL,
-    "status" VARCHAR(50) NOT NULL DEFAULT 'Pending',
+    "status" VARCHAR(63) NOT NULL DEFAULT 'pending',
     -- Money amount fields; currency is passed explicitly at process boundaries
     "subtotal" DECIMAL(19,4) NOT NULL,
     "tax" DECIMAL(19,4) NOT NULL,
@@ -19,7 +19,7 @@ CREATE TABLE "orders" (
     "cancellation_reason" TEXT,
     CONSTRAINT pk_orders PRIMARY KEY (id),
     CONSTRAINT uq_orders_order_number UNIQUE (order_number),
-    CONSTRAINT chk_orders_status_enum CHECK (status IN ('Pending', 'PaymentPending', 'Confirmed', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Refunded'))
+    CONSTRAINT chk_orders_status_enum CHECK (status IN ('pending', 'payment_pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded'))
 );
 
 

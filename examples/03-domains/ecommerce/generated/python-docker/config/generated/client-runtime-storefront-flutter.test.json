@@ -9,12 +9,12 @@
   },
   "identity": {
     "audience": "customer",
-    "authority": "http://localhost:8080",
+    "authority": "http://localhost:8085",
     "clientIdRef": "IdentityStorefrontNativePublicClientId",
     "flows": [
       "authorization_code"
     ],
-    "issuer": "http://localhost:8080",
+    "issuer": "http://localhost:8085",
     "logoutUris": [
       "com.example.store://oauth/logout"
     ],
@@ -36,10 +36,10 @@
         "RS256"
       ],
       "allowedAudiences": [
-        "http://localhost:8080"
+        "http://localhost:8085"
       ],
-      "issuer": "http://localhost:8080",
-      "jwksUri": "http://localhost:8080/oauth/v2/keys"
+      "issuer": "http://localhost:8085",
+      "jwksUri": "http://localhost:8085/oauth/v2/keys"
     }
   },
   "webOrigin": "http://localhost:4200"

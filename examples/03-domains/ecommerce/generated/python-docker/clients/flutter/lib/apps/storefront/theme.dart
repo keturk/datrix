@@ -12,6 +12,8 @@ abstract final class StorefrontTokens {
   static const double spaceMd = 16;
   static const double radiusCard = 8;
   static const double breakpointWide = 900;
+  static const double breakpointMd = 768;
+  static const double breakpointLg = 1024;
   static const TextStyle fontBody = TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w400);
 }
 

@@ -7,8 +7,8 @@ CREATE TABLE "users" (
     "first_name" VARCHAR(100) NOT NULL,
     "last_name" VARCHAR(100) NOT NULL,
     "phone_number" VARCHAR(20),
-    "role" VARCHAR(50) NOT NULL DEFAULT 'Customer',
-    "status" VARCHAR(50) NOT NULL DEFAULT 'Pending',
+    "role" VARCHAR(63) NOT NULL DEFAULT 'customer',
+    "status" VARCHAR(63) NOT NULL DEFAULT 'pending',
     "last_login_at" TIMESTAMPTZ,
     "email_verified_at" TIMESTAMPTZ,
     "email_verification_token" TEXT,
@@ -19,8 +19,8 @@ CREATE TABLE "users" (
     "billing_address" JSONB,
     CONSTRAINT pk_users PRIMARY KEY (id),
     CONSTRAINT uq_users_email UNIQUE (email),
-    CONSTRAINT chk_users_role_enum CHECK (role IN ('Customer', 'Admin', 'Support')),
-    CONSTRAINT chk_users_status_enum CHECK (status IN ('Active', 'Inactive', 'Suspended', 'Pending'))
+    CONSTRAINT chk_users_role_enum CHECK (role IN ('customer', 'admin', 'support')),
+    CONSTRAINT chk_users_status_enum CHECK (status IN ('active', 'inactive', 'suspended', 'pending'))
 );
 
 

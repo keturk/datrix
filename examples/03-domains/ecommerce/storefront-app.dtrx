@@ -9,7 +9,11 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
     uses ecommerce.UserService;
     uses ecommerce.NotificationService;
 
-    theme extends Brand { }
+    // The shell's sidebar and search resolve against these breakpoint tokens.
+    theme extends Brand {
+        breakpoint md = 768;
+        breakpoint lg = 1024;
+    }
 
     // Mobile receives order notifications. The device registry is injected into the one used
     // service whose configuration declares integrations.push.
@@ -20,6 +24,9 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
 
     // Survives restarts; never tokens or secrets.
     state Array<OrderLineInput> cart = [] : persisted;
+
+    // Order notices shown in the top bar's notification menu until the customer clears them.
+    state Array<String> notices = [];
 
     fn addToCart(UUID productId, Int quantity) {
         foreach line in cart {
@@ -39,13 +46,50 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
         return total;
     }
 
-    // The only layout, so every page uses it. A link names a page: path, label and
-    // visibility come from the page. Web renders a top bar, mobile a bottom navigation bar.
-    layout Shell {
+    fn pushNotice(String text) { notices = notices.append(text); }
+    fn clearNotices() { notices = []; }
+    fn unreadCount() -> Int { return notices.length; }
+
+    // The only layout, so every page uses it: the application shell. A link names a page:
+    // path, label and visibility come from the page, and `group` heads it in the sidebar.
+    // The sidebar is a collapsible rail from the `lg` breakpoint and a drawer below it; the
+    // top bar carries the organization text, a search shown from `md`, the notification menu
+    // and the account menu. Mobile keeps its bottom navigation bar for the same links.
+    layout AppShell {
+        state String query = '';
+
         nav {
-            link ProductList;
-            link Cart : badge(cartCount());
-            link OrderList;
+            link ProductList : icon(storefront), group(Msg.navShop);
+            link Cart : icon(shopping_cart), group(Msg.navShop), badge(cartCount());
+            link OrderList : icon(receipt_long), group(Msg.navAccount);
+        }
+        view {
+            stack {
+                topBar {
+                    text(Msg.organizationName);
+                    spacer;
+                    search : bind(query), from(md);
+                    menu(Msg.notifications) {
+                        iconButton(notifications, Msg.notifications) : trigger;
+                        badge(unreadCount());
+                        list(data: notices) {
+                            text(item);
+                        }
+                        menuItem(Msg.markAllRead) : onClick(clearNotices());
+                    }
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                sidebar : collapsible, at(lg) {
+                    brand(Msg.appName) { image(logo); }
+                    nav;
+                }
+                slot;
+            }
         }
     }
 
@@ -149,6 +193,7 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
         fn prefill(CreateOrderRequest d) { d.items = cart; }
         fn placed(UUID id, String orderNumber) {
             cart = [];
+            pushNotice(Msg.orderPlaced(orderNumber: orderNumber).text);
             Ui.toast(Msg.orderPlaced(orderNumber: orderNumber));
             Nav.to(OrderDetail, id: id);
         }

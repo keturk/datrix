@@ -25,6 +25,25 @@ const double _gridCellWidth = 280;
 /// does not bound it.
 const double _scrollViewportShare = 0.5;
 
+/// `from(bp)`: its child at and above the breakpoint's width, nothing below
+/// it (the child is not built while hidden). The width compared is the
+/// window's, the same width the web target's media rule tests, so one source
+/// switches at the same point on every client target.
+class DtxFrom extends StatelessWidget {
+  const DtxFrom({super.key, required this.minWidth, required this.child});
+
+  final double minWidth;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.sizeOf(context).width >= minWidth) {
+      return child;
+    }
+    return const SizedBox.shrink();
+  }
+}
+
 /// `stack { ... }`: its children top to bottom.
 class DtxStack extends StatelessWidget {
   const DtxStack({super.key, this.style, required this.children});
@@ -402,35 +421,50 @@ class _DtxModalState extends State<DtxModal> {
   Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
-/// One `menuItem(label) : onClick(...)` of a `menu`.
-class DtxMenuItem {
-  const DtxMenuItem({required this.label, this.onSelected, this.children = const []});
+/// One `menuItem(label) : onClick(...)` of a `menu`: pressing it runs its
+/// action and the enclosing anchor closes the menu.
+class DtxMenuItem extends StatelessWidget {
+  const DtxMenuItem({super.key, this.style, required this.label, this.onSelected, this.children = const []});
 
+  final DtxStyle? style;
   final String label;
   final VoidCallback? onSelected;
   final List<Widget> children;
-}
-
-/// `menu { menuItem(...) ... }`: a menu button opening its items; the
-/// button is named by the platform's own "show menu" text.
-class DtxMenu extends StatelessWidget {
-  const DtxMenu({super.key, this.style, required this.items});
-
-  final DtxStyle? style;
-  final List<DtxMenuItem> items;
 
   @override
   Widget build(BuildContext context) {
-    final menu = PopupMenuButton<int>(
-      onSelected: (index) => items[index].onSelected?.call(),
-      itemBuilder: (context) => [
-        for (final (index, item) in items.indexed)
-          PopupMenuItem<int>(
-            value: index,
-            enabled: item.onSelected != null,
-            child: item.children.isEmpty ? Text(item.label) : DtxStack(children: [Text(item.label), ...item.children]),
-          ),
-      ],
+    final item = MenuItemButton(
+      onPressed: onSelected,
+      child: children.isEmpty ? Text(label) : DtxStack(children: [Text(label), ...children]),
+    );
+    return dtxStyled(context, style, item);
+  }
+}
+
+/// `menu(name?) { <trigger> ... }`: the trigger child is the always-visible
+/// control, which opens and closes the panel of the other children. Escape
+/// and a tap outside close it, and the arrow keys move between its items.
+class DtxMenu extends StatelessWidget {
+  const DtxMenu({super.key, this.style, this.semanticLabel, required this.trigger, required this.children});
+
+  final DtxStyle? style;
+  final String? semanticLabel;
+  final Widget trigger;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final menu = MenuAnchor(
+      menuChildren: children,
+      builder: (context, controller, child) => Semantics(
+        button: true,
+        expanded: controller.isOpen,
+        label: semanticLabel,
+        child: InkWell(
+          onTap: () => controller.isOpen ? controller.close() : controller.open(),
+          child: trigger,
+        ),
+      ),
     );
     return dtxStyled(context, style, menu);
   }
@@ -572,6 +606,68 @@ class DtxAvatar extends StatelessWidget {
             child: ExcludeSemantics(child: CircleAvatar(child: Text(text))),
           );
     return dtxStyled(context, style, avatar);
+  }
+}
+
+/// `brand(label) { image(logo); }`: a round mark beside the label -- the
+/// image when given, else the initials of the label. The mark is decorative:
+/// the label names the brand.
+class DtxBrand extends StatelessWidget {
+  const DtxBrand({super.key, required this.label, this.image, this.initials, this.style});
+
+  final String label;
+  final Widget? image;
+  final String? initials;
+  final DtxStyle? style;
+
+  @override
+  Widget build(BuildContext context) {
+    final mark = image;
+    final text = initials;
+    final avatar = mark != null
+        ? ClipOval(child: SizedBox.square(dimension: 40, child: FittedBox(fit: BoxFit.cover, child: mark)))
+        : CircleAvatar(child: Text(text ?? ''));
+    final brand = Row(
+      mainAxisSize: MainAxisSize.min,
+      spacing: DtxTokens.of(context).gap,
+      children: [
+        ExcludeSemantics(child: avatar),
+        Text(label, style: Theme.of(context).textTheme.titleMedium),
+      ],
+    );
+    return dtxStyled(context, style, brand);
+  }
+}
+
+/// `sidebar { ... }`: the app shell's side rail. A layout scaffold lifts it
+/// out of the body into its drawer or rail; used anywhere else it lays its
+/// children out top to bottom.
+class DtxSidebarRegion extends StatelessWidget {
+  const DtxSidebarRegion({super.key, this.style, required this.children});
+
+  final DtxStyle? style;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final column = Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, spacing: DtxTokens.of(context).gap, children: children);
+    return dtxStyled(context, style, column);
+  }
+}
+
+/// `topBar { ... }`: the app shell's top bar. A layout scaffold lifts it out
+/// of the body into its app bar; used anywhere else it lays its children out
+/// side by side.
+class DtxTopBarRegion extends StatelessWidget {
+  const DtxTopBarRegion({super.key, this.style, required this.children});
+
+  final DtxStyle? style;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final row = Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.center, spacing: DtxTokens.of(context).gap, children: children);
+    return dtxStyled(context, style, row);
   }
 }
 

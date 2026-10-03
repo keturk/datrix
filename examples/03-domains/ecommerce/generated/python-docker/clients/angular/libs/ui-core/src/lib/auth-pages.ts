@@ -47,7 +47,7 @@ export class AuthLogoutPage implements OnInit {
 @Component({
   selector: 'datrix-auth-forbidden',
 
-  template: `<main><h1 role="alert">{{ text }}</h1></main>`,
+  template: `<main class="ui-auth" data-kind="card"><h1 role="alert">{{ text }}</h1></main>`,
 })
 export class AuthForbiddenPage {
   readonly text = inject(MessagesService).key('framework.forbidden').text;

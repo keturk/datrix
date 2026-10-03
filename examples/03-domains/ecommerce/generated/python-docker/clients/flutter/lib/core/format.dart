@@ -14,6 +14,7 @@
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show StringCharacters;
 import 'package:flutter/services.dart';
 
 /// Where the platform packaging places the CLDR data in the bundle.
@@ -266,6 +267,22 @@ String formatTime(DateTime value, String locale) {
   return _applyDateTimePattern(value, _strings(data, 'timePatterns')['short']!, data);
 }
 
+/// Up to two upper-case initials of [text]: the first grapheme of its first
+/// and last whitespace-separated words (one word gives one initial, no words
+/// give `''`). Locale-independent -- upper-casing uses no locale -- so it is
+/// not part of the CLDR fixture. Never throws.
+String formatInitials(String text) {
+  final words = text.split(RegExp(r'\s+')).where((word) => word.isNotEmpty).toList();
+  if (words.isEmpty) {
+    return '';
+  }
+  final first = words.first.characters.first.toUpperCase();
+  if (words.length == 1) {
+    return first;
+  }
+  return first + words.last.characters.first.toUpperCase();
+}
+
 /// `Fmt.*` in the session locale.
 class Fmt {
   Fmt(this._locale);
@@ -289,4 +306,6 @@ class Fmt {
     final (unit, amount) = relativeUnitAndAmount(seconds);
     return formatRelativeAmount(unit, amount, _locale());
   }
+
+  String initials(String text) => formatInitials(text);
 }

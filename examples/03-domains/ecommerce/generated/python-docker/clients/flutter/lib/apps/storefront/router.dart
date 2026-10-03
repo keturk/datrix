@@ -4,7 +4,7 @@
 // at its path behind its derived guard and inside its layout, then the
 // redirects; every other path shows the fallback page.
 
-import 'package:datrix_client/apps/storefront/layouts/shell.dart';
+import 'package:datrix_client/apps/storefront/layouts/app_shell.dart';
 import 'package:datrix_client/apps/storefront/pages/cart.dart';
 import 'package:datrix_client/apps/storefront/pages/home.dart';
 import 'package:datrix_client/apps/storefront/pages/new_order.dart';
@@ -23,12 +23,12 @@ GoRouter buildRouter(GlobalKey<NavigatorState> navigatorKey, Session session) {
   return GoRouter(
     navigatorKey: navigatorKey,
     refreshListenable: session,
-    errorBuilder: (context, state) => ShellLayout(child: const NotFoundPage()),
+    errorBuilder: (context, state) => AppShellLayout(child: const NotFoundPage()),
     routes: [
       ...authRoutes(),
       GoRoute(path: '/shop', redirect: (context, state) => '/products'),
       ShellRoute(
-        builder: (context, state, child) => ShellLayout(child: child),
+        builder: (context, state, child) => AppShellLayout(child: child),
         routes: [
           GoRoute(path: '/', builder: (context, state) => const HomePage()),
           GoRoute(path: '/products', builder: (context, state) => const ProductListPage()),

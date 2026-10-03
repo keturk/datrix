@@ -5,7 +5,7 @@
 
 import { Component, computed, inject } from '@angular/core';
 import { AdminStateService } from '../../app-state.service';
-import { RouterLink, RouterOutlet } from '@angular/router';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { OrderApiClient } from '@libs/api-client/order-api.client';
 import { PaymentApiClient } from '@libs/api-client/payment-api.client';
 import { ProductApiClient } from '@libs/api-client/product-api.client';
@@ -24,7 +24,7 @@ import { UiService } from '@libs/ui-core/ui';
 @Component({
   selector: 'app-console-layout',
   templateUrl: './console.html',
-  imports: [RouterLink, RouterOutlet],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet],
 })
 export class ConsoleLayout {
   protected readonly __nav = inject(NavService);

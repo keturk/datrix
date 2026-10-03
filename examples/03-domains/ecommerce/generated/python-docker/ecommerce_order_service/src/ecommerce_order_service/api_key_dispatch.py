@@ -1,4 +1,4 @@
-"""API-key verification dispatch for ecommerce.OrderService.
+"""API-key verification dispatch for OrderService.
 
 ``verify_presented_key_hash`` is the one call the credential chain
 (``auth.resolve_api_key_principal``) makes for a presented key. It receives

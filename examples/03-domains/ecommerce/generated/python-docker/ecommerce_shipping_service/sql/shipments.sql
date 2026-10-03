@@ -4,8 +4,8 @@ CREATE TABLE "shipments" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "order_id" UUID NOT NULL,
     "tracking_number" VARCHAR(50) NOT NULL,
-    "carrier" VARCHAR(50) NOT NULL,
-    "status" VARCHAR(50) NOT NULL DEFAULT 'Pending',
+    "carrier" VARCHAR(63) NOT NULL,
+    "status" VARCHAR(63) NOT NULL DEFAULT 'pending',
     "destination" JSONB NOT NULL,
     -- Decimal(precision, scale) for fixed-point numbers
     "weight" NUMERIC(10,2) NOT NULL,
@@ -14,8 +14,8 @@ CREATE TABLE "shipments" (
     "failure_reason" TEXT,
     CONSTRAINT pk_shipments PRIMARY KEY (id),
     CONSTRAINT uq_shipments_tracking_number UNIQUE (tracking_number),
-    CONSTRAINT chk_shipments_carrier_enum CHECK (carrier IN ('FedEx', 'UPS', 'USPS', 'DHL')),
-    CONSTRAINT chk_shipments_status_enum CHECK (status IN ('Pending', 'PickedUp', 'InTransit', 'OutForDelivery', 'Delivered', 'Failed', 'Returned'))
+    CONSTRAINT chk_shipments_carrier_enum CHECK (carrier IN ('fed_ex', 'ups', 'usps', 'dhl')),
+    CONSTRAINT chk_shipments_status_enum CHECK (status IN ('pending', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'failed', 'returned'))
 );
 
 

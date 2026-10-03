@@ -4,13 +4,13 @@ CREATE TABLE "refunds" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "amount" DECIMAL(19,4) NOT NULL,
     "reason" VARCHAR(500) NOT NULL,
-    "status" VARCHAR(50) NOT NULL DEFAULT 'Pending',
+    "status" VARCHAR(63) NOT NULL DEFAULT 'pending',
     "refund_transaction_id" TEXT,
     "error_message" TEXT,
     "processed_at" TIMESTAMPTZ,
     "payment_id" UUID NOT NULL,
     CONSTRAINT pk_refunds PRIMARY KEY (id),
-    CONSTRAINT chk_refunds_status_enum CHECK (status IN ('Pending', 'Processing', 'Completed', 'Failed', 'Refunded'))
+    CONSTRAINT chk_refunds_status_enum CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'refunded'))
 );
 
 

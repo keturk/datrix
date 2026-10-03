@@ -4,11 +4,11 @@ CREATE TABLE "inventory_reservations" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "reservation_id" UUID NOT NULL,
     "quantity" BIGINT NOT NULL,
-    "status" VARCHAR(50) NOT NULL DEFAULT 'Reserved',
+    "status" VARCHAR(63) NOT NULL DEFAULT 'reserved',
     "expires_at" TIMESTAMPTZ NOT NULL,
     "product_id" UUID NOT NULL,
     CONSTRAINT pk_inventory_reservations PRIMARY KEY (id),
-    CONSTRAINT chk_inventory_reservations_status_enum CHECK (status IN ('Reserved', 'Confirmed', 'Released', 'Expired'))
+    CONSTRAINT chk_inventory_reservations_status_enum CHECK (status IN ('reserved', 'confirmed', 'released', 'expired'))
 );
 
 

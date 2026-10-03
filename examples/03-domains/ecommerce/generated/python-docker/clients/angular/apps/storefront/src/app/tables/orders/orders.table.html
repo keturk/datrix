@@ -11,10 +11,10 @@
       <th scope="col">{{ __messages.key(&#39;field.Order.customerId&#39;).text }}</th>
       <th scope="col">{{ __messages.key(&#39;field.Order.orderNumber&#39;).text }}</th>
       <th scope="col">{{ __messages.key(&#39;field.Order.status&#39;).text }}</th>
-      <th scope="col">{{ __messages.key(&#39;field.Order.subtotal&#39;).text }}</th>
-      <th scope="col">{{ __messages.key(&#39;field.Order.tax&#39;).text }}</th>
-      <th scope="col">{{ __messages.key(&#39;field.Order.shippingCost&#39;).text }}</th>
-      <th scope="col">{{ __messages.key(&#39;field.Order.discount&#39;).text }}</th>
+      <th scope="col" data-numeric="true">{{ __messages.key(&#39;field.Order.subtotal&#39;).text }}</th>
+      <th scope="col" data-numeric="true">{{ __messages.key(&#39;field.Order.tax&#39;).text }}</th>
+      <th scope="col" data-numeric="true">{{ __messages.key(&#39;field.Order.shippingCost&#39;).text }}</th>
+      <th scope="col" data-numeric="true">{{ __messages.key(&#39;field.Order.discount&#39;).text }}</th>
       <th scope="col">{{ __messages.key(&#39;field.Order.inventoryReservationId&#39;).text }}</th>
       <th scope="col">{{ __messages.key(&#39;field.Order.paymentId&#39;).text }}</th>
       <th scope="col">{{ __messages.key(&#39;field.Order.shipmentId&#39;).text }}</th>
@@ -36,13 +36,13 @@
 </td>
       <td><app-status-badge [status]="row.status" />
 </td>
-      <td>{{ __textOf(row.subtotal) }}
+      <td data-numeric="true">{{ __textOf(row.subtotal) }}
 </td>
-      <td>{{ __textOf(row.tax) }}
+      <td data-numeric="true">{{ __textOf(row.tax) }}
 </td>
-      <td>{{ __textOf(row.shippingCost) }}
+      <td data-numeric="true">{{ __textOf(row.shippingCost) }}
 </td>
-      <td>{{ __textOf(row.discount) }}
+      <td data-numeric="true">{{ __textOf(row.discount) }}
 </td>
       <td>{{ __textOf(row.inventoryReservationId) }}
 </td>

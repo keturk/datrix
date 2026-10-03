@@ -131,10 +131,10 @@ services:
       target: docdb_secret-key
     - source: ecommerce-product-service__minio_access_key
       target: minio_access_key
-    - source: ecommerce-product-service__minio_secret_key
-      target: minio_secret_key
     - source: ecommerce-product-service__product_db_password
       target: product_db_password
+    - source: env__minio_secret_key_ecommerce_product_service
+      target: minio_secret_key
     cpu_shares: 1024
     deploy:
       resources:
@@ -206,10 +206,10 @@ services:
       target: docdb_secret-key
     - source: ecommerce-product-service-wire-handlers-http__minio_access_key
       target: minio_access_key
-    - source: ecommerce-product-service-wire-handlers-http__minio_secret_key
-      target: minio_secret_key
     - source: ecommerce-product-service-wire-handlers-http__product_db_password
       target: product_db_password
+    - source: env__minio_secret_key_ecommerce_product_service
+      target: minio_secret_key
     cpu_shares: 1024
     deploy:
       resources:
@@ -1474,10 +1474,10 @@ services:
       target: docdb_secret-key
     - source: ecommerce-product-service__minio_access_key
       target: minio_access_key
-    - source: ecommerce-product-service__minio_secret_key
-      target: minio_secret_key
     - source: ecommerce-product-service__product_db_password
       target: product_db_password
+    - source: env__minio_secret_key_ecommerce_product_service
+      target: minio_secret_key
     command:
     - python
     - migrations-product-db/run_alembic_upgrade.py
@@ -1787,16 +1787,14 @@ secrets:
     file: ./secrets/ecommerce-product-service/docdb_secret-key
   ecommerce-product-service__minio_access_key:
     file: ./secrets/ecommerce-product-service/minio_access_key
-  ecommerce-product-service__minio_secret_key:
-    file: ./secrets/ecommerce-product-service/minio_secret_key
   ecommerce-product-service__product_db_password:
     file: ./secrets/ecommerce-product-service/product_db_password
+  env__minio_secret_key_ecommerce_product_service:
+    environment: MINIO_SECRET_KEY_ECOMMERCE_PRODUCT_SERVICE
   ecommerce-product-service-wire-handlers-http__docdb_secret-key:
     file: ./secrets/ecommerce-product-service-wire-handlers-http/docdb_secret-key
   ecommerce-product-service-wire-handlers-http__minio_access_key:
     file: ./secrets/ecommerce-product-service-wire-handlers-http/minio_access_key
-  ecommerce-product-service-wire-handlers-http__minio_secret_key:
-    file: ./secrets/ecommerce-product-service-wire-handlers-http/minio_secret_key
   ecommerce-product-service-wire-handlers-http__product_db_password:
     file: ./secrets/ecommerce-product-service-wire-handlers-http/product_db_password
   ecommerce-order-service__order_db_password:

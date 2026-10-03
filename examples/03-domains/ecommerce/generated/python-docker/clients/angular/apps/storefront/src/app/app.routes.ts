@@ -12,6 +12,7 @@ import type { Route, Routes } from '@angular/router';
 
 import { AUTH_ROUTES } from '@libs/ui-core/auth-pages';
 import { appRouteGuard } from '@libs/ui-core/guard';
+import { AppShellLayout } from './layouts/app-shell/app-shell';
 import { CartPage } from './pages/cart/cart';
 import { HomePage } from './pages/home/home';
 import { NewOrderPage } from './pages/new-order/new-order';
@@ -20,12 +21,11 @@ import { OrderDetailPage } from './pages/order-detail/order-detail';
 import { OrderListPage } from './pages/order-list/order-list';
 import { ProductDetailPage } from './pages/product-detail/product-detail';
 import { ProductListPage } from './pages/product-list/product-list';
-import { ShellLayout } from './layouts/shell/shell';
 
 const PAGE_ROUTES: Routes = [
   {
     path: '',
-    component: ShellLayout,
+    component: AppShellLayout,
     children: [
     {
       path: '',
@@ -103,7 +103,7 @@ const REDIRECT_ROUTES: Routes = [
 
 const FALLBACK_ROUTE: Route = {
   path: '',
-  component: ShellLayout,
+  component: AppShellLayout,
   children: [
     {
       path: '**',

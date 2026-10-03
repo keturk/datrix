@@ -23,6 +23,14 @@ config strings ecommerce.Storefront locale "tr-TR" {
     notFound        = "Sayfa bulunamadı";
     home            = "Ana sayfa";
     customerRequest = "Müşteri tarafından iptal edildi";
+    appName          = "Acme Mağaza";
+    organizationName = "Acme Perakende";
+    notifications    = "Bildirimler";
+    markAllRead      = "Tümünü okundu say";
+    account          = "Hesap";
+    signOut          = "Çıkış yap";
+    navShop          = "Alışveriş";
+    navAccount       = "Hesabım";
 
     // Datrix ships its framework text in en-US only; every other locale
     // provides it.
@@ -45,6 +53,9 @@ config strings ecommerce.Storefront locale "tr-TR" {
     framework.remove       = "Kaldır";
     framework.dismiss      = "Kapat";
     framework.menu         = "Menü";
+    framework.navigation         = "Gezinme";
+    framework.collapseNavigation = "Gezinmeyi daralt";
+    framework.expandNavigation   = "Gezinmeyi genişlet";
     framework.formatting   = "Biçimlendirme";
     framework.bold         = "Kalın";
     framework.italic       = "İtalik";
@@ -75,6 +86,7 @@ config strings ecommerce.Storefront locale "tr-TR" {
     action.Orders.open                       = "Aç";
     empty.Catalog                            = "Henüz ürün yok";
     empty.Orders                             = "Henüz siparişiniz yok";
+    empty.notices                            = "Yeni bildirim yok";
     step.CreateOrder.items                   = "Ürünler";
     step.CreateOrder.shipping                = "Teslimat";
 

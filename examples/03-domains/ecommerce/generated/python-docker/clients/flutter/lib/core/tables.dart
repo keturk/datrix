@@ -10,12 +10,14 @@ import 'package:flutter/material.dart';
 import 'package:datrix_client/core/binding.dart';
 import 'package:datrix_client/core/runtime.dart';
 
-/// One column: its heading, and the cell it shows for a row.
+/// One column: its heading, the cell it shows for a row, and whether it holds
+/// a quantity (a number, money or a percentage), which is aligned as one.
 class DtxColumn<T> {
-  const DtxColumn({required this.label, required this.cell});
+  const DtxColumn({required this.label, required this.cell, this.numeric = false});
 
   final String label;
   final Widget Function(T row) cell;
+  final bool numeric;
 }
 
 /// One row action: its label and what it does with its row.
@@ -50,7 +52,7 @@ class DtxTable<T> extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             child: DataTable(
               columns: [
-                for (final column in columns) DataColumn(label: Text(column.label)),
+                for (final column in columns) DataColumn(label: Text(column.label), numeric: column.numeric),
                 if (actions.isNotEmpty) const DataColumn(label: SizedBox.shrink()),
               ],
               rows: [

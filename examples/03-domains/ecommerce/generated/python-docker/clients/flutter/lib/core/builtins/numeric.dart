@@ -66,6 +66,25 @@ int dtxMathRound(num value) {
   return floor.isEven ? floor : floor + 1;
 }
 
+/// Rounds [value] to [decimals] decimal places using the same
+/// round-half-to-even rule as [dtxMathRound], and returns the result as a
+/// `double` (this target's `Decimal`). The rounding is done on the scaled
+/// value in `double` arithmetic, so it cannot overflow an `int` the way
+/// widening through [dtxMathRound] would. A negative [decimals] is rejected
+/// rather than silently rounded to an integer.
+double dtxMathRoundTo(num value, int decimals) {
+  if (decimals < 0) {
+    throw ArgumentError.value(decimals, 'decimals', 'must not be negative');
+  }
+  final scale = math.pow(10, decimals).toDouble();
+  final scaled = value * scale;
+  final floor = scaled.floorToDouble();
+  final fraction = scaled - floor;
+  if (fraction < 0.5) return floor / scale;
+  if (fraction > 0.5) return (floor + 1) / scale;
+  return (floor % 2 == 0 ? floor : floor + 1) / scale;
+}
+
 /// The real cube root of [value], correct for negative inputs (see module
 /// docstring for the Python defect this avoids).
 double dtxMathCbrt(num value) {
