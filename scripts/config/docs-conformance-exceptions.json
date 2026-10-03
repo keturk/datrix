@@ -35,6 +35,11 @@
       "span": "datrix_codegen_common.escaping",
       "doc": "datrix/docs/architecture/architecture-overview.md and datrix-codegen-common/docs/architecture.md",
       "reason": "negative/prohibition claim, not an existence assertion: this module was never created (a second SQL-literal encoder would have duplicated the canonical datrix_common.utils.sql_text.sql_string_literal); each mention states plainly that no such module exists"
+    },
+    {
+      "span": "datrix/scripts/config/target-capability-gaps.toml",
+      "doc": "datrix/docs/architecture/architecture-overview.md",
+      "reason": "negative/prohibition claim, not an existence assertion: Decision 55 invariant I5 states that a capability gap record is a per-package capability_gaps tuple and that no shared toml file naming targets exists; the import-boundary scan keeps it absent"
     }
   ]
 }
