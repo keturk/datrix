@@ -258,6 +258,43 @@ A `keywords('PU', 'IT')` attribute on an enum value, plus two generated static c
 
 Full decision log: [Architecture Overview — Decision 40](./architecture-overview.md#decision-40-enum-keyword-classification-and-generated-classifiers-adopted).
 
+## Enum Wire and Stored Values
+
+An enum member is spelled two ways outside the DSL source, and each spelling has exactly one rule,
+shared by every language and engine (`datrix_common.datrix_model.enum_literals`):
+
+- **Wire** -- what a service emits and accepts, what a client is typed against, what request
+  validation (`@IsEnum`) and the keyword classifier key on: the member's declared `value('…')`,
+  else its **raw DSL member name** (`PendingReview`).
+- **Stored** -- the label a database column holds: the declared `value('…')`, else the member's
+  **snake_case name** (`pending_review`). An integer `value(1)` is the text `'1'` on both sides, and
+  every emitted enum literal is a string literal (MySQL's `ENUM` would read an unquoted number as a
+  1-based index).
+
+**Adopted.**
+
+| # | Invariant | Check |
+|---|---|---|
+| 1 | Every member's wire value equals `enum_member_wire_value` on every registered language | A rendered test per language over an enum with and without `value()` |
+| 2 | The stored label has one home; the model and the migration agree | Test beside the shared function; per-language rendered model and migration read the same labels (Python: ORM column vs migration `sa.Enum`; TypeScript: the enum module's storage pairs vs the migration's `_enum_labels`) |
+| 3 | The stored-literal and wire-value sets are valid and distinct | `EnumLiteralSetValidator` (`ENUM008`–`ENUM011`): empty, NUL, over 63 UTF-8 bytes (PostgreSQL's native enum label bound), a duplicate stored literal or a duplicate wire value is rejected, naming both members |
+| 4 | An unknown stored label fails on read | Python: SQLAlchemy's `Enum` raises `LookupError`; TypeScript: the enum's `EnumStoredType` throws, without echoing the label |
+| 5 | A stored label that changes is a migration, not a silent drift | `ChangeKind.ENUM_VALUE_RELABELED` (differ → `safe` policy → ledger op `relabel_enum_value`); Python renders a guarded, ordered `ALTER TYPE … RENAME VALUE` (a swap goes through a temporary label), and fails closed where a label would be stranded |
+| 6 | A chain sealed under the old stored rule is reconciled, once | An adapter that can read its own frozen revisions (`StoredRevisionEnumLabelAuditor`) reports the labels the chain created; the orchestrator corrects the recorded snapshot's claim and the ordinary differ plans the relabel |
+| 7 | Author text in an enum label cannot break the statement or module it is emitted into | Every label reaches DDL through `sql_string_literal`, `dollar_quoted` picks a tag the label cannot contain, and a statement run through `sqlalchemy.text` has its colons escaped |
+
+TypeScript keeps the generated enum on its wire values and binds each persisted column to the enum's
+`<Enum>Storage` (an `EnumStoredType`, emitted once per service as `src/support/enum-stored-type.ts`),
+which maps wire ↔ stored in both directions and builds the column's `items` from the stored labels.
+Python's enum class carries wire values and `values_callable` binds the stored labels. The generated
+Angular and Flutter clients were already typed against the wire rule, so the TypeScript backend now
+accepts what they send; **a TypeScript consumer of a value-less enum sees `PendingReview` where it saw
+`pending_review`** -- a breaking wire change for TypeScript-backend consumers. Python persists a
+declared `value('…')` where it used to persist the snake name, and a previously sealed chain is
+relabelled by a generated revision.
+
+Full decision log: [Architecture Overview — Decision 56](./architecture-overview.md#decision-56-enum-wire-and-stored-values--one-rule-each-both-shared-adopted).
+
 ## Datrix Language Server (Editor Intelligence over LSP)
 
 Real-time `.dtrx`/`.dcfg` diagnostics, completion, hover, go-to-definition, find-references,
@@ -521,6 +558,12 @@ realize what an application declares.
 | 8 | A UI-only capability never reaches a backend body, and a server-only capability never reaches a client body | Pipeline tests planting each violation and asserting the failure names the capability group, the reason, and the location |
 | 9 | Emitted web security headers are one declared set on every platform | A dedicated cross-platform header parity gate, with the derived Content-Security-Policy asserted free of unsafe directives |
 | 10 | A declared custom domain is realized with a certificate on every platform that declares it realized, and rejected on every platform that declares it unrealized — never silently ignored | A per-platform test over a fixture declaring both the gateway and web custom domains, run over every registered platform and refusing to pass under two |
+| 11 | A shell region (`sidebar`, `topBar`, `brand`) lives only in a layout's view, once (UI037) | Rejection fixtures per misplacement and duplicate; accepting fixture with `topBar` in a `stack` |
+| 12 | A shell modifier (`collapsible`, `at`, `from`, `trigger`) appears only where consumed (UI038), and a `menu` has exactly one `trigger` child (UI039) | One rejection fixture per misplaced modifier and per bad trigger count |
+| 13 | Every breakpoint name (`at`, `from`) resolves through one derivation over theme tokens (UI040) | Undeclared-name fixture listing declared names; test that no emitter holds a width literal |
+| 14 | `nav;` presentation follows its container; a layout with no shell region renders byte-for-byte as before | Derivation test per placement; pinned byte-identical render test on every target |
+| 15 | Links rendered in the shell equal the links the layout declares after guard filtering, on every target | Set comparison per target with a planted-link variant, over one shared fixture app |
+| 16 | Shell claims render as text only; no inline style or script; the only persisted value is the collapse boolean | Hostile-claim render test per target; emitted-output scan; boolean-only round trip |
 
 Full decision log: [Architecture Overview — Decision 48](./architecture-overview.md#decision-48-complete-applications-in-datrix--web-and-mobile-frontends-from-the-same-dsl-as-the-backend-approved--implementation-in-progress).
 
@@ -715,7 +758,7 @@ Generating a service that compiles is not generating a service that runs. When t
 | 4 | The readiness bound is one declaration, not one per language | Attempt count + delay live once in the shared codegen layer; a per-language copy is drift |
 | 5 | A migration failure reports the driver's diagnosis, not the pool's timeout | Failure carries the driver exception as its cause **and** the entrypoint prints the chain — either alone truncates at the outermost frame. The URL a failure names is built without the credential |
 | 6 | Every type an emitted migration references is created by that same chain | Parse the revision: `referenced − created` must be empty. Computed, not eyeballed |
-| 7 | A native type's name and labels have one home per language package | Column configuration, creation statement, and runtime mapping call one function. Proven with a multi-word-member enum so a casing divergence cannot pass |
+| 7 | A native type's name has one home per language package; its labels have one home for every language | Column configuration, creation statement, and runtime mapping read the type name from one function per language and the labels from `enum_member_stored_literal` / the snapshot's `stored_enum_labels`. Proven with a multi-word-member enum so a casing divergence cannot pass |
 | 8 | Schema DDL is never emitted outside the migration chain | A container init directory exists only on the container platform; a managed instance has no hook, so init-script DDL works on one platform and fails on the rest. Deleted, not deprecated, and pinned |
 | 9 | An unrecognised migration operation kind raises | A dispatch chain with no final branch renders it as nothing — a silently dropped step in an append-only history. The fail-loud branch lands **before** any new kind is added |
 | 10 | No generated service resolves a connection fact or credential from the process environment | Decision 14 restated as a per-target obligation, not a property one target happens to have. Fails closed: no default host, port, database, or credential. Legitimate container-runtime keys are a typed, counted exemption |
@@ -885,7 +928,7 @@ held.
 | 3 | The emitter names only columns the model proves exist | Every column comes from the resolved contract; `WRK002`/`WRK006`/`WRK007` reject a contract naming anything else |
 | 4 | Work performed elsewhere is never recovered locally | `WRK008` rejects `owner: external` with `onOrphan: failAtStartup` |
 | 5 | "In flight" is a set, not one state | `inFlight` takes a list, so states differing only in whether the far side reported in cannot be treated differently |
-| 6 | A stored enum value has one home per language | `persisted_enum_member_literal` is shared by the enum generator and the recovery emitter, so the value matched can never drift from the value written |
+| 6 | A stored enum value has one home, shared by every language | `enum_member_stored_literal` (`datrix_common.datrix_model.enum_literals`) is read by the enum generators, the migration emitters and the recovery emitter, so the value matched can never drift from the value written |
 | 7 | The contract is language-neutral | It lives in `datrix-common` (`datrix_model/work.py`); python realizes `onOrphan: failAtStartup` today, and any other target either realizes it or carries a counted `capability_gaps` row for it |
 
 Full syntax, keys and diagnostics: [datrix-syntax-reference.md — Work Contracts](../../../datrix-language/docs/reference/datrix-syntax-reference.md#work-contracts-work--).

@@ -1580,7 +1580,7 @@ Generating a service that compiles is not the same as generating a service that 
 | 4 | The readiness bound is one declaration, not one per language | Attempt count and delay live once in the shared codegen layer and are consumed by each target's migration renderer; a target spelling its own copy is a duplicate the drift ratchet reports |
 | 5 | A migration failure reports the driver's diagnosis, not the pool's timeout | The raised failure carries the last driver exception as its cause, and the entrypoint dispatch prints the chain — paired assertions, since either alone still truncates the cause at the outermost frame |
 | 6 | Every type an emitted migration references is created by that same migration chain | Parse the emitted revision; collect the set of non-builtin type names referenced by a column declaration and the set created by a type-creation statement; require `referenced − created` empty. Computed over the artifact, not eyeballed, so it holds for any type added later |
-| 7 | A native type's name and its member labels have one home per language package | The emitted column configuration's type name equals the emitted creation statement's type name, and the labels equal the persisted literals the language-runtime mapping registers. Proven with an enum whose members are multi-word, so a casing divergence cannot pass |
+| 7 | A native type's name has one home per language package; its member labels have one home for every language | The emitted column configuration's type name equals the emitted creation statement's type name, and the labels equal the stored literals (`enum_member_stored_literal`, recorded on the snapshot) the language-runtime mapping registers. Proven with an enum whose members are multi-word, so a casing divergence cannot pass |
 | 8 | Schema DDL is never emitted outside the migration chain | The generated database initialisation script contains no type-creation statement. Pins the deletion so a platform-local schema mechanism cannot return through the one platform that has a hook for it |
 | 9 | An emitted migration operation the renderer does not recognise fails loudly | The operation-rendering macro raises on an unrecognised operation kind instead of rendering nothing, proven by rendering a deliberately unknown kind and observing the failure. Landed **before** any new operation kind is added to that macro, never after |
 | 10 | No generated service resolves a connection fact or a credential from the process environment | Per-target scan of the emitted service source: every connection fact resolves through the config-store client and every credential through the secrets resolver, with no default host, port, or database literal. Legitimate container-runtime keys are a typed, counted exemption entry, never silence |
@@ -1784,6 +1784,11 @@ replacing the scope file's `domains` list).
 - Hosting and mobile packaging are realized by the existing platform packages, under the same per-platform capability-declaration pattern the rest of the generator already follows for every other deployment concern.
 - Every custom domain is realized with a certificate by its platform's declared rule, or rejected outright at generation when the platform cannot realize it — never silently accepted and then ignored, which is the defect on two platforms today.
 - Emitted web security headers are one declared set consumed by every platform, including a derived Content-Security-Policy that never carries an unsafe directive.
+- The application shell is composed in a layout's `view`, with no grammar change. Two layout-family elements, `sidebar` (a persistent navigation region at and above a breakpoint, a drawer below it) and `topBar` (the header band of the content column), are valid anywhere inside a layout's view tree outside repeated content (a `foreach` body, an item template or a map; a `when` is transparent), and never in a page or component view; a layout holds at most one `sidebar`, one `topBar`, and one `nav;`. A `brand(text)` content element is valid only inside a `sidebar` or `topBar`. A layout whose `view` carries neither region renders byte-for-byte as it did before.
+- The presentation of `nav;` derives from the container it sits in, through the one derivation in the foundation package that already decides nav presentation, extended: inside a `sidebar` it is a vertical rail on the web and the drawer content on mobile; inside a `topBar` or directly in the view it is unchanged. A nav `link` may carry `group(Msg.key)`, and consecutive links with the same group form one group under a heading. Link visibility is still derived from the target page's guard.
+- `menu` gains an optional text argument (its accessible name) and an open/close contract: exactly one direct child carries the flag modifier `trigger` and renders as the always-visible control; the remaining children form the panel, which a click on a `menuItem`, Escape, or an outside click closes, with arrow-key movement between items. `from(<breakpoint>)` is a visibility modifier valid on any element (rendered at and above the named breakpoint, hidden below it), and `sidebar` takes `collapsible` (a flag permitting an icon-only state) and `at(<breakpoint>)` (the width at and above which the rail is persistent, default `lg`). Every breakpoint name resolves against the theme's `breakpoint.<name>` tokens through one derivation that every client target reads; a name the theme does not declare is rejected at analysis time, listing the declared names.
+- The builtin `Fmt.initials(text)` returns up to two uppercase initials (the first letter of the first and last whitespace-separated words, grapheme-aware, empty for empty text), is locale-independent, and is realized by every client target.
+- The sidebar's collapsed state is the only new persisted client value: a non-sensitive boolean kept per application, restored on load only when it is exactly a boolean, ignored otherwise, and not cleared at logout.
 
 | # | Invariant | Check |
 |---|---|---|
@@ -1810,8 +1815,14 @@ replacing the scope file's `domains` list).
 | G21 | The same UI test passes on every target of an app | Each target's emitted test suite is asserted statically to contain one test per in-scope test block, under the same name |
 | G22 | A declared custom domain is realized with a certificate on every platform that declares it realized, and rejected on every platform that declares it unrealized — never silently ignored | A per-platform test over a fixture declaring both the gateway and web custom domains, asserting the emitted infrastructure binds the domain and a certificate by the platform's declared rule, run over every registered platform and refusing to pass under two |
 | G23 | The generated DNS-records artifact lists exactly the records the realized domains need | A per-environment set comparison between the domains realized in the emitted infrastructure and the domains listed in the artifact, each with its endpoint record and its platform's validation record kind |
+| G24 | A shell region lives only where a layout can own it, once | Rejection fixtures for a `sidebar`, `topBar` or `brand` in a page or component view, inside repeated content (a `foreach` body, an item template or a map), a second `sidebar`, `topBar` or `nav;` in one layout, and a `brand` outside a `sidebar` or `topBar` (validation code UI037), plus an accepting fixture with `topBar` nested in a `stack` |
+| G25 | A new modifier appears only in a context that consumes it, and a `menu` has exactly one trigger | One rejection fixture per misplaced `collapsible`, `at`, `from`, `trigger` (validation code UI038) and per `menu` with zero or several `trigger` children (validation code UI039) |
+| G26 | Every breakpoint name resolves through one derivation | A rejection fixture for an undeclared breakpoint in `at` or `from` that lists the declared names (validation code UI040), and a test that the contract, the web stylesheet and the mobile layout all read the one derivation and no emitter holds a breakpoint width literal |
+| G27 | Nav presentation follows its container, and a shell-less layout is unchanged | A derivation test over `sidebar`, `topBar` and view placements, and a pinned byte-for-byte render test of a layout with no shell region on every client target |
+| G28 | The links rendered in the shell equal the links the layout declares after guard filtering, on every target | A set comparison over the parsed output of each target with a planted-link variant proving the check is non-vacuous, plus per-target tests of the rail, group headings, drawer below the breakpoint, the persisted collapse boolean, the `menu` trigger wiring, and `from` visibility over one shared fixture app |
+| G29 | Shell data and state add no injection or exposure surface | A hostile claim string rendered through `Session.claim` yields escaped text and no element on every target, no inline style or script appears in emitted web output, and the persisted collapse value round-trips only as a boolean |
 
-**Security posture:** Login is hosted Authorization Code with PKCE only, through maintained OIDC libraries and the system browser — no password grant, no implicit flow, no embedded web view — with tokens held in memory on the web targets and in the platform keychain or keystore on the mobile target, and exactly one public client per (provider, application, kind). Route guards and navigation visibility are UX metadata only; the server enforces every request, and a guard that cannot evaluate denies and redirects to login. Sensitive and hidden fields are never derived, named, or persisted, and a client-side error surface shows only the localized exception label, never a problem body, a stack trace, or a URL. Navigation targets are page references with percent-encoded arguments, text is rendered as text nodes, the one markup-from-data path is sanitized before insertion, and styles compile from validated tokens into static stylesheets — there is no string-built markup or styling surface. Every custom domain carries a certificate by its platform's declared rule, and certificate references are logical handles, never inline material. Transport is HTTPS with HSTS off loopback, the derived Content-Security-Policy carries no unsafe directive, and the derived permission policy grants only the device capabilities the application actually uses. Runtime configuration fails closed and never carries a secret — public client identifiers are the only values it emits. Persisted client-side state is never a token or a sensitive type, is validated on load, and is cleared on logout when it depends on the session. Mobile signing material is resolved only through logical secret handles, never written into the generated tree. Every third-party dependency each target pulls in is pinned in that target's own dependency catalog.
+**Security posture:** Login is hosted Authorization Code with PKCE only, through maintained OIDC libraries and the system browser — no password grant, no implicit flow, no embedded web view — with tokens held in memory on the web targets and in the platform keychain or keystore on the mobile target, and exactly one public client per (provider, application, kind). Route guards and navigation visibility are UX metadata only; the server enforces every request, and a guard that cannot evaluate denies and redirects to login. Sensitive and hidden fields are never derived, named, or persisted, and a client-side error surface shows only the localized exception label, never a problem body, a stack trace, or a URL. Navigation targets are page references with percent-encoded arguments, text is rendered as text nodes, the one markup-from-data path is sanitized before insertion, and styles compile from validated tokens into static stylesheets — there is no string-built markup or styling surface. Every custom domain carries a certificate by its platform's declared rule, and certificate references are logical handles, never inline material. Transport is HTTPS with HSTS off loopback, the derived Content-Security-Policy carries no unsafe directive, and the derived permission policy grants only the device capabilities the application actually uses. Runtime configuration fails closed and never carries a secret — public client identifiers are the only values it emits. Persisted client-side state is never a token or a sensitive type, is validated on load, and is cleared on logout when it depends on the session. Mobile signing material is resolved only through logical secret handles, never written into the generated tree. Every third-party dependency each target pulls in is pinned in that target's own dependency catalog. The application shell collects no credential and changes no authorization: link visibility is derived from the target page's guard, the guard still enforces on every navigation, and the backend on every call. `Session.claim(...)` values in the shell render as text only — a bound text node on the web, a text widget on mobile — never as markup or a URL, and only claims the login provider declares are readable. Icon, breakpoint and tone names are validated against the closed icon set, the theme's breakpoint tokens and the closed tone set, so no author string reaches a selector or an attribute name. The shell adds no inline style or script, leaving the derived Content-Security-Policy unchanged, and its only persisted value is the non-sensitive collapse boolean.
 
 **Status:** Approved — Implementation In Progress. Nothing has landed yet; the decision moves to Adopted when every invariant above is held by the executable check it names.
 
@@ -2821,6 +2832,64 @@ security-bearing family) and the entity-query chain; duplication in Jinja templa
 `.dseed` with the language server.
 
 **Status:** Adopted. Every invariant is held by the executable check it names: the shared-home body gate is pinned at its measured count, the alias-token ratchet and the manifest import-parity gate pass, and each declared behaviour change has its own test.
+
+---
+
+### Decision 56: Enum Wire and Stored Values — One Rule Each, Both Shared (Adopted)
+
+**Problem.** An enum member is spelled two ways outside the DSL: the **wire** value a service emits and
+validates, and the **stored** label a database holds. Each had a rule per language, and the copies
+disagreed. A value-less member serialized as its raw DSL name in Python and as snake_case in
+TypeScript, so a generated Angular or Flutter client (typed against the shared wire rule) sent
+`PendingReview` and TypeScript's `@IsEnum` rejected it. A member declaring `value('…')` was stored by
+TypeScript but ignored for storage by Python. A third copy sat in the SQL DDL facts and stored the raw
+name for a value-less member.
+
+**Decision.** There is one rule for each, in `datrix_common.datrix_model.enum_literals`:
+
+- **Wire** (`enum_member_wire_value`): the declared `value('…')`, else the raw DSL member name.
+- **Stored** (`enum_member_stored_literal`, and `stored_enum_literal_from_parts` for a snapshot's name +
+  declared-value pair): the declared `value('…')`, else the snake_case member name.
+
+The stored rule reads `value(...)` because reading everything the DSL declares outranks the argument for
+ignoring it (the strongest-behaviour axes are ordered: fails closed, reads everything the DSL declares,
+most secure, most correct output). The two rules live in `datrix-common` rather than `datrix-codegen-common`
+because their consumers range below the language layer: semantic analysis validates both literal sets, the
+schema snapshot records the declared values, and the SQL facts and the migration differ read the stored
+label.
+
+**Validation.** `EnumLiteralSetValidator` (`ENUM008`–`ENUM011`) checks, once for every language and engine,
+that every stored literal is non-empty, NUL-free, at most 63 UTF-8 bytes (PostgreSQL's native enum label
+bound, the tightest supported) and distinct within the enum, and that the wire values are distinct.
+
+**Realization.** Every emitted enum literal is a string literal (`value(1)` stores `'1'`). Python's enum
+class carries wire values and `values_callable` binds the stored labels; an unknown stored label raises
+on read. TypeScript's generated enum carries wire values, and each persisted column binds to the enum's
+`<Enum>Storage` (an `EnumStoredType`, one runtime module per service) that maps wire ↔ stored in both
+directions and builds the column's `items` from the stored labels; an unknown stored label throws on read,
+and the keyword classifier treats an explicit `null` fallback as no fallback and throws. The generator
+output counts double: a label is author text, so no emitter splices one into SQL or Python source —
+`sql_string_literal` quotes it, `dollar_quoted` picks a tag it cannot contain, and a statement run through
+`sqlalchemy.text` has its colons escaped. (A bound parameter is not an option for an enum column through
+the asyncpg dialect, which binds a string as `$1::VARCHAR`.)
+
+**Data compatibility.** A stored label can now change for an existing member (a `value(...)` added,
+changed or removed), so it is a schema change: `ChangeKind.ENUM_VALUE_RELABELED` is detected by the
+snapshot differ when both snapshots record their declared member values, classified `safe`, recorded in
+the ledger as `relabel_enum_value` (distinct from the blocked member-name `rename_enum_value`), and
+rendered by the Python adapter as an ordered, idempotent `ALTER TYPE … RENAME VALUE` block that fails
+closed rather than strand rows under a label the type already holds. A chain sealed before `value(...)`
+was read for storage created every type under the member names while its recorded snapshot already
+claimed the declared values; an adapter that can read its own frozen revisions
+(`StoredRevisionEnumLabelAuditor`) reports the labels the chain created, the orchestrator corrects the
+recorded claim, and the ordinary differ plans the relabel once. The MikroORM adapter realizes no enum
+member-list change, so it refuses a relabel by name like an append.
+
+**Breaking change.** A TypeScript consumer of a value-less enum sees `PendingReview` where it saw
+`pending_review`; Python persists a declared `value('…')` where it persisted the snake name.
+
+**Status:** Adopted. Invariants are held by the checks named in the
+[cheat sheet](./architecture-cheat-sheet.md#enum-wire-and-stored-values).
 
 ---
 
