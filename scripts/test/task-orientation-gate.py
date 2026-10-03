@@ -90,6 +90,30 @@ _CORE = (
 )
 
 
+_FIXTURE_PHASE = 90
+_FIXTURE_REPO = "datrix-alpha"
+
+
+def _fixture_ordinal(number: int) -> str:
+    """The phase-qualified ordinal a fixture task carries in its heading."""
+    return f"{_FIXTURE_PHASE}-{number:02d}"
+
+
+def _fixture_task_id(number: int) -> str:
+    """The id the resolver renders for a fixture task."""
+    return f"task-{_fixture_ordinal(number)}"
+
+
+def _fixture_task_name(number: int, slug: str) -> str:
+    """The file name of a fixture task."""
+    return f"{_fixture_task_id(number)}-{slug}.md"
+
+
+def _fixture_task_path(root: Path, number: int, slug: str) -> Path:
+    """Where a fixture task lives inside the temporary workspace."""
+    return root / _FIXTURE_REPO / ".tasks" / f"phase-{_FIXTURE_PHASE}" / _fixture_task_name(number, slug)
+
+
 def _ok(msg: str) -> None:
     print(f"{_GREEN}[OK]{_RESET} {msg}")
 
@@ -209,7 +233,7 @@ def check_orientation_block_is_read_by_the_one_task_parser() -> None:
     with _workspace() as root:
         block = ("```orientation\n# comment\nsymbol: alpha_function\n\nrefs: alpha_pkg.core.alpha_function\n```\n")
         other = "```python\nsymbol: not_orientation\n```\n"
-        task = _write(root / "datrix-alpha/.tasks/phase-90/task-90-01-a.md",
+        task = _write(_fixture_task_path(root, 1, "a"),
                       _task("A", other, extra_sections=f"\n## Orientation\n{block}"))
         meta = parse_task_file(task)
         assert meta.orientation == ["# comment", "symbol: alpha_function", "refs: alpha_pkg.core.alpha_function"], \
@@ -217,7 +241,7 @@ def check_orientation_block_is_read_by_the_one_task_parser() -> None:
         assert [item.kind for item in parse_orientation(meta.orientation).items] == ["symbol", "refs"], \
             "the parser keeps the block's lines; comments are dropped when it is read"
         assert meta.to_dict()["orientation"] == meta.orientation
-        bare = parse_task_file(_write(root / "datrix-alpha/.tasks/phase-90/task-90-02-b.md", _task("B", "text", number=2)))
+        bare = parse_task_file(_write(_fixture_task_path(root, 2, "b"), _task("B", "text", number=2)))
         assert bare.orientation == [], "a task with no block has none"
         prose = [text for _, text in task_prose_lines(task.read_text(encoding="utf-8"))]
         assert not any("not_orientation" in line or "symbol: alpha_function" in line for line in prose), \
@@ -285,7 +309,7 @@ def check_facts_are_exact_stale_entries_are_called_out_and_explanations_are_lead
                  "outline: datrix-alpha/src/alpha_pkg/core.py", "outline: datrix-alpha/src/alpha_pkg/missing.py",
                  f"explain: {root / 'datrix-alpha/src/alpha_pkg/core.py'} :: How does this module build its result?"]
         resolved = resolve_orientation(lines, session.conn, ask)
-        text = resolved.render("task-90-01")
+        text = resolved.render(_fixture_task_id(1))
         assert "core.py:4  def alpha_function(x: int) -> int" in text, text
         assert "core.py: 10 call" in text, "the references give the call site's line"
         assert resolved.unresolved == ("symbol renamed_away_function", "outline datrix-alpha/src/alpha_pkg/missing.py"), \
@@ -297,10 +321,10 @@ def check_facts_are_exact_stale_entries_are_called_out_and_explanations_are_lead
                                       lambda item: ask_files(scope, LocalLlmPool(_settings(_closed_port(), root / "u.jsonl"),
                                                                                   report=lambda _l: None),
                                                              list(item.paths), item.question).render())
-        offline_text = offline.render("task-90-01")
+        offline_text = offline.render(_fixture_task_id(1))
         assert "def alpha_function" in offline_text and "UNAVAILABLE" in offline_text and _ANSWER not in offline_text, \
             "with no model server the facts stand and the explanation says it is unavailable"
-        assert resolve_orientation([], session.conn, None).render("task-90-01") == "", "no block, no output"
+        assert resolve_orientation([], session.conn, None).render(_fixture_task_id(1)) == "", "no block, no output"
 
 
 # ===========================================================================
@@ -383,11 +407,11 @@ def check_citations_warn_only_when_the_name_beside_them_is_not_near_the_lines() 
 def check_validator_reports_stale_orientation_and_citations_and_sets_the_exit_code() -> None:
     with _workspace() as root:
         core = root / "datrix-alpha/src/alpha_pkg/core.py"
-        good = _write(root / "datrix-alpha/.tasks/phase-90/task-90-01-good.md", _task(
+        good = _write(_fixture_task_path(root, 1, "good"), _task(
             "Good", f"`{core}:4-6` `alpha_function(x)`.",
             extra_sections="\n## Orientation\n```orientation\nsymbol: alpha_function\nrefs: alpha_pkg.core.alpha_function\n"
                            "outline: datrix-alpha/src/alpha_pkg/core.py\n```\n"))
-        stale = _write(root / "datrix-alpha/.tasks/phase-90/task-90-02-stale.md", _task(
+        stale = _write(_fixture_task_path(root, 2, "stale"), _task(
             "Stale", f"`{core}:90` is beyond the file.", number=2,
             extra_sections="\n## Orientation\n```orientation\nsymbol: renamed_away_function\n"
                            "explain: datrix-alpha/../../etc/passwd :: How does this module build its result\n"
@@ -405,7 +429,7 @@ def check_validator_reports_stale_orientation_and_citations_and_sets_the_exit_co
         assert "lines 90-90 are not in core.py, which has 10 lines" in joined, joined
         required = Validator(root, require_orientation=True)
         try:
-            bare = _write(root / "datrix-alpha/.tasks/phase-90/task-90-03-bare.md", _task("Bare", "Nothing.", number=3))
+            bare = _write(_fixture_task_path(root, 3, "bare"), _task("Bare", "Nothing.", number=3))
             assert [f.message for f in required.validate(bare)] == [
                 "no '## Orientation' block (required by --require-orientation)"]
         finally:
@@ -414,23 +438,23 @@ def check_validator_reports_stale_orientation_and_citations_and_sets_the_exit_co
         with contextlib.redirect_stdout(output):
             assert validate_main([str(good), "--base-dir", str(root)]) == EXIT_OK
             assert validate_main([str(stale), "--base-dir", str(root)]) == EXIT_FINDINGS
-            assert validate_main(["--phase", "90", "--base-dir", str(root)]) == EXIT_FINDINGS
-        assert "task-90-01-good.md: OK" in output.getvalue() and "task(s)" in output.getvalue(), output.getvalue()
+            assert validate_main(["--phase", str(_FIXTURE_PHASE), "--base-dir", str(root)]) == EXIT_FINDINGS
+        assert f"{_fixture_task_name(1, 'good')}: OK" in output.getvalue() and "task(s)" in output.getvalue(), output.getvalue()
 
 
 def check_validator_phase_mode_counts_files_other_tasks_create() -> None:
     with _workspace() as root:
         future = root / "datrix-alpha/src/alpha_pkg/future.py"
-        _write(root / "datrix-alpha/.tasks/phase-90/task-90-01-creates.md", _task(
+        _write(_fixture_task_path(root, 1, "creates"), _task(
             "Creates", "Nothing.", extra_sections=f"\n## Files to Create\n### 1. `{future}` -- the module\n"))
-        citing = _write(root / "datrix-alpha/.tasks/phase-90/task-90-02-cites.md",
+        citing = _write(_fixture_task_path(root, 2, "cites"),
                         _task("Cites", f"The new module is at `{future}:3`.", number=2))
         validator = Validator(root)
         try:
-            assert validator.validate(citing) == [], "task 90-01 creates the file task 90-02 cites"
+            assert validator.validate(citing) == [], "the first fixture task creates the file the second cites"
         finally:
             validator.close()
-        _write(root / "datrix-alpha/.tasks/phase-90/task-90-01-creates.md", _task("Creates", "Nothing."))
+        _write(_fixture_task_path(root, 1, "creates"), _task("Creates", "Nothing."))
         validator = Validator(root)
         try:
             assert [f.level for f in validator.validate(citing)] == [LEVEL_ERROR], "nothing creates it now"
@@ -443,11 +467,11 @@ def check_validator_bounds_task_length_and_the_executor_record() -> None:
     warn_padding = "\n".join(f"line {n}" for n in range(TASK_WARN_LINES + 1))
     record = "\n".join(f"- decision {n}" for n in range(RECORD_WARN_LINES + 1))
     with _workspace() as root:
-        oversized = _write(root / "datrix-alpha/.tasks/phase-90/task-90-01-big.md", _task("Big", padding))
-        long = _write(root / "datrix-alpha/.tasks/phase-90/task-90-02-long.md", _task("Long", warn_padding, number=2))
-        chatty = _write(root / "datrix-alpha/.tasks/phase-90/task-90-03-chatty.md",
+        oversized = _write(_fixture_task_path(root, 1, "big"), _task("Big", padding))
+        long = _write(_fixture_task_path(root, 2, "long"), _task("Long", warn_padding, number=2))
+        chatty = _write(_fixture_task_path(root, 3, "chatty"),
                         _task("Chatty", "Nothing.", number=3, extra_sections=f"\n## How Solved\n{record}\n"))
-        done = _write(root / "datrix-alpha/.tasks/phase-90/task-90-04-done.md",
+        done = _write(_fixture_task_path(root, 4, "done"),
                       _task("Done", padding, number=4).replace("# Task", "# COMPLETED: Task", 1))
         validator = Validator(root)
         try:
@@ -455,10 +479,10 @@ def check_validator_bounds_task_length_and_the_executor_record() -> None:
                       for path in (oversized, long, chatty, done)}
         finally:
             validator.close()
-        assert levels["task-90-01-big.md"] == [LEVEL_ERROR], f"over {TASK_ERROR_LINES} lines must fail: {levels}"
-        assert levels["task-90-02-long.md"] == [LEVEL_WARN], f"over {TASK_WARN_LINES} lines must warn: {levels}"
-        assert levels["task-90-03-chatty.md"] == [LEVEL_WARN], f"a long record must warn: {levels}"
-        assert levels["task-90-04-done.md"] == [], f"a COMPLETED task is exempt from the length limit: {levels}"
+        assert levels[_fixture_task_name(1, "big")] == [LEVEL_ERROR], f"over {TASK_ERROR_LINES} lines must fail: {levels}"
+        assert levels[_fixture_task_name(2, "long")] == [LEVEL_WARN], f"over {TASK_WARN_LINES} lines must warn: {levels}"
+        assert levels[_fixture_task_name(3, "chatty")] == [LEVEL_WARN], f"a long record must warn: {levels}"
+        assert levels[_fixture_task_name(4, "done")] == [], f"a COMPLETED task is exempt from the length limit: {levels}"
 
 
 # ===========================================================================
@@ -469,11 +493,11 @@ def check_validator_bounds_task_length_and_the_executor_record() -> None:
 def _retrofit_task(root: Path, name: str, review: list[str], body: str = "", modify: list[str] | None = None,
                    *, number: int = 5, category: str = "", newline: str = "\n") -> Path:
     edits = "".join(f"### {n}. `{path}` -- change it\n" for n, path in enumerate(modify or [], start=1))
-    text = (f"# Task 90-{number:02d}: {name}\n\n## Overview\nA fixture.\n\n**Package:** `datrix-alpha`\n"
+    text = (f"# Task {_fixture_ordinal(number)}: {name}\n\n## Overview\nA fixture.\n\n**Package:** `datrix-alpha`\n"
             f"{f'**Category:** {category}{chr(10)}' if category else ''}**Depends on:** None\n\n"
             f"## Files to Review Before Starting\n{chr(10).join(review)}\n\n"
             f"## Files to Modify\n{edits}\n## Notes\n{body}\n")
-    path = root / f"datrix-alpha/.tasks/phase-90/task-90-{number:02d}-{name.lower().replace(' ', '-')}.md"
+    path = _fixture_task_path(root, number, name.lower().replace(" ", "-"))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(text.replace("\n", newline).encode("utf-8"))
     return path
@@ -548,8 +572,8 @@ def check_retrofit_leaves_alone_what_it_should() -> None:
         assert _retrofit(root, none).reason.startswith("nothing the index can answer"), "only a ranged item"
         absent = _retrofit_task(root, "Absent", [f"1. `{root / 'datrix-alpha/src/alpha_pkg/gone.py'}` -- gone"], number=8)
         assert _retrofit(root, absent).outcome == OUTCOME_SKIPPED, "a file that does not exist is not converted"
-        noreview = root / "datrix-alpha/.tasks/phase-90/task-90-09-no-review.md"
-        noreview.write_text("# Task 90-09: No review\n\n## Overview\nNothing.\n", encoding="utf-8")
+        noreview = _fixture_task_path(root, 9, "no-review")
+        noreview.write_text(f"# Task {_fixture_ordinal(9)}: No review\n\n## Overview\nNothing.\n", encoding="utf-8")
         assert _retrofit(root, noreview).reason == "no Files to Review section"
 
 
