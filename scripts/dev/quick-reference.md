@@ -513,6 +513,28 @@ Queries never leave the machine. `-Summarize` is the exception, and it only runs
 
 **Exit codes:** 0 done; 1 the request could not be carried out.
 
+### `dev\ineedtoknow.ps1`
+
+**Ask what you need to know, in your own words, instead of loading whole docs.** The knowledge base answers from the project's own docs (architecture cheat sheet and knowledge packs, the decision log, agent rules, execution contract, script quick-references, package architecture docs; the list is `CURATED_PATTERNS` in `library/knowledge/seed.py`), cut into chunks by heading, and from answers learned earlier. A hit is a brief answer plus the file and line range to open. Wrapper over `library/dev/ineedtoknow_cli.py`; the logic is in `library/knowledge/`.
+
+**When the knowledge base holds no answer**, a local model server that already has a model in memory (never waits for a load) reads the closest chunks of the docs (with their real line numbers) plus any `-In` files, and writes a short cited answer. The answer is **stored only when grounded**: it cites at least one `path:line`, every citation names a file and line the model was actually sent, and every quoted snippet is in what it was sent. A failed answer is reported with the reason and the closest places to read, and is never stored. With no model server available it says so and lists the same places. A stored answer **expires when a file it cites changes** (content hash).
+
+**Storage and two-machine sync.** The SQLite database is per machine, `d:\datrix\.knowledge\knowledge.db` (`DATRIX_KNOWLEDGE_DB` overrides it); it is a cache and can always be rebuilt. Every learned answer is also written as one markdown file to `datrix\docs\knowledge\learned\<id>.md` (committed; the id is the hash of the question, so two machines never conflict). Each invocation first brings the database up to date with the docs (re-cut by content hash) and with those files: after a pull, a machine imports each learned file whose cited files hash the same there. A file is never deleted by a sync; learning the same question again overwrites it, and `-Prune` deletes the ones whose sources changed.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Ask** | `.\dev\ineedtoknow.ps1 -Question "which package owns the gateway route enumeration"` (or just `.\dev\ineedtoknow.ps1 "…"`) | Brief answer from the knowledge base; gathers and stores one with a local model when it holds none |
+| **Look up only** | `.\dev\ineedtoknow.ps1 "…" -NoLearn` | Never contacts a model; prints the closest places to read when there is no answer |
+| **Read specific files** | `.\dev\ineedtoknow.ps1 "…" -In "datrix-semantic/src/**/*tenant*.py"` | A local model reads these files too (framework repositories only) |
+| **Re-gather** | `.\dev\ineedtoknow.ps1 "…" -Refresh` | Skip the lookup; read the closest docs again and replace the stored answer |
+| **Status** | `.\dev\ineedtoknow.ps1 -Status` | Database path, docs and chunks, learned answers, learned files and how many are stale here |
+| **Rebuild** | `.\dev\ineedtoknow.ps1 -Rebuild` | Drop the database and rebuild it from the docs and the committed learned files |
+| **Prune** | `.\dev\ineedtoknow.ps1 -Prune` | Delete learned files whose cited files changed on this machine (a git change to commit) |
+
+**Parameters:** exactly one of: a question (positional or `-Question`), `-Status`, `-Rebuild`, `-Prune`. Modifiers: `-In`, `-Refresh`, `-NoLearn`, `-Limit` (answers shown, default 3), and the shared local-model flags `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (seconds, default 120).
+
+**Exit codes:** 0 answered; 1 the request could not be carried out (the message says why); 2 no answer (not in the knowledge base and no local model could add one). An answer is a lead, not a finding: open the cited lines before acting on it. Gate: `test\ineedtoknow-gate.ps1`.
+
 ### `dev\code-scan.ps1`
 
 **On-demand code-health scan: one ranked digest instead of four scanners' raw output.** By default it scans only the packages whose content changed since their last scan. It tracks this with the code index's file hashes, in `d:\datrix\.code-index\scan-state.json`; the first run covers everything. It runs on this machine and changes nothing but the report and the scan state. Every finding is written, by section and then by package, to `d:\datrix\reports\code-scan\code-scan-<timestamp>.md`, headed by a per-package count table. The console gets one progress line per stage, then one line with the totals and the report's path, so a reader opens just the sections it needs.
