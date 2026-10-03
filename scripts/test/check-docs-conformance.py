@@ -135,6 +135,17 @@ ARCHITECTURE_DOC_FILES: tuple[str, ...] = (
     "datrix-testing/docs/architecture.md",
 )
 
+# API and reference docs. They get the path, module and anchor checks; the
+# Decision-status check stays on ARCHITECTURE_DOC_FILES only.
+REFERENCE_DOC_FILES: tuple[str, ...] = (
+    "datrix-language/docs/datrix-language-api.md",
+    "datrix-language/docs/reference/datrix-stdlib-reference.md",
+    "datrix-language/docs/reference/datrix-syntax-reference.md",
+    "datrix-common/docs/datrix-common-api.md",
+    "datrix-cli/docs/commands.md",
+    "datrix-cli/docs/commands/generate.md",
+)
+
 # The monorepo root, resolved the same way auto_detect_base_dir() resolves it
 # (this script lives at datrix/scripts/test/, i.e. three levels below the root).
 # Needed at module scope so the package tables below can be discovered from disk.
@@ -188,6 +199,7 @@ _WINDOWS_ABS_STRIP_RE = re.compile(r"^[Dd]:/datrix/")
 _LINE_REF_SUFFIX_RE = re.compile(r":\d+(-\d+)?(,\d+(-\d+)?)*$")
 _PATH_SYMBOL_SUFFIX_RE = re.compile(r"::([A-Za-z_][A-Za-z0-9_]*)$")
 _MODULE_CANDIDATE_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z_][a-zA-Z0-9_]*)+$")
+_CALL_SPAN_SUFFIX = "()"
 
 # A path-reference candidate containing any of these markers is rejected --
 # never a candidate, never needs a baseline entry (step 2: elision marker,
@@ -220,8 +232,10 @@ def extract_path_candidates(doc_text: str) -> list[tuple[int, str]]:
 
     A backtick span is a path-reference candidate iff, after trimming
     whitespace, it matches a Windows-absolute ``D:\\datrix\\``/``d:/datrix/``
-    prefix OR its first ``/``-or-``\\``-separated segment is one of the 13
-    known package directory names -- UNLESS it contains an elision marker
+    prefix OR its first ``/``-or-``\\``-separated segment is one of the
+    known package directory names or a known Python import name (an
+    import-name path such as ``datrix_language/foundation.dtrx`` resolves
+    under ``<package dir>/src/``) -- UNLESS it contains an elision marker
     (``...``), a template placeholder (``<``/``>``), or a glob (``*``), in
     which case it is rejected outright (never a candidate).
 
@@ -240,7 +254,9 @@ def extract_path_candidates(doc_text: str) -> list[tuple[int, str]]:
             candidates.append((line_number, span))
             continue
         first_segment = re.split(r"[\\/]", span, maxsplit=1)[0]
-        if first_segment in _PACKAGE_DIRS:
+        if first_segment in _PACKAGE_DIRS or (
+            first_segment in _IMPORT_NAME_TO_PACKAGE_DIR and first_segment != span
+        ):
             candidates.append((line_number, span))
     return candidates
 
@@ -251,7 +267,8 @@ def extract_module_candidates(doc_text: str) -> list[tuple[int, str]]:
     A backtick span is a module-reference candidate iff, after trimming
     whitespace, it matches a dotted lowercase identifier chain
     (``^[a-z][a-z0-9_]*(\\.[a-z_][a-zA-Z0-9_]*)+$``) whose first segment is
-    one of the 12 known Python import names. A trailing segment that starts
+    one of the 12 known Python import names. A trailing ``()`` call suffix is
+    stripped before matching, and the stripped span is the candidate. A trailing segment that starts
     with an uppercase letter (a class name, e.g. ``...DefaultCacheHooks``)
     fails this regex and is deliberately excluded -- this v1 only resolves
     module/function/attribute paths, not class-qualified symbol chains.
@@ -264,7 +281,8 @@ def extract_module_candidates(doc_text: str) -> list[tuple[int, str]]:
         module-reference candidate found, in document order.
     """
     candidates: list[tuple[int, str]] = []
-    for line_number, span in _iter_backtick_spans(doc_text):
+    for line_number, raw_span in _iter_backtick_spans(doc_text):
+        span = raw_span.removesuffix(_CALL_SPAN_SUFFIX)
         if not _MODULE_CANDIDATE_RE.match(span):
             continue
         first_segment = span.split(".", 1)[0]
@@ -393,6 +411,11 @@ def resolve_path_candidate(span: str, monorepo_root: Path) -> bool:
     """
     normalized = span.replace("\\", "/")
     normalized = _WINDOWS_ABS_STRIP_RE.sub("", normalized)
+
+    import_name, separator, import_rest = normalized.partition("/")
+    import_package_dir = _IMPORT_NAME_TO_PACKAGE_DIR.get(import_name)
+    if separator and import_package_dir is not None:
+        normalized = f"{import_package_dir}/src/{import_name}/{import_rest}"
 
     symbol_match = _PATH_SYMBOL_SUFFIX_RE.search(normalized)
     symbol_name: str | None = None
@@ -746,14 +769,18 @@ def check_decision_status(
 
 
 def scan_docs(
-    monorepo_root: Path, doc_files: tuple[str, ...]
+    monorepo_root: Path, doc_files: tuple[str, ...], *, check_decisions: bool
 ) -> list[UnresolvedReference]:
-    """Scan every doc in *doc_files* for unresolved path/module references.
+    """Scan every doc in *doc_files* for unresolved path/module/anchor references.
 
     Args:
         monorepo_root: Monorepo root directory.
-        doc_files: Repo-relative paths of architecture docs to scan (the
-            curated ``ARCHITECTURE_DOC_FILES`` constant in normal use).
+        doc_files: Repo-relative paths of docs to scan (the curated
+            ``ARCHITECTURE_DOC_FILES`` or ``REFERENCE_DOC_FILES`` constant in
+            normal use).
+        check_decisions: Whether the Decision-status check also runs. It
+            belongs to the architecture docs only: reference docs carry no
+            decision sections.
 
     Returns:
         Every unresolved reference found, across all docs, in doc-then-line
@@ -770,9 +797,9 @@ def scan_docs(
         doc_path = monorepo_root / doc_rel
         if not doc_path.exists():
             raise FileNotFoundError(
-                f"Architecture doc {doc_rel} (listed in ARCHITECTURE_DOC_FILES) "
-                f"no longer exists at {doc_path}. Update the ARCHITECTURE_DOC_FILES "
-                f"constant in check-docs-conformance.py to match the current tree."
+                f"Doc {doc_rel} (listed in ARCHITECTURE_DOC_FILES or REFERENCE_DOC_FILES) "
+                f"no longer exists at {doc_path}. Update the constant in "
+                f"check-docs-conformance.py to match the current tree."
             )
 
         doc_text = doc_path.read_text(encoding="utf-8-sig")
@@ -790,7 +817,8 @@ def scan_docs(
                 )
 
         unresolved.extend(check_anchor_links(doc_rel, doc_text, monorepo_root))
-        unresolved.extend(check_decision_status(doc_rel, doc_text, monorepo_root))
+        if check_decisions:
+            unresolved.extend(check_decision_status(doc_rel, doc_text, monorepo_root))
 
     return unresolved
 
@@ -1254,6 +1282,19 @@ def _self_test_checks() -> list[tuple[str, Callable[[], None]]]:
     ),
     ("landed_status_paragraph_counts_as_adopted", _check_landed_status_paragraph_counts_as_adopted),
     ("named_gate_script_must_exist_on_disk", _check_named_gate_script_must_exist_on_disk),
+    ("import_name_path_that_exists_resolves", _check_import_name_path_that_exists_resolves),
+    (
+        "import_name_path_that_does_not_exist_stays_unresolved",
+        _check_import_name_path_that_does_not_exist_stays_unresolved,
+    ),
+    (
+        "call_suffixed_module_span_is_extracted_and_resolved",
+        _check_call_suffixed_module_span_is_extracted_and_resolved,
+    ),
+    (
+        "reference_doc_is_scanned_without_the_decision_check",
+        _check_reference_doc_is_scanned_without_the_decision_check,
+    ),
     ]
 
 
@@ -1351,6 +1392,60 @@ def _check_named_gate_script_must_exist_on_disk() -> None:
         )
         failures = check_decision_status("d.md", doc, root)
         assert len(failures) == 1 and "imaginary-gate.ps1" in failures[0].span, failures
+
+
+def _check_import_name_path_that_exists_resolves() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        target = root / "datrix-language" / "src" / "datrix_language" / "foundation.dtrx"
+        target.parent.mkdir(parents=True)
+        target.write_text("module datrix.foundation\n", encoding="utf-8")
+        doc_text = "Source: `datrix_language/foundation.dtrx`."
+        candidates = extract_path_candidates(doc_text)
+        assert [span for _, span in candidates] == ["datrix_language/foundation.dtrx"], candidates
+        assert resolve_path_candidate(candidates[0][1], root) is True
+
+
+def _check_import_name_path_that_does_not_exist_stays_unresolved() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        (root / "datrix-language" / "src" / "datrix_language").mkdir(parents=True)
+        doc_text = "Source: `datrix_language/stdlib/auth.dtrx`."
+        candidates = extract_path_candidates(doc_text)
+        assert len(candidates) == 1, f"an import-name path must be a candidate, got {candidates}"
+        assert resolve_path_candidate(candidates[0][1], root) is False
+
+
+def _check_call_suffixed_module_span_is_extracted_and_resolved() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        target = root / "datrix-common" / "src" / "datrix_common" / "stdlib" / "catalog.py"
+        target.parent.mkdir(parents=True)
+        target.write_text("def parse_stdlib_modules(): ...\n", encoding="utf-8")
+        doc_text = "Call `datrix_common.stdlib.catalog.parse_stdlib_modules()` once."
+        candidates = extract_module_candidates(doc_text)
+        assert [span for _, span in candidates] == [
+            "datrix_common.stdlib.catalog.parse_stdlib_modules"
+        ], candidates
+        assert resolve_module_candidate(candidates[0][1], root) is True
+        missing = extract_module_candidates("Call `datrix_common.stdlib.nope.parse()`.")
+        assert len(missing) == 1 and resolve_module_candidate(missing[0][1], root) is False
+
+
+def _check_reference_doc_is_scanned_without_the_decision_check() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        doc = root / "datrix-language" / "docs" / "ref.md"
+        doc.parent.mkdir(parents=True)
+        doc.write_text(
+            "### Decision 1: No status\n\nSee `datrix_language/stdlib/auth.dtrx`.\n",
+            encoding="utf-8",
+        )
+        rel = ("datrix-language/docs/ref.md",)
+        reference = scan_docs(root, rel, check_decisions=False)
+        assert [(r.kind, r.span) for r in reference] == [("path", "datrix_language/stdlib/auth.dtrx")], reference
+        architecture = scan_docs(root, rel, check_decisions=True)
+        assert any(r.kind == "decision" for r in architecture), architecture
 
 
 def _dummy_intentionally_failing_check() -> None:
@@ -1501,13 +1596,19 @@ def main() -> int:
         return 2
 
     if args.verbose:
-        print(f"Scanning {len(ARCHITECTURE_DOC_FILES)} architecture doc files:", file=sys.stderr)
-        for doc_rel in ARCHITECTURE_DOC_FILES:
+        scanned = ARCHITECTURE_DOC_FILES + REFERENCE_DOC_FILES
+        print(
+            f"Scanning {len(ARCHITECTURE_DOC_FILES)} architecture and "
+            f"{len(REFERENCE_DOC_FILES)} reference doc files:",
+            file=sys.stderr,
+        )
+        for doc_rel in scanned:
             print(f"  - {doc_rel}", file=sys.stderr)
         print("", file=sys.stderr)
 
     try:
-        unresolved = scan_docs(monorepo_root, ARCHITECTURE_DOC_FILES)
+        unresolved = scan_docs(monorepo_root, ARCHITECTURE_DOC_FILES, check_decisions=True)
+        unresolved.extend(scan_docs(monorepo_root, REFERENCE_DOC_FILES, check_decisions=False))
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2
