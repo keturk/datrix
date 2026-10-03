@@ -1,6 +1,6 @@
 ---
 description: Fully automated multi-wave task orchestrator with dependency analysis and test gating
-model: claude-opus-5-5
+model: claude-sonnet-5-5
 effort: medium
 ---
 
