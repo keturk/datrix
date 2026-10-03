@@ -76,7 +76,7 @@ Closes three closed-world defects (enum-based target identity, asymmetric langua
 |---|---|---|
 | I1 | Zero target-name policy references in shared layers | `powershell -File "d:/datrix/datrix/scripts/dev/check-import-boundaries.ps1" -CheckTargetLiterals` — identifier-level lint ratchet over the DERIVED shared-package set (`discover_shared_packages`: every discovered package registering none of `datrix.languages`/`datrix.platforms`/`datrix.generators`/`datrix.extensions`; today `datrix-common`/`datrix-codegen-kernel`/`datrix-codegen-common`/`datrix-codegen-typescript-core`/`datrix-cli`/`datrix-language`/`datrix-semantic`/`datrix-migration`/`datrix-testing`), never a hardcoded list, matching a frozen closed-world central-table/enum-member name list PLUS a platform-token identifier/module-name shape match (mirrors I3's language-token shape match, minus the `local` English-word collision) PLUS a key/comparand/`.get()`/dict-key/match-value literal-equality shape, an `isinstance`/`issubclass` type-check shape, and an import-module-path shape, each scoped to the registered languages-union-platforms vocabulary (including `local`) and each with an own-language exclusion for a language-core package's own served language. Baseline carries reasoned, decrease-only entries for known, documented platform-identity surfaces (`datrix/scripts/config/target-literal-baseline.toml`) |
 | I2 | Add-a-language = one package | Testkit fixture language plugin generates hello-world; `git status --porcelain` clean across framework repos (`datrix-codegen-common/tests/integration/testkit/test_closed_world_drill.py`) |
-| I3 | Add-a-platform = one package | Same drill, fixture platform plugin |
+| I3 | Add-a-platform = one package | Same drill, fixture platform plugin (`datrix-testing/tests/integration/conformance/test_closed_world_drill.py`) |
 | I4 | Drift is a red test in the drifting package | Kit self-consistency gate: declaration ↔ registration ↔ fixture output; mutation check fails that package's own suite (`test_mutation_check.py`) |
 | I5 | No `(target → policy)` / `(target × target)` tables in shared layers | Subsumed by I1 — enums are gone |
 | I6 | Language packages contain zero provider conditionals | `powershell -File "d:/datrix/datrix/scripts/dev/check-import-boundaries.ps1" -CheckProviderConditionals` — baseline empty (`datrix/scripts/config/provider-conditional-baseline.toml`). The same flag also runs a SEPARATE, hard-zero (no-baseline) check over the DERIVED shared-package set (`discover_shared_packages`; today `datrix_common`/`datrix_codegen_kernel`/`datrix_codegen_common`/`datrix_codegen_typescript_core`/`datrix_cli`/`datrix_language`/`datrix_semantic`/`datrix_migration`/`datrix_testing`) — any hit fails outright, with no grandfathering mechanism. Every shared package is covered by construction: a discovered package this derivation cannot classify (registers an entry-point group outside the four taxonomy groups and outside GenDSL's own non-taxonomy registration axis) aborts the scan naming it, rather than being silently folded into either bucket. The one former offender, `EndpointOrchestrator`'s `ProviderId("local")` + docker-compose runtime comparison used to decide whether to inject the `test_auth` identity provider, is gone: the selected platform's own `PlatformCapabilityDeclaration.injected_test_identity_providers` answers this now (docker/local declares `("test_auth",)`; cloud platforms declare `()`), so the shared orchestrator asks the platform instead of naming one. |
@@ -613,7 +613,7 @@ Full decision log: [Architecture Overview — Decision 52](./architecture-overvi
 
 One `auth(...)` declaration yields one behaviour on every language and route kind. The guard
 decision is computed once, in the generation kernel, from the route's `AuthContract`.
-**Approved — implementation in progress.**
+**Adopted.**
 
 - **Five kinds.** `PUBLIC` (credential never read), `WEBHOOK` (its `verify(...)` only), `OPTIONAL`
   (absent → anonymous, presented-and-bad → 401), `AUTHENTICATED` and `SERVICE` (absent → 401).
@@ -632,10 +632,12 @@ decision is computed once, in the generation kernel, from the route's `AuthContr
   builtin member is rejected before generation.
 - **Gateway verify.** The static key comes from the declared secret resolver; delegated verify runs
   the full auth chain, so revocation applies.
-- **Inputs and vocabulary.** REST and WebSocket request models reject unknown fields. Reason codes
+- **Inputs and vocabulary.** REST, WebSocket and serverless request models reject unknown fields
+  (a serverless route validates its query, body and path as one object over its declared
+  parameters: missing, mistyped or undeclared → 422). Reason codes
   come from `AuthReasonCode` alone, never re-typed or parsed out of message text.
 
-Full decision log: [Architecture Overview — Decision 53](./architecture-overview.md#decision-53-one-auth-behaviour-per-route-kind--five-guard-kinds-one-chain-dead-identity-surfaces-removed-approved--implementation-in-progress).
+Full decision log: [Architecture Overview — Decision 53](./architecture-overview.md#decision-53-one-auth-behaviour-per-route-kind--five-guard-kinds-one-chain-dead-identity-surfaces-removed-adopted).
 
 ## Zero-Environment Runtime — Declared Per Language
 

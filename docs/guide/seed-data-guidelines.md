@@ -223,7 +223,7 @@ The generator pre-computes the hash at generation time using the configured secu
 
 ### Geometry / Geospatial Fields
 
-Use `@geo()` for GeoJSON strings:
+The `@geo()` seed function is designed for GeoJSON strings:
 
 ```dseed
 warehouseDb.DeliveryZone table {
@@ -231,6 +231,8 @@ warehouseDb.DeliveryZone table {
   "Downtown Zone",  @geo('{"type":"Polygon","coordinates":[[[...]]]}'),    15;
 }
 ```
+
+RDBMS seeding of geometry and geospatial columns is currently rejected at generation time on Python.
 
 ### JSON and Map Fields
 
@@ -242,6 +244,18 @@ orderDb.Order table {
   "ORD-001",      @json('{"source": "web", "priority": 1}'),  @json('["express", "fragile"]');
 }
 ```
+
+### Seed Values Are Bound Parameters
+
+Seed values reach the database only as bound parameters on every supported language. Every RDBMS seed table reaches the database through a statement that holds only dialect-quoted identifiers and named placeholders. Row values are bound by the database driver or ORM at run time — no seed value is ever written into SQL text.
+
+**Python typed-cell rules:** At generation time, Python converts each cell to its field's type. A cell on a column type with no plain binding — geometry, geography, binary, duration, struct, or collection — is rejected at generation time. For types with plain binding:
+- `UUID` cells accept a UUID string (8-4-4-4-12 format)
+- `Decimal` and `Money` cells accept a string or number
+- `Date` cells use ISO date format (`YYYY-MM-DD`)
+- `DateTime` cells require ISO-8601 format with an explicit offset (`+00:00` or `Z`); a timestamp without an offset is rejected
+- `Time` cells use ISO time format (`HH:MM:SS`)
+- A cell with a malformed or wrong-type value fails generation, naming the entity and field
 
 ---
 
