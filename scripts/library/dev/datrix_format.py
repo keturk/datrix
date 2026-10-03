@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Conservative formatter for Datrix .dtrx files."""
+"""Format Datrix .dtrx files with the lossless formatter from datrix-language."""
 
 from __future__ import annotations
 
 import argparse
 import difflib
 import os
-import re
 import signal
 import sys
 from dataclasses import dataclass
@@ -18,8 +17,21 @@ if _library_dir.exists() and str(_library_dir) not in sys.path:
 
 from shared.venv import get_datrix_root  # noqa: E402
 
-_DTRX_SUFFIXES = (".dtrx", ".dtrx.false")
-_LINE_RE = re.compile(r"(.*?)(\r\n|\n|\r)?$")
+from datrix_common.errors.base import DatrixError  # noqa: E402
+from datrix_common.fileops.io import (  # noqa: E402
+    read_text_utf8_exact,
+    replace_text_utf8_atomic,
+)
+from datrix_language.formatting import (  # noqa: E402
+    FormatOptions,
+    format_dtrx_source,
+    verify_lossless,
+)
+from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser  # noqa: E402
+
+# Only valid .dtrx files: the formatter refuses a file it cannot parse, and
+# `.dtrx.false` fixtures are intentionally invalid.
+_DTRX_SUFFIX = ".dtrx"
 _SKIP_DIRS = frozenset(
     {
         ".git",
@@ -53,7 +65,7 @@ def _sigint_handler(_signum: int, _frame: object) -> None:
 
 
 def _is_dtrx_file(path: Path) -> bool:
-    return path.name.endswith(_DTRX_SUFFIXES)
+    return path.suffix == _DTRX_SUFFIX
 
 
 def _discover_dtrx_files(path: Path) -> list[Path]:
@@ -76,115 +88,6 @@ def _discover_dtrx_files(path: Path) -> list[Path]:
     return sorted(found)
 
 
-def _split_line(line: str) -> tuple[str, str]:
-    match = _LINE_RE.fullmatch(line)
-    if match is None:
-        return line, ""
-    return match.group(1), match.group(2) or ""
-
-
-def _code_portion(text: str) -> str:
-    result: list[str] = []
-    quote: str | None = None
-    escaped = False
-    i = 0
-    while i < len(text):
-        char = text[i]
-        next_char = text[i + 1] if i + 1 < len(text) else ""
-        if quote is None and char == "/" and next_char == "/":
-            break
-        if quote is None and char in {"'", '"'}:
-            quote = char
-            result.append(" ")
-        elif quote is not None:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            result.append(" ")
-        else:
-            result.append(char)
-        i += 1
-    return "".join(result)
-
-
-def _leading_closing_braces(code: str) -> int:
-    count = 0
-    for char in code.lstrip():
-        if char == "}":
-            count += 1
-        elif char.isspace():
-            continue
-        else:
-            break
-    return count
-
-
-def _format_source(source: str, *, indent_size: int) -> str:
-    lines = source.splitlines(keepends=True)
-    if not lines:
-        return source
-
-    indent_level = 0
-    formatted_lines: list[str] = []
-    unit = " " * indent_size
-    default_newline = "\r\n" if "\r\n" in source else "\n"
-
-    for line in lines:
-        body, newline = _split_line(line)
-        stripped_body = body.lstrip(" \t")
-        if stripped_body == "":
-            if formatted_lines and formatted_lines[-1].strip() == "":
-                continue
-            formatted_lines.append(newline or default_newline)
-            continue
-
-        code = _code_portion(stripped_body)
-        line_indent = max(indent_level - _leading_closing_braces(code), 0)
-        formatted_lines.append(f"{unit * line_indent}{stripped_body}{newline}")
-
-        indent_level = max(indent_level + code.count("{") - code.count("}"), 0)
-
-    return _ensure_blank_line_after_standalone_closing_brace(
-        formatted_lines,
-        default_newline=default_newline,
-    )
-
-
-def _ensure_blank_line_after_standalone_closing_brace(
-    lines: list[str],
-    *,
-    default_newline: str,
-) -> str:
-    output: list[str] = []
-    for index, line in enumerate(lines):
-        output.append(line)
-        body, newline = _split_line(line)
-        if body.strip() != "}":
-            continue
-        next_line = lines[index + 1] if index + 1 < len(lines) else ""
-        next_body, _ = _split_line(next_line)
-        if next_line and next_body.strip() != "":
-            output.append(newline or default_newline)
-    return "".join(output)
-
-
-def _nonblank_payload(source: str) -> list[str]:
-    payload: list[str] = []
-    for line in source.splitlines():
-        stripped = line.lstrip(" \t")
-        if stripped:
-            payload.append(stripped)
-    return payload
-
-
-def _assert_safe_format(original: str, formatted: str) -> None:
-    if _nonblank_payload(original) != _nonblank_payload(formatted):
-        raise ValueError("formatter changed nonblank source content")
-
-
 def _unified_diff(path: Path, original: str, formatted: str) -> str:
     return "".join(
         difflib.unified_diff(
@@ -198,7 +101,8 @@ def _unified_diff(path: Path, original: str, formatted: str) -> str:
 
 class DatrixFormatter:
     def __init__(self, *, indent_size: int, check: bool, diff: bool, debug: bool) -> None:
-        self.indent_size = indent_size
+        self.options = FormatOptions(indent_size=indent_size)
+        self.parser = TreeSitterParser()
         self.check = check
         self.diff = diff
         self.debug = debug
@@ -214,17 +118,17 @@ class DatrixFormatter:
         self.files_seen += 1
         self._debug(f"Formatting {path}")
         try:
-            original = path.read_text(encoding="utf-8-sig")
-        except Exception as exc:
+            original = read_text_utf8_exact(path)
+        except (OSError, UnicodeDecodeError) as exc:
             self.errors += 1
             return FormatResult(path, changed=False, error=f"Cannot read file: {exc}")
 
         try:
-            formatted = _format_source(original, indent_size=self.indent_size)
-            _assert_safe_format(original, formatted)
-        except Exception as exc:
+            formatted = format_dtrx_source(original, self.options, self.parser)
+            verify_lossless(original, formatted, self.parser, file_path=path)
+        except DatrixError as exc:
             self.errors += 1
-            return FormatResult(path, changed=False, error=str(exc))
+            return FormatResult(path, changed=False, error=exc.message)
 
         if formatted == original:
             return FormatResult(path, changed=False, original=original, formatted=formatted)
@@ -241,8 +145,10 @@ class DatrixFormatter:
             print(f"NEEDS-FORMAT {result.path}")
         else:
             try:
-                result.path.write_text(result.formatted, encoding="utf-8")
-            except Exception as exc:
+                replace_text_utf8_atomic(
+                    result.path, result.formatted, expected_current=result.original
+                )
+            except (OSError, DatrixError) as exc:
                 self.errors += 1
                 self.files_changed -= 1
                 return FormatResult(result.path, changed=False, error=f"Cannot write file: {exc}")
@@ -256,7 +162,7 @@ class DatrixFormatter:
         print(f"Files scanned:         {self.files_seen}")
         print(f"Files needing format:  {self.files_changed}")
         print(f"Errors:                {self.errors}")
-        print("Guarantee:             indentation and blank lines only")
+        print("Guarantee:             whitespace only; tokens and comments verified identical")
         if self.errors:
             return 1
         if (self.check or self.diff) and self.files_changed:
@@ -266,7 +172,7 @@ class DatrixFormatter:
 
 def main() -> int:
     signal.signal(signal.SIGINT, _sigint_handler)
-    parser = argparse.ArgumentParser(description="Format Datrix .dtrx indentation safely")
+    parser = argparse.ArgumentParser(description="Format Datrix .dtrx files losslessly")
     parser.add_argument("paths", nargs="*", help="Files or directories to format")
     parser.add_argument("--indent-size", type=int, default=4, choices=range(1, 9))
     parser.add_argument("--check", action="store_true", help="Report files that would change")
@@ -319,7 +225,7 @@ def main() -> int:
 
     if formatter.errors:
         if not args.check and not args.diff:
-            print("\nNo files were written because one or more files failed safety validation.")
+            print("\nNo files were written because one or more files failed verification.")
         return formatter.report()
 
     for result in planned_results:

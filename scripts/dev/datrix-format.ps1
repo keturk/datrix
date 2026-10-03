@@ -1,13 +1,15 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Format Datrix .dtrx files without re-rendering the AST.
+ Format Datrix .dtrx files losslessly, with the same formatter as `datrix format`.
 
 .DESCRIPTION
- Discovers .dtrx and .dtrx.false files under the given paths and applies a
- conservative text formatter. It adjusts leading indentation and inserts one
- empty line after a standalone closing brace when followed by another content
- line. It refuses to write if the ordered nonblank source lines change.
+ Discovers .dtrx files under the given paths and normalizes their whitespace over
+ the parse tree (datrix_language.formatting): indentation follows bracket nesting,
+ trailing whitespace is removed, and a run of blank lines becomes one. Every token
+ and comment is verified identical before anything is written; writes are atomic.
+ It writes nothing if any file fails parsing or verification. .dtrx.false fixtures
+ are intentionally invalid and are not formatted.
 
 .PARAMETER Path
  One or more file or directory paths to scan.
