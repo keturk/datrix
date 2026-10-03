@@ -201,6 +201,13 @@
     {
       "repos": ["datrix"],
       "gitignore": "examples/**/generated/**/.gitignore",
+      "pattern": ".tsc_cache/",
+      "path_glob": "examples/**/.tsc_cache/**",
+      "reason": "generation-time `tsc --noEmit` validation cache the TypeScript language hook writes at the project root (a merged package.json, its lockfile and a hash); recreated on every generation, never authored and never published."
+    },
+    {
+      "repos": ["datrix"],
+      "gitignore": "examples/**/generated/**/.gitignore",
       "pattern": ".dart_tool/",
       "path_glob": "examples/**/.dart_tool/**",
       "reason": "Dart/Flutter pub resolution cache written by `flutter pub get` in a generated Flutter client; regenerated from pubspec, never authored."
