@@ -65,6 +65,8 @@ config strings ecommerce.Storefront locale "tr-TR" {
     framework.noMatches    = "Bu filtrelerle eşleşen sonuç yok";
     framework.showingRange = "{from}–{to} arası gösteriliyor";
     framework.back = "Geri";
+    framework.optional = "(isteğe bağlı)";
+    framework.notProvided = "Belirtilmedi";
     framework.formatting   = "Biçimlendirme";
     framework.bold         = "Kalın";
     framework.italic       = "İtalik";
