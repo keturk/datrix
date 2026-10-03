@@ -19,6 +19,17 @@ generator, but every one of its fields is a single word, so its effective
 wire name is identical either way -- a gate that grepped for a marker like
 `alias_generator` would flag it as a false positive.
 
+A second census covers what that comparison cannot see: a transform applied
+AFTER serialization. A framework-level response transform (a global
+interceptor, a response-model setting that changes how field names are
+serialized) rewrites every outgoing body, so it is invisible to a comparison
+over the emitted response classes. Each language declares the regular
+expressions that spell such a transform in its own framework
+(`LanguageCapabilityDeclaration.response_body_transform_idioms`); this gate
+greps the generated tree for them and every hit must be a typed entry in the
+exemption file's `transform_exemptions` (language, path suffix, matched text,
+reason). An exemption that matches no hit is stale and fails too.
+
 Target set is NEVER hardcoded: languages are enumerated from the installed
 `datrix.languages` entry points at run time.
 """
@@ -51,6 +62,8 @@ from datrix_cli.pipeline.contract import PipelineConfig, PipelineResult  # noqa:
 from datrix_cli.pipeline.generation import GenerationPipeline  # noqa: E402
 from datrix_cli.generation.validation_level import ValidationLevel  # noqa: E402
 from datrix_codegen_common.generation.wire_naming import body_wire_name  # noqa: E402
+from datrix_common.errors.plugin import PluginNotFoundError, PluginValidationError  # noqa: E402
+from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
 from datrix_common.plugin.identity import LanguageId  # noqa: E402
 from datrix_language.registration import register_all  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
@@ -530,6 +543,171 @@ def load_exemptions() -> dict[tuple[str, str], str]:
 
 
 # ---------------------------------------------------------------------------
+# Response-body transform census
+# ---------------------------------------------------------------------------
+
+#: Directories a census never descends into: dependency and VCS trees, not
+#: generated source.
+_TRANSFORM_SCAN_SKIP_DIRS: Final[frozenset[str]] = frozenset(
+    {"node_modules", ".git", "__pycache__", ".venv"}
+)
+
+#: A generated file larger than this is data (a lockfile, a bundle), not
+#: handwritten-shaped source a framework idiom could appear in.
+_TRANSFORM_SCAN_MAX_BYTES: Final[int] = 2_000_000
+
+
+@dataclass(frozen=True)
+class TransformHit:
+    """One place a generated tree spells a response-body transform idiom.
+
+    Attributes:
+        language: `datrix.languages` entry-point name whose tree holds the hit.
+        relative_path: The file, relative to the generated root, in POSIX form.
+        line: 1-based line number of the match.
+        matched_text: The exact text the idiom matched.
+    """
+
+    language: str
+    relative_path: str
+    line: int
+    matched_text: str
+
+
+@dataclass(frozen=True)
+class TransformExemption:
+    """A reviewed generated-tree hit that does not transform a response body.
+
+    Attributes:
+        language: The language whose tree holds the hit.
+        path_suffix: Trailing path segments of the file (POSIX), e.g.
+            ``src/app.module.ts`` -- a service's own directory differs, so the
+            coordinate is the suffix.
+        matched_text: The exact text the idiom matched.
+        reason: Why this hit leaves every response body untouched.
+    """
+
+    language: str
+    path_suffix: str
+    matched_text: str
+    reason: str
+
+    def covers(self, hit: TransformHit) -> bool:
+        """True when *hit* is the hit this entry reviewed."""
+        return (
+            hit.language == self.language
+            and hit.matched_text == self.matched_text
+            and hit.relative_path.endswith(self.path_suffix)
+        )
+
+
+def load_transform_exemptions() -> tuple[TransformExemption, ...]:
+    """Load and validate the ``transform_exemptions`` of `body-wire-naming-exemptions.json`.
+
+    Raises:
+        ValueError: If the file or its ``transform_exemptions`` array is missing
+            or malformed, or an entry lacks a non-empty field.
+    """
+    if not EXEMPTIONS_PATH.exists():
+        raise ValueError(
+            f"Missing exemption file {EXEMPTIONS_PATH}. It pins the reviewed "
+            f"response-body transform hits. Restore it from git; the gate never creates it."
+        )
+    data = json.loads(EXEMPTIONS_PATH.read_text(encoding="utf-8"))
+    entries = data.get("transform_exemptions")
+    if not isinstance(entries, list):
+        raise ValueError(
+            f"Malformed exemption file {EXEMPTIONS_PATH}: expected 'transform_exemptions' "
+            f"(array of {{language, path_suffix, matched_text, reason}})."
+        )
+    exemptions: list[TransformExemption] = []
+    for entry in entries:
+        for key in ("language", "path_suffix", "matched_text", "reason"):
+            if not isinstance(entry.get(key), str) or not entry[key].strip():
+                raise ValueError(
+                    f"Transform exemption entry {entry!r} is missing a non-empty {key!r}."
+                )
+        exemptions.append(
+            TransformExemption(
+                language=entry["language"],
+                path_suffix=entry["path_suffix"],
+                matched_text=entry["matched_text"],
+                reason=entry["reason"],
+            )
+        )
+    return tuple(exemptions)
+
+
+def response_transform_idioms(language: str) -> tuple[re.Pattern[str], ...]:
+    """The compiled response-transform idioms *language* declares.
+
+    Raises:
+        ValueError: *language* has no capability declaration to read them from;
+            the message names the language and the underlying cause.
+    """
+    try:
+        declaration = declaration_for_language(language)
+    except (PluginNotFoundError, PluginValidationError) as exc:
+        raise ValueError(
+            f"language {language!r} declares no LanguageCapabilityDeclaration, so its "
+            f"response_body_transform_idioms cannot be read ({exc}). Fix: add the "
+            f"declaration to the language package."
+        ) from exc
+    return declaration.compiled_response_body_transform_idioms()
+
+
+def census_response_transforms(
+    language: str, generated_root: Path, idioms: Sequence[re.Pattern[str]]
+) -> list[TransformHit]:
+    """Every line of the generated tree under *generated_root* that spells an idiom.
+
+    Args:
+        language: The language whose tree this is (carried onto each hit).
+        generated_root: The generated project directory.
+        idioms: The language's compiled response-transform idioms.
+
+    Returns:
+        One hit per match, ordered by path then line.
+    """
+    hits: list[TransformHit] = []
+    for path in sorted(generated_root.rglob("*")):
+        if not path.is_file() or any(part in _TRANSFORM_SCAN_SKIP_DIRS for part in path.parts):
+            continue
+        if path.stat().st_size > _TRANSFORM_SCAN_MAX_BYTES:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        relative = path.relative_to(generated_root).as_posix()
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            for idiom in idioms:
+                hits.extend(
+                    TransformHit(language, relative, line_number, match.group(0))
+                    for match in idiom.finditer(line)
+                )
+    return hits
+
+
+def unexempted_transform_hits(
+    hits: Sequence[TransformHit], exemptions: Sequence[TransformExemption]
+) -> list[TransformHit]:
+    """The hits no exemption reviewed."""
+    return [hit for hit in hits if not any(entry.covers(hit) for entry in exemptions)]
+
+
+def stale_transform_exemptions(
+    language: str, hits: Sequence[TransformHit], exemptions: Sequence[TransformExemption]
+) -> list[TransformExemption]:
+    """The *language* exemptions that cover no hit -- they no longer review anything."""
+    return [
+        entry
+        for entry in exemptions
+        if entry.language == language and not any(entry.covers(hit) for hit in hits)
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Non-vacuity self-test
 # ---------------------------------------------------------------------------
 
@@ -597,7 +775,74 @@ def run_self_test() -> list[str]:
         problems.append("self-test: exemption map construction is broken.")
 
     problems.extend(_run_serialization_alias_precedence_self_test())
+    problems.extend(_run_transform_census_self_test())
     problems.extend(_run_insufficient_target_refusal_self_test())
+    return problems
+
+
+#: The planted interceptor line the transform census self-test must report, and
+#: the idiom (a language's own declared spelling of it) that matches it.
+_SELF_TEST_INTERCEPTOR_LINE: Final[str] = "app.useGlobalInterceptors(new KeyRewriteInterceptor());"
+_SELF_TEST_INTERCEPTOR_IDIOM: Final[str] = r"\buseGlobalInterceptors\("
+_SELF_TEST_INTERCEPTOR_MATCH: Final[str] = "useGlobalInterceptors("
+_SELF_TEST_TREE_DIR: Final[str] = "self-test-transform-census"
+
+
+def _run_transform_census_self_test() -> list[str]:
+    """Prove the transform census reports a planted hit, honours an exemption,
+    flags a stale one, ignores a clean file, and refuses an undeclared language.
+
+    The planted ``useGlobalInterceptors(`` line is the exact shape of the
+    transform the TypeScript backend used to install; the census must report it
+    at its coordinates before any real tree is trusted.
+    """
+    problems: list[str] = []
+    root = _GATE_OUTPUT_ROOT / _SELF_TEST_TREE_DIR
+    shutil.rmtree(root, ignore_errors=True)
+    (root / "src").mkdir(parents=True)
+    try:
+        (root / "src" / "main.ts").write_text(
+            f"bootstrap();\n{_SELF_TEST_INTERCEPTOR_LINE}\n", encoding="utf-8"
+        )
+        (root / "src" / "clean.ts").write_text(
+            "app.useGlobalPipes(new ValidationPipe());\n", encoding="utf-8"
+        )
+        hits = census_response_transforms(
+            _SELF_TEST_LANGUAGE, root, (re.compile(_SELF_TEST_INTERCEPTOR_IDIOM),)
+        )
+        planted = TransformHit(_SELF_TEST_LANGUAGE, "src/main.ts", 2, _SELF_TEST_INTERCEPTOR_MATCH)
+        if hits != [planted]:
+            problems.append(
+                f"self-test: the transform census did not report exactly the planted "
+                f"{_SELF_TEST_INTERCEPTOR_MATCH!r} hit at src/main.ts:2 (got {hits!r}); a clean "
+                "useGlobalPipes( line must never match."
+            )
+        exemption = TransformExemption(
+            _SELF_TEST_LANGUAGE, "src/main.ts", _SELF_TEST_INTERCEPTOR_MATCH, "self-test exemption"
+        )
+        if unexempted_transform_hits([planted], []) != [planted]:
+            problems.append("self-test: an unexempted transform hit was not reported.")
+        if unexempted_transform_hits([planted], [exemption]):
+            problems.append("self-test: a transform hit covered by an exemption was still reported.")
+        if stale_transform_exemptions(_SELF_TEST_LANGUAGE, [], [exemption]) != [exemption]:
+            problems.append("self-test: an exemption that matches no hit was not reported as stale.")
+        if stale_transform_exemptions(_SELF_TEST_LANGUAGE, [planted], [exemption]):
+            problems.append("self-test: an exemption that covers a hit was reported as stale.")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    try:
+        response_transform_idioms(_SELF_TEST_LANGUAGE)
+    except ValueError as exc:
+        if _SELF_TEST_LANGUAGE not in str(exc):
+            problems.append(
+                "self-test: the refusal of a language with no declaration did not name it."
+            )
+    else:
+        problems.append(
+            "self-test: a language with no capability declaration was not refused -- the "
+            "census would silently count nothing for it."
+        )
     return problems
 
 
@@ -735,17 +980,57 @@ def _generate_example_for_language(language: str) -> Path:
     return output_dir
 
 
+def _check_response_transforms(
+    language: str, output_dir: Path, exemptions: Sequence[TransformExemption]
+) -> bool:
+    """Run the response-transform census over *language*'s generated tree.
+
+    Returns:
+        False when the language declares no idioms, a hit is not covered by a
+        reviewed exemption, or an exemption for the language covers no hit.
+    """
+    try:
+        idioms = response_transform_idioms(language)
+    except ValueError as exc:
+        logger.error("BODY WIRE-NAMING VIOLATION: %s", exc)
+        return False
+    hits = census_response_transforms(language, output_dir, idioms)
+    ok = True
+    for hit in unexempted_transform_hits(hits, exemptions):
+        ok = False
+        logger.error(
+            "BODY WIRE-NAMING VIOLATION: language %r spells a response-body transform at "
+            "%s:%d (%r). A transform applied to every outgoing body changes the wire names "
+            "the response classes declare. Fix: delete the transform, or add a reviewed "
+            "entry to 'transform_exemptions' in %s if it leaves the body untouched.",
+            hit.language, hit.relative_path, hit.line, hit.matched_text, EXEMPTIONS_PATH,
+        )
+    for entry in stale_transform_exemptions(language, hits, exemptions):
+        ok = False
+        logger.error(
+            "BODY WIRE-NAMING VIOLATION: the transform exemption for language %r "
+            "(%s, %r) matches nothing in the generated tree. Fix: delete it from %s.",
+            entry.language, entry.path_suffix, entry.matched_text, EXEMPTIONS_PATH,
+        )
+    return ok
+
+
 def _check_language(
-    language: str, exemptions: Mapping[tuple[str, str], str]
+    language: str,
+    exemptions: Mapping[tuple[str, str], str],
+    transform_exemptions: Sequence[TransformExemption],
 ) -> tuple[bool, Counter[str]]:
-    """Run the real check for one language.
+    """Run the real checks for one language over one generated example.
 
     Returns:
         `(conformant, excluded_by_scope)` -- `conformant` is False if the
-        language has no registered extractor or emits at least one
-        unexempted divergence; `excluded_by_scope` tallies the schema kinds
-        this language's extractor recognized but excluded as out-of-population.
+        language has no registered extractor, emits at least one unexempted
+        divergence, or fails the response-transform census; `excluded_by_scope`
+        tallies the schema kinds this language's extractor recognized but
+        excluded as out-of-population.
     """
+    output_dir = _generate_example_for_language(language)
+    transforms_ok = _check_response_transforms(language, output_dir, transform_exemptions)
     extractor = _EXTRACTORS.get(language)
     if extractor is None:
         logger.error(
@@ -758,10 +1043,9 @@ def _check_language(
         )
         return False, Counter()
 
-    output_dir = _generate_example_for_language(language)
     response_fields = extractor.extract(output_dir)
     excluded = Counter(extractor.excluded_by_scope)
-    ok = True
+    ok = transforms_ok
     for field in response_fields:
         if is_wire_name_conformant(field):
             continue
@@ -815,11 +1099,12 @@ def check_body_wire_naming_conformance(languages: Sequence[str] | None = None) -
 
     shutil.rmtree(_GATE_OUTPUT_ROOT, ignore_errors=True)
     exemptions = load_exemptions()
+    transform_exemptions = load_transform_exemptions()
 
     ok = True
     total_excluded: Counter[str] = Counter()
     for language in languages:
-        language_ok, excluded = _check_language(language, exemptions)
+        language_ok, excluded = _check_language(language, exemptions, transform_exemptions)
         ok = ok and language_ok
         total_excluded.update(excluded)
 
@@ -831,8 +1116,9 @@ def check_body_wire_naming_conformance(languages: Sequence[str] | None = None) -
 
     if ok:
         logger.info(
-            "Body wire-naming conformance holds across %d languages (%s); "
-            "every divergence is exempted.", len(languages), languages,
+            "Body wire-naming conformance holds across %d languages (%s); every "
+            "divergence is exempted and no unreviewed response-body transform exists.",
+            len(languages), languages,
         )
         return 0
     return 1
