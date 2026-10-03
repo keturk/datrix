@@ -20,7 +20,17 @@ A generated `.gitignore` has two owners: the language's `service/gitignore.j2` (
 
 ## Framework HTTP Headers and Problem Types
 
-Every header Datrix mints (trusted-caller token, rate-limit headers, inbound webhook secret, outbound delivery headers) has one home, `datrix_codegen_common.generation.http_headers` (`FRAMEWORK_HEADERS`; retired names under `RETIRED_HEADERS`); a language uses the exact registered name or constant and is obligated to realize every family. `framework-header-parity-gate.ps1` (exemptions in `framework-header-exemptions.json`, empty today; retired spellings have no exemption path). RFC 7807 `type` values are `urn:datrix:error:<slug>`, minted by `datrix_common.datrix_model.problem_types` (`FRAMEWORK_PROBLEM_TYPES`); `problem-type-parity-gate.ps1` holds every literal slug to the registry and every family to realized-or-counted-gap.
+Every header Datrix mints (trusted-caller token, rate-limit headers, inbound webhook secret, outbound delivery headers) has one home, `datrix_codegen_common.generation.http_headers` (`FRAMEWORK_HEADERS`; retired names under `RETIRED_HEADERS`); a language uses the exact registered name or constant and is obligated to realize every family. `framework-header-parity-gate.ps1` (exemptions in `framework-header-exemptions.json`, empty today; retired spellings have no exemption path). RFC 7807 `type` values are `urn:datrix:error:<slug>`, minted only by `datrix_common.datrix_model.problem_types` (`FRAMEWORK_PROBLEM_TYPES`). **A language never spells one:** every refusal a generated service writes — a route, a guard, a middleware, a serverless adapter, a websocket or GraphQL denial — goes through that language's one registry-rendered responder (`problem_details.py` / `problem-details.dto.ts`) by `PROBLEM_<FAMILY>` reference, and `problem-type-parity-gate.ps1` counts registry references, fails any `urn:datrix:error:<slug>` literal, and holds every family to referenced-or-counted-gap.
+
+| A request is refused because | Answer |
+|---|---|
+| a body is not JSON, is absent, or its top level is not the declared kind | 400 `bad-request`, fixed detail |
+| a path / query / body field is missing, unknown, repeated (a scalar query key sent twice) or of the wrong shape | 422 `request-validation`, `errors[]` of `{location, field, code, message}` with `location` ∈ `path`/`query`/`body` and `code` ∈ `required`/`unknown_field`/`repeated`/`invalid` — one entry per field, the highest-precedence code |
+| an entity `validate` block fails | 422 `validation`, `violations[]` |
+| a delete meets a `restrict` child | 409 `cascade-restriction`, checked before any before-hook runs on both languages |
+| a caller is unauthenticated, forbidden, throttled or a dependency is down | 401 / 403 / 429 / 503 with the registered title only — the reason code is logged, never sent |
+
+The trusted-caller refusal is opaque on the wire and writes the shared audit event `identity.trusted_caller.rejected` (`reason_code`, `path`) on both languages.
 
 ## Gateways and Observability
 
