@@ -541,7 +541,7 @@ entity User extends BaseEntity {
 }
 ```
 
-**Complex entity (when needed; see [examples/02-features/01-core-data-modeling/authentication/book-service.dtrx](../../examples/02-features/01-core-data-modeling/authentication/book-service.dtrx) for User with Auth.hashPassword in beforeCreate):**
+**Complex entity (when needed):**
 ```datrix
 entity User extends BaseEntity {
  Email email : unique;
@@ -555,10 +555,6 @@ entity User extends BaseEntity {
  validate {
  if (firstName.trim().isEmpty())
  ValidationError("First name is required");
- }
-
- beforeCreate {
- passwordHash = Auth.hashPassword(passwordHash);
  }
 
  afterCreate {

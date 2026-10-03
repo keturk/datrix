@@ -37,7 +37,7 @@
 
 Shipped `.dtrx` modules in `datrix-language` ([datrix-stdlib-reference.md](../../../datrix-language/docs/reference/datrix-stdlib-reference.md)) are part of the language distribution, not optional user packages.
 
-- **Implicit availability** — Stdlib exports (`BaseEntity`, `Address`, `hashPassword`, …) resolve from global scope without `import`/`use`; qualified `datrix.*` names also work.
+- **Implicit availability** — Stdlib exports (`BaseEntity`, `Address`, …) resolve from global scope without `import`/`use`; qualified `datrix.*` names also work.
 - **Lazy loading** — A stdlib module deserializes only when a reference forces it.
 - **User-first shadowing** — User definitions win over stdlib; shadowing is intentional, not a warning. Use qualified names for the stdlib shape.
 - **Concrete codegen** — Unlike mostly-abstract builtins, referenced stdlib entities, structs and functions become real generated artifacts.
