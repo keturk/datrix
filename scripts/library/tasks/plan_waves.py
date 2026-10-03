@@ -63,8 +63,9 @@ from task_metadata import (
 
 
 def _task_order_key(task_id: str) -> tuple[int, int, str]:
-    """Numeric task order (phase, number, id): `task-61-100` follows `task-61-99`, not `task-61-10`."""
+    """Numeric task order (phase, number, id): number 100 sorts after number 99, not after number 10."""
     return (task_id_phase(task_id), task_id_number(task_id), task_id)
+
 
 logger = logging.getLogger(__name__)
 

@@ -146,7 +146,7 @@ Left alone: quality-gate tasks (reading the code is the job), tasks that already
 |------|---------|-------------|
 | **Dry run a phase** | `.\tasks\retrofit-orientation.ps1 -Phase 61` | Per task: entries it would add, review lines it would remove, KB of source the agent was told to read vs KB answered |
 | **Apply** | `.\tasks\retrofit-orientation.ps1 -Phase 61 -Apply` | Writes the rewritten tasks (originals copied aside first) |
-| **Given tasks** | `.\tasks\retrofit-orientation.ps1 -Task D:\datrix\datrix-codegen-typescript\.tasks\phase-61\task-61-04-delete-graphql-descriptor-copies.md` | One or more task files |
+| **Given tasks** | `.\tasks\retrofit-orientation.ps1 -Task D:\datrix\<repo>\.tasks\phase-NN\task-NN-TT-<slug>.md` | One or more task files |
 
 **Parameters:** `-Task <file>[,<file>...]`, `-Phase <NN>`, `-Apply`, `-BaseDir`. **Exit codes:** 0 = done, 2 = usage error. Run `validate-task.ps1 -Phase <NN>` afterwards.
 
@@ -161,7 +161,7 @@ Validates task files **against the tree as it is now**, deterministically and wi
 | Mode | Command | Description |
 |------|---------|-------------|
 | **A phase** | `.\tasks\validate-task.ps1 -Phase 61` | Every task of the phase in every repo; exit 1 on any error |
-| **Given tasks** | `.\tasks\validate-task.ps1 -Task D:\datrix\datrix-codegen-typescript\.tasks\phase-61\task-61-05-enum-import-identifier-boundary.md` | One or more task files |
+| **Given tasks** | `.\tasks\validate-task.ps1 -Task D:\datrix\<repo>\.tasks\phase-NN\task-NN-TT-<slug>.md` | One or more task files |
 | **Warnings fail** | `.\tasks\validate-task.ps1 -Phase 61 -Strict` | A moved line fails the run |
 | **Orientation required** | `.\tasks\validate-task.ps1 -Phase 62 -RequireOrientation` | A task with no `## Orientation` is an error (for tasks written to the new template) |
 
