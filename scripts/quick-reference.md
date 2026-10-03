@@ -136,6 +136,7 @@ Most scripts support:
 | ConfigDSL lint/format | `scripts/dev/config-linter.ps1` |
 | Code index (per machine) | `d:\datrix\.code-index\` — built and refreshed by `scripts/dev/code-index.ps1` (set up each machine once with `-Setup`) |
 | Local model servers (per machine) | `scripts/dev/local-llm.ps1` — `-Setup` puts the agents' local-model MCP tools in `d:\datrix\.mcp.json` and approves them, once per machine; `-Status`/`-Usage` show what answers and what used it (`d:\datrix\.local-llm\usage.jsonl`) |
+| Knowledge base (per machine) | `scripts/dev/ineedtoknow.ps1 "<question>"` — brief answer from the docs and earlier learned answers, or a local-model read of the closest docs that is kept only when its citations hold; database `d:\datrix\.knowledge\knowledge.db`, committed text copy of learned answers `datrix\docs\knowledge\learned\` |
 | Logic map database | `d:\datrix\.logic-map\markers.db` — rewritten by the code index whenever markers change |
 | Logic map scripts | `scripts/dev/code-index.ps1 -Canonical`, `scripts/dev/logic-map-report.ps1` |
 | Python implementations | `scripts/library/` |

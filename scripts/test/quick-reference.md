@@ -1897,6 +1897,31 @@ It is a repo-level validation **script**, not a pytest suite.
 
 ---
 
+### `test\ineedtoknow-gate.ps1`
+
+Behaviour checks for `dev\ineedtoknow.ps1` (`library/knowledge/*`, `library/dev/ineedtoknow_cli.py`). Each check builds a real workspace in a temporary directory (framework repositories plus a customer-style repository), uses real SQLite files, and answers through a real OpenAI-compatible server on loopback. It never contacts the network's model servers and never touches the machine's own knowledge base. The checks cover:
+
+- chunking: a chunk's body equals the document's own lines `line_start`..`line_end`; a `#` line inside a code fence is not a heading; a long section splits into bounded chunks that keep every line
+- sync: docs are added, updated by content hash and removed; a customer repository never enters the knowledge base
+- lookup: a question is answered only by a chunk covering most of its significant words (camelCase identifiers match their words); unrelated and stopword-only questions find nothing
+- the committed text copy: a learned file round-trips and a hand-edited id, a missing front matter, a bad source hash or an empty answer is refused; a second machine converges from the files alone, a rebuild restores them, and deleting a file drops the answer
+- expiry: an answer whose cited file changed is not returned, not imported by another machine, never deleted by a sync, and deleted by `-Prune`
+- gathering: the model is sent the closest chunks with their real line numbers and no customer text; an answer is stored only when grounded (no citation, a citation of an unsent file or line, quoted code that was not sent, and "nothing relevant" are each rejected and write nothing); no model server raises `LocalLlmUnavailable`
+
+It is a repo-level validation **script**, not a pytest suite.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\ineedtoknow-gate.ps1` | Run every check |
+| **One area** | `.\test\ineedtoknow-gate.ps1 -Only check_gather` | Checks whose name starts with the prefix |
+| **Harness self-test** | `.\test\ineedtoknow-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
+
+**Parameters:** `-Only`, `-HarnessSelfTest`, `-Dbg`
+
+**Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
+
+---
+
 ### `test\pre-review-gate.ps1`
 
 Behaviour checks for the first-pass pre-review (`scripts/library/git/pre_review.py`, wrapped by `git/pre-review.ps1`), over real git repositories in a temporary directory. It covers:
