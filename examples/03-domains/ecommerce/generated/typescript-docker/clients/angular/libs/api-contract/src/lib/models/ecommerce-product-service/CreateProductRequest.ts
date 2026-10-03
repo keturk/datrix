@@ -4,7 +4,7 @@ import type { Uuid } from '../../core/branded';
 export interface CreateProductRequest {
   categoryId: Uuid;
   description: string;
-  inventory: number;
+  inventory?: number;
   name: string;
   price: number;
 }

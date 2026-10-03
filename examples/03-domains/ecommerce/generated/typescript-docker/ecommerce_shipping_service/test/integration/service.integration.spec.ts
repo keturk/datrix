@@ -19,8 +19,15 @@ describe('EcommerceShippingService Service Integration', () => {
 
   beforeAll(async () => {
     process.env['SHIPPING_DB_DATABASE_URL'] =
-      process.env['TEST_DATABASE_URL'] ||
-      'postgresql://test:test@localhost:5432/test_db';
+      process.env['SHIPPING_DB_DATABASE_URL'] || process.env['TEST_DATABASE_URL'] || '';
+    if (!process.env['SHIPPING_DB_DATABASE_URL']) {
+      throw new Error(
+        "Missing 'SHIPPING_DB_DATABASE_URL' (or 'TEST_DATABASE_URL') environment variable. " +
+          'Set it, or run through the deploy-test harness (tests/deploy-test.js), ' +
+          "which resolves 'SHIPPING_DB_DATABASE_URL' from the deployed container's " +
+          'config-store.json and secret-mounted password.',
+      );
+    }
     process.env['NODE_ENV'] = 'test';
 
     const moduleFixture: TestingModule = await Test.createTestingModule({

@@ -9,7 +9,7 @@ import datetime
 import decimal
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 from ecommerce_payment_service.enums.payment_status import PaymentStatus
@@ -18,7 +18,9 @@ from ecommerce_payment_service.enums.payment_status import PaymentStatus
 class RefundCreate(BaseModel):
     """Schema for creating a new Refund."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     amount: decimal.Decimal
     reason: str = Field(max_length=500)
@@ -35,7 +37,9 @@ class RefundUpdate(BaseModel):
     All fields are optional for partial updates.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     amount: decimal.Decimal | None = None
     reason: str | None = Field(default=None, max_length=500)
@@ -44,6 +48,24 @@ class RefundUpdate(BaseModel):
     error_message: str | None = None
     processed_at: datetime.datetime | None = None
     payment_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def _reject_explicit_null(self) -> RefundUpdate:
+        """An omitted field is left unchanged; null is a value only on an optional field."""
+        for field_name in (
+            "amount",
+            "reason",
+            "status",
+            "payment_id",
+        ):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(
+                    f"{field_name} cannot be null. Omit it to leave the stored value unchanged."
+                )
+        return self
 
 
 class RefundResponse(BaseModel):
@@ -67,4 +89,4 @@ class RefundResponse(BaseModel):
     error_message: str | None = None
     processed_at: datetime.datetime | None = None
     payment_id: uuid.UUID
-    is_successful: bool | None = None
+    is_successful: bool

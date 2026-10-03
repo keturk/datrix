@@ -23,13 +23,10 @@ import { IdempotencyKeyService } from './services/idempotency_key.service';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { MetricsInterceptor } from './observability/metrics.interceptor';
 import { LoggerModule } from './observability/logger.module';
-import { GatewayJwtVerifyController } from './ecommerce_order_service/gateway-jwt-verify.controller';
 import { getThrottlerModule } from './ecommerce_order_service/gateway-throttler.config';
 import { JobsModule } from './jobs/jobs.module';
-import { RateLimitGuard } from './rate-limit/rate-limit.guard';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { HttpClientsModule } from './http-clients.module';
-import { InternalGuard } from './discovery/internal-guard';
 import { AllExceptionsFilter } from './errors/all-exceptions-filter';
 import { FunctionsService } from './functions';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -58,13 +55,10 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
     MetricsController,
     HealthController,
     RuntimeReadinessController,
-    GatewayJwtVerifyController,
     OrderAPIController,
   ],
   providers: [
     { provide: RemoteConfigClient, useFactory: buildRuntimeReadinessConfigClient },
-    { provide: APP_GUARD, useClass: InternalGuard },
-    { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     CacheHealthService,

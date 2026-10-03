@@ -22,6 +22,8 @@ import { PostgreSqlDriver } from '@mikro-orm/postgresql';
 import { ConfigService } from '@nestjs/config';
 import { buildClient, RemoteConfigClient } from '../config/remoteConfig';
 import { SecretsService } from '../ecommerce_payment_service/secrets/secrets.service';
+import { PaymentAuditSubscriber } from '../ecommerce_payment_service/entities/payment_db/payment-audit.subscriber';
+import { RefundAuditSubscriber } from '../ecommerce_payment_service/entities/payment_db/refund-audit.subscriber';
 
 export async function getDatabaseConfig(
   configService: ConfigService,
@@ -40,6 +42,7 @@ export async function getDatabaseConfig(
     entities: [
       __dirname + '/../ecommerce_payment_service/entities/payment_db/**/*.entity{.ts,.js}',
     ],
+    subscribers: [new PaymentAuditSubscriber(), new RefundAuditSubscriber()],
     allowGlobalContext: true,
     debug: configService.get<boolean>('DATABASE_LOGGING', false),
     pool: {
@@ -47,6 +50,7 @@ export async function getDatabaseConfig(
     },
     migrations: {
       path: __dirname + '/../migrations/payment-db',
+      tableName: 'mikro_orm_migrations_payment_db',
       emit: 'ts',
     },
     host,

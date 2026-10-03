@@ -68,6 +68,11 @@ describe('UserApi Deployment Tests', () => {
     expect(response.status).toBe(200);
   });
 
+  it('POST /api/v1/me/api-keys?request=integration-path-value returns 201', async () => {
+    const response = await fetch(`${BASE_URL}/api/v1/me/api-keys?request=integration-path-value`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    expect(response.status).toBe(201);
+  });
+
   it('POST /api/v1/verify-email?request=integration-path-value returns 201', async () => {
     const response = await fetch(`${BASE_URL}/api/v1/verify-email?request=integration-path-value`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
     expect(response.status).toBe(201);

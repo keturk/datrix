@@ -47,6 +47,7 @@ export async function getDatabaseConfig(
     },
     migrations: {
       path: __dirname + '/../migrations/product-db',
+      tableName: 'mikro_orm_migrations_product_db',
       emit: 'ts',
     },
     host,

@@ -117,6 +117,16 @@ async def test_user_api_put_me_password(client):
 
 
 @pytest.mark.integration
+async def test_user_api_post_me_api_keys(client):
+    """POST /api/v1/me/api-keys returns 422"""
+    response = await client.post(
+        "/api/v1/me/api-keys",
+        json={},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.integration
 async def test_user_api_post_verify_email(client):
     """POST /api/v1/verify-email returns 422"""
     response = await client.post(
@@ -271,6 +281,14 @@ class TestUserApiAuthAccess:
         )
         assert response.status_code == 401
 
+    async def test_user_api_post_me_api_keys_unauthenticated(self, unauth_client):
+        """POST /api/v1/me/api-keys without auth returns 401"""
+        response = await unauth_client.post(
+            "/api/v1/me/api-keys",
+            json={},
+        )
+        assert response.status_code == 401
+
     async def test_user_api_put_by_id_status_unauthenticated(self, unauth_client):
         """PUT /api/v1/00000000-0000-0000-0000-000000000001/status without auth returns 401"""
         response = await unauth_client.put(
@@ -344,18 +362,43 @@ class TestUserApiAuthAccess:
     async def test_user_api_get_service_by_id_non_service_token(
         self, wrong_role_client
     ):
-        """GET /api/v1/service/00000000-0000-0000-0000-000000000001 with a non-service token returns 401"""
+        """GET /api/v1/service/00000000-0000-0000-0000-000000000001 with a non-service token returns 403"""
         response = await wrong_role_client.get(
             "/api/v1/service/00000000-0000-0000-0000-000000000001",
         )
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     async def test_user_api_post_service_validate_session_non_service_token(
         self, wrong_role_client
     ):
-        """POST /api/v1/service/validate-session with a non-service token returns 401"""
+        """POST /api/v1/service/validate-session with a non-service token returns 403"""
         response = await wrong_role_client.post(
             "/api/v1/service/validate-session",
             json={},
         )
+        assert response.status_code == 403
+
+
+@pytest.mark.integration
+class TestApiKeyVerifyAuthAccess:
+    """Test authentication and role-based access control for ApiKeyVerify."""
+
+    async def test_api_key_verify_post_customer_keys_verify_unauthenticated(
+        self, unauth_client
+    ):
+        """POST /internal/identity/api-keys/customerKeys/verify without auth returns 401"""
+        response = await unauth_client.post(
+            "/internal/identity/api-keys/customerKeys/verify",
+            json={},
+        )
         assert response.status_code == 401
+
+    async def test_api_key_verify_post_customer_keys_verify_non_service_token(
+        self, wrong_role_client
+    ):
+        """POST /internal/identity/api-keys/customerKeys/verify with a non-service token returns 403"""
+        response = await wrong_role_client.post(
+            "/internal/identity/api-keys/customerKeys/verify",
+            json={},
+        )
+        assert response.status_code == 403

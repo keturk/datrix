@@ -40,8 +40,8 @@ export interface ProductServiceProductResponse {
   images: Record<string, any>;
   tags: Record<string, any>;
   categoryId: string;
-  isAvailable: boolean | null;
-  discountPercent: number | null;
+  isAvailable: boolean;
+  discountPercent: number;
 }
 
 export interface ProductServiceAvailabilityResponseResponse {
@@ -136,10 +136,10 @@ export function decodeProductServiceProductResponse(payload: unknown): ProductSe
   const val13 = raw13 as Record<string, any>;
   const raw14 = readField(data, 'categoryId', 'categoryId', 'ProductServiceProductResponse', false);
   const val14 = raw14 as string;
-  const raw15 = readField(data, 'isAvailable', 'isAvailable', 'ProductServiceProductResponse', true);
-  const val15 = raw15 as boolean | null;
-  const raw16 = readField(data, 'discountPercent', 'discountPercent', 'ProductServiceProductResponse', true);
-  const val16 = raw16 as number | null;
+  const raw15 = readField(data, 'isAvailable', 'isAvailable', 'ProductServiceProductResponse', false);
+  const val15 = raw15 as boolean;
+  const raw16 = readField(data, 'discountPercent', 'discountPercent', 'ProductServiceProductResponse', false);
+  const val16 = raw16 as number;
   return {
     createdAt: val1,
     updatedAt: val2,

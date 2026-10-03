@@ -15,6 +15,7 @@ import { _fieldChanged, _fieldOldValue } from '../../../entity-hook-helpers';
 import { differenceInDays } from 'date-fns';
 
 import { ShipmentEvent } from './shipment-event.entity';
+import { ShipmentItem } from './shipment-item.entity';
 import { ShippingCarrier } from '../../../enums/shipping-carrier.enum';
 import { ShipmentStatus } from '../../../enums/shipment-status.enum';
 import { BaseEntity } from './base-entity.entity';
@@ -44,7 +45,7 @@ export class Shipment extends BaseEntity {
   carrier!: ShippingCarrier;
 
   @Enum({ items: () => ShipmentStatus, nativeEnumName: 'shipment_status' })
-  status!: ShipmentStatus;
+  status: ShipmentStatus = ShipmentStatus.Pending;
 
   @Property({ columnType: 'jsonb', type: 'json' })
   destination!: Address;
@@ -64,6 +65,8 @@ export class Shipment extends BaseEntity {
 
   @OneToMany({ entity: () => ShipmentEvent, mappedBy: 'shipment' })
   events = new Collection<ShipmentEvent>(this);
+  @OneToMany({ entity: () => ShipmentItem, mappedBy: 'shipment' })
+  shipmentitems = new Collection<ShipmentItem>(this);
 
   get isDelivered(): boolean {
     return (this.status === ShipmentStatus.Delivered);

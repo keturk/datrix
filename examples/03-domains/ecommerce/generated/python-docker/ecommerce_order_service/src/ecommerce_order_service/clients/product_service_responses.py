@@ -6,8 +6,7 @@ One dependency-prefixed Pydantic model is materialized per type in the transitiv
 return-type closure of every typed inter-service call to ProductService, plus
 a per-struct decoder that maps the provider's on-the-wire key casing
 (python) onto the caller's struct fields recursively through the
-whole closure. The decoder is the explicit read-side twin of the request-side
-``_ms_snake_keys`` helper: it fails loud — naming the field, struct, and service —
+whole closure. The decoder fails loud — naming the field, struct, and service —
 on a required field that is missing on the wire (contract drift / casing miss),
 while an absent ``Optional`` field decodes to ``None``.
 """
@@ -72,10 +71,8 @@ class ProductServiceProductResponse(BaseModel):
     images: JsonValue
     tags: JsonValue
     category_id: uuid.UUID = Field(serialization_alias="categoryId")
-    is_available: bool | None = Field(default=None, serialization_alias="isAvailable")
-    discount_percent: float | None = Field(
-        default=None, serialization_alias="discountPercent"
-    )
+    is_available: bool = Field(serialization_alias="isAvailable")
+    discount_percent: float = Field(serialization_alias="discountPercent")
 
 
 class ProductServiceAvailabilityResponseResponse(BaseModel):
@@ -232,7 +229,7 @@ def decode_product_service_product_response(
         struct_name="ProductServiceProductResponse",
         is_optional=False,
     )
-    id: uuid.UUID = _raw_id  # type: ignore[assignment]
+    id_: uuid.UUID = _raw_id  # type: ignore[assignment]
     _raw_slug = _read_field(
         data,
         wire_key="slug",
@@ -328,21 +325,21 @@ def decode_product_service_product_response(
         wire_key="isAvailable",
         field_name="is_available",
         struct_name="ProductServiceProductResponse",
-        is_optional=True,
+        is_optional=False,
     )
-    is_available: bool | None = _raw_is_available  # type: ignore[assignment]
+    is_available: bool = _raw_is_available  # type: ignore[assignment]
     _raw_discount_percent = _read_field(
         data,
         wire_key="discountPercent",
         field_name="discount_percent",
         struct_name="ProductServiceProductResponse",
-        is_optional=True,
+        is_optional=False,
     )
-    discount_percent: float | None = _raw_discount_percent  # type: ignore[assignment]
+    discount_percent: float = _raw_discount_percent  # type: ignore[assignment]
     return ProductServiceProductResponse(
         created_at=created_at,
         updated_at=updated_at,
-        id=id,
+        id=id_,
         slug=slug,
         price=price,
         compare_at_price=compare_at_price,

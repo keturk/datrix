@@ -1,0 +1,35 @@
+{
+  "audience": "customer",
+  "authority": "http://localhost:8080",
+  "clientIdRef": "IdentityStorefrontNativePublicClientId",
+  "flows": [
+    "authorization_code"
+  ],
+  "issuer": "http://localhost:8080",
+  "logoutUris": [
+    "com.example.store://oauth/logout"
+  ],
+  "providerName": "identity",
+  "redirectUris": [
+    "com.example.store://oauth/callback"
+  ],
+  "roleMappings": {
+    "admins": "admin"
+  },
+  "rolesClaim": "urn:zitadel:iam:org:project:roles",
+  "scopes": [
+    "openid",
+    "profile",
+    "email"
+  ],
+  "tokenValidation": {
+    "allowedAlgorithms": [
+      "RS256"
+    ],
+    "allowedAudiences": [
+      "http://localhost:8080"
+    ],
+    "issuer": "http://localhost:8080",
+    "jwksUri": "http://localhost:8080/oauth/v2/keys"
+  }
+}

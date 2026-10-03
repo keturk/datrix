@@ -97,7 +97,6 @@ export class UserService {
     return snapshot[fieldName];
   }
 
-
   private _validate(entity: User): void {
     const errors: string[] = [];
     if (((!validator.isEmail(entity.email)))) {
@@ -116,8 +115,7 @@ export class UserService {
 
   async getByEmail(email: string): Promise<User> {
     const entity = await this.em.findOne(User, {
-      email
-    } as never);
+      email    } as never);
     if (!entity) {
       throw new NotFoundException(`User with email ${ email } not found`);
     }

@@ -21,7 +21,7 @@ describe('OrderApi Custom Endpoints', () => {
   });
 
   describe('GET /api/v1/orders/?page=1&perPage=1&status=pending', () => {
-    it('should handle none request', async () => {
+    it('should handle getEndpoint request', async () => {
       const response = await request(app.getHttpServer())
         .get('/api/v1/orders/?page=1&perPage=1&status=pending')
         .set('Authorization', 'Bearer test-token')
@@ -31,7 +31,7 @@ describe('OrderApi Custom Endpoints', () => {
   });
 
   describe('PUT /api/v1/orders/00000000-0000-0000-0000-000000000001/cancel?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle putByIdCancel request', async () => {
       const response = await request(app.getHttpServer())
         .put('/api/v1/orders/00000000-0000-0000-0000-000000000001/cancel?request=integration-path-value')
         .set('Authorization', 'Bearer test-token')

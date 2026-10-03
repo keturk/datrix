@@ -8,12 +8,12 @@ import { producerInstance as mqProducerInstance } from '../mq/producer';
 
 export async function shippingDbShipmentAfterUpdate(
   target: Shipment,
-  db: EntityManager,
+  em: EntityManager,
   oldValues?: Record<string, unknown>,
 ): Promise<void> {
   if (_fieldChanged(target, "status", oldValues)) {
-    const entity = this.__datrixEntityManager!.getRepository(ShipmentEvent).create({ shipment: target, timestamp: new Date(), status: target.status, location: 'System', description: `Status updated to ${target.status}` } as never);
-    await this.__datrixEntityManager!.getRepository(ShipmentEvent).getEntityManager().persistAndFlush(entity);
+    const entity = em.getRepository(ShipmentEvent).create({ shipment: target, timestamp: new Date(), status: target.status, location: 'System', description: `Status updated to ${target.status}` } as never);
+    await em.getRepository(ShipmentEvent).getEntityManager().persistAndFlush(entity);
     if ((target.status === ShipmentStatus.InTransit)) {
       if (mqProducerInstance !== null) {
     await mqProducerInstance.publishShipmentDispatched({ shipmentId: target.id, orderId: target.orderId, trackingNumber: target.trackingNumber });

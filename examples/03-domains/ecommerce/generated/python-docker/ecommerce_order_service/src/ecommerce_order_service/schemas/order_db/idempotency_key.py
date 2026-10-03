@@ -10,7 +10,14 @@ import decimal
 import enum
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 from pydantic.alias_generators import to_camel
 
 
@@ -49,7 +56,9 @@ def _coerce_json_safe(value: object) -> object:
 class IdempotencyKeyCreate(BaseModel):
     """Schema for creating a new IdempotencyKey."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     key: str = Field(max_length=100)
     operation: str = Field(max_length=50)
@@ -71,7 +80,9 @@ class IdempotencyKeyUpdate(BaseModel):
     All fields are optional for partial updates.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     key: str | None = Field(default=None, max_length=100)
     operation: str | None = Field(default=None, max_length=50)
@@ -84,6 +95,23 @@ class IdempotencyKeyUpdate(BaseModel):
     def _coerce_response_json(cls, v: object) -> object:
         """Coerce non-JSON-native values (UUID, datetime, Decimal, Enum) before validation."""
         return _coerce_json_safe(v)
+
+    @model_validator(mode="after")
+    def _reject_explicit_null(self) -> IdempotencyKeyUpdate:
+        """An omitted field is left unchanged; null is a value only on an optional field."""
+        for field_name in (
+            "key",
+            "operation",
+            "expires_at",
+        ):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(
+                    f"{field_name} cannot be null. Omit it to leave the stored value unchanged."
+                )
+        return self
 
 
 # Entity for idempotency key deduplication

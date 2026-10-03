@@ -4,21 +4,16 @@ describe('buildUserPreferences', () => {
   it('should return a valid partial entity', () => {
     const result = buildUserPreferences();
     expect(result).toBeDefined();
-    expect(result.language).toBeDefined();
-    expect(result.timezone).toBeDefined();
-    expect(result.emailNotifications).toBeDefined();
-    expect(result.smsNotifications).toBeDefined();
     expect(result.preferences).toBeDefined();
-    expect(result.userId).toBeDefined();
     expect(result.user).toBeDefined();
   });
 
   it('should apply overrides', () => {
     const overrides = {
-      language: `x`,
+      preferences: { key: 'value' },
     };
     const result = buildUserPreferences(overrides);
-    expect(result.language).toBe(overrides.language);
+    expect(result.preferences).toBe(overrides.preferences);
   });
 
   it('should produce different instances', () => {

@@ -17,6 +17,7 @@ from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 
 import httpx
+import jwt
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient, AsyncHTTPTransport
@@ -75,6 +76,22 @@ MxQgu+/ium0WzE4H+sRQgI5bAJlrkUWbxbcIFDmGYLITX76cTbEpJW71REwEQb4D
 iMDcD3h9GyvEnLTd+8/OsPEI07Gy6ntaDQ0sI74PqfpV4Dw+hwnbZkAudE6aO4N3
 KQIDAQAB
 -----END PUBLIC KEY-----"""
+_TEST_JWKS_ISSUER: str = "http://datrix-test-jwks:8080"
+_TEST_JWKS_KEY_ID: str = "datrix-test-key-1"
+# JWKS document for _TEST_JWT_PRIVATE_KEY's public key (kid datrix-test-key-1).
+# In deployment the datrix-test-jwks sidecar serves this; for in-process
+# (ASGITransport) unit tests _seed_test_identity_plan writes it to a temp file
+# and points the test_auth provider's jwksUri at it via a file:// URI, so
+# authenticated endpoints validate tokens through the real identity/JWKS code
+# path without a network sidecar.
+_TEST_JWKS_JSON: str = (
+    '{"keys": [{"alg": "RS256", "e": "AQAB", "kid": "datrix-test-key-1", "kty": "RSA",'
+    ' "n": "2HZT4SphbKwF2pZjVhz_Q4ewx_sFliPTLyKf2XbV4_qC7rPU66r1gKEgfUY6p-CZUBsb_-Jqd3'
+    "SFPv1YFlR6lv4fxqUzzDq9-yC1Q7ADXb_WJGXKgVAdaRZcteC9SKW83mpfwR8FWDt_s406KtM-55oluFqg"
+    "2eUL3KQQdWpepI7V5y2QbswHSN2tAQxcXqPEpdhw0d_Lzb70tzpmA8kWMxQgu-_ium0WzE4H-sRQgI5bAJ"
+    "lrkUWbxbcIFDmGYLITX76cTbEpJW71REwEQb4DiMDcD3h9GyvEnLTd-8_OsPEI07Gy6ntaDQ0sI74PqfpV"
+    '4Dw-hwnbZkAudE6aO4N3KQ", "use": "sig"}]}'
+)
 
 logger = logging.getLogger(__name__)
 
@@ -353,6 +370,69 @@ def _seed_test_secrets(
     _secrets_resolver._SECRET_CACHE.clear()
 
 
+@pytest.fixture(autouse=True)
+def _seed_test_identity_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Seed an in-process identity provider plan + local JWKS for auth tests.
+
+    The baked ``_bootstrap.IDENTITY_PROVIDER_PLAN_PATH`` points at the
+    deployment-only file ``/app/config/identity/identity-providers.json`` whose
+    ``test_auth`` provider resolves its JWKS from the ``datrix-test-jwks``
+    sidecar — neither exists for in-process (ASGITransport) unit tests.  This
+    fixture writes the test JWKS to a temp file and a provider plan whose
+    ``test_auth`` provider resolves that JWKS via a ``file://`` URI, then points
+    the bootstrap path at the temp plan.  ``_make_jwt`` stamps tokens with the
+    matching issuer and key id so the service validates them through the real
+    identity/JWKS code path — no mocking.
+
+    The provider cache and JWKS-client cache are module-level singletons; they
+    are cleared before and after each test so a plan from one test cannot bleed
+    into another.
+    """
+    from ecommerce_notification_service import identity
+    from ecommerce_notification_service.config import _bootstrap
+
+    identity_dir = tmp_path / "identity"
+    identity_dir.mkdir()
+    jwks_file = identity_dir / "jwks.json"
+    jwks_file.write_text(_TEST_JWKS_JSON, encoding="utf-8")
+    plan = {
+        "schemaVersion": 6,
+        "providers": {
+            "test_auth": {
+                "credential": "jwt",
+                "name": "test_auth",
+                # Every guarded route enforces its principal types; the test
+                # tokens are human principals, so an auth(service) route
+                # refuses them (403) exactly as it refuses any human token.
+                "principalType": "human",
+                "issuer": _TEST_JWKS_ISSUER,
+                "jwksUri": jwks_file.as_uri(),
+                "jwksCacheTtlSeconds": 300,
+                "allowedAlgorithms": ["RS256"],
+                "allowedAudiences": [],
+                # No late-bound audiences for the in-process test
+                # provider — its audience is not assigned at provisioning time.
+                # A non-empty list here would name env vars that MUST resolve.
+                "allowedAudienceRefs": [],
+                "roleSource": {"claimPath": "roles"},
+                "roleMappings": {},
+                "attributeMappings": {},
+                "localIdentity": {"mode": "subjectText"},
+            }
+        },
+    }
+    plan_file = identity_dir / "identity-providers.json"
+    plan_file.write_text(json.dumps(plan), encoding="utf-8")
+    monkeypatch.setattr(_bootstrap, "IDENTITY_PROVIDER_PLAN_PATH", str(plan_file))
+    identity._cached_plan = None
+    identity._cached_plan_path = None
+    identity._jwks_clients.clear()
+    yield
+    identity._cached_plan = None
+    identity._cached_plan_path = None
+    identity._jwks_clients.clear()
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def _assemble_test_settings(
     _seed_test_config: None,
@@ -404,6 +484,32 @@ class _ExtendedJSONEncoder(json.JSONEncoder):
 
 def _json_serializer(obj: object) -> str:
     return json.dumps(obj, cls=_ExtendedJSONEncoder)
+
+
+def _make_jwt(roles: list[str]) -> str:
+    """Create an RS256 test JWT with a unique subject and the given roles.
+
+    A fresh UUID4 subject is generated per call so that concurrent test
+    sessions never share a Redis rate-limit key (they resolve to distinct
+    ``u:<sub>`` client keys in the plan-based rate limiter).  Stamped with
+    the test JWKS issuer and key id so the in-process service validates it
+    through the real identity/JWKS code path against the JWKS seeded by
+    ``_seed_test_identity_plan``.
+    """
+    now = datetime.datetime.now(datetime.UTC)
+    payload = {
+        "sub": str(uuid.uuid4()),
+        "roles": roles,
+        "iat": int(now.timestamp()),
+        "exp": int((now + datetime.timedelta(hours=1)).timestamp()),
+        "iss": _TEST_JWKS_ISSUER,
+    }
+    return jwt.encode(
+        payload,
+        _TEST_JWT_PRIVATE_KEY,
+        algorithm="RS256",
+        headers={"kid": _TEST_JWKS_KEY_ID},
+    )
 
 
 _DB_CONNECT_ATTEMPTS = 5
@@ -548,6 +654,38 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """HTTP client fixture for ASGI or deployed testing."""
     base_url = os.environ.get("BASE_URL")
     if base_url:
+        headers = {"Authorization": f"Bearer {_make_jwt(['Member'])}"}
+        transport = _RetryTransport(AsyncHTTPTransport(retries=_TRANSPORT_RETRIES))
+        async with AsyncClient(
+            transport=transport,
+            base_url=base_url,
+            timeout=_DEPLOY_TIMEOUT_SECONDS,
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            await _warm_up(async_client)
+            yield async_client
+    else:
+        from ecommerce_notification_service.main import app
+
+        app.dependency_overrides[get_notification_db_db] = lambda s=db_session: s
+        transport = ASGITransport(app=app)
+        headers = {"Authorization": f"Bearer {_make_jwt(['Member'])}"}
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://localhost",
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            yield async_client
+        app.dependency_overrides.pop(get_notification_db_db, None)
+
+
+@pytest_asyncio.fixture
+async def unauth_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """HTTP client without auth token (for testing 401 on protected endpoints)."""
+    base_url = os.environ.get("BASE_URL")
+    if base_url:
         transport = _RetryTransport(AsyncHTTPTransport(retries=_TRANSPORT_RETRIES))
         async with AsyncClient(
             transport=transport,
@@ -572,11 +710,90 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 
 
 @pytest_asyncio.fixture
+async def wrong_role_client(
+    db_session: AsyncSession,
+) -> AsyncGenerator[AsyncClient, None]:
+    """HTTP client with a token that has a role insufficient for protected endpoints (e.g. Member)."""
+    base_url = os.environ.get("BASE_URL")
+    headers = {"Authorization": f"Bearer {_make_jwt(['Viewer'])}"}
+    if base_url:
+        transport = _RetryTransport(AsyncHTTPTransport(retries=_TRANSPORT_RETRIES))
+        async with AsyncClient(
+            transport=transport,
+            base_url=base_url,
+            timeout=_DEPLOY_TIMEOUT_SECONDS,
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            await _warm_up(async_client)
+            yield async_client
+    else:
+        from ecommerce_notification_service.main import app
+
+        app.dependency_overrides[get_notification_db_db] = lambda s=db_session: s
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://localhost",
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            yield async_client
+        app.dependency_overrides.pop(get_notification_db_db, None)
+
+
+@pytest_asyncio.fixture
+async def invalid_token_client(
+    db_session: AsyncSession,
+) -> AsyncGenerator[AsyncClient, None]:
+    """HTTP client presenting a bearer token that fails verification (401 on every guarded route)."""
+    base_url = os.environ.get("BASE_URL")
+    headers = {"Authorization": "Bearer not-a-valid-jwt"}
+    if base_url:
+        transport = _RetryTransport(AsyncHTTPTransport(retries=_TRANSPORT_RETRIES))
+        async with AsyncClient(
+            transport=transport,
+            base_url=base_url,
+            timeout=_DEPLOY_TIMEOUT_SECONDS,
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            await _warm_up(async_client)
+            yield async_client
+    else:
+        from ecommerce_notification_service.main import app
+
+        app.dependency_overrides[get_notification_db_db] = lambda s=db_session: s
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://localhost",
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            yield async_client
+        app.dependency_overrides.pop(get_notification_db_db, None)
+
+
+@pytest_asyncio.fixture
 async def notification_audit_instance(db_session: AsyncSession):
     """Create a NotificationAudit instance persisted in test DB."""
     from tests.unit.factories.notification_audit_factory import NotificationAuditFactory
 
     instance = NotificationAuditFactory.create()
+    db_session.add(instance)
+    await db_session.flush()
+    return instance
+
+
+@pytest_asyncio.fixture
+async def device_registration_instance(db_session: AsyncSession):
+    """Create a DeviceRegistration instance persisted in test DB."""
+    from tests.unit.factories.device_registration_factory import (
+        DeviceRegistrationFactory,
+    )
+
+    instance = DeviceRegistrationFactory.create()
     db_session.add(instance)
     await db_session.flush()
     return instance

@@ -52,7 +52,6 @@ export class UserPreferencesService {
 
 
 
-
   async getByUser(userId: string, skip = 0, take = 100): Promise<UserPreferences[]> {
     return this.em.find(
       UserPreferences,

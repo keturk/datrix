@@ -16,11 +16,12 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 import ecommerce_payment_service.config._secrets_resolver as _secrets_resolver
+import ecommerce_payment_service.models.payment_db.payment  # noqa: F401
+import ecommerce_payment_service.models.payment_db.refund  # noqa: F401
 from ecommerce_payment_service.config.remote_config import (
     build_client as _build_config_client,
 )
 from ecommerce_payment_service.config.settings import assemble_settings
-from ecommerce_payment_service.models.payment_db import payment, refund  # noqa: F401
 from ecommerce_payment_service.payment_db.base import Base  # noqa: F401
 
 # Import Base so autogenerate can detect models

@@ -104,6 +104,33 @@ async def test_product_api_put_by_id_publish(client):
     assert response.status_code == 404
 
 
+@pytest.mark.integration
+async def test_product_api_get_wire_blob(client):
+    """GET /api/v1/products/wire/blob returns 200"""
+    response = await client.get(
+        "/api/v1/products/wire/blob",
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.integration
+async def test_product_api_get_wire_image_by_id(client):
+    """GET /api/v1/products/wire/image/00000000-0000-0000-0000-000000000001 returns 200"""
+    response = await client.get(
+        "/api/v1/products/wire/image/00000000-0000-0000-0000-000000000001",
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.integration
+async def test_product_api_get_wire_discount_by_id(client):
+    """GET /api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001 returns 200"""
+    response = await client.get(
+        "/api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001",
+    )
+    assert response.status_code == 200
+
+
 # --- Authentication / Authorization Tests ---
 
 
@@ -240,6 +267,31 @@ class TestProductApiAuthAccess:
         )
         assert response.status_code == 401
 
+    async def test_product_api_get_wire_blob_unauthenticated(self, unauth_client):
+        """GET /api/v1/products/wire/blob without auth returns 401"""
+        response = await unauth_client.get(
+            "/api/v1/products/wire/blob",
+        )
+        assert response.status_code == 401
+
+    async def test_product_api_get_wire_image_by_id_unauthenticated(
+        self, unauth_client
+    ):
+        """GET /api/v1/products/wire/image/00000000-0000-0000-0000-000000000001 without auth returns 401"""
+        response = await unauth_client.get(
+            "/api/v1/products/wire/image/00000000-0000-0000-0000-000000000001",
+        )
+        assert response.status_code == 401
+
+    async def test_product_api_get_wire_discount_by_id_unauthenticated(
+        self, unauth_client
+    ):
+        """GET /api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001 without auth returns 401"""
+        response = await unauth_client.get(
+            "/api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001",
+        )
+        assert response.status_code == 401
+
     async def test_product_api_update_product_wrong_role(self, wrong_role_client):
         """PUT /api/v1/products/00000000-0000-0000-0000-000000000001 with wrong role returns 403"""
         response = await wrong_role_client.put(
@@ -282,58 +334,58 @@ class TestProductApiAuthAccess:
     async def test_product_api_post_service_check_availability_non_service_token(
         self, wrong_role_client
     ):
-        """POST /api/v1/products/service/check-availability with a non-service token returns 401"""
+        """POST /api/v1/products/service/check-availability with a non-service token returns 403"""
         response = await wrong_role_client.post(
             "/api/v1/products/service/check-availability",
             json={},
         )
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     async def test_product_api_post_service_reserve_inventory_non_service_token(
         self, wrong_role_client
     ):
-        """POST /api/v1/products/service/reserve-inventory with a non-service token returns 401"""
+        """POST /api/v1/products/service/reserve-inventory with a non-service token returns 403"""
         response = await wrong_role_client.post(
             "/api/v1/products/service/reserve-inventory",
             json={},
         )
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     async def test_product_api_post_service_confirm_reservation_non_service_token(
         self, wrong_role_client
     ):
-        """POST /api/v1/products/service/confirm-reservation with a non-service token returns 401"""
+        """POST /api/v1/products/service/confirm-reservation with a non-service token returns 403"""
         response = await wrong_role_client.post(
             "/api/v1/products/service/confirm-reservation",
             json={},
         )
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     async def test_product_api_post_service_release_reservation_non_service_token(
         self, wrong_role_client
     ):
-        """POST /api/v1/products/service/release-reservation with a non-service token returns 401"""
+        """POST /api/v1/products/service/release-reservation with a non-service token returns 403"""
         response = await wrong_role_client.post(
             "/api/v1/products/service/release-reservation",
             json={},
         )
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     async def test_product_api_get_service_by_id_non_service_token(
         self, wrong_role_client
     ):
-        """GET /api/v1/products/service/00000000-0000-0000-0000-000000000001 with a non-service token returns 401"""
+        """GET /api/v1/products/service/00000000-0000-0000-0000-000000000001 with a non-service token returns 403"""
         response = await wrong_role_client.get(
             "/api/v1/products/service/00000000-0000-0000-0000-000000000001",
         )
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     async def test_product_api_post_service_bulk_non_service_token(
         self, wrong_role_client
     ):
-        """POST /api/v1/products/service/bulk with a non-service token returns 401"""
+        """POST /api/v1/products/service/bulk with a non-service token returns 403"""
         response = await wrong_role_client.post(
             "/api/v1/products/service/bulk",
             json={},
         )
-        assert response.status_code == 401
+        assert response.status_code == 403

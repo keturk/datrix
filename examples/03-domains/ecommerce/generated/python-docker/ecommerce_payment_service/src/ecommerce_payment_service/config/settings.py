@@ -28,7 +28,11 @@ from ecommerce_payment_service.config import _bootstrap
 # code-generation time; no environment reads).
 # ---------------------------------------------------------------------------
 DEBUG: bool = False
-ALLOWED_HOSTS: list[str] = ["payment-service.example.com", "localhost"]
+ALLOWED_HOSTS: list[str] = [
+    "payment-service.example.com",
+    "localhost",
+    "ecommerce-payment-service",
+]
 CORS_ORIGINS: list[str] = ["https://app.example.com"]
 CORS_METHODS: list[str] = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
 CORS_HEADERS: list[str] = ["Authorization", "Content-Type"]
@@ -197,10 +201,6 @@ class AppSettings:
     QUEUE_USER: str
     QUEUE_VHOST: str
     QUEUE_PASSWORD_HANDLE: str
-    jwt_algorithm: str
-    jwt_expiry: int
-    jwt_audience: str
-    jwt_issuer: str
     ecommerce_order_service_service_url: str
 
 
@@ -287,10 +287,6 @@ async def assemble_settings(
         QUEUE_USER="guest",
         QUEUE_VHOST="/",
         QUEUE_PASSWORD_HANDLE="queues_password",
-        jwt_algorithm="RS256",
-        jwt_expiry=3600,
-        jwt_audience="",
-        jwt_issuer="",
         ecommerce_order_service_service_url=ecommerce_order_service_service_url,
     )
     logger.info("app_settings_assembled environment=%s", _bootstrap.PROFILE)

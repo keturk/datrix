@@ -7,6 +7,6 @@ export class HandleUserStatusChangedHandler implements IEventHandler<UserStatusC
   private readonly logger = new Logger(HandleUserStatusChangedHandler.name);
 
   async handle(event: UserStatusChangedEvent): Promise<void> {
-console.info('user_status_changed');
+    console.info('user_status_changed');
   }
 }

@@ -36,6 +36,30 @@ export interface ReplayResult {
   eventsPublished: number;
 }
 
+/** Existence and content digest of one object, as seen by seed idempotency policies. */
+export interface StorageObjectHead {
+  readonly exists: boolean;
+  readonly etag: string;
+}
+
+/**
+ * Longest lifetime a signed download link may carry: seven days. S3 SigV4
+ * presigning, GCS V4 signed URLs and Azure SAS tokens on a user-delegation
+ * key all stop at this bound, and the storage rejects a longer link only
+ * when it is opened.
+ */
+export const PRESIGNED_URL_MAX_EXPIRES_SECONDS = 604800;
+
+function validateExpiresIn(expiresIn: number): void {
+  if (Number.isInteger(expiresIn) && expiresIn > 0 && expiresIn <= PRESIGNED_URL_MAX_EXPIRES_SECONDS) {
+    return;
+  }
+  throw new Error(
+    `expiresIn=${expiresIn} is outside the presigned URL lifetime range: expected an integer ` +
+      `between 1 and ${PRESIGNED_URL_MAX_EXPIRES_SECONDS} seconds (seven days). Pass a shorter expiry to getUrl().`,
+  );
+}
+
 const IMAGES_ALLOWED_TYPES: string[] = ["image/jpeg", "image/png", "image/webp"];
 const IMAGES_MAX_SIZE_BYTES = 10485760; // 10mb
 const THUMBNAILS_ALLOWED_TYPES: string[] = ["image/jpeg", "image/png", "image/webp"];
@@ -45,18 +69,38 @@ const THUMBNAILS_MAX_SIZE_BYTES = 2097152; // 2mb
 export class StoreStorageService {
   private readonly logger = new Logger(StoreStorageService.name);
   private readonly s3: S3Client;
+  /**
+   * Signs download links. Bound to MINIO_PUBLIC_ENDPOINT -- the address a
+   * browser reaches MinIO on -- which differs from MINIO_ENDPOINT whenever
+   * this service reaches MinIO over a private network. S3 signatures cover
+   * the host, so the link is signed for the public host up front, never
+   * rewritten afterwards. When both addresses are one, the API client signs.
+   */
+  private readonly presigner: S3Client;
   private readonly bucketName = 'product-images';
 
   constructor(private readonly configService: ConfigService) {
+    const endpoint = this.configService.getOrThrow<string>('MINIO_ENDPOINT');
+    const publicEndpoint = this.configService.getOrThrow<string>('MINIO_PUBLIC_ENDPOINT');
+    const credentials = {
+      accessKeyId: this.configService.getOrThrow<string>('MINIO_ACCESS_KEY'),
+      secretAccessKey: this.configService.getOrThrow<string>('MINIO_SECRET_KEY'),
+    };
     this.s3 = new S3Client({
-      endpoint: this.configService.getOrThrow<string>('MINIO_ENDPOINT'),
-      credentials: {
-        accessKeyId: this.configService.getOrThrow<string>('MINIO_ACCESS_KEY'),
-        secretAccessKey: this.configService.getOrThrow<string>('MINIO_SECRET_KEY'),
-      },
+      endpoint,
+      credentials,
       region: 'us-east-1',
       forcePathStyle: true,
     });
+    this.presigner =
+      publicEndpoint === endpoint
+        ? this.s3
+        : new S3Client({
+            endpoint: publicEndpoint,
+            credentials,
+            region: 'us-east-1',
+            forcePathStyle: true,
+          });
     this.logger.log('Storage client initialized (minio, bucket=product-images)');
   }
 
@@ -73,7 +117,7 @@ export class StoreStorageService {
 
   // -- the minio primitives every folder operation routes through --
 
-  private async putObject(key: string, data: Buffer, contentType: string): Promise<void> {
+  async putObject(key: string, data: Buffer, contentType: string): Promise<void> {
     await this.s3.send(
       new PutObjectCommand({
         Bucket: this.bucketName,
@@ -82,6 +126,32 @@ export class StoreStorageService {
         ContentType: contentType,
       }),
     );
+  }
+
+  /**
+   * Existence and content MD5 (lowercase hex) of one object. Only a not-found
+   * result reads as `{ exists: false, etag: '' }`; every other failure
+   * (authorisation, network, throttling) is rethrown.
+   */
+  async headObject(key: string): Promise<StorageObjectHead> {
+    try {
+      const result = await this.s3.send(
+        new HeadObjectCommand({ Bucket: this.bucketName, Key: key }),
+      );
+      // A multipart upload's ETag is not an MD5; seed writes use a single putObject, so it is one.
+      const etag = (result.ETag ?? '').replace(/\x22/g, '').toLowerCase();
+      return { exists: true, etag };
+    } catch (err) {
+      const failure = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+      if (
+        failure.name === 'NotFound' ||
+        failure.name === 'NoSuchKey' ||
+        failure.$metadata?.httpStatusCode === 404
+      ) {
+        return { exists: false, etag: '' };
+      }
+      throw err;
+    }
   }
 
   private async getObject(key: string): Promise<Buffer> {
@@ -172,12 +242,13 @@ export class StoreStorageService {
     const key = filename.startsWith(`products/images/`)
       ? filename
       : `products/images/${filename}`;
+    validateExpiresIn(expiresIn);
     this.logger.log(`Generating download URL for images: ${key}`);
     const command = new GetObjectCommand({
       Bucket: this.bucketName,
       Key: key,
     });
-    return getSignedUrl(this.s3, command, { expiresIn });
+    return getSignedUrl(this.presigner, command, { expiresIn });
   }
 
   async downloadImages(
@@ -293,12 +364,13 @@ export class StoreStorageService {
     const key = filename.startsWith(`products/thumbnails/`)
       ? filename
       : `products/thumbnails/${filename}`;
+    validateExpiresIn(expiresIn);
     this.logger.log(`Generating download URL for thumbnails: ${key}`);
     const command = new GetObjectCommand({
       Bucket: this.bucketName,
       Key: key,
     });
-    return getSignedUrl(this.s3, command, { expiresIn });
+    return getSignedUrl(this.presigner, command, { expiresIn });
   }
 
   async downloadThumbnails(

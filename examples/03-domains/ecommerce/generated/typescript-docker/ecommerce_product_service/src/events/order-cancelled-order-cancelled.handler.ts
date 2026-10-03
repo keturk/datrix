@@ -21,7 +21,7 @@ export class HandleOrderCancelledHandler implements IEventHandler<OrderCancelled
   ) {}
 
   async handle(event: OrderCancelledEvent): Promise<void> {
-let reservations: InventoryReservation[] = await (this.inventoryReservationRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(InventoryReservation, 'e_inventory_reservation').select('*').where('e_inventory_reservation.reservation_id = ?', [event.payload.reservationId]).andWhere('e_inventory_reservation.status = ?', [ReservationStatus.Reserved]).getResultList();
+    let reservations: InventoryReservation[] = await (this.inventoryReservationRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(InventoryReservation, 'e_inventory_reservation').select('*').where('e_inventory_reservation.reservation_id = ?', [event.payload.reservationId]).andWhere('e_inventory_reservation.status = ?', [ReservationStatus.Reserved]).getResultList();
     // 'transaction(productDb)' wraps operations in a database transaction
     await bufferEvents(async () => {
       await this.productDbEm.transactional(async (manager: EntityManager) => {

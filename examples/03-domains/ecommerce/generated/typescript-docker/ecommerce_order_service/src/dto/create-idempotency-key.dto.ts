@@ -1,6 +1,7 @@
 
 import {
   IsDate,
+  IsDefined,
   IsNotEmpty,
   IsObject,
   IsOptional,
@@ -16,12 +17,14 @@ import { Type } from 'class-transformer';
 export class CreateIdempotencyKeyDto {
 
   @ApiProperty()
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
   key!: string;
 
   @ApiProperty()
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)
@@ -38,6 +41,7 @@ export class CreateIdempotencyKeyDto {
   response?: Record<string, any> | null;
 
   @ApiProperty()
+  @IsDefined()
   @IsDate()
   @Type(() => Date)
   expiresAt!: Date;

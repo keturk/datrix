@@ -11,6 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+from collections.abc import Awaitable, Callable
+
+import aio_pika
 
 import ecommerce_payment_service.config._secrets_resolver as _secrets_resolver
 from ecommerce_payment_service._queue_helpers import _get_connection
@@ -28,7 +31,55 @@ from ecommerce_payment_service.workers.settle_payment_handler import (
 logger = logging.getLogger(__name__)
 
 QUEUE_PROCESS_PAYMENT = "order-service.process-payment"
+DEAD_LETTER_PROCESS_PAYMENT = "order-service.process-payment.dead-letter"
 QUEUE_SETTLE_PAYMENT = "order-service.settle-payment"
+DEAD_LETTER_SETTLE_PAYMENT = "order-service.settle-payment.dead-letter"
+
+_DELIVERY_ATTEMPT_HEADER = "x-delivery-attempt"
+
+_Handler = Callable[[aio_pika.abc.AbstractIncomingMessage], Awaitable[None]]
+
+
+def _settled_by_attempts(
+    channel: aio_pika.abc.AbstractChannel,
+    handler: _Handler,
+    queue_name: str,
+    dead_letter_name: str,
+    max_delivery_attempts: int,
+) -> _Handler:
+    """Run *handler* and settle its message: ack on success; on failure republish
+    it with its next attempt number, or -- once *max_delivery_attempts* have
+    failed -- move it to *dead_letter_name*. RabbitMQ counts no deliveries, so
+    the attempt travels in a message header; a failed message is never dropped
+    and never retried past the bound."""
+
+    async def _settle(message: aio_pika.abc.AbstractIncomingMessage) -> None:
+        try:
+            await handler(message)
+        except Exception:
+            headers = dict(message.headers or {})
+            attempt = int(str(headers.get(_DELIVERY_ATTEMPT_HEADER, 1)))
+            exhausted = attempt >= max_delivery_attempts
+            headers[_DELIVERY_ATTEMPT_HEADER] = attempt + 1
+            target = dead_letter_name if exhausted else queue_name
+            logger.exception(
+                "task_failed queue=%s attempt=%d max_attempts=%d dead_lettered=%s",
+                queue_name,
+                attempt,
+                max_delivery_attempts,
+                exhausted,
+            )
+            await channel.default_exchange.publish(
+                aio_pika.Message(
+                    body=message.body,
+                    headers=headers,
+                    delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                ),
+                routing_key=target,
+            )
+        await message.ack()
+
+    return _settle
 
 
 async def _assemble_settings_for_worker() -> AppSettings:
@@ -53,13 +104,31 @@ async def main() -> None:
         QUEUE_PROCESS_PAYMENT,
         durable=True,
     )
-    await queue_process_payment.consume(handle_process_payment)
+    await channel.declare_queue(DEAD_LETTER_PROCESS_PAYMENT, durable=True)
+    await queue_process_payment.consume(
+        _settled_by_attempts(
+            channel,
+            handle_process_payment,
+            QUEUE_PROCESS_PAYMENT,
+            DEAD_LETTER_PROCESS_PAYMENT,
+            5,
+        )
+    )
     await channel.set_qos(prefetch_count=settings.QUEUE_SETTLE_PAYMENT_CONCURRENCY)
     queue_settle_payment = await channel.declare_queue(
         QUEUE_SETTLE_PAYMENT,
         durable=True,
     )
-    await queue_settle_payment.consume(handle_settle_payment)
+    await channel.declare_queue(DEAD_LETTER_SETTLE_PAYMENT, durable=True)
+    await queue_settle_payment.consume(
+        _settled_by_attempts(
+            channel,
+            handle_settle_payment,
+            QUEUE_SETTLE_PAYMENT,
+            DEAD_LETTER_SETTLE_PAYMENT,
+            5,
+        )
+    )
 
     logger.info(
         "queue_worker_ready service=payment-service queues=[%s]",

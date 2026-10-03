@@ -10,7 +10,6 @@ export function buildShipmentItem(
   return {
     productId: crypto.randomUUID(),
     quantity: 42,
-    shipmentId: crypto.randomUUID(),
     shipment: crypto.randomUUID(),
     ...overrides,
   };

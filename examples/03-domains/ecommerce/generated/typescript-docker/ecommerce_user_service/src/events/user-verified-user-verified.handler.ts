@@ -7,6 +7,6 @@ export class HandleUserVerifiedHandler implements IEventHandler<UserVerifiedEven
   private readonly logger = new Logger(HandleUserVerifiedHandler.name);
 
   async handle(event: UserVerifiedEvent): Promise<void> {
-console.info('user_verified');
+    console.info('user_verified');
   }
 }

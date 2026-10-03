@@ -43,13 +43,13 @@ class InventoryReservation(BaseEntity):
     )
 
     product_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("products.id"),
+        ForeignKey("products.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
     product: Mapped["Product"] = relationship(
         "Product",
-        back_populates="inventory_reservations",
+        back_populates="inventoryreservations",
     )
 
     __table_args__ = (

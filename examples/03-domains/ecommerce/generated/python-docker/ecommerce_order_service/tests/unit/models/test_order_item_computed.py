@@ -16,6 +16,18 @@ from ecommerce_order_service.models.order_db.order_item import OrderItem
 class TestOrderItemComputedFields:
     """Test computed field logic for OrderItem."""
 
+    def test_total_getter_runs(self) -> None:
+        """total getter runs and returns its expected value."""
+        _order_id = uuid.uuid4()
+        instance = OrderItem(
+            product_id=uuid.UUID("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
+            product_name="foo_bar",
+            quantity=100,
+            unit_price=1,
+            order_id=_order_id,
+        )
+        assert instance.total is not None
+
     def test_total_is_read_only(self) -> None:
         """Assigning to computed field total raises AttributeError."""
         _order_id = uuid.uuid4()

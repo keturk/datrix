@@ -9,7 +9,7 @@ ecommerce is a microservice-based application built with FastAPI and Python 3.11
 | Property | Value |
 |----------|-------|
 | Services | 6 |
-| Entities | 15 |
+| Entities | 17 |
 | Database | PostgreSQL (async) |
 | Framework | FastAPI |
 | Language | Python 3.11+ |
@@ -50,7 +50,7 @@ graph TD
 
 - **Port:** 8006
 - **Directory:** `ecommerce_user_service/`
-- **Entities:** User, UserPreferences, UserSession
+- **Entities:** ApiKey, User, UserPreferences, UserSession
 - **REST API:** Yes
 
 ### ProductService
@@ -85,7 +85,8 @@ graph TD
 
 - **Port:** 8001
 - **Directory:** `ecommerce_notification_service/`
-- **Entities:** NotificationAudit
+- **Entities:** DeviceRegistration, NotificationAudit
+- **REST API:** Yes
 
 
 
@@ -141,6 +142,21 @@ erDiagram
         Boolean smsNotifications
         JSON preferences
         UUID userId
+    }
+
+    ApiKey {
+
+        DateTime createdAt
+        DateTime updatedAt
+        UUID id PK
+        String(64) keyHash
+        UUID ownerId
+        String(12) keyPrefix
+        Array<String> scopes
+        Boolean isActive
+        DateTime? expiresAt
+        DateTime? lastUsedAt
+        Integer rateLimit
     }
 
     Category {
@@ -305,6 +321,16 @@ erDiagram
         String(64) orderNumber
     }
 
+    DeviceRegistration {
+
+        UUID id PK
+        String subject
+        String token
+        DevicePlatform platform
+        DateTime createdAt
+        DateTime updatedAt
+    }
+
     User ||--o{ UserSession : "sessions"
 
     User ||--|| UserPreferences : "preferences"
@@ -387,6 +413,22 @@ erDiagram
 | `smsNotifications` | Boolean | No | Smsnotifications |
 | `preferences` | JSON | No | Preferences |
 | `userId` | UUID | No | Userid |
+
+#### ApiKey
+
+| Field | Type | Optional | Description |
+|-------|------|----------|-------------|
+| `createdAt` | DateTime | No | Createdat |
+| `updatedAt` | DateTime | No | Updatedat |
+| `id` | UUID | No | Id |
+| `keyHash` | String(64) | No | Keyhash |
+| `ownerId` | UUID | No | Ownerid |
+| `keyPrefix` | String(12) | No | Keyprefix |
+| `scopes` | Array<String> | No | Scopes |
+| `isActive` | Boolean | No | Isactive |
+| `expiresAt` | DateTime? | Yes | Expiresat |
+| `lastUsedAt` | DateTime? | Yes | Lastusedat |
+| `rateLimit` | Integer | No | Ratelimit |
 
 #### Category
 
@@ -561,6 +603,17 @@ erDiagram
 | `orderId` | UUID | No | Orderid |
 | `recipientEmail` | Email | No | Recipientemail |
 | `orderNumber` | String(64) | No | Ordernumber |
+
+#### DeviceRegistration
+
+| Field | Type | Optional | Description |
+|-------|------|----------|-------------|
+| `id` | UUID | No | Id |
+| `subject` | String | No | Subject |
+| `token` | String | No | Token |
+| `platform` | DevicePlatform | No | Platform |
+| `createdAt` | DateTime | No | Createdat |
+| `updatedAt` | DateTime | No | Updatedat |
 
 
 ## Infrastructure Components

@@ -30,6 +30,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
 
     const problemDetails = this.buildProblemDetails(exception, request);
+    const retryAfterSeconds = this.retryAfterSeconds(exception);
+    if (retryAfterSeconds !== null) {
+      response.setHeader('Retry-After', String(retryAfterSeconds));
+    }
 
     this.logger.error(
       'exception_caught status=%s type=%s path=%s',
@@ -93,6 +97,29 @@ export class AllExceptionsFilter implements ExceptionFilter {
     };
   }
 
+  /**
+   * The Retry-After delay a 429 carries as `retryAfterSeconds` in its response
+   * body, or null. A 429 is told when to come back through the header, which
+   * is what HTTP clients read; a non-positive or non-integer value is dropped.
+   */
+  private retryAfterSeconds(exception: unknown): number | null {
+    if (
+      !(exception instanceof HttpException) ||
+      exception.getStatus() !== HttpStatus.TOO_MANY_REQUESTS
+    ) {
+      return null;
+    }
+    const exceptionResponse = exception.getResponse();
+    if (typeof exceptionResponse !== 'object' || exceptionResponse === null) {
+      return null;
+    }
+    const value = (exceptionResponse as Record<string, unknown>)['retryAfterSeconds'];
+    if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+      return null;
+    }
+    return value;
+  }
+
   private httpExceptionDetail(
     exception: HttpException,
     exceptionResponse: string | object,
@@ -119,13 +146,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (!Array.isArray(message)) {
       return [];
     }
-    return message
-      .filter((m): m is string => typeof m === 'string')
-      .map((m) => {
-        const parts = m.split(' ');
-        const field = parts[0] ?? 'unknown';
-        return { field, message: m };
-      });
+    // Each entry is a pre-built { field, message } pair -- the ValidationPipe's
+    // exceptionFactory (main.ts) already walked class-validator's structured
+    // ValidationError tree into the request's actual property path. Never
+    // re-derive `field` from message text here: a custom validator message
+    // (or one that does not happen to start with the property path) would
+    // silently produce a field with no relationship to the invalid property.
+    return message.filter(
+      (entry): entry is ValidationFieldError =>
+        typeof entry === 'object' &&
+        entry !== null &&
+        typeof (entry as Record<string, unknown>)['field'] === 'string' &&
+        typeof (entry as Record<string, unknown>)['message'] === 'string',
+    );
   }
 
   private statusToType(status: number): string {

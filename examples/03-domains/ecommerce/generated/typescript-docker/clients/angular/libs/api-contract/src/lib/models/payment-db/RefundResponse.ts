@@ -7,7 +7,7 @@ export interface RefundResponse {
   createdAt: IsoDateTime;
   errorMessage?: string | null;
   id: Uuid;
-  isSuccessful?: boolean | null;
+  isSuccessful: boolean;
   paymentId: Uuid;
   processedAt?: IsoDateTime | null;
   reason: string;

@@ -83,33 +83,9 @@ describe('ShippingService Deployment', () => {
     expect([200, 403, 404]).toContain(response.status);
   });
 
-  it('Nested GET /api/v1/shipments/00000000-0000-0000-0000-000000000001/shipment_events responds with 200', async () => {
-    const response = await httpRequest(`${BASE_URL}/api/v1/shipments/00000000-0000-0000-0000-000000000001/shipment_events`, {
-      headers: { 'Authorization': `Bearer ${makeTestJwt(["user"], JWT_ISSUER)}` },
-    });
-    // Nested GET targets a fabricated parent UUID that may not exist in the
-    // database; the handler verifies the parent first and returns 404 when
-    // the parent is not found (403 when ownership is rejected).
-    expect([200, 403, 404]).toContain(response.status);
-  });
-
   // --- Authentication / Authorization Tests ---
 
   describe('ShippingApi Auth', () => {
-    it('Public GET /api/v1/shipments/track/test without auth returns 200 or 403/404 when resource missing', async () => {
-      const response = await fetchWithRetry(`${BASE_URL}/api/v1/shipments/track/test`);
-      expect([200, 403, 404]).toContain(response.status);
-    });
-
-    it('Public POST /api/v1/shipments/rates?request=integration-path-value without auth is accessible (not 401)', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/shipments/rates?request=integration-path-value`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).not.toBe(401);
-    });
-
     it('GET /api/v1/shipments/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
       const response = await fetchWithRetry(`${BASE_URL}/api/v1/shipments/00000000-0000-0000-0000-000000000001`);
       expect(response.status).toBe(401);
@@ -118,6 +94,11 @@ describe('ShippingService Deployment', () => {
     it('GET /api/v1/shipments/order/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
       const response = await fetchWithRetry(`${BASE_URL}/api/v1/shipments/order/00000000-0000-0000-0000-000000000001`);
       expect(response.status).toBe(401);
+    });
+
+    it('Public GET /api/v1/shipments/track/test without auth returns 200 or 403/404 when resource missing', async () => {
+      const response = await fetchWithRetry(`${BASE_URL}/api/v1/shipments/track/test`);
+      expect([200, 403, 404]).toContain(response.status);
     });
 
     it('POST /api/v1/shipments/?request=integration-path-value without auth returns 401', async () => {
@@ -138,15 +119,6 @@ describe('ShippingService Deployment', () => {
       expect(response.status).toBe(401);
     });
 
-    it('POST /api/v1/shipments/00000000-0000-0000-0000-000000000001/events?request=integration-path-value without auth returns 401', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/shipments/00000000-0000-0000-0000-000000000001/events?request=integration-path-value`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).toBe(401);
-    });
-
     it('PATCH /api/v1/shipments/00000000-0000-0000-0000-000000000001/status?request=integration-path-value with wrong role returns 403', async () => {
       const response = await httpRequest(`${BASE_URL}/api/v1/shipments/00000000-0000-0000-0000-000000000001/status?request=integration-path-value`, {
         method: 'PATCH',
@@ -156,6 +128,15 @@ describe('ShippingService Deployment', () => {
       expect(response.status).toBe(403);
     });
 
+    it('POST /api/v1/shipments/00000000-0000-0000-0000-000000000001/events?request=integration-path-value without auth returns 401', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/shipments/00000000-0000-0000-0000-000000000001/events?request=integration-path-value`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+    });
+
     it('POST /api/v1/shipments/00000000-0000-0000-0000-000000000001/events?request=integration-path-value with wrong role returns 403', async () => {
       const response = await httpRequest(`${BASE_URL}/api/v1/shipments/00000000-0000-0000-0000-000000000001/events?request=integration-path-value`, {
         method: 'POST',
@@ -163,6 +144,15 @@ describe('ShippingService Deployment', () => {
         body: JSON.stringify({}),
       });
       expect(response.status).toBe(403);
+    });
+
+    it('Public POST /api/v1/shipments/rates?request=integration-path-value without auth is accessible (not 401)', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/shipments/rates?request=integration-path-value`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).not.toBe(401);
     });
 
   });

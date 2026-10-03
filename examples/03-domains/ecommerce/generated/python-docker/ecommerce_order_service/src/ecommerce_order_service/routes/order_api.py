@@ -7,12 +7,13 @@ import uuid
 from decimal import Decimal
 from enum import Enum as PyEnum
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Security
+from fastapi.security import APIKeyHeader
 from pydantic import JsonValue
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ecommerce_order_service.auth import get_current_user, require_providers
+from ecommerce_order_service.auth import require_route
 from ecommerce_order_service.clients.product_service_client import (
     get_product_service_client,
 )
@@ -25,13 +26,11 @@ from ecommerce_order_service.clients.product_service_responses import (
     decode_product_service_reservation_response_response,
 )
 from ecommerce_order_service.constants import MAX_PAGE_SIZE
-from ecommerce_order_service.dependencies import require_service_endpoint
 from ecommerce_order_service.enums.order_status import OrderStatus
 from ecommerce_order_service.event_outbox import buffer_events as _datrix_buffer_events
 from ecommerce_order_service.functions import generate_order_number
 from ecommerce_order_service.models.order_db.idempotency_key import IdempotencyKey
 from ecommerce_order_service.models.order_db.order import Order
-from ecommerce_order_service.models.order_db.order_item import OrderItem
 from ecommerce_order_service.order_db.session import get_order_db_db, order_db_session
 from ecommerce_order_service.rate_limit.rate_limit_dependency import (
     enforce_plan_rate_limit,
@@ -49,10 +48,7 @@ from ecommerce_order_service.schemas.order_db.order import (
     OrderResponse,
     OrderUpdate,
 )
-from ecommerce_order_service.schemas.order_db.order_item import (
-    OrderItemCreate,
-    OrderItemResponse,
-)
+from ecommerce_order_service.schemas.order_db.order_item import OrderItemCreate
 from ecommerce_order_service.schemas.paginated_orders import PaginatedOrders
 from ecommerce_order_service.schemas.update_shipment_request import (
     UpdateShipmentRequest,
@@ -70,6 +66,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1/orders",
     tags=["OrderAPI"],
+)
+
+# OpenAPI apiKey security schemes, one per API-key provider a route below
+# admits. They only document the requirement: the API-key credential
+# middleware has already authenticated a presented key before any route runs.
+_api_key_scheme_customer_keys = APIKeyHeader(
+    name="X-Customer-Api-Key", scheme_name="customerKeys", auto_error=False
 )
 
 
@@ -133,17 +136,23 @@ async def store_idempotency(
 @router.get(
     "",
     response_model=PaginatedOrders,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
+    dependencies=[Security(_api_key_scheme_customer_keys)],
 )
 async def get_endpoint(
     page: int = Query(default=1),
     per_page: int = Query(default=20),
     status: OrderStatus | None = Query(default=None),
     order_db: AsyncSession = Depends(get_order_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "customerKeys", "test_auth"],
+            roles=[],
+            principal_types=["human"],
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> PaginatedOrders:
-    customer_id: uuid.UUID = current_user.id
+    customer_id: uuid.UUID = current_user.user().id
     query = select(Order).where(Order.customer_id == customer_id)
     if status is not None:
         query = query.where(Order.status == status)
@@ -175,15 +184,15 @@ async def get_endpoint(
     )
 
 
-@router.post(
-    "",
-    response_model=OrderResponse,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.post("", response_model=OrderResponse)
 async def post_endpoint(
     request: CreateOrderRequest = Body(...),
     order_db: AsyncSession = Depends(get_order_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"], roles=[], principal_types=["human"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> Order:
     # Check idempotency to prevent duplicate orders on retry
@@ -192,7 +201,7 @@ async def post_endpoint(
     )
     if cached is not None:
         return cached
-    customer_id: uuid.UUID = current_user.id
+    customer_id: uuid.UUID = current_user.user().id
     reservation_id: uuid.UUID = uuid.uuid4()
     # Cross-service call('config/service.dcfg') : check product availability via ProductService
     availability: ProductServiceAvailabilityResponseResponse = (
@@ -219,9 +228,9 @@ async def post_endpoint(
             await get_product_service_client().post_json(
                 "/api/v1/products/service/reserve-inventory",
                 body={
-                    "reservation_id": reservation_id,
+                    "reservationId": reservation_id,
                     "items": request.items,
-                    "ttl_seconds": 600,
+                    "ttlSeconds": 600,
                 },
                 idempotent=False,
             )
@@ -284,37 +293,37 @@ async def post_endpoint(
     return order
 
 
-@router.get(
-    "/service/{id}",
-    response_model=OrderResponse,
-    include_in_schema=False,
-    dependencies=[Depends(require_service_endpoint)],
-)
+@router.get("/service/{id}", response_model=OrderResponse, include_in_schema=False)
 async def get_service_by_id(
-    id: uuid.UUID = Path(...),
+    id_: uuid.UUID = Path(..., alias="id"),
     order_db: AsyncSession = Depends(get_order_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["platform", "test_auth"], roles=[], principal_types=["machine"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> Order:
     service = OrderService(order_db)
-    return await service.get(id)
+    return await service.get(id_)
 
 
 @router.post(
-    "/{id}/confirm-payment",
-    response_model=OrderResponse,
-    include_in_schema=False,
-    dependencies=[Depends(require_service_endpoint)],
+    "/{id}/confirm-payment", response_model=OrderResponse, include_in_schema=False
 )
 async def post_by_id_confirm_payment(
     request: ConfirmPaymentRequest = Body(...),
-    id: uuid.UUID = Path(...),
+    id_: uuid.UUID = Path(..., alias="id"),
     order_db: AsyncSession = Depends(get_order_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["platform", "test_auth"], roles=[], principal_types=["machine"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> Order:
     service = OrderService(order_db)
-    order = await service.get(id)
+    order = await service.get(id_)
     if order is None:
         raise HTTPException(status_code=404, detail="Not found")
     order.payment_id = request.payment_id
@@ -322,76 +331,54 @@ async def post_by_id_confirm_payment(
     _order_svc = OrderService(order_db)
     order = await _order_svc.update(
         order.id,
-        OrderUpdate(
-            **{"payment_id": request.payment_id, "status": OrderStatus.confirmed}
-        ),
+        OrderUpdate(**{"payment_id": order.payment_id, "status": order.status}),
     )
     return order
 
 
 @router.post(
-    "/{id}/update-shipment",
-    response_model=OrderResponse,
-    include_in_schema=False,
-    dependencies=[Depends(require_service_endpoint)],
+    "/{id}/update-shipment", response_model=OrderResponse, include_in_schema=False
 )
 async def post_by_id_update_shipment(
     request: UpdateShipmentRequest = Body(...),
-    id: uuid.UUID = Path(...),
+    id_: uuid.UUID = Path(..., alias="id"),
     order_db: AsyncSession = Depends(get_order_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["platform", "test_auth"], roles=[], principal_types=["machine"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> Order:
     service = OrderService(order_db)
-    order = await service.get(id)
+    order = await service.get(id_)
     if order is None:
         raise HTTPException(status_code=404, detail="Not found")
     order.shipment_id = request.shipment_id
     _order_svc = OrderService(order_db)
     order = await _order_svc.update(
-        order.id, OrderUpdate(**{"shipment_id": request.shipment_id})
+        order.id, OrderUpdate(**{"shipment_id": order.shipment_id})
     )
     return order
 
 
-@router.get(
-    "/{id}/order_items",
-    response_model=list[OrderItemResponse],
-    dependencies=[Depends(require_providers(["test_auth"]))],
-)
-async def list_order_items(
-    id: uuid.UUID = Path(...),
-    skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=20, ge=1, le=100),
-    order_db: AsyncSession = Depends(get_order_db_db),
-    current_user=Depends(get_current_user),
-    _rate_limit=Depends(enforce_plan_rate_limit),
-) -> list[OrderItem]:
-    # Verify parent exists (raises EntityNotFoundError -> 404)
-    order_service = OrderService(order_db)
-    await order_service.get(id)
-    # Get children
-    order_item_service = OrderItemService(order_db)
-    return await order_item_service.get_by_order(order_id=id, skip=skip, limit=limit)
-
-
-@router.put(
-    "/{id}/cancel",
-    response_model=OrderResponse,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.put("/{id}/cancel", response_model=OrderResponse)
 async def put_by_id_cancel(
     request: CancelOrderRequest = Body(...),
-    id: uuid.UUID = Path(...),
+    id_: uuid.UUID = Path(..., alias="id"),
     order_db: AsyncSession = Depends(get_order_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"], roles=[], principal_types=["human"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> Order:
     service = OrderService(order_db)
-    order = await service.get(id)
+    order = await service.get(id_)
     if order is None:
         raise HTTPException(status_code=404, detail="Not found")
-    if (order.customer_id != current_user.id) and (
+    if (order.customer_id != current_user.user().id) and (
         not (any(str(_r).lower() == str("admin").lower() for _r in current_user.roles))
     ):
         raise HTTPException(
@@ -420,12 +407,8 @@ async def put_by_id_cancel(
                 order.id,
                 OrderUpdate(
                     **{
-                        "cancellation_reason": (
-                            request.reason
-                            if request.reason is not None
-                            else "Cancelled by customer"
-                        ),
-                        "status": OrderStatus.cancelled,
+                        "cancellation_reason": order.cancellation_reason,
+                        "status": order.status,
                     }
                 ),
                 _commit=False,
@@ -433,22 +416,22 @@ async def put_by_id_cancel(
     return order
 
 
-@router.get(
-    "/{id}",
-    response_model=OrderResponse,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.get("/{id}", response_model=OrderResponse)
 async def get_by_id(
-    id: uuid.UUID = Path(...),
+    id_: uuid.UUID = Path(..., alias="id"),
     order_db: AsyncSession = Depends(get_order_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"], roles=[], principal_types=["human"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> Order:
     service = OrderService(order_db)
-    order = await service.get(id)
+    order = await service.get(id_)
     if order is None:
         raise HTTPException(status_code=404, detail="Not found")
-    if (order.customer_id != current_user.id) and (
+    if (order.customer_id != current_user.user().id) and (
         not (any(str(_r).lower() == str("admin").lower() for _r in current_user.roles))
     ):
         raise HTTPException(status_code=403, detail="Access denied")

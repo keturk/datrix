@@ -105,6 +105,16 @@ class TestUserComputedFields:
         with pytest.raises(AttributeError):
             instance.is_active = True
 
+    def test_is_verified_getter_runs(self) -> None:
+        """is_verified getter runs and returns its expected value."""
+        instance = User(
+            email="test@example.com",
+            password_hash="Str0ng#Pass42",
+            first_name="TestName",
+            last_name="hello",
+        )
+        assert instance.is_verified is not None
+
     def test_is_verified_is_read_only(self) -> None:
         """Assigning to computed field is_verified raises AttributeError."""
         instance = User(
@@ -115,6 +125,16 @@ class TestUserComputedFields:
         )
         with pytest.raises(AttributeError):
             instance.is_verified = True
+
+    def test_can_login_getter_runs(self) -> None:
+        """can_login getter runs and returns its expected value."""
+        instance = User(
+            email="test@example.com",
+            password_hash="Str0ng#Pass42",
+            first_name="TestName",
+            last_name="hello",
+        )
+        assert instance.can_login is not None
 
     def test_can_login_is_read_only(self) -> None:
         """Assigning to computed field can_login raises AttributeError."""

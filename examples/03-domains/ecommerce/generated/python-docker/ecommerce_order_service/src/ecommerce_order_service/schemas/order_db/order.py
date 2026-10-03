@@ -9,7 +9,7 @@ import datetime
 import decimal
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 from ecommerce_order_service.enums.order_status import OrderStatus
@@ -20,7 +20,9 @@ from ecommerce_order_service.schemas.address import Address
 class OrderCreate(BaseModel):
     """Schema for creating a new Order."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     customer_id: uuid.UUID
     order_number: str = Field(max_length=20)
@@ -45,7 +47,9 @@ class OrderUpdate(BaseModel):
     All fields are optional for partial updates.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     customer_id: uuid.UUID | None = None
     order_number: str | None = Field(default=None, max_length=20)
@@ -61,6 +65,30 @@ class OrderUpdate(BaseModel):
     payment_id: uuid.UUID | None = None
     shipment_id: uuid.UUID | None = None
     cancellation_reason: str | None = None
+
+    @model_validator(mode="after")
+    def _reject_explicit_null(self) -> OrderUpdate:
+        """An omitted field is left unchanged; null is a value only on an optional field."""
+        for field_name in (
+            "customer_id",
+            "order_number",
+            "status",
+            "subtotal",
+            "tax",
+            "shipping_cost",
+            "discount",
+            "shipping_address",
+            "billing_address",
+            "inventory_reservation_id",
+        ):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(
+                    f"{field_name} cannot be null. Omit it to leave the stored value unchanged."
+                )
+        return self
 
 
 # ': audit' enables automatic audit logging for the entity
@@ -93,7 +121,7 @@ class OrderResponse(BaseModel):
     shipment_id: uuid.UUID | None = None
     cancellation_reason: str | None = None
     # Computed field using Money arithmetic
-    total: decimal.Decimal | None = None
-    can_cancel: bool | None = None
-    is_completed: bool | None = None
-    is_pending_or_payment_pending: bool | None = None
+    total: decimal.Decimal
+    can_cancel: bool
+    is_completed: bool
+    is_pending_or_payment_pending: bool

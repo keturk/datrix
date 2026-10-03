@@ -3,11 +3,14 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
-import { ECOMMERCE_API_BASE_URL } from './core/api-base-url.token';
+import { API_BASE_URL } from './core/api-base-url.token';
+import type { ApiRequestOptions } from './core/request-options';
 import { toHttpParams } from './core/query-params';
 import type { Uuid } from '../../../api-contract/src/lib/core/branded';
 import type { ChangePasswordRequest } from '../../../api-contract/src/lib/models/ecommerce-user-service/ChangePasswordRequest';
 import type { ForgotPasswordRequest } from '../../../api-contract/src/lib/models/ecommerce-user-service/ForgotPasswordRequest';
+import type { IssueApiKeyRequest } from '../../../api-contract/src/lib/models/ecommerce-user-service/IssueApiKeyRequest';
+import type { IssueApiKeyResponse } from '../../../api-contract/src/lib/models/ecommerce-user-service/IssueApiKeyResponse';
 import type { LoginRequest } from '../../../api-contract/src/lib/models/ecommerce-user-service/LoginRequest';
 import type { LoginResponse } from '../../../api-contract/src/lib/models/ecommerce-user-service/LoginResponse';
 import type { LogoutRequest } from '../../../api-contract/src/lib/models/ecommerce-user-service/LogoutRequest';
@@ -16,22 +19,23 @@ import type { ResetPasswordRequest } from '../../../api-contract/src/lib/models/
 import type { UpdateProfileRequest } from '../../../api-contract/src/lib/models/ecommerce-user-service/UpdateProfileRequest';
 import type { UpdateUserStatusRequest } from '../../../api-contract/src/lib/models/ecommerce-user-service/UpdateUserStatusRequest';
 import type { VerifyEmailRequest } from '../../../api-contract/src/lib/models/ecommerce-user-service/VerifyEmailRequest';
+import type { UserCreateRequest } from '../../../api-contract/src/lib/models/user-db/UserCreateRequest';
 import type { UserResponse } from '../../../api-contract/src/lib/models/user-db/UserResponse';
-import type { UserSessionResponse } from '../../../api-contract/src/lib/models/user-db/UserSessionResponse';
+import type { UserUpdateRequest } from '../../../api-contract/src/lib/models/user-db/UserUpdateRequest';
 
 @Injectable({ providedIn: 'root' })
 export class UserApiClient {
   private readonly http = inject(HttpClient);
-  private readonly base = inject(ECOMMERCE_API_BASE_URL);
+  private readonly base = inject(API_BASE_URL);
 
   /** GET /api/v1/users - auth: identity */
   listUsers(args: {
     skip?: number;
     limit?: number;
-  } = {}): Observable<UserResponse[]> {
+  } = {}, options?: ApiRequestOptions): Observable<UserResponse[]> {
     return this.http.get<UserResponse[]>(
       `${this.base}/api/v1/users`,
-      { params: toHttpParams({
+      { ...options, params: toHttpParams({
         'skip': args.skip,
         'limit': args.limit,
       }) },
@@ -41,126 +45,150 @@ export class UserApiClient {
   /** GET /api/v1/users/:id - auth: identity */
   getUser(args: {
     id: Uuid;
-  }): Observable<UserResponse> {
+  }, options?: ApiRequestOptions): Observable<UserResponse> {
     return this.http.get<UserResponse>(
       `${this.base}/api/v1/users/${encodeURIComponent(String(args.id))}`,
+      options,
     );
   }
 
   /** POST /api/v1/users - auth: identity */
   createUser(args: {
-    body: UserResponse;
-  }): Observable<UserResponse> {
+    body: UserCreateRequest;
+  }, options?: ApiRequestOptions): Observable<UserResponse> {
     return this.http.post<UserResponse>(
       `${this.base}/api/v1/users`,
       args.body,
+      options,
     );
   }
 
   /** PUT /api/v1/users/:id - auth: identity */
   updateUser(args: {
     id: Uuid;
-    body: UserResponse;
-  }): Observable<UserResponse> {
+    body: UserUpdateRequest;
+  }, options?: ApiRequestOptions): Observable<UserResponse> {
     return this.http.put<UserResponse>(
       `${this.base}/api/v1/users/${encodeURIComponent(String(args.id))}`,
       args.body,
+      options,
     );
   }
 
   /** DELETE /api/v1/users/:id - auth: identity */
   deleteUser(args: {
     id: Uuid;
-  }): Observable<void> {
+  }, options?: ApiRequestOptions): Observable<void> {
     return this.http.delete<void>(
       `${this.base}/api/v1/users/${encodeURIComponent(String(args.id))}`,
+      options,
     );
   }
 
   /** POST /api/v1/register - auth: public */
   postRegister(args: {
     request: RegisterRequest;
-  }): Observable<UserResponse> {
+  }, options?: ApiRequestOptions): Observable<UserResponse> {
     return this.http.post<UserResponse>(
       `${this.base}/api/v1/register`,
       args.request,
+      options,
     );
   }
 
   /** POST /api/v1/login - auth: public */
   postLogin(args: {
     request: LoginRequest;
-  }): Observable<LoginResponse> {
+  }, options?: ApiRequestOptions): Observable<LoginResponse> {
     return this.http.post<LoginResponse>(
       `${this.base}/api/v1/login`,
       args.request,
+      options,
     );
   }
 
   /** POST /api/v1/logout - auth: identity */
   postLogout(args: {
     request: LogoutRequest;
-  }): Observable<void> {
+  }, options?: ApiRequestOptions): Observable<void> {
     return this.http.post<void>(
       `${this.base}/api/v1/logout`,
       args.request,
+      options,
     );
   }
 
   /** GET /api/v1/me - auth: identity */
-  getMe(): Observable<UserResponse> {
+  getMe(options?: ApiRequestOptions): Observable<UserResponse> {
     return this.http.get<UserResponse>(
       `${this.base}/api/v1/me`,
+      options,
     );
   }
 
   /** PUT /api/v1/me - auth: identity */
   putMe(args: {
     request: UpdateProfileRequest;
-  }): Observable<UserResponse> {
+  }, options?: ApiRequestOptions): Observable<UserResponse> {
     return this.http.put<UserResponse>(
       `${this.base}/api/v1/me`,
       args.request,
+      options,
     );
   }
 
   /** PUT /api/v1/me/password - auth: identity */
   putMePassword(args: {
     request: ChangePasswordRequest;
-  }): Observable<void> {
+  }, options?: ApiRequestOptions): Observable<void> {
     return this.http.put<void>(
       `${this.base}/api/v1/me/password`,
       args.request,
+      options,
+    );
+  }
+
+  /** POST /api/v1/me/api-keys - auth: identity */
+  postMeApiKeys(args: {
+    request: IssueApiKeyRequest;
+  }, options?: ApiRequestOptions): Observable<IssueApiKeyResponse> {
+    return this.http.post<IssueApiKeyResponse>(
+      `${this.base}/api/v1/me/api-keys`,
+      args.request,
+      options,
     );
   }
 
   /** POST /api/v1/verify-email - auth: public */
   postVerifyEmail(args: {
     request: VerifyEmailRequest;
-  }): Observable<UserResponse> {
+  }, options?: ApiRequestOptions): Observable<UserResponse> {
     return this.http.post<UserResponse>(
       `${this.base}/api/v1/verify-email`,
       args.request,
+      options,
     );
   }
 
   /** POST /api/v1/forgot-password - auth: public */
   postForgotPassword(args: {
     request: ForgotPasswordRequest;
-  }): Observable<void> {
+  }, options?: ApiRequestOptions): Observable<void> {
     return this.http.post<void>(
       `${this.base}/api/v1/forgot-password`,
       args.request,
+      options,
     );
   }
 
   /** POST /api/v1/reset-password - auth: public */
   postResetPassword(args: {
     request: ResetPasswordRequest;
-  }): Observable<UserResponse> {
+  }, options?: ApiRequestOptions): Observable<UserResponse> {
     return this.http.post<UserResponse>(
       `${this.base}/api/v1/reset-password`,
       args.request,
+      options,
     );
   }
 
@@ -168,25 +196,11 @@ export class UserApiClient {
   putByIdStatus(args: {
     id: Uuid;
     request: UpdateUserStatusRequest;
-  }): Observable<UserResponse> {
+  }, options?: ApiRequestOptions): Observable<UserResponse> {
     return this.http.put<UserResponse>(
       `${this.base}/api/v1/${encodeURIComponent(String(args.id))}/status`,
       args.request,
-    );
-  }
-
-  /** GET /api/v1/users/:id/user_sessions - auth: required */
-  listUsersUserSessions(args: {
-    id: Uuid;
-    skip?: number;
-    limit?: number;
-  }): Observable<UserSessionResponse[]> {
-    return this.http.get<UserSessionResponse[]>(
-      `${this.base}/api/v1/users/${encodeURIComponent(String(args.id))}/user_sessions`,
-      { params: toHttpParams({
-        'skip': args.skip,
-        'limit': args.limit,
-      }) },
+      options,
     );
   }
 }

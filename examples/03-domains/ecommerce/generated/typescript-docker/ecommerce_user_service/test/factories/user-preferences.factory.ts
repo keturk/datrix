@@ -8,12 +8,7 @@ export function buildUserPreferences(
   overrides?: Partial<UserPreferences>,
 ): Partial<UserPreferences> {
   return {
-    language: `x`,
-    timezone: `x`,
-    emailNotifications: true,
-    smsNotifications: true,
-    preferences: {},
-    userId: crypto.randomUUID(),
+    preferences: { key: 'value' },
     user: crypto.randomUUID(),
     ...overrides,
   };

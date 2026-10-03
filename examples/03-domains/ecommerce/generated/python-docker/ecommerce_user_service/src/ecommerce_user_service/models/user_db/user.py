@@ -8,21 +8,14 @@ from __future__ import annotations
 import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import (
-    JSON,
-    CheckConstraint,
-    DateTime,
-    Enum,
-    Index,
-    String,
-    Text,
-)
+from sqlalchemy import CheckConstraint, DateTime, Enum, Index, String, Text
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ecommerce_user_service.enums.user_role import UserRole
 from ecommerce_user_service.enums.user_status import UserStatus
 from ecommerce_user_service.schemas.address import Address
+from ecommerce_user_service.user_db.base import StructJSON
 
 if TYPE_CHECKING:
     from ecommerce_user_service.models.user_db.user_preferences import UserPreferences
@@ -83,11 +76,11 @@ class User(BaseEntity):
         nullable=True,
     )
     shipping_address: Mapped[Address | None] = mapped_column(
-        JSON,
+        StructJSON(Address | None),
         nullable=True,
     )
     billing_address: Mapped[Address | None] = mapped_column(
-        JSON,
+        StructJSON(Address | None),
         nullable=True,
     )
 

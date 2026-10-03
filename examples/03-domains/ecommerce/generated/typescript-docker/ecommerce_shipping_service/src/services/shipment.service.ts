@@ -91,7 +91,6 @@ export class ShipmentService {
   }
 
 
-
   async findByOrderId(orderId: string, skip = 0, take = 100): Promise<Shipment[]> {
     return this.em.find(
       Shipment,
@@ -101,8 +100,7 @@ export class ShipmentService {
   }
   async getByTrackingNumber(trackingNumber: string): Promise<Shipment> {
     const entity = await this.em.findOne(Shipment, {
-      trackingNumber
-    } as never);
+      trackingNumber    } as never);
     if (!entity) {
       throw new NotFoundException(`Shipment with trackingNumber ${ trackingNumber } not found`);
     }

@@ -9,11 +9,10 @@ export function buildShipmentEvent(
   overrides?: Partial<ShipmentEvent>,
 ): Partial<ShipmentEvent> {
   return {
-    timestamp: new Date(),
+    timestamp: new Date('2025-01-15T12:00:00Z'),
     status: ShipmentStatus.Pending,
-    location: `x`,
-    description: 'test-text-content',
-    shipmentId: crypto.randomUUID(),
+    location: 'test',
+    description: 'test',
     shipment: crypto.randomUUID(),
     ...overrides,
   };

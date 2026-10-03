@@ -56,8 +56,10 @@ from ecommerce_order_service.config.settings import (
     assemble_settings,
 )
 from ecommerce_order_service.errors.exception_handler import register_error_handlers
-from ecommerce_order_service.gateway_jwt_verify import setup_gateway_jwt_verify
 from ecommerce_order_service.jobs.scheduler import lifespan_scheduler
+from ecommerce_order_service.middleware.api_key_credential_middleware import (
+    ApiKeyCredentialMiddleware,
+)
 from ecommerce_order_service.middleware.logging_middleware import LoggingMiddleware
 from ecommerce_order_service.observability.health_endpoint import setup_health
 from ecommerce_order_service.observability.metrics_middleware import setup_metrics
@@ -310,8 +312,9 @@ def create_app() -> FastAPI:
 
     # Middleware
     # Trusted-host enforcement (Starlette TrustedHostMiddleware).
-    # Allowed hosts are baked at generation time from httpSecurity.allowedHosts;
-    # no runtime environment reads.
+    # Allowed hosts are baked at generation time from httpSecurity.allowedHosts,
+    # the platform's front-door host patterns and this service's own in-network
+    # name (the host peers dial); no runtime environment reads.
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=ALLOWED_HOSTS,
@@ -324,6 +327,11 @@ def create_app() -> FastAPI:
         allow_methods=CORS_METHODS,
         allow_headers=CORS_HEADERS,
     )
+
+    # API-key credential resolution on key-admitting routes. Registered after
+    # (so it wraps, and runs before) the tenant block above: a key's own tenant
+    # must be known when the request's tenant is resolved.
+    app.add_middleware(ApiKeyCredentialMiddleware)
 
     # Request lifecycle logging
     app.add_middleware(LoggingMiddleware)
@@ -346,9 +354,6 @@ def create_app() -> FastAPI:
     # required config key + secret handle through the SAME runtime clients the
     # app uses, proving the live backend serves each under the deployed identity.
     setup_runtime_readiness(app)
-
-    # Gateway JWT verification endpoint (/internal/jwt-verify)
-    setup_gateway_jwt_verify(app)
 
     # Include routers
     app.include_router(order_api_router)

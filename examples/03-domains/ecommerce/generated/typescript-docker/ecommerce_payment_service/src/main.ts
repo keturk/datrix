@@ -1,8 +1,16 @@
 import './observability/tracing';
 import { NestFactory } from '@nestjs/core';
-import { CallHandler, ExecutionContext, NestInterceptor, ValidationPipe } from '@nestjs/common';
-import { Utils, wrap } from '@mikro-orm/core';
+import {
+  CallHandler,
+  ExecutionContext,
+  NestInterceptor,
+  UnprocessableEntityException,
+  ValidationPipe,
+} from '@nestjs/common';
+import type { ValidationError } from 'class-validator';
+import { loadIdentityPlanAtStartup } from './auth/identity';
 import { AppModule } from './app.module';
+import { camelizeKeys, snakeizeKeys } from './support/key-transform';
 import { requestContextMiddleware } from './ecommerce_payment_service/_requestContext';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
@@ -43,60 +51,53 @@ process.on('SIGTERM', () => {
   setTimeout(() => process.exit(143), 1000).unref();
 });
 
-/**
- * Recursively convert object keys from snake_case to camelCase.
- * Used to normalise incoming JSON request bodies so that NestJS DTOs
- * (which use camelCase property names) accept snake_case payloads.
- */
-function camelizeKeys(obj: unknown): unknown {
-  if (Array.isArray(obj)) return obj.map(camelizeKeys);
-  if (obj !== null && typeof obj === 'object' && !(obj instanceof Date)) {
-    return Object.fromEntries(
-      Object.entries(obj as Record<string, unknown>).map(([k, v]) => [
-        k.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase()),
-        camelizeKeys(v),
-      ]),
-    );
-  }
-  return obj;
-}
-
-/**
- * Recursively convert object keys from camelCase to snake_case.
- * Used to normalise outgoing JSON response bodies so that API consumers
- * receive the standard snake_case field names defined in the .dtrx schema.
- */
-function snakeizeKeys(obj: unknown): unknown {
-  if (Array.isArray(obj)) {
-    return obj.map(snakeizeKeys);
-  }
-  if (obj instanceof Date) {
-    return obj;
-  }
-  if (typeof Buffer !== 'undefined' && obj instanceof Buffer) {
-    return obj;
-  }
-  if (Utils.isEntity(obj)) {
-    return snakeizeKeys(wrap(obj).toPOJO());
-  }
-  if (obj !== null && typeof obj === 'object') {
-    return Object.fromEntries(
-      Object.entries(obj as Record<string, unknown>).map(([k, v]) => [
-        k.replace(/[A-Z]/g, (c: string) => `_${c.toLowerCase()}`),
-        snakeizeKeys(v),
-      ]),
-    );
-  }
-  return obj;
-}
-
 class SnakeCaseResponseInterceptor implements NestInterceptor {
   intercept(_context: ExecutionContext, next: CallHandler): Observable<unknown> {
     return next.handle().pipe(map((data: unknown) => snakeizeKeys(data)));
   }
 }
 
+/**
+ * Recursively flatten class-validator's `ValidationError` tree (`property` +
+ * `children`) into wire-ready field errors: a dotted path relative to the
+ * request body root, with `[n]` for a numeric-string `property` (an
+ * array-index child) -- the one field-error path shape every realized
+ * Datrix target answers with. class-validator's own tree never carries a
+ * leading `body` segment (it starts at the DTO's own properties), so there
+ * is nothing to strip here.
+ */
+function buildValidationFieldErrors(
+  errors: ValidationError[],
+  parentPath = '',
+): { field: string; message: string }[] {
+  const fieldErrors: { field: string; message: string }[] = [];
+  for (const error of errors) {
+    const isArrayIndex = /^\d+$/.test(error.property);
+    let path: string;
+    if (isArrayIndex) {
+      path = `${parentPath}[${error.property}]`;
+    } else if (parentPath) {
+      path = `${parentPath}.${error.property}`;
+    } else {
+      path = error.property;
+    }
+    if (error.constraints) {
+      for (const message of Object.values(error.constraints)) {
+        fieldErrors.push({ field: path, message });
+      }
+    }
+    if (error.children && error.children.length > 0) {
+      fieldErrors.push(...buildValidationFieldErrors(error.children, path));
+    }
+  }
+  return fieldErrors;
+}
+
 async function bootstrap() {
+  // Load the identity provider plan before anything serves: a missing,
+  // unreadable or unsupported plan aborts startup here instead of turning
+  // every authenticated request into a 401.
+  loadIdentityPlanAtStartup();
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
   // Ambient request context (Request.* accessors reached from service
@@ -150,11 +151,19 @@ async function bootstrap() {
   // Transform outgoing response body keys from camelCase to snake_case.
   app.useGlobalInterceptors(new SnakeCaseResponseInterceptor());
 
+  // A custom exceptionFactory replaces NestJS's default (which flattens each
+  // ValidationError into a plain message string, discarding the structured
+  // property/children tree): building the field path here, from the
+  // validator's own tree, is the only way AllExceptionsFilter can answer
+  // errors[].field with the request's actual property path rather than a
+  // guess at the first word of a message.
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     forbidNonWhitelisted: true,
     transform: true,
     errorHttpStatusCode: 422,
+    exceptionFactory: (errors: ValidationError[]) =>
+      new UnprocessableEntityException(buildValidationFieldErrors(errors)),
   }));
 
   app.enableCors({

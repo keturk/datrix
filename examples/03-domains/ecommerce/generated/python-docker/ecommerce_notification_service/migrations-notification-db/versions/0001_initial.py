@@ -26,6 +26,10 @@ depends_on: str | None = None
 
 def upgrade() -> None:
     """Create all tables and indexes."""
+    op.execute(
+        "DO $$ BEGIN CREATE TYPE \"device_platform\" AS ENUM ('ios', 'android', 'web'); EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;"
+    )
+
     op.create_table(
         "notification_audits",
         sa.Column(
@@ -60,15 +64,64 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
+    op.create_table(
+        "device_registrations",
+        sa.Column(
+            "id",
+            sa.Uuid,
+            primary_key=True,
+            nullable=False,
+        ),
+        sa.Column(
+            "subject",
+            sa.String(),
+            nullable=False,
+        ),
+        sa.Column(
+            "token",
+            sa.String(),
+            nullable=False,
+        ),
+        sa.Column(
+            "platform",
+            sa.Enum(
+                "ios",
+                "android",
+                "web",
+                name="device_platform",
+                native_enum=True,
+                _create_events=False,
+            ),
+            nullable=False,
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+        ),
+    )
     op.create_index(
         "ix_notification_audits_order_id",
         "notification_audits",
         ["order_id"],
         unique=False,
     )
+    op.create_index(
+        "ix_device_registrations_subject",
+        "device_registrations",
+        ["subject"],
+        unique=False,
+    )
 
 
 def downgrade() -> None:
     """Drop indexes then tables (reverse dependency order)."""
+    op.drop_index("ix_device_registrations_subject", table_name="device_registrations")
     op.drop_index("ix_notification_audits_order_id", table_name="notification_audits")
+    op.drop_table("device_registrations")
     op.drop_table("notification_audits")

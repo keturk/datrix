@@ -12,30 +12,64 @@ import type {
   SendOrderConfirmationPayload,
 } from '../queue/payloads';
 
+/**
+ * Run one SendOrderConfirmation task from its raw message body. Throws on an
+ * unparseable body, a payload missing a required key, or a failing task; the
+ * caller settles the message.
+ */
+export async function handleSendOrderConfirmationTask(
+  messageBody: string,
+  em: EntityManager,
+): Promise<void> {
+  const startTime = Date.now();
+  const data = JSON.parse(messageBody) as SendOrderConfirmationPayload;
+  const missingKeys = (["orderId", "customerEmail", "orderNumber"] as string[]).filter(
+    (key) => !Object.prototype.hasOwnProperty.call(data, key),
+  );
+  if (missingKeys.length > 0) {
+    logger.error(`queue_payload_missing_keys queue=send-order-confirmation missing=${missingKeys.join(',')}`);
+    throw new Error(`Missing required queue payload keys: ${missingKeys.join(', ')}`);
+  }
+  logger.debug(`processing_task queue=send-order-confirmation`);
+
+  console.info('send_order_confirmation_task');
+  await _emailSend({to: data.customerEmail, subject: `Order ${data.orderNumber} confirmed`, template: 'order-confirmation', data: {orderId: data.orderId, orderNumber: data.orderNumber}});
+  const row = em.getRepository(NotificationAudit).create({ orderId: data.orderId, recipientEmail: data.customerEmail, orderNumber: data.orderNumber } as never);
+  await em.getRepository(NotificationAudit).getEntityManager().persistAndFlush(row);
+  await em.getRepository(NotificationAudit).getEntityManager().persistAndFlush(row);
+  console.info('order_confirmation_email_queued_for_delivery');
+
+  const durationMs = Date.now() - startTime;
+  logger.debug(`task_completed queue=send-order-confirmation duration_ms=${durationMs}`);
+}
+
 export async function handleSendOrderConfirmation(
   msg: ConsumeMessage,
   channel: Channel,
   em: EntityManager,
 ): Promise<void> {
-  const startTime = Date.now();
-  const data = JSON.parse(msg.content.toString()) as SendOrderConfirmationPayload;
-  logger.debug(`processing_task queue=send-order-confirmation`);
-
   try {
-    console.info('send_order_confirmation_task');
-    await _emailSend({to: data.customerEmail, subject: `Order ${data.orderNumber} confirmed`, template: 'order-confirmation', data: {orderId: data.orderId, orderNumber: data.orderNumber}});
-    const row = em.getRepository(NotificationAudit).create({ orderId: data.orderId, recipientEmail: data.customerEmail, orderNumber: data.orderNumber } as never);
-    await em.getRepository(NotificationAudit).getEntityManager().persistAndFlush(row);
-    await em.getRepository(NotificationAudit).getEntityManager().persistAndFlush(row);
-    console.info('order_confirmation_email_queued_for_delivery');
-
+    await handleSendOrderConfirmationTask(msg.content.toString(), em);
     channel.ack(msg);
-    const durationMs = Date.now() - startTime;
-    logger.debug(`task_completed queue=send-order-confirmation duration_ms=${durationMs}`);
   } catch (err) {
-    channel.nack(msg, false, true);
+    // RabbitMQ counts no deliveries, so the attempt number travels in a
+    // header: a failed message is republished for another attempt, and once
+    // 5 attempts have failed it is moved to its
+    // dead-letter queue -- never dropped, never retried past the bound.
+    const headers: Record<string, unknown> = { ...(msg.properties.headers ?? {}) };
+    const attempt = Number(headers['x-delivery-attempt'] ?? 1);
+    const exhausted = attempt >= 5;
+    headers['x-delivery-attempt'] = attempt + 1;
+    channel.sendToQueue(
+      exhausted ? 'order-service.send-order-confirmation.dead-letter' : 'order-service.send-order-confirmation',
+      msg.content,
+      { persistent: true, headers },
+    );
+    channel.ack(msg);
     const message = err instanceof Error ? err.message : String(err);
-    logger.error(`task_failed queue=send-order-confirmation error=${message}`);
+    logger.error(
+      `task_failed queue=send-order-confirmation attempt=${attempt} dead_lettered=${exhausted} error=${message}`,
+    );
   }
 }
 

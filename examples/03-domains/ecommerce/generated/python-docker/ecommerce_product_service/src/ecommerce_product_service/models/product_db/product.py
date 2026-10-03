@@ -90,7 +90,7 @@ class Product(BaseEntity):
         "Category",
         back_populates="products",
     )
-    inventory_reservations: Mapped[list["InventoryReservation"]] = relationship(
+    inventoryreservations: Mapped[list["InventoryReservation"]] = relationship(
         "InventoryReservation",
         back_populates="product",
     )

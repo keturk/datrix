@@ -184,20 +184,23 @@ async def get_secret(handle: str) -> str:
     reads for one handle collapse to a single backend fetch via a per-handle
     single-flight lock. If the re-read fails and a prior value is cached, the
     prior value is served with a warning unless ``_FAIL_CLOSED_ON_SECRET_REFRESH``
-    is true. An initial miss (no prior value, fetch returns None) always raises —
-    the fail-closed initial contract.
+    is true. An initial miss (no prior value, fetch returns an absent or blank
+    value) always raises — the fail-closed initial contract. A blank value (empty
+    or whitespace only, e.g. an empty mounted secret file) is treated exactly
+    like an absent one: a keyed hash or comparison under an empty secret is
+    forgeable by any caller.
 
     Args:
         handle: Logical secret handle (e.g. ``"jwt_private_key"``).
 
     Returns:
-        The resolved secret value string.
+        The resolved secret value string. Never empty, never whitespace only.
 
     Raises:
-        RuntimeError: When the secret is absent from the backend on an initial
-            miss, or when the backend cannot be reached and either no prior value
-            is cached or fail-closed refresh is enabled.  The error message names
-            the handle but never includes the secret value.
+        RuntimeError: When the secret is absent or blank in the backend on an
+            initial miss, or when the backend cannot be reached and either no
+            prior value is cached or fail-closed refresh is enabled.  The error
+            message names the handle but never includes the secret value.
     """
     cached = _SECRET_CACHE.get(handle)
     if cached is not None:
@@ -225,7 +228,7 @@ async def get_secret(handle: str) -> str:
                 return cached[0]
             raise
 
-        if fetched is None:
+        if fetched is None or not fetched.strip():
             if cached is not None and not _FAIL_CLOSED_ON_SECRET_REFRESH:
                 logger.warning(
                     "secret_refresh_absent_serving_stale backend=%s handle=%s",
@@ -233,10 +236,14 @@ async def get_secret(handle: str) -> str:
                     handle,
                 )
                 return cached[0]
+            # "not found" is the phrase the generated runtime-readiness probe
+            # classifies as MISSING (every other RuntimeError is a backend
+            # ERROR); a blank value is reported under the same phrase because
+            # it is exactly as unusable as an absent one.
             raise RuntimeError(
-                "Required secret %r not found in backend %r. "
-                "Ensure the secret is provisioned in the deployment environment "
-                "with the rendered name %r."
+                "Required secret %r not found in backend %r (absent or blank). "
+                "Ensure a non-blank secret is provisioned in the deployment "
+                "environment with the rendered name %r."
                 % (handle, _BACKEND, _get_rendered_name(handle))
             )
 

@@ -1,0 +1,168 @@
+@if (__loadProblem(); as problem) {
+<div role="alert" data-state="error">
+  <p>{{ problem.title }}</p>
+  @if (problem.detail) {
+  <p>{{ problem.detail }}</p>
+  }
+  <button type="button" (click)="__retryLoad()">{{ __messages.key(&#39;framework.retry&#39;).text }}</button>
+</div>
+} @else if (!__loaded()) {
+<div role="status" aria-busy="true" data-state="loading">{{ __messages.key(&#39;framework.loading&#39;).text }}</div>
+} @else {
+<form [formGroup]="__form" (ngSubmit)="__submit()" ngNativeValidate>
+  <fieldset>
+    <legend>{{ __messages.key(&#39;step.CreateOrder.items&#39;).text }}</legend>
+<fieldset [formArrayName]="&#39;items&#39;">
+  <legend>{{ __messages.key(&#39;field.CreateOrderRequest.items&#39;).text }}</legend>
+  @for (item of __array(__form.get('items')).controls; track $index; let index = $index) {
+  <div [formGroupName]="index">
+<label>
+  <span>{{ __messages.key(&#39;field.OrderLineInput.productId&#39;).text }}</span>
+  <input type="text" [formControlName]="&#39;productId&#39;" required />
+</label>
+@if (item.get('productId')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+<label>
+  <span>{{ __messages.key(&#39;field.OrderLineInput.quantity&#39;).text }}</span>
+  <input type="number" [formControlName]="&#39;quantity&#39;" required step="any" />
+</label>
+@if (item.get('quantity')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+  </div>
+  <button type="button" (click)="__array(__form.get(&#39;items&#39;)).removeAt(index)">{{ __messages.key(&#39;framework.remove&#39;).text }}</button>
+  }
+  <button type="button" (click)="__array(__form.get(&#39;items&#39;)).push(__shape.items['items']())">{{ __messages.key(&#39;framework.add&#39;).text }}</button>
+</fieldset>
+
+  </fieldset>
+  <fieldset>
+    <legend>{{ __messages.key(&#39;step.CreateOrder.shipping&#39;).text }}</legend>
+<fieldset [formGroupName]="&#39;shippingAddress&#39;">
+  <legend>{{ __messages.key(&#39;field.CreateOrderRequest.shippingAddress&#39;).text }}</legend>
+<label>
+  <span>{{ __messages.key(&#39;field.Address.street&#39;).text }}</span>
+  <input type="text" [formControlName]="&#39;street&#39;" required maxlength="200" />
+</label>
+@if (__form.get('shippingAddress')?.get('street')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+<label>
+  <span>{{ __messages.key(&#39;field.Address.city&#39;).text }}</span>
+  <input type="text" [formControlName]="&#39;city&#39;" required maxlength="100" />
+</label>
+@if (__form.get('shippingAddress')?.get('city')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+<label>
+  <span>{{ __messages.key(&#39;field.Address.state&#39;).text }}</span>
+  <input type="text" [formControlName]="&#39;state&#39;" required maxlength="100" />
+</label>
+@if (__form.get('shippingAddress')?.get('state')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+<label>
+  <span>{{ __messages.key(&#39;field.Address.zipCode&#39;).text }}</span>
+  <input type="text" [formControlName]="&#39;zipCode&#39;" required maxlength="10" />
+</label>
+@if (__form.get('shippingAddress')?.get('zipCode')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+<label>
+  <span>{{ __messages.key(&#39;field.Address.country&#39;).text }}</span>
+  <input type="text" [formControlName]="&#39;country&#39;" required />
+</label>
+@if (__form.get('shippingAddress')?.get('country')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+<label>
+  <span>{{ __messages.key(&#39;field.Address.phone&#39;).text }}</span>
+  <input type="text" [formControlName]="&#39;phone&#39;" />
+</label>
+@if (__form.get('shippingAddress')?.get('phone')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+</fieldset>
+
+<fieldset [formGroupName]="&#39;billingAddress&#39;">
+  <legend>{{ __messages.key(&#39;field.CreateOrderRequest.billingAddress&#39;).text }}</legend>
+<label>
+  <span>{{ __messages.key(&#39;field.Address.street&#39;).text }}</span>
+  <input type="text" [formControlName]="&#39;street&#39;" required maxlength="200" />
+</label>
+@if (__form.get('billingAddress')?.get('street')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+<label>
+  <span>{{ __messages.key(&#39;field.Address.city&#39;).text }}</span>
+  <input type="text" [formControlName]="&#39;city&#39;" required maxlength="100" />
+</label>
+@if (__form.get('billingAddress')?.get('city')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+<label>
+  <span>{{ __messages.key(&#39;field.Address.state&#39;).text }}</span>
+  <input type="text" [formControlName]="&#39;state&#39;" required maxlength="100" />
+</label>
+@if (__form.get('billingAddress')?.get('state')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+<label>
+  <span>{{ __messages.key(&#39;field.Address.zipCode&#39;).text }}</span>
+  <input type="text" [formControlName]="&#39;zipCode&#39;" required maxlength="10" />
+</label>
+@if (__form.get('billingAddress')?.get('zipCode')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+<label>
+  <span>{{ __messages.key(&#39;field.Address.country&#39;).text }}</span>
+  <input type="text" [formControlName]="&#39;country&#39;" required />
+</label>
+@if (__form.get('billingAddress')?.get('country')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+<label>
+  <span>{{ __messages.key(&#39;field.Address.phone&#39;).text }}</span>
+  <input type="text" [formControlName]="&#39;phone&#39;" />
+</label>
+@if (__form.get('billingAddress')?.get('phone')?.errors?.['server']; as message) {
+<span role="alert" data-state="error">{{ message }}</span>
+}
+
+
+</fieldset>
+
+  </fieldset>
+  @if (__formError(); as message) {
+  <p role="alert" data-state="error">{{ message }}</p>
+  }
+  <button type="submit" [disabled]="__submitting()">{{ __messages.key(&#39;framework.submit&#39;).text }}</button>
+</form>
+}

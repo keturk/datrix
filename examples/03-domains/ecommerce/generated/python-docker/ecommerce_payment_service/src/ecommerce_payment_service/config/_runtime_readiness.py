@@ -79,7 +79,7 @@ class ReadinessReport:
 _REQUIRED_SECRET_HANDLES: tuple[tuple[str, str], ...] = (
     ("stripe_secret_key", "stripe_secret_key"),
     ("payment_webhook_secret", "payment_webhook_secret"),
-    ("jwt_public_key", "jwt_public_key"),
+    ("mq_sasl_password", "mq_sasl_password"),
     ("payment_db_password", "payment_db_password"),
     ("queues_password", "queues_password"),
 )

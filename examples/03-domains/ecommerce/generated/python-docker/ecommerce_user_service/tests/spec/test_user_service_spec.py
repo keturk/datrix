@@ -169,15 +169,13 @@ async def test_after_update_emits_user_status_changed_on_status_change(
         )
     )
     await db_session.refresh(user)
-
+    user.status = UserStatus.active
+    user.email_verified_at = datetime.datetime.now(datetime.timezone.utc)
     _user_svc = UserService(db_session)
     user = await _user_svc.update(
         user.id,
         UserUpdate(
-            **{
-                "email_verified_at": datetime.datetime.now(datetime.timezone.utc),
-                "status": UserStatus.active,
-            }
+            **{"email_verified_at": user.email_verified_at, "status": user.status}
         ),
     )
     assert event_spy.has(

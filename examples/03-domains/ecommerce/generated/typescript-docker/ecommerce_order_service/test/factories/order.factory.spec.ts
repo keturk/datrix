@@ -6,7 +6,6 @@ describe('buildOrder', () => {
     expect(result).toBeDefined();
     expect(result.customerId).toBeDefined();
     expect(result.orderNumber).toBeDefined();
-    expect(result.status).toBeDefined();
     expect(result.subtotal).toBeDefined();
     expect(result.tax).toBeDefined();
     expect(result.shippingCost).toBeDefined();

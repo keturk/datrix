@@ -4,6 +4,18 @@
  */
 import { Kafka, Producer, Consumer, EachMessagePayload } from 'kafkajs';
 
+// kafkajs consumer options derived from this service's declared kafkaOps
+// (see datrix_codegen_typescript.generators.messaging._kafka_ops) -- never
+// hardcoded, and never a bare `{ groupId }` (kafkajs then falls back to its
+// own defaults, which drift from the operator-tuned poll/heartbeat cadence
+// declared in the .dcfg profile).
+const CONSUMER_OPTIONS = {
+  maxWaitTimeInMs: 1000,
+  heartbeatInterval: 1000,
+  sessionTimeout: 600000,
+  rebalanceTimeout: 600000,
+};
+
 function getBrokers(): string[] {
   const arr = [
     'localhost:9092',
@@ -40,7 +52,7 @@ export class KafkaConnection {
     topics: string[],
   ): Promise<Consumer> {
     if (!this.consumer) {
-      this.consumer = this.kafka.consumer({ groupId });
+      this.consumer = this.kafka.consumer({ groupId, ...CONSUMER_OPTIONS });
       await this.consumer.connect();
       await this.consumer.subscribe({ topics, fromBeginning: true });
     }

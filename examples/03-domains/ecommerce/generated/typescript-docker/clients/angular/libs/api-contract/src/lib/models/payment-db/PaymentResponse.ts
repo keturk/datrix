@@ -5,13 +5,13 @@ import type { PaymentStatus } from '../ecommerce-payment-service/enums/PaymentSt
 
 export interface PaymentResponse {
   amount: number;
-  canRefund?: boolean | null;
+  canRefund: boolean;
   createdAt: IsoDateTime;
   customerId: Uuid;
   errorMessage?: string | null;
   gatewayResponse?: string | null;
   id: Uuid;
-  isSuccessful?: boolean | null;
+  isSuccessful: boolean;
   method: PaymentMethod;
   orderId: Uuid;
   processedAt?: IsoDateTime | null;

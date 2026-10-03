@@ -1,6 +1,5 @@
 import { Order } from '../../src/entities/order.entity';
 import { Address } from '../../src/dto/address.struct';
-import { OrderStatus } from '../../src/enums/order-status.enum';
 
 /**
  * Build a partial Order with sensible defaults for testing.
@@ -11,18 +10,17 @@ export function buildOrder(
 ): Partial<Order> {
   return {
     customerId: crypto.randomUUID(),
-    orderNumber: `x`,
-    status: OrderStatus.Pending,
+    orderNumber: `test_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`,
     subtotal: 99.99,
     tax: 99.99,
     shippingCost: 99.99,
     discount: 99.99,
-    shippingAddress: {} as Address,
-    billingAddress: {} as Address,
+    shippingAddress: {street: 'test', city: 'test', state: 'test', zipCode: 'test', country: 'US', phone: '15551234567'} as Address,
+    billingAddress: {street: 'test', city: 'test', state: 'test', zipCode: 'test', country: 'US', phone: '15551234567'} as Address,
     inventoryReservationId: crypto.randomUUID(),
     paymentId: crypto.randomUUID(),
     shipmentId: crypto.randomUUID(),
-    cancellationReason: 'test-value',
+    cancellationReason: 'test',
     ...overrides,
   };
 }

@@ -27,6 +27,13 @@ Algorithm allow-list comes from the plan — symmetric algorithms (HS*) and
 ``alg: none`` are always rejected.  JWKS key rotation is handled by refreshing
 the JWKS cache on unknown ``kid`` before rejecting (DN38).  JWKS refresh failure
 fails closed.
+
+Signing keys are fetched from the entry's ``jwksFetch.url`` when the plan
+declares one -- presenting ``jwksFetch.hostHeader`` as the ``Host`` header when
+given -- and from ``jwksUri`` otherwise.  ``jwksFetch`` exists for an identity
+server whose public origin is unreachable from inside the deployment's own
+network; it never changes which issuer a token must carry.  An ``https`` fetch
+keeps the default certificate and host-name verification.
 """
 
 from __future__ import annotations
@@ -35,9 +42,11 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import jwt
 from jwt import PyJWKClient, PyJWKClientError, PyJWTError
@@ -63,9 +72,10 @@ _SYMMETRIC_ALG_PREFIXES: tuple[str, ...] = ("HS",)
 _ALG_NONE: str = "none"
 
 # ---------------------------------------------------------------------------
-# Reason codes — string constants used in generated runtime code.
-# Mirror of AuthReasonCode from datrix-common (kept inline to avoid runtime
-# dependency on the framework package in generated services).
+# Reason codes -- rendered from the shared AuthReasonCode vocabulary
+# (AUTH_REASON_<NAME> template globals), so the emitted module carries the values
+# without a runtime dependency on the framework package. Logged, never returned
+# to a caller.
 # ---------------------------------------------------------------------------
 
 _REASON_MISSING_TOKEN: str = "missing_token"
@@ -109,6 +119,40 @@ _cached_plan_path: str | None = None
 # the service wheel and resolves regardless of CWD — the same delivery pattern
 # as ``config/remote_defaults.json``.
 _PLAN_ARTIFACT_FILENAME: str = "identity-provider-plan.json"
+
+# The one provider-plan schema version this runtime understands. A plan carrying
+# any other version is refused at load rather than read under a shape this
+# runtime was not generated for.
+_PLAN_SCHEMA_VERSION_SUPPORTED: int = 6
+
+# The credential kinds a provider plan entry may declare. Only a ``jwt`` entry
+# is ever matched against a bearer token; an ``apiKey`` entry carries no issuer
+# or signing keys. An entry declaring any other kind -- or none -- is refused at
+# load, never read as a token provider by default.
+_CREDENTIAL_JWT: str = "jwt"
+_CREDENTIAL_API_KEY: str = "apiKey"
+_KNOWN_CREDENTIALS: frozenset[str] = frozenset({_CREDENTIAL_JWT, _CREDENTIAL_API_KEY})
+
+# A JWT entry's optional signing-key fetch endpoint: the in-network address the
+# key set is fetched from when ``jwksUri`` (the public origin) is unreachable,
+# and the ``Host`` header to present there. The object carries exactly these
+# members; any other member, a non-``http(s)`` URL, a URL carrying user
+# information or a fragment, or a Host header that is not a bare host[:port] is
+# refused at load -- never fetched.
+_JWKS_FETCH_MEMBER: str = "jwksFetch"
+_JWKS_FETCH_URL: str = "url"
+_JWKS_FETCH_HOST_HEADER: str = "hostHeader"
+_JWKS_FETCH_KEYS: frozenset[str] = frozenset({_JWKS_FETCH_URL, _JWKS_FETCH_HOST_HEADER})
+_FETCH_URL_SCHEMES: frozenset[str] = frozenset({"http", "https"})
+_HOST_HEADER_NAME: str = "Host"
+_HOST_LABEL_PATTERN: str = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_BARE_HOST_HEADER: re.Pattern[str] = re.compile(
+    r"(?P<host>%s(?:\.%s)*|\[[0-9A-Fa-f:.]+\])(?::(?P<port>[0-9]{1,5}))?"
+    % (_HOST_LABEL_PATTERN, _HOST_LABEL_PATTERN)
+)
+_MAX_HOST_LENGTH: int = 253
+_MIN_PORT: int = 1
+_MAX_PORT: int = 65535
 
 
 def _bundled_plan_path() -> Path | None:
@@ -164,6 +208,125 @@ def _resolve_plan_path() -> str:
     )
 
 
+def _require_known_credentials(plan_path: str, plan: dict[str, Any]) -> None:
+    """Refuse a plan whose ``providers`` map or any entry's ``credential`` is unusable.
+
+    Fails closed: a missing or non-object ``providers`` map, a non-object entry,
+    or an entry whose ``credential`` is absent or not one of
+    :data:`_KNOWN_CREDENTIALS` aborts the load. An entry is never assumed to be
+    a token provider because it failed to say what it is.
+
+    Raises:
+        RuntimeError: Naming the offending provider and the accepted kinds.
+    """
+    providers: Any = plan.get("providers")
+    if not isinstance(providers, dict):
+        raise RuntimeError(
+            "Identity provider plan %r has no 'providers' object (found %s). "
+            "Regenerate the service and its plan together."
+            % (plan_path, type(providers).__name__)
+        )
+    for name, entry in providers.items():
+        credential: Any = entry.get("credential") if isinstance(entry, dict) else None
+        if credential not in _KNOWN_CREDENTIALS:
+            raise RuntimeError(
+                "Identity provider plan %r: provider %r declares credential %r, but "
+                "this runtime accepts only %s. Regenerate the service and its plan "
+                "together so both carry the same schema."
+                % (plan_path, name, credential, sorted(_KNOWN_CREDENTIALS))
+            )
+
+
+def _has_whitespace_or_control(value: str) -> bool:
+    """True when *value* contains whitespace or an ASCII control character."""
+    return any(ch.isspace() or ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value)
+
+
+def _fetch_url_problem(value: object) -> str | None:
+    """Why *value* is not a fetchable ``http(s)`` key-set URL, or ``None`` when it is."""
+    if not isinstance(value, str):
+        return "'url' is not a string"
+    if _has_whitespace_or_control(value):
+        return "'url' contains whitespace or a control character"
+    parts = urlsplit(value)
+    if parts.scheme.lower() not in _FETCH_URL_SCHEMES:
+        return "'url' is not an http or https URL"
+    if parts.username is not None or parts.password is not None or "@" in parts.netloc:
+        return "'url' carries user information"
+    if not parts.hostname:
+        return "'url' names no host"
+    if parts.fragment:
+        return "'url' carries a fragment"
+    try:
+        parts.port
+    except ValueError:
+        return "'url' has an invalid port"
+    return None
+
+
+def _host_header_problem(value: object) -> str | None:
+    """Why *value* is not a bare ``host[:port]`` Host header, or ``None`` when it is."""
+    if not isinstance(value, str):
+        return "'hostHeader' is not a string"
+    match = _BARE_HOST_HEADER.fullmatch(value)
+    if match is None or len(match.group("host")) > _MAX_HOST_LENGTH:
+        return "'hostHeader' is not a bare host[:port]"
+    port = match.group("port")
+    if port is not None and not _MIN_PORT <= int(port) <= _MAX_PORT:
+        return "'hostHeader' names a port outside %d-%d" % (_MIN_PORT, _MAX_PORT)
+    return None
+
+
+def _jwks_fetch_problem(fetch: object) -> str | None:
+    """Why a JWT entry's ``jwksFetch`` object is unusable, or ``None`` when it is usable.
+
+    The object carries a required ``url`` and an optional ``hostHeader`` and
+    nothing else. A problem names the member, never its value: a refused URL
+    may be the credential the check refused.
+    """
+    if not isinstance(fetch, dict):
+        return "it is not an object"
+    undeclared = sorted(str(key) for key in fetch if key not in _JWKS_FETCH_KEYS)
+    if undeclared:
+        return "it carries undeclared member(s) %s" % undeclared
+    if _JWKS_FETCH_URL not in fetch:
+        return "it has no 'url'"
+    url_problem = _fetch_url_problem(fetch[_JWKS_FETCH_URL])
+    if url_problem is not None:
+        return url_problem
+    if _JWKS_FETCH_HOST_HEADER not in fetch or fetch[_JWKS_FETCH_HOST_HEADER] is None:
+        return None
+    return _host_header_problem(fetch[_JWKS_FETCH_HOST_HEADER])
+
+
+def _require_usable_jwks_fetch(plan_path: str, plan: dict[str, Any]) -> None:
+    """Refuse a plan whose JWT entry declares an unusable ``jwksFetch`` object.
+
+    Fails closed: the runtime never fetches signing keys from an endpoint the
+    plan does not describe exactly. An absent or ``null`` member means "fetch
+    ``jwksUri``".
+
+    Raises:
+        RuntimeError: Naming the provider and the problem, never the value.
+    """
+    for name, entry in plan["providers"].items():
+        if (
+            entry["credential"] != _CREDENTIAL_JWT
+            or entry.get(_JWKS_FETCH_MEMBER) is None
+        ):
+            continue
+        problem = _jwks_fetch_problem(entry[_JWKS_FETCH_MEMBER])
+        if problem is not None:
+            raise RuntimeError(
+                "Identity provider plan %r: provider %r declares an unusable %r: %s. "
+                "Expected an object with an 'http'/'https' 'url' naming a host (no "
+                "user information, fragment or whitespace) and an optional bare "
+                "host[:port] 'hostHeader', and no other member. Regenerate the "
+                "service and its plan together."
+                % (plan_path, name, _JWKS_FETCH_MEMBER, problem)
+            )
+
+
 def _load_provider_plan() -> dict[str, Any]:
     """Load and cache the identity provider plan (no environment reads).
 
@@ -174,7 +337,10 @@ def _load_provider_plan() -> dict[str, Any]:
         Parsed plan dict.
 
     Raises:
-        RuntimeError: When no plan can be resolved or the file cannot be read.
+        RuntimeError: When no plan can be resolved, the file cannot be read,
+            the plan's ``schemaVersion`` is not the one this runtime supports,
+            a provider entry declares no known ``credential`` kind, or a JWT
+            entry declares an unusable ``jwksFetch`` object.
     """
     global _cached_plan, _cached_plan_path
     plan_path = _resolve_plan_path()
@@ -182,6 +348,16 @@ def _load_provider_plan() -> dict[str, Any]:
         return _cached_plan
     with open(plan_path, encoding="utf-8") as fh:
         plan: dict[str, Any] = json.load(fh)
+    plan_version = plan.get("schemaVersion")
+    if plan_version != _PLAN_SCHEMA_VERSION_SUPPORTED:
+        raise RuntimeError(
+            "Identity provider plan %r declares schemaVersion %r, but this runtime "
+            "supports schema version %d only. Regenerate the service and its plan "
+            "together so both carry the same schema version."
+            % (plan_path, plan_version, _PLAN_SCHEMA_VERSION_SUPPORTED)
+        )
+    _require_known_credentials(plan_path, plan)
+    _require_usable_jwks_fetch(plan_path, plan)
     _cached_plan = plan
     _cached_plan_path = plan_path
     logger.debug(
@@ -195,9 +371,9 @@ def _load_provider_plan() -> dict[str, Any]:
 def load_provider_plan() -> dict[str, Any]:
     """Public accessor for the cached identity provider plan.
 
-    Surface guards, profile projection, and delegation validation resolve
-    ``surfaces`` / ``providers`` through this single loader so plan loading and
-    caching live in exactly one place (DRY).
+    Token validation and profile projection resolve ``providers`` through
+    this single loader so plan loading and caching live in exactly one
+    place (DRY).
 
     Returns:
         The parsed provider plan dict.
@@ -263,36 +439,79 @@ def local_user_id(provider_name: str, subject: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# JWKS client cache (keyed by provider name + jwksUri)
+# JWKS client cache (keyed by provider name + fetch URL [+ Host header])
 # ---------------------------------------------------------------------------
 
 _jwks_clients: dict[str, PyJWKClient] = {}
 
 
+def _jwks_fetch_target(
+    provider_name: str, entry: dict[str, Any]
+) -> tuple[str, dict[str, str]]:
+    """The URL a JWT entry's signing keys are fetched from, and the headers to send.
+
+    ``jwksFetch.url`` (with ``jwksFetch.hostHeader`` as the ``Host`` header,
+    when given) when the entry declares the object; ``jwksUri`` otherwise. The
+    loader has already refused an unusable ``jwksFetch`` object.
+
+    Raises:
+        JwksValidationError: ``provider_config_error`` when the entry declares
+            neither a ``jwksFetch`` object nor a non-empty ``jwksUri`` -- there
+            is no key set to verify against, so the token is refused.
+    """
+    fetch: Any = entry.get(_JWKS_FETCH_MEMBER)
+    if fetch is not None:
+        headers: dict[str, str] = {}
+        if fetch.get(_JWKS_FETCH_HOST_HEADER) is not None:
+            headers[_HOST_HEADER_NAME] = fetch[_JWKS_FETCH_HOST_HEADER]
+        return fetch[_JWKS_FETCH_URL], headers
+    jwks_uri: Any = entry.get("jwksUri")
+    if not isinstance(jwks_uri, str) or not jwks_uri:
+        raise JwksValidationError(
+            reason_code=_REASON_PROVIDER_CONFIG,
+            message=(
+                "Provider '%s' declares neither a 'jwksFetch' object nor a 'jwksUri'; "
+                "its signing keys cannot be fetched, so the token is refused.  "
+                "Regenerate the service and its plan together." % provider_name
+            ),
+        )
+    return jwks_uri, {}
+
+
 def _get_jwks_client(
-    provider_name: str, jwks_uri: str, cache_ttl_seconds: int
+    provider_name: str, fetch_url: str, headers: dict[str, str], cache_ttl_seconds: int
 ) -> PyJWKClient:
-    """Return a cached ``PyJWKClient`` for the given provider.
+    """Return a cached ``PyJWKClient`` for the given provider's key-set endpoint.
 
     Args:
         provider_name: Logical provider name (used as cache key prefix).
-        jwks_uri: The provider's JWKS endpoint URI.
+        fetch_url: The URL the provider's key set is fetched from.
+        headers: Headers sent with every fetch (the ``Host`` header of a
+            ``jwksFetch`` endpoint, or none).
         cache_ttl_seconds: JWKS cache TTL in seconds.
 
     Returns:
-        Shared ``PyJWKClient`` instance for this provider.
+        Shared ``PyJWKClient`` instance for this provider and endpoint.
     """
-    cache_key = "%s|%s" % (provider_name, jwks_uri)
+    cache_key = "|".join(
+        (
+            provider_name,
+            fetch_url,
+            *("%s=%s" % item for item in sorted(headers.items())),
+        )
+    )
     if cache_key not in _jwks_clients:
         _jwks_clients[cache_key] = PyJWKClient(
-            jwks_uri,
+            fetch_url,
             cache_keys=True,
             lifespan=cache_ttl_seconds,
+            headers=dict(headers),
         )
         logger.debug(
-            "identity_jwks_client_created provider=%s jwks_uri=%s ttl=%s",
+            "identity_jwks_client_created provider=%s fetch_url=%s host_header=%s ttl=%s",
             provider_name,
-            jwks_uri,
+            fetch_url,
+            headers.get(_HOST_HEADER_NAME, "(none)"),
             cache_ttl_seconds,
         )
     return _jwks_clients[cache_key]
@@ -497,7 +716,9 @@ def _select_provider(
 
     Selection rules, applied in order:
 
-    1. Gather every provider whose ``issuer`` equals ``token_iss``.
+    1. Gather every ``jwt``-credential provider whose ``issuer`` equals
+       ``token_iss``. An ``apiKey`` provider is never a candidate: it has no
+       issuer and no signing keys a token could be verified against.
     2. When exactly one matches, use it (audience is enforced later by decode).
     3. When several share the issuer, prefer the one whose non-empty EFFECTIVE
        audience allow-list intersects the token ``aud``.
@@ -527,7 +748,8 @@ def _select_provider(
     issuer_matches: list[tuple[str, dict[str, Any]]] = [
         (name, entry)
         for name, entry in providers.items()
-        if entry.get("issuer", "") == token_iss
+        if entry.get("credential") == _CREDENTIAL_JWT
+        and entry.get("issuer", "") == token_iss
     ]
     if not issuer_matches:
         return None
@@ -597,7 +819,7 @@ async def validate_token_claims(token: str) -> dict[str, Any]:
        when several providers share one issuer), validate via JWKS.
 
     JWKS refresh failure fails closed: ``JwksValidationError`` with
-    ``reason_code="jwks_refresh_failed"`` is raised rather than allowing
+    ``reason_code=_REASON_JWKS_REFRESH_FAILED`` is raised rather than allowing
     an unverifiable token through.
 
     Args:
@@ -674,9 +896,13 @@ async def validate_token_claims(token: str) -> dict[str, Any]:
     # Double-guard: reject symmetric regardless of plan allow-list.
     _assert_asymmetric_algorithm(token_alg, matched_provider_name)
 
-    jwks_uri: str = matched_provider.get("jwksUri", "")
+    fetch_url, fetch_headers = _jwks_fetch_target(
+        matched_provider_name, matched_provider
+    )
     cache_ttl: int = int(matched_provider["jwksCacheTtlSeconds"])
-    jwks_client = _get_jwks_client(matched_provider_name, jwks_uri, cache_ttl)
+    jwks_client = _get_jwks_client(
+        matched_provider_name, fetch_url, fetch_headers, cache_ttl
+    )
 
     # Resolve signing key — on unknown kid, refresh JWKS once (DN38).
     try:

@@ -13,7 +13,6 @@ import enum
 import inspect
 import json
 import logging
-import re
 import time
 import uuid
 from collections.abc import Callable
@@ -206,38 +205,6 @@ async def _ms_call(service: str, method: str, params: dict | None = None) -> obj
 async def _ms_call_async(service: str, method: str, params: dict | None = None) -> None:
     """Fire-and-forget service call."""
     asyncio.create_task(_ms_call(service, method, params))
-
-
-# Word-boundary split mirroring datrix_common.utils.text.to_snake_case: a camelCase
-# boundary (aB), an acronym boundary (ABc), or any run of . - _ whitespace separators.
-_MS_KEY_WORD_BOUNDARY = re.compile(
-    r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[.\-_\s]+"
-)
-
-
-def _ms_snake_key(key: str) -> str:
-    """Snake_case one object key to the snake_case Python wire contract.
-
-    Identical output to the build-time ``to_snake_case`` used for the receiving service's
-    pydantic field names, so e.g. ``registrationNumber`` -> ``registration_number``.
-    """
-    words = [part.lower() for part in _MS_KEY_WORD_BOUNDARY.split(key) if part]
-    return "_".join(words)
-
-
-def _ms_snake_keys(value: object) -> object:
-    """Recursively snake_case every object key in an inter-service request body.
-
-    Applied only when the target endpoint's body is fully structurally typed (no free-form
-    ``JSON``/``Map``), so every key is a declared struct/entity field name rather than
-    data. Fixes camelCase JSON-literal keys (including array-built/nested object literals)
-    that a typed ``Array<Struct>`` consumer would otherwise reject with HTTP 422.
-    """
-    if isinstance(value, dict):
-        return {_ms_snake_key(str(k)): _ms_snake_keys(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_ms_snake_keys(item) for item in value]
-    return value
 
 
 async def _ms_post(service: str, endpoint: str, data: object) -> object:

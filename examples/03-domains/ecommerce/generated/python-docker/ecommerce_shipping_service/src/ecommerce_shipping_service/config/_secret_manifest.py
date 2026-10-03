@@ -30,8 +30,14 @@ SECRET_REFERENCES: dict[str, dict[str, object]] = {
         "ttl_seconds": 300,
         "provisioning_authority": "operator",
     },
-    "jwt_public_key": {
-        "rendered_name": "jwt_public_key",
+    "mq_sasl_password": {
+        "rendered_name": "mq_sasl_password",
+        "required": True,
+        "ttl_seconds": 300,
+        "provisioning_authority": "operator",
+    },
+    "redis_password": {
+        "rendered_name": "redis_password",
         "required": True,
         "ttl_seconds": 300,
         "provisioning_authority": "operator",

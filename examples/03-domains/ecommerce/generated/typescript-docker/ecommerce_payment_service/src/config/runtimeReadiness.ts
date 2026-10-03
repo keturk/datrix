@@ -52,10 +52,11 @@ export function readinessFailures(report: ReadinessReport): ReadinessItem[] {
 
 // Required set baked from the runtime-requirements manifest. Values are NEVER baked here.
 const REQUIRED_SECRET_HANDLES: Array<[string, string]> = [
-  ["payment_db_password", "payment_db_password"],
-  ["payment_webhook_secret", "payment_webhook_secret"],
-  ["queues_password", "queues_password"],
   ["stripe_secret_key", "stripe_secret_key"],
+  ["payment_webhook_secret", "payment_webhook_secret"],
+  ["mq_sasl_password", "mq_sasl_password"],
+  ["payment_db_password", "payment_db_password"],
+  ["queues_password", "queues_password"],
 ];
 
 const REQUIRED_CONFIG_KEYS: Array<[string, string]> = [

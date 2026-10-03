@@ -2,8 +2,7 @@
  * TTL/readiness suite for EcommerceNotificationService.
  *
  * Boots the FULL generated AppModule in-process (proving the real DI graph
- * resolves, not a hand-mocked partial module -- TypeScript's structural
- * equivalent of ASP.NET Core's WebApplicationFactory<Program>) and exercises
+ * resolves, not a hand-mocked partial module) and exercises
  * the generated /health endpoint. No live container required.
  *
  * Every RDBMS block resolves its connection facts through the runtime

@@ -8,9 +8,9 @@ export function buildCategory(
   overrides?: Partial<Category>,
 ): Partial<Category> {
   return {
-    name: `x`,
-    description: 'test-text-content',
-    slug: `test-${Date.now()}`,
+    name: `test_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`,
+    description: 'test',
+    slug: `test-${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`,
     ...overrides,
   };
 }

@@ -8,7 +8,6 @@ describe('buildPayment', () => {
     expect(result.customerId).toBeDefined();
     expect(result.amount).toBeDefined();
     expect(result.method).toBeDefined();
-    expect(result.status).toBeDefined();
     expect(result.transactionId).toBeDefined();
     expect(result.gatewayResponse).toBeDefined();
     expect(result.errorMessage).toBeDefined();

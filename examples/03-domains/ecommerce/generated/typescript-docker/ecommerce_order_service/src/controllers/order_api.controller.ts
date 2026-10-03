@@ -16,15 +16,15 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthGuard } from '../auth/auth.guard';
-import { Public } from '../auth/public.decorator';
-import { InternalGuard } from '../auth/internal.guard';
+import { RateLimitGuard } from '../rate-limit/rate-limit.guard';
+import { PrincipalTypes } from '../auth/optional-auth.decorator';
+import { Providers } from '../auth/providers.decorator';
 import { CoerceStringEnumPipe } from '../pipes/string-enum-query.pipe';
 import { EntityManager } from '@mikro-orm/core';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import { EntityRepository } from '@mikro-orm/core';
 import { FunctionsService } from '../functions';
 import { OrderService } from '../services/order.service';
-import { OrderItemService } from '../services/order_item.service';
 import { CancelOrderRequest } from '../dto/cancel-order-request.struct';
 import { ConfirmPaymentRequest } from '../dto/confirm-payment-request.struct';
 import { CreateOrderRequest } from '../dto/create-order-request.struct';
@@ -38,6 +38,7 @@ import axios from 'axios';
 import { BadRequestException } from '@nestjs/common';
 import { ForbiddenException } from '@nestjs/common';
 import { NotFoundException } from '@nestjs/common';
+import { UnauthorizedException } from '@nestjs/common';
 import { MAX_PAGE_SIZE } from '../constants';
 import { ProductServiceAvailabilityResponseResponse } from '../clients/product-service-responses';
 import { ProductServiceProductResponse } from '../clients/product-service-responses';
@@ -46,22 +47,25 @@ import { SqlEntityManager } from '@mikro-orm/postgresql';
 import { bufferEvents } from '../eventOutbox';
 import { generateOrderNumber } from '../functions';
 import { randomUUID } from 'crypto';
-import { ApiExtraModels, ApiResponse, ApiExcludeEndpoint } from '@nestjs/swagger';
+import { ApiExtraModels, ApiResponse, ApiExcludeEndpoint, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
 
 @ApiExtraModels(CancelOrderRequest, ConfirmPaymentRequest, CreateOrderRequest, PaginatedOrders, UpdateShipmentRequest)
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, RateLimitGuard)
 @Controller('api/v1/orders')
 export class OrderAPIController {
   constructor(
     private readonly functionsService: FunctionsService,
     private readonly orderService: OrderService,
-    private readonly orderItemService: OrderItemService,
     @InjectRepository(Order) private readonly orderRepository: EntityRepository<Order>,
     @InjectRepository(OrderItem) private readonly orderItemRepository: EntityRepository<OrderItem>,
     private readonly orderDbEm: EntityManager,
   ) {}
 
   // Paginated list endpoint with optional filtering
+  @Providers('identity', 'customerKeys', 'test_auth')
+  @PrincipalTypes('human')
+  @ApiBearerAuth()
+  @ApiSecurity("customerKeys")
   @Get('')
   @ApiResponse({ status: 200, type: PaginatedOrders })
   async getEndpoint(
@@ -70,7 +74,7 @@ export class OrderAPIController {
     @Query('per_page', new DefaultValuePipe(20), ParseIntPipe) perPage: number,
     @Query('status', new CoerceStringEnumPipe(OrderStatus, true)) status?: OrderStatus,
   ): Promise<PaginatedOrders> {
-    let customerId: string = ((u) => (u == null ? u : { ...u, id: u.id ?? u.sub }))((req as any).user).id;
+    let customerId: string = (() => { const p = req.user ?? (() => { throw new UnauthorizedException({ type: 'about:blank', title: 'Unauthorized', status: 401 }); })(); return { ...p, id: p.userId }; })().id;
     let query = (this.orderRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(Order, 'e_order').select('*').where('e_order.customer_id = ?', [customerId]);
     if ((status != null)) {
       query = query.where('e_order.status = ?', [status]);
@@ -81,6 +85,9 @@ export class OrderAPIController {
     return Object.assign(new PaginatedOrders(), { data: orders, pagination: {currentPage: page, perPage: cappedPerPage, totalItems: total, totalPages: Math.ceil((total / cappedPerPage)), hasNextPage: (page < Math.ceil((total / cappedPerPage))), hasPrevPage: (page > 1)} });
   }
 
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
+  @ApiBearerAuth()
   @Post('')
   @HttpCode(HttpStatus.CREATED)
   async postEndpoint(
@@ -92,7 +99,7 @@ export class OrderAPIController {
     if ((cached != null)) {
       return cached as any;
     }
-    let customerId: string = ((u) => (u == null ? u : { ...u, id: u.id ?? u.sub }))((req as any).user).id;
+    let customerId: string = (() => { const p = req.user ?? (() => { throw new UnauthorizedException({ type: 'about:blank', title: 'Unauthorized', status: 401 }); })(); return { ...p, id: p.userId }; })().id;
     let reservationId: string = randomUUID();
     // Cross-service call('config/service.dcfg') : check product availability via ProductService
     let availability: ProductServiceAvailabilityResponseResponse = (await axios.post(`${String(process.env['SERVICE_ECOMMERCE_PRODUCT_SERVICE_URL'] ?? '').replace(/\/$/, '')}/${String('/api/v1/products/service/check-availability').replace(/^\/+/, '')}`, body.items)).data;
@@ -118,26 +125,32 @@ export class OrderAPIController {
     return order;
   }
 
-  @Public()
-  @UseGuards(InternalGuard)
+  @Providers('platform', 'test_auth')
+  @PrincipalTypes('machine')
   @ApiExcludeEndpoint()
+  @ApiBearerAuth()
   @Get('service/:id')
   async getServiceById(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<Order> {
-    return this.orderService.findOne(id);
+    const result = await this.orderRepository.findOne({ id: id });
+    if (!result) {
+      throw new NotFoundException("Not found");
+    }
+    return result
   }
 
-  @Public()
-  @UseGuards(InternalGuard)
+  @Providers('platform', 'test_auth')
+  @PrincipalTypes('machine')
   @ApiExcludeEndpoint()
+  @ApiBearerAuth()
   @Post(':id/confirm-payment')
   @HttpCode(HttpStatus.CREATED)
   async postByIdConfirmPayment(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: ConfirmPaymentRequest,
   ): Promise<Order> {
-    const order = await this.orderRepository.findOne({ id: id });
+    let order = await this.orderRepository.findOne({ id: id });
     if (!order) {
       throw new NotFoundException("Not found");
     }
@@ -147,16 +160,17 @@ export class OrderAPIController {
     return order;
   }
 
-  @Public()
-  @UseGuards(InternalGuard)
+  @Providers('platform', 'test_auth')
+  @PrincipalTypes('machine')
   @ApiExcludeEndpoint()
+  @ApiBearerAuth()
   @Post(':id/update-shipment')
   @HttpCode(HttpStatus.CREATED)
   async postByIdUpdateShipment(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: UpdateShipmentRequest,
   ): Promise<Order> {
-    const order = await this.orderRepository.findOne({ id: id });
+    let order = await this.orderRepository.findOne({ id: id });
     if (!order) {
       throw new NotFoundException("Not found");
     }
@@ -165,27 +179,20 @@ export class OrderAPIController {
     return order;
   }
 
-  @Get(':id/order_items')
-  async listOrderItems(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
-  ): Promise<OrderItem[]> {
-    await this.orderService.findOne(id);
-    return this.orderItemService.getByOrder(id, skip, limit);
-  }
-
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
+  @ApiBearerAuth()
   @Put(':id/cancel')
   async putByIdCancel(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: CancelOrderRequest,
     @Req() req: Request,
   ): Promise<Order> {
-    const order = await this.orderRepository.findOne({ id: id });
+    let order = await this.orderRepository.findOne({ id: id });
     if (!order) {
       throw new NotFoundException("Not found");
     }
-    if (((order.customerId !== ((u) => (u == null ? u : { ...u, id: u.id ?? u.sub }))((req as any).user).id) && (!((req as any).user?.roles ?? []).includes('admin')))) {
+    if (((order.customerId !== (() => { const p = req.user ?? (() => { throw new UnauthorizedException({ type: 'about:blank', title: 'Unauthorized', status: 401 }); })(); return { ...p, id: p.userId }; })().id) && (!(req.user?.roles ?? []).includes('admin')))) {
       throw new ForbiddenException('Cannot cancel another user\'s order');
     }
     if ((!order.canCancel)) {
@@ -201,16 +208,19 @@ export class OrderAPIController {
     return order;
   }
 
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
+  @ApiBearerAuth()
   @Get(':id')
   async getById(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: Request,
   ): Promise<Order> {
-    const order = await this.orderRepository.findOne({ id: id });
+    let order = await this.orderRepository.findOne({ id: id });
     if (!order) {
       throw new NotFoundException("Not found");
     }
-    if (((order.customerId !== ((u) => (u == null ? u : { ...u, id: u.id ?? u.sub }))((req as any).user).id) && (!((req as any).user?.roles ?? []).includes('admin')))) {
+    if (((order.customerId !== (() => { const p = req.user ?? (() => { throw new UnauthorizedException({ type: 'about:blank', title: 'Unauthorized', status: 401 }); })(); return { ...p, id: p.userId }; })().id) && (!(req.user?.roles ?? []).includes('admin')))) {
       throw new ForbiddenException('Access denied');
     }
     return order;

@@ -92,6 +92,27 @@ describe('ProductService Deployment', () => {
     expect([200, 403, 404]).toContain(response.status);
   });
 
+  it('Custom GET /api/v1/products/wire/blob responds with 200 or 403/404 when missing', async () => {
+    const response = await httpRequest(`${BASE_URL}/api/v1/products/wire/blob`, {
+      headers: { 'Authorization': `Bearer ${makeTestJwt(["user"], JWT_ISSUER)}` },
+    });
+    expect([200, 403, 404]).toContain(response.status);
+  });
+
+  it('Custom GET /api/v1/products/wire/image/00000000-0000-0000-0000-000000000001 responds with 200 or 403/404 when missing', async () => {
+    const response = await httpRequest(`${BASE_URL}/api/v1/products/wire/image/00000000-0000-0000-0000-000000000001`, {
+      headers: { 'Authorization': `Bearer ${makeTestJwt(["user"], JWT_ISSUER)}` },
+    });
+    expect([200, 403, 404]).toContain(response.status);
+  });
+
+  it('Custom GET /api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001 responds with 200 or 403/404 when missing', async () => {
+    const response = await httpRequest(`${BASE_URL}/api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001`, {
+      headers: { 'Authorization': `Bearer ${makeTestJwt(["user"], JWT_ISSUER)}` },
+    });
+    expect([200, 403, 404]).toContain(response.status);
+  });
+
   // --- List response shape ---
 
   describe('ProductService List Response Shapes', () => {
@@ -230,6 +251,39 @@ describe('ProductService Deployment', () => {
       expect([200, 403, 404]).toContain(response.status);
     });
 
+    it('PATCH /api/v1/products/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/products/00000000-0000-0000-0000-000000000001`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+    });
+
+    it('PATCH /api/v1/products/00000000-0000-0000-0000-000000000001 with wrong role returns 403', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/products/00000000-0000-0000-0000-000000000001`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(403);
+    });
+
+    it('DELETE /api/v1/products/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/products/00000000-0000-0000-0000-000000000001`, {
+        method: 'DELETE',
+      });
+      expect(response.status).toBe(401);
+    });
+
+    it('DELETE /api/v1/products/00000000-0000-0000-0000-000000000001 with wrong role returns 403', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/products/00000000-0000-0000-0000-000000000001`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
+      });
+      expect(response.status).toBe(403);
+    });
+
     it('Public GET /api/v1/products/slug/test without auth returns 200 or 403/404 when resource missing', async () => {
       const response = await fetchWithRetry(`${BASE_URL}/api/v1/products/slug/test`);
       expect([200, 403, 404]).toContain(response.status);
@@ -245,22 +299,6 @@ describe('ProductService Deployment', () => {
       expect(response.status).toBe(200);
     });
 
-    it('PATCH /api/v1/products/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/products/00000000-0000-0000-0000-000000000001`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).toBe(401);
-    });
-
-    it('DELETE /api/v1/products/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/products/00000000-0000-0000-0000-000000000001`, {
-        method: 'DELETE',
-      });
-      expect(response.status).toBe(401);
-    });
-
     it('POST /api/v1/products/?request=integration-path-value without auth returns 401', async () => {
       const response = await httpRequest(`${BASE_URL}/api/v1/products/?request=integration-path-value`, {
         method: 'POST',
@@ -268,6 +306,15 @@ describe('ProductService Deployment', () => {
         body: JSON.stringify({}),
       });
       expect(response.status).toBe(401);
+    });
+
+    it('POST /api/v1/products/?request=integration-path-value with wrong role returns 403', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/products/?request=integration-path-value`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(403);
     });
 
     it('PATCH /api/v1/products/00000000-0000-0000-0000-000000000001/inventory?request=integration-path-value without auth returns 401', async () => {
@@ -279,6 +326,15 @@ describe('ProductService Deployment', () => {
       expect(response.status).toBe(401);
     });
 
+    it('PATCH /api/v1/products/00000000-0000-0000-0000-000000000001/inventory?request=integration-path-value with wrong role returns 403', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/products/00000000-0000-0000-0000-000000000001/inventory?request=integration-path-value`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(403);
+    });
+
     it('PUT /api/v1/products/00000000-0000-0000-0000-000000000001/publish without auth returns 401', async () => {
       const response = await httpRequest(`${BASE_URL}/api/v1/products/00000000-0000-0000-0000-000000000001/publish`, {
         method: 'PUT',
@@ -286,6 +342,15 @@ describe('ProductService Deployment', () => {
         body: JSON.stringify({}),
       });
       expect(response.status).toBe(401);
+    });
+
+    it('PUT /api/v1/products/00000000-0000-0000-0000-000000000001/publish with wrong role returns 403', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/products/00000000-0000-0000-0000-000000000001/publish`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(403);
     });
 
     it('POST /api/v1/products/service/check-availability?request=integration-path-value without auth returns 401', async () => {
@@ -338,48 +403,19 @@ describe('ProductService Deployment', () => {
       expect(response.status).toBe(401);
     });
 
-    it('PATCH /api/v1/products/00000000-0000-0000-0000-000000000001 with wrong role returns 403', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/products/00000000-0000-0000-0000-000000000001`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).toBe(403);
+    it('GET /api/v1/products/wire/blob without auth returns 401', async () => {
+      const response = await fetchWithRetry(`${BASE_URL}/api/v1/products/wire/blob`);
+      expect(response.status).toBe(401);
     });
 
-    it('DELETE /api/v1/products/00000000-0000-0000-0000-000000000001 with wrong role returns 403', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/products/00000000-0000-0000-0000-000000000001`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
-      });
-      expect(response.status).toBe(403);
+    it('GET /api/v1/products/wire/image/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
+      const response = await fetchWithRetry(`${BASE_URL}/api/v1/products/wire/image/00000000-0000-0000-0000-000000000001`);
+      expect(response.status).toBe(401);
     });
 
-    it('POST /api/v1/products/?request=integration-path-value with wrong role returns 403', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/products/?request=integration-path-value`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).toBe(403);
-    });
-
-    it('PATCH /api/v1/products/00000000-0000-0000-0000-000000000001/inventory?request=integration-path-value with wrong role returns 403', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/products/00000000-0000-0000-0000-000000000001/inventory?request=integration-path-value`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).toBe(403);
-    });
-
-    it('PUT /api/v1/products/00000000-0000-0000-0000-000000000001/publish with wrong role returns 403', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/products/00000000-0000-0000-0000-000000000001/publish`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).toBe(403);
+    it('GET /api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
+      const response = await fetchWithRetry(`${BASE_URL}/api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001`);
+      expect(response.status).toBe(401);
     });
 
   });
@@ -415,6 +451,24 @@ describe('ProductService Deployment', () => {
       const paths = schema.paths as Record<string, unknown>;
       expect(paths).toBeDefined();
       expect(paths['/api/v1/products/slug/{slug}']).toBeDefined();
+    });
+
+    it('OpenAPI paths contains /api/v1/products/wire/blob', () => {
+      const paths = schema.paths as Record<string, unknown>;
+      expect(paths).toBeDefined();
+      expect(paths['/api/v1/products/wire/blob']).toBeDefined();
+    });
+
+    it('OpenAPI paths contains /api/v1/products/wire/discount/{id}', () => {
+      const paths = schema.paths as Record<string, unknown>;
+      expect(paths).toBeDefined();
+      expect(paths['/api/v1/products/wire/discount/{id}']).toBeDefined();
+    });
+
+    it('OpenAPI paths contains /api/v1/products/wire/image/{id}', () => {
+      const paths = schema.paths as Record<string, unknown>;
+      expect(paths).toBeDefined();
+      expect(paths['/api/v1/products/wire/image/{id}']).toBeDefined();
     });
 
     it('OpenAPI paths contains /api/v1/products/{id}', () => {

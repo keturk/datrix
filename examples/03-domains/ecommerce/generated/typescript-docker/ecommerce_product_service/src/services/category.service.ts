@@ -62,11 +62,9 @@ export class CategoryService {
 
 
 
-
   async getByName(name: string): Promise<Category> {
     const entity = await this.em.findOne(Category, {
-      name
-    } as never);
+      name    } as never);
     if (!entity) {
       throw new NotFoundException(`Category with name ${ name } not found`);
     }
@@ -74,8 +72,7 @@ export class CategoryService {
   }
   async getBySlug(slug: string): Promise<Category> {
     const entity = await this.em.findOne(Category, {
-      slug
-    } as never);
+      slug    } as never);
     if (!entity) {
       throw new NotFoundException(`Category with slug ${ slug } not found`);
     }

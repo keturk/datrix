@@ -44,7 +44,7 @@ export class Payment extends BaseEntity {
   method!: PaymentMethod;
 
   @Enum({ items: () => PaymentStatus, nativeEnumName: 'payment_status' })
-  status!: PaymentStatus;
+  status: PaymentStatus = PaymentStatus.Pending;
 
   @Property({ columnType: 'varchar', fieldName: 'transaction_id', unique: true })
   transactionId!: string;

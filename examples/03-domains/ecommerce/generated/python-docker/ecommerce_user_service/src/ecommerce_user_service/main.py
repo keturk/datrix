@@ -64,6 +64,7 @@ from ecommerce_user_service.observability.tracing_setup import setup_tracing
 from ecommerce_user_service.rate_limit import log_rate_limit_configuration
 from ecommerce_user_service.redis.connection import RedisCacheConnection
 from ecommerce_user_service.request_context import RequestContextMiddleware
+from ecommerce_user_service.routes.api_key_verify import router as api_key_verify_router
 from ecommerce_user_service.routes.user_api import router as user_api_router
 from ecommerce_user_service.user_db.connection import get_engine as _get_user_db_engine
 from ecommerce_user_service.user_db.connection import (
@@ -277,8 +278,9 @@ def create_app() -> FastAPI:
 
     # Middleware
     # Trusted-host enforcement (Starlette TrustedHostMiddleware).
-    # Allowed hosts are baked at generation time from httpSecurity.allowedHosts;
-    # no runtime environment reads.
+    # Allowed hosts are baked at generation time from httpSecurity.allowedHosts,
+    # the platform's front-door host patterns and this service's own in-network
+    # name (the host peers dial); no runtime environment reads.
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=ALLOWED_HOSTS,
@@ -316,6 +318,7 @@ def create_app() -> FastAPI:
 
     # Include routers
     app.include_router(user_api_router)
+    app.include_router(api_key_verify_router)
 
     return app
 

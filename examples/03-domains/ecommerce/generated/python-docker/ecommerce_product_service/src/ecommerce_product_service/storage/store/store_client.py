@@ -16,12 +16,12 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 import boto3
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
-from ecommerce_product_service.config import _bootstrap
 from ecommerce_product_service.config._secrets_resolver import get_secret
 from ecommerce_product_service.config.settings import get_settings
 from ecommerce_product_service.observability.storage_metrics import (
@@ -38,6 +38,33 @@ IMAGES_ALLOWED_TYPES: list[str] = ["image/jpeg", "image/png", "image/webp"]
 IMAGES_MAX_SIZE_BYTES: int = 10485760  # 10mb
 THUMBNAILS_ALLOWED_TYPES: list[str] = ["image/jpeg", "image/png", "image/webp"]
 THUMBNAILS_MAX_SIZE_BYTES: int = 2097152  # 2mb
+#: Longest lifetime a signed download link may carry: seven days. S3 SigV4
+#: presigning, GCS V4 signed URLs and Azure user-delegation keys all stop at
+#: this bound, and the storage rejects a longer link only when it is opened.
+PRESIGNED_URL_MAX_EXPIRES_SECONDS: int = 604800
+#: ``ClientError`` codes S3-compatible stores answer for a missing object.
+_OBJECT_NOT_FOUND_CODES: frozenset[str] = frozenset({"404", "NoSuchKey", "NotFound"})
+
+
+@dataclass(frozen=True)
+class StorageObjectHead:
+    """Existence and content hash of one stored object."""
+
+    exists: bool
+    etag: (
+        str  # content MD5, lowercase hex; "" when the object is missing or carries none
+    )
+
+
+def _validate_expires_in(expires_in: int) -> None:
+    """Reject a signed-link lifetime the storage would refuse at download time."""
+    if 0 < expires_in <= PRESIGNED_URL_MAX_EXPIRES_SECONDS:
+        return
+    raise ValueError(
+        f"expires_in={expires_in} is outside the presigned URL lifetime range: "
+        f"expected an integer between 1 and {PRESIGNED_URL_MAX_EXPIRES_SECONDS} "
+        "seconds (seven days). Pass a shorter expiry to getUrl()."
+    )
 
 
 class StoreStorageClient:
@@ -52,11 +79,20 @@ class StoreStorageClient:
     AppSettings, and the secrets resolver. MinIO credentials are re-read by
     storage operations and the provider client is rebuilt when rotated values
     differ.
+
+    Presigned download links are signed by a second client bound to the
+    public endpoint (``AppSettings.store_public_endpoint``): the
+    address a browser reaches MinIO on, which differs from the API endpoint
+    whenever the service reaches MinIO over a private network. S3 signatures
+    cover the host, so the link must be signed for the public host rather
+    than rewritten afterwards. When the two endpoints are equal the API
+    client signs.
     """
 
     def __init__(self) -> None:
         self._bucket_name: str = "product-images"
         self._provider_client: object | None = None
+        self._presign_client: object | None = None
         self._minio_credentials: tuple[str, str] | None = None
 
     @asynccontextmanager
@@ -108,13 +144,16 @@ class StoreStorageClient:
             return
         if self._provider_client is not None:
             self._close_provider_client()
-        client = boto3.client(
-            "s3",
-            endpoint_url=get_settings().store_endpoint,
-            aws_access_key_id=_access_key,
-            aws_secret_access_key=_secret_key,
-            config=BotoConfig(signature_version="s3v4"),
-            region_name=_bootstrap.REGION or "us-east-1",
+        _settings = get_settings()
+        client = self._build_minio_client(
+            _settings.store_endpoint, _access_key, _secret_key
+        )
+        presign_client = (
+            client
+            if _settings.store_public_endpoint == _settings.store_endpoint
+            else self._build_minio_client(
+                _settings.store_public_endpoint, _access_key, _secret_key
+            )
         )
         logger.info(
             "storage_client_initialized provider=%s bucket=%s",
@@ -123,6 +162,7 @@ class StoreStorageClient:
         )
         self._ensure_bucket_exists(client)
         self._provider_client = client
+        self._presign_client = presign_client
         self._minio_credentials = _credentials
 
     @property
@@ -136,10 +176,51 @@ class StoreStorageClient:
             )
         return self._provider_client
 
+    @property
+    def _presigner(self) -> object:
+        """Return the client bound to the public endpoint that signs download links."""
+        if self._presign_client is None:
+            raise RuntimeError(
+                "Storage client for block 'store' has not been initialised. "
+                "Call await ensure_ready() during the lifespan startup phase before "
+                "generating a download URL."
+            )
+        return self._presign_client
+
+    @staticmethod
+    def _build_minio_client(
+        endpoint_url: str, access_key: str, secret_key: str
+    ) -> object:
+        """Build one S3-compatible client against ``endpoint_url`` with the resolved credentials.
+
+        Requests are signed for the block's declared region -- the one region a
+        provisioned server is configured to accept (botocore's default when the
+        block declares none) -- and addressed path-style, the form every
+        S3-compatible server serves without a wildcard DNS domain.
+        """
+        return boto3.client(
+            "s3",
+            endpoint_url=endpoint_url,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            config=BotoConfig(
+                signature_version="s3v4", s3={"addressing_style": "path"}
+            ),
+            region_name="us-east-1",
+        )
+
     def _close_provider_client(self) -> None:
         """Close and clear the cached provider client when the SDK exposes close()."""
         if self._provider_client is None:
             return
+        if (
+            self._presign_client is not None
+            and self._presign_client is not self._provider_client
+        ):
+            _close_presigner = getattr(self._presign_client, "close", None)
+            if callable(_close_presigner):
+                _close_presigner()
+        self._presign_client = None
         close = getattr(self._provider_client, "close", None)
         if callable(close):
             close()
@@ -158,7 +239,8 @@ class StoreStorageClient:
 
     # -- the minio primitives every folder operation routes through --
 
-    async def _put_object(self, key: str, data: bytes, content_type: str) -> None:
+    async def put_object(self, key: str, data: bytes, content_type: str) -> None:
+        await self.ensure_ready()
         await asyncio.to_thread(
             self._client.put_object,
             Bucket=self._bucket_name,
@@ -175,7 +257,29 @@ class StoreStorageClient:
         )
         return await asyncio.to_thread(response["Body"].read)
 
-    async def _delete_object(self, key: str) -> None:
+    async def head_object(self, key: str) -> StorageObjectHead:
+        """Return whether ``key`` exists and its content MD5 (lowercase hex, or "").
+
+        Metadata only: the object body is never downloaded. A missing object is
+        the one condition reported as ``exists=False``; every other provider
+        error propagates.
+        """
+        await self.ensure_ready()
+        try:
+            response = await asyncio.to_thread(
+                self._client.head_object,
+                Bucket=self._bucket_name,
+                Key=key,
+            )
+        except ClientError as exc:
+            error_code = str(exc.response.get("Error", {}).get("Code", ""))
+            if error_code in _OBJECT_NOT_FOUND_CODES:
+                return StorageObjectHead(exists=False, etag="")
+            raise
+        return StorageObjectHead(exists=True, etag=response["ETag"].strip('"').lower())
+
+    async def delete_object(self, key: str) -> None:
+        await self.ensure_ready()
         await asyncio.to_thread(
             self._client.delete_object,
             Bucket=self._bucket_name,
@@ -225,7 +329,7 @@ class StoreStorageClient:
             len(data),
         )
         async with self._measured("upload"):
-            await self._put_object(key, data, content_type)
+            await self.put_object(key, data, content_type)
         self._record_bytes("upload", len(data))
         logger.debug("storage_upload_completed folder=%s key=%s", "images", key)
         return StorageRef(
@@ -245,11 +349,16 @@ class StoreStorageClient:
 
         Args:
             filename: Name of the file.
-            expires_in: URL expiration in seconds (default 1 hour).
+            expires_in: URL expiration in seconds (default 1 hour, at most
+                ``PRESIGNED_URL_MAX_EXPIRES_SECONDS``).
 
         Returns:
             Presigned URL string.
+
+        Raises:
+            ValueError: If expires_in is not between 1 and seven days.
         """
+        _validate_expires_in(expires_in)
         await self.ensure_ready()
         key = (
             filename
@@ -262,7 +371,7 @@ class StoreStorageClient:
             key,
         )
         url = await asyncio.to_thread(
-            self._client.generate_presigned_url,
+            self._presigner.generate_presigned_url,
             "get_object",
             Params={"Bucket": self._bucket_name, "Key": key},
             ExpiresIn=expires_in,
@@ -286,7 +395,7 @@ class StoreStorageClient:
         )
         logger.debug("storage_delete_started folder=%s key=%s", "images", key)
         async with self._measured("delete"):
-            await self._delete_object(key)
+            await self.delete_object(key)
         logger.debug("storage_delete_completed folder=%s key=%s", "images", key)
 
     async def list_images(
@@ -347,7 +456,7 @@ class StoreStorageClient:
             return True
         except ClientError as exc:
             error_code = str(exc.response.get("Error", {}).get("Code", ""))
-            if error_code in {"404", "NoSuchKey", "NotFound"}:
+            if error_code in _OBJECT_NOT_FOUND_CODES:
                 return False
             raise
 
@@ -543,7 +652,7 @@ class StoreStorageClient:
             len(data),
         )
         async with self._measured("upload"):
-            await self._put_object(key, data, content_type)
+            await self.put_object(key, data, content_type)
         self._record_bytes("upload", len(data))
         logger.debug("storage_upload_completed folder=%s key=%s", "thumbnails", key)
         return StorageRef(
@@ -563,11 +672,16 @@ class StoreStorageClient:
 
         Args:
             filename: Name of the file.
-            expires_in: URL expiration in seconds (default 1 hour).
+            expires_in: URL expiration in seconds (default 1 hour, at most
+                ``PRESIGNED_URL_MAX_EXPIRES_SECONDS``).
 
         Returns:
             Presigned URL string.
+
+        Raises:
+            ValueError: If expires_in is not between 1 and seven days.
         """
+        _validate_expires_in(expires_in)
         await self.ensure_ready()
         key = (
             filename
@@ -580,7 +694,7 @@ class StoreStorageClient:
             key,
         )
         url = await asyncio.to_thread(
-            self._client.generate_presigned_url,
+            self._presigner.generate_presigned_url,
             "get_object",
             Params={"Bucket": self._bucket_name, "Key": key},
             ExpiresIn=expires_in,
@@ -604,7 +718,7 @@ class StoreStorageClient:
         )
         logger.debug("storage_delete_started folder=%s key=%s", "thumbnails", key)
         async with self._measured("delete"):
-            await self._delete_object(key)
+            await self.delete_object(key)
         logger.debug("storage_delete_completed folder=%s key=%s", "thumbnails", key)
 
     async def list_thumbnails(
@@ -665,7 +779,7 @@ class StoreStorageClient:
             return True
         except ClientError as exc:
             error_code = str(exc.response.get("Error", {}).get("Code", ""))
-            if error_code in {"404", "NoSuchKey", "NotFound"}:
+            if error_code in _OBJECT_NOT_FOUND_CODES:
                 return False
             raise
 

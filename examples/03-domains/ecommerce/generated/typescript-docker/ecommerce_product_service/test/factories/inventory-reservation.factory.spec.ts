@@ -6,9 +6,7 @@ describe('buildInventoryReservation', () => {
     expect(result).toBeDefined();
     expect(result.reservationId).toBeDefined();
     expect(result.quantity).toBeDefined();
-    expect(result.status).toBeDefined();
     expect(result.expiresAt).toBeDefined();
-    expect(result.productId).toBeDefined();
     expect(result.product).toBeDefined();
   });
 

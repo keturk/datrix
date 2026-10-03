@@ -4,9 +4,11 @@ import { HttpParams } from '@angular/common/http';
 /**
  * Builds HttpParams from a wire-named parameter object, dropping undefined
  * and null values. Keys are already the wire names the backend expects; this
- * helper never re-cases them. HttpParams percent-encodes every value it
- * serializes, which is why only PATH parameters need an explicit
- * encodeURIComponent at their call site.
+ * helper never re-cases them. A list value is sent as the key repeated once
+ * per element -- the form every backend binds a list query parameter from,
+ * and the form a service-to-service call sends. HttpParams percent-encodes
+ * every value it serializes, which is why only PATH parameters need an
+ * explicit encodeURIComponent at their call site.
  */
 export function toHttpParams(params: Record<string, unknown>): HttpParams {
   let httpParams = new HttpParams();
@@ -14,7 +16,10 @@ export function toHttpParams(params: Record<string, unknown>): HttpParams {
     if (value === undefined || value === null) {
       continue;
     }
-    httpParams = httpParams.set(key, String(value));
+    const items: readonly unknown[] = Array.isArray(value) ? value : [value];
+    for (const item of items) {
+      httpParams = httpParams.append(key, String(item));
+    }
   }
   return httpParams;
 }

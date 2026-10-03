@@ -231,3 +231,32 @@ async def wrong_role_client() -> AsyncGenerator[AsyncClient, None]:
             follow_redirects=True,
         ) as async_client:
             yield async_client
+
+
+@pytest_asyncio.fixture
+async def invalid_token_client() -> AsyncGenerator[AsyncClient, None]:
+    """HTTP client presenting a bearer token that fails verification (401 on every guarded route)."""
+    base_url = os.environ.get("BASE_URL")
+    headers = {"Authorization": "Bearer not-a-valid-jwt"}
+    if base_url:
+        transport = _RetryTransport(AsyncHTTPTransport(retries=_TRANSPORT_RETRIES))
+        async with AsyncClient(
+            transport=transport,
+            base_url=base_url,
+            timeout=_DEPLOY_TIMEOUT_SECONDS,
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            await _warm_up(async_client)
+            yield async_client
+    else:
+        from ecommerce_payment_service.main import app
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            yield async_client

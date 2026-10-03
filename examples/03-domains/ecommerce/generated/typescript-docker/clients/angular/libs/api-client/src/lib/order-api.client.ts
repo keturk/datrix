@@ -3,30 +3,30 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
-import { ECOMMERCE_API_BASE_URL } from './core/api-base-url.token';
+import { API_BASE_URL } from './core/api-base-url.token';
+import type { ApiRequestOptions } from './core/request-options';
 import { toHttpParams } from './core/query-params';
 import type { Uuid } from '../../../api-contract/src/lib/core/branded';
 import type { CancelOrderRequest } from '../../../api-contract/src/lib/models/ecommerce-order-service/CancelOrderRequest';
 import type { CreateOrderRequest } from '../../../api-contract/src/lib/models/ecommerce-order-service/CreateOrderRequest';
 import type { PaginatedOrders } from '../../../api-contract/src/lib/models/ecommerce-order-service/PaginatedOrders';
 import type { OrderStatus } from '../../../api-contract/src/lib/models/ecommerce-order-service/enums/OrderStatus';
-import type { OrderItemResponse } from '../../../api-contract/src/lib/models/order-db/OrderItemResponse';
 import type { OrderResponse } from '../../../api-contract/src/lib/models/order-db/OrderResponse';
 
 @Injectable({ providedIn: 'root' })
 export class OrderApiClient {
   private readonly http = inject(HttpClient);
-  private readonly base = inject(ECOMMERCE_API_BASE_URL);
+  private readonly base = inject(API_BASE_URL);
 
-  /** GET /api/v1/orders - auth: identity */
+  /** GET /api/v1/orders - auth: identity, customerKeys */
   getEndpoint(args: {
     page?: number;
     perPage?: number;
     status?: OrderStatus | null;
-  } = {}): Observable<PaginatedOrders> {
+  } = {}, options?: ApiRequestOptions): Observable<PaginatedOrders> {
     return this.http.get<PaginatedOrders>(
       `${this.base}/api/v1/orders`,
-      { params: toHttpParams({
+      { ...options, params: toHttpParams({
         'page': args.page,
         'perPage': args.perPage,
         'status': args.status,
@@ -37,19 +37,21 @@ export class OrderApiClient {
   /** GET /api/v1/orders/:id - auth: identity */
   getById(args: {
     id: Uuid;
-  }): Observable<OrderResponse> {
+  }, options?: ApiRequestOptions): Observable<OrderResponse> {
     return this.http.get<OrderResponse>(
       `${this.base}/api/v1/orders/${encodeURIComponent(String(args.id))}`,
+      options,
     );
   }
 
   /** POST /api/v1/orders - auth: identity */
   postEndpoint(args: {
     request: CreateOrderRequest;
-  }): Observable<OrderResponse> {
+  }, options?: ApiRequestOptions): Observable<OrderResponse> {
     return this.http.post<OrderResponse>(
       `${this.base}/api/v1/orders`,
       args.request,
+      options,
     );
   }
 
@@ -57,25 +59,11 @@ export class OrderApiClient {
   putByIdCancel(args: {
     id: Uuid;
     request: CancelOrderRequest;
-  }): Observable<OrderResponse> {
+  }, options?: ApiRequestOptions): Observable<OrderResponse> {
     return this.http.put<OrderResponse>(
       `${this.base}/api/v1/orders/${encodeURIComponent(String(args.id))}/cancel`,
       args.request,
-    );
-  }
-
-  /** GET /api/v1/orders/:id/order_items - auth: required */
-  listOrdersOrderItems(args: {
-    id: Uuid;
-    skip?: number;
-    limit?: number;
-  }): Observable<OrderItemResponse[]> {
-    return this.http.get<OrderItemResponse[]>(
-      `${this.base}/api/v1/orders/${encodeURIComponent(String(args.id))}/order_items`,
-      { params: toHttpParams({
-        'skip': args.skip,
-        'limit': args.limit,
-      }) },
+      options,
     );
   }
 }

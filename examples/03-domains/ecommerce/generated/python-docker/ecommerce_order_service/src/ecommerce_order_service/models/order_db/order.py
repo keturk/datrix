@@ -10,12 +10,13 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, CheckConstraint, Enum, Index, Numeric, String, Text
+from sqlalchemy import CheckConstraint, Enum, Index, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ecommerce_order_service.enums.order_status import OrderStatus
+from ecommerce_order_service.order_db.base import StructJSON
 from ecommerce_order_service.schemas.address import Address
 
 if TYPE_CHECKING:
@@ -55,10 +56,10 @@ class Order(BaseEntity):
         Numeric(19, 4),
     )
     shipping_address: Mapped[Address] = mapped_column(
-        JSON,
+        StructJSON(Address),
     )
     billing_address: Mapped[Address] = mapped_column(
-        JSON,
+        StructJSON(Address),
     )
     inventory_reservation_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
@@ -111,7 +112,7 @@ class Order(BaseEntity):
         """Entity function: calculate_totals."""
         items_total: decimal.Decimal = Decimal(str(0))
         for item in self.items:
-            items_total = items_total.append(item.total)
+            items_total = items_total + item.total
         self.subtotal = items_total
         self.tax = self.subtotal * 0.08
         if self.subtotal >= 50.0:

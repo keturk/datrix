@@ -17,27 +17,17 @@ from ecommerce_shipping_service.models.shipping_db.shipment_event import Shipmen
 class ShipmentEventFactory:
     """Factory for creating ShipmentEvent test instances."""
 
-    created_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    updated_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    id: uuid.UUID = field(default_factory=uuid.uuid4)
-    timestamp: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    timestamp: datetime.datetime = datetime.datetime(
+        2025, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc
     )
     status: ShipmentStatus = ShipmentStatus.pending
-    location: str = "test_value"
-    description: str | None = "test_value"
-    shipment_id: uuid.UUID = field(default_factory=uuid.uuid4)
+    location: str = "test"
+    description: str | None = "test"
+    shipment_id: uuid.UUID = field(default_factory=lambda: uuid.uuid4())
 
     def build(self) -> ShipmentEvent:
         """Build a model instance from factory defaults."""
         return ShipmentEvent(
-            created_at=self.created_at,
-            updated_at=self.updated_at,
-            id=self.id,
             timestamp=self.timestamp,
             status=self.status,
             location=self.location,

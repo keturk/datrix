@@ -1,18 +1,20 @@
 
 import {
   IsDate,
+  IsDefined,
   IsEmail,
   IsEnum,
   IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
-  IsUUID,
   Matches,
   Max,
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -23,20 +25,24 @@ import { Address } from './address.struct'
 export class CreateUserDto {
 
   @ApiProperty()
+  @IsDefined()
   @IsEmail()
   email!: string;
 
   @ApiProperty()
+  @IsDefined()
   @IsString()
   passwordHash!: string;
 
   @ApiProperty()
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
   firstName!: string;
 
   @ApiProperty()
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
@@ -49,13 +55,17 @@ export class CreateUserDto {
   @Matches(/^\+?[1-9]\d{1,14}$/)
   phoneNumber?: string | null;
 
-  @ApiProperty({ enum: UserRole, enumName: 'UserRole' })
+  @ApiPropertyOptional({ enum: UserRole, enumName: 'UserRole' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsDefined()
   @IsEnum(UserRole)
-  role!: UserRole;
+  role?: UserRole;
 
-  @ApiProperty({ enum: UserStatus, enumName: 'UserStatus' })
+  @ApiPropertyOptional({ enum: UserStatus, enumName: 'UserStatus' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsDefined()
   @IsEnum(UserStatus)
-  status!: UserStatus;
+  status?: UserStatus;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -89,10 +99,14 @@ export class CreateUserDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsObject()
+  @ValidateNested()
+  @Type(() => Address)
   shippingAddress?: Address | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsObject()
+  @ValidateNested()
+  @Type(() => Address)
   billingAddress?: Address | null;
 }

@@ -8,13 +8,13 @@ export interface ShipmentResponse {
   actualDelivery?: IsoDateTime | null;
   carrier: ShippingCarrier;
   createdAt: IsoDateTime;
-  daysInTransit?: number | null;
+  daysInTransit: number;
   destination: Address;
   estimatedDelivery?: IsoDateTime | null;
   failureReason?: string | null;
   id: Uuid;
-  isDelivered?: boolean | null;
-  isInProgress?: boolean | null;
+  isDelivered: boolean;
+  isInProgress: boolean;
   orderId: Uuid;
   status: ShipmentStatus;
   trackingNumber: string;

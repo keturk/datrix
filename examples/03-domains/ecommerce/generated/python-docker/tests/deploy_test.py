@@ -12,11 +12,18 @@ Usage:
 
 Environment variables:
     DEPLOY_TEST_FRESH_BUILD=true                   # Same as --fresh-build flag
+    GATEWAY_PORT=8080                              # Host port of the nginx gateway (change when it collides on this machine)
+    ZITADEL_HOST_PORT=8085                         # Host port of the Zitadel identity server (change when it collides on this machine)
+
+The runner refreshes .env from .env.example on every run, so a host-port
+override belongs in the shell environment (it takes precedence over .env).
 """
 
 from __future__ import annotations
 
 import argparse
+import errno
+import importlib.util
 import json
 import logging
 import os
@@ -29,8 +36,9 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
+from types import ModuleType
 from urllib import error, request
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import quote, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +51,14 @@ SERVICES: list[dict[str, object]] = [
         "expose_http": True,
         "db_containers": [
             {
-                "env_var": "USER_DB_DATABASE_URL_ECOMMERCE_USER_SERVICE",
+                "async_driver": "postgresql+asyncpg",
+                "compose_service": "ecommerce-user-service",
+                "database_key": "user_db_database",
                 "internal_port": 5432,
                 "key": "ecommerce-postgresql",
+                "password_handle": "user_db_password",
                 "test_env_var": "TEST_USER_DB_DATABASE_URL",
+                "user_key": "user_db_user",
             }
         ],
         "cache_container": {
@@ -64,10 +76,14 @@ SERVICES: list[dict[str, object]] = [
         "expose_http": True,
         "db_containers": [
             {
-                "env_var": "PRODUCT_DB_DATABASE_URL_ECOMMERCE_PRODUCT_SERVICE",
+                "async_driver": "postgresql+asyncpg",
+                "compose_service": "ecommerce-product-service",
+                "database_key": "product_db_database",
                 "internal_port": 5432,
                 "key": "ecommerce-postgresql",
+                "password_handle": "product_db_password",
                 "test_env_var": "TEST_PRODUCT_DB_DATABASE_URL",
+                "user_key": "product_db_user",
             }
         ],
         "cache_container": {
@@ -76,6 +92,13 @@ SERVICES: list[dict[str, object]] = [
             "key": "ecommerce-redis",
         },
         "mq_container": {"external_container_port": 29092, "key": "ecommerce-kafka"},
+        "storage_container": {
+            "buckets": {"store": "product-images"},
+            "compose_service": "ecommerce-product-service",
+            "fixtures_dir": "fixtures/storage",
+            "internal_port": 3900,
+            "key": "ecommerce-product-service-garage",
+        },
     },
     {
         "name": "ecommerce.OrderService",
@@ -85,10 +108,14 @@ SERVICES: list[dict[str, object]] = [
         "expose_http": True,
         "db_containers": [
             {
-                "env_var": "ORDER_DB_DATABASE_URL_ECOMMERCE_ORDER_SERVICE",
+                "async_driver": "postgresql+asyncpg",
+                "compose_service": "ecommerce-order-service",
+                "database_key": "order_db_database",
                 "internal_port": 5432,
                 "key": "ecommerce-postgresql",
+                "password_handle": "order_db_password",
                 "test_env_var": "TEST_ORDER_DB_DATABASE_URL",
+                "user_key": "order_db_user",
             }
         ],
         "cache_container": {
@@ -106,10 +133,14 @@ SERVICES: list[dict[str, object]] = [
         "expose_http": True,
         "db_containers": [
             {
-                "env_var": "PAYMENT_DB_DATABASE_URL_ECOMMERCE_PAYMENT_SERVICE",
+                "async_driver": "postgresql+asyncpg",
+                "compose_service": "ecommerce-payment-service",
+                "database_key": "payment_db_database",
                 "internal_port": 5432,
                 "key": "ecommerce-postgresql",
+                "password_handle": "payment_db_password",
                 "test_env_var": "TEST_PAYMENT_DB_DATABASE_URL",
+                "user_key": "payment_db_user",
             }
         ],
         "mq_container": {"external_container_port": 29092, "key": "ecommerce-kafka"},
@@ -122,10 +153,14 @@ SERVICES: list[dict[str, object]] = [
         "expose_http": True,
         "db_containers": [
             {
-                "env_var": "SHIPPING_DB_DATABASE_URL_ECOMMERCE_SHIPPING_SERVICE",
+                "async_driver": "postgresql+asyncpg",
+                "compose_service": "ecommerce-shipping-service",
+                "database_key": "shipping_db_database",
                 "internal_port": 5432,
                 "key": "ecommerce-postgresql",
+                "password_handle": "shipping_db_password",
                 "test_env_var": "TEST_SHIPPING_DB_DATABASE_URL",
+                "user_key": "shipping_db_user",
             }
         ],
         "cache_container": {
@@ -140,13 +175,17 @@ SERVICES: list[dict[str, object]] = [
         "dir": "ecommerce_notification_service",
         "compose_key": "ecommerce-notification-service",
         "port": 8001,
-        "expose_http": False,
+        "expose_http": True,
         "db_containers": [
             {
-                "env_var": "NOTIFICATION_DB_DATABASE_URL_ECOMMERCE_NOTIFICATION_SERVICE",
+                "async_driver": "postgresql+asyncpg",
+                "compose_service": "ecommerce-notification-service",
+                "database_key": "notification_db_database",
                 "internal_port": 5432,
                 "key": "ecommerce-postgresql",
+                "password_handle": "notification_db_password",
                 "test_env_var": "TEST_NOTIFICATION_DB_DATABASE_URL",
+                "user_key": "notification_db_user",
             }
         ],
     },
@@ -442,10 +481,19 @@ def _write_deploy_failures_artifacts(
     return len(logic_failures), len(transient_failures)
 
 
+#: Where the compose deployment writes each service's config store and its
+#: file-backed secrets -- the SAME files the deployed container mounts. The
+#: harness reads its DB credentials from these, never from a ``.env`` line or
+#: a value baked at generation time.
+_CONFIG_STORE_TEMPLATE = "config/services/{compose_service}/config-store.json"
+_SECRET_FILE_TEMPLATE = "secrets/{compose_service}/{handle}"
+_CONNECTIONS_NAMESPACE = "connections"
+
+
 def _resolve_test_database_urls(
     compose: list[str], db_containers: list[dict[str, object]], project_dir: Path
 ) -> dict[str, str]:
-    """Resolve a host-accessible test URL for EVERY RDBMS block.
+    """Resolve a host-accessible test URL for EVERY RDBMS block (fails closed).
 
     A service may declare several RDBMS blocks backed by different containers.
     Resolving only the first and exporting it as ``TEST_DATABASE_URL`` makes the
@@ -456,40 +504,32 @@ def _resolve_test_database_urls(
         Mapping of env-var name to URL: each block's own
         ``TEST_<BLOCK>_DATABASE_URL``, plus ``TEST_DATABASE_URL`` aliasing the
         primary (first) block for single-database services.
+
+    Raises:
+        RuntimeError: The container's host port, its config store, its
+            database/user connection keys, or its password secret file could
+            not be resolved -- naming the missing piece.
     """
     urls: dict[str, str] = {}
     for index, db_info in enumerate(db_containers):
-        url = _resolve_one_database_url(compose, db_info, project_dir)
-        if url is None:
-            continue
+        host_port = _compose_host_port(compose, db_info, project_dir)
+        url = _compose_test_database_url(db_info, project_dir, host_port)
         urls[str(db_info["test_env_var"])] = url
         if index == 0:
             urls["TEST_DATABASE_URL"] = url
     return urls
 
 
-def _resolve_one_database_url(
+def _compose_host_port(
     compose: list[str], db_info: dict[str, object], project_dir: Path
-) -> str | None:
-    """Build a host-accessible URL for one RDBMS block.
+) -> str:
+    """The host port ``docker compose port`` publishes for the block's container.
 
-    Reads the internal DATABASE_URL from .env, discovers the host-mapped port
-    via ``docker compose port``, and rewrites the URL for localhost access.
+    Raises:
+        RuntimeError: The port lookup failed -- naming the container and port.
     """
     container_key = str(db_info["key"])
     internal_port = int(db_info["internal_port"])
-    env_var = str(db_info["env_var"])
-    env_file = project_dir / ".env"
-    db_url = None
-    if env_file.exists():
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line.startswith(f"{env_var}="):
-                db_url = line.split("=", 1)[1]
-                break
-    if not db_url:
-        logger.warning("test_database_url_not_found env_var=%s", env_var)
-        return None
     result = subprocess.run(
         [*compose, "port", container_key, str(internal_port)],
         capture_output=True,
@@ -498,26 +538,81 @@ def _resolve_one_database_url(
         cwd=str(project_dir),
     )
     if result.returncode != 0 or not result.stdout.strip():
-        logger.warning(
-            "docker_compose_port_failed container=%s port=%s",
-            container_key,
-            internal_port,
+        raise RuntimeError(
+            f"docker compose port lookup failed for container '{container_key}' port "
+            f"{internal_port}: rc={result.returncode} stderr={(result.stderr or '').strip()!r}. "
+            "The container must be running ('docker compose up') before the deploy-test "
+            "harness resolves its host port."
         )
-        return None
-    host_mapping = result.stdout.strip()
-    host_port = host_mapping.rsplit(":", 1)[-1]
-    parsed = urlparse(db_url)
-    # Ensure the scheme uses the asyncpg driver — the Python test harness
-    # always uses SQLAlchemy create_async_engine which requires +asyncpg.
-    scheme = parsed.scheme
-    if scheme == "postgresql" or scheme == "postgres":
-        scheme = "postgresql+asyncpg"
-    test_parsed = parsed._replace(
-        scheme=scheme,
-        netloc=f"{parsed.username}:{parsed.password}@localhost:{host_port}",
-        query="",
+    host_mapping = result.stdout.strip().splitlines()[0]
+    return host_mapping.rsplit(":", 1)[-1]
+
+
+def _require_connection_value(
+    connections: dict[str, object], key: str, config_path: Path
+) -> str:
+    """One non-empty string entry of a config store's ``connections`` object.
+
+    Raises:
+        RuntimeError: *key* is missing, or its value is not a non-empty
+            string -- naming the key and the file.
+    """
+    value = connections.get(key)
+    if not isinstance(value, str) or not value:
+        raise RuntimeError(
+            f"{config_path} has no non-empty '{key}' entry in its 'connections' object. "
+            "It is seeded by the compose deployment; regenerate and redeploy the project."
+        )
+    return value
+
+
+def _compose_test_database_url(
+    db_info: dict[str, object], project_dir: Path, host_port: str
+) -> str:
+    """Build the block's host test URL from the deployed config store and secret.
+
+    Reads the database and user from the SAME ``config/services/<compose>/
+    config-store.json`` the deployed container reads, and the password from
+    the SAME file-backed secret it mounts (``secrets/<compose>/<handle>``) --
+    never a plaintext dotenv line, never a value baked at generation time.
+
+    Raises:
+        RuntimeError: The config store file, its ``connections`` entry for the
+            database or user key, or the password secret file is missing --
+            naming the file/key and the deployment step that writes it.
+    """
+    compose_service = str(db_info["compose_service"])
+    config_path = project_dir / _CONFIG_STORE_TEMPLATE.format(
+        compose_service=compose_service
     )
-    return urlunparse(test_parsed)
+    secret_path = project_dir / _SECRET_FILE_TEMPLATE.format(
+        compose_service=compose_service, handle=str(db_info["password_handle"])
+    )
+    if not config_path.is_file():
+        raise RuntimeError(
+            f"Deploy-test DB config store not found at {config_path}. It is written by the "
+            f"compose generator for service '{compose_service}'; regenerate the project."
+        )
+    connections = json.loads(config_path.read_text(encoding="utf-8")).get(
+        _CONNECTIONS_NAMESPACE
+    )
+    if not isinstance(connections, dict):
+        raise RuntimeError(f"{config_path} has no '{_CONNECTIONS_NAMESPACE}' object.")
+    database = _require_connection_value(
+        connections, str(db_info["database_key"]), config_path
+    )
+    user = _require_connection_value(connections, str(db_info["user_key"]), config_path)
+    if not secret_path.is_file():
+        raise RuntimeError(
+            f"Deploy-test DB password secret not found at {secret_path}. It is provisioned "
+            f"with the compose secrets for service '{compose_service}'; start the stack first."
+        )
+    password = secret_path.read_text(encoding="utf-8").strip()
+    # Never logged: the password is interpolated into the in-memory URL only.
+    return (
+        f"{db_info['async_driver']}://{quote(user, safe='')}:{quote(password, safe='')}"
+        f"@localhost:{host_port}/{quote(database, safe='')}"
+    )
 
 
 def _resolve_test_redis_url(
@@ -546,6 +641,203 @@ def _resolve_test_redis_url(
     host_mapping = result.stdout.strip().splitlines()[0]
     host_port = host_mapping.rsplit(":", 1)[-1]
     return f"redis://localhost:{host_port}/{db_index}"
+
+
+def _resolve_test_storage_endpoint(
+    compose: list[str], storage_container: dict[str, object] | None, project_dir: Path
+) -> str | None:
+    """Resolve the host-accessible MinIO endpoint for tests run outside Compose."""
+    if not storage_container:
+        return None
+    container_key = str(storage_container["key"])
+    internal_port = int(storage_container["internal_port"])
+    result = subprocess.run(
+        [*compose, "port", container_key, str(internal_port)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=str(project_dir),
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        logger.warning(
+            "docker_compose_port_failed container=%s port=%s",
+            container_key,
+            internal_port,
+        )
+        return None
+    host_mapping = result.stdout.strip().splitlines()[0]
+    host_port = host_mapping.rsplit(":", 1)[-1]
+    return f"http://localhost:{host_port}"
+
+
+def _resolve_test_storage_credentials(
+    storage_container: dict[str, object] | None, project_dir: Path
+) -> tuple[str, str] | None:
+    """Read the provisioner-written MinIO root credentials for host-run tests.
+
+    The compose generator writes the SAME file-backend secrets the deployed
+    container reads (``secrets/<compose_service>/minio_access_key`` /
+    ``minio_secret_key``, a fixed root user plus a generation-time random
+    password) alongside the compose file -- no ``docker compose`` call needed,
+    unlike the endpoint's host-port resolution, since these are plain files
+    already on disk once generation has run.
+
+    Returns ``None`` when the service has no self-hosted MinIO storage block,
+    or when either secret file has not been written -- the caller falls back
+    to the baked (invalid, out-of-band) test placeholder, which is a 403
+    against a real running server rather than a silent bypass.
+    """
+    if not storage_container:
+        return None
+    compose_service = str(storage_container["compose_service"])
+    secrets_dir = project_dir / "secrets" / compose_service
+    access_key_file = secrets_dir / "minio_access_key"
+    secret_key_file = secrets_dir / "minio_secret_key"
+    if not access_key_file.is_file() or not secret_key_file.is_file():
+        logger.warning(
+            "minio_credential_files_missing access_key_file=%s secret_key_file=%s",
+            access_key_file,
+            secret_key_file,
+        )
+        return None
+    return (
+        access_key_file.read_text(encoding="utf-8").strip(),
+        secret_key_file.read_text(encoding="utf-8").strip(),
+    )
+
+
+def _seed_storage_fixtures(compose: list[str], project_dir: Path) -> int:
+    """PUT every authored storage fixture object into its bucket before the tests run.
+
+    A generated service carries the fixture objects authored beside its
+    config at ``<service dir>/<fixtures_dir>/<block alias>/<relative key>``.
+    A spec test whose DSL body reads an object (``<block>.download(key)``)
+    needs that object to exist first, and the DSL cannot construct ``Bytes``
+    to upload it itself -- so the harness seeds each file into the block's
+    bucket at exactly its relative key, over the same host-mapped endpoint and
+    provisioner-written root credentials the tests themselves use.
+
+    Fails closed: a fixture directory whose alias maps to no bucket, an
+    unresolvable endpoint or credential pair, a bucket the running server does
+    not hold, or a refused PUT each raise -- a spec test failing later with a
+    missing key would only hide which of them it was. Logs carry counts and
+    keys, never credentials or content.
+
+    Returns:
+        The number of objects seeded across every service.
+    """
+    seeded = 0
+    for service in SERVICES:
+        storage_container = service.get("storage_container")
+        if not isinstance(storage_container, dict):
+            continue
+        seeded += _seed_service_storage_fixtures(
+            compose, project_dir, service, storage_container
+        )
+    return seeded
+
+
+def _seed_service_storage_fixtures(
+    compose: list[str],
+    project_dir: Path,
+    service: dict[str, object],
+    storage_container: dict[str, object],
+) -> int:
+    """Seed one service's fixture objects; see ``_seed_storage_fixtures``."""
+    import boto3
+
+    service_name = str(service["name"])
+    fixtures_root = (
+        project_dir / str(service["dir"]) / str(storage_container["fixtures_dir"])
+    )
+    block_dirs = (
+        sorted(p for p in fixtures_root.iterdir() if p.is_dir())
+        if fixtures_root.is_dir()
+        else []
+    )
+    if not block_dirs:
+        logger.info(
+            "storage_fixtures_none service=%s dir=%s", service_name, fixtures_root
+        )
+        return 0
+    buckets = storage_container["buckets"]
+    if not isinstance(buckets, dict):
+        raise RuntimeError(
+            f"storage_container for service {service_name!r} carries no bucket map"
+        )
+    endpoint = _resolve_test_storage_endpoint(compose, storage_container, project_dir)
+    if endpoint is None:
+        raise RuntimeError(
+            f"Storage fixtures exist under {fixtures_root} but the MinIO host endpoint "
+            f"could not be resolved for service {service_name!r}; see the "
+            f"docker_compose_port_failed warning above."
+        )
+    credentials = _resolve_test_storage_credentials(storage_container, project_dir)
+    if credentials is None:
+        raise RuntimeError(
+            f"Storage fixtures exist under {fixtures_root} but the provisioner-written "
+            f"MinIO credential files are missing for service {service_name!r}; see "
+            f"the minio_credential_files_missing warning above."
+        )
+    client = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=credentials[0],
+        aws_secret_access_key=credentials[1],
+    )
+    seeded = 0
+    for block_dir in block_dirs:
+        alias = block_dir.name
+        if alias not in buckets:
+            raise RuntimeError(
+                f"Storage fixtures directory {block_dir} names block {alias!r}, but "
+                f"service {service_name!r} has no host-reachable bucket for it "
+                f"(known: {sorted(buckets)}). Only a self-hosted MinIO block can be seeded."
+            )
+        seeded += _seed_block_storage_fixtures(
+            client, service_name, alias, str(buckets[alias]), block_dir, endpoint
+        )
+    return seeded
+
+
+def _seed_block_storage_fixtures(
+    client: object,
+    service_name: str,
+    alias: str,
+    bucket: str,
+    block_dir: Path,
+    endpoint: str,
+) -> int:
+    """PUT every file under *block_dir* into *bucket* at its block-relative key."""
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    try:
+        client.head_bucket(Bucket=bucket)
+    except (ClientError, BotoCoreError) as exc:
+        raise RuntimeError(
+            f"Bucket {bucket!r} for storage block {alias!r} is not reachable at "
+            f"{endpoint}: {type(exc).__name__}. The compose init container creates "
+            f"it before the services start; check its logs."
+        ) from exc
+    seeded = 0
+    for fixture_path in sorted(p for p in block_dir.rglob("*") if p.is_file()):
+        key = fixture_path.relative_to(block_dir).as_posix()
+        try:
+            client.put_object(Bucket=bucket, Key=key, Body=fixture_path.read_bytes())
+        except (ClientError, BotoCoreError) as exc:
+            raise RuntimeError(
+                f"PUT of storage fixture {fixture_path} to bucket {bucket!r} key "
+                f"{key!r} failed: {type(exc).__name__}"
+            ) from exc
+        seeded += 1
+        logger.info(
+            "storage_fixture_seeded service=%s block=%s bucket=%s key=%s",
+            service_name,
+            alias,
+            bucket,
+            key,
+        )
+    return seeded
 
 
 def _resolve_test_mq_brokers(
@@ -633,6 +925,16 @@ def _resolve_shell_default(value: str) -> str:
     return value
 
 
+def _redacted(url: str) -> str:
+    """Return *url* with any embedded password replaced by '***' for logging.
+
+    Only the credential segment of a `scheme://user:password@host:port/db`
+    connection URL is masked -- host/port/database stay visible, since they
+    are legitimate operator-debugging information, not a credential.
+    """
+    return re.sub(r"://([^:/@]+):([^@]+)@", r"://\1:***@", url)
+
+
 def run_spec_tests(
     *,
     compose: list[str],
@@ -689,7 +991,7 @@ def run_spec_tests(
                 "test_database_url_resolved service=%s var=%s url=%s",
                 service["name"],
                 db_env_var,
-                db_url,
+                _redacted(db_url),
             )
         test_redis_url = _resolve_test_redis_url(
             compose,
@@ -703,6 +1005,26 @@ def run_spec_tests(
                 service["name"],
                 test_redis_url,
             )
+        test_storage_endpoint = _resolve_test_storage_endpoint(
+            compose,
+            service.get("storage_container"),
+            project_dir,
+        )
+        if test_storage_endpoint:
+            svc_env["STORAGE_ENDPOINT_URL"] = test_storage_endpoint
+            logger.info(
+                "test_storage_endpoint_resolved service=%s url=%s",
+                service["name"],
+                test_storage_endpoint,
+            )
+        test_storage_credentials = _resolve_test_storage_credentials(
+            service.get("storage_container"), project_dir
+        )
+        if test_storage_credentials:
+            svc_env["STORAGE_ACCESS_KEY"], svc_env["STORAGE_SECRET_KEY"] = (
+                test_storage_credentials
+            )
+            logger.info("test_storage_credentials_resolved service=%s", service["name"])
 
         safe = str(service["dir"]).replace("/", "_").replace("\\", "_")
         junit_path = results_dir / f"pytest-spec-{safe}.xml"
@@ -731,6 +1053,7 @@ def run_integration_tests(
     db_containers: list[dict[str, object]] | None = None,
     cache_container: dict[str, object] | None = None,
     mq_container: dict[str, object] | None = None,
+    storage_container: dict[str, object] | None = None,
     verbose: bool = False,
     results_dir: Path,
     expose_http: bool = True,
@@ -775,11 +1098,25 @@ def run_integration_tests(
     if mq_brokers:
         env["MQ_BROKERS_URL"] = mq_brokers
         logger.info("test_mq_brokers_resolved url=%s", mq_brokers)
+    storage_endpoint = _resolve_test_storage_endpoint(
+        compose, storage_container, project_dir
+    )
+    if storage_endpoint:
+        env["STORAGE_ENDPOINT_URL"] = storage_endpoint
+        logger.info("test_storage_endpoint_resolved url=%s", storage_endpoint)
+    storage_credentials = _resolve_test_storage_credentials(
+        storage_container, project_dir
+    )
+    if storage_credentials:
+        env["STORAGE_ACCESS_KEY"], env["STORAGE_SECRET_KEY"] = storage_credentials
+        logger.info("test_storage_credentials_resolved")
     for db_env_var, db_url in _resolve_test_database_urls(
         compose, db_containers or [], project_dir
     ).items():
         env[db_env_var] = db_url
-        logger.info("test_database_url_resolved var=%s url=%s", db_env_var, db_url)
+        logger.info(
+            "test_database_url_resolved var=%s url=%s", db_env_var, _redacted(db_url)
+        )
     safe = service_dir.replace("/", "_").replace("\\", "_")
     passed = True
     if expose_http:
@@ -825,6 +1162,22 @@ def run_docker_cmd(
             "%s output:\n%s%s", label, result.stdout or "", result.stderr or ""
         )
     return result
+
+
+#: The Docker daemon's diagnosis when a published host port is already bound
+#: on the machine. Deterministic -- the same holder answers a retry.
+_HOST_PORT_ALLOCATED_MARKER = "port is already allocated"
+
+
+def _is_host_port_allocation_failure(result: subprocess.CompletedProcess[str]) -> bool:
+    """True when a failed ``compose up`` died on a host port held by another process.
+
+    Reads the captured output; in verbose mode nothing is captured (output
+    streams to the terminal) and the failure is classified as unknown, so the
+    generic retry path still applies there.
+    """
+    text = (result.stdout or "") + (result.stderr or "")
+    return _HOST_PORT_ALLOCATED_MARKER in text
 
 
 def _sanitize_container_name(name: str) -> str:
@@ -930,16 +1283,12 @@ def _validate_database_connectivity(
 
         # Check EVERY RDBMS block, not just the first: a service with a second
         # database on its own container would otherwise never be probed.
+        # Resolution fails closed (RuntimeError) on any missing piece rather
+        # than silently skipping the block.
         resolved = _resolve_test_database_urls(compose, db_containers, project_dir)
         block_urls = {
             var: url for var, url in resolved.items() if var != "TEST_DATABASE_URL"
         }
-        if not block_urls:
-            logger.warning(
-                "database_connectivity_check_skipped service=%s reason=no_url",
-                service_name,
-            )
-            continue
 
         for db_env_var, test_db_url in sorted(block_urls.items()):
             # Quick connectivity test: try to parse URL and verify reachability
@@ -1156,7 +1505,7 @@ def run_gateway_auth_tests(
 ) -> int:
     """Run gateway JWT authentication and route-proxying tests.
 
-    Phase 1 -- /internal/jwt-verify on each service (direct, not via gateway):
+    Phase 1 -- /internal/credential-verify on the auth provider service (direct, not via gateway):
         * Valid token -> 200
         * Missing token -> 401
 
@@ -1172,14 +1521,14 @@ def run_gateway_auth_tests(
         logger.error("gateway_auth_tests_skipped reason=no_jwt_token")
         return 1
 
-    # Phase 1: /internal/jwt-verify on the auth provider service only
+    # Phase 1: the credential-verify endpoint on the auth provider service only
     auth_provider_urls = {
         name: url
         for name, url in service_urls.items()
         if name in _AUTH_PROVIDER_COMPOSE_KEYS
     }
     for service_name, base_url in auth_provider_urls.items():
-        verify_url = f"{base_url}/internal/jwt-verify"
+        verify_url = f"{base_url}/internal/credential-verify"
 
         # Valid token -> 200
         try:
@@ -1189,25 +1538,25 @@ def run_gateway_auth_tests(
             with request.urlopen(req, timeout=10) as resp:
                 if resp.status == 200:
                     logger.info(
-                        "jwt_verify_valid_token_passed service=%s", service_name
+                        "credential_verify_valid_token_passed service=%s", service_name
                     )
                 else:
                     logger.error(
-                        "jwt_verify_valid_token_unexpected service=%s status=%s",
+                        "credential_verify_valid_token_unexpected service=%s status=%s",
                         service_name,
                         resp.status,
                     )
                     failures += 1
         except error.HTTPError as e:
             logger.error(
-                "jwt_verify_valid_token_failed service=%s status=%s",
+                "credential_verify_valid_token_failed service=%s status=%s",
                 service_name,
                 e.code,
             )
             failures += 1
         except (error.URLError, OSError) as e:
             logger.error(
-                "jwt_verify_valid_token_error service=%s error=%s",
+                "credential_verify_valid_token_error service=%s error=%s",
                 service_name,
                 e,
             )
@@ -1218,24 +1567,26 @@ def run_gateway_auth_tests(
             req = request.Request(verify_url)
             with request.urlopen(req, timeout=10) as resp:
                 logger.error(
-                    "jwt_verify_no_token_should_reject service=%s status=%s",
+                    "credential_verify_no_token_should_reject service=%s status=%s",
                     service_name,
                     resp.status,
                 )
                 failures += 1
         except error.HTTPError as e:
             if e.code == 401:
-                logger.info("jwt_verify_no_token_passed service=%s", service_name)
+                logger.info(
+                    "credential_verify_no_token_passed service=%s", service_name
+                )
             else:
                 logger.error(
-                    "jwt_verify_no_token_unexpected service=%s status=%s",
+                    "credential_verify_no_token_unexpected service=%s status=%s",
                     service_name,
                     e.code,
                 )
                 failures += 1
         except (error.URLError, OSError) as e:
             logger.error(
-                "jwt_verify_no_token_error service=%s error=%s",
+                "credential_verify_no_token_error service=%s error=%s",
                 service_name,
                 e,
             )
@@ -1337,128 +1688,280 @@ def run_gateway_auth_tests(
 
 
 # ---------------------------------------------------------------------------
-# Paths to the local config/secret artifacts the stack requires.
-# These are written by the generator's seeder and must exist before compose up.
+# The container runtime's own pre-start checks, called in-process.
+# The runtime that emits docker-compose.yml also emits the deployment script an
+# operator runs, and that script owns the checks that must pass before the
+# stack starts: the environment file exists, every variable compose requires
+# has a value, every secret file compose mounts exists. This harness calls the
+# SAME functions rather than carrying a second implementation of them --
+# the script's path, the function names and its error class are declared by
+# the runtime and rendered here, never re-typed.
 # ---------------------------------------------------------------------------
-_CONFIG_STORE_PATH = Path("config") / "config-store.json"
-_LOCAL_SECRETS_DIR = Path("secrets") / "local"
+DEPLOY_PREFLIGHT_SCRIPT = "scripts/deploy.py"
+DEPLOY_PREFLIGHT_FUNCTIONS: tuple[str, ...] = (
+    "require_env_file",
+    "require_env_keys",
+    "require_secret_files",
+)
+DEPLOY_PREFLIGHT_ERROR_CLASS = "DeployError"
+
+#: Module name the deployment script is imported under. Anything but
+#: ``"__main__"``: the script guards its command line behind that name, so
+#: importing it defines its functions and runs nothing.
+_DEPLOY_PREFLIGHT_MODULE_NAME = "datrix_deploy_preflight"
 
 
-def _seed_local_config_and_secrets(project_dir: Path) -> None:
-    """Seed config-store.json and local secret files from on-disk defaults.
+def _load_deploy_script(project_dir: Path) -> ModuleType:
+    """Import the runtime's deployment script as a module, without running it.
 
-    Reads the existing config-store.json (if present) and ensures the parent
-    directories exist so the stack can find them at startup. Secrets with a
-    ``file`` or ``docker-secret`` backend must be placed under
-    ``secrets/local/<handle_name>`` before ``docker compose up`` is called.
-
-    This step is intentionally non-destructive: operator-supplied values already
-    present in config-store.json are preserved.
+    Loaded from its emitted path so the script's own project-root anchor
+    (relative to its file) resolves to this project, and under a name that is
+    not ``__main__`` so its command line is never parsed here.
 
     Raises:
-        RuntimeError: When the config-store.json exists but cannot be parsed as
-            valid JSON, which would indicate file corruption.
+        ValueError: When the script is absent (the runtime emits it beside the
+            compose file, so an absent one is a generation defect) or cannot
+            be loaded.
     """
-    logger.info("seed_local_config_and_secrets project=%s", project_dir)
-
-    config_store = project_dir / _CONFIG_STORE_PATH
-    secrets_dir = project_dir / _LOCAL_SECRETS_DIR
-
-    # Ensure parent directories exist so the compose stack can mount them.
-    config_store.parent.mkdir(parents=True, exist_ok=True)
-    secrets_dir.mkdir(parents=True, exist_ok=True)
-
-    # Parse (and re-write) the existing store to validate it is well-formed.
-    store: dict[str, str] = {}
-    if config_store.exists():
-        try:
-            with config_store.open(encoding="utf-8") as fh:
-                store = json.load(fh)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                "config_store_corrupt path=%s error=%s -- "
-                "fix or delete the file before re-running the deploy test."
-                % (config_store, exc)
-            ) from exc
-        logger.info("config_store_read path=%s keys=%d", config_store, len(store))
-    else:
-        logger.warning(
-            "config_store_missing path=%s -- writing empty store; "
-            "populate it with required config keys before running in production.",
-            config_store,
+    script_path = project_dir / DEPLOY_PREFLIGHT_SCRIPT
+    if not script_path.is_file():
+        raise ValueError(
+            "DeployPreflight failed: deployment script %s not found under %s -- "
+            "the container runtime emits it beside docker-compose.yml, so the "
+            "two are generated together. Fix: regenerate the project."
+            % (DEPLOY_PREFLIGHT_SCRIPT, project_dir)
         )
-        with config_store.open("w", encoding="utf-8") as fh:
-            json.dump(store, fh, indent=2)
+    spec = importlib.util.spec_from_file_location(
+        _DEPLOY_PREFLIGHT_MODULE_NAME, script_path
+    )
+    if spec is None or spec.loader is None:
+        raise ValueError(
+            "DeployPreflight failed: deployment script %s cannot be loaded as a "
+            "Python module (no import spec). Fix: regenerate the project." % script_path
+        )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
+
+def _deploy_preflight_error_class(module: ModuleType) -> type[BaseException]:
+    """The exception class the deployment script raises on a failed check."""
+    error_class = getattr(module, DEPLOY_PREFLIGHT_ERROR_CLASS, None)
+    if not (isinstance(error_class, type) and issubclass(error_class, BaseException)):
+        raise ValueError(
+            "DeployPreflight failed: deployment script %s defines no exception "
+            "class named %s, which the runtime declared its checks raise. The "
+            "declaration and the script are generated together, so this is a "
+            "generation defect. Fix: regenerate the project."
+            % (DEPLOY_PREFLIGHT_SCRIPT, DEPLOY_PREFLIGHT_ERROR_CLASS)
+        )
+    return error_class
+
+
+def _run_deploy_preflight(project_dir: Path) -> None:
+    """Run the deployment script's declared pre-start checks, in declared order.
+
+    Each check is the script's own -- what refuses ``deploy`` on the
+    operator's machine refuses this harness for the same reason, with the
+    same message naming every unsatisfied variable and every absent secret
+    file at once. A failed check is raised as ``ValueError`` so it lands on
+    the harness's existing preflight-failure path, with the script's own
+    message intact.
+
+    Raises:
+        ValueError: When a declared function is not defined by the script (a
+            generation defect), or when a check fails.
+    """
+    module = _load_deploy_script(project_dir)
+    error_class = _deploy_preflight_error_class(module)
+    for name in DEPLOY_PREFLIGHT_FUNCTIONS:
+        check = getattr(module, name, None)
+        if not callable(check):
+            raise ValueError(
+                "DeployPreflight failed: deployment script %s defines no function "
+                "%s, which the runtime declared as a pre-start check. The "
+                "declaration and the script are generated together, so this is "
+                "a generation defect. Fix: regenerate the project."
+                % (DEPLOY_PREFLIGHT_SCRIPT, name)
+            )
+        logger.info("deploy_preflight_check_started name=%s", name)
+        try:
+            check()
+        except error_class as exc:
+            raise ValueError("DeployPreflight failed in %s: %s" % (name, exc)) from exc
     logger.info(
-        "seed_local_config_and_secrets_done config_keys=%d secrets_dir=%s",
-        len(store),
-        secrets_dir,
+        "deploy_preflight_passed script=%s checks=%d",
+        DEPLOY_PREFLIGHT_SCRIPT,
+        len(DEPLOY_PREFLIGHT_FUNCTIONS),
     )
 
 
-def _assert_local_preflight_ready(project_dir: Path) -> None:
-    """Assert that every required config key and secret handle is present.
+# ---------------------------------------------------------------------------
+# Fixed host-port bindings the stack makes. docker compose aborts the WHOLE
+# start-up when any one of them is already held by an unrelated process on
+# this machine, after every image is built and every other container has
+# started -- so each is probed here, before anything starts. Declared by the
+# container runtime that emits the compose file, never re-typed here.
+# ---------------------------------------------------------------------------
+FIXED_HOST_PORT_BINDINGS: list[dict[str, object]] = [
+    {
+        "label": "nginx gateway",
+        "service_key": "ecommerce-api-gateway",
+        "host_port": 8080,
+        "host_port_env_var": "GATEWAY_PORT",
+    },
+    {
+        "label": "Zitadel identity server",
+        "service_key": "ecommerce-zitadel",
+        "host_port": 8085,
+        "host_port_env_var": "ZITADEL_HOST_PORT",
+    },
+]
 
-    Reads config-store.json and lists secret files under ``secrets/local/``.
-    Logs a warning when either artifact directory is absent or empty (the stack
-    may still start if the application declares no required config keys or
-    secrets), and raises ``ValueError`` only when a concrete missing artifact
-    can be identified.
+#: Errno values that mean "another socket already owns this address". Python
+#: maps the Windows Sockets codes onto the same names, so this is portable.
+_PORT_HELD_ERRNOS: frozenset[int] = frozenset({errno.EADDRINUSE, errno.EACCES})
 
-    This check runs AFTER ``_seed_local_config_and_secrets`` and BEFORE
-    ``docker compose up`` so that any missing artifact is caught at test time
-    rather than at runtime inside a container.
+#: How long a loopback connect may take before the port counts as free. A
+#: listener answers within milliseconds; a closed port is refused at once on
+#: most stacks and after a short SYN retry on Windows.
+_PORT_CONNECT_TIMEOUT_SECONDS = 2.0
+
+
+def _host_port_is_held(port: int) -> bool:
+    """Whether another process already owns TCP *port* on this machine.
+
+    Two probes, because neither alone is trustworthy everywhere. A bind on all
+    interfaces fails where the holder bound exclusively -- what the container
+    engine's own bind will hit on Linux and macOS. A loopback connect succeeds
+    wherever something is LISTENING, including a holder that bound with
+    address reuse (a desktop container engine's port proxy on Windows does),
+    which lets a fresh bind through and then fails the engine's bind anyway.
+    Held if either says so.
+    """
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind(("0.0.0.0", port))
+    except OSError as exc:
+        if exc.errno in _PORT_HELD_ERRNOS:
+            return True
+        raise
+    finally:
+        probe.close()
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.settimeout(_PORT_CONNECT_TIMEOUT_SECONDS)
+    try:
+        client.connect(("127.0.0.1", port))
+    except OSError:
+        return False
+    finally:
+        client.close()
+    return True
+
+
+def _read_env_file_values(env_file: Path) -> dict[str, str]:
+    """Read ``KEY=value`` lines from the ``.env`` file compose interpolates from."""
+    values: dict[str, str] = {}
+    if not env_file.exists():
+        return values
+    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        values[key.strip()] = value.strip()
+    return values
+
+
+def _effective_fixed_host_port(
+    binding: dict[str, object], env_values: dict[str, str]
+) -> int:
+    """Resolve the host port compose will bind for *binding*, the way compose does.
+
+    A binding with an override variable takes the shell environment first, the
+    project ``.env`` file second, and its default last -- compose's own
+    precedence for ``${VAR:-default}``. A binding without one is a literal.
+    """
+    env_var = binding["host_port_env_var"]
+    default_port = int(str(binding["host_port"]))
+    if env_var is None:
+        return default_port
+    raw = os.environ.get(str(env_var)) or env_values.get(str(env_var))
+    if raw is None or raw == "":
+        return default_port
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "Host port override %s=%r is not an integer. Expected a TCP port "
+            "number (1-65535); fix the value in the shell environment or .env."
+            % (env_var, raw)
+        ) from exc
+
+
+def _port_holder_description(port: int) -> str:
+    """Name what holds *port*: a container, if Docker knows one, else the OS."""
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", f"publish={port}", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "a process outside Docker (docker ps could not be consulted)"
+    names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if names:
+        return "container(s) %s" % ", ".join(names)
+    return (
+        "a process outside Docker (find it with `netstat -ano | findstr :%d` on "
+        "Windows or `lsof -i :%d` elsewhere)" % (port, port)
+    )
+
+
+def _assert_fixed_host_ports_free(project_dir: Path) -> None:
+    """Probe every fixed host port the stack binds, BEFORE ``docker compose up``.
+
+    A port that is already held is reported with the container that wanted it,
+    what holds it, and the variable that moves it -- the whole diagnosis
+    compose's own ``port is already allocated`` never carries, minutes earlier
+    than compose would produce it.
 
     Raises:
-        ValueError: When config-store.json is unreadable after seeding, or when
-            the secrets directory cannot be inspected.
+        ValueError: When any fixed host port is already held, listing every
+            held port at once so one run reports the whole set.
     """
-    logger.info("local_preflight_check project=%s", project_dir)
-
-    config_store = project_dir / _CONFIG_STORE_PATH
-    secrets_dir = project_dir / _LOCAL_SECRETS_DIR
-
-    # --- Config store ---
-    store: dict[str, str] = {}
-    if config_store.exists():
-        try:
-            with config_store.open(encoding="utf-8") as fh:
-                store = json.load(fh)
-        except json.JSONDecodeError as exc:
-            raise ValueError(
-                "LocalPreflight failed: config-store.json is not valid JSON "
-                "path=%s error=%s" % (config_store, exc)
-            ) from exc
-    else:
-        logger.warning(
-            "LocalPreflight config_store_absent path=%s -- "
-            "no config keys will be validated.",
-            config_store,
+    env_values = _read_env_file_values(project_dir / ".env")
+    held: list[str] = []
+    for binding in FIXED_HOST_PORT_BINDINGS:
+        port = _effective_fixed_host_port(binding, env_values)
+        if not _host_port_is_held(port):
+            continue
+        remedy = (
+            "set %s to a free port (shell environment or .env)"
+            % binding["host_port_env_var"]
+            if binding["host_port_env_var"] is not None
+            else "stop whatever holds it (the port is the service's declared contract)"
         )
-
-    # --- Secret handles ---
-    present_handles: set[str] = set()
-    if secrets_dir.exists():
-        try:
-            present_handles = {p.name for p in secrets_dir.iterdir() if p.is_file()}
-        except OSError as exc:
-            raise ValueError(
-                "LocalPreflight failed: cannot inspect secrets directory "
-                "path=%s error=%s" % (secrets_dir, exc)
-            ) from exc
-    else:
-        logger.warning(
-            "LocalPreflight secrets_dir_absent path=%s -- "
-            "no secret handles will be validated.",
-            secrets_dir,
+        held.append(
+            "host port %d for %s (compose service %r) is held by %s -- %s"
+            % (
+                port,
+                binding["label"],
+                binding["service_key"],
+                _port_holder_description(port),
+                remedy,
+            )
         )
-
-    logger.info(
-        "local_preflight_passed config_keys=%d secret_handles=%d",
-        len(store),
-        len(present_handles),
-    )
+    if held:
+        raise ValueError(
+            "HostPortPreflight failed: docker compose would abort with 'port is "
+            "already allocated'.\n  " + "\n  ".join(held)
+        )
+    logger.info("host_port_preflight_passed bindings=%d", len(FIXED_HOST_PORT_BINDINGS))
 
 
 def main() -> int:
@@ -1575,7 +2078,7 @@ def main() -> int:
             logger.info("removed_orphan_volume name=%s", vol_name.strip())
 
     # ---- Shared per-system base image ----
-    # Every service Dockerfile is ``FROM ecommerce-python-base:102f5a0b5c23``.  ``docker compose build``
+    # Every service Dockerfile is ``FROM ecommerce-python-base:ad3cae475305``.  ``docker compose build``
     # never builds a ``FROM`` image (it only builds services defined in the compose file),
     # so the base image must exist in the local daemon BEFORE ``compose build`` is called.
     # The tag is a content hash of the union of all services' dependencies, so the build is
@@ -1583,7 +2086,7 @@ def main() -> int:
     base_image_build_flags = ["--no-cache"] if fresh_build else []
     if not fresh_build:
         _inspect = subprocess.run(
-            ["docker", "image", "inspect", "ecommerce-python-base:102f5a0b5c23"],
+            ["docker", "image", "inspect", "ecommerce-python-base:ad3cae475305"],
             capture_output=True,
             check=False,
         )
@@ -1592,7 +2095,7 @@ def main() -> int:
         _base_already_present = False
     if not _base_already_present:
         logger.info(
-            "base_image_build_started tag=%s", "ecommerce-python-base:102f5a0b5c23"
+            "base_image_build_started tag=%s", "ecommerce-python-base:ad3cae475305"
         )
         base_build = run_docker_cmd(
             [
@@ -1600,7 +2103,7 @@ def main() -> int:
                 "build",
                 *base_image_build_flags,
                 "-t",
-                "ecommerce-python-base:102f5a0b5c23",
+                "ecommerce-python-base:ad3cae475305",
                 "./python-base",
             ],
             verbose=verbose,
@@ -1611,11 +2114,11 @@ def main() -> int:
             logger.error("base_image_build_failed exit_code=%s", base_build.returncode)
             return 1
         logger.info(
-            "base_image_build_completed tag=%s", "ecommerce-python-base:102f5a0b5c23"
+            "base_image_build_completed tag=%s", "ecommerce-python-base:ad3cae475305"
         )
     else:
         logger.info(
-            "base_image_already_present tag=%s", "ecommerce-python-base:102f5a0b5c23"
+            "base_image_already_present tag=%s", "ecommerce-python-base:ad3cae475305"
         )
     logger.info("docker_build_started")
     build_flags = ["--no-cache"] if fresh_build else []
@@ -1630,12 +2133,17 @@ def main() -> int:
         return 1
     logger.info("docker_build_completed")
 
-    # Seed local config/secrets and run preflight BEFORE compose up.
-    # Ordering contract: seed → preflight → docker compose up.
-    # Any missing config key or secret artifact is caught here, not inside a container.
+    # Run the container runtime's own pre-start checks, then probe the fixed
+    # host ports, BEFORE compose up. Ordering contract:
+    # env refresh → runtime preflight → host ports → docker compose up.
+    # The runtime's deployment script (DEPLOY_PREFLIGHT_SCRIPT) is imported and
+    # its declared checks called in-process -- every variable compose requires,
+    # every secret file it mounts -- so a missing value or absent secret file
+    # is caught here, by the same check that refuses `deploy`, and not at
+    # compose interpolation after every other container has started.
     try:
-        _seed_local_config_and_secrets(project_dir)
-        _assert_local_preflight_ready(project_dir)
+        _run_deploy_preflight(project_dir)
+        _assert_fixed_host_ports_free(project_dir)
     except (ValueError, RuntimeError) as exc:
         logger.error("local_preflight_failed error=%s", exc)
         return 1
@@ -1646,6 +2154,12 @@ def main() -> int:
         up = run_docker_cmd(
             [*compose, "up", "-d"], verbose=verbose, label="docker_up", cwd=compose_cwd
         )
+        if up.returncode != 0 and _is_host_port_allocation_failure(up):
+            # A held host port is deterministic: the same process holds it on
+            # the retry. The preflight names the port and the override
+            # variable; compose only names the port.
+            logger.error("docker_up_failed reason=host_port_already_allocated")
+            return 1
         if up.returncode != 0:
             # Infrastructure containers with restart policies may recover from
             # transient startup failures (e.g. MongoDB port-bind race in
@@ -1749,6 +2263,19 @@ def main() -> int:
             else:
                 logger.info("gateway_auth_tests_phase_passed")
 
+        # Seed every authored storage fixture object into its bucket BEFORE the
+        # spec and integration phases: a test body that reads an object needs
+        # it to exist first. A seeding failure ends the run here -- the tests
+        # would otherwise fail on a missing key that hides the real cause.
+        if failures < max_failures:
+            logger.info("storage_fixture_seeding_started")
+            try:
+                seeded_objects = _seed_storage_fixtures(compose, project_dir)
+            except RuntimeError as exc:
+                logger.error("storage_fixture_seeding_failed error=%s", exc)
+                return 1
+            logger.info("storage_fixture_seeding_completed objects=%s", seeded_objects)
+
         if failures < max_failures:
             # Run spec tests first (if any services have them)
             logger.info("spec_tests_phase_started")
@@ -1787,6 +2314,7 @@ def main() -> int:
                     db_containers=db_containers,
                     cache_container=service.get("cache_container"),
                     mq_container=service.get("mq_container"),
+                    storage_container=service.get("storage_container"),
                     verbose=args.debug,
                     results_dir=results_dir,
                     expose_http=expose_http,

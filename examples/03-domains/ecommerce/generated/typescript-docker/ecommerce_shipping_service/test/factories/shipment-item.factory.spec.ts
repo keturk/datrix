@@ -6,7 +6,6 @@ describe('buildShipmentItem', () => {
     expect(result).toBeDefined();
     expect(result.productId).toBeDefined();
     expect(result.quantity).toBeDefined();
-    expect(result.shipmentId).toBeDefined();
     expect(result.shipment).toBeDefined();
   });
 

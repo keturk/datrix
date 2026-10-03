@@ -23,10 +23,10 @@ Version: 1.0.0
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /api/v1/orders | get |
-| GET | /api/v1/orders/:id | get |
-| POST | /api/v1/orders | post |
-| PUT | /api/v1/orders/:id/cancel | put |
+| GET | /api/v1/orders | orders |
+| GET | /api/v1/orders/:id | orderById |
+| POST | /api/v1/orders | createOrder |
+| PUT | /api/v1/orders/:id/cancel | cancelOrder |
 | GET | /api/v1/orders/service/:id | orderByIdInternal |
 | POST | /api/v1/orders/:id/confirm-payment | paymentConfirmation |
 | POST | /api/v1/orders/:id/update-shipment | shipmentUpdate |

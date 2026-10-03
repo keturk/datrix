@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "outDir": "../../out-tsc/spec/storefront",
+    "rootDir": "../..",
+    "types": [
+      "vitest/globals"
+    ]
+  },
+  "extends": "../../tsconfig.base.json",
+  "include": [
+    "src/**/*.spec.ts",
+    "src/**/*.d.ts",
+    "../../libs/**/*.spec.ts"
+  ]
+}

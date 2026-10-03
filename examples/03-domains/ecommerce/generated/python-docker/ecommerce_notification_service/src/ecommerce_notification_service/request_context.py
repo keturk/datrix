@@ -72,8 +72,8 @@ def current_request() -> Request:
 def current_user_id() -> str | None:
     """Resolved id of the authenticated principal, or ``None`` on an anonymous request.
 
-    ``request.state.user_id`` is written by the auth dependency for a user token
-    and for a service token alike; an anonymous request never sets it.
+    ``request.state.user_id`` is written by the auth dependency for every
+    verified principal; an anonymous request never sets it.
     """
     return getattr(current_request().state, "user_id", None)
 

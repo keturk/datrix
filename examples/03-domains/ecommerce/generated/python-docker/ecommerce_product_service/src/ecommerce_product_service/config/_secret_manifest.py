@@ -30,12 +30,6 @@ SECRET_REFERENCES: dict[str, dict[str, object]] = {
         "ttl_seconds": 300,
         "provisioning_authority": "operator",
     },
-    "jwt_public_key": {
-        "rendered_name": "jwt_public_key",
-        "required": True,
-        "ttl_seconds": 300,
-        "provisioning_authority": "operator",
-    },
     "minio_access_key": {
         "rendered_name": "minio_access_key",
         "required": True,
@@ -48,8 +42,20 @@ SECRET_REFERENCES: dict[str, dict[str, object]] = {
         "ttl_seconds": 300,
         "provisioning_authority": "operator",
     },
+    "mq_sasl_password": {
+        "rendered_name": "mq_sasl_password",
+        "required": True,
+        "ttl_seconds": 300,
+        "provisioning_authority": "operator",
+    },
     "product_db_password": {
         "rendered_name": "product_db_password",
+        "required": True,
+        "ttl_seconds": 300,
+        "provisioning_authority": "operator",
+    },
+    "redis_password": {
+        "rendered_name": "redis_password",
         "required": True,
         "ttl_seconds": 300,
         "provisioning_authority": "operator",

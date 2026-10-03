@@ -41,7 +41,7 @@ export class KafkaEventConsumer {
   ) {}
 
   private async handleOrderStatusChanged(payload: OrderStatusChangedPayload): Promise<void> {
-console.info('order_status_changed');
+    console.info('order_status_changed');
     // Keep cache in sync with order status changes
     let cached = (await (async () => {
       const _m = await _getRedis().hgetall((String("order:") + ':' + String(payload.orderId)));
@@ -57,7 +57,7 @@ console.info('order_status_changed');
   }
 
   private async handlePaymentProcessed(payload: PaymentProcessedPayload): Promise<void> {
-const order = await this.orderRepository.findOne({ id: payload.orderId });
+    let order = await this.orderRepository.findOne({ id: payload.orderId });
     if (!order) {
       throw new NotFoundException("Not found");
     }
@@ -75,7 +75,7 @@ const order = await this.orderRepository.findOne({ id: payload.orderId });
   }
 
   private async handlePaymentFailed(payload: PaymentFailedPayload): Promise<void> {
-const order = await this.orderRepository.findOne({ id: payload.orderId });
+    let order = await this.orderRepository.findOne({ id: payload.orderId });
     if (!order) {
       throw new NotFoundException("Not found");
     }
@@ -90,7 +90,7 @@ const order = await this.orderRepository.findOne({ id: payload.orderId });
   }
 
   private async handlePaymentRefunded(payload: PaymentRefundedPayload): Promise<void> {
-const order = await this.orderRepository.findOne({ id: payload.orderId });
+    let order = await this.orderRepository.findOne({ id: payload.orderId });
     if (!order) {
       throw new NotFoundException("Not found");
     }
@@ -104,11 +104,11 @@ const order = await this.orderRepository.findOne({ id: payload.orderId });
   }
 
   private async handleShipmentCreated(payload: ShipmentCreatedPayload): Promise<void> {
-console.info('shipment_created_for_order');
+    console.info('shipment_created_for_order');
   }
 
   private async handleShipmentDispatched(payload: ShipmentDispatchedPayload): Promise<void> {
-const order = await this.orderRepository.findOne({ id: payload.orderId });
+    let order = await this.orderRepository.findOne({ id: payload.orderId });
     if (!order) {
       throw new NotFoundException("Not found");
     }
@@ -123,7 +123,7 @@ const order = await this.orderRepository.findOne({ id: payload.orderId });
   }
 
   private async handleShipmentDelivered(payload: ShipmentDeliveredPayload): Promise<void> {
-const order = await this.orderRepository.findOne({ id: payload.orderId });
+    let order = await this.orderRepository.findOne({ id: payload.orderId });
     if (!order) {
       throw new NotFoundException("Not found");
     }
@@ -137,7 +137,7 @@ const order = await this.orderRepository.findOne({ id: payload.orderId });
   }
 
   private async handleShipmentFailed(payload: ShipmentFailedPayload): Promise<void> {
-console.warn('shipment_failed_for_order');
+    console.warn('shipment_failed_for_order');
   }
 
   async start(): Promise<void> {
@@ -154,25 +154,47 @@ console.warn('shipment_failed_for_order');
         if (!raw) return;
         const envelope = JSON.parse(raw) as { eventType?: string; payload?: unknown };
         const eventType = envelope.eventType ?? '';
-        const handler = this.handlerMap[eventType];
+        const handlers = this.handlerMap[`${topic}:${eventType}`];
         const payload = envelope.payload;
-        if (!handler || !payload) return;
-        await recordConsume(BLOCK_NAME, topic, eventType, () => handler(payload));
+        if (!handlers || !payload) return;
+        const runHandlers = async (): Promise<void> => {
+          for (const handler of handlers) {
+            await handler(payload);
+          }
+        };
+        await recordConsume(BLOCK_NAME, topic, eventType, runHandlers);
       },
     );
   }
 
+  // Keyed by `${topic}:${eventType}`; each key runs every handler bound to it.
   private readonly handlerMap: Record<
     string,
-    (payload: unknown) => Promise<void>
+    ReadonlyArray<(payload: unknown) => Promise<void>>
   > = {
-    'OrderStatusChanged': (p) => this.handleOrderStatusChanged(p as OrderStatusChangedPayload),
-    'PaymentProcessed': (p) => this.handlePaymentProcessed(p as PaymentProcessedPayload),
-    'PaymentFailed': (p) => this.handlePaymentFailed(p as PaymentFailedPayload),
-    'PaymentRefunded': (p) => this.handlePaymentRefunded(p as PaymentRefundedPayload),
-    'ShipmentCreated': (p) => this.handleShipmentCreated(p as ShipmentCreatedPayload),
-    'ShipmentDispatched': (p) => this.handleShipmentDispatched(p as ShipmentDispatchedPayload),
-    'ShipmentDelivered': (p) => this.handleShipmentDelivered(p as ShipmentDeliveredPayload),
-    'ShipmentFailed': (p) => this.handleShipmentFailed(p as ShipmentFailedPayload),
+    'ecommerce_order_service.mq.order_events:OrderStatusChanged': [
+      (p) => this.handleOrderStatusChanged(p as OrderStatusChangedPayload),
+    ],
+    'ecommerce_payment_service.mq.payment_events:PaymentProcessed': [
+      (p) => this.handlePaymentProcessed(p as PaymentProcessedPayload),
+    ],
+    'ecommerce_payment_service.mq.payment_events:PaymentFailed': [
+      (p) => this.handlePaymentFailed(p as PaymentFailedPayload),
+    ],
+    'ecommerce_payment_service.mq.payment_events:PaymentRefunded': [
+      (p) => this.handlePaymentRefunded(p as PaymentRefundedPayload),
+    ],
+    'ecommerce_shipping_service.mq.shipment_events:ShipmentCreated': [
+      (p) => this.handleShipmentCreated(p as ShipmentCreatedPayload),
+    ],
+    'ecommerce_shipping_service.mq.shipment_events:ShipmentDispatched': [
+      (p) => this.handleShipmentDispatched(p as ShipmentDispatchedPayload),
+    ],
+    'ecommerce_shipping_service.mq.shipment_events:ShipmentDelivered': [
+      (p) => this.handleShipmentDelivered(p as ShipmentDeliveredPayload),
+    ],
+    'ecommerce_shipping_service.mq.shipment_events:ShipmentFailed': [
+      (p) => this.handleShipmentFailed(p as ShipmentFailedPayload),
+    ],
   };
 }

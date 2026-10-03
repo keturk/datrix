@@ -1,17 +1,20 @@
 import {
   IsInt,
+  ValidateIf,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class Pagination {
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsInt()
-  page!: number;
+  page: number = 1;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsInt()
-  perPage!: number;
+  perPage: number = 20;
 
   get offset(): number {
     return ((this.page!- 1) * this.perPage!);

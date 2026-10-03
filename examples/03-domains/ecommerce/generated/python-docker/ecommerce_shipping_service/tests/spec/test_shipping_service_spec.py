@@ -156,10 +156,10 @@ async def test_after_update_emits_shipment_dispatched_when_in_transit(
         )
     )
     await db_session.refresh(shipment)
-
+    shipment.status = ShipmentStatus.in_transit
     _shipment_svc = ShipmentService(db_session)
     shipment = await _shipment_svc.update(
-        shipment.id, ShipmentUpdate(**{"status": ShipmentStatus.in_transit})
+        shipment.id, ShipmentUpdate(**{"status": shipment.status})
     )
     assert event_spy.has(
         "ShipmentDispatched",
@@ -195,10 +195,10 @@ async def test_after_update_emits_shipment_delivered_when_delivered(
         )
     )
     await db_session.refresh(shipment)
-
+    shipment.status = ShipmentStatus.delivered
     _shipment_svc = ShipmentService(db_session)
     shipment = await _shipment_svc.update(
-        shipment.id, ShipmentUpdate(**{"status": ShipmentStatus.delivered})
+        shipment.id, ShipmentUpdate(**{"status": shipment.status})
     )
     assert event_spy.has(
         "ShipmentDelivered",

@@ -13,15 +13,18 @@ import { MikroORM } from '@mikro-orm/core';
 import { PostgreSqlDriver } from '@mikro-orm/postgresql';
 
 import { NotificationAudit } from '../../src/ecommerce_notification_service/entities/notification_db/notification-audit.entity';
+import { DeviceRegistration } from '../../src/ecommerce_notification_service/entities/notification_db/device-registration.entity';
 
 /** All entity classes registered in this service. */
 export const ALL_ENTITIES = [
   NotificationAudit,
+  DeviceRegistration,
 ];
 
 /** Table names in truncation-safe order (children before parents). */
 const TABLE_NAMES: string[] = [
   'notification_audits',
+  'device_registrations',
 ];
 
 /**

@@ -9,14 +9,16 @@ import datetime
 import decimal
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 
 class OrderItemCreate(BaseModel):
     """Schema for creating a new OrderItem."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     product_id: uuid.UUID
     product_name: str = Field(max_length=200)
@@ -39,7 +41,9 @@ class OrderItemUpdate(BaseModel):
     All fields are optional for partial updates.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     product_id: uuid.UUID | None = None
     product_name: str | None = Field(default=None, max_length=200)
@@ -54,6 +58,25 @@ class OrderItemUpdate(BaseModel):
     def _strip_product_name(cls, v: str) -> str:
         """Strip whitespace from product_name."""
         return v.strip() if isinstance(v, str) else v
+
+    @model_validator(mode="after")
+    def _reject_explicit_null(self) -> OrderItemUpdate:
+        """An omitted field is left unchanged; null is a value only on an optional field."""
+        for field_name in (
+            "product_id",
+            "product_name",
+            "quantity",
+            "unit_price",
+            "order_id",
+        ):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(
+                    f"{field_name} cannot be null. Omit it to leave the stored value unchanged."
+                )
+        return self
 
 
 class OrderItemResponse(BaseModel):
@@ -77,4 +100,4 @@ class OrderItemResponse(BaseModel):
     # 'positive' ensures the value is greater than zero
     unit_price: decimal.Decimal
     order_id: uuid.UUID
-    total: decimal.Decimal | None = None
+    total: decimal.Decimal

@@ -13,7 +13,7 @@ export class HandleOrderStatusChangedHandler implements IEventHandler<OrderStatu
   ) {}
 
   async handle(event: OrderStatusChangedEvent): Promise<void> {
-console.info('order_status_changed');
+    console.info('order_status_changed');
     // Keep cache in sync with order status changes
     let cached = (await (async () => {
       const _m = await _getRedis().hgetall((String("order:") + ':' + String(event.payload.orderId)));

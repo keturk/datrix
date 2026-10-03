@@ -1892,6 +1892,69 @@ def _validate_project(project: dict[str, Any]) -> None:
         sys.exit(1)
 
 
+def _load_provider_plan(plan_path: str) -> dict[str, Any]:
+    """Read the writable provider plan the init-job patches.
+
+    Raises:
+        SystemExit(1): The plan is missing or is not valid JSON.
+    """
+    if not os.path.exists(plan_path):
+        logger.error(
+            "Provider plan not found at '%s'. "
+            "Fix: verify the init-job mounts 'config/identity/identity-providers.json' "
+            "read-write at this path (IDENTITY_PROVIDER_PLAN_FILE).",
+            plan_path,
+        )
+        sys.exit(1)
+    try:
+        with open(plan_path, "r", encoding="utf-8") as fh:
+            plan: dict[str, Any] = json.load(fh)
+    except json.JSONDecodeError as exc:
+        logger.error(
+            "Provider plan at '%s' is not valid JSON: %s. "
+            "Fix: regenerate the plan with datrix.",
+            plan_path,
+            exc,
+        )
+        sys.exit(1)
+    return plan
+
+
+def _is_project_audience_sentinel(audience: object) -> bool:
+    """True for a ``zitadel-project-audience:<projectName>`` sentinel."""
+    return isinstance(audience, str) and audience.startswith(
+        _PROJECT_AUDIENCE_SENTINEL_PREFIX
+    )
+
+
+def _resolve_audience(
+    provider_name: str, audience: object, project_ids: dict[str, str]
+) -> object:
+    """*audience* with a project sentinel replaced by the project's assigned ID.
+
+    Raises:
+        SystemExit(1): The sentinel names a project that was not provisioned.
+    """
+    if not isinstance(audience, str) or not _is_project_audience_sentinel(audience):
+        return audience
+    project_name = audience[len(_PROJECT_AUDIENCE_SENTINEL_PREFIX) :]
+    project_id = project_ids.get(project_name)
+    if not project_id:
+        logger.error(
+            "Provider '%s' allowedAudiences references project '%s' that "
+            "was not provisioned. Provisioned projects: %s. "
+            "Fix: ensure the provisioning artifact creates a project named "
+            "'%s' (the planner derives the sentinel and the artifact "
+            "project name from the same zitadelIdentity config).",
+            provider_name,
+            project_name,
+            sorted(project_ids),
+            project_name,
+        )
+        sys.exit(1)
+    return project_id
+
+
 def _patch_provider_plan_audiences(
     plan_path: str,
     project_ids: dict[str, str],
@@ -1919,27 +1982,7 @@ def _patch_provider_plan_audiences(
         SystemExit(1): When the plan is missing/invalid, or a sentinel references
             a project that was not provisioned (so its ID is unknown).
     """
-    if not os.path.exists(plan_path):
-        logger.error(
-            "Provider plan not found at '%s'. "
-            "Fix: verify the init-job mounts 'config/identity/identity-providers.json' "
-            "read-write at this path (IDENTITY_PROVIDER_PLAN_FILE).",
-            plan_path,
-        )
-        sys.exit(1)
-
-    try:
-        with open(plan_path, "r", encoding="utf-8") as fh:
-            plan: dict[str, Any] = json.load(fh)
-    except json.JSONDecodeError as exc:
-        logger.error(
-            "Provider plan at '%s' is not valid JSON: %s. "
-            "Fix: regenerate the plan with datrix.",
-            plan_path,
-            exc,
-        )
-        sys.exit(1)
-
+    plan = _load_provider_plan(plan_path)
     providers = plan.get("providers")
     if not isinstance(providers, dict):
         logger.info("provider_plan_no_providers path=%s", plan_path)
@@ -1952,39 +1995,18 @@ def _patch_provider_plan_audiences(
         audiences = entry.get("allowedAudiences")
         if not isinstance(audiences, list):
             continue
-        new_audiences: list[Any] = []
-        changed = False
-        for aud in audiences:
-            if isinstance(aud, str) and aud.startswith(
-                _PROJECT_AUDIENCE_SENTINEL_PREFIX
-            ):
-                project_name = aud[len(_PROJECT_AUDIENCE_SENTINEL_PREFIX) :]
-                project_id = project_ids.get(project_name)
-                if not project_id:
-                    logger.error(
-                        "Provider '%s' allowedAudiences references project '%s' that "
-                        "was not provisioned. Provisioned projects: %s. "
-                        "Fix: ensure the provisioning artifact creates a project named "
-                        "'%s' (the planner derives the sentinel and the artifact "
-                        "project name from the same zitadelIdentity config).",
-                        provider_name,
-                        project_name,
-                        sorted(project_ids),
-                        project_name,
-                    )
-                    sys.exit(1)
-                new_audiences.append(project_id)
-                changed = True
-            else:
-                new_audiences.append(aud)
-        if changed:
-            entry["allowedAudiences"] = new_audiences
-            patched += 1
-            logger.info(
-                "provider_plan_audience_patched provider=%s audiences=%s",
-                provider_name,
-                new_audiences,
-            )
+        if not any(_is_project_audience_sentinel(aud) for aud in audiences):
+            continue
+        new_audiences = [
+            _resolve_audience(provider_name, aud, project_ids) for aud in audiences
+        ]
+        entry["allowedAudiences"] = new_audiences
+        patched += 1
+        logger.info(
+            "provider_plan_audience_patched provider=%s audiences=%s",
+            provider_name,
+            new_audiences,
+        )
 
     if patched == 0:
         logger.info("provider_plan_no_audience_sentinels path=%s", plan_path)
@@ -2046,69 +2068,101 @@ def apply_provisioning(
     project_ids: dict[str, str] = {}
     machine_credentials: dict[str, str] | None = None
     for project in projects:
-        _validate_project(project)
-        project_name: str = project["name"]
-        role_assertion = bool(project.get("projectRoleAssertion", False))
-
-        project_id = _ensure_project(api, project_name, role_assertion)
+        project_name, project_id, project_machine_credentials = _apply_project(
+            api, project, machine_user_taken=machine_credentials is not None
+        )
         project_ids[project_name] = project_id
-
-        roles: list[dict[str, Any]] = project.get("roles", [])
-        if roles:
-            logger.info("applying_roles project=%s count=%d", project_name, len(roles))
-            _ensure_roles(api, project_id, roles)
-
-        oidc_apps: list[dict[str, Any]] = project.get("oidcApps", [])
-        if oidc_apps:
-            logger.info(
-                "applying_oidc_apps project=%s count=%d", project_name, len(oidc_apps)
-            )
-            _ensure_oidc_apps(api, project_id, oidc_apps)
-
-        project_machine_credentials = _provision_machine_user(api, project, project_id)
         if project_machine_credentials is not None:
-            if machine_credentials is not None:
-                logger.error(
-                    "More than one project declares a machineUser (second: '%s'). "
-                    "Exactly one machine-audience identity provider is supported. "
-                    "Fix: declare a single machine-audience identity provider.",
-                    project_name,
-                )
-                sys.exit(1)
             machine_credentials = project_machine_credentials
 
-        identity_providers: list[dict[str, Any]] = project.get("identityProviders", [])
-        if identity_providers:
-            logger.info(
-                "applying_identity_providers project=%s count=%d",
-                project_name,
-                len(identity_providers),
-            )
-            _ensure_social_idps(api, identity_providers)
-
-    # Converge the Complement-Token claim-injection action: Zitadel's default JWT
-    # access token carries no profile claims (email/name), so without this action
-    # every human token is rejected by the gateway's required-identity-field check.
-    # Org-level and independent of projects, so it is applied once after all
-    # projects.  Absent only when no provider declares a profile-sourceable field.
-    token_claim_action = artifact.get("tokenClaimAction")
-    if token_claim_action is not None:
-        if not isinstance(token_claim_action, dict):
-            logger.error(
-                "Provisioning artifact 'tokenClaimAction' must be an object. Got: %s. "
-                "Fix: regenerate the provisioning artifact.",
-                token_claim_action,
-            )
-            sys.exit(1)
-        logger.info(
-            "applying_token_claim_action name=%s", token_claim_action.get("name")
-        )
-        _ensure_token_claim_action(api, token_claim_action)
-    else:
-        logger.info("token_claim_action_skipped reason=no_profile_sourced_claims")
+    _apply_token_claim_action(api, artifact.get("tokenClaimAction"))
 
     logger.info("zitadel_applier_complete projects_applied=%d", len(projects))
     return project_ids, machine_credentials
+
+
+def _apply_project(
+    api: _Api, project: dict[str, Any], *, machine_user_taken: bool
+) -> tuple[str, str, dict[str, str] | None]:
+    """Converge one project: the project, its roles, OIDC apps, machine user
+    and social IdPs.
+
+    Args:
+        api: The Management API client.
+        project: The project entry from the artifact.
+        machine_user_taken: An earlier project already provisioned the one
+            supported machine user.
+
+    Returns:
+        ``(project_name, project_id, machine_credentials)`` -- the credentials
+        are ``None`` when the project declares no ``machineUser``.
+
+    Raises:
+        SystemExit(1): A second project declares a ``machineUser``.
+    """
+    _validate_project(project)
+    project_name: str = project["name"]
+    role_assertion = bool(project.get("projectRoleAssertion", False))
+
+    project_id = _ensure_project(api, project_name, role_assertion)
+
+    roles: list[dict[str, Any]] = project.get("roles", [])
+    if roles:
+        logger.info("applying_roles project=%s count=%d", project_name, len(roles))
+        _ensure_roles(api, project_id, roles)
+
+    oidc_apps: list[dict[str, Any]] = project.get("oidcApps", [])
+    if oidc_apps:
+        logger.info(
+            "applying_oidc_apps project=%s count=%d", project_name, len(oidc_apps)
+        )
+        _ensure_oidc_apps(api, project_id, oidc_apps)
+
+    machine_credentials = _provision_machine_user(api, project, project_id)
+    if machine_credentials is not None and machine_user_taken:
+        logger.error(
+            "More than one project declares a machineUser (second: '%s'). "
+            "Exactly one machine-audience identity provider is supported. "
+            "Fix: declare a single machine-audience identity provider.",
+            project_name,
+        )
+        sys.exit(1)
+
+    identity_providers: list[dict[str, Any]] = project.get("identityProviders", [])
+    if identity_providers:
+        logger.info(
+            "applying_identity_providers project=%s count=%d",
+            project_name,
+            len(identity_providers),
+        )
+        _ensure_social_idps(api, identity_providers)
+    return project_name, project_id, machine_credentials
+
+
+def _apply_token_claim_action(api: _Api, token_claim_action: object) -> None:
+    """Converge the Complement-Token claim-injection action.
+
+    Zitadel's default JWT access token carries no profile claims (email/name),
+    so without this action every human token is rejected by the gateway's
+    required-identity-field check. Org-level and independent of projects, so
+    it is applied once after all projects.  Absent only when no provider
+    declares a profile-sourceable field.
+
+    Raises:
+        SystemExit(1): The artifact's ``tokenClaimAction`` is not an object.
+    """
+    if token_claim_action is None:
+        logger.info("token_claim_action_skipped reason=no_profile_sourced_claims")
+        return
+    if not isinstance(token_claim_action, dict):
+        logger.error(
+            "Provisioning artifact 'tokenClaimAction' must be an object. Got: %s. "
+            "Fix: regenerate the provisioning artifact.",
+            token_claim_action,
+        )
+        sys.exit(1)
+    logger.info("applying_token_claim_action name=%s", token_claim_action.get("name"))
+    _ensure_token_claim_action(api, token_claim_action)
 
 
 def main() -> None:

@@ -1,6 +1,5 @@
 import { Payment } from '../../src/entities/payment.entity';
 import { PaymentMethod } from '../../src/enums/payment-method.enum';
-import { PaymentStatus } from '../../src/enums/payment-status.enum';
 
 /**
  * Build a partial Payment with sensible defaults for testing.
@@ -14,11 +13,10 @@ export function buildPayment(
     customerId: crypto.randomUUID(),
     amount: 99.99,
     method: PaymentMethod.CreditCard,
-    status: PaymentStatus.Pending,
-    transactionId: `x`,
-    gatewayResponse: 'test-value',
-    errorMessage: 'test-value',
-    processedAt: new Date(),
+    transactionId: `test_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`,
+    gatewayResponse: 'test',
+    errorMessage: 'test',
+    processedAt: new Date('2025-01-15T12:00:00Z'),
     ...overrides,
   };
 }

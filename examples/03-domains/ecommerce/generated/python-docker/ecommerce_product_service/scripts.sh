@@ -37,6 +37,9 @@ case "$1" in
     db-downgrade)
         uv run alembic downgrade -1
         ;;
+    job-runner)
+        uv run python -m ecommerce_product_service.jobs.scheduler
+        ;;
     build)
         docker build -t ecommerce-product-service:latest .
         ;;
@@ -48,6 +51,6 @@ case "$1" in
         ;;
     help|*)
         echo "Usage: ./scripts.sh <command>"
-        echo "Commands: install dev test test-cov lint format typecheck db-migrate db-upgrade db-downgrade build docker-run clean"
+        echo "Commands: install dev test test-cov lint format typecheck db-migrate db-upgrade db-downgrade job-runner build docker-run clean"
         ;;
 esac

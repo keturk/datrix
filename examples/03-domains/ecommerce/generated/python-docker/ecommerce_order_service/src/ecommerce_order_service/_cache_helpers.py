@@ -130,10 +130,9 @@ async def _cache_check_rate_limit(key: str, limit: int, window_seconds: int) -> 
 # (``raise`` / ``deny`` / ``degrade`` / ``warn``) governs a transient cache
 # failure. The route lowering supplies the stable dependency identity, operation
 # name, operation category, and the post-commit-gate result
-# (``source_of_truth_committed``). ``_run_dependency_operation`` is imported
-# inside each wrapper so a cache-only service (no resolved dependency policy,
-# hence no ``_dependency_operations`` module emitted) is unaffected unless a
-# policy-routed call is actually emitted.
+# (``source_of_truth_committed``). Rendered only for a service whose resolved
+# dependency plan emits ``_dependency_operations`` -- a cache-only service has
+# no policy to route through and carries no importer of a module it lacks.
 # ---------------------------------------------------------------------------
 
 

@@ -18,6 +18,36 @@ from ecommerce_order_service.models.order_db.order import Order
 class TestOrderComputedFields:
     """Test computed field logic for Order."""
 
+    def test_total_getter_runs(self) -> None:
+        """total getter runs and returns its expected value."""
+        _order_number = f"test_{uuid.uuid4().hex[:8]}"
+        instance = Order(
+            customer_id=uuid.UUID("550e8400-e29b-41d4-a716-446655440000"),
+            order_number=_order_number,
+            subtotal=decimal.Decimal("19.99"),
+            tax=decimal.Decimal("4.50"),
+            shipping_cost=decimal.Decimal("19.99"),
+            discount=decimal.Decimal("9.99"),
+            shipping_address={
+                "street": "test",
+                "city": "test",
+                "state": "test",
+                "zip_code": "test",
+                "country": "US",
+                "phone": "test",
+            },
+            billing_address={
+                "street": "test",
+                "city": "test",
+                "state": "test",
+                "zip_code": "test",
+                "country": "US",
+                "phone": "test",
+            },
+            inventory_reservation_id=uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890"),
+        )
+        assert instance.total is not None
+
     def test_total_is_read_only(self) -> None:
         """Assigning to computed field total raises AttributeError."""
         _order_number = f"test_{uuid.uuid4().hex[:8]}"
@@ -48,6 +78,36 @@ class TestOrderComputedFields:
         )
         with pytest.raises(AttributeError):
             instance.total = True
+
+    def test_can_cancel_getter_runs(self) -> None:
+        """can_cancel getter runs and returns its expected value."""
+        _order_number = f"test_{uuid.uuid4().hex[:8]}"
+        instance = Order(
+            customer_id=uuid.UUID("550e8400-e29b-41d4-a716-446655440000"),
+            order_number=_order_number,
+            subtotal=decimal.Decimal("19.99"),
+            tax=decimal.Decimal("4.50"),
+            shipping_cost=decimal.Decimal("19.99"),
+            discount=decimal.Decimal("9.99"),
+            shipping_address={
+                "street": "test",
+                "city": "test",
+                "state": "test",
+                "zip_code": "test",
+                "country": "US",
+                "phone": "test",
+            },
+            billing_address={
+                "street": "test",
+                "city": "test",
+                "state": "test",
+                "zip_code": "test",
+                "country": "US",
+                "phone": "test",
+            },
+            inventory_reservation_id=uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890"),
+        )
+        assert instance.can_cancel is not None
 
     def test_can_cancel_is_read_only(self) -> None:
         """Assigning to computed field can_cancel raises AttributeError."""
@@ -358,6 +418,36 @@ class TestOrderComputedFields:
         )
         with pytest.raises(AttributeError):
             instance.is_completed = True
+
+    def test_is_pending_or_payment_pending_getter_runs(self) -> None:
+        """is_pending_or_payment_pending getter runs and returns its expected value."""
+        _order_number = f"test_{uuid.uuid4().hex[:8]}"
+        instance = Order(
+            customer_id=uuid.UUID("550e8400-e29b-41d4-a716-446655440000"),
+            order_number=_order_number,
+            subtotal=decimal.Decimal("19.99"),
+            tax=decimal.Decimal("4.50"),
+            shipping_cost=decimal.Decimal("19.99"),
+            discount=decimal.Decimal("9.99"),
+            shipping_address={
+                "street": "test",
+                "city": "test",
+                "state": "test",
+                "zip_code": "test",
+                "country": "US",
+                "phone": "test",
+            },
+            billing_address={
+                "street": "test",
+                "city": "test",
+                "state": "test",
+                "zip_code": "test",
+                "country": "US",
+                "phone": "test",
+            },
+            inventory_reservation_id=uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890"),
+        )
+        assert instance.is_pending_or_payment_pending is not None
 
     def test_is_pending_or_payment_pending_is_read_only(self) -> None:
         """Assigning to computed field is_pending_or_payment_pending raises AttributeError."""

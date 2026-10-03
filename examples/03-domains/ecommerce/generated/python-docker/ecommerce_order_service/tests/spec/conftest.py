@@ -8,6 +8,7 @@ from __future__ import annotations
 import decimal
 import logging
 from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import event, inspect
@@ -19,6 +20,9 @@ try:
     from ecommerce_order_service.mq import producer as _mq_producer_module
 except ImportError:
     _mq_producer_module = None
+
+if TYPE_CHECKING:
+    from tests.conftest import RecordingQueueClient
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +139,50 @@ class QueueSpy:
         self._records.clear()
 
 
+#: Each queue task's name and parameter names, keyed by the client method a DSL
+#: ``dispatch`` lowers to. The recording queue client (tests/conftest.py) is the
+#: object every in-process dispatch resolves; observing it is how the spy sees
+#: the real call the code under test made -- from a function body, an endpoint
+#: or a lifecycle hook alike -- rather than a re-derivation of where one ought
+#: to happen.
+_QUEUE_TASK_SIGNATURES: dict[str, tuple[str, tuple[str, ...]]] = {
+    "dispatch_process_payment": (
+        "ProcessPayment",
+        (
+            "order_id",
+            "amount",
+            "currency",
+        ),
+    ),
+    "dispatch_send_order_confirmation": (
+        "SendOrderConfirmation",
+        (
+            "order_id",
+            "customer_email",
+            "order_number",
+        ),
+    ),
+    "dispatch_settle_payment": (
+        "SettlePayment",
+        (
+            "payment_id",
+            "merchant_id",
+            "amount",
+        ),
+    ),
+}
+
+
+def _observe_real_dispatches(spy: QueueSpy, recorder: RecordingQueueClient) -> None:
+    """Record every dispatch the recording queue client accepts onto *spy*."""
+
+    def _observer(method: str, args: tuple[object, ...]) -> None:
+        task_name, param_names = _QUEUE_TASK_SIGNATURES[method]
+        spy.record(task_name, **dict(zip(param_names, args, strict=True)))
+
+    recorder.observers.append(_observer)
+
+
 @pytest.fixture
 def event_spy(monkeypatch: pytest.MonkeyPatch) -> Iterator[EventSpy]:
     """Isolated event spy per test, wired to model events via SA listeners."""
@@ -240,9 +288,10 @@ def event_spy(monkeypatch: pytest.MonkeyPatch) -> Iterator[EventSpy]:
 
 
 @pytest.fixture
-def queue_spy() -> Iterator[QueueSpy]:
+def queue_spy(recording_queue_client: RecordingQueueClient) -> Iterator[QueueSpy]:
     """Isolated queue spy per test, wired to model events via SA listeners."""
     spy = QueueSpy()
+    _observe_real_dispatches(spy, recording_queue_client)
 
     def _spy_q_order_after_insert_process_payment(
         mapper: object, connection: object, target: Order

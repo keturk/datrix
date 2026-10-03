@@ -22,8 +22,8 @@ export class ResilientClientService {
 
   constructor(private readonly httpService: HttpService) {}
 
-  private async getAuthHeaders(audience: string): Promise<Record<string, string>> {
-    const credential = await acquireServiceCredential(audience);
+  private async getAuthHeaders(): Promise<Record<string, string>> {
+    const credential = await acquireServiceCredential();
     return { Authorization: `Bearer ${credential}` };
   }
 
@@ -35,7 +35,6 @@ export class ResilientClientService {
     url: string,
     config: AxiosRequestConfig = {},
     timeoutMs: number = DEFAULT_TIMEOUT_MS,
-    audience: string = url,
   ): Promise<AxiosResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -43,7 +42,7 @@ export class ResilientClientService {
     this.logger.debug(`HTTP request started: ${method} ${url} timeout=${timeoutMs}ms`);
 
     try {
-      const authHeaders = await this.getAuthHeaders(audience);
+      const authHeaders = await this.getAuthHeaders();
       const response = await this.httpService.axiosRef.request({
         method,
         url,

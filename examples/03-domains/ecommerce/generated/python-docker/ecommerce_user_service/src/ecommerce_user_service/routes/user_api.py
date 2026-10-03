@@ -1,9 +1,11 @@
 """UserAPI route handlers."""
 
 import datetime
+import hashlib
 import json
 import random
 import re
+import secrets
 import string
 import uuid
 
@@ -16,12 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from ecommerce_user_service._cache_helpers import _get_redis
-from ecommerce_user_service.auth import (
-    get_current_user,
-    require_providers,
-    require_roles,
-)
-from ecommerce_user_service.dependencies import require_service_endpoint
+from ecommerce_user_service.auth import require_route
 from ecommerce_user_service.enums.user_role import UserRole
 from ecommerce_user_service.enums.user_status import UserStatus
 from ecommerce_user_service.event_outbox import buffer_events as _datrix_buffer_events
@@ -34,6 +31,8 @@ from ecommerce_user_service.rate_limit.rate_limit_dependency import (
 )
 from ecommerce_user_service.schemas.change_password_request import ChangePasswordRequest
 from ecommerce_user_service.schemas.forgot_password_request import ForgotPasswordRequest
+from ecommerce_user_service.schemas.issue_api_key_request import IssueApiKeyRequest
+from ecommerce_user_service.schemas.issue_api_key_response import IssueApiKeyResponse
 from ecommerce_user_service.schemas.login_request import LoginRequest
 from ecommerce_user_service.schemas.login_response import LoginResponse
 from ecommerce_user_service.schemas.logout_request import LogoutRequest
@@ -46,19 +45,18 @@ from ecommerce_user_service.schemas.update_profile_request import UpdateProfileR
 from ecommerce_user_service.schemas.update_user_status_request import (
     UpdateUserStatusRequest,
 )
+from ecommerce_user_service.schemas.user_db.api_key import ApiKeyCreate
 from ecommerce_user_service.schemas.user_db.user import (
     UserCreate,
     UserResponse,
     UserUpdate,
 )
-from ecommerce_user_service.schemas.user_db.user_session import (
-    UserSessionCreate,
-    UserSessionResponse,
-)
+from ecommerce_user_service.schemas.user_db.user_session import UserSessionCreate
 from ecommerce_user_service.schemas.validate_session_request import (
     ValidateSessionRequest,
 )
 from ecommerce_user_service.schemas.verify_email_request import VerifyEmailRequest
+from ecommerce_user_service.services.user_db.api_key_service import ApiKeyService
 from ecommerce_user_service.services.user_db.user_service import UserService
 from ecommerce_user_service.services.user_db.user_session_service import (
     UserSessionService,
@@ -77,16 +75,18 @@ async def generate_session_token() -> str:
     )
 
 
-@router.get(
-    "/users",
-    response_model=list[UserResponse],
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.get("/users", response_model=list[UserResponse])
 async def list_users(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
     user_db: AsyncSession = Depends(get_user_db_db),
-    current_user=Depends(require_roles([UserRole.admin])),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"],
+            roles=[UserRole.admin],
+            principal_types=["human"],
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> list[User]:
     service = UserService(user_db)
@@ -94,15 +94,18 @@ async def list_users(
 
 
 @router.post(
-    "/users",
-    response_model=UserResponse,
-    status_code=http_status.HTTP_201_CREATED,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
+    "/users", response_model=UserResponse, status_code=http_status.HTTP_201_CREATED
 )
 async def create_user(
     body: UserCreate = Body(...),
     user_db: AsyncSession = Depends(get_user_db_db),
-    current_user=Depends(require_roles([UserRole.admin])),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"],
+            roles=[UserRole.admin],
+            principal_types=["human"],
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> User:
     service = UserService(user_db)
@@ -197,8 +200,7 @@ async def post_login(
     user.last_login_at = datetime.datetime.now(datetime.timezone.utc)
     _user_svc = UserService(user_db)
     user = await _user_svc.update(
-        user.id,
-        UserUpdate(**{"last_login_at": datetime.datetime.now(datetime.timezone.utc)}),
+        user.id, UserUpdate(**{"last_login_at": user.last_login_at})
     )
     # Store session in cache for fast validation
     await __import__("asyncio").gather(
@@ -225,16 +227,18 @@ async def post_login(
     return LoginResponse(user=user, token=token, expires_at=session.expires_at)
 
 
-@router.post(
-    "/logout", dependencies=[Depends(require_providers(["identity", "test_auth"]))]
-)
+@router.post("/logout")
 async def post_logout(
     request: LogoutRequest = Body(...),
     user_db: AsyncSession = Depends(get_user_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"], roles=[], principal_types=["human"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> None:
-    token: str = current_user.token
+    token: str = current_user.bearer_token()
     session: UserSession | None = (
         (await user_db.execute(select(UserSession).where(UserSession.token == token)))
         .scalars()
@@ -248,28 +252,28 @@ async def post_logout(
     await _get_redis().delete(("session:" + f":{str(token)}"))
 
 
-@router.get(
-    "/me",
-    response_model=UserResponse,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.get("/me", response_model=UserResponse)
 async def get_me(
     user_db: AsyncSession = Depends(get_user_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"], roles=[], principal_types=["human"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> User:
     return await UserService(user_db).get(current_user.profile_id)
 
 
-@router.put(
-    "/me",
-    response_model=UserResponse,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.put("/me", response_model=UserResponse)
 async def put_me(
     request: UpdateProfileRequest = Body(...),
     user_db: AsyncSession = Depends(get_user_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"], roles=[], principal_types=["human"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> User:
     user = await UserService(user_db).get(current_user.profile_id)
@@ -288,24 +292,26 @@ async def put_me(
         user.id,
         UserUpdate(
             **{
-                "billing_address": request.billing_address,
-                "first_name": request.first_name,
-                "last_name": request.last_name,
-                "phone_number": request.phone_number,
-                "shipping_address": request.shipping_address,
+                "billing_address": user.billing_address,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "phone_number": user.phone_number,
+                "shipping_address": user.shipping_address,
             }
         ),
     )
     return user
 
 
-@router.put(
-    "/me/password", dependencies=[Depends(require_providers(["identity", "test_auth"]))]
-)
+@router.put("/me/password")
 async def put_me_password(
     request: ChangePasswordRequest = Body(...),
     user_db: AsyncSession = Depends(get_user_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"], roles=[], principal_types=["human"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> None:
     user = await UserService(user_db).get(current_user.profile_id)
@@ -318,15 +324,41 @@ async def put_me_password(
     ).decode()
     _user_svc = UserService(user_db)
     user = await _user_svc.update(
-        user.id,
-        UserUpdate(
-            **{
-                "password_hash": bcrypt.hashpw(
-                    request.new_password.encode(), bcrypt.gensalt()
-                ).decode()
-            }
-        ),
+        user.id, UserUpdate(**{"password_hash": user.password_hash})
     )
+
+
+# Issues a 256-bit API key for the signed-in customer
+@router.post("/me/api-keys", response_model=IssueApiKeyResponse)
+async def post_me_api_keys(
+    request: IssueApiKeyRequest = Body(...),
+    user_db: AsyncSession = Depends(get_user_db_db),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"], roles=[], principal_types=["human"]
+        )
+    ),
+    _rate_limit=Depends(enforce_plan_rate_limit),
+) -> IssueApiKeyResponse:
+    raw_key: str = secrets.token_hex(32)
+    hash_: str = hashlib.sha256(raw_key.encode()).hexdigest()
+    prefix: str = raw_key[0:12]
+    # The key belongs to the caller's local identity; verification reports it as the principal
+    _api_key_svc = ApiKeyService(user_db)
+    key = await _api_key_svc.create(
+        ApiKeyCreate(
+            **{
+                "key_hash": hash_,
+                "owner_id": current_user.profile_id,
+                "key_prefix": prefix,
+                "scopes": request.scopes,
+                "is_active": True,
+                "expires_at": request.expires_at,
+                "rate_limit": 100,
+            }
+        )
+    )
+    return IssueApiKeyResponse(id=key.id, api_key=raw_key, key_prefix=prefix)
 
 
 @router.post("/verify-email", response_model=UserResponse)
@@ -354,9 +386,9 @@ async def post_verify_email(
         user.id,
         UserUpdate(
             **{
-                "email_verification_token": None,
-                "email_verified_at": datetime.datetime.now(datetime.timezone.utc),
-                "status": UserStatus.active,
+                "email_verification_token": user.email_verification_token,
+                "email_verified_at": user.email_verified_at,
+                "status": user.status,
             }
         ),
     )
@@ -418,11 +450,9 @@ async def post_reset_password(
         user.id,
         UserUpdate(
             **{
-                "password_hash": bcrypt.hashpw(
-                    request.new_password.encode(), bcrypt.gensalt()
-                ).decode(),
-                "password_reset_expiry": None,
-                "password_reset_token": None,
+                "password_hash": user.password_hash,
+                "password_reset_expiry": user.password_reset_expiry,
+                "password_reset_token": user.password_reset_token,
             }
         ),
     )
@@ -433,12 +463,15 @@ async def post_reset_password(
     "/service/validate-session",
     response_model=SessionValidationResponse,
     include_in_schema=False,
-    dependencies=[Depends(require_service_endpoint)],
 )
 async def post_service_validate_session(
     request: ValidateSessionRequest = Body(...),
     user_db: AsyncSession = Depends(get_user_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["platform", "test_auth"], roles=[], principal_types=["machine"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> SessionValidationResponse:
     session: UserSession | None = (
@@ -459,107 +492,93 @@ async def post_service_validate_session(
     return SessionValidationResponse(valid=True, user=session.user)
 
 
-@router.get(
-    "/users/{id}/user_sessions",
-    response_model=list[UserSessionResponse],
-    dependencies=[Depends(require_providers(["test_auth"]))],
-)
-async def list_user_sessions(
-    id: uuid.UUID = Path(...),
-    skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=20, ge=1, le=100),
-    user_db: AsyncSession = Depends(get_user_db_db),
-    current_user=Depends(get_current_user),
-    _rate_limit=Depends(enforce_plan_rate_limit),
-) -> list[UserSession]:
-    # Verify parent exists (raises EntityNotFoundError -> 404)
-    user_service = UserService(user_db)
-    await user_service.get(id)
-    # Get children
-    user_session_service = UserSessionService(user_db)
-    return await user_session_service.get_by_user(user_id=id, skip=skip, limit=limit)
-
-
 # @internal marks endpoints as internal-only, not exposed through the API gateway
-@router.get(
-    "/service/{id}",
-    response_model=UserResponse,
-    include_in_schema=False,
-    dependencies=[Depends(require_service_endpoint)],
-)
+@router.get("/service/{id}", response_model=UserResponse, include_in_schema=False)
 async def get_service_by_id(
-    id: uuid.UUID = Path(...),
+    id_: uuid.UUID = Path(..., alias="id"),
     user_db: AsyncSession = Depends(get_user_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["platform", "test_auth"], roles=[], principal_types=["machine"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> User:
     service = UserService(user_db)
-    return await service.get(id)
+    return await service.get(id_)
 
 
-@router.get(
-    "/users/{id}",
-    response_model=UserResponse,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.get("/users/{id}", response_model=UserResponse)
 async def get_user(
-    id: uuid.UUID = Path(...),
+    id_: uuid.UUID = Path(..., alias="id"),
     user_db: AsyncSession = Depends(get_user_db_db),
-    current_user=Depends(require_roles([UserRole.admin])),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"],
+            roles=[UserRole.admin],
+            principal_types=["human"],
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> User:
     service = UserService(user_db)
-    return await service.get(id)
+    return await service.get(id_)
 
 
-@router.put(
-    "/users/{id}",
-    response_model=UserResponse,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.put("/users/{id}", response_model=UserResponse)
 async def update_user(
     body: UserUpdate = Body(...),
-    id: uuid.UUID = Path(...),
+    id_: uuid.UUID = Path(..., alias="id"),
     user_db: AsyncSession = Depends(get_user_db_db),
-    current_user=Depends(require_roles([UserRole.admin])),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"],
+            roles=[UserRole.admin],
+            principal_types=["human"],
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> User:
     service = UserService(user_db)
-    return await service.update(id, body)
+    return await service.update(id_, body)
 
 
-@router.delete(
-    "/users/{id}",
-    status_code=http_status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.delete("/users/{id}", status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_user(
-    id: uuid.UUID = Path(...),
+    id_: uuid.UUID = Path(..., alias="id"),
     user_db: AsyncSession = Depends(get_user_db_db),
-    current_user=Depends(require_roles([UserRole.admin])),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"],
+            roles=[UserRole.admin],
+            principal_types=["human"],
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> None:
     service = UserService(user_db)
-    await service.delete(id)
+    await service.delete(id_)
 
 
-@router.put(
-    "/{id}/status",
-    response_model=UserResponse,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.put("/{id}/status", response_model=UserResponse)
 async def put_by_id_status(
     request: UpdateUserStatusRequest = Body(...),
-    id: uuid.UUID = Path(...),
+    id_: uuid.UUID = Path(..., alias="id"),
     user_db: AsyncSession = Depends(get_user_db_db),
-    current_user=Depends(require_roles([UserRole.admin])),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"],
+            roles=[UserRole.admin],
+            principal_types=["human"],
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> User:
     service = UserService(user_db)
-    user = await service.get(id)
+    user = await service.get(id_)
     if user is None:
         raise HTTPException(status_code=404, detail="Not found")
     user.status = request.status
     _user_svc = UserService(user_db)
-    user = await _user_svc.update(user.id, UserUpdate(**{"status": request.status}))
+    user = await _user_svc.update(user.id, UserUpdate(**{"status": user.status}))
     return user

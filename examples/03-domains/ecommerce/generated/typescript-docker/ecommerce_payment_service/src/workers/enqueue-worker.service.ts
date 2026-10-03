@@ -8,8 +8,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import amqplib from 'amqplib';
 import { EntityManager } from '@mikro-orm/core';
-import { handleProcessPayment } from './process-payment.handler';
-import { handleSettlePayment } from './settle-payment.handler';
+import { handleProcessPayment, handleProcessPaymentTask } from './process-payment.handler';
+import { handleSettlePayment, handleSettlePaymentTask } from './settle-payment.handler';
 
 const QUEUE_PROCESS_PAYMENT = 'order-service.process-payment';
 const QUEUE_SETTLE_PAYMENT = 'order-service.settle-payment';
@@ -28,6 +28,28 @@ export class EnqueueWorkerService {
     await this._startRabbitMq();
   }
 
+  /**
+   * Run one ProcessPayment task from its raw message body with this
+   * worker's own infrastructure, outside the broker loop -- for a host (an Azure
+   * Functions queue trigger) that owns delivery and settlement itself. Throws on
+   * failure so the host retries and dead-letters the message.
+   */
+  async runHandleProcessPayment(messageBody: string): Promise<void> {
+    const em = this.em.fork();
+    await handleProcessPaymentTask(messageBody, em);
+  }
+
+  /**
+   * Run one SettlePayment task from its raw message body with this
+   * worker's own infrastructure, outside the broker loop -- for a host (an Azure
+   * Functions queue trigger) that owns delivery and settlement itself. Throws on
+   * failure so the host retries and dead-letters the message.
+   */
+  async runHandleSettlePayment(messageBody: string): Promise<void> {
+    const em = this.em.fork();
+    await handleSettlePaymentTask(messageBody, em);
+  }
+
   private async _startRabbitMq(): Promise<void> {
     const amqpUrl = process.env.QUEUE_AMQP_URL;
     if (!amqpUrl) {
@@ -42,6 +64,7 @@ export class EnqueueWorkerService {
       ),
     );
     await channel.assertQueue(QUEUE_PROCESS_PAYMENT, { durable: true });
+    await channel.assertQueue('order-service.process-payment.dead-letter', { durable: true });
     await channel.consume(QUEUE_PROCESS_PAYMENT, (msg) => {
       if (msg) {
         const em = this.em.fork();
@@ -58,6 +81,7 @@ export class EnqueueWorkerService {
       ),
     );
     await channel.assertQueue(QUEUE_SETTLE_PAYMENT, { durable: true });
+    await channel.assertQueue('order-service.settle-payment.dead-letter', { durable: true });
     await channel.consume(QUEUE_SETTLE_PAYMENT, (msg) => {
       if (msg) {
         const em = this.em.fork();

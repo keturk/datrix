@@ -28,7 +28,6 @@ import { MetricsInterceptor } from './observability/metrics.interceptor';
 import { LoggerModule } from './observability/logger.module';
 import { getThrottlerModule } from './ecommerce_product_service/gateway-throttler.config';
 import { JobsModule } from './jobs/jobs.module';
-import { RateLimitGuard } from './rate-limit/rate-limit.guard';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { HttpClientsModule } from './http-clients.module';
 import { AllExceptionsFilter } from './errors/all-exceptions-filter';
@@ -64,7 +63,6 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
   ],
   providers: [
     { provide: RemoteConfigClient, useFactory: buildRuntimeReadinessConfigClient },
-    { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     CacheHealthService,

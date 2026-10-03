@@ -11,9 +11,9 @@ import path from 'path';
 /**
  * Path to the asymmetric JWT private key the DEPLOYMENT provisions.
  *
- * The same key pair the compose stack mounts into every service
- * (`JWT_PRIVATE_KEY_FILE` / `JWT_PUBLIC_KEY_FILE`), so a token signed here is
- * verifiable by the running containers. Read lazily and only when a test
+ * The same key pair the deployment provisions as the services' `jwt_private_key` /
+ * `jwt_public_key` secrets, so a token signed here is verifiable by the running
+ * containers. Read lazily and only when a test
  * actually mints a token: a project without JWT auth never provisions the
  * pair and must not fail at import.
  */

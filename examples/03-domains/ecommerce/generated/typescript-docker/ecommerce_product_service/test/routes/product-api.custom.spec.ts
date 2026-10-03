@@ -21,7 +21,7 @@ describe('ProductApi Custom Endpoints', () => {
   });
 
   describe('GET /api/v1/products/slug/test', () => {
-    it('should handle none request', async () => {
+    it('should handle getSlugBySlug request', async () => {
       const response = await request(app.getHttpServer())
         .get('/api/v1/products/slug/test')
         ;
@@ -30,7 +30,7 @@ describe('ProductApi Custom Endpoints', () => {
   });
 
   describe('GET /api/v1/products/search?query=test&limit=1&offset=1', () => {
-    it('should handle none request', async () => {
+    it('should handle getSearch request', async () => {
       const response = await request(app.getHttpServer())
         .get('/api/v1/products/search?query=test&limit=1&offset=1')
         ;
@@ -39,7 +39,7 @@ describe('ProductApi Custom Endpoints', () => {
   });
 
   describe('GET /api/v1/products/category/00000000-0000-0000-0000-000000000001?limit=1', () => {
-    it('should handle none request', async () => {
+    it('should handle getCategoryByCategoryId request', async () => {
       const response = await request(app.getHttpServer())
         .get('/api/v1/products/category/00000000-0000-0000-0000-000000000001?limit=1')
         ;
@@ -48,7 +48,7 @@ describe('ProductApi Custom Endpoints', () => {
   });
 
   describe('PUT /api/v1/products/00000000-0000-0000-0000-000000000001/inventory?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle putByIdInventory request', async () => {
       const response = await request(app.getHttpServer())
         .put('/api/v1/products/00000000-0000-0000-0000-000000000001/inventory?request=integration-path-value')
         .set('Authorization', 'Bearer test-token')
@@ -58,11 +58,41 @@ describe('ProductApi Custom Endpoints', () => {
   });
 
   describe('PUT /api/v1/products/00000000-0000-0000-0000-000000000001/publish', () => {
-    it('should handle none request', async () => {
+    it('should handle putByIdPublish request', async () => {
       const response = await request(app.getHttpServer())
         .put('/api/v1/products/00000000-0000-0000-0000-000000000001/publish')
         .set('Authorization', 'Bearer test-token')
         .send({});
+      expect([200, 404]).toContain(response.status);
+    });
+  });
+
+  describe('GET /api/v1/products/wire/blob', () => {
+    it('should handle getWireBlob request', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/products/wire/blob')
+        .set('Authorization', 'Bearer test-token')
+        ;
+      expect(response.status).toBe(200);
+    });
+  });
+
+  describe('GET /api/v1/products/wire/image/00000000-0000-0000-0000-000000000001', () => {
+    it('should handle getWireImageById request', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/products/wire/image/00000000-0000-0000-0000-000000000001')
+        .set('Authorization', 'Bearer test-token')
+        ;
+      expect([200, 404]).toContain(response.status);
+    });
+  });
+
+  describe('GET /api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001', () => {
+    it('should handle getWireDiscountById request', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001')
+        .set('Authorization', 'Bearer test-token')
+        ;
       expect([200, 404]).toContain(response.status);
     });
   });

@@ -16,15 +16,13 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 import ecommerce_product_service.config._secrets_resolver as _secrets_resolver
+import ecommerce_product_service.models.product_db.category  # noqa: F401
+import ecommerce_product_service.models.product_db.inventory_reservation  # noqa: F401
+import ecommerce_product_service.models.product_db.product  # noqa: F401
 from ecommerce_product_service.config.remote_config import (
     build_client as _build_config_client,
 )
 from ecommerce_product_service.config.settings import assemble_settings
-from ecommerce_product_service.models.product_db import (  # noqa: F401
-    category,
-    inventory_reservation,
-    product,
-)
 from ecommerce_product_service.product_db.base import Base  # noqa: F401
 
 # Import Base so autogenerate can detect models

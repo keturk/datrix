@@ -53,7 +53,6 @@ export class InventoryReservationService {
   }
 
 
-
   private _validate(entity: InventoryReservation): void {
     const errors: string[] = [];
     if (((entity.quantity <= 0))) {

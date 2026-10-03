@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from ecommerce_product_service.auth import AuthorizationDenied
 from ecommerce_product_service.errors.problem_details import FieldError, ProblemDetails
 from ecommerce_product_service.services._base import (
     CascadeRestrictionError,
@@ -37,6 +39,10 @@ _HTTP_STATUS_PROBLEM_TYPES: dict[int, tuple[str, str]] = {
     500: ("urn:datrix:error:internal", "Internal Server Error"),
 }
 _PROBLEM_TYPE_PREFIX = "urn:datrix:error:"
+_HTTP_FORBIDDEN = 403
+# The one client-visible detail of every authorization denial -- identical to
+# the auth dependencies' own 403, so a denial never discloses why.
+_FORBIDDEN_DETAIL = "Insufficient permissions"
 
 
 def _problem_type_for_status(status: int) -> tuple[str, str]:
@@ -44,6 +50,49 @@ def _problem_type_for_status(status: int) -> tuple[str, str]:
     if status in _HTTP_STATUS_PROBLEM_TYPES:
         return _HTTP_STATUS_PROBLEM_TYPES[status]
     return (f"{_PROBLEM_TYPE_PREFIX}http-{status}", f"HTTP {status}")
+
+
+# Inlined from datrix_codegen_python/runtime/field_error_path.py. Maps a
+# pydantic-style loc tuple to the one wire field-error path every realized
+# request-validation problem's errors[].field follows -- unit tested by
+# calling it directly, never by executing this rendered module.
+_BODY_ROOT_SEGMENT = "body"
+
+
+def format_field_error_path(loc: Sequence[str | int]) -> str:
+    """Map a pydantic-style ``loc`` tuple to the one wire field-error path.
+
+    Args:
+        loc: E.g. ``("body", "shippingAddress", "postalCode")`` or
+            ``("body", "items", 0, "sku")``. A ``loc`` not starting with
+            ``"body"`` is passed through unchanged from its first element --
+            a query/path-param validation error carries no body prefix.
+
+    Returns:
+        ``"shippingAddress.postalCode"`` / ``"items[0].sku"``.
+
+    Raises:
+        ValueError: ``loc`` is empty, or its only element is the body-root
+            segment itself (no field to name).
+    """
+    segments = list(loc)
+    if segments and segments[0] == _BODY_ROOT_SEGMENT:
+        segments = segments[1:]
+    if not segments:
+        raise ValueError(
+            f"format_field_error_path() received an empty field path "
+            f"(loc={list(loc)!r}). Expected: at least one segment naming a "
+            f"field beyond the body root."
+        )
+    parts: list[str] = []
+    for segment in segments:
+        if isinstance(segment, int):
+            parts.append(f"[{segment}]")
+        elif parts:
+            parts.append(f".{segment}")
+        else:
+            parts.append(str(segment))
+    return "".join(parts)
 
 
 def register_error_handlers(app: FastAPI) -> None:
@@ -125,7 +174,7 @@ def register_error_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         field_errors = [
             FieldError(
-                field=".".join(str(loc) for loc in e["loc"]),
+                field=format_field_error_path(e["loc"]),
                 message=str(e["msg"]),
                 code=str(e["type"]),
             )
@@ -172,6 +221,35 @@ def register_error_handlers(app: FastAPI) -> None:
             content=error.model_dump(),
             media_type=_PROBLEM_JSON,
             headers=exc.headers,
+        )
+
+    @app.exception_handler(AuthorizationDenied)
+    async def authorization_denied_handler(
+        request: Request,
+        exc: AuthorizationDenied,
+    ) -> JSONResponse:
+        """A verified principal the contract refuses, raised from handler code
+        (e.g. Auth.token() on a principal holding no bearer token) rather than
+        from the auth dependencies, which answer their own denials. The body is
+        the same opaque 403 every authorization denial answers with; the reason
+        code is logged, never returned."""
+        logger.warning(
+            "authorization_denied reason_code=%s path=%s",
+            exc.reason_code,
+            request.url.path,
+        )
+        problem_type, title = _problem_type_for_status(_HTTP_FORBIDDEN)
+        error = ProblemDetails(
+            type=problem_type,
+            title=title,
+            status=_HTTP_FORBIDDEN,
+            detail=_FORBIDDEN_DETAIL,
+            instance=str(request.url.path),
+        )
+        return JSONResponse(
+            status_code=_HTTP_FORBIDDEN,
+            content=error.model_dump(),
+            media_type=_PROBLEM_JSON,
         )
 
     @app.exception_handler(Exception)

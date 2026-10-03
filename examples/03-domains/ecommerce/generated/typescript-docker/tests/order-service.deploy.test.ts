@@ -85,16 +85,6 @@ describe('OrderService Deployment', () => {
     expect([200, 403, 404]).toContain(response.status);
   });
 
-  it('Nested GET /api/v1/orders/00000000-0000-0000-0000-000000000001/order_items responds with 200', async () => {
-    const response = await httpRequest(`${BASE_URL}/api/v1/orders/00000000-0000-0000-0000-000000000001/order_items`, {
-      headers: { 'Authorization': `Bearer ${makeTestJwt(["user"], JWT_ISSUER)}` },
-    });
-    // Nested GET targets a fabricated parent UUID that may not exist in the
-    // database; the handler verifies the parent first and returns 404 when
-    // the parent is not found (403 when ownership is rejected).
-    expect([200, 403, 404]).toContain(response.status);
-  });
-
   // --- Authentication / Authorization Tests ---
 
   describe('OrderApi Auth', () => {

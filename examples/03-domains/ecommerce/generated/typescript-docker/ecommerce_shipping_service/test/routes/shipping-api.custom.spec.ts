@@ -21,7 +21,7 @@ describe('ShippingApi Custom Endpoints', () => {
   });
 
   describe('GET /api/v1/shipments/order/00000000-0000-0000-0000-000000000001', () => {
-    it('should handle none request', async () => {
+    it('should handle getOrderByOrderId request', async () => {
       const response = await request(app.getHttpServer())
         .get('/api/v1/shipments/order/00000000-0000-0000-0000-000000000001')
         .set('Authorization', 'Bearer test-token')
@@ -31,7 +31,7 @@ describe('ShippingApi Custom Endpoints', () => {
   });
 
   describe('GET /api/v1/shipments/track/test', () => {
-    it('should handle none request', async () => {
+    it('should handle getTrackByTrackingNumber request', async () => {
       const response = await request(app.getHttpServer())
         .get('/api/v1/shipments/track/test')
         ;
@@ -40,7 +40,7 @@ describe('ShippingApi Custom Endpoints', () => {
   });
 
   describe('PUT /api/v1/shipments/00000000-0000-0000-0000-000000000001/status?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle putByIdStatus request', async () => {
       const response = await request(app.getHttpServer())
         .put('/api/v1/shipments/00000000-0000-0000-0000-000000000001/status?request=integration-path-value')
         .set('Authorization', 'Bearer test-token')
@@ -50,7 +50,7 @@ describe('ShippingApi Custom Endpoints', () => {
   });
 
   describe('POST /api/v1/shipments/00000000-0000-0000-0000-000000000001/events?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle postByIdEvents request', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/shipments/00000000-0000-0000-0000-000000000001/events?request=integration-path-value')
         .set('Authorization', 'Bearer test-token')
@@ -60,7 +60,7 @@ describe('ShippingApi Custom Endpoints', () => {
   });
 
   describe('POST /api/v1/shipments/rates?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle postRates request', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/shipments/rates?request=integration-path-value')
         .send({});
@@ -69,7 +69,7 @@ describe('ShippingApi Custom Endpoints', () => {
   });
 
   describe('POST /api/v1/shipments/webhook/fedex?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle postWebhookFedex request', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/shipments/webhook/fedex?request=integration-path-value')
         .send({});

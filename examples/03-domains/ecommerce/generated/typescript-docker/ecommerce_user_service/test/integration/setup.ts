@@ -15,12 +15,14 @@ import { PostgreSqlDriver } from '@mikro-orm/postgresql';
 import { User } from '../../src/ecommerce_user_service/entities/user_db/user.entity';
 import { UserSession } from '../../src/ecommerce_user_service/entities/user_db/user-session.entity';
 import { UserPreferences } from '../../src/ecommerce_user_service/entities/user_db/user-preferences.entity';
+import { ApiKey } from '../../src/ecommerce_user_service/entities/user_db/api-key.entity';
 
 /** All entity classes registered in this service. */
 export const ALL_ENTITIES = [
   User,
   UserSession,
   UserPreferences,
+  ApiKey,
 ];
 
 /** Table names in truncation-safe order (children before parents). */
@@ -28,6 +30,7 @@ const TABLE_NAMES: string[] = [
   'user_sessions',
   'user_preferences',
   'users',
+  'api_keys',
 ];
 
 /**

@@ -15,7 +15,9 @@ class ResetPasswordRequest(BaseModel):
     Generated from DSL struct declaration.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     token: str
     new_password: str

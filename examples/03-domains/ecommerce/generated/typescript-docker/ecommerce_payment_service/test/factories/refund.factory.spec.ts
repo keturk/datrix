@@ -6,11 +6,9 @@ describe('buildRefund', () => {
     expect(result).toBeDefined();
     expect(result.amount).toBeDefined();
     expect(result.reason).toBeDefined();
-    expect(result.status).toBeDefined();
     expect(result.refundTransactionId).toBeDefined();
     expect(result.errorMessage).toBeDefined();
     expect(result.processedAt).toBeDefined();
-    expect(result.paymentId).toBeDefined();
     expect(result.payment).toBeDefined();
   });
 

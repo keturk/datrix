@@ -47,6 +47,7 @@ export async function getDatabaseConfig(
     },
     migrations: {
       path: __dirname + '/../migrations/notification-db',
+      tableName: 'mikro_orm_migrations_notification_db',
       emit: 'ts',
     },
     host,

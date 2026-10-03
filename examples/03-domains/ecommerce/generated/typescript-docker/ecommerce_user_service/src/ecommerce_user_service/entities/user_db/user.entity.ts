@@ -35,7 +35,7 @@ export class User extends BaseEntity {
   @Property({ columnType: 'varchar', unique: true })
   email!: string;
 
-  @Property({ columnType: 'varchar', fieldName: 'password_hash' })
+  @Property({ columnType: 'varchar', fieldName: 'password_hash', hidden: true })
   passwordHash!: string;
 
   @Property({ columnType: 'varchar', fieldName: 'first_name' })
@@ -48,10 +48,10 @@ export class User extends BaseEntity {
   phoneNumber!: string | null;
 
   @Enum({ items: () => UserRole, nativeEnumName: 'user_role' })
-  role!: UserRole;
+  role: UserRole = UserRole.Customer;
 
   @Enum({ items: () => UserStatus, nativeEnumName: 'user_status' })
-  status!: UserStatus;
+  status: UserStatus = UserStatus.Pending;
 
   @Property({ columnType: 'timestamptz', fieldName: 'last_login_at', nullable: true })
   lastLoginAt!: Date | null;

@@ -1,10 +1,9 @@
 
 import {
-  IsDate,
+  IsDefined,
   IsNotEmpty,
   IsOptional,
   IsString,
-  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -15,6 +14,7 @@ import { Type } from 'class-transformer';
 export class CreateCategoryDto {
 
   @ApiProperty()
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
@@ -26,6 +26,7 @@ export class CreateCategoryDto {
   description?: string | null;
 
   @ApiProperty()
+  @IsDefined()
   @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
   slug!: string;
 }

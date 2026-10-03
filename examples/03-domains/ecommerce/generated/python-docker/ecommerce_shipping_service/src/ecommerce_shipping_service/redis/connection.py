@@ -19,6 +19,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Seconds a command waits for a free pooled connection while every connection
+# is in use. A burst of concurrent commands larger than the pool queues for a
+# connection instead of failing; past this bound the command raises
+# ``redis.exceptions.ConnectionError`` and the caller's own failure handling
+# applies (a rate-limit check, for one, fails closed).
+POOL_CHECKOUT_TIMEOUT_SECONDS: float = 5.0
+
 
 class RedisCacheConnection:
     """Manages Redis connection with connection pooling.
@@ -36,9 +43,10 @@ class RedisCacheConnection:
     async def get_client(self) -> aioredis.Redis[str, str]:
         """Get or create the key-prefixed Managed Redis client with pooling."""
         if self._client is None:
-            self._pool = aioredis.ConnectionPool.from_url(
+            self._pool = aioredis.BlockingConnectionPool.from_url(
                 self._url,
                 max_connections=10,
+                timeout=POOL_CHECKOUT_TIMEOUT_SECONDS,
                 decode_responses=False,
             )
             self._client = aioredis.Redis(connection_pool=self._pool)

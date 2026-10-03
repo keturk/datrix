@@ -18,7 +18,7 @@ export class HandleShipmentDeliveredHandler implements IEventHandler<ShipmentDel
   ) {}
 
   async handle(event: ShipmentDeliveredEvent): Promise<void> {
-const order = await this.orderRepository.findOne({ id: event.payload.orderId });
+    let order = await this.orderRepository.findOne({ id: event.payload.orderId });
     if (!order) {
       throw new NotFoundException("Not found");
     }

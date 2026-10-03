@@ -79,11 +79,9 @@ export class ProductService {
   }
 
 
-
   async getBySlug(slug: string | null): Promise<Product> {
     const entity = await this.em.findOne(Product, {
-      slug
-    } as never);
+      slug    } as never);
     if (!entity) {
       throw new NotFoundException(`Product with slug ${ slug } not found`);
     }

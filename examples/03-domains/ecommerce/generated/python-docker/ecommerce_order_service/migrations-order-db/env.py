@@ -16,11 +16,13 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 import ecommerce_order_service.config._secrets_resolver as _secrets_resolver
+import ecommerce_order_service.models.order_db.idempotency_key  # noqa: F401
+import ecommerce_order_service.models.order_db.order  # noqa: F401
+import ecommerce_order_service.models.order_db.order_item  # noqa: F401
 from ecommerce_order_service.config.remote_config import (
     build_client as _build_config_client,
 )
 from ecommerce_order_service.config.settings import assemble_settings
-from ecommerce_order_service.models.order_db import idempotency_key, order, order_item  # noqa: F401
 from ecommerce_order_service.order_db.base import Base  # noqa: F401
 
 # Import Base so autogenerate can detect models

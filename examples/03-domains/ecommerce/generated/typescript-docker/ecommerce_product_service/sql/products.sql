@@ -37,4 +37,4 @@ ALTER TABLE "products"
     FOREIGN KEY ("category_id")
     REFERENCES "categories" ("id")
     ON DELETE RESTRICT
-    ON UPDATE NO ACTION;
+    ON UPDATE RESTRICT;

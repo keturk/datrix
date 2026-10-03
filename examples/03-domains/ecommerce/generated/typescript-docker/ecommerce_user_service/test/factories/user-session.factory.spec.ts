@@ -10,13 +10,12 @@ describe('buildUserSession', () => {
     expect(result.userAgent).toBeDefined();
     expect(result.expiresAt).toBeDefined();
     expect(result.lastActivityAt).toBeDefined();
-    expect(result.userId).toBeDefined();
     expect(result.user).toBeDefined();
   });
 
   it('should apply overrides', () => {
     const overrides = {
-      token: `x`,
+      token: `test_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`,
     };
     const result = buildUserSession(overrides);
     expect(result.token).toBe(overrides.token);

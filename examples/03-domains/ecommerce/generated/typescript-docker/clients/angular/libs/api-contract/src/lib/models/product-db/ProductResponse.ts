@@ -7,11 +7,11 @@ export interface ProductResponse {
   compareAtPrice?: number | null;
   createdAt: IsoDateTime;
   description: string;
-  discountPercent?: number | null;
+  discountPercent: number;
   id: Uuid;
   images: unknown;
   inventory: number;
-  isAvailable?: boolean | null;
+  isAvailable: boolean;
   name: string;
   price: number;
   productMetadata?: unknown | null;

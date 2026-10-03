@@ -8,8 +8,7 @@ from __future__ import annotations
 import pytest
 
 from ecommerce_shipping_service.enums.shipment_status import ShipmentStatus
-
-from ..services._base import ValidationError
+from ecommerce_shipping_service.services._base import ValidationError
 
 
 @pytest.mark.unit

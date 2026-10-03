@@ -56,4 +56,50 @@ describe('NotificationService Deployment', () => {
     });
 
   });
+
+  // --- Authentication / Authorization Tests ---
+
+  describe('PushDeviceApi Auth', () => {
+    it('POST /push/devices?request=integration-path-value without auth returns 401', async () => {
+      const response = await httpRequest(`${BASE_URL}/push/devices?request=integration-path-value`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+    });
+
+    it('POST /push/devices/unregister?request=integration-path-value without auth returns 401', async () => {
+      const response = await httpRequest(`${BASE_URL}/push/devices/unregister?request=integration-path-value`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+    });
+
+  });
+
+  // --- OpenAPI Schema Completeness ---
+
+  describe('NotificationService OpenAPI Schema', () => {
+    let schema: Record<string, unknown>;
+
+    beforeAll(async () => {
+      schema = await httpGetJson(`${BASE_URL}/openapi.json`);
+    }, 35_000);
+
+    it('OpenAPI paths contains /push/devices', () => {
+      const paths = schema.paths as Record<string, unknown>;
+      expect(paths).toBeDefined();
+      expect(paths['/push/devices']).toBeDefined();
+    });
+
+    it('OpenAPI paths contains /push/devices/unregister', () => {
+      const paths = schema.paths as Record<string, unknown>;
+      expect(paths).toBeDefined();
+      expect(paths['/push/devices/unregister']).toBeDefined();
+    });
+
+  });
 });

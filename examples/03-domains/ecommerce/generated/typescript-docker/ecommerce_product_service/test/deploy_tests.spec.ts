@@ -93,4 +93,19 @@ describe('ProductApi Deployment Tests', () => {
     expect(response.status).toBe(201);
   });
 
+  it('GET /api/v1/products/wire/blob returns 200', async () => {
+    const response = await fetch(`${BASE_URL}/api/v1/products/wire/blob`);
+    expect(response.status).toBe(200);
+  });
+
+  it('GET /api/v1/products/wire/image/00000000-0000-0000-0000-000000000001 returns 200', async () => {
+    const response = await fetch(`${BASE_URL}/api/v1/products/wire/image/00000000-0000-0000-0000-000000000001`);
+    expect(response.status).toBe(200);
+  });
+
+  it('GET /api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001 returns 200', async () => {
+    const response = await fetch(`${BASE_URL}/api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001`);
+    expect(response.status).toBe(200);
+  });
+
 });

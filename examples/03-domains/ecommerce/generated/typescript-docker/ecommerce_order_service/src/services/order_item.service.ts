@@ -52,7 +52,6 @@ export class OrderItemService {
   }
 
 
-
   private _validate(entity: OrderItem): void {
     const errors: string[] = [];
     if (((entity.quantity <= 0))) {

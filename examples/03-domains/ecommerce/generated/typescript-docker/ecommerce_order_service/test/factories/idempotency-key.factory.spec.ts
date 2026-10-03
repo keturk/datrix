@@ -13,7 +13,7 @@ describe('buildIdempotencyKey', () => {
 
   it('should apply overrides', () => {
     const overrides = {
-      key: `x`,
+      key: `test_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`,
     };
     const result = buildIdempotencyKey(overrides);
     expect(result.key).toBe(overrides.key);

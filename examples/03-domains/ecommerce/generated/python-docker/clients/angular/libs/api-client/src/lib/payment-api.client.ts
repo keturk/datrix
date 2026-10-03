@@ -3,7 +3,8 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
-import { ECOMMERCE_API_BASE_URL } from './core/api-base-url.token';
+import { API_BASE_URL } from './core/api-base-url.token';
+import type { ApiRequestOptions } from './core/request-options';
 import { toHttpParams } from './core/query-params';
 import type { Uuid } from '../../../api-contract/src/lib/core/branded';
 import type { ProcessPaymentRequest } from '../../../api-contract/src/lib/models/ecommerce-payment-service/ProcessPaymentRequest';
@@ -14,23 +15,25 @@ import type { RefundResponse } from '../../../api-contract/src/lib/models/paymen
 @Injectable({ providedIn: 'root' })
 export class PaymentApiClient {
   private readonly http = inject(HttpClient);
-  private readonly base = inject(ECOMMERCE_API_BASE_URL);
+  private readonly base = inject(API_BASE_URL);
 
   /** GET /api/v1/payments/:id - auth: identity */
   getPayment(args: {
     id: Uuid;
-  }): Observable<PaymentResponse> {
+  }, options?: ApiRequestOptions): Observable<PaymentResponse> {
     return this.http.get<PaymentResponse>(
       `${this.base}/api/v1/payments/${encodeURIComponent(String(args.id))}`,
+      options,
     );
   }
 
   /** GET /api/v1/payments/order/:orderId - auth: identity */
   getOrderByOrderId(args: {
     orderId: Uuid;
-  }): Observable<PaymentResponse> {
+  }, options?: ApiRequestOptions): Observable<PaymentResponse> {
     return this.http.get<PaymentResponse>(
       `${this.base}/api/v1/payments/order/${encodeURIComponent(String(args.orderId))}`,
+      options,
     );
   }
 
@@ -40,10 +43,10 @@ export class PaymentApiClient {
     perPage?: number;
     skip?: number;
     limit?: number;
-  } = {}): Observable<PaymentResponse[]> {
+  } = {}, options?: ApiRequestOptions): Observable<PaymentResponse[]> {
     return this.http.get<PaymentResponse[]>(
       `${this.base}/api/v1/payments/my-payments`,
-      { params: toHttpParams({
+      { ...options, params: toHttpParams({
         'page': args.page,
         'per_page': args.perPage,
         'skip': args.skip,
@@ -55,10 +58,11 @@ export class PaymentApiClient {
   /** POST /api/v1/payments/process - auth: identity */
   postProcess(args: {
     request: ProcessPaymentRequest;
-  }): Observable<PaymentResponse> {
+  }, options?: ApiRequestOptions): Observable<PaymentResponse> {
     return this.http.post<PaymentResponse>(
       `${this.base}/api/v1/payments/process`,
       args.request,
+      options,
     );
   }
 
@@ -66,25 +70,11 @@ export class PaymentApiClient {
   postByIdRefund(args: {
     id: Uuid;
     request: RefundPaymentRequest;
-  }): Observable<RefundResponse> {
+  }, options?: ApiRequestOptions): Observable<RefundResponse> {
     return this.http.post<RefundResponse>(
       `${this.base}/api/v1/payments/${encodeURIComponent(String(args.id))}/refund`,
       args.request,
-    );
-  }
-
-  /** GET /api/v1/payments/:id/refunds - auth: required */
-  listPaymentsRefunds(args: {
-    id: Uuid;
-    skip?: number;
-    limit?: number;
-  }): Observable<RefundResponse[]> {
-    return this.http.get<RefundResponse[]>(
-      `${this.base}/api/v1/payments/${encodeURIComponent(String(args.id))}/refunds`,
-      { params: toHttpParams({
-        'skip': args.skip,
-        'limit': args.limit,
-      }) },
+      options,
     );
   }
 }

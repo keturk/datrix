@@ -1,7 +1,7 @@
 
 import {
   IsBoolean,
-  IsDate,
+  IsDefined,
   IsNotEmpty,
   IsObject,
   IsOptional,
@@ -9,38 +9,49 @@ import {
   IsUUID,
   Max,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
 export class CreateUserPreferencesDto {
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   @MaxLength(10)
-  language!: string;
+  language?: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)
-  timezone!: string;
+  timezone?: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsDefined()
   @IsBoolean()
-  emailNotifications!: boolean;
+  emailNotifications?: boolean;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsDefined()
   @IsBoolean()
-  smsNotifications!: boolean;
+  smsNotifications?: boolean;
 
   // JSON type for schemaless data
   @ApiProperty()
+  @IsDefined()
   @IsObject()
   preferences!: Record<string, any>;
 
   @ApiProperty()
+  @IsDefined()
   @IsUUID()
   userId!: string;
 }

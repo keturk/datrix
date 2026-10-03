@@ -11,7 +11,6 @@ import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    JSON,
     CheckConstraint,
     DateTime,
     Enum,
@@ -28,6 +27,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ecommerce_shipping_service.enums.shipment_status import ShipmentStatus
 from ecommerce_shipping_service.enums.shipping_carrier import ShippingCarrier
 from ecommerce_shipping_service.schemas.address import Address
+from ecommerce_shipping_service.shipping_db.base import StructJSON
 
 if TYPE_CHECKING:
     from ecommerce_shipping_service.models.shipping_db.shipment_event import (
@@ -61,7 +61,7 @@ class Shipment(BaseEntity):
         index=True,
     )
     destination: Mapped[Address] = mapped_column(
-        JSON,
+        StructJSON(Address),
     )
     weight: Mapped[decimal.Decimal] = mapped_column(
         Numeric(10, 2),
@@ -83,7 +83,7 @@ class Shipment(BaseEntity):
         "ShipmentEvent",
         back_populates="shipment",
     )
-    shipment_items: Mapped[list["ShipmentItem"]] = relationship(
+    shipmentitems: Mapped[list["ShipmentItem"]] = relationship(
         "ShipmentItem",
         back_populates="shipment",
     )

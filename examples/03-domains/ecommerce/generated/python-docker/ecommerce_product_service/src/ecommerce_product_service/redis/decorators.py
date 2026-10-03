@@ -26,6 +26,17 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+#: Resolves the additional, REQUIRED cache-key scope parts (e.g. the
+#: request's tenant id, the authenticated principal id) for one call, from
+#: the SAME arguments the wrapped function itself receives -- never a
+#: client-supplied header. Returns ``None`` to signal that a required part
+#: could not be resolved on this call, which the wrapper below treats as a
+#: fail-closed BYPASS (SECURITY: a cache entry must never be shared across
+#: tenants or principals). Only the ``@cache`` endpoint-decorator lowering
+#: (``generators/api/_endpoint_decorators.py``) passes this; every other
+#: caller of ``cached()`` is unaffected (default ``None``).
+ScopeKeyFn = Callable[..., "list[str] | None"]
+
 
 def make_cache_key(prefix: str, *args: object, **kwargs: object) -> str:
     """Generate a cache key from function arguments."""
@@ -41,10 +52,17 @@ def cached(
     ttl: int = 300,
     key_prefix: str | None = None,
     redis: Redis[str, str] | None = None,
+    *,
+    scope_key_fn: ScopeKeyFn | None = None,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Decorator to cache async function results in Redis.
 
     When ``redis`` is None, uses the module-level ``_get_redis()`` helper.
+
+    Args:
+        scope_key_fn: See :data:`ScopeKeyFn`'s module docstring. When it
+            returns ``None`` for a call, that call BYPASSES the cache
+            entirely (never read, never written) -- fail closed.
     """
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
@@ -52,6 +70,12 @@ def cached(
 
         @wraps(func)
         async def wrapper(*args: object, **kwargs: object) -> T:
+            scope_parts: list[str] = []
+            if scope_key_fn is not None:
+                resolved_scope = scope_key_fn(*args, **kwargs)
+                if resolved_scope is None:
+                    return await func(*args, **kwargs)
+                scope_parts = resolved_scope
             client = redis
             if client is None:
                 try:
@@ -60,7 +84,7 @@ def cached(
                     client = _get_redis()
                 except RedisError:
                     raise
-            cache_key = make_cache_key(prefix, *args, **kwargs)
+            cache_key = make_cache_key(prefix, *args, *scope_parts, **kwargs)
             try:
                 cached_value = await client.get(cache_key)
                 if cached_value is not None:

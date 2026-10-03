@@ -10,7 +10,6 @@ import decimal
 import uuid
 from dataclasses import dataclass, field
 
-from ecommerce_payment_service.enums.payment_status import PaymentStatus
 from ecommerce_payment_service.models.payment_db.refund import Refund
 
 
@@ -18,32 +17,20 @@ from ecommerce_payment_service.models.payment_db.refund import Refund
 class RefundFactory:
     """Factory for creating Refund test instances."""
 
-    created_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    updated_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    id: uuid.UUID = field(default_factory=uuid.uuid4)
     amount: decimal.Decimal = decimal.Decimal("19.99")
-    reason: str = "test_value"
-    status: PaymentStatus = PaymentStatus.pending
-    refund_transaction_id: str | None = "test_value"
-    error_message: str | None = "test_value"
-    processed_at: datetime.datetime | None = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    reason: str = "test"
+    refund_transaction_id: str | None = "test"
+    error_message: str | None = "test"
+    processed_at: datetime.datetime | None = datetime.datetime(
+        2025, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc
     )
-    payment_id: uuid.UUID = field(default_factory=uuid.uuid4)
+    payment_id: uuid.UUID = field(default_factory=lambda: uuid.uuid4())
 
     def build(self) -> Refund:
         """Build a model instance from factory defaults."""
         return Refund(
-            created_at=self.created_at,
-            updated_at=self.updated_at,
-            id=self.id,
             amount=self.amount,
             reason=self.reason,
-            status=self.status,
             refund_transaction_id=self.refund_transaction_id,
             error_message=self.error_message,
             processed_at=self.processed_at,
@@ -53,9 +40,8 @@ class RefundFactory:
     def build_dict(self) -> dict[str, object]:
         """Build a dictionary payload for API tests."""
         return {
-            "amount": self.amount,
+            "amount": str(self.amount),
             "reason": self.reason,
-            "status": self.status,
             "refund_transaction_id": self.refund_transaction_id,
             "error_message": self.error_message,
             "processed_at": str(self.processed_at),

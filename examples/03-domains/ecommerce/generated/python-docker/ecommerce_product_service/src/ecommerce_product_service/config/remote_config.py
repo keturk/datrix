@@ -100,6 +100,7 @@ class ConnectionsKeys:
     REDIS_HOST: str = "redis_host"
     REDIS_PORT: str = "redis_port"
     STORE_ENDPOINT: str = "store_endpoint"
+    STORE_PUBLIC_ENDPOINT: str = "store_public_endpoint"
 
 
 @dataclass(frozen=True)
@@ -140,6 +141,7 @@ _DECLARED_VALUE_TYPES: dict[str, dict[str, str]] = {
         "redis_host": "String",
         "redis_port": "Integer",
         "store_endpoint": "String",
+        "store_public_endpoint": "String",
     },
     "settings": {
         "debugMode": "Boolean",

@@ -9,10 +9,9 @@ export function buildOrderItem(
 ): Partial<OrderItem> {
   return {
     productId: crypto.randomUUID(),
-    productName: `x`,
+    productName: 'test',
     quantity: 42,
     unitPrice: 99.99,
-    orderId: crypto.randomUUID(),
     order: crypto.randomUUID(),
     ...overrides,
   };

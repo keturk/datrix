@@ -19,8 +19,15 @@ describe('EcommerceUserService Service Integration', () => {
 
   beforeAll(async () => {
     process.env['USER_DB_DATABASE_URL'] =
-      process.env['TEST_DATABASE_URL'] ||
-      'postgresql://test:test@localhost:5432/test_db';
+      process.env['USER_DB_DATABASE_URL'] || process.env['TEST_DATABASE_URL'] || '';
+    if (!process.env['USER_DB_DATABASE_URL']) {
+      throw new Error(
+        "Missing 'USER_DB_DATABASE_URL' (or 'TEST_DATABASE_URL') environment variable. " +
+          'Set it, or run through the deploy-test harness (tests/deploy-test.js), ' +
+          "which resolves 'USER_DB_DATABASE_URL' from the deployed container's " +
+          'config-store.json and secret-mounted password.',
+      );
+    }
     process.env['NODE_ENV'] = 'test';
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -37,6 +44,7 @@ describe('EcommerceUserService Service Integration', () => {
     await conn.execute('TRUNCATE TABLE "user_sessions" CASCADE');
     await conn.execute('TRUNCATE TABLE "user_preferences" CASCADE');
     await conn.execute('TRUNCATE TABLE "users" CASCADE');
+    await conn.execute('TRUNCATE TABLE "api_keys" CASCADE');
   });
 
   afterAll(async () => {

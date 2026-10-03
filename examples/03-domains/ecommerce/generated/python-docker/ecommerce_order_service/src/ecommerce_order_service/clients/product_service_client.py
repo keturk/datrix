@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 
 _metrics = ResilienceMetrics("ProductService")
 
-PRODUCT_SERVICE_SERVICE_URL_SETTINGS_ATTR = "product_service_service_url"
+ECOMMERCE_PRODUCT_SERVICE_SERVICE_URL_SETTINGS_ATTR = (
+    "ecommerce_product_service_service_url"
+)
 TIMEOUT_SECONDS: float = 10.0
 
 # ── Retry safety — generated behaviors, not config toggles ─────────────────────
@@ -136,7 +138,7 @@ async def _attempt_product_service(
             bulkhead-acquire wait exceeds its budget.
         httpx.HTTPStatusError: If response indicates an error.
     """
-    base_url = get_service_url(PRODUCT_SERVICE_SERVICE_URL_SETTINGS_ATTR)
+    base_url = get_service_url(ECOMMERCE_PRODUCT_SERVICE_SERVICE_URL_SETTINGS_ATTR)
     url = f"{base_url}{path}"
     headers = dict(kwargs.pop("headers", {}))
     # Machine-identity credential minted for the machine provider's own resource

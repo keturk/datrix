@@ -22,7 +22,10 @@ case "${1:-}" in
   db-migrate)
     echo "Database migrations are project-specific; configure MikroORM CLI or your migration tool."
     ;;
+  job-runner)
+    node -r ts-node/register src/workers/job-runner.ts
+    ;;
   help|*)
-    echo "Usage: ./scripts.sh <install|dev|build|test|lint|db-migrate|help>"
+    echo "Usage: ./scripts.sh <install|dev|build|test|lint|db-migrate|job-runner|help>"
     ;;
 esac

@@ -1,0 +1,119 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "cli": {
+    "analytics": false,
+    "packageManager": "npm"
+  },
+  "newProjectRoot": "apps",
+  "projects": {
+    "admin": {
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "configurations": {
+            "development": {
+              "extractLicenses": false,
+              "optimization": false,
+              "sourceMap": true
+            },
+            "production": {
+              "optimization": true,
+              "outputHashing": "all",
+              "sourceMap": false
+            }
+          },
+          "defaultConfiguration": "production",
+          "options": {
+            "assets": [
+              {
+                "glob": "maplibre-gl-worker.mjs",
+                "input": "node_modules/maplibre-gl/dist",
+                "output": "/assets/maplibre"
+              }
+            ],
+            "browser": "apps/admin/src/main.ts",
+            "index": "apps/admin/src/index.html",
+            "outputPath": "dist/admin",
+            "styles": [
+              "node_modules/material-symbols/outlined.css",
+              "node_modules/maplibre-gl/dist/maplibre-gl.css",
+              "libs/ui-core/src/lib/elements/elements.css",
+              "apps/admin/src/styles.css"
+            ],
+            "tsConfig": "apps/admin/tsconfig.app.json"
+          }
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "buildTarget": "admin:build:development",
+            "runner": "vitest",
+            "tsConfig": "apps/admin/tsconfig.spec.json"
+          }
+        }
+      },
+      "prefix": "app",
+      "projectType": "application",
+      "root": "apps/admin",
+      "sourceRoot": "apps/admin/src"
+    },
+    "storefront": {
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "configurations": {
+            "development": {
+              "extractLicenses": false,
+              "optimization": false,
+              "sourceMap": true
+            },
+            "production": {
+              "optimization": true,
+              "outputHashing": "all",
+              "sourceMap": false
+            }
+          },
+          "defaultConfiguration": "production",
+          "options": {
+            "assets": [
+              {
+                "glob": "maplibre-gl-worker.mjs",
+                "input": "node_modules/maplibre-gl/dist",
+                "output": "/assets/maplibre"
+              }
+            ],
+            "browser": "apps/storefront/src/main.ts",
+            "index": "apps/storefront/src/index.html",
+            "outputPath": "dist/storefront",
+            "styles": [
+              "node_modules/material-symbols/outlined.css",
+              "node_modules/maplibre-gl/dist/maplibre-gl.css",
+              "libs/ui-core/src/lib/elements/elements.css",
+              "apps/storefront/src/styles.css"
+            ],
+            "tsConfig": "apps/storefront/tsconfig.app.json"
+          }
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "buildTarget": "storefront:build:development",
+            "runner": "vitest",
+            "tsConfig": "apps/storefront/tsconfig.spec.json"
+          }
+        }
+      },
+      "prefix": "app",
+      "projectType": "application",
+      "root": "apps/storefront",
+      "sourceRoot": "apps/storefront/src"
+    }
+  },
+  "schematics": {
+    "@schematics/angular:component": {
+      "standalone": true,
+      "style": "css"
+    }
+  },
+  "version": 1
+}

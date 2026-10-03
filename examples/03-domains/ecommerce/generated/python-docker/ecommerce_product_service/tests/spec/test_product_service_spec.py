@@ -102,9 +102,11 @@ async def test_after_update_emits_inventory_updated_on_inventory_change(
         )
     )
     await db_session.refresh(product)
-
+    product.inventory = 50
     _product_svc = ProductService(db_session)
-    product = await _product_svc.update(product.id, ProductUpdate(**{"inventory": 50}))
+    product = await _product_svc.update(
+        product.id, ProductUpdate(**{"inventory": product.inventory})
+    )
     assert event_spy.has(
         "InventoryUpdated", product_id=product.id, old_quantity=0, new_quantity=50
     )

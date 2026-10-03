@@ -7,6 +7,6 @@ export class HandleUserRegisteredHandler implements IEventHandler<UserRegistered
   private readonly logger = new Logger(HandleUserRegisteredHandler.name);
 
   async handle(event: UserRegisteredEvent): Promise<void> {
-console.info('user_registered');
+    console.info('user_registered');
   }
 }

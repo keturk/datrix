@@ -17,19 +17,34 @@ import { readFileSync } from 'node:fs';
 const MACHINE_CREDENTIALS_FILE =
   process.env.IDENTITY_MACHINE_CREDENTIALS_FILE ?? '/machine-credentials/credentials.json';
 const MACHINE_TOKEN_URL = process.env.IDENTITY_MACHINE_TOKEN_URL ?? '';
-const MACHINE_HOST_HEADER = process.env.IDENTITY_MACHINE_HOST_HEADER ?? '';
+// Exported: `_provider-metadata.ts`'s management-API write also targets the
+// Zitadel instance and must present the same `Host` header -- it imports
+// this constant instead of reading `IDENTITY_MACHINE_HOST_HEADER` itself.
+export const MACHINE_HOST_HEADER = process.env.IDENTITY_MACHINE_HOST_HEADER ?? '';
 const TOKEN_EXPIRY_SKEW_SECONDS = 30;
 
-interface MachineCredentials {
+export interface MachineCredentials {
   clientId: string;
   clientSecret: string;
   audience: string;
+  // Zitadel instance base URL, doubling as the Management-API base
+  // (`${instanceOrigin}/management/v1/...`). Written unconditionally by the
+  // provisioning init-job alongside the other keys; unused by
+  // `acquireServiceCredential` below but consumed by `_provider-metadata.ts`'s
+  // write-back client, which imports `loadMachineCredentials` from this
+  // module rather than re-reading the file.
+  instanceOrigin: string;
 }
 
-let cachedToken = '';
-let cachedExpiry = 0;
+// Machine tokens cached by the client-credentials audience/scope they were
+// minted for. Inter-service calls use the machine-project audience baked in
+// the credentials file (the empty-string key -> creds.audience); a provider
+// management-API write (`_provider-metadata.ts`) uses that API's OWN reserved
+// audience -- a DIFFERENT `aud` -- so each is cached under its own key and one
+// never masks the other.
+const cachedTokens = new Map<string, { token: string; expiry: number }>();
 
-function loadMachineCredentials(): MachineCredentials {
+export function loadMachineCredentials(): MachineCredentials {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(MACHINE_CREDENTIALS_FILE, 'utf-8'));
@@ -43,19 +58,23 @@ function loadMachineCredentials(): MachineCredentials {
   const clientId = data.clientId;
   const clientSecret = data.clientSecret;
   const audience = data.audience;
+  const instanceOrigin = data.instanceOrigin;
   if (
     typeof clientId !== 'string' ||
     !clientId ||
     typeof clientSecret !== 'string' ||
     !clientSecret ||
     typeof audience !== 'string' ||
-    !audience
+    !audience ||
+    typeof instanceOrigin !== 'string' ||
+    !instanceOrigin
   ) {
     throw new Error(
-      `Machine credentials file '${MACHINE_CREDENTIALS_FILE}' is missing clientId/clientSecret/audience.`,
+      `Machine credentials file '${MACHINE_CREDENTIALS_FILE}' is missing ` +
+        'clientId/clientSecret/audience/instanceOrigin.',
     );
   }
-  return { clientId, clientSecret, audience };
+  return { clientId, clientSecret, audience, instanceOrigin };
 }
 
 function decodeTokenExpiry(token: string): number {
@@ -72,10 +91,11 @@ function decodeTokenExpiry(token: string): number {
   }
 }
 
-async function acquireZitadelMachineToken(): Promise<string> {
+async function acquireZitadelMachineToken(scopeAudience = ''): Promise<string> {
   const now = Date.now() / 1000;
-  if (cachedToken && now < cachedExpiry - TOKEN_EXPIRY_SKEW_SECONDS) {
-    return cachedToken;
+  const cached = cachedTokens.get(scopeAudience);
+  if (cached && now < cached.expiry - TOKEN_EXPIRY_SKEW_SECONDS) {
+    return cached.token;
   }
   if (!MACHINE_TOKEN_URL || !MACHINE_HOST_HEADER) {
     throw new Error(
@@ -84,9 +104,10 @@ async function acquireZitadelMachineToken(): Promise<string> {
     );
   }
   const creds = loadMachineCredentials();
+  const audience = scopeAudience || creds.audience;
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
-    scope: `openid ${creds.audience}`,
+    scope: `openid ${audience}`,
   });
   const basic = Buffer.from(`${creds.clientId}:${creds.clientSecret}`).toString('base64');
   const response = await fetch(MACHINE_TOKEN_URL, {
@@ -110,15 +131,28 @@ async function acquireZitadelMachineToken(): Promise<string> {
     throw new Error("Zitadel token response did not contain an 'access_token'.");
   }
   const expiresIn = typeof payload.expires_in === 'number' ? payload.expires_in : 0;
-  cachedToken = token;
-  cachedExpiry = decodeTokenExpiry(token) || Date.now() / 1000 + expiresIn;
+  const expiry = decodeTokenExpiry(token) || Date.now() / 1000 + expiresIn;
+  cachedTokens.set(scopeAudience, { token, expiry });
   return token;
 }
 
-export async function acquireServiceCredential(audience: string): Promise<string> {
+/**
+ * Return a machine token scoped to a provider management-API's own audience.
+ *
+ * A provider's own management API gates on a DIFFERENT `aud` than sibling
+ * services do: sibling services accept the machine-project audience baked in
+ * the credentials file, but the provider management API accepts only its own
+ * reserved API audience. The write-back client (`_provider-metadata.ts`)
+ * calls this with the platform-declared `token_audience` so the metadata
+ * write is authenticated against the management API, not a peer service.
+ */
+export async function acquireProviderMetadataCredential(audience: string): Promise<string> {
+  return acquireZitadelMachineToken(audience);
+}
+
+export async function acquireServiceCredential(): Promise<string> {
   // Docker/self-host: the platform machine identity is a Zitadel service account.
-  // The minted token is audience-scoped to the machine project and authenticates
-  // to every peer, so the per-callee audience argument is not used here.
-  void audience;
+  // The minted token is audience-scoped to the machine project (baked in the
+  // credentials file) and authenticates to every peer.
   return acquireZitadelMachineToken();
 }

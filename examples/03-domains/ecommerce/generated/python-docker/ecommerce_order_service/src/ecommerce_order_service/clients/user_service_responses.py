@@ -6,8 +6,7 @@ One dependency-prefixed Pydantic model is materialized per type in the transitiv
 return-type closure of every typed inter-service call to UserService, plus
 a per-struct decoder that maps the provider's on-the-wire key casing
 (python) onto the caller's struct fields recursively through the
-whole closure. The decoder is the explicit read-side twin of the request-side
-``_ms_snake_keys`` helper: it fails loud — naming the field, struct, and service —
+whole closure. The decoder fails loud — naming the field, struct, and service —
 on a required field that is missing on the wire (contract drift / casing miss),
 while an absent ``Optional`` field decodes to ``None``.
 """
@@ -93,10 +92,10 @@ class UserServiceUserResponse(BaseModel):
     billing_address: UserServiceAddressResponse | None = Field(
         default=None, serialization_alias="billingAddress"
     )
-    full_name: str | None = Field(default=None, serialization_alias="fullName")
-    is_active: bool | None = Field(default=None, serialization_alias="isActive")
-    is_verified: bool | None = Field(default=None, serialization_alias="isVerified")
-    can_login: bool | None = Field(default=None, serialization_alias="canLogin")
+    full_name: str = Field(serialization_alias="fullName")
+    is_active: bool = Field(serialization_alias="isActive")
+    is_verified: bool = Field(serialization_alias="isVerified")
+    can_login: bool = Field(serialization_alias="canLogin")
 
 
 class UserServiceAddressResponse(BaseModel):
@@ -231,7 +230,7 @@ def decode_user_service_user_response(payload: object) -> UserServiceUserRespons
         struct_name="UserServiceUserResponse",
         is_optional=False,
     )
-    id: uuid.UUID = _raw_id  # type: ignore[assignment]
+    id_: uuid.UUID = _raw_id  # type: ignore[assignment]
     _raw_email = _read_field(
         data,
         wire_key="email",
@@ -357,37 +356,37 @@ def decode_user_service_user_response(payload: object) -> UserServiceUserRespons
         wire_key="fullName",
         field_name="full_name",
         struct_name="UserServiceUserResponse",
-        is_optional=True,
+        is_optional=False,
     )
-    full_name: str | None = _raw_full_name  # type: ignore[assignment]
+    full_name: str = _raw_full_name  # type: ignore[assignment]
     _raw_is_active = _read_field(
         data,
         wire_key="isActive",
         field_name="is_active",
         struct_name="UserServiceUserResponse",
-        is_optional=True,
+        is_optional=False,
     )
-    is_active: bool | None = _raw_is_active  # type: ignore[assignment]
+    is_active: bool = _raw_is_active  # type: ignore[assignment]
     _raw_is_verified = _read_field(
         data,
         wire_key="isVerified",
         field_name="is_verified",
         struct_name="UserServiceUserResponse",
-        is_optional=True,
+        is_optional=False,
     )
-    is_verified: bool | None = _raw_is_verified  # type: ignore[assignment]
+    is_verified: bool = _raw_is_verified  # type: ignore[assignment]
     _raw_can_login = _read_field(
         data,
         wire_key="canLogin",
         field_name="can_login",
         struct_name="UserServiceUserResponse",
-        is_optional=True,
+        is_optional=False,
     )
-    can_login: bool | None = _raw_can_login  # type: ignore[assignment]
+    can_login: bool = _raw_can_login  # type: ignore[assignment]
     return UserServiceUserResponse(
         created_at=created_at,
         updated_at=updated_at,
-        id=id,
+        id=id_,
         email=email,
         password_hash=password_hash,
         first_name=first_name,

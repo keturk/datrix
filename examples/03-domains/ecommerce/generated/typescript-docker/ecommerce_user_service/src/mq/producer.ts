@@ -156,3 +156,12 @@ export class KafkaEventProducer {
 }
 
 export let producerInstance: KafkaEventProducer | null = null;
+
+/**
+ * Bind (or clear) the module-level producer every dispatch site imports.
+ * An importer cannot assign `producerInstance` itself -- an imported binding
+ * is read-only -- so the owning module is the one place it is written.
+ */
+export function setProducerInstance(producer: KafkaEventProducer | null): void {
+  producerInstance = producer;
+}

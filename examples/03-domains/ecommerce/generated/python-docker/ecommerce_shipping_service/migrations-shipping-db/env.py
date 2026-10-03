@@ -16,15 +16,13 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 import ecommerce_shipping_service.config._secrets_resolver as _secrets_resolver
+import ecommerce_shipping_service.models.shipping_db.shipment  # noqa: F401
+import ecommerce_shipping_service.models.shipping_db.shipment_event  # noqa: F401
+import ecommerce_shipping_service.models.shipping_db.shipment_item  # noqa: F401
 from ecommerce_shipping_service.config.remote_config import (
     build_client as _build_config_client,
 )
 from ecommerce_shipping_service.config.settings import assemble_settings
-from ecommerce_shipping_service.models.shipping_db import (  # noqa: F401
-    shipment,
-    shipment_event,
-    shipment_item,
-)
 from ecommerce_shipping_service.shipping_db.base import Base  # noqa: F401
 
 # Import Base so autogenerate can detect models

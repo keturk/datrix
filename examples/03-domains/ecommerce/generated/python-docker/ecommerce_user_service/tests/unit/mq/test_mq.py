@@ -410,23 +410,25 @@ class TestHandlerDispatch:
             )
 
     def test_dispatch_values_are_two_tuples(self) -> None:
-        """Each HANDLER_DISPATCH value is a (schema_cls, handler_fn) 2-tuple."""
+        """Each HANDLER_DISPATCH value is a (schema_cls, handler_fns) 2-tuple."""
         for event_name, value in HANDLER_DISPATCH.items():
             assert isinstance(value, tuple), (
                 f"HANDLER_DISPATCH[{event_name!r}] must be a tuple, got {type(value)}"
             )
             assert len(value) == 2, (
-                f"HANDLER_DISPATCH[{event_name!r}] must be (schema_cls, handler_fn), "
+                f"HANDLER_DISPATCH[{event_name!r}] must be (schema_cls, handler_fns), "
                 f"got length {len(value)}"
             )
 
     def test_handlers_are_callable(self) -> None:
-        """Each handler in HANDLER_DISPATCH is callable."""
-        for event_name, (schema_cls, handler_fn) in HANDLER_DISPATCH.items():
-            assert callable(handler_fn), (
-                f"HANDLER_DISPATCH[{event_name!r}] handler must be callable, "
-                f"got {type(handler_fn)}"
-            )
+        """Every event has at least one handler, and each handler is callable."""
+        for event_name, (schema_cls, handler_fns) in HANDLER_DISPATCH.items():
+            assert handler_fns, f"HANDLER_DISPATCH[{event_name!r}] has no handler"
+            for handler_fn in handler_fns:
+                assert callable(handler_fn), (
+                    f"HANDLER_DISPATCH[{event_name!r}] handler must be callable, "
+                    f"got {type(handler_fn)}"
+                )
 
 
 @pytest.mark.unit

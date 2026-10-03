@@ -16,6 +16,7 @@ from ecommerce_user_service.routes.user_api import (
     post_forgot_password,
     post_login,
     post_logout,
+    post_me_api_keys,
     post_register,
     post_reset_password,
     post_service_validate_session,
@@ -111,6 +112,20 @@ class TestUserApiCustomEndpoints:
     def test_put_me_password_accepts_db_session(self) -> None:
         """put_me_password accepts a db session parameter."""
         sig = inspect.signature(put_me_password)
+        param_names = list(sig.parameters.keys())
+        assert "user_db" in param_names
+
+    def test_post_me_api_keys_exists(self) -> None:
+        """post_me_api_keys handler exists and is callable."""
+        assert callable(post_me_api_keys)
+
+    def test_post_me_api_keys_is_async(self) -> None:
+        """post_me_api_keys is an async function."""
+        assert inspect.iscoroutinefunction(post_me_api_keys)
+
+    def test_post_me_api_keys_accepts_db_session(self) -> None:
+        """post_me_api_keys accepts a db session parameter."""
+        sig = inspect.signature(post_me_api_keys)
         param_names = list(sig.parameters.keys())
         assert "user_db" in param_names
 

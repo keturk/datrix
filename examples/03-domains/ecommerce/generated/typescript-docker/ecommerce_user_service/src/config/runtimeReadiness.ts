@@ -52,6 +52,8 @@ export function readinessFailures(report: ReadinessReport): ReadinessItem[] {
 
 // Required set baked from the runtime-requirements manifest. Values are NEVER baked here.
 const REQUIRED_SECRET_HANDLES: Array<[string, string]> = [
+  ["mq_sasl_password", "mq_sasl_password"],
+  ["redis_password", "redis_password"],
   ["smtp_host", "smtp_host"],
   ["smtp_password", "smtp_password"],
   ["smtp_port", "smtp_port"],

@@ -149,9 +149,9 @@ async def test_shipping_api_post_by_id_events_wrong_role(wrong_role_client):
 
 
 async def test_shipping_api_post_endpoint_non_service_token(wrong_role_client):
-    """POST /api/v1/shipments with a non-service token returns 401"""
+    """POST /api/v1/shipments with a non-service token returns 403"""
     response = await wrong_role_client.post(
         "/api/v1/shipments",
         json={},
     )
-    assert response.status_code == 401
+    assert response.status_code == 403

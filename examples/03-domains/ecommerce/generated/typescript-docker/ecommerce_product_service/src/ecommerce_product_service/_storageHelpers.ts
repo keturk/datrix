@@ -26,8 +26,24 @@ function _getBucket(): string {
   return _BUCKET;
 }
 
-function _getS3(): S3Client {
-  const endpoint = 'http://localhost:9000';
+/**
+ * Longest lifetime a signed download link may carry: seven days. S3 SigV4
+ * presigning, GCS V4 signed URLs and Azure SAS tokens all stop at this bound,
+ * and the storage rejects a longer link only when it is opened.
+ */
+export const PRESIGNED_URL_MAX_EXPIRES_SECONDS = 604800;
+
+function _validateExpiresIn(expiresIn: number): void {
+  if (Number.isInteger(expiresIn) && expiresIn > 0 && expiresIn <= PRESIGNED_URL_MAX_EXPIRES_SECONDS) {
+    return;
+  }
+  throw new Error(
+    `expiresIn=${expiresIn} is outside the presigned URL lifetime range: expected an integer ` +
+      `between 1 and ${PRESIGNED_URL_MAX_EXPIRES_SECONDS} seconds (seven days). Pass a shorter expiry to getUrl().`,
+  );
+}
+
+function _minioClient(endpoint: string): S3Client {
   if (!endpoint) {
     throw new Error('MinIO storage requires an "endpoint" configured on the storage block.');
   }
@@ -42,6 +58,21 @@ function _getS3(): S3Client {
     credentials: { accessKeyId, secretAccessKey },
     forcePathStyle: true,
   });
+}
+
+function _getS3(): S3Client {
+  return _minioClient('http://localhost:3900');
+}
+
+/**
+ * The client that signs download links: bound to the public endpoint -- the
+ * address a browser reaches MinIO on, which differs from the API endpoint
+ * whenever this service reaches MinIO over a private network. S3 signatures
+ * cover the host, so the link is signed for the public host up front, never
+ * rewritten afterwards.
+ */
+function _getPresigner(): S3Client {
+  return _minioClient('http://localhost:3900');
 }
 
 export async function _storageUpload(
@@ -118,8 +149,10 @@ export async function _storageGetUrl(
   path: string,
   expiresIn?: number,
 ): Promise<string> {
+  const lifetime = expiresIn ?? 3600;
+  _validateExpiresIn(lifetime);
   const cmd = new GetObjectCommand({ Bucket: _getBucket(), Key: path });
-  return getSignedUrl(_getS3(), cmd, { expiresIn: expiresIn ?? 3600 });
+  return getSignedUrl(_getPresigner(), cmd, { expiresIn: lifetime });
 }
 
 export async function _storagePresignedUrl(

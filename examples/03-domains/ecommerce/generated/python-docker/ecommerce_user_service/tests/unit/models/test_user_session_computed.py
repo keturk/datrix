@@ -17,6 +17,17 @@ from ecommerce_user_service.models.user_db.user_session import UserSession
 class TestUserSessionComputedFields:
     """Test computed field logic for UserSession."""
 
+    def test_is_expired_getter_runs(self) -> None:
+        """is_expired getter runs and returns its expected value."""
+        _token = f"test_{uuid.uuid4().hex[:8]}"
+        _user_id = uuid.uuid4()
+        instance = UserSession(
+            token=_token,
+            expires_at=datetime.datetime(3000, 1, 1, tzinfo=datetime.timezone.utc),
+            user_id=_user_id,
+        )
+        assert instance.is_expired is not None
+
     def test_is_expired_is_read_only(self) -> None:
         """Assigning to computed field is_expired raises AttributeError."""
         _token = f"test_{uuid.uuid4().hex[:8]}"
@@ -28,6 +39,17 @@ class TestUserSessionComputedFields:
         )
         with pytest.raises(AttributeError):
             instance.is_expired = True
+
+    def test_is_active_getter_runs(self) -> None:
+        """is_active getter runs and returns its expected value."""
+        _token = f"test_{uuid.uuid4().hex[:8]}"
+        _user_id = uuid.uuid4()
+        instance = UserSession(
+            token=_token,
+            expires_at=datetime.datetime(3000, 1, 1, tzinfo=datetime.timezone.utc),
+            user_id=_user_id,
+        )
+        assert instance.is_active is not None
 
     def test_is_active_is_read_only(self) -> None:
         """Assigning to computed field is_active raises AttributeError."""

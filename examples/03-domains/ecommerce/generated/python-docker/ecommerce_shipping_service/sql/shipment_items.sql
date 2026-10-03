@@ -14,4 +14,4 @@ ALTER TABLE "shipment_items"
     FOREIGN KEY ("shipment_id")
     REFERENCES "shipments" ("id")
     ON DELETE RESTRICT
-    ON UPDATE NO ACTION;
+    ON UPDATE RESTRICT;

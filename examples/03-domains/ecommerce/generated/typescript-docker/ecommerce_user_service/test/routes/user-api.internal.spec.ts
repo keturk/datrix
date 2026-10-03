@@ -21,22 +21,29 @@ describe('UserApi Internal Endpoints', () => {
   });
 
   describe('GET /api/v1/service/00000000-0000-0000-0000-000000000001 (internal)', () => {
-    it('should handle internal userByIdInternal request', async () => {
+    it('should handle internal getServiceById request', async () => {
       await request(app.getHttpServer())
         .get('/api/v1/service/00000000-0000-0000-0000-000000000001')
         .set('Authorization', 'Bearer test-token')
         .expect(404);
     });
 
-    it('should reject external access to userByIdInternal', async () => {
+    it('should reject external access to getServiceById', async () => {
       await request(app.getHttpServer())
         .get('/api/v1/service/00000000-0000-0000-0000-000000000001')
+        .expect(401);
+    });
+
+    it('should reject a credential from a provider outside the route allow-list for getServiceById', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/service/00000000-0000-0000-0000-000000000001')
+        .set('Authorization', 'Bearer wrong-provider-token')
         .expect(403);
     });
   });
 
   describe('POST /api/v1/service/validate-session?request=integration-path-value (internal)', () => {
-    it('should handle internal sessionValidation request', async () => {
+    it('should handle internal postServiceValidateSession request', async () => {
       await request(app.getHttpServer())
         .post('/api/v1/service/validate-session?request=integration-path-value')
         .set('Authorization', 'Bearer test-token')
@@ -44,9 +51,16 @@ describe('UserApi Internal Endpoints', () => {
         .expect(201);
     });
 
-    it('should reject external access to sessionValidation', async () => {
+    it('should reject external access to postServiceValidateSession', async () => {
       await request(app.getHttpServer())
         .post('/api/v1/service/validate-session?request=integration-path-value')
+        .expect(401);
+    });
+
+    it('should reject a credential from a provider outside the route allow-list for postServiceValidateSession', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/service/validate-session?request=integration-path-value')
+        .set('Authorization', 'Bearer wrong-provider-token')
         .expect(403);
     });
   });

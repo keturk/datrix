@@ -12,6 +12,6 @@ export class HandleInventoryReleasedHandler implements IEventHandler<InventoryRe
   ) {}
 
   async handle(event: InventoryReleasedEvent): Promise<void> {
-console.info('inventory_released');
+    console.info('inventory_released');
   }
 }

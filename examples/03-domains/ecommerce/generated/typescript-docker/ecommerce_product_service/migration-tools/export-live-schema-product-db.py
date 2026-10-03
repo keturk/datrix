@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Mapping
 
 from datrix_codegen_sql.dialects.reflector_registry import get_reflector
-from datrix_common.migration.live_snapshot_export import (
+from datrix_migration.live_snapshot_export import (
     build_live_snapshot_artifact,
     serialize_live_snapshot_artifact,
 )

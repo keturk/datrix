@@ -3,8 +3,8 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
-import { ECOMMERCE_API_BASE_URL } from './core/api-base-url.token';
-import { toHttpParams } from './core/query-params';
+import { API_BASE_URL } from './core/api-base-url.token';
+import type { ApiRequestOptions } from './core/request-options';
 import type { Uuid } from '../../../api-contract/src/lib/core/branded';
 import type { AddTrackingEventRequest } from '../../../api-contract/src/lib/models/ecommerce-shipping-service/AddTrackingEventRequest';
 import type { GetShippingRatesRequest } from '../../../api-contract/src/lib/models/ecommerce-shipping-service/GetShippingRatesRequest';
@@ -17,32 +17,35 @@ import type { ShipmentResponse } from '../../../api-contract/src/lib/models/ship
 @Injectable({ providedIn: 'root' })
 export class ShippingApiClient {
   private readonly http = inject(HttpClient);
-  private readonly base = inject(ECOMMERCE_API_BASE_URL);
+  private readonly base = inject(API_BASE_URL);
 
   /** GET /api/v1/shipments/:id - auth: identity */
   getShipment(args: {
     id: Uuid;
-  }): Observable<ShipmentResponse> {
+  }, options?: ApiRequestOptions): Observable<ShipmentResponse> {
     return this.http.get<ShipmentResponse>(
       `${this.base}/api/v1/shipments/${encodeURIComponent(String(args.id))}`,
+      options,
     );
   }
 
   /** GET /api/v1/shipments/order/:orderId - auth: identity */
   getOrderByOrderId(args: {
     orderId: Uuid;
-  }): Observable<ShipmentResponse> {
+  }, options?: ApiRequestOptions): Observable<ShipmentResponse> {
     return this.http.get<ShipmentResponse>(
       `${this.base}/api/v1/shipments/order/${encodeURIComponent(String(args.orderId))}`,
+      options,
     );
   }
 
   /** GET /api/v1/shipments/track/:trackingNumber - auth: public */
   getTrackByTrackingNumber(args: {
     trackingNumber: string;
-  }): Observable<ShipmentTracking> {
+  }, options?: ApiRequestOptions): Observable<ShipmentTracking> {
     return this.http.get<ShipmentTracking>(
       `${this.base}/api/v1/shipments/track/${encodeURIComponent(String(args.trackingNumber))}`,
+      options,
     );
   }
 
@@ -50,10 +53,11 @@ export class ShippingApiClient {
   putByIdStatus(args: {
     id: Uuid;
     request: UpdateShipmentStatusRequest;
-  }): Observable<ShipmentResponse> {
+  }, options?: ApiRequestOptions): Observable<ShipmentResponse> {
     return this.http.put<ShipmentResponse>(
       `${this.base}/api/v1/shipments/${encodeURIComponent(String(args.id))}/status`,
       args.request,
+      options,
     );
   }
 
@@ -61,35 +65,22 @@ export class ShippingApiClient {
   postByIdEvents(args: {
     id: Uuid;
     request: AddTrackingEventRequest;
-  }): Observable<ShipmentEventResponse> {
+  }, options?: ApiRequestOptions): Observable<ShipmentEventResponse> {
     return this.http.post<ShipmentEventResponse>(
       `${this.base}/api/v1/shipments/${encodeURIComponent(String(args.id))}/events`,
       args.request,
+      options,
     );
   }
 
   /** POST /api/v1/shipments/rates - auth: public */
   postRates(args: {
     request: GetShippingRatesRequest;
-  }): Observable<ShippingRateResponse[]> {
+  }, options?: ApiRequestOptions): Observable<ShippingRateResponse[]> {
     return this.http.post<ShippingRateResponse[]>(
       `${this.base}/api/v1/shipments/rates`,
       args.request,
-    );
-  }
-
-  /** GET /api/v1/shipments/:id/shipment_events - auth: required */
-  listShipmentsShipmentEvents(args: {
-    id: Uuid;
-    skip?: number;
-    limit?: number;
-  }): Observable<ShipmentEventResponse[]> {
-    return this.http.get<ShipmentEventResponse[]>(
-      `${this.base}/api/v1/shipments/${encodeURIComponent(String(args.id))}/shipment_events`,
-      { params: toHttpParams({
-        'skip': args.skip,
-        'limit': args.limit,
-      }) },
+      options,
     );
   }
 }

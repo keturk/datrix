@@ -22,6 +22,8 @@ export default getDatabaseConfig({ get: () => false } as never).then((base) =>
     entities: [Shipment, ShipmentEvent, ShipmentItem],
     extensions: [Migrator],
     migrations: {
+      // Keeps the block's own history table (tableName) from getDatabaseConfig().
+      ...base.migrations,
       path: './dist/migrations/shipping-db',
       pathTs: './src/migrations/shipping-db',
       emit: 'ts',

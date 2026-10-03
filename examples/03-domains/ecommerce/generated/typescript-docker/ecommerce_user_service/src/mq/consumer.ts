@@ -27,19 +27,19 @@ export class KafkaEventConsumer {
   ) {}
 
   private async handleUserRegistered(payload: UserRegisteredPayload): Promise<void> {
-console.info('user_registered');
+    console.info('user_registered');
   }
 
   private async handleUserVerified(payload: UserVerifiedPayload): Promise<void> {
-console.info('user_verified');
+    console.info('user_verified');
   }
 
   private async handleUserStatusChanged(payload: UserStatusChangedPayload): Promise<void> {
-console.info('user_status_changed');
+    console.info('user_status_changed');
   }
 
   private async handleUserLoggedIn(payload: UserLoggedInPayload): Promise<void> {
-console.info('user_logged_in');
+    console.info('user_logged_in');
   }
 
   async start(): Promise<void> {
@@ -54,21 +54,35 @@ console.info('user_logged_in');
         if (!raw) return;
         const envelope = JSON.parse(raw) as { eventType?: string; payload?: unknown };
         const eventType = envelope.eventType ?? '';
-        const handler = this.handlerMap[eventType];
+        const handlers = this.handlerMap[`${topic}:${eventType}`];
         const payload = envelope.payload;
-        if (!handler || !payload) return;
-        await recordConsume(BLOCK_NAME, topic, eventType, () => handler(payload));
+        if (!handlers || !payload) return;
+        const runHandlers = async (): Promise<void> => {
+          for (const handler of handlers) {
+            await handler(payload);
+          }
+        };
+        await recordConsume(BLOCK_NAME, topic, eventType, runHandlers);
       },
     );
   }
 
+  // Keyed by `${topic}:${eventType}`; each key runs every handler bound to it.
   private readonly handlerMap: Record<
     string,
-    (payload: unknown) => Promise<void>
+    ReadonlyArray<(payload: unknown) => Promise<void>>
   > = {
-    'UserRegistered': (p) => this.handleUserRegistered(p as UserRegisteredPayload),
-    'UserVerified': (p) => this.handleUserVerified(p as UserVerifiedPayload),
-    'UserStatusChanged': (p) => this.handleUserStatusChanged(p as UserStatusChangedPayload),
-    'UserLoggedIn': (p) => this.handleUserLoggedIn(p as UserLoggedInPayload),
+    'ecommerce_user_service.mq.user_events:UserRegistered': [
+      (p) => this.handleUserRegistered(p as UserRegisteredPayload),
+    ],
+    'ecommerce_user_service.mq.user_events:UserVerified': [
+      (p) => this.handleUserVerified(p as UserVerifiedPayload),
+    ],
+    'ecommerce_user_service.mq.user_events:UserStatusChanged': [
+      (p) => this.handleUserStatusChanged(p as UserStatusChangedPayload),
+    ],
+    'ecommerce_user_service.mq.user_events:UserLoggedIn': [
+      (p) => this.handleUserLoggedIn(p as UserLoggedInPayload),
+    ],
   };
 }

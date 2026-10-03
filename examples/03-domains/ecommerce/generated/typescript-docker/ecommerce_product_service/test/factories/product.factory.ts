@@ -1,5 +1,4 @@
 import { Product } from '../../src/entities/product.entity';
-import { ProductStatus } from '../../src/enums/product-status.enum';
 
 /**
  * Build a partial Product with sensible defaults for testing.
@@ -9,17 +8,14 @@ export function buildProduct(
   overrides?: Partial<Product>,
 ): Partial<Product> {
   return {
-    slug: `x`,
+    slug: `test_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`,
     price: 99.99,
     compareAtPrice: 99.99,
-    inventory: 42,
-    name: `x`,
-    description: 'test-text-content',
-    status: ProductStatus.Draft,
-    productMetadata: {},
-    images: {},
-    tags: {},
-    categoryId: crypto.randomUUID(),
+    name: 'test',
+    description: 'test',
+    productMetadata: { key: 'value' },
+    images: { key: 'value' },
+    tags: { key: 'value' },
     category: crypto.randomUUID(),
     ...overrides,
   };

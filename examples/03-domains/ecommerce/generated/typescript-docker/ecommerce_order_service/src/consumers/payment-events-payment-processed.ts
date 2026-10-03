@@ -13,7 +13,7 @@ import { queueClientInstance } from '../queue/client';
 export async function payment_events_payment_processed(payload: Record<string, unknown>): Promise<void> {
   const em = await consumerEntityManager();
   const orderRepository = em.getRepository(Order);
-  const order = await orderRepository.findOne({ id: (payload.orderId as string) });
+  let order = await orderRepository.findOne({ id: (payload.orderId as string) });
   if (!order) {
     throw new NotFoundException("Not found");
   }

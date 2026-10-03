@@ -10,11 +10,14 @@ conftest's client fixture which depends on db_session/test_engine.
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import os
+import uuid
 from collections.abc import AsyncGenerator
 
 import httpx
+import jwt
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient, AsyncHTTPTransport
 
@@ -25,6 +28,41 @@ _TRANSPORT_RETRIES = 2
 _WARMUP_ATTEMPTS = 5
 _WARMUP_INTERVAL_SECONDS = 2
 _WARMUP_TIMEOUT_SECONDS = 10.0
+
+_TEST_JWT_PRIVATE_KEY = """-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDYdlPhKmFsrAXa
+lmNWHP9Dh7DH+wWWI9MvIp/ZdtXj+oLus9TrqvWAoSB9Rjqn4JlQGxv/4mp3dIU+
+/VgWVHqW/h/GpTPMOr37ILVDsANdv9YkZcqBUB1pFly14L1Ipbzeal/BHwVYO3+z
+jToq0z7nmiW4WqDZ5QvcpBB1al6kjtXnLZBuzAdI3a0BDFxeo8Sl2HDR38vNvvS3
+OmYDyRYzFCC77+K6bRbMTgf6xFCAjlsAmWuRRZvFtwgUOYZgshNfvpxNsSklbvVE
+TARBvgOIwNwPeH0bK8SctN37z86w8QjTsbLqe1oNDSwjvg+p+lXgPD6HCdtmQC50
+Tpo7g3cpAgMBAAECggEAE4qDF1WjG+i0/T8MUq7QIIGJulP1SiY2dLqJzFudAuAP
+nTWg0sbz3hvYT1bdXrW47BwLvWBBlO0bm6HKp6FoEQ95643oYix/ZWyreyPS+fii
+gACsdQYNfE9808fTw/t/qbiCp8WBea34C6Euj2/TQvHjK9m1TFZlaWgU5Z9SUe/k
+cN5enaxvlj4XWOZWDQ7DA8GikOWI6mQ2DpKiSEOPdIuV1azwfYpiGzJVfgCkTfoO
+i/qMmEhsJZkPwOPfc/yw9Qc1i1o693JueVS4ZidROw8ro4xH6DARvQfcz3XaLC3G
+OVdgAQITPoCFNBazb0AV+Vy2Bm2D7msfYEdVDUEIXQKBgQD/vrYmaByt0+j0EXwi
+56astQnaZRAlreJxb0upkHoXRj5C5pRJTI5ybvZu9IeAxtQC4dlxmXHMN4i7N+gM
+HcXSSXbnMKiaPBh64+EN/Io8GitUpUQoHCWNRzYMfauGHLFCyYUE5L+VczxB+fZR
+GmPamClwM8otl7IYH/Xt4H154wKBgQDYrZZ2CfTx+7Z5fOWkRF7siGWogNrvpLlJ
+ONDbc1vQ3efOomU9ypLy/XN91hJ647LZq0lvWkBmZNWjnoBldF/RB55pCOh+6l+c
+hufDtSATFJ9sCX/VPiRSJIQ75Ow0/ahA2Xv24xIcEWGjC07PkXC52FXBvfVIPZG3
+ZF5xVrUIgwKBgQCiuNKm/0l4JMQtP07P2rsHWq1pQzKR9uCEsn7e5el5E52b7aBe
+PxLHpuiv0nDBNEFDkDZNfIeWm6MpFDpWMz9iPJImKaStdh1RW9sfjhbahQAa/Iiw
+SLBwAuZV7kQLsgfradN0OKPZ0Jd/ly7tjbAJLxX2qU0z0zhi9zsAXv0XZwKBgDnC
+XD9u/AqdbNEJyDV3vE4VNfQrFTGYmYO5T4OQRsNww+BDTfWg0HdRtL2wmRCFLiH0
+FQlH567j5kdNczCYSwpvm3yoUUGzvHT/STzURY6QisbD6X2wqQH0lgNZTNX7YCSZ
+VQBFG4i74WkTFJkkTgZccs/IkWAGeZeHe91+nZd9AoGBAO/Xsuj4pUR0CeT3UAJ8
+G/O5AfrKRyFsw3uQibrWZYLebDXaWhqZ0jraPZ130ym6Go0+s1wjANuB+KZ6n2Ps
+KrG2ITUUjq9BkhjkTlNDpahgbhRBCOh5110Ir2a/DoP5OGsaCtm3dhfP9Mxpkq6q
+yfJQn2d9wRvjMLHz7X+tFyOW
+-----END PRIVATE KEY-----"""
+#: Issuer URL used by the test JWKS sidecar (datrix-test-jwks) provisioned via
+#: Docker Compose.  All test JWTs are signed with _TEST_JWT_PRIVATE_KEY and
+#: stamped with this issuer so the deployed service can verify them via the
+#: sidecar's /.well-known/jwks.json endpoint.
+_TEST_JWKS_ISSUER: str = "http://datrix-test-jwks:8080"
+_TEST_JWKS_KEY_ID: str = "datrix-test-key-1"
 
 
 async def _warm_up(http_client: AsyncClient) -> None:
@@ -87,16 +125,41 @@ class _RetryTransport(httpx.AsyncBaseTransport):
         await self._wrapped.aclose()
 
 
+def _make_jwt(roles: list[str]) -> str:
+    """Create an RS256 test JWT with a unique subject and the given roles.
+
+    A fresh UUID4 subject is generated per call so that concurrent test
+    sessions never share a Redis rate-limit key (they resolve to distinct
+    ``u:<sub>`` client keys in the plan-based rate limiter).
+    """
+    now = datetime.datetime.now(datetime.UTC)
+    payload = {
+        "sub": str(uuid.uuid4()),
+        "roles": roles,
+        "iat": int(now.timestamp()),
+        "exp": int((now + datetime.timedelta(hours=1)).timestamp()),
+        "iss": _TEST_JWKS_ISSUER,
+    }
+    return jwt.encode(
+        payload,
+        _TEST_JWT_PRIVATE_KEY,
+        algorithm="RS256",
+        headers={"kid": _TEST_JWKS_KEY_ID},
+    )
+
+
 @pytest_asyncio.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
     """HTTP client for integration testing against a deployed or local service."""
     base_url = os.environ.get("BASE_URL")
     if base_url:
+        headers = {"Authorization": f"Bearer {_make_jwt(['Member'])}"}
         transport = _RetryTransport(AsyncHTTPTransport(retries=_TRANSPORT_RETRIES))
         async with AsyncClient(
             transport=transport,
             base_url=base_url,
             timeout=_DEPLOY_TIMEOUT_SECONDS,
+            headers=headers,
             follow_redirects=True,
         ) as async_client:
             await _warm_up(async_client)
@@ -105,9 +168,11 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
         from ecommerce_notification_service.main import app
 
         transport = ASGITransport(app=app)
+        headers = {"Authorization": f"Bearer {_make_jwt(['Member'])}"}
         async with AsyncClient(
             transport=transport,
             base_url="http://test",
+            headers=headers,
             follow_redirects=True,
         ) as async_client:
             yield async_client
@@ -134,6 +199,64 @@ async def unauth_client() -> AsyncGenerator[AsyncClient, None]:
         async with AsyncClient(
             transport=transport,
             base_url="http://test",
+            follow_redirects=True,
+        ) as async_client:
+            yield async_client
+
+
+@pytest_asyncio.fixture
+async def wrong_role_client() -> AsyncGenerator[AsyncClient, None]:
+    """HTTP client with a token that has a role insufficient for protected endpoints."""
+    base_url = os.environ.get("BASE_URL")
+    headers = {"Authorization": f"Bearer {_make_jwt(['Viewer'])}"}
+    if base_url:
+        transport = _RetryTransport(AsyncHTTPTransport(retries=_TRANSPORT_RETRIES))
+        async with AsyncClient(
+            transport=transport,
+            base_url=base_url,
+            timeout=_DEPLOY_TIMEOUT_SECONDS,
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            await _warm_up(async_client)
+            yield async_client
+    else:
+        from ecommerce_notification_service.main import app
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            yield async_client
+
+
+@pytest_asyncio.fixture
+async def invalid_token_client() -> AsyncGenerator[AsyncClient, None]:
+    """HTTP client presenting a bearer token that fails verification (401 on every guarded route)."""
+    base_url = os.environ.get("BASE_URL")
+    headers = {"Authorization": "Bearer not-a-valid-jwt"}
+    if base_url:
+        transport = _RetryTransport(AsyncHTTPTransport(retries=_TRANSPORT_RETRIES))
+        async with AsyncClient(
+            transport=transport,
+            base_url=base_url,
+            timeout=_DEPLOY_TIMEOUT_SECONDS,
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            await _warm_up(async_client)
+            yield async_client
+    else:
+        from ecommerce_notification_service.main import app
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers=headers,
             follow_redirects=True,
         ) as async_client:
             yield async_client

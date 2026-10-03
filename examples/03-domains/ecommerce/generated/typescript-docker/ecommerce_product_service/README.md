@@ -27,7 +27,7 @@ Version: 1.0.0
 | GET | /api/v1/products/products/:id | get_product |
 | PUT | /api/v1/products/products/:id | update_product |
 | DELETE | /api/v1/products/products/:id | delete_product |
-| GET | /api/v1/products/slug/:slug | get |
+| GET | /api/v1/products/slug/:slug | productBySlug |
 | GET | /api/v1/products/search | get |
 | GET | /api/v1/products/category/:categoryId | get |
 | POST | /api/v1/products | post |
@@ -39,6 +39,9 @@ Version: 1.0.0
 | POST | /api/v1/products/service/release-reservation | reservationRelease |
 | GET | /api/v1/products/service/:id | productByIdInternal |
 | POST | /api/v1/products/service/bulk | productsBulk |
+| GET | /api/v1/products/wire/blob | wireBlob |
+| GET | /api/v1/products/wire/image/:id | wireImage |
+| GET | /api/v1/products/wire/discount/:id | wireDiscount |
 
 ## Events
 
@@ -50,6 +53,15 @@ Version: 1.0.0
 
 This service uses a cache block. Runtime connection details are resolved from the generated config store and secrets resolver.
 
+## Serverless Handlers
+
+Handlers listed below are deployed as serverless functions. Infrastructure provisioning is managed externally; this section documents the handler configuration only.
+
+| Handler | Block | Trigger | Configuration |
+|---------|-------|---------|---------------|
+| wire_blob | wireHandlers | http | timeout 300s, memory 512MB, platform container |
+| wire_image | wireHandlers | http | timeout 300s, memory 512MB, platform container |
+| wire_discount | wireHandlers | http | timeout 300s, memory 512MB, platform container |
 
 
 

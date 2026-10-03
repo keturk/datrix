@@ -28,7 +28,11 @@ from ecommerce_product_service.config import _bootstrap
 # code-generation time; no environment reads).
 # ---------------------------------------------------------------------------
 DEBUG: bool = False
-ALLOWED_HOSTS: list[str] = ["product-service.example.com", "localhost"]
+ALLOWED_HOSTS: list[str] = [
+    "product-service.example.com",
+    "localhost",
+    "ecommerce-product-service",
+]
 CORS_ORIGINS: list[str] = ["https://app.example.com"]
 CORS_METHODS: list[str] = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
 CORS_HEADERS: list[str] = ["Authorization", "Content-Type"]
@@ -190,16 +194,13 @@ class AppSettings:
     db_pool_size: int
     db_max_overflow: int
     store_endpoint: str
+    store_public_endpoint: str
     docdb_host: str
     docdb_port: int
     docdb_database: str
     docdb_user: str
     redis_url: str
     mq_bootstrap_servers: str
-    jwt_algorithm: str
-    jwt_expiry: int
-    jwt_audience: str
-    jwt_issuer: str
 
 
 _settings: AppSettings | None = None
@@ -253,6 +254,9 @@ async def assemble_settings(
     store_endpoint = config_client.get_string(
         ConnectionsKeys.NAMESPACE, ConnectionsKeys.STORE_ENDPOINT
     )
+    store_public_endpoint = config_client.get_string(
+        ConnectionsKeys.NAMESPACE, ConnectionsKeys.STORE_PUBLIC_ENDPOINT
+    )
     _docdb_host = config_client.get_string(
         ConnectionsKeys.NAMESPACE, ConnectionsKeys.DOCDB_HOST
     )
@@ -294,16 +298,13 @@ async def assemble_settings(
         db_pool_size=20,
         db_max_overflow=20,
         store_endpoint=store_endpoint,
+        store_public_endpoint=store_public_endpoint,
         docdb_host=_docdb_host,
         docdb_port=_docdb_port,
         docdb_database=_docdb_database,
         docdb_user=_docdb_user,
         redis_url=redis_url,
         mq_bootstrap_servers=mq_bootstrap_servers,
-        jwt_algorithm="RS256",
-        jwt_expiry=3600,
-        jwt_audience="",
-        jwt_issuer="",
     )
     logger.info("app_settings_assembled environment=%s", _bootstrap.PROFILE)
     return _settings

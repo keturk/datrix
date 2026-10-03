@@ -76,6 +76,7 @@ export const ConnectionsKeys = {
   REDIS_HOST: 'redis_host',
   REDIS_PORT: 'redis_port',
   STORE_ENDPOINT: 'store_endpoint',
+  STORE_PUBLIC_ENDPOINT: 'store_public_endpoint',
 } as const;
 
 export type ConnectionsKeysType = (typeof ConnectionsKeys)[keyof typeof ConnectionsKeys];
@@ -123,6 +124,7 @@ const DECLARED_VALUE_TYPES: Record<string, Record<string, string>> = {
     'redis_host': 'String',
     'redis_port': 'Integer',
     'store_endpoint': 'String',
+    'store_public_endpoint': 'String',
   },
   'settings': {
     'debugMode': 'Boolean',

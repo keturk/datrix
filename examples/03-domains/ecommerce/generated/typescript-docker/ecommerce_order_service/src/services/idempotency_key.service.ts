@@ -52,7 +52,6 @@ export class IdempotencyKeyService {
   }
 
 
-
   private _validate(entity: IdempotencyKey): void {
     const errors: string[] = [];
     if (((entity.key.trim().length === 0))) {
@@ -65,8 +64,7 @@ export class IdempotencyKeyService {
 
   async getByKey(key: string): Promise<IdempotencyKey> {
     const entity = await this.em.findOne(IdempotencyKey, {
-      key
-    } as never);
+      key    } as never);
     if (!entity) {
       throw new NotFoundException(`IdempotencyKey with key ${ key } not found`);
     }

@@ -25,7 +25,7 @@ export class Refund extends BaseEntity {
   reason!: string;
 
   @Enum({ items: () => PaymentStatus, nativeEnumName: 'payment_status' })
-  status!: PaymentStatus;
+  status: PaymentStatus = PaymentStatus.Pending;
 
   @Property({ columnType: 'varchar', fieldName: 'refund_transaction_id', nullable: true })
   refundTransactionId!: string | null;

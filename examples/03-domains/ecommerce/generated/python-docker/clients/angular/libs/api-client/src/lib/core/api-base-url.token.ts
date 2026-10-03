@@ -2,12 +2,13 @@
 import { InjectionToken } from '@angular/core';
 
 /**
- * Injection token for the API base URL. The consuming application MUST
- * provide a value at bootstrap, e.g.:
- *   { provide: ECOMMERCE_API_BASE_URL, useValue: environment.apiBaseUrl }
+ * Injection token for the API base URL. A generated app provides it at
+ * bootstrap from its runtime config's `apiBaseUrl`; a hand-written consumer
+ * of this library provides it the same way, e.g.:
+ *   { provide: API_BASE_URL, useValue: runtimeConfig.apiBaseUrl }
  *
  * No default and no environment URL is emitted here: the base URL is the one
  * environment-dependent value this client needs, and it is injected, never
  * baked in.
  */
-export const ECOMMERCE_API_BASE_URL = new InjectionToken<string>('ECOMMERCE_API_BASE_URL');
+export const API_BASE_URL = new InjectionToken<string>('API_BASE_URL');

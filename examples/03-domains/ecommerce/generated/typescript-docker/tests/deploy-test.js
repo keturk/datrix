@@ -15,11 +15,17 @@
  *
  * Environment variables:
  *   DEPLOY_TEST_FRESH_BUILD=true                 # Same as --fresh-build flag
+ *   GATEWAY_PORT=8080                            # Host port of the nginx gateway (change when it collides on this machine)
+ *   ZITADEL_HOST_PORT=8085                       # Host port of the Zitadel identity server (change when it collides on this machine)
+ *
+ * The runner refreshes .env from .env.example on every run, so a host-port
+ * override belongs in the shell environment (it takes precedence over .env).
  */
 'use strict';
 
 const { execSync, spawn, spawnSync } = require('child_process');
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const http = require('http');
 
@@ -33,32 +39,32 @@ const SERVICES = [
     name: 'ecommerce.UserService',
     dir: 'ecommerce_user_service',
     port: 8006,
-    dbContainers: [{"env_var": "USERDB_DATABASE_URL_ECOMMERCE_USER_SERVICE", "internal_port": 5432, "key": "ecommerce-postgresql"}]  },
+    dbContainers: [{"compose_key": "ecommerce-user-service", "conn_prefix": "user_db", "engine": "postgresql", "env_var": "USERDB_DATABASE_URL", "internal_port": 5432, "key": "ecommerce-postgresql", "password_secret_key": "user_db_password"}]  },
   {
     name: 'ecommerce.ProductService',
     dir: 'ecommerce_product_service',
     port: 8004,
-    dbContainers: [{"env_var": "PRODUCTDB_DATABASE_URL_ECOMMERCE_PRODUCT_SERVICE", "internal_port": 5432, "key": "ecommerce-postgresql"}]  },
+    dbContainers: [{"compose_key": "ecommerce-product-service", "conn_prefix": "product_db", "engine": "postgresql", "env_var": "PRODUCTDB_DATABASE_URL", "internal_port": 5432, "key": "ecommerce-postgresql", "password_secret_key": "product_db_password"}]  },
   {
     name: 'ecommerce.OrderService',
     dir: 'ecommerce_order_service',
     port: 8002,
-    dbContainers: [{"env_var": "ORDERDB_DATABASE_URL_ECOMMERCE_ORDER_SERVICE", "internal_port": 5432, "key": "ecommerce-postgresql"}]  },
+    dbContainers: [{"compose_key": "ecommerce-order-service", "conn_prefix": "order_db", "engine": "postgresql", "env_var": "ORDERDB_DATABASE_URL", "internal_port": 5432, "key": "ecommerce-postgresql", "password_secret_key": "order_db_password"}]  },
   {
     name: 'ecommerce.PaymentService',
     dir: 'ecommerce_payment_service',
     port: 8003,
-    dbContainers: [{"env_var": "PAYMENTDB_DATABASE_URL_ECOMMERCE_PAYMENT_SERVICE", "internal_port": 5432, "key": "ecommerce-postgresql"}]  },
+    dbContainers: [{"compose_key": "ecommerce-payment-service", "conn_prefix": "payment_db", "engine": "postgresql", "env_var": "PAYMENTDB_DATABASE_URL", "internal_port": 5432, "key": "ecommerce-postgresql", "password_secret_key": "payment_db_password"}]  },
   {
     name: 'ecommerce.ShippingService',
     dir: 'ecommerce_shipping_service',
     port: 8005,
-    dbContainers: [{"env_var": "SHIPPINGDB_DATABASE_URL_ECOMMERCE_SHIPPING_SERVICE", "internal_port": 5432, "key": "ecommerce-postgresql"}]  },
+    dbContainers: [{"compose_key": "ecommerce-shipping-service", "conn_prefix": "shipping_db", "engine": "postgresql", "env_var": "SHIPPINGDB_DATABASE_URL", "internal_port": 5432, "key": "ecommerce-postgresql", "password_secret_key": "shipping_db_password"}]  },
   {
     name: 'ecommerce.NotificationService',
     dir: 'ecommerce_notification_service',
     port: 8001,
-    dbContainers: [{"env_var": "NOTIFICATIONDB_DATABASE_URL_ECOMMERCE_NOTIFICATION_SERVICE", "internal_port": 5432, "key": "ecommerce-postgresql"}]  },
+    dbContainers: [{"compose_key": "ecommerce-notification-service", "conn_prefix": "notification_db", "engine": "postgresql", "env_var": "NOTIFICATIONDB_DATABASE_URL", "internal_port": 5432, "key": "ecommerce-postgresql", "password_secret_key": "notification_db_password"}]  },
 ];
 
 const COMPOSE_PROJECT_NAME = 'ecommerce_test';
@@ -247,7 +253,9 @@ function runDockerCmd(cmd, { verbose = false, label = '', cwd = null } = {}) {
     }
     return { success: true, output: result };
   } catch (err) {
-    const output = err.stdout || err.stderr || '';
+    // Both streams: compose prints progress on stdout and the daemon's
+    // diagnosis (the last line that matters) on stderr.
+    const output = `${err.stdout || ''}${err.stderr || ''}`;
     if (label) {
       logError(`${label}_failed cmd="${cmdStr}"`);
       if (output && logFilePath) {
@@ -256,6 +264,182 @@ function runDockerCmd(cmd, { verbose = false, label = '', cwd = null } = {}) {
     }
     return { success: false, output, code: err.status || 1 };
   }
+}
+
+// The Docker daemon's diagnosis when a published host port is already bound on
+// the machine. Deterministic -- the same holder answers a retry.
+const HOST_PORT_ALLOCATED_MARKER = 'port is already allocated';
+
+/**
+ * True when a failed `compose up` died on a host port held by another process.
+ * In verbose mode nothing is captured (output streams to the terminal), so the
+ * failure is classified as unknown and the generic retry path still applies.
+ */
+function isHostPortAllocationFailure(result) {
+  return (result.output || '').includes(HOST_PORT_ALLOCATED_MARKER);
+}
+
+// ---------------------------------------------------------------------------
+// Fixed host-port bindings the stack makes. docker compose aborts the WHOLE
+// start-up when any one of them is already held by an unrelated process on
+// this machine, after every image is built and every other container has
+// started -- so each is probed here, before anything starts. Declared by the
+// container runtime that emits the compose file, never re-typed here.
+// ---------------------------------------------------------------------------
+const FIXED_HOST_PORT_BINDINGS = [  {
+    label: 'nginx gateway',
+    serviceKey: 'ecommerce-api-gateway',
+    hostPort: 8080,
+    hostPortEnvVar: 'GATEWAY_PORT',
+  },  {
+    label: 'Zitadel identity server',
+    serviceKey: 'ecommerce-zitadel',
+    hostPort: 8085,
+    hostPortEnvVar: 'ZITADEL_HOST_PORT',
+  },];
+
+/** Read `KEY=value` lines from the `.env` file compose interpolates from. */
+function readEnvFileValues(envFile) {
+  const values = {};
+  if (!fs.existsSync(envFile)) {
+    return values;
+  }
+  for (const rawLine of fs.readFileSync(envFile, 'utf-8').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#') || !line.includes('=')) {
+      continue;
+    }
+    const idx = line.indexOf('=');
+    values[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+  }
+  return values;
+}
+
+/**
+ * Resolve the host port compose will bind for a binding, the way compose does:
+ * shell environment first, the project `.env` second, the default last.
+ */
+function effectiveFixedHostPort(binding, envValues) {
+  if (binding.hostPortEnvVar === null) {
+    return binding.hostPort;
+  }
+  const raw = process.env[binding.hostPortEnvVar] || envValues[binding.hostPortEnvVar];
+  if (raw === undefined || raw === '') {
+    return binding.hostPort;
+  }
+  const port = Number.parseInt(raw, 10);
+  if (!Number.isInteger(port) || String(port) !== raw.trim()) {
+    throw new Error(
+      `Host port override ${binding.hostPortEnvVar}=${JSON.stringify(raw)} is not an ` +
+      'integer. Expected a TCP port number (1-65535); fix the value in the shell ' +
+      'environment or .env.'
+    );
+  }
+  return port;
+}
+
+/** Name what holds a port: a container, if Docker knows one, else the OS. */
+function portHolderDescription(port) {
+  const result = spawnSync('docker', ['ps', '--filter', `publish=${port}`, '--format', '{{.Names}}'], {
+    encoding: 'utf-8',
+    timeout: 30000,
+  });
+  if (result.error || result.status !== 0) {
+    return 'a process outside Docker (docker ps could not be consulted)';
+  }
+  const names = result.stdout.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (names.length > 0) {
+    return `container(s) ${names.join(', ')}`;
+  }
+  return `a process outside Docker (find it with \`netstat -ano | findstr :${port}\` on Windows or \`lsof -i :${port}\` elsewhere)`;
+}
+
+// How long a loopback connect may take before the port counts as free. A
+// listener answers within milliseconds; a closed port is refused at once on
+// most stacks and after a short SYN retry on Windows.
+const PORT_CONNECT_TIMEOUT_MS = 2000;
+
+/** Try to bind a TCP port on all interfaces; resolve true when the bind fails as in-use. */
+function hostPortBindFails(port) {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.once('error', err => {
+      if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
+        resolve(true);
+        return;
+      }
+      reject(err);
+    });
+    server.listen(port, '0.0.0.0', () => {
+      server.close(() => resolve(false));
+    });
+  });
+}
+
+/** Try to connect to a TCP port on loopback; resolve true when something accepts. */
+function hostPortAccepts(port) {
+  return new Promise(resolve => {
+    const client = net.connect({ port, host: '127.0.0.1' });
+    client.unref();
+    const done = held => {
+      client.removeAllListeners();
+      client.destroy();
+      resolve(held);
+    };
+    client.setTimeout(PORT_CONNECT_TIMEOUT_MS, () => done(false));
+    client.once('connect', () => done(true));
+    client.once('error', () => done(false));
+  });
+}
+
+/**
+ * Whether another process already owns a TCP port on this machine.
+ *
+ * Two probes, because neither alone is trustworthy everywhere. A bind on all
+ * interfaces fails where the holder bound exclusively -- what the container
+ * engine's own bind will hit on Linux and macOS. A loopback connect succeeds
+ * wherever something is LISTENING, including a holder that bound with address
+ * reuse (a desktop container engine's port proxy on Windows does), which lets
+ * a fresh bind through and then fails the engine's bind anyway. Held if
+ * either says so.
+ */
+async function isHostPortHeld(port) {
+  if (await hostPortBindFails(port)) {
+    return true;
+  }
+  return hostPortAccepts(port);
+}
+
+/**
+ * Probe every fixed host port the stack binds, BEFORE `docker compose up`.
+ * A port that cannot be bound is reported with the container that wanted it,
+ * what holds it, and the variable that moves it -- the whole diagnosis
+ * compose's own `port is already allocated` never carries, minutes earlier.
+ * Throws listing every held port at once so one run reports the whole set.
+ */
+async function assertFixedHostPortsFree(projectDir) {
+  const envValues = readEnvFileValues(path.join(projectDir, '.env'));
+  const held = [];
+  for (const binding of FIXED_HOST_PORT_BINDINGS) {
+    const port = effectiveFixedHostPort(binding, envValues);
+    if (await isHostPortHeld(port)) {
+      const remedy = binding.hostPortEnvVar !== null
+        ? `set ${binding.hostPortEnvVar} to a free port (shell environment or .env)`
+        : 'stop whatever holds it (the port is the service\'s declared contract)';
+      held.push(
+        `host port ${port} for ${binding.label} (compose service '${binding.serviceKey}') is held by ` +
+        `${portHolderDescription(port)} -- ${remedy}`
+      );
+    }
+  }
+  if (held.length > 0) {
+    throw new Error(
+      "HostPortPreflight failed: docker compose would abort with 'port is already allocated'.\n  " +
+      held.join('\n  ')
+    );
+  }
+  logInfo(`host_port_preflight_passed bindings=${FIXED_HOST_PORT_BINDINGS.length}`);
 }
 
 /**
@@ -572,63 +756,96 @@ function ensureWorkspaceInstall(workspaceRoot, opts) {
 }
 
 /**
- * Resolve TEST_DATABASE_URL from Docker Compose port mapping.
- * Reads DATABASE_URL from .env and rewrites it to use host-mapped port.
+ * Build every database block's URL from the SAME sources the deployed
+ * container reads: db/user from config/services/<svc>/config-store.json,
+ * password from secrets/<svc>/<handle>, host port from
+ * `docker compose port`. Any missing piece throws, naming it -- never a
+ * silent skip, never a default.
  */
-function resolveTestDatabaseUrl(compose, dbContainers, { cwd = null } = {}) {
-  if (!dbContainers || dbContainers.length === 0) {
-    return null;
-  }
+const DB_URL_SCHEME_BY_ENGINE = {
+  postgresql: 'postgresql',
+  mysql: 'mysql',
+  mariadb: 'mysql',
+};
 
-  const dbInfo = dbContainers[0];
-  const containerKey = dbInfo.key;
-  const internalPort = dbInfo.internal_port;
-  const envVar = dbInfo.env_var;
-
-  // Read DATABASE_URL from .env
-  const envFile = path.join(cwd || __dirname, '..', '.env');
-  if (!fs.existsSync(envFile)) {
-    logInfo(`env_file_not_found path=${envFile}`);
-    return null;
-  }
-
-  let databaseUrl = null;
-  const envContent = fs.readFileSync(envFile, 'utf-8');
-  for (const line of envContent.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith(`${envVar}=`)) {
-      databaseUrl = trimmed.split('=', 2)[1];
-      break;
+function resolveTestDatabaseUrls(compose, service, { cwd = null } = {}) {
+  const dbContainers = service.dbContainers || [];
+  const urls = {};
+  for (const dbInfo of dbContainers) {
+    const composeKey = dbInfo.compose_key;
+    const configPath = path.join(cwd || __dirname, '..', 'config', 'services', composeKey, 'config-store.json');
+    if (!fs.existsSync(configPath)) {
+      throw new Error(
+        `deploy_test_db_credentials_missing service=${service.name} block=${dbInfo.conn_prefix} ` +
+        `missing=config-store expected=${configPath}`,
+      );
     }
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const connections = (config && config.connections) || {};
+    const database = connections[`${dbInfo.conn_prefix}_database`];
+    if (!database) {
+      throw new Error(
+        `deploy_test_db_credentials_missing service=${service.name} block=${dbInfo.conn_prefix} ` +
+        `missing=database expected=connections.${dbInfo.conn_prefix}_database in ${configPath}`,
+      );
+    }
+    const user = connections[`${dbInfo.conn_prefix}_user`];
+    if (!user) {
+      throw new Error(
+        `deploy_test_db_credentials_missing service=${service.name} block=${dbInfo.conn_prefix} ` +
+        `missing=user expected=connections.${dbInfo.conn_prefix}_user in ${configPath}`,
+      );
+    }
+
+    const secretPath = path.join(cwd || __dirname, '..', 'secrets', composeKey, dbInfo.password_secret_key);
+    if (!fs.existsSync(secretPath)) {
+      throw new Error(
+        `deploy_test_db_credentials_missing service=${service.name} block=${dbInfo.conn_prefix} ` +
+        `missing=password expected=${secretPath}`,
+      );
+    }
+    const password = fs.readFileSync(secretPath, 'utf-8').trim();
+    if (!password) {
+      throw new Error(
+        `deploy_test_db_credentials_missing service=${service.name} block=${dbInfo.conn_prefix} ` +
+        `missing=password expected=${secretPath}`,
+      );
+    }
+
+    const portCmd = [...compose, 'port', dbInfo.key, String(dbInfo.internal_port)].join(' ');
+    let hostMapping;
+    try {
+      hostMapping = execSync(portCmd, { cwd: cwd || undefined, encoding: 'utf-8', timeout: 10000 }).trim();
+    } catch (err) {
+      throw new Error(
+        `deploy_test_db_credentials_missing service=${service.name} block=${dbInfo.conn_prefix} ` +
+        `missing=host_port expected=$(docker compose port ${dbInfo.key} ${dbInfo.internal_port})`,
+      );
+    }
+    const hostPort = hostMapping.split(':').pop();
+
+    const scheme = DB_URL_SCHEME_BY_ENGINE[dbInfo.engine];
+    if (!scheme) {
+      throw new Error(
+        `deploy_test_db_credentials_missing service=${service.name} block=${dbInfo.conn_prefix} ` +
+        `missing=url_scheme_mapping expected=an entry for engine '${dbInfo.engine}' in DB_URL_SCHEME_BY_ENGINE`,
+      );
+    }
+
+    urls[dbInfo.env_var] =
+      `${scheme}://${user}:${encodeURIComponent(password)}@localhost:${hostPort}/${database}`;
   }
+  return urls;
+}
 
-  if (!databaseUrl) {
-    logInfo(`database_url_not_found env_var=${envVar}`);
-    return null;
-  }
-
-  // Get host-mapped port from docker compose
-  const portCmd = [...compose, 'port', containerKey, String(internalPort)].join(' ');
-  let hostMapping;
-  try {
-    hostMapping = execSync(portCmd, {
-      cwd: cwd || undefined,
-      encoding: 'utf-8',
-      timeout: 10000,
-    }).trim();
-  } catch (err) {
-    logInfo(`docker_compose_port_failed container=${containerKey} port=${internalPort}`);
-    return null;
-  }
-
-  const hostPort = hostMapping.split(':').pop();
-
-  // Parse and rewrite URL
-  const url = new URL(databaseUrl);
-  url.hostname = 'localhost';
-  url.port = hostPort;
-
-  return url.toString();
+/**
+ * Return url with any embedded password replaced by '***' for logging.
+ * Only the credential segment of a scheme://user:password@host:port/db
+ * connection URL is masked -- host/port/database stay visible, since they
+ * are legitimate operator-debugging information, not a credential.
+ */
+function redactUrl(url) {
+  return url.replace(/:\/\/([^:/@]+):([^@]+)@/, '://$1:***@');
 }
 
 /**
@@ -647,15 +864,17 @@ function runServiceSpecTests(service, compose, { cwd = null, resultsDir = null, 
 
   logInfo(`spec_tests_started service=${serviceName}`);
 
-  // Resolve TEST_DATABASE_URL if service has database containers
+  // Resolve every declared database block's URL from the SAME sources the
+  // deployed container reads. A missing config-store entry, secret file, or
+  // host port throws, naming it -- never a silent skip.
   let env = { ...process.env };
   // Enable payment gateway test mode for integration tests (mock Stripe/payment SDKs)
   env.PAYMENT_TEST_MODE = 'true';
   if (service.dbContainers && service.dbContainers.length > 0) {
-    const testDbUrl = resolveTestDatabaseUrl(compose, service.dbContainers, { cwd });
-    if (testDbUrl) {
-      env.TEST_DATABASE_URL = testDbUrl;
-      logInfo(`test_database_url_resolved service=${serviceName} url=${testDbUrl}`);
+    const dbUrls = resolveTestDatabaseUrls(compose, service, { cwd });
+    for (const [envVar, url] of Object.entries(dbUrls)) {
+      env[envVar] = url;
+      logInfo(`test_database_url_resolved service=${serviceName} env_var=${envVar} url=${redactUrl(url)}`);
     }
   }
   if (workspaceRoot) {
@@ -897,7 +1116,7 @@ async function main() {
   }
 
   // Asymmetric JWT: the deployment provisions the key PAIR and mounts both
-  // halves into every service (JWT_PRIVATE_KEY_FILE / JWT_PUBLIC_KEY_FILE).
+  // halves into every service as the jwt_private_key / jwt_public_key secrets.
   // The tests sign with the SAME private key whose public half the containers
   // verify against, so no key is minted here and nothing is injected into
   // .env -- a second, unprovisioned keypair would only produce tokens the
@@ -944,11 +1163,30 @@ async function main() {
   }
   logInfo('docker_build_completed');
 
+  // Probe every fixed host port BEFORE compose up: a held port aborts the whole
+  // start-up after every image is built and every other container has started,
+  // and compose's own message names neither the container nor the variable
+  // that moves it.
+  try {
+    await assertFixedHostPortsFree(projectDir);
+  } catch (err) {
+    logError(`local_preflight_failed error=${err.message}`);
+    finalizeDeployTestArtifacts(resultsDir, path.resolve(projectDir), SERVICES);
+    return 1;
+  }
+
   // Start containers
   let testsPassed = false;
   try {
     logInfo('docker_up_started');
     let up = runDockerCmd([...compose, 'up', '-d'], { verbose: verboseLogging, label: 'docker_up', cwd: projectDir });
+    if (!up.success && isHostPortAllocationFailure(up)) {
+      // A held host port is deterministic: the same process holds it on the
+      // retry. The preflight names the port and the override variable;
+      // compose only names the port.
+      logError('docker_up_failed reason=host_port_already_allocated');
+      return 1;
+    }
     if (!up.success) {
       // Infrastructure containers with restart policies may recover from
       // transient startup failures (e.g. MongoDB port-bind race in

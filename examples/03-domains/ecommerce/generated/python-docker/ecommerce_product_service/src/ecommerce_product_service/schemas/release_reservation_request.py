@@ -17,6 +17,8 @@ class ReleaseReservationRequest(BaseModel):
     Generated from DSL struct declaration.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     reservation_id: uuid.UUID

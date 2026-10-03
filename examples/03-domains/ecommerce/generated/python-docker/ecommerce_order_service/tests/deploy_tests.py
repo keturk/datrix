@@ -105,30 +105,30 @@ async def test_order_api_post_by_id_update_shipment_unauthenticated(unauth_clien
 
 
 async def test_order_api_get_service_by_id_non_service_token(wrong_role_client):
-    """GET /api/v1/orders/service/00000000-0000-0000-0000-000000000001 with a non-service token returns 401"""
+    """GET /api/v1/orders/service/00000000-0000-0000-0000-000000000001 with a non-service token returns 403"""
     response = await wrong_role_client.get(
         "/api/v1/orders/service/00000000-0000-0000-0000-000000000001",
     )
-    assert response.status_code == 401
+    assert response.status_code == 403
 
 
 async def test_order_api_post_by_id_confirm_payment_non_service_token(
     wrong_role_client,
 ):
-    """POST /api/v1/orders/00000000-0000-0000-0000-000000000001/confirm-payment with a non-service token returns 401"""
+    """POST /api/v1/orders/00000000-0000-0000-0000-000000000001/confirm-payment with a non-service token returns 403"""
     response = await wrong_role_client.post(
         "/api/v1/orders/00000000-0000-0000-0000-000000000001/confirm-payment",
         json={},
     )
-    assert response.status_code == 401
+    assert response.status_code == 403
 
 
 async def test_order_api_post_by_id_update_shipment_non_service_token(
     wrong_role_client,
 ):
-    """POST /api/v1/orders/00000000-0000-0000-0000-000000000001/update-shipment with a non-service token returns 401"""
+    """POST /api/v1/orders/00000000-0000-0000-0000-000000000001/update-shipment with a non-service token returns 403"""
     response = await wrong_role_client.post(
         "/api/v1/orders/00000000-0000-0000-0000-000000000001/update-shipment",
         json={},
     )
-    assert response.status_code == 401
+    assert response.status_code == 403

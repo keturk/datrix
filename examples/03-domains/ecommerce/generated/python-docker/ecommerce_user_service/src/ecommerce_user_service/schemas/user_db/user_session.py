@@ -8,14 +8,16 @@ from __future__ import annotations
 import datetime
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 
 class UserSessionCreate(BaseModel):
     """Schema for creating a new UserSession."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     token: str = Field(max_length=255)
     device_name: str | None = Field(default=None, max_length=500)
@@ -35,7 +37,9 @@ class UserSessionUpdate(BaseModel):
     All fields are optional for partial updates.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     token: str | None = Field(default=None, max_length=255)
     device_name: str | None = Field(default=None, max_length=500)
@@ -47,6 +51,23 @@ class UserSessionUpdate(BaseModel):
     expires_at: datetime.datetime | None = None
     last_activity_at: datetime.datetime | None = None
     user_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def _reject_explicit_null(self) -> UserSessionUpdate:
+        """An omitted field is left unchanged; null is a value only on an optional field."""
+        for field_name in (
+            "token",
+            "expires_at",
+            "user_id",
+        ):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(
+                    f"{field_name} cannot be null. Omit it to leave the stored value unchanged."
+                )
+        return self
 
 
 class UserSessionResponse(BaseModel):
@@ -70,5 +91,5 @@ class UserSessionResponse(BaseModel):
     expires_at: datetime.datetime
     last_activity_at: datetime.datetime | None = None
     user_id: uuid.UUID
-    is_expired: bool | None = None
-    is_active: bool | None = None
+    is_expired: bool
+    is_active: bool

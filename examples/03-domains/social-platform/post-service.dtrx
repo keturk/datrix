@@ -323,9 +323,10 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
             };
         }
 
-        // Get a single post
+        // Get a single post. A private post is readable by its author or an admin, so the
+        // route reads the caller when a token is presented and serves anonymous requests otherwise.
         @path('/:id')
-        get(UUID id) : auth(public) -> postDb.Post {
+        get(UUID id) : auth(optional, providers: [identity]) -> postDb.Post {
             let Post post = postDb.Post.findOrFail(id);
 
             if (!post.isPublic) {

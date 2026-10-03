@@ -50,3 +50,41 @@ unauth_client: AsyncClient,
             f"Unexpected status {response.status_code}: {response.text!r}"
         )
 
+    async def test_product_api_get_wire_blob_http_ok(
+        self,
+client: AsyncClient,
+    ) -> None:
+        """GET /api/v1/products/wire/blob returns 200."""
+        response = await client.get(
+            "/api/v1/products/wire/blob",
+        )
+        assert response.status_code == 200, (
+            f"Unexpected status {response.status_code}: {response.text!r}"
+        )
+
+    async def test_product_api_get_wire_image_by_id_http_ok(
+        self,
+client: AsyncClient,
+    ) -> None:
+        """GET /api/v1/products/wire/image/00000000-0000-0000-0000-000000000001 returns 200."""
+        response = await client.get(
+            "/api/v1/products/wire/image/00000000-0000-0000-0000-000000000001",
+        )
+        assert response.status_code in (
+            200, 403        ), (
+            f"Unexpected status {response.status_code}: {response.text!r}"
+        )
+
+    async def test_product_api_get_wire_discount_by_id_http_ok(
+        self,
+client: AsyncClient,
+    ) -> None:
+        """GET /api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001 returns 200."""
+        response = await client.get(
+            "/api/v1/products/wire/discount/00000000-0000-0000-0000-000000000001",
+        )
+        assert response.status_code in (
+            200, 403        ), (
+            f"Unexpected status {response.status_code}: {response.text!r}"
+        )
+

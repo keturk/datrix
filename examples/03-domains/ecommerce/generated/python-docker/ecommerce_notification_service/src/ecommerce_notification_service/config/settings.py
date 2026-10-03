@@ -28,7 +28,11 @@ from ecommerce_notification_service.config import _bootstrap
 # code-generation time; no environment reads).
 # ---------------------------------------------------------------------------
 DEBUG: bool = False
-ALLOWED_HOSTS: list[str] = ["notification-service.example.com", "localhost"]
+ALLOWED_HOSTS: list[str] = [
+    "notification-service.example.com",
+    "localhost",
+    "ecommerce-notification-service",
+]
 CORS_ORIGINS: list[str] = ["https://app.example.com"]
 CORS_METHODS: list[str] = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
 CORS_HEADERS: list[str] = ["Authorization", "Content-Type"]

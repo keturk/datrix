@@ -22,6 +22,8 @@ export default getDatabaseConfig({ get: () => false } as never).then((base) =>
     entities: [Category, InventoryReservation, Product],
     extensions: [Migrator],
     migrations: {
+      // Keeps the block's own history table (tableName) from getDatabaseConfig().
+      ...base.migrations,
       path: './dist/migrations/product-db',
       pathTs: './src/migrations/product-db',
       emit: 'ts',

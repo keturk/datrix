@@ -24,7 +24,7 @@ export class KafkaEventConsumer {
   ) {}
 
   private async handleOrderCreated(payload: OrderCreatedPayload): Promise<void> {
-console.info('new_order_created_awaiting_payment');
+    console.info('new_order_created_awaiting_payment');
   }
 
   async start(): Promise<void> {
@@ -39,18 +39,26 @@ console.info('new_order_created_awaiting_payment');
         if (!raw) return;
         const envelope = JSON.parse(raw) as { eventType?: string; payload?: unknown };
         const eventType = envelope.eventType ?? '';
-        const handler = this.handlerMap[eventType];
+        const handlers = this.handlerMap[`${topic}:${eventType}`];
         const payload = envelope.payload;
-        if (!handler || !payload) return;
-        await recordConsume(BLOCK_NAME, topic, eventType, () => handler(payload));
+        if (!handlers || !payload) return;
+        const runHandlers = async (): Promise<void> => {
+          for (const handler of handlers) {
+            await handler(payload);
+          }
+        };
+        await recordConsume(BLOCK_NAME, topic, eventType, runHandlers);
       },
     );
   }
 
+  // Keyed by `${topic}:${eventType}`; each key runs every handler bound to it.
   private readonly handlerMap: Record<
     string,
-    (payload: unknown) => Promise<void>
+    ReadonlyArray<(payload: unknown) => Promise<void>>
   > = {
-    'OrderCreated': (p) => this.handleOrderCreated(p as OrderCreatedPayload),
+    'ecommerce_order_service.mq.order_events:OrderCreated': [
+      (p) => this.handleOrderCreated(p as OrderCreatedPayload),
+    ],
   };
 }

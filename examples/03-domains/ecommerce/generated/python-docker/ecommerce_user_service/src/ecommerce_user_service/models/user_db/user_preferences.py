@@ -44,7 +44,7 @@ class UserPreferences(BaseEntity):
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id"),
+        ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
     )
     user: Mapped["User"] = relationship(

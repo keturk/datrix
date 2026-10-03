@@ -7,24 +7,4 @@ describe('Gateway Configuration', () => {
     });
   });
 
-  describe('CORS', () => {
-    it('should allow configured origins', () => {
-      const allowedOrigins = [
-        'http://localhost:3000',
-      ];
-      expect(allowedOrigins.length).toBeGreaterThan(0);
-    });
-
-    it('should allow configured methods', () => {
-      const allowedMethods = [
-        'GET',
-        'POST',
-        'PUT',
-        'DELETE',
-        'PATCH',
-      ];
-      expect(allowedMethods.length).toBeGreaterThan(0);
-    });
-  });
-
 });

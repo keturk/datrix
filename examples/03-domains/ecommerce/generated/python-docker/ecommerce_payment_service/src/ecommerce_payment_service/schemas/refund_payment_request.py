@@ -17,7 +17,9 @@ class RefundPaymentRequest(BaseModel):
     Generated from DSL struct declaration.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     amount: decimal.Decimal
     reason: str

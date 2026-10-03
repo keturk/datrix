@@ -93,7 +93,6 @@ export class OrderService {
     return snapshot[fieldName];
   }
 
-
   private _validate(entity: Order): void {
     const errors: string[] = [];
     if (((entity.items.length === 0))) {
@@ -116,8 +115,7 @@ export class OrderService {
   }
   async getByOrderNumber(orderNumber: string): Promise<Order> {
     const entity = await this.em.findOne(Order, {
-      orderNumber
-    } as never);
+      orderNumber    } as never);
     if (!entity) {
       throw new NotFoundException(`Order with orderNumber ${ orderNumber } not found`);
     }

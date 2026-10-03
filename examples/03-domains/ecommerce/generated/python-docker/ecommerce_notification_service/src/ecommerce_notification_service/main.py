@@ -55,6 +55,12 @@ from ecommerce_notification_service.config.settings import (
     CORS_ORIGINS,
     assemble_settings,
 )
+from ecommerce_notification_service.credential_verify import (
+    setup_gateway_credential_verify,
+)
+from ecommerce_notification_service.errors.exception_handler import (
+    register_error_handlers,
+)
 from ecommerce_notification_service.middleware.logging_middleware import (
     LoggingMiddleware,
 )
@@ -71,6 +77,9 @@ from ecommerce_notification_service.observability.metrics_middleware import (
 from ecommerce_notification_service.observability.structured_logger import setup_logging
 from ecommerce_notification_service.observability.tracing_setup import setup_tracing
 from ecommerce_notification_service.request_context import RequestContextMiddleware
+from ecommerce_notification_service.routes.push_device_api import (
+    router as push_device_api_router,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +153,9 @@ def create_app() -> FastAPI:
 
     # Middleware
     # Trusted-host enforcement (Starlette TrustedHostMiddleware).
-    # Allowed hosts are baked at generation time from httpSecurity.allowedHosts;
-    # no runtime environment reads.
+    # Allowed hosts are baked at generation time from httpSecurity.allowedHosts,
+    # the platform's front-door host patterns and this service's own in-network
+    # name (the host peers dial); no runtime environment reads.
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=ALLOWED_HOSTS,
@@ -168,6 +178,8 @@ def create_app() -> FastAPI:
     # task they spawn inherits it.
     app.add_middleware(RequestContextMiddleware)
 
+    register_error_handlers(app)
+
     # Prometheus metrics middleware + /metrics endpoint
     setup_metrics(app)
 
@@ -179,7 +191,11 @@ def create_app() -> FastAPI:
     # app uses, proving the live backend serves each under the deployed identity.
     setup_runtime_readiness(app)
 
+    # Gateway credential verification endpoint (/internal/credential-verify)
+    setup_gateway_credential_verify(app)
+
     # Include routers
+    app.include_router(push_device_api_router)
 
     return app
 

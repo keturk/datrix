@@ -12,6 +12,6 @@ export class HandleShipmentFailedHandler implements IEventHandler<ShipmentFailed
   ) {}
 
   async handle(event: ShipmentFailedEvent): Promise<void> {
-console.warn('shipment_failed_for_order');
+    console.warn('shipment_failed_for_order');
   }
 }

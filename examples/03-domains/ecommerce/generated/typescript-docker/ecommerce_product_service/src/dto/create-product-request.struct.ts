@@ -4,8 +4,9 @@ import {
   IsNumber,
   IsString,
   IsUUID,
+  ValidateIf,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateProductRequest {
 
@@ -27,9 +28,10 @@ export class CreateProductRequest {
   @IsUUID()
   categoryId!: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsInt()
-  inventory!: number;
+  inventory: number = 0;
 
 
 }

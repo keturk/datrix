@@ -9,7 +9,7 @@ import datetime
 import decimal
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 from ecommerce_shipping_service.enums.shipment_status import ShipmentStatus
@@ -20,7 +20,9 @@ from ecommerce_shipping_service.schemas.address import Address
 class ShipmentCreate(BaseModel):
     """Schema for creating a new Shipment."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     order_id: uuid.UUID
     tracking_number: str = Field(max_length=50)
@@ -40,7 +42,9 @@ class ShipmentUpdate(BaseModel):
     All fields are optional for partial updates.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     order_id: uuid.UUID | None = None
     tracking_number: str | None = Field(default=None, max_length=50)
@@ -52,6 +56,26 @@ class ShipmentUpdate(BaseModel):
     estimated_delivery: datetime.datetime | None = None
     actual_delivery: datetime.datetime | None = None
     failure_reason: str | None = None
+
+    @model_validator(mode="after")
+    def _reject_explicit_null(self) -> ShipmentUpdate:
+        """An omitted field is left unchanged; null is a value only on an optional field."""
+        for field_name in (
+            "order_id",
+            "tracking_number",
+            "carrier",
+            "status",
+            "destination",
+            "weight",
+        ):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(
+                    f"{field_name} cannot be null. Omit it to leave the stored value unchanged."
+                )
+        return self
 
 
 class ShipmentResponse(BaseModel):
@@ -78,7 +102,7 @@ class ShipmentResponse(BaseModel):
     estimated_delivery: datetime.datetime | None = None
     actual_delivery: datetime.datetime | None = None
     failure_reason: str | None = None
-    is_delivered: bool | None = None
-    is_in_progress: bool | None = None
+    is_delivered: bool
+    is_in_progress: bool
     # Computed field calling an entity method
-    days_in_transit: int | None = None
+    days_in_transit: int

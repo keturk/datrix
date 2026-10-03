@@ -50,10 +50,10 @@ export interface UserServiceUserResponse {
   passwordResetExpiry: Date | null;
   shippingAddress: UserServiceAddressResponse | null;
   billingAddress: UserServiceAddressResponse | null;
-  fullName: string | null;
-  isActive: boolean | null;
-  isVerified: boolean | null;
-  canLogin: boolean | null;
+  fullName: string;
+  isActive: boolean;
+  isVerified: boolean;
+  canLogin: boolean;
 }
 
 export interface UserServiceAddressResponse {
@@ -156,14 +156,14 @@ export function decodeUserServiceUserResponse(payload: unknown): UserServiceUser
   const val16: UserServiceAddressResponse | null = raw16 === null ? null : decodeUserServiceAddressResponse(raw16);
   const raw17 = readField(data, 'billingAddress', 'billingAddress', 'UserServiceUserResponse', true);
   const val17: UserServiceAddressResponse | null = raw17 === null ? null : decodeUserServiceAddressResponse(raw17);
-  const raw18 = readField(data, 'fullName', 'fullName', 'UserServiceUserResponse', true);
-  const val18 = raw18 as string | null;
-  const raw19 = readField(data, 'isActive', 'isActive', 'UserServiceUserResponse', true);
-  const val19 = raw19 as boolean | null;
-  const raw20 = readField(data, 'isVerified', 'isVerified', 'UserServiceUserResponse', true);
-  const val20 = raw20 as boolean | null;
-  const raw21 = readField(data, 'canLogin', 'canLogin', 'UserServiceUserResponse', true);
-  const val21 = raw21 as boolean | null;
+  const raw18 = readField(data, 'fullName', 'fullName', 'UserServiceUserResponse', false);
+  const val18 = raw18 as string;
+  const raw19 = readField(data, 'isActive', 'isActive', 'UserServiceUserResponse', false);
+  const val19 = raw19 as boolean;
+  const raw20 = readField(data, 'isVerified', 'isVerified', 'UserServiceUserResponse', false);
+  const val20 = raw20 as boolean;
+  const raw21 = readField(data, 'canLogin', 'canLogin', 'UserServiceUserResponse', false);
+  const val21 = raw21 as boolean;
   return {
     createdAt: val1,
     updatedAt: val2,

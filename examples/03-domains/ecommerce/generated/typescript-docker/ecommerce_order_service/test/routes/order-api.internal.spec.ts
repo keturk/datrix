@@ -21,22 +21,29 @@ describe('OrderApi Internal Endpoints', () => {
   });
 
   describe('GET /api/v1/orders/service/00000000-0000-0000-0000-000000000001 (internal)', () => {
-    it('should handle internal orderByIdInternal request', async () => {
+    it('should handle internal getServiceById request', async () => {
       await request(app.getHttpServer())
         .get('/api/v1/orders/service/00000000-0000-0000-0000-000000000001')
         .set('Authorization', 'Bearer test-token')
         .expect(404);
     });
 
-    it('should reject external access to orderByIdInternal', async () => {
+    it('should reject external access to getServiceById', async () => {
       await request(app.getHttpServer())
         .get('/api/v1/orders/service/00000000-0000-0000-0000-000000000001')
+        .expect(401);
+    });
+
+    it('should reject a credential from a provider outside the route allow-list for getServiceById', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/orders/service/00000000-0000-0000-0000-000000000001')
+        .set('Authorization', 'Bearer wrong-provider-token')
         .expect(403);
     });
   });
 
   describe('POST /api/v1/orders/00000000-0000-0000-0000-000000000001/confirm-payment?request=integration-path-value (internal)', () => {
-    it('should handle internal paymentConfirmation request', async () => {
+    it('should handle internal postByIdConfirmPayment request', async () => {
       await request(app.getHttpServer())
         .post('/api/v1/orders/00000000-0000-0000-0000-000000000001/confirm-payment?request=integration-path-value')
         .set('Authorization', 'Bearer test-token')
@@ -44,15 +51,22 @@ describe('OrderApi Internal Endpoints', () => {
         .expect(404);
     });
 
-    it('should reject external access to paymentConfirmation', async () => {
+    it('should reject external access to postByIdConfirmPayment', async () => {
       await request(app.getHttpServer())
         .post('/api/v1/orders/00000000-0000-0000-0000-000000000001/confirm-payment?request=integration-path-value')
+        .expect(401);
+    });
+
+    it('should reject a credential from a provider outside the route allow-list for postByIdConfirmPayment', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/orders/00000000-0000-0000-0000-000000000001/confirm-payment?request=integration-path-value')
+        .set('Authorization', 'Bearer wrong-provider-token')
         .expect(403);
     });
   });
 
   describe('POST /api/v1/orders/00000000-0000-0000-0000-000000000001/update-shipment?request=integration-path-value (internal)', () => {
-    it('should handle internal shipmentUpdate request', async () => {
+    it('should handle internal postByIdUpdateShipment request', async () => {
       await request(app.getHttpServer())
         .post('/api/v1/orders/00000000-0000-0000-0000-000000000001/update-shipment?request=integration-path-value')
         .set('Authorization', 'Bearer test-token')
@@ -60,9 +74,16 @@ describe('OrderApi Internal Endpoints', () => {
         .expect(404);
     });
 
-    it('should reject external access to shipmentUpdate', async () => {
+    it('should reject external access to postByIdUpdateShipment', async () => {
       await request(app.getHttpServer())
         .post('/api/v1/orders/00000000-0000-0000-0000-000000000001/update-shipment?request=integration-path-value')
+        .expect(401);
+    });
+
+    it('should reject a credential from a provider outside the route allow-list for postByIdUpdateShipment', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/orders/00000000-0000-0000-0000-000000000001/update-shipment?request=integration-path-value')
+        .set('Authorization', 'Bearer wrong-provider-token')
         .expect(403);
     });
   });

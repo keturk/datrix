@@ -1,6 +1,6 @@
 
 import {
-  IsDate,
+  IsDefined,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -11,6 +11,7 @@ import {
   IsUUID,
   Max,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -27,6 +28,7 @@ export class CreateProductDto {
 
   // Money is a semantic amount type; currency is modeled explicitly where needed
   @ApiProperty()
+  @IsDefined()
   @IsNumber({ maxDecimalPlaces: 4 })
   price!: number;
 
@@ -36,24 +38,30 @@ export class CreateProductDto {
   compareAtPrice?: number | null;
 
   // 'min(0)' sets a minimum value constraint
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsDefined()
   @IsInt()
-  inventory!: number;
+  inventory?: number;
 
   @ApiProperty()
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
   name!: string;
 
   @ApiProperty()
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   description!: string;
 
-  @ApiProperty({ enum: ProductStatus, enumName: 'ProductStatus' })
+  @ApiPropertyOptional({ enum: ProductStatus, enumName: 'ProductStatus' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsDefined()
   @IsEnum(ProductStatus)
-  status!: ProductStatus;
+  status?: ProductStatus;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -61,14 +69,17 @@ export class CreateProductDto {
   productMetadata?: Record<string, any> | null;
 
   @ApiProperty()
+  @IsDefined()
   @IsObject()
   images!: Record<string, any>;
 
   @ApiProperty()
+  @IsDefined()
   @IsObject()
   tags!: Record<string, any>;
 
   @ApiProperty()
+  @IsDefined()
   @IsUUID()
   categoryId!: string;
 }

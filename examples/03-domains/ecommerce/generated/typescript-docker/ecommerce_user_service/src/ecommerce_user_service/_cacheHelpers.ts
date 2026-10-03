@@ -1,17 +1,18 @@
 /**
  * Cache helper functions for generated TypeScript code.
  *
- * Uses ioredis for Redis operations. The Redis client is lazily
- * initialized from the REDIS_URL environment variable.
+ * Uses ioredis for Redis operations. The Redis client is opened on first use
+ * from the runtime config store's connection facts (`SERVICE_REDIS_CONNECTION`);
+ * no environment variable is read.
  */
 import Redis from 'ioredis';
+import { SERVICE_REDIS_CONNECTION, newRedisClient } from '../config/redisConnection';
 
 let _redisClient: Redis | null = null;
 
 export function _getRedis(): Redis {
   if (_redisClient === null) {
-    if (!process.env.REDIS_URL) throw new Error('REDIS_URL environment variable is required');
-    _redisClient = new Redis(process.env.REDIS_URL);
+    _redisClient = newRedisClient(SERVICE_REDIS_CONNECTION);
   }
   return _redisClient;
 }

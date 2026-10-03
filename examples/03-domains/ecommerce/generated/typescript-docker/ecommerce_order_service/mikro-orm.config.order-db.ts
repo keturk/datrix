@@ -22,6 +22,8 @@ export default getDatabaseConfig({ get: () => false } as never).then((base) =>
     entities: [IdempotencyKey, Order, OrderItem],
     extensions: [Migrator],
     migrations: {
+      // Keeps the block's own history table (tableName) from getDatabaseConfig().
+      ...base.migrations,
       path: './dist/migrations/order-db',
       pathTs: './src/migrations/order-db',
       emit: 'ts',

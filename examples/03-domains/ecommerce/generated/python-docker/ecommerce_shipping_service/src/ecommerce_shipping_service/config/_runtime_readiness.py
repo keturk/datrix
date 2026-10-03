@@ -78,7 +78,8 @@ class ReadinessReport:
 # Each entry: (logical_name, rendered_name). Values are NEVER baked here.
 _REQUIRED_SECRET_HANDLES: tuple[tuple[str, str], ...] = (
     ("carrier_webhook_secret", "carrier_webhook_secret"),
-    ("jwt_public_key", "jwt_public_key"),
+    ("mq_sasl_password", "mq_sasl_password"),
+    ("redis_password", "redis_password"),
     ("shipping_db_password", "shipping_db_password"),
 )
 

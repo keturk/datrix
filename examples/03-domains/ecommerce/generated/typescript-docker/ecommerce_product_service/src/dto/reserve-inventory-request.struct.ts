@@ -2,8 +2,11 @@ import {
   IsArray,
   IsInt,
   IsUUID,
+  ValidateIf,
+  ValidateNested,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import { OrderLineInput } from '../dto/order-line-input.struct'
 
 export class ReserveInventoryRequest {
@@ -14,11 +17,14 @@ export class ReserveInventoryRequest {
 
   @ApiProperty()
   @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderLineInput)
   items!: OrderLineInput[];
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsInt()
-  ttlSeconds!: number;
+  ttlSeconds: number = 600;
 
 
 }

@@ -13,7 +13,8 @@
     "redis_database": 0,
     "redis_host": "localhost",
     "redis_port": 6379,
-    "store_endpoint": "http://localhost:9000"
+    "store_endpoint": "http://localhost:3900",
+    "store_public_endpoint": "http://localhost:3900"
   },
   "settings": {
     "debugMode": false

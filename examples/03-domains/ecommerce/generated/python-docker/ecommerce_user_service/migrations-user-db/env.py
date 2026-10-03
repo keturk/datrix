@@ -16,11 +16,14 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 import ecommerce_user_service.config._secrets_resolver as _secrets_resolver
+import ecommerce_user_service.models.user_db.api_key  # noqa: F401
+import ecommerce_user_service.models.user_db.user  # noqa: F401
+import ecommerce_user_service.models.user_db.user_preferences  # noqa: F401
+import ecommerce_user_service.models.user_db.user_session  # noqa: F401
 from ecommerce_user_service.config.remote_config import (
     build_client as _build_config_client,
 )
 from ecommerce_user_service.config.settings import assemble_settings
-from ecommerce_user_service.models.user_db import user, user_preferences, user_session  # noqa: F401
 from ecommerce_user_service.user_db.base import Base  # noqa: F401
 
 # Import Base so autogenerate can detect models

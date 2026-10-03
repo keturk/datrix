@@ -8,7 +8,7 @@ from __future__ import annotations
 import datetime
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 from ecommerce_shipping_service.enums.shipment_status import ShipmentStatus
@@ -18,7 +18,9 @@ from ecommerce_shipping_service.enums.shipment_status import ShipmentStatus
 class ShipmentEventCreate(BaseModel):
     """Schema for creating a new ShipmentEvent."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     timestamp: datetime.datetime
     status: ShipmentStatus
@@ -34,13 +36,33 @@ class ShipmentEventUpdate(BaseModel):
     All fields are optional for partial updates.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     timestamp: datetime.datetime | None = None
     status: ShipmentStatus | None = None
     location: str | None = Field(default=None, max_length=200)
     description: str | None = None
     shipment_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def _reject_explicit_null(self) -> ShipmentEventUpdate:
+        """An omitted field is left unchanged; null is a value only on an optional field."""
+        for field_name in (
+            "timestamp",
+            "status",
+            "location",
+            "shipment_id",
+        ):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(
+                    f"{field_name} cannot be null. Omit it to leave the stored value unchanged."
+                )
+        return self
 
 
 # Event log entity for shipment tracking history

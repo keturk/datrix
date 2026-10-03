@@ -55,7 +55,9 @@ const REQUIRED_SECRET_HANDLES: Array<[string, string]> = [
   ["docdb_secret-key", "docdb_secret-key"],
   ["minio_access_key", "minio_access_key"],
   ["minio_secret_key", "minio_secret_key"],
+  ["mq_sasl_password", "mq_sasl_password"],
   ["product_db_password", "product_db_password"],
+  ["redis_password", "redis_password"],
 ];
 
 const REQUIRED_CONFIG_KEYS: Array<[string, string]> = [
@@ -73,6 +75,7 @@ const REQUIRED_CONFIG_KEYS: Array<[string, string]> = [
   ["redis_host", "redis_host"],
   ["redis_port", "redis_port"],
   ["store_endpoint", "store_endpoint"],
+  ["store_public_endpoint", "store_public_endpoint"],
 ];
 
 function valueFreeDetail(err: unknown): string {

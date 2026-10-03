@@ -1,6 +1,7 @@
 
 import {
   IsDate,
+  IsDefined,
   IsEnum,
   IsNotEmpty,
   IsNumber,
@@ -9,6 +10,7 @@ import {
   IsUUID,
   Max,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -17,18 +19,22 @@ import { PaymentStatus } from '../enums/payment-status.enum';
 export class CreateRefundDto {
 
   @ApiProperty()
+  @IsDefined()
   @IsNumber({ maxDecimalPlaces: 4 })
   amount!: number;
 
   @ApiProperty()
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   @MaxLength(500)
   reason!: string;
 
-  @ApiProperty({ enum: PaymentStatus, enumName: 'PaymentStatus' })
+  @ApiPropertyOptional({ enum: PaymentStatus, enumName: 'PaymentStatus' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsDefined()
   @IsEnum(PaymentStatus)
-  status!: PaymentStatus;
+  status?: PaymentStatus;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -47,6 +53,7 @@ export class CreateRefundDto {
   processedAt?: Date | null;
 
   @ApiProperty()
+  @IsDefined()
   @IsUUID()
   paymentId!: string;
 }

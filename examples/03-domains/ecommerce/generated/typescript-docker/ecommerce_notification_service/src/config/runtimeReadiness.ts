@@ -52,6 +52,8 @@ export function readinessFailures(report: ReadinessReport): ReadinessItem[] {
 
 // Required set baked from the runtime-requirements manifest. Values are NEVER baked here.
 const REQUIRED_SECRET_HANDLES: Array<[string, string]> = [
+  ["jwt_private_key", "jwt_private_key"],
+  ["jwt_public_key", "jwt_public_key"],
   ["notification_db_password", "notification_db_password"],
   ["queues_password", "queues_password"],
   ["smtp_host", "smtp_host"],

@@ -1,0 +1,46 @@
+{
+  "apiBaseUrl": "http://localhost:8080",
+  "firebase": {
+    "androidAppId": "1:123456789012:android:0a1b2c3d4e5f6a7b",
+    "apiKey": "AIzaSyD-example-public-client-key-00000",
+    "iosAppId": "1:123456789012:ios:0a1b2c3d4e5f6a7b",
+    "messagingSenderId": "123456789012",
+    "projectId": "example-store"
+  },
+  "identity": {
+    "audience": "customer",
+    "authority": "http://localhost:8080",
+    "clientIdRef": "IdentityStorefrontNativePublicClientId",
+    "flows": [
+      "authorization_code"
+    ],
+    "issuer": "http://localhost:8080",
+    "logoutUris": [
+      "com.example.store://oauth/logout"
+    ],
+    "providerName": "identity",
+    "redirectUris": [
+      "com.example.store://oauth/callback"
+    ],
+    "roleMappings": {
+      "admins": "admin"
+    },
+    "rolesClaim": "urn:zitadel:iam:org:project:roles",
+    "scopes": [
+      "openid",
+      "profile",
+      "email"
+    ],
+    "tokenValidation": {
+      "allowedAlgorithms": [
+        "RS256"
+      ],
+      "allowedAudiences": [
+        "http://localhost:8080"
+      ],
+      "issuer": "http://localhost:8080",
+      "jwksUri": "http://localhost:8080/oauth/v2/keys"
+    }
+  },
+  "webOrigin": "http://localhost:4200"
+}

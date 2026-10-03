@@ -21,4 +21,4 @@ ALTER TABLE "inventory_reservations"
     FOREIGN KEY ("product_id")
     REFERENCES "products" ("id")
     ON DELETE RESTRICT
-    ON UPDATE NO ACTION;
+    ON UPDATE RESTRICT;

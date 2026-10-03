@@ -22,6 +22,7 @@ _HOST_SETTING: str = "docdb_host"
 _PORT_SETTING: str = "docdb_port"
 _USER_SETTING: str = "docdb_user"
 _SECRET_KEY_HANDLE: str = "docdb_secret-key"
+_AUTH_SOURCE: str = "admin"
 _DATABASE_SETTING: str = "docdb_database"
 _client: AsyncIOMotorClient | None = None
 _database: AsyncIOMotorDatabase | None = None
@@ -37,10 +38,13 @@ async def _resolve_mongodb_uri() -> str:
     user = getattr(settings, _USER_SETTING)
     password = await get_secret(_SECRET_KEY_HANDLE)
     credentials = f"{quote_plus(user)}:{quote_plus(password)}"
-    # Provisioned MongoDB enforces auth; the root user is created in the ``admin``
-    # authentication database (via MONGO_INITDB_ROOT_USERNAME), so authenticate
-    # against ``admin`` while the app selects its own database on the client.
-    return f"mongodb://{credentials}@{host}:{port}/?authSource=admin"
+    # The user is authenticated against the database it is defined in (a
+    # provisioned container's root user lives in ``admin``; an external
+    # server's application user in its own database) while the app selects
+    # its working database on the client.
+    return (
+        f"mongodb://{credentials}@{host}:{port}/?authSource={quote_plus(_AUTH_SOURCE)}"
+    )
 
 
 def _resolve_database_name() -> str:

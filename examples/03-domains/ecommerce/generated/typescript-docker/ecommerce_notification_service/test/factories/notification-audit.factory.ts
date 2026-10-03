@@ -10,7 +10,7 @@ export function buildNotificationAudit(
   return {
     orderId: crypto.randomUUID(),
     recipientEmail: 'user@example.com',
-    orderNumber: `x`,
+    orderNumber: 'test',
     ...overrides,
   };
 }

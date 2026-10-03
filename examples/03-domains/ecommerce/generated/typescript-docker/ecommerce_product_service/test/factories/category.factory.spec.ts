@@ -11,7 +11,7 @@ describe('buildCategory', () => {
 
   it('should apply overrides', () => {
     const overrides = {
-      name: `x`,
+      name: `test_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`,
     };
     const result = buildCategory(overrides);
     expect(result.name).toBe(overrides.name);

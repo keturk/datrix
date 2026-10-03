@@ -13,33 +13,67 @@ import type {
   SettlePaymentPayload,
 } from '../queue/payloads';
 
+/**
+ * Run one SettlePayment task from its raw message body. Throws on an
+ * unparseable body, a payload missing a required key, or a failing task; the
+ * caller settles the message.
+ */
+export async function handleSettlePaymentTask(
+  messageBody: string,
+  em: EntityManager,
+): Promise<void> {
+  const startTime = Date.now();
+  const data = JSON.parse(messageBody) as SettlePaymentPayload;
+  const missingKeys = (["paymentId", "merchantId", "amount"] as string[]).filter(
+    (key) => !Object.prototype.hasOwnProperty.call(data, key),
+  );
+  if (missingKeys.length > 0) {
+    logger.error(`queue_payload_missing_keys queue=settle-payment missing=${missingKeys.join(',')}`);
+    throw new Error(`Missing required queue payload keys: ${missingKeys.join(', ')}`);
+  }
+  logger.debug(`processing_task queue=settle-payment`);
+
+  let payment = await em.getRepository(Payment).findOne({ id: data.paymentId });
+  if (!payment) {
+    throw new NotFoundException("Not found");
+  }
+  if ((payment.status !== PaymentStatus.Completed)) {
+    console.warn('settle_payment_skipped_payment_not_completed');
+    return;
+  }
+  console.info('ledger_settlement_recorded');
+
+  const durationMs = Date.now() - startTime;
+  logger.debug(`task_completed queue=settle-payment duration_ms=${durationMs}`);
+}
+
 export async function handleSettlePayment(
   msg: ConsumeMessage,
   channel: Channel,
   em: EntityManager,
 ): Promise<void> {
-  const startTime = Date.now();
-  const data = JSON.parse(msg.content.toString()) as SettlePaymentPayload;
-  logger.debug(`processing_task queue=settle-payment`);
-
   try {
-    const payment = await em.getRepository(Payment).findOne({ id: data.paymentId });
-    if (!payment) {
-      throw new NotFoundException("Not found");
-    }
-    if ((payment.status !== PaymentStatus.Completed)) {
-      console.warn('settle_payment_skipped_payment_not_completed');
-      return;
-    }
-    console.info('ledger_settlement_recorded');
-
+    await handleSettlePaymentTask(msg.content.toString(), em);
     channel.ack(msg);
-    const durationMs = Date.now() - startTime;
-    logger.debug(`task_completed queue=settle-payment duration_ms=${durationMs}`);
   } catch (err) {
-    channel.nack(msg, false, true);
+    // RabbitMQ counts no deliveries, so the attempt number travels in a
+    // header: a failed message is republished for another attempt, and once
+    // 5 attempts have failed it is moved to its
+    // dead-letter queue -- never dropped, never retried past the bound.
+    const headers: Record<string, unknown> = { ...(msg.properties.headers ?? {}) };
+    const attempt = Number(headers['x-delivery-attempt'] ?? 1);
+    const exhausted = attempt >= 5;
+    headers['x-delivery-attempt'] = attempt + 1;
+    channel.sendToQueue(
+      exhausted ? 'order-service.settle-payment.dead-letter' : 'order-service.settle-payment',
+      msg.content,
+      { persistent: true, headers },
+    );
+    channel.ack(msg);
     const message = err instanceof Error ? err.message : String(err);
-    logger.error(`task_failed queue=settle-payment error=${message}`);
+    logger.error(
+      `task_failed queue=settle-payment attempt=${attempt} dead_lettered=${exhausted} error=${message}`,
+    );
   }
 }
 

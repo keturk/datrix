@@ -16,7 +16,14 @@ Version: 1.0.0
 | Entity | Fields | Primary key | Description |
 |--------|--------|-------------|-------------|
 | NotificationAudit | createdAt, updatedAt, id, orderId, recipientEmail, orderNumber | id |  |
+| DeviceRegistration | id, subject, token, platform, createdAt, updatedAt | id |  |
 
+## API endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /push/devices | registerDevice |
+| POST | /push/devices/unregister | unregisterDevice |
 
 
 

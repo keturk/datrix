@@ -39,10 +39,13 @@ export async function processRefundViaGateway(payment: Payment, refund: Refund):
       refund.refundTransactionId = transactionId;
     }
   }
-  catch (e: any) {
-    console.error('refund_processing_error');
-    refund.errorMessage = `Gateway error: ${e.message}`;
-    return false;
+  catch (__caught: unknown) {
+    {
+      const e = __caught as Error;
+      console.error('refund_processing_error');
+      refund.errorMessage = `Gateway error: ${e.message}`;
+      return false;
+    }
   }
   return success;
 }
@@ -88,10 +91,13 @@ export async function processPaymentAsync(payment: Payment, cardToken: string | 
       }
     }
   }
-  catch (e: any) {
-    success = false;
-    error = `Payment gateway error: ${e.message}`;
-    console.error('payment_processing_exception');
+  catch (__caught: unknown) {
+    {
+      const e = __caught as Error;
+      success = false;
+      error = `Payment gateway error: ${e.message}`;
+      console.error('payment_processing_exception');
+    }
   }
   if (success) {
     payment.status = PaymentStatus.Completed;
@@ -145,10 +151,13 @@ async processPaymentAsync(payment: Payment, cardToken: string | null): Promise<v
         }
       }
     }
-    catch (e: any) {
-      success = false;
-      error = `Payment gateway error: ${e.message}`;
-      console.error('payment_processing_exception');
+    catch (__caught: unknown) {
+      {
+        const e = __caught as Error;
+        success = false;
+        error = `Payment gateway error: ${e.message}`;
+        console.error('payment_processing_exception');
+      }
     }
     if (success) {
       payment.status = PaymentStatus.Completed;

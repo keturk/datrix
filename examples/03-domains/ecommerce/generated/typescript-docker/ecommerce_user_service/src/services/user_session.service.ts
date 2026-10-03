@@ -58,7 +58,6 @@ export class UserSessionService {
   }
 
 
-
   private _validate(entity: UserSession): void {
     const errors: string[] = [];
     if ((entity.createdAt !== undefined && entity.createdAt !== null) && ((entity.expiresAt <= entity.createdAt))) {
@@ -71,8 +70,7 @@ export class UserSessionService {
 
   async getByToken(token: string): Promise<UserSession> {
     const entity = await this.em.findOne(UserSession, {
-      token
-    } as never);
+      token    } as never);
     if (!entity) {
       throw new NotFoundException(`UserSession with token ${ token } not found`);
     }

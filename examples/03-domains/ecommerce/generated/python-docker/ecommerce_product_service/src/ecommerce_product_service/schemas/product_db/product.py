@@ -10,7 +10,14 @@ import decimal
 import enum
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 from pydantic.alias_generators import to_camel
 
 from ecommerce_product_service.enums.product_status import ProductStatus
@@ -51,7 +58,9 @@ def _coerce_json_safe(value: object) -> object:
 class ProductCreate(BaseModel):
     """Schema for creating a new Product."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     slug: str | None = Field(default=None, max_length=200)
     # Money is a semantic amount type; currency is modeled explicitly where needed
@@ -99,7 +108,9 @@ class ProductUpdate(BaseModel):
     All fields are optional for partial updates.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     slug: str | None = Field(default=None, max_length=200)
     # Money is a semantic amount type; currency is modeled explicitly where needed
@@ -139,6 +150,28 @@ class ProductUpdate(BaseModel):
         """Coerce non-JSON-native values (UUID, datetime, Decimal, Enum) before validation."""
         return _coerce_json_safe(v)
 
+    @model_validator(mode="after")
+    def _reject_explicit_null(self) -> ProductUpdate:
+        """An omitted field is left unchanged; null is a value only on an optional field."""
+        for field_name in (
+            "price",
+            "inventory",
+            "name",
+            "description",
+            "status",
+            "images",
+            "tags",
+            "category_id",
+        ):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(
+                    f"{field_name} cannot be null. Omit it to leave the stored value unchanged."
+                )
+        return self
+
 
 # 'with' mixes in multiple traits, adding their fields and methods
 class ProductResponse(BaseModel):
@@ -169,5 +202,5 @@ class ProductResponse(BaseModel):
     tags: JsonValue
     category_id: uuid.UUID
     # Computed field calling trait methods
-    is_available: bool | None = None
-    discount_percent: float | None = None
+    is_available: bool
+    discount_percent: float

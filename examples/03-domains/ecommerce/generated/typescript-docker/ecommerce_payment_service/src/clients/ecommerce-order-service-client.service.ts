@@ -12,8 +12,8 @@ import { HttpService } from '@nestjs/axios';
 import { AxiosRequestConfig, AxiosResponse } from 'axios';
 import { acquireServiceCredential } from '../discovery/service-credential';
 import {
-  retry,
   handleAll,
+  retry,
   ExponentialBackoff,
   ConstantBackoff,
   wrap,
@@ -27,9 +27,10 @@ import {
 export const DEFAULT_TIMEOUT_MS = 10000;
 const TIMEOUT_ENV = 'ECOMMERCE_ORDER_SERVICE_TIMEOUT_MS';
 const TIMEOUT_MS = parseInt(process.env[TIMEOUT_ENV] ?? '', 10) || DEFAULT_TIMEOUT_MS;
+// The variable the container runtime publishes ecommerce.OrderService's base URL
+// under. It has no default: a missing URL is a deployment fault, reported by
+// name -- never silently replaced by an address nothing listens on.
 const SERVICE_URL_ENV = 'ECOMMERCE_ORDER_SERVICE_SERVICE_URL';
-const DEFAULT_URL = 'http://localhost:8000';
-const DEPENDENCY_AUDIENCE = 'ecommerce.OrderService';
 
 export const RETRY_MAX_ATTEMPTS = 2;
 
@@ -55,22 +56,30 @@ export class OrderServiceClientService {
   constructor(private readonly httpService: HttpService) {}
 
   private async getAuthHeaders(): Promise<Record<string, string>> {
-    const credential = await acquireServiceCredential(DEPENDENCY_AUDIENCE);
+    const credential = await acquireServiceCredential();
     return { Authorization: `Bearer ${credential}` };
   }
 
   private getBaseUrl(): string {
-    return process.env[SERVICE_URL_ENV] ?? DEFAULT_URL;
+    const baseUrl = process.env[SERVICE_URL_ENV];
+    if (baseUrl === undefined || baseUrl === '') {
+      throw new Error(
+        `Service URL required: environment variable ${SERVICE_URL_ENV} is absent or empty. ` +
+          `Expected the deployment to publish ecommerce.OrderService's base URL under it.`,
+      );
+    }
+    return baseUrl;
   }
 
   /**
    * Make a resilient HTTP request to ecommerce.OrderService.
-   * Applies: timeout, retry.
+   * Applies: timeout, retry (only when `idempotent` is true).
    */
   async request(
     method: string,
     path: string,
     config: AxiosRequestConfig = {},
+    idempotent: boolean = false,
   ): Promise<AxiosResponse> {
     const url = `${this.getBaseUrl()}${path}`;
 
@@ -100,27 +109,50 @@ export class OrderServiceClientService {
       }
     };
 
+    if (!idempotent) {
+      return await makeCall();
+    }
     return await policy.execute(makeCall);
   }
 
-  async get(path: string, config?: AxiosRequestConfig): Promise<AxiosResponse> {
-    return this.request('GET', path, config);
+  async get(
+    path: string,
+    config?: AxiosRequestConfig,
+    idempotent: boolean = false,
+  ): Promise<AxiosResponse> {
+    return this.request('GET', path, config, idempotent);
   }
 
-  async post(path: string, config?: AxiosRequestConfig): Promise<AxiosResponse> {
-    return this.request('POST', path, config);
+  async post(
+    path: string,
+    config?: AxiosRequestConfig,
+    idempotent: boolean = false,
+  ): Promise<AxiosResponse> {
+    return this.request('POST', path, config, idempotent);
   }
 
-  async put(path: string, config?: AxiosRequestConfig): Promise<AxiosResponse> {
-    return this.request('PUT', path, config);
+  async put(
+    path: string,
+    config?: AxiosRequestConfig,
+    idempotent: boolean = false,
+  ): Promise<AxiosResponse> {
+    return this.request('PUT', path, config, idempotent);
   }
 
-  async delete(path: string, config?: AxiosRequestConfig): Promise<AxiosResponse> {
-    return this.request('DELETE', path, config);
+  async delete(
+    path: string,
+    config?: AxiosRequestConfig,
+    idempotent: boolean = false,
+  ): Promise<AxiosResponse> {
+    return this.request('DELETE', path, config, idempotent);
   }
 
-  async patch(path: string, config?: AxiosRequestConfig): Promise<AxiosResponse> {
-    return this.request('PATCH', path, config);
+  async patch(
+    path: string,
+    config?: AxiosRequestConfig,
+    idempotent: boolean = false,
+  ): Promise<AxiosResponse> {
+    return this.request('PATCH', path, config, idempotent);
   }
 
 }

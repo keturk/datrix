@@ -10,7 +10,6 @@ import decimal
 import uuid
 from dataclasses import dataclass, field
 
-from ecommerce_shipping_service.enums.shipment_status import ShipmentStatus
 from ecommerce_shipping_service.enums.shipping_carrier import ShippingCarrier
 from ecommerce_shipping_service.models.shipping_db.shipment import Shipment
 from ecommerce_shipping_service.schemas.address import Address
@@ -20,17 +19,9 @@ from ecommerce_shipping_service.schemas.address import Address
 class ShipmentFactory:
     """Factory for creating Shipment test instances."""
 
-    created_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    updated_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    id: uuid.UUID = field(default_factory=uuid.uuid4)
-    order_id: uuid.UUID = field(default_factory=uuid.uuid4)
+    order_id: uuid.UUID = field(default_factory=lambda: uuid.uuid4())
     tracking_number: str = field(default_factory=lambda: f"test_{uuid.uuid4().hex[:8]}")
     carrier: ShippingCarrier = ShippingCarrier.fed_ex
-    status: ShipmentStatus = ShipmentStatus.pending
     destination: Address = field(
         default_factory=lambda: {
             "street": "test",
@@ -38,28 +29,24 @@ class ShipmentFactory:
             "state": "test",
             "zip_code": "test",
             "country": "US",
-            "phone": "test",
+            "phone": "15551234567",
         }
     )
     weight: decimal.Decimal = decimal.Decimal("5.50")
-    estimated_delivery: datetime.datetime | None = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    estimated_delivery: datetime.datetime | None = datetime.datetime(
+        2025, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc
     )
-    actual_delivery: datetime.datetime | None = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    actual_delivery: datetime.datetime | None = datetime.datetime(
+        2025, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc
     )
-    failure_reason: str | None = "test_value"
+    failure_reason: str | None = "test"
 
     def build(self) -> Shipment:
         """Build a model instance from factory defaults."""
         return Shipment(
-            created_at=self.created_at,
-            updated_at=self.updated_at,
-            id=self.id,
             order_id=self.order_id,
             tracking_number=self.tracking_number,
             carrier=self.carrier,
-            status=self.status,
             destination=self.destination,
             weight=self.weight,
             estimated_delivery=self.estimated_delivery,
@@ -73,7 +60,6 @@ class ShipmentFactory:
             "order_id": str(self.order_id),
             "tracking_number": self.tracking_number,
             "carrier": self.carrier,
-            "status": self.status,
             "destination": self.destination,
             "weight": str(self.weight),
             "estimated_delivery": str(self.estimated_delivery),

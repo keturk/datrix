@@ -10,6 +10,7 @@
 import { defineConfig } from '@mikro-orm/core';
 import { PostgreSqlDriver } from '@mikro-orm/postgresql';
 import { Migrator } from '@mikro-orm/migrations';
+import { DeviceRegistration } from './src/entities/notification_db/device-registration.entity';
 import { NotificationAudit } from './src/entities/notification_db/notification-audit.entity';
 import { getDatabaseConfig } from './src/notification-db/database.config';
 
@@ -17,9 +18,11 @@ export default getDatabaseConfig({ get: () => false } as never).then((base) =>
   defineConfig({
     ...base,
     driver: PostgreSqlDriver,
-    entities: [NotificationAudit],
+    entities: [DeviceRegistration, NotificationAudit],
     extensions: [Migrator],
     migrations: {
+      // Keeps the block's own history table (tableName) from getDatabaseConfig().
+      ...base.migrations,
       path: './dist/migrations/notification-db',
       pathTs: './src/migrations/notification-db',
       emit: 'ts',

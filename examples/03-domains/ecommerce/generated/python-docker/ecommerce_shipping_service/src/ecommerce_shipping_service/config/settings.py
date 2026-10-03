@@ -28,7 +28,11 @@ from ecommerce_shipping_service.config import _bootstrap
 # code-generation time; no environment reads).
 # ---------------------------------------------------------------------------
 DEBUG: bool = False
-ALLOWED_HOSTS: list[str] = ["shipping-service.example.com", "localhost"]
+ALLOWED_HOSTS: list[str] = [
+    "shipping-service.example.com",
+    "localhost",
+    "ecommerce-shipping-service",
+]
 CORS_ORIGINS: list[str] = ["https://app.example.com"]
 CORS_METHODS: list[str] = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
 CORS_HEADERS: list[str] = ["Authorization", "Content-Type"]
@@ -191,10 +195,6 @@ class AppSettings:
     db_max_overflow: int
     redis_url: str
     mq_bootstrap_servers: str
-    jwt_algorithm: str
-    jwt_expiry: int
-    jwt_audience: str
-    jwt_issuer: str
 
 
 _settings: AppSettings | None = None
@@ -275,10 +275,6 @@ async def assemble_settings(
         db_max_overflow=20,
         redis_url=redis_url,
         mq_bootstrap_servers=mq_bootstrap_servers,
-        jwt_algorithm="RS256",
-        jwt_expiry=3600,
-        jwt_audience="",
-        jwt_issuer="",
     )
     logger.info("app_settings_assembled environment=%s", _bootstrap.PROFILE)
     return _settings

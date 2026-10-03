@@ -77,7 +77,8 @@ class ReadinessReport:
 # Required set baked from the runtime-requirements manifest.
 # Each entry: (logical_name, rendered_name). Values are NEVER baked here.
 _REQUIRED_SECRET_HANDLES: tuple[tuple[str, str], ...] = (
-    ("jwt_public_key", "jwt_public_key"),
+    ("mq_sasl_password", "mq_sasl_password"),
+    ("redis_password", "redis_password"),
     ("smtp_host", "smtp_host"),
     ("smtp_password", "smtp_password"),
     ("smtp_port", "smtp_port"),

@@ -5,15 +5,15 @@ import type { OrderStatus } from '../ecommerce-order-service/enums/OrderStatus';
 
 export interface OrderResponse {
   billingAddress: Address;
-  canCancel?: boolean | null;
+  canCancel: boolean;
   cancellationReason?: string | null;
   createdAt: IsoDateTime;
   customerId: Uuid;
   discount: DecimalString;
   id: Uuid;
   inventoryReservationId: Uuid;
-  isCompleted?: boolean | null;
-  isPendingOrPaymentPending?: boolean | null;
+  isCompleted: boolean;
+  isPendingOrPaymentPending: boolean;
   orderNumber: string;
   paymentId?: Uuid | null;
   shipmentId?: Uuid | null;
@@ -22,6 +22,6 @@ export interface OrderResponse {
   status: OrderStatus;
   subtotal: DecimalString;
   tax: DecimalString;
-  total?: DecimalString | null;
+  total: DecimalString;
   updatedAt: IsoDateTime;
 }

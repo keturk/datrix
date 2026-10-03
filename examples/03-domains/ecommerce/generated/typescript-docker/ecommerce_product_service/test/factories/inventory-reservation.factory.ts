@@ -1,5 +1,4 @@
 import { InventoryReservation } from '../../src/entities/inventory-reservation.entity';
-import { ReservationStatus } from '../../src/enums/reservation-status.enum';
 
 /**
  * Build a partial InventoryReservation with sensible defaults for testing.
@@ -11,9 +10,7 @@ export function buildInventoryReservation(
   return {
     reservationId: crypto.randomUUID(),
     quantity: 42,
-    status: ReservationStatus.Reserved,
-    expiresAt: new Date(),
-    productId: crypto.randomUUID(),
+    expiresAt: new Date('2025-01-15T12:00:00Z'),
     product: crypto.randomUUID(),
     ...overrides,
   };

@@ -1,0 +1,104 @@
+{
+  "application": "application",
+  "environment": "test",
+  "providers": {
+    "customerKeys": {
+      "audience": "customer",
+      "consumesRateLimit": true,
+      "credential": "apiKey",
+      "header": "X-Customer-Api-Key",
+      "mode": "self",
+      "name": "customerKeys",
+      "principalType": "human",
+      "providerType": "apiKey",
+      "roleMappings": {
+        "orders:read": "orderReader",
+        "orders:write": "orderWriter"
+      },
+      "store": "ecommerce.UserService",
+      "tenantMapped": false,
+      "verifyPath": "/internal/identity/api-keys/customerKeys/verify"
+    },
+    "identity": {
+      "allowedAlgorithms": [
+        "RS256"
+      ],
+      "allowedAudienceRefs": [],
+      "allowedAudiences": [
+        "zitadel-project-audience:library-identity"
+      ],
+      "attributeMappings": {
+        "email": {
+          "claimPath": "email",
+          "datrixType": "String",
+          "guarantee": "optional",
+          "nullable": false
+        }
+      },
+      "audience": "customer",
+      "credential": "jwt",
+      "discoveryUri": "http://localhost:8080/.well-known/openid-configuration",
+      "issuer": "http://localhost:8080",
+      "jwksCacheTtlSeconds": 3600,
+      "jwksUri": "http://localhost:8080/oauth/v2/keys",
+      "localIdentity": {
+        "mode": "deterministicUuid5",
+        "namespace": "c9a255a1-350b-4414-beb9-7f06f7dfd92d"
+      },
+      "mode": "platformManaged",
+      "name": "identity",
+      "principalType": "human",
+      "providerType": "zitadel",
+      "publicClientMetadataRef": "identity-client-identity.test.json",
+      "revocation": {
+        "mode": "none",
+        "tokenIdClaim": "jti"
+      },
+      "roleMappings": {
+        "admins": "admin"
+      },
+      "roleSource": {
+        "claimPath": "urn:zitadel:iam:org:project:roles"
+      },
+      "secretRefs": {
+        "clientSecret": "IDENTITY_IDENTITY_CLIENT_SECRET_REF"
+      }
+    },
+    "platform": {
+      "allowedAlgorithms": [
+        "RS256"
+      ],
+      "allowedAudienceRefs": [],
+      "allowedAudiences": [
+        "zitadel-project-audience:library-platform"
+      ],
+      "attributeMappings": {},
+      "audience": "machine",
+      "credential": "jwt",
+      "discoveryUri": "http://localhost:8080/.well-known/openid-configuration",
+      "issuer": "http://localhost:8080",
+      "jwksCacheTtlSeconds": 3600,
+      "jwksUri": "http://localhost:8080/oauth/v2/keys",
+      "localIdentity": {
+        "mode": "deterministicUuid5",
+        "namespace": "c9a255a1-350b-4414-beb9-7f06f7dfd92d"
+      },
+      "mode": "platformManaged",
+      "name": "platform",
+      "principalType": "machine",
+      "providerType": "zitadel",
+      "revocation": {
+        "mode": "none",
+        "tokenIdClaim": "jti"
+      },
+      "roleMappings": {},
+      "roleSource": {
+        "claimPath": "urn:zitadel:iam:org:project:roles"
+      },
+      "secretRefs": {
+        "clientSecret": "IDENTITY_PLATFORM_CLIENT_SECRET_REF"
+      }
+    }
+  },
+  "schemaVersion": 6
+}

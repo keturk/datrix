@@ -194,6 +194,8 @@ class ShipmentService:
         snake = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", event_name).lower()
         method = getattr(producer, f"publish_{snake}", None)
         if method is not None:
+            # A publish_* method takes exactly the event's declared parameters:
+            # a tenant reaches an event only when the event declares it.
             await method(*args)
         else:
             logger.warning("event_no_handler event=%s", event_name)

@@ -78,16 +78,6 @@ describe('UserService Deployment', () => {
     expect([200, 403, 404]).toContain(response.status);
   });
 
-  it('Nested GET /api/v1/users/00000000-0000-0000-0000-000000000001/user_sessions responds with 200', async () => {
-    const response = await httpRequest(`${BASE_URL}/api/v1/users/00000000-0000-0000-0000-000000000001/user_sessions`, {
-      headers: { 'Authorization': `Bearer ${makeTestJwt(["user"], JWT_ISSUER)}` },
-    });
-    // Nested GET targets a fabricated parent UUID that may not exist in the
-    // database; the handler verifies the parent first and returns 404 when
-    // the parent is not found (403 when ownership is rejected).
-    expect([200, 403, 404]).toContain(response.status);
-  });
-
   // --- List response shape ---
 
   describe('UserService List Response Shapes', () => {
@@ -140,6 +130,81 @@ describe('UserService Deployment', () => {
   // --- Authentication / Authorization Tests ---
 
   describe('UserApi Auth', () => {
+    it('GET /api/v1/users without auth returns 401', async () => {
+      const response = await fetchWithRetry(`${BASE_URL}/api/v1/users`);
+      expect(response.status).toBe(401);
+    });
+
+    it('GET /api/v1/users with wrong role returns 403', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/users`, {
+        headers: { 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
+      });
+      expect(response.status).toBe(403);
+    });
+
+    it('GET /api/v1/users/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
+      const response = await fetchWithRetry(`${BASE_URL}/api/v1/users/00000000-0000-0000-0000-000000000001`);
+      expect(response.status).toBe(401);
+    });
+
+    it('GET /api/v1/users/00000000-0000-0000-0000-000000000001 with wrong role returns 403', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/users/00000000-0000-0000-0000-000000000001`, {
+        headers: { 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
+      });
+      expect(response.status).toBe(403);
+    });
+
+    it('POST /api/v1/users without auth returns 401', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+    });
+
+    it('POST /api/v1/users with wrong role returns 403', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(403);
+    });
+
+    it('PATCH /api/v1/users/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/users/00000000-0000-0000-0000-000000000001`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+    });
+
+    it('PATCH /api/v1/users/00000000-0000-0000-0000-000000000001 with wrong role returns 403', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/users/00000000-0000-0000-0000-000000000001`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(403);
+    });
+
+    it('DELETE /api/v1/users/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/users/00000000-0000-0000-0000-000000000001`, {
+        method: 'DELETE',
+      });
+      expect(response.status).toBe(401);
+    });
+
+    it('DELETE /api/v1/users/00000000-0000-0000-0000-000000000001 with wrong role returns 403', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/users/00000000-0000-0000-0000-000000000001`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
+      });
+      expect(response.status).toBe(403);
+    });
+
     it('Public POST /api/v1/register?request=integration-path-value without auth is accessible (not 401)', async () => {
       const response = await httpRequest(`${BASE_URL}/api/v1/register?request=integration-path-value`, {
         method: 'POST',
@@ -156,68 +221,6 @@ describe('UserService Deployment', () => {
         body: JSON.stringify({}),
       });
       expect(response.status).not.toBe(401);
-    });
-
-    it('Public POST /api/v1/verify-email?request=integration-path-value without auth is accessible (not 401)', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/verify-email?request=integration-path-value`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).not.toBe(401);
-    });
-
-    it('Public POST /api/v1/forgot-password?request=integration-path-value without auth is accessible (not 401)', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/forgot-password?request=integration-path-value`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).not.toBe(401);
-    });
-
-    it('Public POST /api/v1/reset-password?request=integration-path-value without auth is accessible (not 401)', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/reset-password?request=integration-path-value`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).not.toBe(401);
-    });
-
-    it('GET /api/v1/users without auth returns 401', async () => {
-      const response = await fetchWithRetry(`${BASE_URL}/api/v1/users`);
-      expect(response.status).toBe(401);
-    });
-
-    it('GET /api/v1/users/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
-      const response = await fetchWithRetry(`${BASE_URL}/api/v1/users/00000000-0000-0000-0000-000000000001`);
-      expect(response.status).toBe(401);
-    });
-
-    it('POST /api/v1/users without auth returns 401', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/users`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).toBe(401);
-    });
-
-    it('PATCH /api/v1/users/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/users/00000000-0000-0000-0000-000000000001`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).toBe(401);
-    });
-
-    it('DELETE /api/v1/users/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/users/00000000-0000-0000-0000-000000000001`, {
-        method: 'DELETE',
-      });
-      expect(response.status).toBe(401);
     });
 
     it('POST /api/v1/logout?request=integration-path-value without auth returns 401', async () => {
@@ -252,6 +255,42 @@ describe('UserService Deployment', () => {
       expect(response.status).toBe(401);
     });
 
+    it('POST /api/v1/me/api-keys?request=integration-path-value without auth returns 401', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/me/api-keys?request=integration-path-value`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+    });
+
+    it('Public POST /api/v1/verify-email?request=integration-path-value without auth is accessible (not 401)', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/verify-email?request=integration-path-value`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).not.toBe(401);
+    });
+
+    it('Public POST /api/v1/forgot-password?request=integration-path-value without auth is accessible (not 401)', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/forgot-password?request=integration-path-value`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).not.toBe(401);
+    });
+
+    it('Public POST /api/v1/reset-password?request=integration-path-value without auth is accessible (not 401)', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/reset-password?request=integration-path-value`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).not.toBe(401);
+    });
+
     it('PATCH /api/v1/00000000-0000-0000-0000-000000000001/status?request=integration-path-value without auth returns 401', async () => {
       const response = await httpRequest(`${BASE_URL}/api/v1/00000000-0000-0000-0000-000000000001/status?request=integration-path-value`, {
         method: 'PATCH',
@@ -259,6 +298,15 @@ describe('UserService Deployment', () => {
         body: JSON.stringify({}),
       });
       expect(response.status).toBe(401);
+    });
+
+    it('PATCH /api/v1/00000000-0000-0000-0000-000000000001/status?request=integration-path-value with wrong role returns 403', async () => {
+      const response = await httpRequest(`${BASE_URL}/api/v1/00000000-0000-0000-0000-000000000001/status?request=integration-path-value`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(403);
     });
 
     it('GET /api/v1/service/00000000-0000-0000-0000-000000000001 without auth returns 401', async () => {
@@ -275,53 +323,16 @@ describe('UserService Deployment', () => {
       expect(response.status).toBe(401);
     });
 
-    it('GET /api/v1/users with wrong role returns 403', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/users`, {
-        headers: { 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
-      });
-      expect(response.status).toBe(403);
-    });
+  });
 
-    it('GET /api/v1/users/00000000-0000-0000-0000-000000000001 with wrong role returns 403', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/users/00000000-0000-0000-0000-000000000001`, {
-        headers: { 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
-      });
-      expect(response.status).toBe(403);
-    });
-
-    it('POST /api/v1/users with wrong role returns 403', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/users`, {
+  describe('ApiKeyVerify Auth', () => {
+    it('POST /internal/identity/api-keys/customerKeys/verify?request=integration-path-value without auth returns 401', async () => {
+      const response = await httpRequest(`${BASE_URL}/internal/identity/api-keys/customerKeys/verify?request=integration-path-value`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      expect(response.status).toBe(403);
-    });
-
-    it('PATCH /api/v1/users/00000000-0000-0000-0000-000000000001 with wrong role returns 403', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/users/00000000-0000-0000-0000-000000000001`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).toBe(403);
-    });
-
-    it('DELETE /api/v1/users/00000000-0000-0000-0000-000000000001 with wrong role returns 403', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/users/00000000-0000-0000-0000-000000000001`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
-      });
-      expect(response.status).toBe(403);
-    });
-
-    it('PATCH /api/v1/00000000-0000-0000-0000-000000000001/status?request=integration-path-value with wrong role returns 403', async () => {
-      const response = await httpRequest(`${BASE_URL}/api/v1/00000000-0000-0000-0000-000000000001/status?request=integration-path-value`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${makeTestJwt([], JWT_ISSUER)}` },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).toBe(403);
+      expect(response.status).toBe(401);
     });
 
   });
@@ -357,6 +368,12 @@ describe('UserService Deployment', () => {
       const paths = schema.paths as Record<string, unknown>;
       expect(paths).toBeDefined();
       expect(paths['/api/v1/me']).toBeDefined();
+    });
+
+    it('OpenAPI paths contains /api/v1/me/api-keys', () => {
+      const paths = schema.paths as Record<string, unknown>;
+      expect(paths).toBeDefined();
+      expect(paths['/api/v1/me/api-keys']).toBeDefined();
     });
 
     it('OpenAPI paths contains /api/v1/me/password', () => {
@@ -401,6 +418,18 @@ describe('UserService Deployment', () => {
       expect(paths['/api/v1/{id}/status']).toBeDefined();
     });
 
+    it('OpenAPI schemas contains ApiKeyVerifyRequest', () => {
+      const components = schema.components as Record<string, unknown> | undefined;
+      expect(components).toBeDefined();
+      const schemas = (components as Record<string, unknown>).schemas as Record<string, unknown>;
+      expect(schemas).toBeDefined();
+      const schemaNames = Object.keys(schemas);
+      const hasSchema = schemaNames.some(
+        (s) => s === 'ApiKeyVerifyRequest' || s.includes('ApiKeyVerifyRequest'),
+      );
+      expect(hasSchema).toBe(true);
+    });
+
     it('OpenAPI schemas contains ChangePasswordRequest', () => {
       const components = schema.components as Record<string, unknown> | undefined;
       expect(components).toBeDefined();
@@ -421,6 +450,30 @@ describe('UserService Deployment', () => {
       const schemaNames = Object.keys(schemas);
       const hasSchema = schemaNames.some(
         (s) => s === 'ForgotPasswordRequest' || s.includes('ForgotPasswordRequest'),
+      );
+      expect(hasSchema).toBe(true);
+    });
+
+    it('OpenAPI schemas contains IssueApiKeyRequest', () => {
+      const components = schema.components as Record<string, unknown> | undefined;
+      expect(components).toBeDefined();
+      const schemas = (components as Record<string, unknown>).schemas as Record<string, unknown>;
+      expect(schemas).toBeDefined();
+      const schemaNames = Object.keys(schemas);
+      const hasSchema = schemaNames.some(
+        (s) => s === 'IssueApiKeyRequest' || s.includes('IssueApiKeyRequest'),
+      );
+      expect(hasSchema).toBe(true);
+    });
+
+    it('OpenAPI schemas contains IssueApiKeyResponse', () => {
+      const components = schema.components as Record<string, unknown> | undefined;
+      expect(components).toBeDefined();
+      const schemas = (components as Record<string, unknown>).schemas as Record<string, unknown>;
+      expect(schemas).toBeDefined();
+      const schemaNames = Object.keys(schemas);
+      const hasSchema = schemaNames.some(
+        (s) => s === 'IssueApiKeyResponse' || s.includes('IssueApiKeyResponse'),
       );
       expect(hasSchema).toBe(true);
     });

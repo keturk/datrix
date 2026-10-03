@@ -8,13 +8,12 @@ export function buildUserSession(
   overrides?: Partial<UserSession>,
 ): Partial<UserSession> {
   return {
-    token: `x`,
-    deviceName: `x`,
+    token: `test_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`,
+    deviceName: 'test',
     ipAddress: '192.168.1.1',
-    userAgent: `x`,
-    expiresAt: new Date(),
-    lastActivityAt: new Date(),
-    userId: crypto.randomUUID(),
+    userAgent: 'test',
+    expiresAt: new Date('2025-01-15T12:00:00Z'),
+    lastActivityAt: new Date('2025-01-15T12:00:00Z'),
     user: crypto.randomUUID(),
     ...overrides,
   };

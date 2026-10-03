@@ -1,6 +1,6 @@
 
 import {
-  IsDate,
+  IsDefined,
   IsInt,
   IsOptional,
   IsUUID,
@@ -11,14 +11,17 @@ import { Type } from 'class-transformer';
 export class CreateShipmentItemDto {
 
   @ApiProperty()
+  @IsDefined()
   @IsUUID()
   productId!: string;
 
   @ApiProperty()
+  @IsDefined()
   @IsInt()
   quantity!: number;
 
   @ApiProperty()
+  @IsDefined()
   @IsUUID()
   shipmentId!: string;
 }

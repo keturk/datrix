@@ -7,7 +7,7 @@ import { producerInstance as mqProducerInstance } from '../mq/producer';
 
 export async function orderDbOrderAfterUpdate(
   target: Order,
-  db: EntityManager,
+  em: EntityManager,
   oldValues?: Record<string, unknown>,
 ): Promise<void> {
   if (_fieldChanged(target, "status", oldValues)) {

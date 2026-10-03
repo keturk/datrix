@@ -9,6 +9,7 @@ import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { User } from './ecommerce_user_service/entities/user_db/user.entity';
 import { UserSession } from './ecommerce_user_service/entities/user_db/user-session.entity';
 import { UserPreferences } from './ecommerce_user_service/entities/user_db/user-preferences.entity';
+import { ApiKey } from './ecommerce_user_service/entities/user_db/api-key.entity';
 import { UserDbDatabaseModule } from './user-db/database.module';
 import { EntityLifecycleModule } from './entity-lifecycle.module';
 import { PubsubModule as PubsubInst1 } from './mq/pubsub.module';
@@ -17,14 +18,15 @@ import { MetricsController } from './observability/metrics.controller';
 import { HealthController } from './observability/health.controller';
 import { CacheHealthService } from './redis/cache.health';
 import { UserAPIController } from './controllers/user_api.controller';
+import { _api_key_verifyController } from './controllers/api_key_verify.controller';
 import { UserService } from './services/user.service';
 import { UserSessionService } from './services/user_session.service';
 import { UserPreferencesService } from './services/user_preferences.service';
+import { ApiKeyService } from './services/api_key.service';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { MetricsInterceptor } from './observability/metrics.interceptor';
 import { LoggerModule } from './observability/logger.module';
 import { getThrottlerModule } from './ecommerce_user_service/gateway-throttler.config';
-import { RateLimitGuard } from './rate-limit/rate-limit.guard';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { HttpClientsModule } from './http-clients.module';
 import { AllExceptionsFilter } from './errors/all-exceptions-filter';
@@ -40,6 +42,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
       User,
       UserSession,
       UserPreferences,
+      ApiKey,
     ]),
     EntityLifecycleModule,
     PubsubInst1,
@@ -54,16 +57,17 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
     HealthController,
     RuntimeReadinessController,
     UserAPIController,
+    _api_key_verifyController,
   ],
   providers: [
     { provide: RemoteConfigClient, useFactory: buildRuntimeReadinessConfigClient },
-    { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     CacheHealthService,
     UserService,
     UserSessionService,
     UserPreferencesService,
+    ApiKeyService,
   ],
 })
 export class AppModule {

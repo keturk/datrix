@@ -117,22 +117,23 @@ async def handle_user_events_user_logged_in(payload: UserLoggedInPayload) -> Non
     )
 
 
-HANDLER_DISPATCH: dict[str, tuple[type, object]] = {
+# Keyed by "{topic}:{event}"; each key runs every handler bound to it.
+HANDLER_DISPATCH: dict[str, tuple[type, tuple[object, ...]]] = {
     "ecommerce_user_service.mq.user_events:UserRegistered": (
         UserRegisteredPayload,
-        handle_user_events_user_registered,
+        (handle_user_events_user_registered,),
     ),
     "ecommerce_user_service.mq.user_events:UserVerified": (
         UserVerifiedPayload,
-        handle_user_events_user_verified,
+        (handle_user_events_user_verified,),
     ),
     "ecommerce_user_service.mq.user_events:UserStatusChanged": (
         UserStatusChangedPayload,
-        handle_user_events_user_status_changed,
+        (handle_user_events_user_status_changed,),
     ),
     "ecommerce_user_service.mq.user_events:UserLoggedIn": (
         UserLoggedInPayload,
-        handle_user_events_user_logged_in,
+        (handle_user_events_user_logged_in,),
     ),
 }
 
@@ -298,19 +299,17 @@ class KafkaEventConsumer:
             envelope = json.loads(raw)
             event_type = envelope.get("event_type")
             topic = message.topic
-            # Try qualified key first (topic:event), fall back to bare event name
             dispatch_key = f"{topic}:{event_type}"
-            if dispatch_key not in HANDLER_DISPATCH:
-                dispatch_key = event_type
             if dispatch_key not in HANDLER_DISPATCH:
                 logger.warning(
                     "unknown_event_type event_type=%s topic=%s", event_type, topic
                 )
                 status = "unknown_event"
                 return
-            schema_cls, handler_fn = HANDLER_DISPATCH[dispatch_key]
+            schema_cls, handler_fns = HANDLER_DISPATCH[dispatch_key]
             payload = schema_cls.model_validate(envelope.get("payload", {}))
-            await handler_fn(payload)
+            for handler_fn in handler_fns:
+                await handler_fn(payload)
         except Exception as e:
             status = "error"
             logger.exception("event_dispatch_failed error=%s", e)

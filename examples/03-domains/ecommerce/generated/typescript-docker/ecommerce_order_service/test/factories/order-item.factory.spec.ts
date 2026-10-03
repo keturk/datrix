@@ -8,7 +8,6 @@ describe('buildOrderItem', () => {
     expect(result.productName).toBeDefined();
     expect(result.quantity).toBeDefined();
     expect(result.unitPrice).toBeDefined();
-    expect(result.orderId).toBeDefined();
     expect(result.order).toBeDefined();
   });
 

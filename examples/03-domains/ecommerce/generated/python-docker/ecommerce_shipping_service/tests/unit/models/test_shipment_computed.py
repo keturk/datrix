@@ -179,6 +179,25 @@ class TestShipmentComputedFields:
         with pytest.raises(AttributeError):
             instance.is_delivered = True
 
+    def test_is_in_progress_getter_runs(self) -> None:
+        """is_in_progress getter runs and returns its expected value."""
+        _tracking_number = f"test_{uuid.uuid4().hex[:8]}"
+        instance = Shipment(
+            order_id=uuid.UUID("550e8400-e29b-41d4-a716-446655440000"),
+            tracking_number=_tracking_number,
+            carrier=ShippingCarrier.fed_ex,
+            destination={
+                "street": "test",
+                "city": "test",
+                "state": "test",
+                "zip_code": "test",
+                "country": "US",
+                "phone": "test",
+            },
+            weight=decimal.Decimal("0.01"),
+        )
+        assert instance.is_in_progress is not None
+
     def test_is_in_progress_is_read_only(self) -> None:
         """Assigning to computed field is_in_progress raises AttributeError."""
         _tracking_number = f"test_{uuid.uuid4().hex[:8]}"
@@ -198,6 +217,25 @@ class TestShipmentComputedFields:
         )
         with pytest.raises(AttributeError):
             instance.is_in_progress = True
+
+    def test_days_in_transit_getter_runs(self) -> None:
+        """days_in_transit getter runs and returns its expected value."""
+        _tracking_number = f"test_{uuid.uuid4().hex[:8]}"
+        instance = Shipment(
+            order_id=uuid.UUID("550e8400-e29b-41d4-a716-446655440000"),
+            tracking_number=_tracking_number,
+            carrier=ShippingCarrier.fed_ex,
+            destination={
+                "street": "test",
+                "city": "test",
+                "state": "test",
+                "zip_code": "test",
+                "country": "US",
+                "phone": "test",
+            },
+            weight=decimal.Decimal("0.01"),
+        )
+        assert instance.days_in_transit is not None
 
     def test_days_in_transit_is_read_only(self) -> None:
         """Assigning to computed field days_in_transit raises AttributeError."""

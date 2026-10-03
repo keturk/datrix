@@ -12,6 +12,6 @@ export class HandleProductCreatedHandler implements IEventHandler<ProductCreated
   ) {}
 
   async handle(event: ProductCreatedEvent): Promise<void> {
-console.info('product_created');
+    console.info('product_created');
   }
 }

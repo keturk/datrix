@@ -47,6 +47,7 @@ export async function getDatabaseConfig(
     },
     migrations: {
       path: __dirname + '/../migrations/shipping-db',
+      tableName: 'mikro_orm_migrations_shipping_db',
       emit: 'ts',
     },
     host,

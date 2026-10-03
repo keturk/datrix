@@ -17,7 +17,9 @@ class CheckAvailabilityRequest(BaseModel):
     Generated from DSL struct declaration.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     # Array<Type> defines a collection field
     items: list[OrderLineInput]

@@ -17,7 +17,7 @@ export class HandleOrderConfirmedHandler implements IEventHandler<OrderConfirmed
   ) {}
 
   async handle(event: OrderConfirmedEvent): Promise<void> {
-let reservations: InventoryReservation[] = await (this.inventoryReservationRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(InventoryReservation, 'e_inventory_reservation').select('*').where('e_inventory_reservation.reservation_id = ?', [event.payload.reservationId]).andWhere('e_inventory_reservation.status = ?', [ReservationStatus.Reserved]).getResultList();
+    let reservations: InventoryReservation[] = await (this.inventoryReservationRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(InventoryReservation, 'e_inventory_reservation').select('*').where('e_inventory_reservation.reservation_id = ?', [event.payload.reservationId]).andWhere('e_inventory_reservation.status = ?', [ReservationStatus.Reserved]).getResultList();
     for (const reservation of reservations) {
       reservation.status = ReservationStatus.Confirmed;
       await this.inventoryReservationRepository.getEntityManager().persistAndFlush(reservation);

@@ -16,11 +16,12 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 import ecommerce_notification_service.config._secrets_resolver as _secrets_resolver
+import ecommerce_notification_service.models.notification_db.device_registration  # noqa: F401
+import ecommerce_notification_service.models.notification_db.notification_audit  # noqa: F401
 from ecommerce_notification_service.config.remote_config import (
     build_client as _build_config_client,
 )
 from ecommerce_notification_service.config.settings import assemble_settings
-from ecommerce_notification_service.models.notification_db import notification_audit  # noqa: F401
 from ecommerce_notification_service.notification_db.base import Base  # noqa: F401
 
 # Import Base so autogenerate can detect models
@@ -498,6 +499,61 @@ def get_database_url() -> str:
     return asyncio.run(_assemble_db_url_async())
 
 
+_ENUM_SYNC_VALUES: list[tuple[str, str, str]] = [
+    ("", "device_platform", "ios"),
+    ("", "device_platform", "android"),
+    ("", "device_platform", "web"),
+]
+
+
+def _ensure_enum_types(connection: object) -> None:
+    """Create each declared native enum type in its own schema when absent.
+
+    The migration ledger is append-only, so a revision frozen by an earlier
+    template — which created the type with an UNQUALIFIED ``CREATE TYPE``, landing
+    it wherever the migrating connection's ``search_path`` happened to point — is
+    never rewritten, and Alembic never re-runs it on a database that already
+    applied it. Such a database can therefore carry the block's tables while the
+    enum type sits in a different schema, or is absent from the one the models
+    resolve against, making every runtime cast fail with ``type "<name>" does not
+    exist``.
+
+    This idempotent provisioning step — the same shape as the schema and
+    extension steps above, and running before any migration — creates the type in
+    the block's schema when it is missing there. A type that already exists is
+    left untouched (the ``duplicate_object`` guard); ``_sync_enum_values`` then
+    reconciles its members.
+    """
+    grouped: dict[tuple[str, str], list[str]] = {}
+    for schema, type_name, value in _ENUM_SYNC_VALUES:
+        grouped.setdefault((schema, type_name), []).append(value)
+    for (schema, type_name), values in grouped.items():
+        qualified = f'"{schema}"."{type_name}"' if schema else f'"{type_name}"'
+        labels = ", ".join(f"'{value}'" for value in values)
+        connection.execute(
+            sa.text(
+                f"DO $$ BEGIN CREATE TYPE {qualified} AS ENUM ({labels}); "
+                "EXCEPTION WHEN duplicate_object OR unique_violation THEN null; END $$;"
+            )
+        )
+
+
+def _sync_enum_values(connection: object) -> None:
+    """Ensure all DSL-defined enum values exist in PostgreSQL native enums.
+
+    Runs ``ALTER TYPE ... ADD VALUE IF NOT EXISTS`` for each expected value.
+    The type reference is schema-qualified when the block declares a schema, so
+    the statement targets the same type the block's tables reference rather than
+    depending on the connection ``search_path``. Idempotent — safe to call on
+    every migration invocation.
+    """
+    for schema, type_name, value in _ENUM_SYNC_VALUES:
+        qualified = f'"{schema}"."{type_name}"' if schema else f'"{type_name}"'
+        connection.execute(
+            sa.text(f"ALTER TYPE {qualified} ADD VALUE IF NOT EXISTS '{value}'")
+        )
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
     url = get_database_url()
@@ -522,6 +578,7 @@ def run_migrations_offline() -> None:
 
 def _do_run_migrations(connection: object) -> None:
     """Configure alembic context and run migrations synchronously."""
+    _ensure_enum_types(connection)
     # Before Alembic reads a head: carry one recorded under the legacy default
     # history table onto this block's own table, or fail loud. Alembic itself
     # reads only ``version_table``, so an unadopted head reads as "never
@@ -553,6 +610,8 @@ async def _run_async_migrations(url: str) -> None:
     try:
         async with connectable.begin() as connection:
             await connection.run_sync(_do_run_migrations)
+        async with connectable.begin() as connection:
+            await connection.run_sync(_sync_enum_values)
     finally:
         await connectable.dispose()
 
@@ -570,6 +629,7 @@ def run_migrations_online() -> None:
     injected_connection = config.attributes.get("connection", None)
     if injected_connection is not None:
         _do_run_migrations(injected_connection)
+        _sync_enum_values(injected_connection)
         return
     url = get_database_url()
     asyncio.run(_run_async_migrations(url))

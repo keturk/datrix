@@ -1,0 +1,36 @@
+{
+  "angularCompilerOptions": {
+    "strictTemplates": true
+  },
+  "compileOnSave": false,
+  "compilerOptions": {
+    "declaration": false,
+    "esModuleInterop": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "lib": [
+      "ES2022",
+      "dom"
+    ],
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "paths": {
+      "@libs/api-client/*": [
+        "./libs/api-client/src/lib/*"
+      ],
+      "@libs/api-contract/*": [
+        "./libs/api-contract/src/lib/*"
+      ],
+      "@libs/ui-core/*": [
+        "./libs/ui-core/src/lib/*"
+      ]
+    },
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022"
+  }
+}

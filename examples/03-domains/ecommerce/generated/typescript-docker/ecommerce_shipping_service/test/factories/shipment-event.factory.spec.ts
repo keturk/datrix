@@ -8,13 +8,12 @@ describe('buildShipmentEvent', () => {
     expect(result.status).toBeDefined();
     expect(result.location).toBeDefined();
     expect(result.description).toBeDefined();
-    expect(result.shipmentId).toBeDefined();
     expect(result.shipment).toBeDefined();
   });
 
   it('should apply overrides', () => {
     const overrides = {
-      timestamp: new Date(),
+      timestamp: new Date('2025-01-15T12:00:00Z'),
     };
     const result = buildShipmentEvent(overrides);
     expect(result.timestamp).toEqual(overrides.timestamp);

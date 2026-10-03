@@ -22,10 +22,8 @@ export default () => ({
     credentials: process.env.CORS_CREDENTIALS !== 'false',
   },
   // JWT metadata only. The RS256 verification key is NOT read
-  // here: it is resolved from the PEM file named by JWT_PUBLIC_KEY_FILE at the
-  // point of verification, and the matching private key from
-  // JWT_PRIVATE_KEY_FILE at the point of signing. Both files are provisioned
-  // and mounted by the deployment; no key material is ever baked into
+  // here: it is resolved through the secrets resolver (the jwt_public_key
+  // handle) at the point of verification. No key material is ever baked into
   // generated source or held in this configuration object.
   jwtAlgorithm: process.env.JWT_ALGORITHM ?? 'RS256',
   jwtIssuer: process.env.JWT_ISSUER ?? 'library',

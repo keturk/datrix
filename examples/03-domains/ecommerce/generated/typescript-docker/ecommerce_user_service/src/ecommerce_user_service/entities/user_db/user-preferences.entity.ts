@@ -15,16 +15,16 @@ export class UserPreferences extends BaseEntity {
 
 
   @Property({ columnType: 'varchar', default: 'en' })
-  language!: string;
+  language: string = 'en';
 
   @Property({ columnType: 'varchar', default: 'UTC' })
-  timezone!: string;
+  timezone: string = 'UTC';
 
   @Property({ columnType: 'boolean', fieldName: 'email_notifications', default: true })
-  emailNotifications!: boolean;
+  emailNotifications: boolean = true;
 
   @Property({ columnType: 'boolean', fieldName: 'sms_notifications', default: false })
-  smsNotifications!: boolean;
+  smsNotifications: boolean = false;
 
   @Property({ columnType: 'jsonb', type: 'json' })
   preferences!: Record<string, any>;

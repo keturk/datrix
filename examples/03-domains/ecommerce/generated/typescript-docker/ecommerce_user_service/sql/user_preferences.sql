@@ -18,4 +18,4 @@ ALTER TABLE "user_preferences"
     FOREIGN KEY ("user_id")
     REFERENCES "users" ("id")
     ON DELETE RESTRICT
-    ON UPDATE NO ACTION;
+    ON UPDATE RESTRICT;

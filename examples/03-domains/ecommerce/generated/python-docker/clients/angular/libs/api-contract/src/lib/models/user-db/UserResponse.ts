@@ -6,16 +6,16 @@ import type { UserStatus } from '../ecommerce-user-service/enums/UserStatus';
 
 export interface UserResponse {
   billingAddress?: Address | null;
-  canLogin?: boolean | null;
+  canLogin: boolean;
   createdAt: IsoDateTime;
   email: string;
   emailVerificationToken?: string | null;
   emailVerifiedAt?: IsoDateTime | null;
   firstName: string;
-  fullName?: string | null;
+  fullName: string;
   id: Uuid;
-  isActive?: boolean | null;
-  isVerified?: boolean | null;
+  isActive: boolean;
+  isVerified: boolean;
   lastLoginAt?: IsoDateTime | null;
   lastName: string;
   passwordResetExpiry?: IsoDateTime | null;

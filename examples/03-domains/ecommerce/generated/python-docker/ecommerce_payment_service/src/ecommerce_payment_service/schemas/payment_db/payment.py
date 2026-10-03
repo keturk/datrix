@@ -9,7 +9,7 @@ import datetime
 import decimal
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 from ecommerce_payment_service.enums.payment_method import PaymentMethod
@@ -19,7 +19,9 @@ from ecommerce_payment_service.enums.payment_status import PaymentStatus
 class PaymentCreate(BaseModel):
     """Schema for creating a new Payment."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     order_id: uuid.UUID
     customer_id: uuid.UUID
@@ -38,7 +40,9 @@ class PaymentUpdate(BaseModel):
     All fields are optional for partial updates.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     order_id: uuid.UUID | None = None
     customer_id: uuid.UUID | None = None
@@ -49,6 +53,26 @@ class PaymentUpdate(BaseModel):
     gateway_response: str | None = None
     error_message: str | None = None
     processed_at: datetime.datetime | None = None
+
+    @model_validator(mode="after")
+    def _reject_explicit_null(self) -> PaymentUpdate:
+        """An omitted field is left unchanged; null is a value only on an optional field."""
+        for field_name in (
+            "order_id",
+            "customer_id",
+            "amount",
+            "method",
+            "status",
+            "transaction_id",
+        ):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(
+                    f"{field_name} cannot be null. Omit it to leave the stored value unchanged."
+                )
+        return self
 
 
 class PaymentResponse(BaseModel):
@@ -74,5 +98,5 @@ class PaymentResponse(BaseModel):
     gateway_response: str | None = None
     error_message: str | None = None
     processed_at: datetime.datetime | None = None
-    is_successful: bool | None = None
-    can_refund: bool | None = None
+    is_successful: bool
+    can_refund: bool

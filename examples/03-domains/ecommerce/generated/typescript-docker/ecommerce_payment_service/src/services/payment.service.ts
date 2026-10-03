@@ -90,7 +90,6 @@ export class PaymentService {
   }
 
 
-
   async findByOrderId(orderId: string, skip = 0, take = 100): Promise<Payment[]> {
     return this.em.find(
       Payment,
@@ -107,8 +106,7 @@ export class PaymentService {
   }
   async getByTransactionId(transactionId: string): Promise<Payment> {
     const entity = await this.em.findOne(Payment, {
-      transactionId
-    } as never);
+      transactionId    } as never);
     if (!entity) {
       throw new NotFoundException(`Payment with transactionId ${ transactionId } not found`);
     }

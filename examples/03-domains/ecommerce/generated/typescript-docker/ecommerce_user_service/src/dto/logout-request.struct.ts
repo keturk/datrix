@@ -9,7 +9,7 @@ export class LogoutRequest {
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  revokeAll!: boolean | null;
+  revokeAll: boolean | null = false;
 
 
 }

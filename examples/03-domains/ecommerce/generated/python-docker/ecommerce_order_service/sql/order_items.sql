@@ -18,4 +18,4 @@ ALTER TABLE "order_items"
     FOREIGN KEY ("order_id")
     REFERENCES "orders" ("id")
     ON DELETE RESTRICT
-    ON UPDATE NO ACTION;
+    ON UPDATE RESTRICT;

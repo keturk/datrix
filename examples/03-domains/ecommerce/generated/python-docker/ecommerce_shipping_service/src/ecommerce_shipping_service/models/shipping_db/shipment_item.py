@@ -31,11 +31,11 @@ class ShipmentItem(BaseEntity):
     )
 
     shipment_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("shipments.id"),
+        ForeignKey("shipments.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
     shipment: Mapped["Shipment"] = relationship(
         "Shipment",
-        back_populates="shipment_items",
+        back_populates="shipmentitems",
     )

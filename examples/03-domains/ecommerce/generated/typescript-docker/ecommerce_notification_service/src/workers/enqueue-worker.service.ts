@@ -8,7 +8,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import amqplib from 'amqplib';
 import { EntityManager } from '@mikro-orm/core';
-import { handleSendOrderConfirmation } from './send-order-confirmation.handler';
+import { handleSendOrderConfirmation, handleSendOrderConfirmationTask } from './send-order-confirmation.handler';
 
 const QUEUE_SEND_ORDER_CONFIRMATION = 'order-service.send-order-confirmation';
 
@@ -26,6 +26,17 @@ export class EnqueueWorkerService {
     await this._startRabbitMq();
   }
 
+  /**
+   * Run one SendOrderConfirmation task from its raw message body with this
+   * worker's own infrastructure, outside the broker loop -- for a host (an Azure
+   * Functions queue trigger) that owns delivery and settlement itself. Throws on
+   * failure so the host retries and dead-letters the message.
+   */
+  async runHandleSendOrderConfirmation(messageBody: string): Promise<void> {
+    const em = this.em.fork();
+    await handleSendOrderConfirmationTask(messageBody, em);
+  }
+
   private async _startRabbitMq(): Promise<void> {
     const amqpUrl = process.env.QUEUE_AMQP_URL;
     if (!amqpUrl) {
@@ -40,6 +51,7 @@ export class EnqueueWorkerService {
       ),
     );
     await channel.assertQueue(QUEUE_SEND_ORDER_CONFIRMATION, { durable: true });
+    await channel.assertQueue('order-service.send-order-confirmation.dead-letter', { durable: true });
     await channel.consume(QUEUE_SEND_ORDER_CONFIRMATION, (msg) => {
       if (msg) {
         const em = this.em.fork();

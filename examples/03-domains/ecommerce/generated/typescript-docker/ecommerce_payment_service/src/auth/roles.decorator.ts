@@ -3,12 +3,12 @@ import { SetMetadata } from '@nestjs/common';
 export const ROLES_KEY = 'roles';
 
 /**
- * Specify required roles for a route handler.
+ * Specify required roles for a route handler (flat any-of). AuthGuard reads
+ * this metadata and answers 403 when the principal holds none of the roles.
  *
  * Usage:
  * ```typescript
  * @Roles('admin', 'moderator')
- * @UseGuards(RolesGuard)
  * @Get('admin')
  * adminOnly() { ... }
  * ```

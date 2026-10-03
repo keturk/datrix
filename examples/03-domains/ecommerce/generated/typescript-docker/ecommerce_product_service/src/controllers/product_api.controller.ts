@@ -14,12 +14,15 @@ import {
   HttpStatus,
   ParseUUIDPipe,
   UseGuards,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { AuthGuard } from '../auth/auth.guard';
+import { RateLimitGuard } from '../rate-limit/rate-limit.guard';
 import { Public } from '../auth/public.decorator';
-import { InternalGuard } from '../auth/internal.guard';
-import { RolesGuard } from '../auth/roles.guard';
+import { PrincipalTypes } from '../auth/optional-auth.decorator';
 import { Roles } from '../auth/roles.decorator';
+import { Providers } from '../auth/providers.decorator';
 import { RequiredPipe } from '../pipes/required.pipe';
 import { EntityManager } from '@mikro-orm/core';
 import { InjectRepository } from '@mikro-orm/nestjs';
@@ -42,15 +45,18 @@ import { InventoryReservation } from '../ecommerce_product_service/entities/prod
 import { Product } from '../ecommerce_product_service/entities/product_db/product.entity';
 import { BadRequestException } from '@nestjs/common';
 import { NotFoundException } from '@nestjs/common';
+import { BinaryBodyResult } from '../support/binaryBody';
+import { binaryBody } from '../support/binaryBody';
+import { sendBinaryBody } from '../support/binaryBody';
 import { SqlEntityManager } from '@mikro-orm/postgresql';
 import { _getRedis } from '../ecommerce_product_service/_cacheHelpers';
 import { addSeconds } from 'date-fns';
 import { bufferEvents } from '../eventOutbox';
 import { producerInstance as mqProducerInstance } from '../mq/producer';
-import { ApiExtraModels, ApiResponse, ApiExcludeEndpoint } from '@nestjs/swagger';
+import { ApiExtraModels, ApiResponse, ApiExcludeEndpoint, ApiProduces, ApiOkResponse, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiExtraModels(AvailabilityItem, AvailabilityResponse, BulkProductRequest, CheckAvailabilityRequest, ConfirmReservationRequest, CreateProductRequest, ReleaseReservationRequest, ReservationResponse, ReserveInventoryRequest, UpdateInventoryRequest)
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, RateLimitGuard)
 @Controller('api/v1/products')
 export class ProductAPIController {
   constructor(
@@ -60,8 +66,10 @@ export class ProductAPIController {
     private readonly productDbEm: EntityManager,
   ) {}
 
-  @UseGuards(RolesGuard)
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
   @Roles('Admin')
+  @ApiBearerAuth()
   @Post('')
   @HttpCode(HttpStatus.CREATED)
   async postEndpoint(
@@ -96,25 +104,27 @@ export class ProductAPIController {
     @Query('limit') limit: number | null = null,
     @Query('offset') offset: number | null = null,
   ): Promise<Product[]> {
-    return this.productService.findAll(skip, limit);
+    return await (this.productRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(Product, 'e_product').select('*').where('(e_product.name ILIKE ? OR e_product.description ILIKE ?)', [('%' + String(query) + '%'), ('%' + String(query) + '%')]).where('e_product.status = ?', [ProductStatus.Active]).limit((limit ?? 20)).offset((offset ?? 0)).getResultList();
   }
 
   // 'whereIn(...)' filters by a set of values
-  @Public()
-  @UseGuards(InternalGuard)
+  @Providers('platform', 'test_auth')
+  @PrincipalTypes('machine')
   @ApiExcludeEndpoint()
+  @ApiBearerAuth()
   @Post('service/bulk')
   @HttpCode(HttpStatus.CREATED)
   async postServiceBulk(
     @Body() body: BulkProductRequest,
   ): Promise<Product[]> {
-    return await (this.productRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(Product, 'e_product').select('*').where({ id: { $in: body.ids } }).getResultList();
+    return await (this.productRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(Product, 'e_product').select('*').andWhere({ id: { $in: body.ids } }).getResultList();
   }
 
   // Internal endpoints for cross-service communication
-  @Public()
-  @UseGuards(InternalGuard)
+  @Providers('platform', 'test_auth')
+  @PrincipalTypes('machine')
   @ApiExcludeEndpoint()
+  @ApiBearerAuth()
   @Post('service/check-availability')
   @HttpCode(HttpStatus.CREATED)
   @ApiResponse({ status: 201, type: AvailabilityResponse })
@@ -136,9 +146,10 @@ export class ProductAPIController {
     return Object.assign(new AvailabilityResponse(), { allAvailable: allAvailable, items: availability });
   }
 
-  @Public()
-  @UseGuards(InternalGuard)
+  @Providers('platform', 'test_auth')
+  @PrincipalTypes('machine')
   @ApiExcludeEndpoint()
+  @ApiBearerAuth()
   @Post('service/confirm-reservation')
   @HttpCode(HttpStatus.CREATED)
   async postServiceConfirmReservation(
@@ -152,9 +163,10 @@ export class ProductAPIController {
     console.info('inventory_reservation_confirmed');
   }
 
-  @Public()
-  @UseGuards(InternalGuard)
+  @Providers('platform', 'test_auth')
+  @PrincipalTypes('machine')
   @ApiExcludeEndpoint()
+  @ApiBearerAuth()
   @Post('service/release-reservation')
   @HttpCode(HttpStatus.CREATED)
   async postServiceReleaseReservation(
@@ -181,9 +193,10 @@ export class ProductAPIController {
     console.info('inventory_reservation_released');
   }
 
-  @Public()
-  @UseGuards(InternalGuard)
+  @Providers('platform', 'test_auth')
+  @PrincipalTypes('machine')
   @ApiExcludeEndpoint()
+  @ApiBearerAuth()
   @Post('service/reserve-inventory')
   @HttpCode(HttpStatus.CREATED)
   @ApiResponse({ status: 201, type: ReservationResponse })
@@ -193,7 +206,7 @@ export class ProductAPIController {
     await bufferEvents(async () => {
       await this.productDbEm.transactional(async (manager: EntityManager) => {
       for (const item of body.items) {
-        const product = await this.productRepository.findOne({ id: item.productId });
+        let product = await this.productRepository.findOne({ id: item.productId });
     if (!product) {
       throw new NotFoundException("Not found");
     }
@@ -215,6 +228,72 @@ export class ProductAPIController {
     return Object.assign(new ReservationResponse(), { success: true, reservationId: body.reservationId ?? null });
   }
 
+  // Wire-contract routes: a Bytes route that declares no media type (it answers
+  // application/octet-stream), a Bytes? route that declares one, and a JSON route
+  // whose result can be null. Each returns deterministic content with no external
+  // dependency, so a cross-language wire comparison can call it against a freshly
+  // booted stack: an id that resolves to no product takes the null branch.
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
+  @ApiBearerAuth()
+  @Get('wire/blob')
+  @ApiProduces('application/octet-stream')
+  @ApiOkResponse({ schema: { type: 'string', format: 'binary' } })
+  async getWireBlob(
+    @Res() res: Response,
+  ): Promise<void> {
+    sendBinaryBody(res, await (async (): Promise<BinaryBodyResult> => {
+      return binaryBody(Buffer.from('datrix-wire-contract', 'utf-8'), { mediaType: 'application/octet-stream', nullable: false });
+    })());
+  }
+
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
+  @ApiBearerAuth()
+  @Get('wire/discount/:id')
+  async getWireDiscountById(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<number | null> {
+    const _existsCount = await this.productRepository.count({ id: id });
+    if (_existsCount === 0) {
+      throw new NotFoundException(`Id with id '${id}' not found`);
+    }
+    let product: Product | null = await this.productRepository.findOne({ id: id });
+    if (!product) throw new NotFoundException('product not found');
+    if ((product == null)) {
+      return null;
+    }
+    if ((product.discountPercent === 0)) {
+      return null;
+    }
+    return product.discountPercent;
+  }
+
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
+  @ApiBearerAuth()
+  @Get('wire/image/:id')
+  @ApiProduces('image/png')
+  @ApiOkResponse({ schema: { type: 'string', format: 'binary' } })
+  @ApiResponse({ status: 204, description: 'No Content' })
+  async getWireImageById(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    sendBinaryBody(res, await (async (): Promise<BinaryBodyResult> => {
+      const _existsCount = await this.productRepository.count({ id: id });
+      if (_existsCount === 0) {
+        throw new NotFoundException(`Id with id '${id}' not found`);
+      }
+      let product: Product | null = await this.productRepository.findOne({ id: id });
+      if (!product) throw new NotFoundException('product not found');
+      if ((product == null)) {
+        return binaryBody(null, { mediaType: 'image/png', nullable: true });
+      }
+      return binaryBody(Buffer.from(product.name, 'utf-8'), { mediaType: 'image/png', nullable: true });
+    })());
+  }
+
   @Public()
   @Get('category/:categoryId')
   async getCategoryByCategoryId(
@@ -225,14 +304,19 @@ export class ProductAPIController {
     return await (this.productRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(Product, 'e_product').select('*').where('e_product.category_id = ?', [categoryId]).where('e_product.status = ?', [ProductStatus.Active]).orderBy({ 'e_product.name': 'ASC' }).limit((limit ?? 50)).getResultList();
   }
 
-  @Public()
-  @UseGuards(InternalGuard)
+  @Providers('platform', 'test_auth')
+  @PrincipalTypes('machine')
   @ApiExcludeEndpoint()
+  @ApiBearerAuth()
   @Get('service/:id')
   async getServiceById(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<Product> {
-    return this.productService.findOne(id);
+    const result = await this.productRepository.findOne({ id: id });
+    if (!result) {
+      throw new NotFoundException("Not found");
+    }
+    return result
   }
 
   @Public()
@@ -251,7 +335,7 @@ export class ProductAPIController {
     if ((cached != null)) {
       return cached as any;
     }
-    const product = await (this.productRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(Product, 'e_product').select('*').where('e_product.slug = ?', [slug]).getSingleResult();
+    let product = await (this.productRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(Product, 'e_product').select('*').where('e_product.slug = ?', [slug]).getSingleResult();
     if (!product) {
       throw new NotFoundException("Not found");
     }
@@ -259,14 +343,16 @@ export class ProductAPIController {
     return product;
   }
 
-  @UseGuards(RolesGuard)
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
   @Roles('Admin')
+  @ApiBearerAuth()
   @Patch(':id/inventory')
   async putByIdInventory(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: UpdateInventoryRequest,
   ): Promise<Product> {
-    const product = await this.productRepository.findOne({ id: id });
+    let product = await this.productRepository.findOne({ id: id });
     if (!product) {
       throw new NotFoundException("Not found");
     }
@@ -279,13 +365,15 @@ export class ProductAPIController {
     return product;
   }
 
-  @UseGuards(RolesGuard)
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
   @Roles('Admin')
+  @ApiBearerAuth()
   @Put(':id/publish')
   async putByIdPublish(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<Product> {
-    const product = await this.productRepository.findOne({ id: id });
+    let product = await this.productRepository.findOne({ id: id });
     if (!product) {
       throw new NotFoundException("Not found");
     }
@@ -293,8 +381,10 @@ export class ProductAPIController {
     return product;
   }
 
-  @UseGuards(RolesGuard)
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
   @Roles('Admin')
+  @ApiBearerAuth()
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteProduct(
@@ -317,8 +407,10 @@ export class ProductAPIController {
   // claims POST /api/v1/products so it can generate the slug and dispatch
   // ProductCreated. Listing 'create' as well would give one route two
   // declarations, and only the first would be reachable.
-  @UseGuards(RolesGuard)
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
   @Roles('Admin')
+  @ApiBearerAuth()
   @Patch(':id')
   async updateProduct(
     @Param('id', ParseUUIDPipe) id: string,

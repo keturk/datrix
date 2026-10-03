@@ -39,7 +39,7 @@ export class Order extends BaseEntity {
   orderNumber!: string;
 
   @Enum({ items: () => OrderStatus, nativeEnumName: 'order_status' })
-  status!: OrderStatus;
+  status: OrderStatus = OrderStatus.Pending;
 
   @Property({ columnType: 'decimal' })
   subtotal!: number;

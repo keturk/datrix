@@ -1,6 +1,6 @@
 
 import {
-  IsDate,
+  IsDefined,
   IsEmail,
   IsNotEmpty,
   IsOptional,
@@ -15,14 +15,17 @@ import { Type } from 'class-transformer';
 export class CreateNotificationAuditDto {
 
   @ApiProperty()
+  @IsDefined()
   @IsUUID()
   orderId!: string;
 
   @ApiProperty()
+  @IsDefined()
   @IsEmail()
   recipientEmail!: string;
 
   @ApiProperty()
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   @MaxLength(64)

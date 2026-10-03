@@ -27,4 +27,4 @@ ALTER TABLE "user_sessions"
     FOREIGN KEY ("user_id")
     REFERENCES "users" ("id")
     ON DELETE RESTRICT
-    ON UPDATE NO ACTION;
+    ON UPDATE RESTRICT;

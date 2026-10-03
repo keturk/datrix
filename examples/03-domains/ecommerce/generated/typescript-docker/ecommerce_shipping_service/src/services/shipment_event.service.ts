@@ -51,7 +51,6 @@ export class ShipmentEventService {
 
 
 
-
   async findByShipmentId(shipmentId: string, skip = 0, take = 100): Promise<ShipmentEvent[]> {
     return this.em.find(
       ShipmentEvent,

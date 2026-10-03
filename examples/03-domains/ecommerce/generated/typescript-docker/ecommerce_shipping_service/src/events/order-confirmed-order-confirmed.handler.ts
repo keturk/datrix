@@ -24,7 +24,7 @@ export class HandleOrderConfirmedHandler implements IEventHandler<OrderConfirmed
   ) {}
 
   async handle(event: OrderConfirmedEvent): Promise<void> {
-let carrier: ShippingCarrier = await selectCarrier(event.payload.shippingAddress, event.payload.estimatedWeight);
+    let carrier: ShippingCarrier = await selectCarrier(event.payload.shippingAddress, event.payload.estimatedWeight);
     let estimatedDelivery: Date = await calculateEstimatedDelivery(carrier, event.payload.shippingAddress);
     const shipment = this.shipmentRepository.create({ orderId: event.payload.orderId, trackingNumber: await generateTrackingNumber(), carrier: carrier, destination: event.payload.shippingAddress, weight: event.payload.estimatedWeight, status: ShipmentStatus.Pending, estimatedDelivery: estimatedDelivery } as never);
     await this.shipmentRepository.getEntityManager().persistAndFlush(shipment);

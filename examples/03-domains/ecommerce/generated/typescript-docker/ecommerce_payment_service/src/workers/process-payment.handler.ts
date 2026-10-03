@@ -7,7 +7,7 @@ import type { Channel, ConsumeMessage } from 'amqplib';
 import type { EntityManager } from '@mikro-orm/core';
 import { logger } from '../logging';
 import axios from 'axios';
-import { OrderServiceOrderResponse } from '../clients/order-service-responses';
+import { OrderServiceOrderResponse } from '../clients/ecommerce-order-service-responses';
 import { Payment } from '../ecommerce_payment_service/entities/payment_db/payment.entity';
 import { PaymentMethod } from '../enums/payment-method.enum';
 import { PaymentStatus } from '../enums/payment-status.enum';
@@ -16,30 +16,64 @@ import type {
   ProcessPaymentPayload,
 } from '../queue/payloads';
 
+/**
+ * Run one ProcessPayment task from its raw message body. Throws on an
+ * unparseable body, a payload missing a required key, or a failing task; the
+ * caller settles the message.
+ */
+export async function handleProcessPaymentTask(
+  messageBody: string,
+  em: EntityManager,
+): Promise<void> {
+  const startTime = Date.now();
+  const data = JSON.parse(messageBody) as ProcessPaymentPayload;
+  const missingKeys = (["orderId", "amount", "currency"] as string[]).filter(
+    (key) => !Object.prototype.hasOwnProperty.call(data, key),
+  );
+  if (missingKeys.length > 0) {
+    logger.error(`queue_payload_missing_keys queue=process-payment missing=${missingKeys.join(',')}`);
+    throw new Error(`Missing required queue payload keys: ${missingKeys.join(', ')}`);
+  }
+  logger.debug(`processing_task queue=process-payment`);
+
+  let order: OrderServiceOrderResponse = (await axios.get(`${String(process.env['SERVICE_ECOMMERCE_ORDER_SERVICE_URL'] ?? '').replace(/\/$/, '')}/${String(`/api/v1/orders/service/${data.orderId}`).replace(/^\/+/, '')}`)).data;
+  let customerId: string = order['customerId'];
+  const payment = em.getRepository(Payment).create({ orderId: data.orderId, customerId: customerId, amount: data.amount, method: PaymentMethod.CreditCard, transactionId: await generateTransactionId(), status: PaymentStatus.Pending } as never);
+  await em.getRepository(Payment).getEntityManager().persistAndFlush(payment);
+  console.info('payment_initiated_from_queue');
+  await processPaymentAsync(payment, null, em);
+
+  const durationMs = Date.now() - startTime;
+  logger.debug(`task_completed queue=process-payment duration_ms=${durationMs}`);
+}
+
 export async function handleProcessPayment(
   msg: ConsumeMessage,
   channel: Channel,
   em: EntityManager,
 ): Promise<void> {
-  const startTime = Date.now();
-  const data = JSON.parse(msg.content.toString()) as ProcessPaymentPayload;
-  logger.debug(`processing_task queue=process-payment`);
-
   try {
-    let order: OrderServiceOrderResponse = (await axios.get(`${String(process.env['SERVICE_ECOMMERCE_ORDER_SERVICE_URL'] ?? '').replace(/\/$/, '')}/${String(`/api/v1/orders/service/${data.orderId}`).replace(/^\/+/, '')}`)).data;
-    let customerId: string = order['customerId'];
-    const payment = em.getRepository(Payment).create({ orderId: data.orderId, customerId: customerId, amount: data.amount, method: PaymentMethod.CreditCard, transactionId: await generateTransactionId(), status: PaymentStatus.Pending } as never);
-    await em.getRepository(Payment).getEntityManager().persistAndFlush(payment);
-    console.info('payment_initiated_from_queue');
-    await processPaymentAsync(payment, null, em);
-
+    await handleProcessPaymentTask(msg.content.toString(), em);
     channel.ack(msg);
-    const durationMs = Date.now() - startTime;
-    logger.debug(`task_completed queue=process-payment duration_ms=${durationMs}`);
   } catch (err) {
-    channel.nack(msg, false, true);
+    // RabbitMQ counts no deliveries, so the attempt number travels in a
+    // header: a failed message is republished for another attempt, and once
+    // 5 attempts have failed it is moved to its
+    // dead-letter queue -- never dropped, never retried past the bound.
+    const headers: Record<string, unknown> = { ...(msg.properties.headers ?? {}) };
+    const attempt = Number(headers['x-delivery-attempt'] ?? 1);
+    const exhausted = attempt >= 5;
+    headers['x-delivery-attempt'] = attempt + 1;
+    channel.sendToQueue(
+      exhausted ? 'order-service.process-payment.dead-letter' : 'order-service.process-payment',
+      msg.content,
+      { persistent: true, headers },
+    );
+    channel.ack(msg);
     const message = err instanceof Error ? err.message : String(err);
-    logger.error(`task_failed queue=process-payment error=${message}`);
+    logger.error(
+      `task_failed queue=process-payment attempt=${attempt} dead_lettered=${exhausted} error=${message}`,
+    );
   }
 }
 

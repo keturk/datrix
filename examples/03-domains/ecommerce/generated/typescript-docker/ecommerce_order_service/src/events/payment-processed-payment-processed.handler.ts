@@ -19,7 +19,7 @@ export class HandlePaymentProcessedHandler implements IEventHandler<PaymentProce
   ) {}
 
   async handle(event: PaymentProcessedEvent): Promise<void> {
-const order = await this.orderRepository.findOne({ id: event.payload.orderId });
+    let order = await this.orderRepository.findOne({ id: event.payload.orderId });
     if (!order) {
       throw new NotFoundException("Not found");
     }

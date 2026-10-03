@@ -20,6 +20,41 @@ def _datrix_str(value: object) -> str:
     return str(value)
 
 
+def _datrix_float_or_none(
+    value: decimal.Decimal | float | int | str | None,
+) -> float | None:
+    """A nullable DSL number bound to a ``Float?`` slot: ``None`` flows through unchanged.
+
+    Accepts a ``Decimal``, ``int``, ``float`` or a numeric string -- the form a
+    Decimal-origin number takes after crossing a service boundary as JSON, since
+    ``_json_helpers._json_default`` encodes ``decimal.Decimal`` as a string.
+    """
+    if value is None:
+        return None
+    return float(value)
+
+
+def _datrix_decimal_or_none(
+    value: decimal.Decimal | float | int | str | None,
+) -> decimal.Decimal | None:
+    """A nullable DSL number bound to a ``Decimal?`` slot: ``None`` flows through unchanged.
+
+    Converts through ``str`` so a float's shortest round-trip repr is what the
+    Decimal carries, never the binary expansion ``decimal.Decimal(0.1)`` would;
+    a numeric string (JSON-encoded Decimal) parses as written.
+    """
+    if value is None:
+        return None
+    return decimal.Decimal(str(value))
+
+
+def _datrix_int_or_none(value: float | int | str | None) -> int | None:
+    """A nullable JSON number bound to an ``Integer?`` slot: ``None`` flows through unchanged."""
+    if value is None:
+        return None
+    return int(value)
+
+
 def _datrix_exc_message(exc: BaseException) -> str:
     """Message for a DSL ``<exception>.message`` read, including the cause chain.
 

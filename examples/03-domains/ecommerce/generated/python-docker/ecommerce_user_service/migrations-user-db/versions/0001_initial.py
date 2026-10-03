@@ -242,6 +242,66 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
+    op.create_table(
+        "api_keys",
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+        ),
+        sa.Column(
+            "id",
+            sa.Uuid,
+            primary_key=True,
+            nullable=False,
+        ),
+        sa.Column(
+            "key_hash",
+            sa.String(64),
+            nullable=False,
+            unique=True,
+        ),
+        sa.Column(
+            "owner_id",
+            sa.Uuid,
+            nullable=False,
+        ),
+        sa.Column(
+            "key_prefix",
+            sa.String(12),
+            nullable=False,
+        ),
+        sa.Column(
+            "scopes",
+            sa.JSON(),
+            nullable=False,
+        ),
+        sa.Column(
+            "is_active",
+            sa.Boolean(),
+            nullable=False,
+        ),
+        sa.Column(
+            "expires_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+        ),
+        sa.Column(
+            "last_used_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+        ),
+        sa.Column(
+            "rate_limit",
+            sa.Integer(),
+            nullable=False,
+        ),
+    )
     op.create_index("ix_users_status_role", "users", ["status", "role"], unique=False)
     op.create_index("ix_users_email", "users", ["email"], unique=False)
     op.create_index(
@@ -254,15 +314,18 @@ def upgrade() -> None:
     op.create_index(
         "ix_user_sessions_user_id", "user_sessions", ["user_id"], unique=False
     )
+    op.create_index("ix_api_keys_owner_id", "api_keys", ["owner_id"], unique=False)
 
 
 def downgrade() -> None:
     """Drop indexes then tables (reverse dependency order)."""
+    op.drop_index("ix_api_keys_owner_id", table_name="api_keys")
     op.drop_index("ix_user_sessions_user_id", table_name="user_sessions")
     op.drop_index("ix_user_sessions_token", table_name="user_sessions")
     op.drop_index("ix_user_sessions_user_id_expires_at", table_name="user_sessions")
     op.drop_index("ix_users_email", table_name="users")
     op.drop_index("ix_users_status_role", table_name="users")
+    op.drop_table("api_keys")
     op.drop_table("user_preferences")
     op.drop_table("user_sessions")
     op.drop_table("users")

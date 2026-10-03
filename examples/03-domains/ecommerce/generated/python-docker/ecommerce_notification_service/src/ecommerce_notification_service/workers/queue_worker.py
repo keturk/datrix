@@ -11,6 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+from collections.abc import Awaitable, Callable
+
+import aio_pika
 
 import ecommerce_notification_service.config._secrets_resolver as _secrets_resolver
 from ecommerce_notification_service._queue_helpers import _get_connection
@@ -28,6 +31,55 @@ from ecommerce_notification_service.workers.send_order_confirmation_handler impo
 logger = logging.getLogger(__name__)
 
 QUEUE_SEND_ORDER_CONFIRMATION = "order-service.send-order-confirmation"
+DEAD_LETTER_SEND_ORDER_CONFIRMATION = (
+    "order-service.send-order-confirmation.dead-letter"
+)
+
+_DELIVERY_ATTEMPT_HEADER = "x-delivery-attempt"
+
+_Handler = Callable[[aio_pika.abc.AbstractIncomingMessage], Awaitable[None]]
+
+
+def _settled_by_attempts(
+    channel: aio_pika.abc.AbstractChannel,
+    handler: _Handler,
+    queue_name: str,
+    dead_letter_name: str,
+    max_delivery_attempts: int,
+) -> _Handler:
+    """Run *handler* and settle its message: ack on success; on failure republish
+    it with its next attempt number, or -- once *max_delivery_attempts* have
+    failed -- move it to *dead_letter_name*. RabbitMQ counts no deliveries, so
+    the attempt travels in a message header; a failed message is never dropped
+    and never retried past the bound."""
+
+    async def _settle(message: aio_pika.abc.AbstractIncomingMessage) -> None:
+        try:
+            await handler(message)
+        except Exception:
+            headers = dict(message.headers or {})
+            attempt = int(str(headers.get(_DELIVERY_ATTEMPT_HEADER, 1)))
+            exhausted = attempt >= max_delivery_attempts
+            headers[_DELIVERY_ATTEMPT_HEADER] = attempt + 1
+            target = dead_letter_name if exhausted else queue_name
+            logger.exception(
+                "task_failed queue=%s attempt=%d max_attempts=%d dead_lettered=%s",
+                queue_name,
+                attempt,
+                max_delivery_attempts,
+                exhausted,
+            )
+            await channel.default_exchange.publish(
+                aio_pika.Message(
+                    body=message.body,
+                    headers=headers,
+                    delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                ),
+                routing_key=target,
+            )
+        await message.ack()
+
+    return _settle
 
 
 async def _assemble_settings_for_worker() -> AppSettings:
@@ -54,7 +106,16 @@ async def main() -> None:
         QUEUE_SEND_ORDER_CONFIRMATION,
         durable=True,
     )
-    await queue_send_order_confirmation.consume(handle_send_order_confirmation)
+    await channel.declare_queue(DEAD_LETTER_SEND_ORDER_CONFIRMATION, durable=True)
+    await queue_send_order_confirmation.consume(
+        _settled_by_attempts(
+            channel,
+            handle_send_order_confirmation,
+            QUEUE_SEND_ORDER_CONFIRMATION,
+            DEAD_LETTER_SEND_ORDER_CONFIRMATION,
+            5,
+        )
+    )
 
     logger.info(
         "queue_worker_ready service=notification-service queues=[%s]",

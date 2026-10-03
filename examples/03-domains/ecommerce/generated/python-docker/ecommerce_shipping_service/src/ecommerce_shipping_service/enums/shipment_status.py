@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from ..services._base import ValidationError
+from ecommerce_shipping_service.services._base import ValidationError
 
 
 class ShipmentStatus(str, Enum):

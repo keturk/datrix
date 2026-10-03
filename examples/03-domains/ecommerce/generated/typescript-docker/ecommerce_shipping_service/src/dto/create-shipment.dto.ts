@@ -1,6 +1,7 @@
 
 import {
   IsDate,
+  IsDefined,
   IsEnum,
   IsNotEmpty,
   IsNumber,
@@ -10,6 +11,8 @@ import {
   IsUUID,
   Max,
   MaxLength,
+  ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -20,29 +23,38 @@ import { Address } from './address.struct'
 export class CreateShipmentDto {
 
   @ApiProperty()
+  @IsDefined()
   @IsUUID()
   orderId!: string;
 
   @ApiProperty()
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)
   trackingNumber!: string;
 
   @ApiProperty({ enum: ShippingCarrier, enumName: 'ShippingCarrier' })
+  @IsDefined()
   @IsEnum(ShippingCarrier)
   carrier!: ShippingCarrier;
 
-  @ApiProperty({ enum: ShipmentStatus, enumName: 'ShipmentStatus' })
+  @ApiPropertyOptional({ enum: ShipmentStatus, enumName: 'ShipmentStatus' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsDefined()
   @IsEnum(ShipmentStatus)
-  status!: ShipmentStatus;
+  status?: ShipmentStatus;
 
   @ApiProperty()
+  @IsDefined()
   @IsObject()
+  @ValidateNested()
+  @Type(() => Address)
   destination!: Address;
 
   // Decimal(precision, scale) for fixed-point numbers
   @ApiProperty()
+  @IsDefined()
   @IsNumber()
   weight!: number;
 

@@ -17,7 +17,9 @@ class UpdateProfileRequest(BaseModel):
     Generated from DSL struct declaration.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     first_name: str | None = None
     last_name: str | None = None

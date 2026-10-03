@@ -21,6 +21,8 @@ export default getDatabaseConfig({ get: () => false } as never).then((base) =>
     entities: [Payment, Refund],
     extensions: [Migrator],
     migrations: {
+      // Keeps the block's own history table (tableName) from getDatabaseConfig().
+      ...base.migrations,
       path: './dist/migrations/payment-db',
       pathTs: './src/migrations/payment-db',
       emit: 'ts',

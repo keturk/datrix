@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Mapping
 from enum import Enum as PyEnum
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path
 from pydantic import JsonValue
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,15 +18,10 @@ from starlette.requests import Request
 
 from ecommerce_shipping_service._cache_helpers import _get_redis
 from ecommerce_shipping_service._json_helpers import _json_index
-from ecommerce_shipping_service.auth import (
-    get_current_user,
-    require_providers,
-    require_roles,
-)
+from ecommerce_shipping_service.auth import require_route
 from ecommerce_shipping_service.config._secrets_resolver import (
     get_secret as _get_webhook_secret,
 )
-from ecommerce_shipping_service.dependencies import require_service_endpoint
 from ecommerce_shipping_service.enums.shipment_status import ShipmentStatus
 from ecommerce_shipping_service.enums.shipping_carrier import ShippingCarrier
 from ecommerce_shipping_service.event_outbox import (
@@ -172,6 +167,100 @@ def _encoded_digest(
     return digest.hexdigest()
 
 
+def _extract_signatures(
+    header_value: str,
+    header_layout: str,
+    signature_prefix: str | None,
+    element_separator: str | None,
+    signature_key: str | None,
+) -> tuple[tuple[int, str], list[str], dict[str, list[str]]]:
+    """Pull the candidate signatures out of the signature header.
+
+    Args:
+        header_value: The non-empty raw signature header.
+        header_layout: ``prefixed`` or ``keyed_list``.
+        signature_prefix: For a prefixed layout, the prefix to strip.
+        element_separator: For a keyed list, the element separator.
+        signature_key: For a keyed list, the key holding signatures.
+
+    Returns:
+        ``(outcome, signatures, fields)``: *outcome* is :data:`ACCEPTED` or the
+        400 failure to answer with; *fields* is the parsed keyed list (empty for
+        a prefixed layout), which a timestamp carried in the same header is read
+        from.
+    """
+    if header_layout == HEADER_LAYOUT_PREFIXED:
+        # `is None` rather than falsy: an EMPTY prefix is a real layout -- a
+        # bare keyed-hash header carries the digest and nothing else -- and
+        # treating it as "not declared" would reject every such webhook.
+        if signature_prefix is None:
+            return (400, "webhook signature layout is not declared"), [], {}
+        if not header_value.startswith(signature_prefix):
+            return (400, "webhook signature header malformed"), [], {}
+        return ACCEPTED, [header_value[len(signature_prefix) :]], {}
+    if not element_separator or not signature_key:
+        return (400, "webhook signature layout is not declared"), [], {}
+    fields = _keyed_list_fields(header_value, element_separator)
+    # ONLY the declared key is collected. Every other key is discarded,
+    # which is what makes a lower or test-only scheme carried in the same
+    # header unusable as a downgrade.
+    signatures = fields.get(signature_key, [])
+    if not signatures:
+        return (400, "webhook signature header carries no usable signature"), [], fields
+    return ACCEPTED, signatures, fields
+
+
+def _verified_timestamp(
+    headers: Mapping[str, str],
+    fields: dict[str, list[str]],
+    timestamp_source: str,
+    timestamp_header: str | None,
+    timestamp_key: str | None,
+    tolerance_seconds: int,
+    now: int,
+) -> tuple[tuple[int, str], str]:
+    """Resolve the replay timestamp and enforce the tolerance window.
+
+    Args:
+        headers: The request headers.
+        fields: The parsed keyed-list signature header (empty when prefixed).
+        timestamp_source: Where the replay timestamp comes from.
+        timestamp_header: Header carrying it, when separate.
+        timestamp_key: Key carrying it, when inside the signature header.
+        tolerance_seconds: Replay window.
+        now: Current epoch seconds.
+
+    Returns:
+        ``(outcome, timestamp_raw)``: *outcome* is :data:`ACCEPTED` or the 400
+        failure to answer with; *timestamp_raw* is the timestamp text spliced
+        into the signed payload (empty for a scheme without one).
+    """
+    if timestamp_source == TIMESTAMP_NONE:
+        return ACCEPTED, ""
+    if timestamp_source == TIMESTAMP_SEPARATE_HEADER:
+        timestamp_raw = headers.get(timestamp_header or "", "")
+        if not timestamp_raw:
+            return (
+                400,
+                f"webhook timestamp header missing header={timestamp_header}",
+            ), ""
+    else:
+        values = fields.get(timestamp_key or "", [])
+        if not values:
+            return (400, "webhook signature header carries no timestamp"), ""
+        timestamp_raw = values[0]
+    try:
+        timestamp = int(timestamp_raw)
+    except ValueError:
+        return (400, "webhook timestamp is not an integer"), ""
+    if abs(now - timestamp) > tolerance_seconds:
+        return (
+            400,
+            f"webhook timestamp outside tolerance seconds={tolerance_seconds}",
+        ), ""
+    return ACCEPTED, timestamp_raw
+
+
 def webhook_signature_failure(
     *,
     raw_body: bytes,
@@ -215,55 +304,38 @@ def webhook_signature_failure(
         :data:`ACCEPTED`, or ``(status, reason)`` where status is 400 for a
         request malformed before the check could run and 401 for a check that
         ran and failed. The reason is for server-side logging only.
+
+    Raises:
+        ValueError: If *secret* is empty or whitespace only. A keyed hash under
+            a blank key is computable by any caller, so verifying against one
+            would accept forged requests; this is a server fault, never a
+            request failure, and it is refused before any comparison runs.
     """
+    if not secret.strip():
+        raise ValueError(
+            "webhook secret is blank; refusing to verify a signature against an "
+            "empty key. Provision a non-blank secret for this webhook's handle."
+        )
     header_value = headers.get(signature_header)
     if not header_value:
         return 400, f"webhook signature missing header={signature_header}"
 
-    fields: dict[str, list[str]] = {}
-    if header_layout == HEADER_LAYOUT_PREFIXED:
-        # `is None` rather than falsy: an EMPTY prefix is a real layout -- a
-        # bare keyed-hash header carries the digest and nothing else -- and
-        # treating it as "not declared" would reject every such webhook.
-        if signature_prefix is None:
-            return 400, "webhook signature layout is not declared"
-        if not header_value.startswith(signature_prefix):
-            return 400, "webhook signature header malformed"
-        signatures = [header_value[len(signature_prefix) :]]
-    else:
-        if not element_separator or not signature_key:
-            return 400, "webhook signature layout is not declared"
-        fields = _keyed_list_fields(header_value, element_separator)
-        # ONLY the declared key is collected. Every other key is discarded,
-        # which is what makes a lower or test-only scheme carried in the same
-        # header unusable as a downgrade.
-        signatures = fields.get(signature_key, [])
-        if not signatures:
-            return 400, "webhook signature header carries no usable signature"
-
-    timestamp_raw = ""
-    if timestamp_source != TIMESTAMP_NONE:
-        if timestamp_source == TIMESTAMP_SEPARATE_HEADER:
-            timestamp_raw = headers.get(timestamp_header or "", "")
-            if not timestamp_raw:
-                return (
-                    400,
-                    f"webhook timestamp header missing header={timestamp_header}",
-                )
-        else:
-            values = fields.get(timestamp_key or "", [])
-            if not values:
-                return 400, "webhook signature header carries no timestamp"
-            timestamp_raw = values[0]
-        try:
-            timestamp = int(timestamp_raw)
-        except ValueError:
-            return 400, "webhook timestamp is not an integer"
-        if abs(now - timestamp) > tolerance_seconds:
-            return (
-                400,
-                f"webhook timestamp outside tolerance seconds={tolerance_seconds}",
-            )
+    outcome, signatures, fields = _extract_signatures(
+        header_value, header_layout, signature_prefix, element_separator, signature_key
+    )
+    if outcome != ACCEPTED:
+        return outcome
+    outcome, timestamp_raw = _verified_timestamp(
+        headers,
+        fields,
+        timestamp_source,
+        timestamp_header,
+        timestamp_key,
+        tolerance_seconds,
+        now,
+    )
+    if outcome != ACCEPTED:
+        return outcome
 
     expected = _encoded_digest(
         secret,
@@ -273,7 +345,14 @@ def webhook_signature_failure(
     )
     # ANY declared signature may match, and every comparison is constant-time.
     # `==` here would leak the digest one byte at a time under timing analysis.
-    if not any(hmac.compare_digest(expected, candidate) for candidate in signatures):
+    # Compared as bytes: `compare_digest` rejects a `str` holding any non-ASCII
+    # character with a TypeError, which would turn a caller's garbage header
+    # into a 500 instead of the 401 a mismatch is.
+    expected_bytes = expected.encode("ascii")
+    if not any(
+        hmac.compare_digest(expected_bytes, candidate.encode("utf-8"))
+        for candidate in signatures
+    ):
         return 401, "webhook signature mismatch"
     return ACCEPTED
 
@@ -288,10 +367,10 @@ async def calculate_rate(
     carrier: ShippingCarrier, destination: Address, weight: decimal.Decimal
 ) -> decimal.Decimal:
     base_rate: float = 5.99
-    weight_rate: float = weight * 0.5
+    weight_rate: float = float((weight * decimal.Decimal("0.5")))
     if destination.country != "US":
         base_rate = 25.99
-        weight_rate = weight * 1.5
+        weight_rate = float((weight * decimal.Decimal("1.5")))
     carrier_multiplier: float = 1.0
     if carrier == ShippingCarrier.fed_ex:
         carrier_multiplier = 1.2
@@ -304,16 +383,15 @@ async def map_fed_ex_status(event_type: str) -> ShipmentStatus:
     return ShipmentStatus.equalsKeyword(event_type, ShipmentStatus.in_transit)
 
 
-@router.post(
-    "",
-    response_model=ShipmentResponse,
-    include_in_schema=False,
-    dependencies=[Depends(require_service_endpoint)],
-)
+@router.post("", response_model=ShipmentResponse, include_in_schema=False)
 async def post_endpoint(
     request: CreateShipmentRequest = Body(...),
     shipping_db: AsyncSession = Depends(get_shipping_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["platform", "test_auth"], roles=[], principal_types=["machine"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> Shipment:
     carrier: ShippingCarrier = select_carrier(request.destination, request.weight)
@@ -564,15 +642,15 @@ async def get_track_by_tracking_number(
     )
 
 
-@router.get(
-    "/order/{order_id}",
-    response_model=ShipmentResponse,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.get("/order/{order_id}", response_model=ShipmentResponse)
 async def get_order_by_order_id(
     order_id: uuid.UUID = Path(...),
     shipping_db: AsyncSession = Depends(get_shipping_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"], roles=[], principal_types=["human"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> Shipment:
     result = (
@@ -589,43 +667,22 @@ async def get_order_by_order_id(
     return result
 
 
-@router.get(
-    "/{id}/shipment_events",
-    response_model=list[ShipmentEventResponse],
-    dependencies=[Depends(require_providers(["test_auth"]))],
-)
-async def list_shipment_events(
-    id: uuid.UUID = Path(...),
-    skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=20, ge=1, le=100),
-    shipping_db: AsyncSession = Depends(get_shipping_db_db),
-    current_user=Depends(get_current_user),
-    _rate_limit=Depends(enforce_plan_rate_limit),
-) -> list[ShipmentEvent]:
-    # Verify parent exists (raises EntityNotFoundError -> 404)
-    shipment_service = ShipmentService(shipping_db)
-    await shipment_service.get(id)
-    # Get children
-    shipment_event_service = ShipmentEventService(shipping_db)
-    return await shipment_event_service.get_by_shipment(
-        shipment_id=id, skip=skip, limit=limit
-    )
-
-
-@router.post(
-    "/{id}/events",
-    response_model=ShipmentEventResponse,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.post("/{id}/events", response_model=ShipmentEventResponse)
 async def post_by_id_events(
     request: AddTrackingEventRequest = Body(...),
-    id: uuid.UUID = Path(...),
+    id_: uuid.UUID = Path(..., alias="id"),
     shipping_db: AsyncSession = Depends(get_shipping_db_db),
-    current_user=Depends(require_roles(["Admin"])),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"],
+            roles=["Admin"],
+            principal_types=["human"],
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> ShipmentEvent:
     service = ShipmentService(shipping_db)
-    shipment = await service.get(id)
+    shipment = await service.get(id_)
     if shipment is None:
         raise HTTPException(status_code=404, detail="Not found")
     _shipment_event_svc = ShipmentEventService(shipping_db)
@@ -649,8 +706,8 @@ async def post_by_id_events(
             shipment.id,
             ShipmentUpdate(
                 **{
-                    "actual_delivery": datetime.datetime.now(datetime.timezone.utc),
-                    "status": request.status,
+                    "actual_delivery": shipment.actual_delivery,
+                    "status": shipment.status,
                 }
             ),
         )
@@ -658,20 +715,22 @@ async def post_by_id_events(
     return event
 
 
-@router.put(
-    "/{id}/status",
-    response_model=ShipmentResponse,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.put("/{id}/status", response_model=ShipmentResponse)
 async def put_by_id_status(
     request: UpdateShipmentStatusRequest = Body(...),
-    id: uuid.UUID = Path(...),
+    id_: uuid.UUID = Path(..., alias="id"),
     shipping_db: AsyncSession = Depends(get_shipping_db_db),
-    current_user=Depends(require_roles(["Admin"])),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"],
+            roles=["Admin"],
+            principal_types=["human"],
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> Shipment:
     service = ShipmentService(shipping_db)
-    shipment = await service.get(id)
+    shipment = await service.get(id_)
     if shipment is None:
         raise HTTPException(status_code=404, detail="Not found")
     old_status: ShipmentStatus = shipment.status
@@ -682,10 +741,7 @@ async def put_by_id_status(
     shipment = await _shipment_svc.update(
         shipment.id,
         ShipmentUpdate(
-            **{
-                "actual_delivery": datetime.datetime.now(datetime.timezone.utc),
-                "status": request.status,
-            }
+            **{"actual_delivery": shipment.actual_delivery, "status": shipment.status}
         ),
     )
     _shipment_event_svc = ShipmentEventService(shipping_db)
@@ -710,23 +766,23 @@ async def put_by_id_status(
     await _get_redis().delete(("shipment:" + f":{str(shipment.tracking_number)}"))
     logger.info(
         "shipment_status_updated shipment_id=%s old_status=%s new_status=%s",
-        id,
+        id_,
         old_status,
         request.status,
     )
     return shipment
 
 
-@router.get(
-    "/{id}",
-    response_model=ShipmentResponse,
-    dependencies=[Depends(require_providers(["identity", "test_auth"]))],
-)
+@router.get("/{id}", response_model=ShipmentResponse)
 async def get_shipment(
-    id: uuid.UUID = Path(...),
+    id_: uuid.UUID = Path(..., alias="id"),
     shipping_db: AsyncSession = Depends(get_shipping_db_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        require_route(
+            providers=["identity", "test_auth"], roles=[], principal_types=["human"]
+        )
+    ),
     _rate_limit=Depends(enforce_plan_rate_limit),
 ) -> Shipment:
     service = ShipmentService(shipping_db)
-    return await service.get(id)
+    return await service.get(id_)

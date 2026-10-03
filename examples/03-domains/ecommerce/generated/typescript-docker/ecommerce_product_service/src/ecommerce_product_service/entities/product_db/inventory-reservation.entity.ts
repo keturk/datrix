@@ -28,13 +28,13 @@ export class InventoryReservation extends BaseEntity {
   quantity!: number;
 
   @Enum({ items: () => ReservationStatus, nativeEnumName: 'reservation_status' })
-  status!: ReservationStatus;
+  status: ReservationStatus = ReservationStatus.Reserved;
 
   @Property({ columnType: 'timestamptz', fieldName: 'expires_at' })
   expiresAt!: Date;
 
 
-  @ManyToOne({ entity: () => Product, deleteRule: 'restrict', fieldName: 'product_id' })
+  @ManyToOne({ entity: () => Product, inversedBy: 'inventoryreservations', deleteRule: 'restrict', fieldName: 'product_id' })
   product!: Product;
 
 

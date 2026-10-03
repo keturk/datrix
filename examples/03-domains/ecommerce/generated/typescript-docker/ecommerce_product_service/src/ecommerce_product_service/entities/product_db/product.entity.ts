@@ -3,6 +3,8 @@ import {
   Property,
   Enum,
   ManyToOne,
+  OneToMany,
+  Collection,
   Index,
   OptionalProps,
   wrap,
@@ -12,6 +14,7 @@ import type { EventEmitter2 } from '@nestjs/event-emitter';
 import { _fieldChanged, _fieldOldValue } from '../../../entity-hook-helpers';
 
 import { Category } from './category.entity';
+import { InventoryReservation } from './inventory-reservation.entity';
 import { ProductStatus } from '../../../enums/product-status.enum';
 import { BaseEntity } from './base-entity.entity';
 
@@ -39,7 +42,7 @@ export class Product extends BaseEntity {
   compareAtPrice!: number | null;
 
   @Property({ columnType: 'int', default: 0 })
-  inventory!: number;
+  inventory: number = 0;
 
   @Property({ columnType: 'varchar' })
   name!: string;
@@ -48,7 +51,7 @@ export class Product extends BaseEntity {
   description!: string;
 
   @Enum({ items: () => ProductStatus, nativeEnumName: 'product_status' })
-  status!: ProductStatus;
+  status: ProductStatus = ProductStatus.Draft;
 
   @Property({ columnType: 'jsonb', type: 'json', fieldName: 'product_metadata', nullable: true })
   productMetadata!: Record<string, any> | null;
@@ -62,6 +65,8 @@ export class Product extends BaseEntity {
 
   @ManyToOne({ entity: () => Category, inversedBy: 'products', deleteRule: 'restrict', fieldName: 'category_id' })
   category!: Category;
+  @OneToMany({ entity: () => InventoryReservation, mappedBy: 'product' })
+  inventoryreservations = new Collection<InventoryReservation>(this);
 
   get isAvailable(): boolean {
     return ((this.status === ProductStatus.Active) && this.hasStock());

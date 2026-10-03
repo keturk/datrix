@@ -9,7 +9,6 @@ import datetime
 import uuid
 from dataclasses import dataclass, field
 
-from ecommerce_product_service.enums.reservation_status import ReservationStatus
 from ecommerce_product_service.models.product_db.inventory_reservation import (
     InventoryReservation,
 )
@@ -19,30 +18,18 @@ from ecommerce_product_service.models.product_db.inventory_reservation import (
 class InventoryReservationFactory:
     """Factory for creating InventoryReservation test instances."""
 
-    created_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    updated_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    id: uuid.UUID = field(default_factory=uuid.uuid4)
-    reservation_id: uuid.UUID = field(default_factory=uuid.uuid4)
+    reservation_id: uuid.UUID = field(default_factory=lambda: uuid.uuid4())
     quantity: int = 1
-    status: ReservationStatus = ReservationStatus.reserved
-    expires_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    expires_at: datetime.datetime = datetime.datetime(
+        2025, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc
     )
-    product_id: uuid.UUID = field(default_factory=uuid.uuid4)
+    product_id: uuid.UUID = field(default_factory=lambda: uuid.uuid4())
 
     def build(self) -> InventoryReservation:
         """Build a model instance from factory defaults."""
         return InventoryReservation(
-            created_at=self.created_at,
-            updated_at=self.updated_at,
-            id=self.id,
             reservation_id=self.reservation_id,
             quantity=self.quantity,
-            status=self.status,
             expires_at=self.expires_at,
             product_id=self.product_id,
         )
@@ -52,7 +39,6 @@ class InventoryReservationFactory:
         return {
             "reservation_id": str(self.reservation_id),
             "quantity": self.quantity,
-            "status": self.status,
             "expires_at": str(self.expires_at),
             "product_id": str(self.product_id),
         }

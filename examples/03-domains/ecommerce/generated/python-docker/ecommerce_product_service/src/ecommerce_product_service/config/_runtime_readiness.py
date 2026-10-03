@@ -78,10 +78,11 @@ class ReadinessReport:
 # Each entry: (logical_name, rendered_name). Values are NEVER baked here.
 _REQUIRED_SECRET_HANDLES: tuple[tuple[str, str], ...] = (
     ("docdb_secret-key", "docdb_secret-key"),
-    ("jwt_public_key", "jwt_public_key"),
     ("minio_access_key", "minio_access_key"),
     ("minio_secret_key", "minio_secret_key"),
+    ("mq_sasl_password", "mq_sasl_password"),
     ("product_db_password", "product_db_password"),
+    ("redis_password", "redis_password"),
 )
 
 _REQUIRED_CONFIG_KEYS: tuple[tuple[str, str], ...] = (
@@ -99,6 +100,7 @@ _REQUIRED_CONFIG_KEYS: tuple[tuple[str, str], ...] = (
     ("redis_host", "redis_host"),
     ("redis_port", "redis_port"),
     ("store_endpoint", "store_endpoint"),
+    ("store_public_endpoint", "store_public_endpoint"),
 )
 
 

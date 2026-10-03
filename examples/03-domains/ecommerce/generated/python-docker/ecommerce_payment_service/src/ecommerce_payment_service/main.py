@@ -266,8 +266,9 @@ def create_app() -> FastAPI:
 
     # Middleware
     # Trusted-host enforcement (Starlette TrustedHostMiddleware).
-    # Allowed hosts are baked at generation time from httpSecurity.allowedHosts;
-    # no runtime environment reads.
+    # Allowed hosts are baked at generation time from httpSecurity.allowedHosts,
+    # the platform's front-door host patterns and this service's own in-network
+    # name (the host peers dial); no runtime environment reads.
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=ALLOWED_HOSTS,

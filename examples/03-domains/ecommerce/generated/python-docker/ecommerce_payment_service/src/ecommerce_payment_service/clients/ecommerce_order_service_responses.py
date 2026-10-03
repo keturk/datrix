@@ -6,8 +6,7 @@ One dependency-prefixed Pydantic model is materialized per type in the transitiv
 return-type closure of every typed inter-service call to ecommerce.OrderService, plus
 a per-struct decoder that maps the provider's on-the-wire key casing
 (python) onto the caller's struct fields recursively through the
-whole closure. The decoder is the explicit read-side twin of the request-side
-``_ms_snake_keys`` helper: it fails loud — naming the field, struct, and service —
+whole closure. The decoder fails loud — naming the field, struct, and service —
 on a required field that is missing on the wire (contract drift / casing miss),
 while an absent ``Optional`` field decodes to ``None``.
 """
@@ -85,11 +84,11 @@ class OrderServiceOrderResponse(BaseModel):
     cancellation_reason: str | None = Field(
         default=None, serialization_alias="cancellationReason"
     )
-    total: decimal.Decimal | None = None
-    can_cancel: bool | None = Field(default=None, serialization_alias="canCancel")
-    is_completed: bool | None = Field(default=None, serialization_alias="isCompleted")
-    is_pending_or_payment_pending: bool | None = Field(
-        default=None, serialization_alias="isPendingOrPaymentPending"
+    total: decimal.Decimal
+    can_cancel: bool = Field(serialization_alias="canCancel")
+    is_completed: bool = Field(serialization_alias="isCompleted")
+    is_pending_or_payment_pending: bool = Field(
+        serialization_alias="isPendingOrPaymentPending"
     )
 
 
@@ -213,7 +212,7 @@ def decode_order_service_order_response(payload: object) -> OrderServiceOrderRes
         struct_name="OrderServiceOrderResponse",
         is_optional=False,
     )
-    id: uuid.UUID = _raw_id  # type: ignore[assignment]
+    id_: uuid.UUID = _raw_id  # type: ignore[assignment]
     _raw_customer_id = _read_field(
         data,
         wire_key="customerId",
@@ -327,37 +326,37 @@ def decode_order_service_order_response(payload: object) -> OrderServiceOrderRes
         wire_key="total",
         field_name="total",
         struct_name="OrderServiceOrderResponse",
-        is_optional=True,
+        is_optional=False,
     )
-    total: decimal.Decimal | None = _raw_total  # type: ignore[assignment]
+    total: decimal.Decimal = _raw_total  # type: ignore[assignment]
     _raw_can_cancel = _read_field(
         data,
         wire_key="canCancel",
         field_name="can_cancel",
         struct_name="OrderServiceOrderResponse",
-        is_optional=True,
+        is_optional=False,
     )
-    can_cancel: bool | None = _raw_can_cancel  # type: ignore[assignment]
+    can_cancel: bool = _raw_can_cancel  # type: ignore[assignment]
     _raw_is_completed = _read_field(
         data,
         wire_key="isCompleted",
         field_name="is_completed",
         struct_name="OrderServiceOrderResponse",
-        is_optional=True,
+        is_optional=False,
     )
-    is_completed: bool | None = _raw_is_completed  # type: ignore[assignment]
+    is_completed: bool = _raw_is_completed  # type: ignore[assignment]
     _raw_is_pending_or_payment_pending = _read_field(
         data,
         wire_key="isPendingOrPaymentPending",
         field_name="is_pending_or_payment_pending",
         struct_name="OrderServiceOrderResponse",
-        is_optional=True,
+        is_optional=False,
     )
-    is_pending_or_payment_pending: bool | None = _raw_is_pending_or_payment_pending  # type: ignore[assignment]
+    is_pending_or_payment_pending: bool = _raw_is_pending_or_payment_pending  # type: ignore[assignment]
     return OrderServiceOrderResponse(
         created_at=created_at,
         updated_at=updated_at,
-        id=id,
+        id=id_,
         customer_id=customer_id,
         order_number=order_number,
         status=status,

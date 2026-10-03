@@ -8,8 +8,7 @@ import { queueClientInstance } from '../queue/client';
 
 export async function orderDbOrderAfterCreate(
   target: Order,
-  db: EntityManager,
-  oldValues?: Record<string, unknown>,
+  em: EntityManager,
 ): Promise<void> {
   if (mqProducerInstance !== null) {
     await mqProducerInstance.publishOrderCreated({ orderId: target.id, orderNumber: target.orderNumber, customerId: target.customerId, total: target.total, reservationId: target.inventoryReservationId });

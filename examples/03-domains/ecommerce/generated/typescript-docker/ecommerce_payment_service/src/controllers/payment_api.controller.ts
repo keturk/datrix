@@ -16,8 +16,9 @@ import {
 import type { Request } from 'express';
 import { AuthGuard } from '../auth/auth.guard';
 import { Public } from '../auth/public.decorator';
-import { RolesGuard } from '../auth/roles.guard';
+import { PrincipalTypes } from '../auth/optional-auth.decorator';
 import { Roles } from '../auth/roles.decorator';
+import { Providers } from '../auth/providers.decorator';
 import { WebhookVerify, WebhookVerifyGuard } from '../auth/webhook-verify.guard';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import { EntityRepository } from '@mikro-orm/core';
@@ -33,11 +34,12 @@ import { Payment } from '../ecommerce_payment_service/entities/payment_db/paymen
 import { Refund } from '../ecommerce_payment_service/entities/payment_db/refund.entity';
 import { BadRequestException } from '@nestjs/common';
 import { NotFoundException } from '@nestjs/common';
+import { UnauthorizedException } from '@nestjs/common';
 import { MAX_PAGE_SIZE } from '../constants';
 import { SqlEntityManager } from '@mikro-orm/postgresql';
 import { generateTransactionId } from '../functions';
 import { processRefundViaGateway } from '../functions';
-import { ApiExtraModels } from '@nestjs/swagger';
+import { ApiExtraModels, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiExtraModels(ProcessPaymentRequest, RefundPaymentRequest, StripeWebhookRequest)
 @UseGuards(AuthGuard)
@@ -51,6 +53,9 @@ export class PaymentAPIController {
     @InjectRepository(Refund) private readonly refundRepository: EntityRepository<Refund>,
   ) {}
 
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
+  @ApiBearerAuth()
   @Get('my-payments')
   async getMyPayments(
     @Req() req: Request,
@@ -59,18 +64,21 @@ export class PaymentAPIController {
     @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
   ): Promise<Payment[]> {
-    let customerId: string = ((u) => (u == null ? u : { ...u, id: u.id ?? u.sub }))((req as any).user).id;
+    let customerId: string = (() => { const p = req.user ?? (() => { throw new UnauthorizedException({ type: 'about:blank', title: 'Unauthorized', status: 401 }); })(); return { ...p, id: p.userId }; })().id;
     let cappedPerPage: number = Math.min(perPage, MAX_PAGE_SIZE);
     return await (this.paymentRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(Payment, 'e_payment').select('*').where('e_payment.customer_id = ?', [customerId]).orderBy({ 'e_payment.created_at': 'DESC' }).offset(((page - 1) * cappedPerPage)).limit(cappedPerPage).getResultList();
   }
 
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
+  @ApiBearerAuth()
   @Post('process')
   @HttpCode(HttpStatus.CREATED)
   async postProcess(
     @Body() body: ProcessPaymentRequest,
     @Req() req: Request,
   ): Promise<Payment> {
-    let customerId: string = ((u) => (u == null ? u : { ...u, id: u.id ?? u.sub }))((req as any).user).id;
+    let customerId: string = (() => { const p = req.user ?? (() => { throw new UnauthorizedException({ type: 'about:blank', title: 'Unauthorized', status: 401 }); })(); return { ...p, id: p.userId }; })().id;
     const payment = this.paymentRepository.create({ orderId: body.orderId, customerId: customerId, amount: body.amount, method: body.method, transactionId: await generateTransactionId(), status: PaymentStatus.Pending } as never);
     await this.paymentRepository.getEntityManager().persistAndFlush(payment);
     // Delegate to async processing function
@@ -113,6 +121,9 @@ export class PaymentAPIController {
     }
   }
 
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
+  @ApiBearerAuth()
   @Get('order/:orderId')
   async getOrderByOrderId(
     @Param('orderId', ParseUUIDPipe) orderId: string,
@@ -124,25 +135,17 @@ export class PaymentAPIController {
     return result
   }
 
-  @Get(':id/refunds')
-  async listPaymentRefunds(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
-  ): Promise<Refund[]> {
-    await this.paymentService.findOne(id);
-    return this.refundService.getByPayment(id, skip, limit);
-  }
-
-  @UseGuards(RolesGuard)
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
   @Roles('Admin')
+  @ApiBearerAuth()
   @Post(':id/refund')
   @HttpCode(HttpStatus.CREATED)
   async postByIdRefund(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: RefundPaymentRequest,
   ): Promise<Refund> {
-    const payment = await this.paymentRepository.findOne({ id: id });
+    let payment = await this.paymentRepository.findOne({ id: id });
     if (!payment) {
       throw new NotFoundException("Not found");
     }
@@ -178,6 +181,9 @@ export class PaymentAPIController {
     return refund;
   }
 
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
+  @ApiBearerAuth()
   @Get(':id')
   async getPayment(
     @Param('id', ParseUUIDPipe) id: string,

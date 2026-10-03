@@ -4,9 +4,12 @@
  * Supported modes:
  *   signature:    HMAC over raw request body using a per-provider secret env var.
  *   sharedSecret: Constant-time header comparison against a shared secret env var.
- *   mtls:         Mutual TLS — peer certificate or forwarded-cert header presence.
  *   hmac:         Sender-generic keyed hash over the raw request body, with a
  *                 declared header/algorithm/encoding (no provider registry).
+ *
+ * There is no mTLS mode: generation rejects verify(mtls), because verifying a
+ * client certificate needs a TLS terminator that requests and verifies it before
+ * the request reaches this code -- no header or socket check here can.
  *
  * Failures return opaque 401/400 responses; the real reason is logged via the
  * Nest Logger so secrets never leak to the client.
@@ -27,7 +30,7 @@ import type { Request } from 'express';
 
 export const WEBHOOK_VERIFY_KEY = 'webhookVerify';
 
-export type WebhookVerifyMode = 'signature' | 'sharedSecret' | 'mtls' | 'hmac';
+export type WebhookVerifyMode = 'signature' | 'sharedSecret' | 'hmac';
 
 export type SignatureHeaderLayout = 'prefixed' | 'keyed-list';
 export type SignatureTimestampSource = 'none' | 'signature-header' | 'separate-header';
@@ -63,7 +66,6 @@ export const WebhookVerify = (config: WebhookVerifyConfig) =>
 const VERIFICATION_FAILED = 'Webhook verification failed';
 const VERIFICATION_UNAVAILABLE = 'Webhook verification unavailable';
 const SHARED_SECRET_HEADER = 'x-webhook-secret';
-const CLIENT_CERT_HEADER = 'x-client-cert';
 
 @Injectable()
 export class WebhookVerifyGuard implements CanActivate {
@@ -78,8 +80,6 @@ export class WebhookVerifyGuard implements CanActivate {
         return this.verifySignature(request);
       case 'sharedSecret':
         return this.verifySharedSecret(request);
-      case 'mtls':
-        return this.verifyMtls(request);
       case 'hmac':
         return this.verifyHmac(request);
       default: {
@@ -96,7 +96,9 @@ export class WebhookVerifyGuard implements CanActivate {
       throw new HttpException(VERIFICATION_UNAVAILABLE, HttpStatus.INTERNAL_SERVER_ERROR);
     }
     const secret = process.env[envVar];
-    if (!secret) {
+    // A blank secret (empty or whitespace only) is refused like an absent one:
+    // a keyed hash or comparison under an empty key is forgeable by any caller.
+    if (!secret || secret.trim().length === 0) {
       this.logger.error(`Webhook secret env var not configured: ${envVar}`);
       throw new HttpException(VERIFICATION_UNAVAILABLE, HttpStatus.INTERNAL_SERVER_ERROR);
     }
@@ -110,16 +112,6 @@ export class WebhookVerifyGuard implements CanActivate {
       return false;
     }
     return timingSafeEqual(bufferA, bufferB);
-  }
-
-  private hasPeerCertificate(cert: unknown): boolean {
-    if (!cert) {
-      return false;
-    }
-    if (typeof cert === 'object' && Object.keys(cert as Record<string, unknown>).length === 0) {
-      return false;
-    }
-    return true;
   }
 
   private verifySignature(request: Request): boolean {
@@ -282,16 +274,6 @@ export class WebhookVerifyGuard implements CanActivate {
     const secret = this.requireSecret();
     if (!this.constantTimeEquals(provided, secret)) {
       this.logger.warn('Webhook shared-secret mismatch');
-      throw new HttpException(VERIFICATION_FAILED, HttpStatus.UNAUTHORIZED);
-    }
-    return true;
-  }
-
-  private verifyMtls(request: Request): boolean {
-    const peerCert = (request.socket as { getPeerCertificate?: () => unknown }).getPeerCertificate?.();
-    const forwardedCert = request.header(CLIENT_CERT_HEADER);
-    if (!this.hasPeerCertificate(peerCert) && !forwardedCert) {
-      this.logger.warn('Webhook mTLS client certificate absent');
       throw new HttpException(VERIFICATION_FAILED, HttpStatus.UNAUTHORIZED);
     }
     return true;

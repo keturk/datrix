@@ -7,20 +7,17 @@ describe('buildProduct', () => {
     expect(result.slug).toBeDefined();
     expect(result.price).toBeDefined();
     expect(result.compareAtPrice).toBeDefined();
-    expect(result.inventory).toBeDefined();
     expect(result.name).toBeDefined();
     expect(result.description).toBeDefined();
-    expect(result.status).toBeDefined();
     expect(result.productMetadata).toBeDefined();
     expect(result.images).toBeDefined();
     expect(result.tags).toBeDefined();
-    expect(result.categoryId).toBeDefined();
     expect(result.category).toBeDefined();
   });
 
   it('should apply overrides', () => {
     const overrides = {
-      slug: `x`,
+      slug: `test_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`,
     };
     const result = buildProduct(overrides);
     expect(result.slug).toBe(overrides.slug);

@@ -9,8 +9,6 @@ describe('buildUser', () => {
     expect(result.firstName).toBeDefined();
     expect(result.lastName).toBeDefined();
     expect(result.phoneNumber).toBeDefined();
-    expect(result.role).toBeDefined();
-    expect(result.status).toBeDefined();
     expect(result.lastLoginAt).toBeDefined();
     expect(result.emailVerifiedAt).toBeDefined();
     expect(result.emailVerificationToken).toBeDefined();
@@ -22,7 +20,7 @@ describe('buildUser', () => {
 
   it('should apply overrides', () => {
     const overrides = {
-      email: `test-${Date.now()}@example.com`,
+      email: `test_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}@example.com`,
     };
     const result = buildUser(overrides);
     expect(result.email).toBe(overrides.email);

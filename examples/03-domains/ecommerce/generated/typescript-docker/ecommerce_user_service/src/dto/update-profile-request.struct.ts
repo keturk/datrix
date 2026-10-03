@@ -7,8 +7,10 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import { Address } from '../dto/address.struct'
 
 export class UpdateProfileRequest {
@@ -34,11 +36,15 @@ export class UpdateProfileRequest {
   @ApiPropertyOptional()
   @IsOptional()
   @IsObject()
+  @ValidateNested()
+  @Type(() => Address)
   shippingAddress!: Address | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsObject()
+  @ValidateNested()
+  @Type(() => Address)
   billingAddress!: Address | null;
 
 

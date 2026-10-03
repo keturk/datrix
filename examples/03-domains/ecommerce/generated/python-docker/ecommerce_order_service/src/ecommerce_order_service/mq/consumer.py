@@ -136,7 +136,7 @@ async def handle_payment_events_payment_processed(
                 order = await _order_svc.update(
                     order.id,
                     OrderUpdate(
-                        **{"payment_id": payment_id, "status": OrderStatus.confirmed}
+                        **{"payment_id": order.payment_id, "status": order.status}
                     ),
                     _commit=False,
                 )
@@ -178,8 +178,8 @@ async def handle_payment_events_payment_failed(
                     order.id,
                     OrderUpdate(
                         **{
-                            "cancellation_reason": f"Payment failed: {reason}",
-                            "status": OrderStatus.cancelled,
+                            "cancellation_reason": order.cancellation_reason,
+                            "status": order.status,
                         }
                     ),
                     _commit=False,
@@ -218,9 +218,7 @@ async def handle_payment_events_payment_refunded(
                 order.status = OrderStatus.refunded
                 _order_svc = OrderService(order_db)
                 order = await _order_svc.update(
-                    order.id,
-                    OrderUpdate(**{"status": OrderStatus.refunded}),
-                    _commit=False,
+                    order.id, OrderUpdate(**{"status": order.status}), _commit=False
                 )
         logger.info(
             "order_refunded_after_payment_refund order_id=%s payment_id=%s amount=%s",
@@ -279,7 +277,7 @@ async def handle_shipment_events_shipment_dispatched(
                 order = await _order_svc.update(
                     order.id,
                     OrderUpdate(
-                        **{"shipment_id": shipment_id, "status": OrderStatus.shipped}
+                        **{"shipment_id": order.shipment_id, "status": order.status}
                     ),
                     _commit=False,
                 )
@@ -318,9 +316,7 @@ async def handle_shipment_events_shipment_delivered(
                 order.status = OrderStatus.delivered
                 _order_svc = OrderService(order_db)
                 order = await _order_svc.update(
-                    order.id,
-                    OrderUpdate(**{"status": OrderStatus.delivered}),
-                    _commit=False,
+                    order.id, OrderUpdate(**{"status": order.status}), _commit=False
                 )
         logger.info(
             "order_delivered order_id=%s delivered_at=%s", order_id, delivered_at
@@ -350,38 +346,39 @@ async def handle_shipment_events_shipment_failed(
     )
 
 
-HANDLER_DISPATCH: dict[str, tuple[type, object]] = {
+# Keyed by "{topic}:{event}"; each key runs every handler bound to it.
+HANDLER_DISPATCH: dict[str, tuple[type, tuple[object, ...]]] = {
     "ecommerce_order_service.mq.order_events:OrderStatusChanged": (
         OrderStatusChangedPayload,
-        handle_order_events_order_status_changed,
+        (handle_order_events_order_status_changed,),
     ),
     "ecommerce_payment_service.mq.payment_events:PaymentProcessed": (
         PaymentEventsPaymentProcessedPayload,
-        handle_payment_events_payment_processed,
+        (handle_payment_events_payment_processed,),
     ),
     "ecommerce_payment_service.mq.payment_events:PaymentFailed": (
         PaymentEventsPaymentFailedPayload,
-        handle_payment_events_payment_failed,
+        (handle_payment_events_payment_failed,),
     ),
     "ecommerce_payment_service.mq.payment_events:PaymentRefunded": (
         PaymentEventsPaymentRefundedPayload,
-        handle_payment_events_payment_refunded,
+        (handle_payment_events_payment_refunded,),
     ),
     "ecommerce_shipping_service.mq.shipment_events:ShipmentCreated": (
         ShipmentEventsShipmentCreatedPayload,
-        handle_shipment_events_shipment_created,
+        (handle_shipment_events_shipment_created,),
     ),
     "ecommerce_shipping_service.mq.shipment_events:ShipmentDispatched": (
         ShipmentEventsShipmentDispatchedPayload,
-        handle_shipment_events_shipment_dispatched,
+        (handle_shipment_events_shipment_dispatched,),
     ),
     "ecommerce_shipping_service.mq.shipment_events:ShipmentDelivered": (
         ShipmentEventsShipmentDeliveredPayload,
-        handle_shipment_events_shipment_delivered,
+        (handle_shipment_events_shipment_delivered,),
     ),
     "ecommerce_shipping_service.mq.shipment_events:ShipmentFailed": (
         ShipmentEventsShipmentFailedPayload,
-        handle_shipment_events_shipment_failed,
+        (handle_shipment_events_shipment_failed,),
     ),
 }
 
@@ -549,19 +546,17 @@ class KafkaEventConsumer:
             envelope = json.loads(raw)
             event_type = envelope.get("event_type")
             topic = message.topic
-            # Try qualified key first (topic:event), fall back to bare event name
             dispatch_key = f"{topic}:{event_type}"
-            if dispatch_key not in HANDLER_DISPATCH:
-                dispatch_key = event_type
             if dispatch_key not in HANDLER_DISPATCH:
                 logger.warning(
                     "unknown_event_type event_type=%s topic=%s", event_type, topic
                 )
                 status = "unknown_event"
                 return
-            schema_cls, handler_fn = HANDLER_DISPATCH[dispatch_key]
+            schema_cls, handler_fns = HANDLER_DISPATCH[dispatch_key]
             payload = schema_cls.model_validate(envelope.get("payload", {}))
-            await handler_fn(payload)
+            for handler_fn in handler_fns:
+                await handler_fn(payload)
         except Exception as e:
             status = "error"
             logger.exception("event_dispatch_failed error=%s", e)

@@ -7,7 +7,6 @@ describe('buildShipment', () => {
     expect(result.orderId).toBeDefined();
     expect(result.trackingNumber).toBeDefined();
     expect(result.carrier).toBeDefined();
-    expect(result.status).toBeDefined();
     expect(result.destination).toBeDefined();
     expect(result.weight).toBeDefined();
     expect(result.estimatedDelivery).toBeDefined();

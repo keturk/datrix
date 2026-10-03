@@ -18,27 +18,17 @@ from ecommerce_order_service.models.order_db.idempotency_key import IdempotencyK
 class IdempotencyKeyFactory:
     """Factory for creating IdempotencyKey test instances."""
 
-    created_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    updated_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    id: uuid.UUID = field(default_factory=uuid.uuid4)
     key: str = field(default_factory=lambda: f"test_{uuid.uuid4().hex[:8]}")
-    operation: str = "test_value"
-    resource_id: uuid.UUID | None = field(default_factory=uuid.uuid4)
+    operation: str = "test"
+    resource_id: uuid.UUID | None = field(default_factory=lambda: uuid.uuid4())
     response: JsonValue | None = field(default_factory=lambda: {"key": "value"})
-    expires_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    expires_at: datetime.datetime = datetime.datetime(
+        2025, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc
     )
 
     def build(self) -> IdempotencyKey:
         """Build a model instance from factory defaults."""
         return IdempotencyKey(
-            created_at=self.created_at,
-            updated_at=self.updated_at,
-            id=self.id,
             key=self.key,
             operation=self.operation,
             resource_id=self.resource_id,

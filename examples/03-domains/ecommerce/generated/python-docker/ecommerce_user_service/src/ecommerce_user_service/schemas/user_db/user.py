@@ -8,7 +8,14 @@ from __future__ import annotations
 import datetime
 import uuid
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 from pydantic.alias_generators import to_camel
 
 from ecommerce_user_service.enums.user_role import UserRole
@@ -19,7 +26,9 @@ from ecommerce_user_service.schemas.address import Address
 class UserCreate(BaseModel):
     """Schema for creating a new User."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     email: EmailStr
     password_hash: str
@@ -58,7 +67,9 @@ class UserUpdate(BaseModel):
     All fields are optional for partial updates.
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
 
     email: EmailStr | None = None
     password_hash: str | None = None
@@ -92,6 +103,26 @@ class UserUpdate(BaseModel):
         """Strip whitespace from last_name."""
         return v.strip() if isinstance(v, str) else v
 
+    @model_validator(mode="after")
+    def _reject_explicit_null(self) -> UserUpdate:
+        """An omitted field is left unchanged; null is a value only on an optional field."""
+        for field_name in (
+            "email",
+            "password_hash",
+            "first_name",
+            "last_name",
+            "role",
+            "status",
+        ):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(
+                    f"{field_name} cannot be null. Omit it to leave the stored value unchanged."
+                )
+        return self
+
 
 class UserResponse(BaseModel):
     """Schema for User API responses.
@@ -122,7 +153,7 @@ class UserResponse(BaseModel):
     shipping_address: Address | None = None
     billing_address: Address | None = None
     # Computed fields derived at runtime
-    full_name: str | None = None
-    is_active: bool | None = None
-    is_verified: bool | None = None
-    can_login: bool | None = None
+    full_name: str
+    is_active: bool
+    is_verified: bool
+    can_login: bool

@@ -12,8 +12,17 @@ logger = logging.getLogger(__name__)
 
 
 def _payload_value(payload: object, name: str) -> object:
+    """Read one declared event field; an absent field raises rather than reading as None.
+
+    A silently missing field -- above all the tenant field -- would scope the
+    handler's queries to a NULL tenant instead of failing the delivery.
+    """
     if isinstance(payload, dict):
-        return payload.get(name)
+        if name not in payload:
+            raise ValueError(
+                f"Event payload is missing declared field {name!r}; present: {sorted(payload)}."
+            )
+        return payload[name]
     return getattr(payload, name)
 
 

@@ -17,6 +17,19 @@ from ecommerce_product_service.models.product_db.product import Product
 class TestProductComputedFields:
     """Test computed field logic for Product."""
 
+    def test_is_available_getter_runs(self) -> None:
+        """is_available getter runs and returns its expected value."""
+        _category_id = uuid.uuid4()
+        instance = Product(
+            price=decimal.Decimal("19.99"),
+            name="sample_text",
+            description="The quick brown fox jumps over the lazy dog",
+            images={"items": [1, 2, 3]},
+            tags={"key": "value"},
+            category_id=_category_id,
+        )
+        assert instance.is_available is not None
+
     def test_is_available_is_read_only(self) -> None:
         """Assigning to computed field is_available raises AttributeError."""
         _category_id = uuid.uuid4()
@@ -30,6 +43,19 @@ class TestProductComputedFields:
         )
         with pytest.raises(AttributeError):
             instance.is_available = True
+
+    def test_discount_percent_getter_runs(self) -> None:
+        """discount_percent getter runs and returns its expected value."""
+        _category_id = uuid.uuid4()
+        instance = Product(
+            price=decimal.Decimal("19.99"),
+            name="sample_text",
+            description="The quick brown fox jumps over the lazy dog",
+            images={"items": [1, 2, 3]},
+            tags={"key": "value"},
+            category_id=_category_id,
+        )
+        assert instance.discount_percent is not None
 
     def test_discount_percent_is_read_only(self) -> None:
         """Assigning to computed field discount_percent raises AttributeError."""

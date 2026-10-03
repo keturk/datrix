@@ -1,0 +1,8 @@
+include: package:flutter_lints/flutter.yaml
+
+formatter:
+  page_width: 1000
+
+analyzer:
+  exclude:
+    - build/**

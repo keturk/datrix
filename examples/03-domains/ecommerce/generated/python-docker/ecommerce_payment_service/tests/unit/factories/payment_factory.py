@@ -11,7 +11,6 @@ import uuid
 from dataclasses import dataclass, field
 
 from ecommerce_payment_service.enums.payment_method import PaymentMethod
-from ecommerce_payment_service.enums.payment_status import PaymentStatus
 from ecommerce_payment_service.models.payment_db.payment import Payment
 
 
@@ -19,36 +18,24 @@ from ecommerce_payment_service.models.payment_db.payment import Payment
 class PaymentFactory:
     """Factory for creating Payment test instances."""
 
-    created_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    updated_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    id: uuid.UUID = field(default_factory=uuid.uuid4)
-    order_id: uuid.UUID = field(default_factory=uuid.uuid4)
-    customer_id: uuid.UUID = field(default_factory=uuid.uuid4)
+    order_id: uuid.UUID = field(default_factory=lambda: uuid.uuid4())
+    customer_id: uuid.UUID = field(default_factory=lambda: uuid.uuid4())
     amount: decimal.Decimal = decimal.Decimal("19.99")
     method: PaymentMethod = PaymentMethod.credit_card
-    status: PaymentStatus = PaymentStatus.pending
     transaction_id: str = field(default_factory=lambda: f"test_{uuid.uuid4().hex[:8]}")
-    gateway_response: str | None = "test_value"
-    error_message: str | None = "test_value"
-    processed_at: datetime.datetime | None = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    gateway_response: str | None = "test"
+    error_message: str | None = "test"
+    processed_at: datetime.datetime | None = datetime.datetime(
+        2025, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc
     )
 
     def build(self) -> Payment:
         """Build a model instance from factory defaults."""
         return Payment(
-            created_at=self.created_at,
-            updated_at=self.updated_at,
-            id=self.id,
             order_id=self.order_id,
             customer_id=self.customer_id,
             amount=self.amount,
             method=self.method,
-            status=self.status,
             transaction_id=self.transaction_id,
             gateway_response=self.gateway_response,
             error_message=self.error_message,
@@ -60,9 +47,8 @@ class PaymentFactory:
         return {
             "order_id": str(self.order_id),
             "customer_id": str(self.customer_id),
-            "amount": self.amount,
+            "amount": str(self.amount),
             "method": self.method,
-            "status": self.status,
             "transaction_id": self.transaction_id,
             "gateway_response": self.gateway_response,
             "error_message": self.error_message,

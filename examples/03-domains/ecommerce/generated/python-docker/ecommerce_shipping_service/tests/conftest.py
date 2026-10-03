@@ -292,8 +292,8 @@ def _seed_test_secrets(
     secrets_dir.mkdir()
     test_secret_values = {
         "carrier_webhook_secret": "datrix-test-secret-carrier_webhook_secret",
-        "jwt_private_key": _TEST_JWT_PRIVATE_KEY,
-        "jwt_public_key": _TEST_JWT_PUBLIC_KEY,
+        "mq_sasl_password": "datrix-test-secret-mq_sasl_password",
+        "redis_password": "datrix-test-secret-redis_password",
         "shipping_db_password": "datrix-test-secret-shipping_db_password",
     }
     for handle, value in test_secret_values.items():
@@ -330,16 +330,21 @@ def _seed_test_identity_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     jwks_file = identity_dir / "jwks.json"
     jwks_file.write_text(_TEST_JWKS_JSON, encoding="utf-8")
     plan = {
-        "schemaVersion": 2,
+        "schemaVersion": 6,
         "providers": {
             "test_auth": {
+                "credential": "jwt",
                 "name": "test_auth",
+                # Every guarded route enforces its principal types; the test
+                # tokens are human principals, so an auth(service) route
+                # refuses them (403) exactly as it refuses any human token.
+                "principalType": "human",
                 "issuer": _TEST_JWKS_ISSUER,
                 "jwksUri": jwks_file.as_uri(),
                 "jwksCacheTtlSeconds": 300,
                 "allowedAlgorithms": ["RS256"],
                 "allowedAudiences": [],
-                # Schema v2: no late-bound audiences for the in-process test
+                # No late-bound audiences for the in-process test
                 # provider — its audience is not assigned at provisioning time.
                 # A non-empty list here would name env vars that MUST resolve.
                 "allowedAudienceRefs": [],
@@ -349,7 +354,6 @@ def _seed_test_identity_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
                 "localIdentity": {"mode": "subjectText"},
             }
         },
-        "surfaces": {},
     }
     plan_file = identity_dir / "identity-providers.json"
     plan_file.write_text(json.dumps(plan), encoding="utf-8")
@@ -644,6 +648,39 @@ async def wrong_role_client(
     """HTTP client with a token that has a role insufficient for protected endpoints (e.g. Member)."""
     base_url = os.environ.get("BASE_URL")
     headers = {"Authorization": f"Bearer {_make_jwt(['Viewer'])}"}
+    if base_url:
+        transport = _RetryTransport(AsyncHTTPTransport(retries=_TRANSPORT_RETRIES))
+        async with AsyncClient(
+            transport=transport,
+            base_url=base_url,
+            timeout=_DEPLOY_TIMEOUT_SECONDS,
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            await _warm_up(async_client)
+            yield async_client
+    else:
+        from ecommerce_shipping_service.main import app
+
+        app.dependency_overrides[get_shipping_db_db] = lambda s=db_session: s
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://localhost",
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            yield async_client
+        app.dependency_overrides.pop(get_shipping_db_db, None)
+
+
+@pytest_asyncio.fixture
+async def invalid_token_client(
+    db_session: AsyncSession,
+) -> AsyncGenerator[AsyncClient, None]:
+    """HTTP client presenting a bearer token that fails verification (401 on every guarded route)."""
+    base_url = os.environ.get("BASE_URL")
+    headers = {"Authorization": "Bearer not-a-valid-jwt"}
     if base_url:
         transport = _RetryTransport(AsyncHTTPTransport(retries=_TRANSPORT_RETRIES))
         async with AsyncClient(

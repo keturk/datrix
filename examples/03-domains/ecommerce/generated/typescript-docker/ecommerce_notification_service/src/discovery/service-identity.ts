@@ -20,20 +20,18 @@ export class ServiceIdentity {
 
   /**
    * Acquire the platform-managed machine-identity credential for outbound
-   * inter-service requests to the given audience service.
+   * inter-service requests.
    *
-   * @param audience - The target service name (used as the credential audience
-   *   for token-based strategies). Ignored for shared-secret strategy.
+   * The credential's audience is resolved internally, per strategy: the
+   * platform's own machine identity resource for managed-identity, never a
+   * caller-supplied peer name or address.
+   *
    * @returns The credential value to attach as Authorization: Bearer.
    */
-  async getCredential(audience: string): Promise<string> {
-    this.logger.debug(
-      `service_credential_acquiring service=${SERVICE_NAME} audience=${audience}`,
-    );
-    const credential = await acquireServiceCredential(audience);
-    this.logger.debug(
-      `service_credential_acquired service=${SERVICE_NAME} audience=${audience}`,
-    );
+  async getCredential(): Promise<string> {
+    this.logger.debug(`service_credential_acquiring service=${SERVICE_NAME}`);
+    const credential = await acquireServiceCredential();
+    this.logger.debug(`service_credential_acquired service=${SERVICE_NAME}`);
     return credential;
   }
 }

@@ -1,7 +1,5 @@
 import { User } from '../../src/entities/user.entity';
 import { Address } from '../../src/dto/address.struct';
-import { UserRole } from '../../src/enums/user-role.enum';
-import { UserStatus } from '../../src/enums/user-status.enum';
 
 /**
  * Build a partial User with sensible defaults for testing.
@@ -11,20 +9,18 @@ export function buildUser(
   overrides?: Partial<User>,
 ): Partial<User> {
   return {
-    email: `test-${Date.now()}@example.com`,
+    email: `test_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}@example.com`,
     passwordHash: 'SecureP@ss1',
-    firstName: `x`,
-    lastName: `x`,
-    phoneNumber: '+15551234567',
-    role: UserRole.Customer,
-    status: UserStatus.Active,
-    lastLoginAt: new Date(),
-    emailVerifiedAt: new Date(),
-    emailVerificationToken: 'test-value',
-    passwordResetToken: 'test-value',
-    passwordResetExpiry: new Date(),
-    shippingAddress: {} as Address,
-    billingAddress: {} as Address,
+    firstName: 'TestName',
+    lastName: 'test',
+    phoneNumber: '15551234567',
+    lastLoginAt: new Date('2025-01-15T12:00:00Z'),
+    emailVerifiedAt: new Date('2025-01-15T12:00:00Z'),
+    emailVerificationToken: 'user@example.com',
+    passwordResetToken: 'test',
+    passwordResetExpiry: new Date('2025-01-15T12:00:00Z'),
+    shippingAddress: {street: 'test', city: 'test', state: 'test', zipCode: 'test', country: 'US', phone: '15551234567'} as Address,
+    billingAddress: {street: 'test', city: 'test', state: 'test', zipCode: 'test', country: 'US', phone: '15551234567'} as Address,
     ...overrides,
   };
 }

@@ -38,9 +38,7 @@ async def process_payment_async(
     payment.status = PaymentStatus.processing
     _payment_svc = PaymentService(payment_db)
     payment = await _payment_svc.update(
-        payment.id,
-        PaymentUpdate(**{"status": PaymentStatus.processing}),
-        _commit=_commit,
+        payment.id, PaymentUpdate(**{"status": payment.status}), _commit=_commit
     )
     success: bool = False
     error: str | None = None
@@ -97,11 +95,7 @@ async def process_payment_async(
                     _payment_svc = PaymentService(payment_db)
                     payment = await _payment_svc.update(
                         payment.id,
-                        PaymentUpdate(
-                            **{
-                                "gateway_response": "Bank transfer initiated - awaiting confirmation"
-                            }
-                        ),
+                        PaymentUpdate(**{"gateway_response": payment.gateway_response}),
                         _commit=_commit,
                     )
                     return
@@ -130,12 +124,10 @@ async def process_payment_async(
         payment.id,
         PaymentUpdate(
             **{
-                "error_message": (
-                    error if error is not None else "Payment processing failed"
-                ),
-                "gateway_response": gateway_response,
-                "processed_at": datetime.datetime.now(datetime.timezone.utc),
-                "status": PaymentStatus.failed,
+                "error_message": payment.error_message,
+                "gateway_response": payment.gateway_response,
+                "processed_at": payment.processed_at,
+                "status": payment.status,
             }
         ),
         _commit=_commit,

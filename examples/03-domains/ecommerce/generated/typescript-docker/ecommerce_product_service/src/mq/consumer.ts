@@ -40,23 +40,23 @@ export class KafkaEventConsumer {
   ) {}
 
   private async handleProductCreated(payload: ProductCreatedPayload): Promise<void> {
-console.info('product_created');
+    console.info('product_created');
   }
 
   private async handleInventoryUpdated(payload: InventoryUpdatedPayload): Promise<void> {
-console.info('inventory_updated');
+    console.info('inventory_updated');
   }
 
   private async handleInventoryReserved(payload: InventoryReservedPayload): Promise<void> {
-console.info('inventory_reserved');
+    console.info('inventory_reserved');
   }
 
   private async handleInventoryReleased(payload: InventoryReleasedPayload): Promise<void> {
-console.info('inventory_released');
+    console.info('inventory_released');
   }
 
   private async handleOrderConfirmed(payload: OrderConfirmedPayload): Promise<void> {
-let reservations: InventoryReservation[] = await (this.inventoryReservationRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(InventoryReservation, 'e_inventory_reservation').select('*').where('e_inventory_reservation.reservation_id = ?', [payload.reservationId]).andWhere('e_inventory_reservation.status = ?', [ReservationStatus.Reserved]).getResultList();
+    let reservations: InventoryReservation[] = await (this.inventoryReservationRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(InventoryReservation, 'e_inventory_reservation').select('*').where('e_inventory_reservation.reservation_id = ?', [payload.reservationId]).andWhere('e_inventory_reservation.status = ?', [ReservationStatus.Reserved]).getResultList();
     for (const reservation of reservations) {
       reservation.status = ReservationStatus.Confirmed;
       await this.inventoryReservationRepository.getEntityManager().persistAndFlush(reservation);
@@ -65,7 +65,7 @@ let reservations: InventoryReservation[] = await (this.inventoryReservationRepos
   }
 
   private async handleOrderCancelled(payload: OrderCancelledPayload): Promise<void> {
-let reservations: InventoryReservation[] = await (this.inventoryReservationRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(InventoryReservation, 'e_inventory_reservation').select('*').where('e_inventory_reservation.reservation_id = ?', [payload.reservationId]).andWhere('e_inventory_reservation.status = ?', [ReservationStatus.Reserved]).getResultList();
+    let reservations: InventoryReservation[] = await (this.inventoryReservationRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(InventoryReservation, 'e_inventory_reservation').select('*').where('e_inventory_reservation.reservation_id = ?', [payload.reservationId]).andWhere('e_inventory_reservation.status = ?', [ReservationStatus.Reserved]).getResultList();
     // 'transaction(productDb)' wraps operations in a database transaction
     await bufferEvents(async () => {
       await this.productDbEm.transactional(async (manager: EntityManager) => {
@@ -99,23 +99,41 @@ let reservations: InventoryReservation[] = await (this.inventoryReservationRepos
         if (!raw) return;
         const envelope = JSON.parse(raw) as { eventType?: string; payload?: unknown };
         const eventType = envelope.eventType ?? '';
-        const handler = this.handlerMap[eventType];
+        const handlers = this.handlerMap[`${topic}:${eventType}`];
         const payload = envelope.payload;
-        if (!handler || !payload) return;
-        await recordConsume(BLOCK_NAME, topic, eventType, () => handler(payload));
+        if (!handlers || !payload) return;
+        const runHandlers = async (): Promise<void> => {
+          for (const handler of handlers) {
+            await handler(payload);
+          }
+        };
+        await recordConsume(BLOCK_NAME, topic, eventType, runHandlers);
       },
     );
   }
 
+  // Keyed by `${topic}:${eventType}`; each key runs every handler bound to it.
   private readonly handlerMap: Record<
     string,
-    (payload: unknown) => Promise<void>
+    ReadonlyArray<(payload: unknown) => Promise<void>>
   > = {
-    'ProductCreated': (p) => this.handleProductCreated(p as ProductCreatedPayload),
-    'InventoryUpdated': (p) => this.handleInventoryUpdated(p as InventoryUpdatedPayload),
-    'InventoryReserved': (p) => this.handleInventoryReserved(p as InventoryReservedPayload),
-    'InventoryReleased': (p) => this.handleInventoryReleased(p as InventoryReleasedPayload),
-    'OrderConfirmed': (p) => this.handleOrderConfirmed(p as OrderConfirmedPayload),
-    'OrderCancelled': (p) => this.handleOrderCancelled(p as OrderCancelledPayload),
+    'ecommerce_product_service.mq.product_events:ProductCreated': [
+      (p) => this.handleProductCreated(p as ProductCreatedPayload),
+    ],
+    'ecommerce_product_service.mq.product_events:InventoryUpdated': [
+      (p) => this.handleInventoryUpdated(p as InventoryUpdatedPayload),
+    ],
+    'ecommerce_product_service.mq.product_events:InventoryReserved': [
+      (p) => this.handleInventoryReserved(p as InventoryReservedPayload),
+    ],
+    'ecommerce_product_service.mq.product_events:InventoryReleased': [
+      (p) => this.handleInventoryReleased(p as InventoryReleasedPayload),
+    ],
+    'ecommerce_order_service.mq.order_events:OrderConfirmed': [
+      (p) => this.handleOrderConfirmed(p as OrderConfirmedPayload),
+    ],
+    'ecommerce_order_service.mq.order_events:OrderCancelled': [
+      (p) => this.handleOrderCancelled(p as OrderCancelledPayload),
+    ],
   };
 }

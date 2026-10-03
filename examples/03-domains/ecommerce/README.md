@@ -150,8 +150,6 @@ one directory per registered language, exactly as `datrix generate` wrote it:
 |-----------|----------|-------|
 | [generated/python-docker/](generated/python-docker/) | Python 3 | FastAPI, SQLAlchemy (async), Alembic |
 | [generated/typescript-docker/](generated/typescript-docker/) | TypeScript | NestJS, MikroORM |
-| [generated/dotnet-docker/](generated/dotnet-docker/) | C# / .NET 10 | ASP.NET Core, EF Core, FluentMigrator |
-| [generated/java-docker/](generated/java-docker/) | Java 25 | Spring Boot, Spring Data JPA, Liquibase |
 
 The directory name is `<language>-<platform>`; a snapshot of a cloud profile would sit
 beside these as, for example, `python-aws/`.
@@ -159,7 +157,7 @@ beside these as, for example, `python-aws/`.
 Each directory is a runnable project: `README.md` (quick start), `docker-compose.yml`, one
 package per service, `config/` (gateway, identity, observability), `scripts/` (deploy,
 init), `clients/` (the shared client contract), and the project's own `.gitignore`. Compare
-the same service across the four trees — for example `ecommerce_order_service/` — to see
+the same service across the two trees — for example `ecommerce_order_service/` — to see
 how one `.dtrx` body renders in each language.
 
 Three kinds of file are deliberately absent from the checked-in copies, because

@@ -1,5 +1,5 @@
 # Per-service image: thin layer on the shared per-system base.
-FROM ecommerce-python-base:102f5a0b5c23 AS runtime
+FROM ecommerce-python-base:ad3cae475305 AS runtime
 
 WORKDIR /app
 

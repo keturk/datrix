@@ -19,4 +19,4 @@ ALTER TABLE "refunds"
     FOREIGN KEY ("payment_id")
     REFERENCES "payments" ("id")
     ON DELETE RESTRICT
-    ON UPDATE NO ACTION;
+    ON UPDATE RESTRICT;

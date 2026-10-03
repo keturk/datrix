@@ -23,7 +23,7 @@ export class ShipmentItem extends BaseEntity {
   quantity!: number;
 
 
-  @ManyToOne({ entity: () => Shipment, deleteRule: 'restrict', fieldName: 'shipment_id' })
+  @ManyToOne({ entity: () => Shipment, inversedBy: 'shipmentitems', deleteRule: 'restrict', fieldName: 'shipment_id' })
   shipment!: Shipment;
 
 

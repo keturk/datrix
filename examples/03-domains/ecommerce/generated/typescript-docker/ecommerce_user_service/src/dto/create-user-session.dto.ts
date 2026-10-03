@@ -1,6 +1,7 @@
 
 import {
   IsDate,
+  IsDefined,
   IsIP,
   IsNotEmpty,
   IsOptional,
@@ -15,6 +16,7 @@ import { Type } from 'class-transformer';
 export class CreateUserSessionDto {
 
   @ApiProperty()
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   @MaxLength(255)
@@ -38,6 +40,7 @@ export class CreateUserSessionDto {
   userAgent?: string | null;
 
   @ApiProperty()
+  @IsDefined()
   @IsDate()
   @Type(() => Date)
   expiresAt!: Date;
@@ -49,6 +52,7 @@ export class CreateUserSessionDto {
   lastActivityAt?: Date | null;
 
   @ApiProperty()
+  @IsDefined()
   @IsUUID()
   userId!: string;
 }

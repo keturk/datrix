@@ -16,31 +16,21 @@ from ecommerce_user_service.models.user_db.user_session import UserSession
 class UserSessionFactory:
     """Factory for creating UserSession test instances."""
 
-    created_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    updated_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
-    id: uuid.UUID = field(default_factory=uuid.uuid4)
     token: str = field(default_factory=lambda: f"test_{uuid.uuid4().hex[:8]}")
-    device_name: str | None = "test_value"
+    device_name: str | None = "test"
     ip_address: str | None = "192.168.1.1"
-    user_agent: str | None = "test_value"
-    expires_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    user_agent: str | None = "test"
+    expires_at: datetime.datetime = datetime.datetime(
+        2025, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc
     )
-    last_activity_at: datetime.datetime | None = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    last_activity_at: datetime.datetime | None = datetime.datetime(
+        2025, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc
     )
-    user_id: uuid.UUID = field(default_factory=uuid.uuid4)
+    user_id: uuid.UUID = field(default_factory=lambda: uuid.uuid4())
 
     def build(self) -> UserSession:
         """Build a model instance from factory defaults."""
         return UserSession(
-            created_at=self.created_at,
-            updated_at=self.updated_at,
-            id=self.id,
             token=self.token,
             device_name=self.device_name,
             ip_address=self.ip_address,

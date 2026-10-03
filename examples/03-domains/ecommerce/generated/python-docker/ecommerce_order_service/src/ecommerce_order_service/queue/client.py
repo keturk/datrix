@@ -62,7 +62,7 @@ class OrderServiceQueueClient:
             }
         ).encode("utf-8")
         await channel.default_exchange.publish(
-            aio_pika.Message(body=body),
+            aio_pika.Message(body=body, delivery_mode=aio_pika.DeliveryMode.PERSISTENT),
             routing_key=QUEUE_PROCESS_PAYMENT,
         )
         logger.info("task_dispatched queue=process-payment")
@@ -88,7 +88,7 @@ class OrderServiceQueueClient:
             }
         ).encode("utf-8")
         await channel.default_exchange.publish(
-            aio_pika.Message(body=body),
+            aio_pika.Message(body=body, delivery_mode=aio_pika.DeliveryMode.PERSISTENT),
             routing_key=QUEUE_SEND_ORDER_CONFIRMATION,
         )
         logger.info("task_dispatched queue=send-order-confirmation")
@@ -115,7 +115,11 @@ class OrderServiceQueueClient:
         ).encode("utf-8")
         headers: dict[str, str] = {"x-group-id": str(merchant_id)}
         await channel.default_exchange.publish(
-            aio_pika.Message(body=body, headers=headers),
+            aio_pika.Message(
+                body=body,
+                headers=headers,
+                delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+            ),
             routing_key=QUEUE_SETTLE_PAYMENT,
         )
         logger.info(

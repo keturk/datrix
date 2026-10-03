@@ -24,8 +24,8 @@ DEFAULT_SECRET_TTL_SECONDS: int = 300
 # ttl_seconds: per-handle cache TTL; 0 means "no expiry, cache for process lifetime".
 # provisioning_authority: "operator" or "datrix"; metadata only, never a value.
 SECRET_REFERENCES: dict[str, dict[str, object]] = {
-    "jwt_public_key": {
-        "rendered_name": "jwt_public_key",
+    "mq_sasl_password": {
+        "rendered_name": "mq_sasl_password",
         "required": True,
         "ttl_seconds": 300,
         "provisioning_authority": "operator",
@@ -38,6 +38,12 @@ SECRET_REFERENCES: dict[str, dict[str, object]] = {
     },
     "queues_password": {
         "rendered_name": "queues_password",
+        "required": True,
+        "ttl_seconds": 300,
+        "provisioning_authority": "operator",
+    },
+    "redis_password": {
+        "rendered_name": "redis_password",
         "required": True,
         "ttl_seconds": 300,
         "provisioning_authority": "operator",

@@ -7,6 +7,6 @@ export class HandleUserLoggedInHandler implements IEventHandler<UserLoggedInEven
   private readonly logger = new Logger(HandleUserLoggedInHandler.name);
 
   async handle(event: UserLoggedInEvent): Promise<void> {
-console.info('user_logged_in');
+    console.info('user_logged_in');
   }
 }

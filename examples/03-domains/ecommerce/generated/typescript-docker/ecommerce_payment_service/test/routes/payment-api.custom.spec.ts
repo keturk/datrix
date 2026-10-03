@@ -21,7 +21,7 @@ describe('PaymentApi Custom Endpoints', () => {
   });
 
   describe('GET /api/v1/payments/order/00000000-0000-0000-0000-000000000001', () => {
-    it('should handle none request', async () => {
+    it('should handle getOrderByOrderId request', async () => {
       const response = await request(app.getHttpServer())
         .get('/api/v1/payments/order/00000000-0000-0000-0000-000000000001')
         .set('Authorization', 'Bearer test-token')
@@ -31,7 +31,7 @@ describe('PaymentApi Custom Endpoints', () => {
   });
 
   describe('GET /api/v1/payments/my-payments?page=1&perPage=1', () => {
-    it('should handle none request', async () => {
+    it('should handle getMyPayments request', async () => {
       const response = await request(app.getHttpServer())
         .get('/api/v1/payments/my-payments?page=1&perPage=1')
         .set('Authorization', 'Bearer test-token')
@@ -41,7 +41,7 @@ describe('PaymentApi Custom Endpoints', () => {
   });
 
   describe('POST /api/v1/payments/process?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle postProcess request', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/payments/process?request=integration-path-value')
         .set('Authorization', 'Bearer test-token')
@@ -51,7 +51,7 @@ describe('PaymentApi Custom Endpoints', () => {
   });
 
   describe('POST /api/v1/payments/00000000-0000-0000-0000-000000000001/refund?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle postByIdRefund request', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/payments/00000000-0000-0000-0000-000000000001/refund?request=integration-path-value')
         .set('Authorization', 'Bearer test-token')
@@ -61,7 +61,7 @@ describe('PaymentApi Custom Endpoints', () => {
   });
 
   describe('POST /api/v1/payments/webhook/stripe?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle postWebhookStripe request', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/payments/webhook/stripe?request=integration-path-value')
         .send({});

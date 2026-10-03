@@ -38,7 +38,7 @@ export class KafkaEventConsumer {
   ) {}
 
   private async handleOrderConfirmed(payload: OrderConfirmedPayload): Promise<void> {
-let carrier: ShippingCarrier = await selectCarrier(payload.shippingAddress, payload.estimatedWeight);
+    let carrier: ShippingCarrier = await selectCarrier(payload.shippingAddress, payload.estimatedWeight);
     let estimatedDelivery: Date = await calculateEstimatedDelivery(carrier, payload.shippingAddress);
     const shipment = this.shipmentRepository.create({ orderId: payload.orderId, trackingNumber: await generateTrackingNumber(), carrier: carrier, destination: payload.shippingAddress, weight: payload.estimatedWeight, status: ShipmentStatus.Pending, estimatedDelivery: estimatedDelivery } as never);
     await this.shipmentRepository.getEntityManager().persistAndFlush(shipment);
@@ -68,18 +68,26 @@ let carrier: ShippingCarrier = await selectCarrier(payload.shippingAddress, payl
         if (!raw) return;
         const envelope = JSON.parse(raw) as { eventType?: string; payload?: unknown };
         const eventType = envelope.eventType ?? '';
-        const handler = this.handlerMap[eventType];
+        const handlers = this.handlerMap[`${topic}:${eventType}`];
         const payload = envelope.payload;
-        if (!handler || !payload) return;
-        await recordConsume(BLOCK_NAME, topic, eventType, () => handler(payload));
+        if (!handlers || !payload) return;
+        const runHandlers = async (): Promise<void> => {
+          for (const handler of handlers) {
+            await handler(payload);
+          }
+        };
+        await recordConsume(BLOCK_NAME, topic, eventType, runHandlers);
       },
     );
   }
 
+  // Keyed by `${topic}:${eventType}`; each key runs every handler bound to it.
   private readonly handlerMap: Record<
     string,
-    (payload: unknown) => Promise<void>
+    ReadonlyArray<(payload: unknown) => Promise<void>>
   > = {
-    'OrderConfirmed': (p) => this.handleOrderConfirmed(p as OrderConfirmedPayload),
+    'ecommerce_order_service.mq.order_events:OrderConfirmed': [
+      (p) => this.handleOrderConfirmed(p as OrderConfirmedPayload),
+    ],
   };
 }

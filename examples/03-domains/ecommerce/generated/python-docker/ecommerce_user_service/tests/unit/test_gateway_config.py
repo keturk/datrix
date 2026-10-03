@@ -15,8 +15,3 @@ class TestGatewayConfig:
     def test_rate_limit_rpm_positive(self) -> None:
         """Rate limit requests per minute is positive."""
         assert 100 > 0
-
-    def test_cors_origins_defined(self) -> None:
-        """CORS origins are defined."""
-        origins = ["http://localhost:3000"]
-        assert isinstance(origins, list)

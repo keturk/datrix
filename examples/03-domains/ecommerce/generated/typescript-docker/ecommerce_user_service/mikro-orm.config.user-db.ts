@@ -10,6 +10,7 @@
 import { defineConfig } from '@mikro-orm/core';
 import { PostgreSqlDriver } from '@mikro-orm/postgresql';
 import { Migrator } from '@mikro-orm/migrations';
+import { ApiKey } from './src/entities/user_db/api-key.entity';
 import { User } from './src/entities/user_db/user.entity';
 import { UserPreferences } from './src/entities/user_db/user-preferences.entity';
 import { UserSession } from './src/entities/user_db/user-session.entity';
@@ -19,9 +20,11 @@ export default getDatabaseConfig({ get: () => false } as never).then((base) =>
   defineConfig({
     ...base,
     driver: PostgreSqlDriver,
-    entities: [User, UserPreferences, UserSession],
+    entities: [ApiKey, User, UserPreferences, UserSession],
     extensions: [Migrator],
     migrations: {
+      // Keeps the block's own history table (tableName) from getDatabaseConfig().
+      ...base.migrations,
       path: './dist/migrations/user-db',
       pathTs: './src/migrations/user-db',
       emit: 'ts',

@@ -4,9 +4,6 @@ import {
   Patch,
   Post,
   Param,
-  Query,
-  DefaultValuePipe,
-  ParseIntPipe,
   Body,
   HttpCode,
   HttpStatus,
@@ -14,10 +11,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
+import { RateLimitGuard } from '../rate-limit/rate-limit.guard';
 import { Public } from '../auth/public.decorator';
-import { InternalGuard } from '../auth/internal.guard';
-import { RolesGuard } from '../auth/roles.guard';
+import { PrincipalTypes } from '../auth/optional-auth.decorator';
 import { Roles } from '../auth/roles.decorator';
+import { Providers } from '../auth/providers.decorator';
 import { WebhookVerify, WebhookVerifyGuard } from '../auth/webhook-verify.guard';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import { EntityRepository } from '@mikro-orm/core';
@@ -46,10 +44,10 @@ import { mapFedExStatus } from '../functions';
 import { selectCarrier } from '../functions';
 import { format } from 'date-fns';
 import { producerInstance as mqProducerInstance } from '../mq/producer';
-import { ApiExtraModels, ApiResponse, ApiExcludeEndpoint } from '@nestjs/swagger';
+import { ApiExtraModels, ApiResponse, ApiExcludeEndpoint, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiExtraModels(AddTrackingEventRequest, CreateShipmentRequest, FedExWebhookRequest, GetShippingRatesRequest, ShipmentTracking, ShippingRateResponse, UpdateShipmentStatusRequest)
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, RateLimitGuard)
 @Controller('api/v1/shipments')
 export class ShippingAPIController {
   constructor(
@@ -60,9 +58,10 @@ export class ShippingAPIController {
     @InjectRepository(ShipmentItem) private readonly shipmentItemRepository: EntityRepository<ShipmentItem>,
   ) {}
 
-  @Public()
-  @UseGuards(InternalGuard)
+  @Providers('platform', 'test_auth')
+  @PrincipalTypes('machine')
   @ApiExcludeEndpoint()
+  @ApiBearerAuth()
   @Post('')
   @HttpCode(HttpStatus.CREATED)
   async postEndpoint(
@@ -150,7 +149,7 @@ export class ShippingAPIController {
       }
       return out;
     })());
-    const shipment = await (this.shipmentRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(Shipment, 'e_shipment').select('*').where('e_shipment.tracking_number = ?', [trackingNumber]).getSingleResult();
+    let shipment = await (this.shipmentRepository.getEntityManager() as SqlEntityManager).createQueryBuilder(Shipment, 'e_shipment').select('*').where('e_shipment.tracking_number = ?', [trackingNumber]).getSingleResult();
     if (!shipment) {
       throw new NotFoundException("Not found");
     }
@@ -159,6 +158,9 @@ export class ShippingAPIController {
     return Object.assign(new ShipmentTracking(), { trackingNumber: trackingNumber, status: shipment.status, carrier: shipment.carrier, destination: shipment.destination, estimatedDelivery: shipment.estimatedDelivery! ?? null, actualDelivery: shipment.actualDelivery! ?? null, events: events });
   }
 
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
+  @ApiBearerAuth()
   @Get('order/:orderId')
   async getOrderByOrderId(
     @Param('orderId', ParseUUIDPipe) orderId: string,
@@ -170,25 +172,17 @@ export class ShippingAPIController {
     return result
   }
 
-  @Get(':id/shipment_events')
-  async listShipmentEvents(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
-  ): Promise<ShipmentEvent[]> {
-    await this.shipmentService.findOne(id);
-    return this.shipmentEventService.getByShipment(id, skip, limit);
-  }
-
-  @UseGuards(RolesGuard)
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
   @Roles('Admin')
+  @ApiBearerAuth()
   @Post(':id/events')
   @HttpCode(HttpStatus.CREATED)
   async postByIdEvents(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: AddTrackingEventRequest,
   ): Promise<ShipmentEvent> {
-    const shipment = await this.shipmentRepository.findOne({ id: id });
+    let shipment = await this.shipmentRepository.findOne({ id: id });
     if (!shipment) {
       throw new NotFoundException("Not found");
     }
@@ -205,14 +199,16 @@ export class ShippingAPIController {
     return event;
   }
 
-  @UseGuards(RolesGuard)
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
   @Roles('Admin')
+  @ApiBearerAuth()
   @Patch(':id/status')
   async putByIdStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: UpdateShipmentStatusRequest,
   ): Promise<Shipment> {
-    const shipment = await this.shipmentRepository.findOne({ id: id });
+    let shipment = await this.shipmentRepository.findOne({ id: id });
     if (!shipment) {
       throw new NotFoundException("Not found");
     }
@@ -230,6 +226,9 @@ export class ShippingAPIController {
     return shipment;
   }
 
+  @Providers('identity', 'test_auth')
+  @PrincipalTypes('human')
+  @ApiBearerAuth()
   @Get(':id')
   async getShipment(
     @Param('id', ParseUUIDPipe) id: string,

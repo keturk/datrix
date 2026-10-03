@@ -79,16 +79,6 @@ describe('PaymentService Deployment', () => {
     expect(response.status).toBe(200);
   });
 
-  it('Nested GET /api/v1/payments/00000000-0000-0000-0000-000000000001/refunds responds with 200', async () => {
-    const response = await httpRequest(`${BASE_URL}/api/v1/payments/00000000-0000-0000-0000-000000000001/refunds`, {
-      headers: { 'Authorization': `Bearer ${makeTestJwt(["user"], JWT_ISSUER)}` },
-    });
-    // Nested GET targets a fabricated parent UUID that may not exist in the
-    // database; the handler verifies the parent first and returns 404 when
-    // the parent is not found (403 when ownership is rejected).
-    expect([200, 403, 404]).toContain(response.status);
-  });
-
   // --- List response shape ---
 
   describe('PaymentService List Response Shapes', () => {

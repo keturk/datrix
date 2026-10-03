@@ -47,6 +47,7 @@ export async function getDatabaseConfig(
     },
     migrations: {
       path: __dirname + '/../migrations/user-db',
+      tableName: 'mikro_orm_migrations_user_db',
       emit: 'ts',
     },
     host,

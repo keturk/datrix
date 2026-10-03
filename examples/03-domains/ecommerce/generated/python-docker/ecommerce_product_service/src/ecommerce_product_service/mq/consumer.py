@@ -178,7 +178,7 @@ async def handle_order_events_order_confirmed(
             _inventory_reservation_svc = InventoryReservationService(product_db)
             reservation = await _inventory_reservation_svc.update(
                 reservation.id,
-                InventoryReservationUpdate(**{"status": ReservationStatus.confirmed}),
+                InventoryReservationUpdate(**{"status": reservation.status}),
             )
         logger.info(
             "inventory_reservation_confirmed reservation_id=%s order_id=%s",
@@ -227,22 +227,14 @@ async def handle_order_events_order_cancelled(
                         _product_svc = ProductService(product_db)
                         product = await _product_svc.update(
                             product.id,
-                            ProductUpdate(
-                                **{
-                                    "inventory": (
-                                        product.inventory + reservation.quantity
-                                    )
-                                }
-                            ),
+                            ProductUpdate(**{"inventory": product.inventory}),
                             _commit=False,
                         )
                     reservation.status = ReservationStatus.released
                     _inventory_reservation_svc = InventoryReservationService(product_db)
                     reservation = await _inventory_reservation_svc.update(
                         reservation.id,
-                        InventoryReservationUpdate(
-                            **{"status": ReservationStatus.released}
-                        ),
+                        InventoryReservationUpdate(**{"status": reservation.status}),
                         _commit=False,
                     )
         async with _datrix_buffer_events():
@@ -257,30 +249,31 @@ async def handle_order_events_order_cancelled(
         )
 
 
-HANDLER_DISPATCH: dict[str, tuple[type, object]] = {
+# Keyed by "{topic}:{event}"; each key runs every handler bound to it.
+HANDLER_DISPATCH: dict[str, tuple[type, tuple[object, ...]]] = {
     "ecommerce_product_service.mq.product_events:ProductCreated": (
         ProductCreatedPayload,
-        handle_product_events_product_created,
+        (handle_product_events_product_created,),
     ),
     "ecommerce_product_service.mq.product_events:InventoryUpdated": (
         InventoryUpdatedPayload,
-        handle_product_events_inventory_updated,
+        (handle_product_events_inventory_updated,),
     ),
     "ecommerce_product_service.mq.product_events:InventoryReserved": (
         InventoryReservedPayload,
-        handle_product_events_inventory_reserved,
+        (handle_product_events_inventory_reserved,),
     ),
     "ecommerce_product_service.mq.product_events:InventoryReleased": (
         InventoryReleasedPayload,
-        handle_product_events_inventory_released,
+        (handle_product_events_inventory_released,),
     ),
     "ecommerce_order_service.mq.order_events:OrderConfirmed": (
         OrderEventsOrderConfirmedPayload,
-        handle_order_events_order_confirmed,
+        (handle_order_events_order_confirmed,),
     ),
     "ecommerce_order_service.mq.order_events:OrderCancelled": (
         OrderEventsOrderCancelledPayload,
-        handle_order_events_order_cancelled,
+        (handle_order_events_order_cancelled,),
     ),
 }
 
@@ -447,19 +440,17 @@ class KafkaEventConsumer:
             envelope = json.loads(raw)
             event_type = envelope.get("event_type")
             topic = message.topic
-            # Try qualified key first (topic:event), fall back to bare event name
             dispatch_key = f"{topic}:{event_type}"
-            if dispatch_key not in HANDLER_DISPATCH:
-                dispatch_key = event_type
             if dispatch_key not in HANDLER_DISPATCH:
                 logger.warning(
                     "unknown_event_type event_type=%s topic=%s", event_type, topic
                 )
                 status = "unknown_event"
                 return
-            schema_cls, handler_fn = HANDLER_DISPATCH[dispatch_key]
+            schema_cls, handler_fns = HANDLER_DISPATCH[dispatch_key]
             payload = schema_cls.model_validate(envelope.get("payload", {}))
-            await handler_fn(payload)
+            for handler_fn in handler_fns:
+                await handler_fn(payload)
         except Exception as e:
             status = "error"
             logger.exception("event_dispatch_failed error=%s", e)

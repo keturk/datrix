@@ -1,0 +1,28 @@
+<nav class="ui-nav">
+  <button type="button" class="ui-nav-toggle" popovertarget="ui-nav-links" [attr.aria-label]="__messages.key('framework.menu').text">
+    <span class="material-symbols-outlined" aria-hidden="true">menu</span>
+  </button>
+  <ul #__navLinks id="ui-nav-links" class="ui-nav-links" popover (click)="__navLinks.hidePopover()">
+    <li>
+      <a routerLink="/products">
+        {{ __navLabel0() }}
+      </a>
+    </li>
+    <li>
+      <a routerLink="/cart">
+        {{ __navLabel1() }}
+        <span data-badge>{{ __navBadge1() }}</span>
+      </a>
+    </li>
+    @if (__navVisible2()) {
+    <li>
+      <a routerLink="/orders">
+        {{ __navLabel2() }}
+      </a>
+    </li>
+    }
+  </ul>
+</nav>
+
+<router-outlet />
+

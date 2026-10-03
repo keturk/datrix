@@ -49,15 +49,10 @@
 - **Default:** `environment`
 - **Description:** Secrets provider backend (environment, vault, aws)
 
-#### `JWT_PUBLIC_KEY_FILE`
-- **Required:** Required when the system declares gateway JWT auth
+#### `jwt_public_key` (secret handle)
+- **Required:** Required when the system declares gateway JWT auth and this service hosts the static-key verify endpoint
 - **Default:** (none)
-- **Description:** Path to the PEM file holding the asymmetric JWT **public** key. Read at verification time, never cached into configuration. Provisioned and mounted by the deployment.
-
-#### `JWT_PRIVATE_KEY_FILE`
-- **Required:** Required when the system declares gateway JWT auth
-- **Default:** (none)
-- **Description:** Path to the PEM file holding the asymmetric JWT **private** key. Read only by a signer, at signing time. Provisioned and mounted by the deployment; the value never appears in generated source, configuration, or logs.
+- **Description:** The PEM public key, resolved through the secrets backend on each verification; never read from a path named by an environment variable.
 
 #### `JWT_ALGORITHM`
 - **Required:** Optional

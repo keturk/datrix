@@ -79,10 +79,10 @@ async def test_after_update_emits_payment_processed_when_status_is_completed(
         )
     )
     await db_session.refresh(payment)
-
+    payment.status = PaymentStatus.completed
     _payment_svc = PaymentService(db_session)
     payment = await _payment_svc.update(
-        payment.id, PaymentUpdate(**{"status": PaymentStatus.completed})
+        payment.id, PaymentUpdate(**{"status": payment.status})
     )
     assert event_spy.has(
         "PaymentProcessed",
@@ -112,10 +112,10 @@ async def test_after_update_emits_payment_failed_when_status_is_failed(
         )
     )
     await db_session.refresh(payment)
-
+    payment.status = PaymentStatus.failed
     _payment_svc = PaymentService(db_session)
     payment = await _payment_svc.update(
-        payment.id, PaymentUpdate(**{"status": PaymentStatus.failed})
+        payment.id, PaymentUpdate(**{"status": payment.status})
     )
     assert event_spy.has(
         "PaymentFailed",
@@ -144,10 +144,10 @@ async def test_after_update_emits_payment_refunded_when_status_is_refunded(
         )
     )
     await db_session.refresh(payment)
-
+    payment.status = PaymentStatus.refunded
     _payment_svc = PaymentService(db_session)
     payment = await _payment_svc.update(
-        payment.id, PaymentUpdate(**{"status": PaymentStatus.refunded})
+        payment.id, PaymentUpdate(**{"status": payment.status})
     )
     assert event_spy.has(
         "PaymentRefunded",

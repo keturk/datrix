@@ -7,6 +7,6 @@ export class HandleOrderCreatedHandler implements IEventHandler<OrderCreatedEven
   private readonly logger = new Logger(HandleOrderCreatedHandler.name);
 
   async handle(event: OrderCreatedEvent): Promise<void> {
-console.info('new_order_created_awaiting_payment');
+    console.info('new_order_created_awaiting_payment');
   }
 }

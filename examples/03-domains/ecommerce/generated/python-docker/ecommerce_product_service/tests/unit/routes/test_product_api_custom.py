@@ -15,6 +15,9 @@ from ecommerce_product_service.routes.product_api import (
     get_search,
     get_service_by_id,
     get_slug_by_slug,
+    get_wire_blob,
+    get_wire_discount_by_id,
+    get_wire_image_by_id,
     post_service_bulk,
     post_service_check_availability,
     post_service_confirm_reservation,
@@ -180,5 +183,41 @@ class TestProductApiCustomEndpoints:
     def test_post_service_bulk_accepts_db_session(self) -> None:
         """post_service_bulk accepts a db session parameter."""
         sig = inspect.signature(post_service_bulk)
+        param_names = list(sig.parameters.keys())
+        assert "product_db" in param_names
+
+    def test_get_wire_blob_exists(self) -> None:
+        """get_wire_blob handler exists and is callable."""
+        assert callable(get_wire_blob)
+
+    def test_get_wire_blob_is_async(self) -> None:
+        """get_wire_blob is an async function."""
+        assert inspect.iscoroutinefunction(get_wire_blob)
+
+    def test_get_wire_image_by_id_exists(self) -> None:
+        """get_wire_image_by_id handler exists and is callable."""
+        assert callable(get_wire_image_by_id)
+
+    def test_get_wire_image_by_id_is_async(self) -> None:
+        """get_wire_image_by_id is an async function."""
+        assert inspect.iscoroutinefunction(get_wire_image_by_id)
+
+    def test_get_wire_image_by_id_accepts_db_session(self) -> None:
+        """get_wire_image_by_id accepts a db session parameter."""
+        sig = inspect.signature(get_wire_image_by_id)
+        param_names = list(sig.parameters.keys())
+        assert "product_db" in param_names
+
+    def test_get_wire_discount_by_id_exists(self) -> None:
+        """get_wire_discount_by_id handler exists and is callable."""
+        assert callable(get_wire_discount_by_id)
+
+    def test_get_wire_discount_by_id_is_async(self) -> None:
+        """get_wire_discount_by_id is an async function."""
+        assert inspect.iscoroutinefunction(get_wire_discount_by_id)
+
+    def test_get_wire_discount_by_id_accepts_db_session(self) -> None:
+        """get_wire_discount_by_id accepts a db session parameter."""
+        sig = inspect.signature(get_wire_discount_by_id)
         param_names = list(sig.parameters.keys())
         assert "product_db" in param_names

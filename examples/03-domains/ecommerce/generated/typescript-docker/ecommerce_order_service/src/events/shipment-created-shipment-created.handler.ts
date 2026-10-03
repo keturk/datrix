@@ -12,6 +12,6 @@ export class HandleShipmentCreatedHandler implements IEventHandler<ShipmentCreat
   ) {}
 
   async handle(event: ShipmentCreatedEvent): Promise<void> {
-console.info('shipment_created_for_order');
+    console.info('shipment_created_for_order');
   }
 }

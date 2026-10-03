@@ -22,6 +22,7 @@ import { PostgreSqlDriver } from '@mikro-orm/postgresql';
 import { ConfigService } from '@nestjs/config';
 import { buildClient, RemoteConfigClient } from '../config/remoteConfig';
 import { SecretsService } from '../ecommerce_order_service/secrets/secrets.service';
+import { OrderAuditSubscriber } from '../ecommerce_order_service/entities/order_db/order-audit.subscriber';
 
 export async function getDatabaseConfig(
   configService: ConfigService,
@@ -40,6 +41,7 @@ export async function getDatabaseConfig(
     entities: [
       __dirname + '/../ecommerce_order_service/entities/order_db/**/*.entity{.ts,.js}',
     ],
+    subscribers: [new OrderAuditSubscriber()],
     allowGlobalContext: true,
     debug: configService.get<boolean>('DATABASE_LOGGING', false),
     pool: {
@@ -47,6 +49,7 @@ export async function getDatabaseConfig(
     },
     migrations: {
       path: __dirname + '/../migrations/order-db',
+      tableName: 'mikro_orm_migrations_order_db',
       emit: 'ts',
     },
     host,

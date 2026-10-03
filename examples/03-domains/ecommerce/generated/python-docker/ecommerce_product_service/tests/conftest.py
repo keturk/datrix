@@ -241,6 +241,40 @@ def _apply_test_mq_endpoint(store: dict[str, dict[str, object]]) -> None:
     connections["mq_brokers"] = brokers
 
 
+#: Env var carrying the host-accessible MinIO endpoint the test harness
+#: published. The deploy-test runner resolves the Compose-mapped host port and
+#: exports it; it is unset for in-container runs, where the deployment config
+#: store already addresses MinIO by its network name.
+_TEST_STORAGE_ENDPOINT_ENV_VAR = "STORAGE_ENDPOINT_URL"
+
+
+def _apply_test_storage_endpoint(store: dict[str, dict[str, object]]) -> None:
+    """Point the seeded config store at the MinIO server the test harness published.
+
+    ``remote_defaults.json`` carries the generation-time ``http://localhost:9000``
+    default, but Compose publishes the self-hosted MinIO server on an ephemeral
+    host port. Overlaying the resolved endpoint onto the seeded store keeps the
+    file config backend the single injection path: a spec/integration test that
+    calls the storage client (``download``/``upload``) reaches the running
+    container, and the service still reads the endpoint from the config store,
+    never the environment.
+
+    Every self-hosted MinIO block's key is overlaid -- one MinIO container is
+    shared by every such block (one bucket per block inside it), so overlaying
+    a single key would leave any other block's client on its baked default.
+
+    A no-op when the variable is unset, so the baked defaults still apply.
+    """
+    from ecommerce_product_service.config.remote_config import ConnectionsKeys
+
+    endpoint = os.environ.get(_TEST_STORAGE_ENDPOINT_ENV_VAR, "").strip()
+    if not endpoint:
+        return
+    connections = store.setdefault(ConnectionsKeys.NAMESPACE, {})
+    connections["store_endpoint"] = endpoint
+    connections["store_public_endpoint"] = endpoint
+
+
 @pytest.fixture(autouse=True)
 def _seed_test_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Write the baked config-store defaults to a temp file (file config backend).
@@ -266,6 +300,7 @@ def _seed_test_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     )
     _apply_test_cache_endpoint(store)
     _apply_test_mq_endpoint(store)
+    _apply_test_storage_endpoint(store)
     config_file.write_text(json.dumps(store), encoding="utf-8")
     monkeypatch.setattr(_bootstrap, "CONFIG_FILE_PATH", str(config_file))
 
@@ -292,11 +327,22 @@ def _seed_test_secrets(
     secrets_dir.mkdir()
     test_secret_values = {
         "docdb_secret-key": "datrix-test-secret-docdb_secret_key",
-        "jwt_private_key": _TEST_JWT_PRIVATE_KEY,
-        "jwt_public_key": _TEST_JWT_PUBLIC_KEY,
-        "minio_access_key": "minio-test-access-key",
-        "minio_secret_key": "minio-test-secret-key",
+        # The deploy-test runner reads the provisioner-written root user from
+        # secrets/<compose_service>/minio_access_key and exports it; a bare
+        # unit-test run (no harness) falls back to a placeholder no real
+        # server would ever accept -- unlike the endpoint overlay, there is no
+        # server to be unreachable from in that case, so the fallback need not
+        # be a valid credential, only a present one (a missing handle raises
+        # fail-closed at resolution).
+        "minio_access_key": os.environ.get(
+            "STORAGE_ACCESS_KEY", "minio-test-access-key"
+        ),
+        "minio_secret_key": os.environ.get(
+            "STORAGE_SECRET_KEY", "minio-test-secret-key"
+        ),
+        "mq_sasl_password": "datrix-test-secret-mq_sasl_password",
         "product_db_password": "datrix-test-secret-product_db_password",
+        "redis_password": "datrix-test-secret-redis_password",
     }
     for handle, value in test_secret_values.items():
         (secrets_dir / handle).write_text(value, encoding="utf-8")
@@ -332,16 +378,21 @@ def _seed_test_identity_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     jwks_file = identity_dir / "jwks.json"
     jwks_file.write_text(_TEST_JWKS_JSON, encoding="utf-8")
     plan = {
-        "schemaVersion": 2,
+        "schemaVersion": 6,
         "providers": {
             "test_auth": {
+                "credential": "jwt",
                 "name": "test_auth",
+                # Every guarded route enforces its principal types; the test
+                # tokens are human principals, so an auth(service) route
+                # refuses them (403) exactly as it refuses any human token.
+                "principalType": "human",
                 "issuer": _TEST_JWKS_ISSUER,
                 "jwksUri": jwks_file.as_uri(),
                 "jwksCacheTtlSeconds": 300,
                 "allowedAlgorithms": ["RS256"],
                 "allowedAudiences": [],
-                # Schema v2: no late-bound audiences for the in-process test
+                # No late-bound audiences for the in-process test
                 # provider — its audience is not assigned at provisioning time.
                 # A non-empty list here would name env vars that MUST resolve.
                 "allowedAudienceRefs": [],
@@ -351,7 +402,6 @@ def _seed_test_identity_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
                 "localIdentity": {"mode": "subjectText"},
             }
         },
-        "surfaces": {},
     }
     plan_file = identity_dir / "identity-providers.json"
     plan_file.write_text(json.dumps(plan), encoding="utf-8")
@@ -646,6 +696,39 @@ async def wrong_role_client(
     """HTTP client with a token that has a role insufficient for protected endpoints (e.g. Member)."""
     base_url = os.environ.get("BASE_URL")
     headers = {"Authorization": f"Bearer {_make_jwt(['Viewer'])}"}
+    if base_url:
+        transport = _RetryTransport(AsyncHTTPTransport(retries=_TRANSPORT_RETRIES))
+        async with AsyncClient(
+            transport=transport,
+            base_url=base_url,
+            timeout=_DEPLOY_TIMEOUT_SECONDS,
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            await _warm_up(async_client)
+            yield async_client
+    else:
+        from ecommerce_product_service.main import app
+
+        app.dependency_overrides[get_product_db_db] = lambda s=db_session: s
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://localhost",
+            headers=headers,
+            follow_redirects=True,
+        ) as async_client:
+            yield async_client
+        app.dependency_overrides.pop(get_product_db_db, None)
+
+
+@pytest_asyncio.fixture
+async def invalid_token_client(
+    db_session: AsyncSession,
+) -> AsyncGenerator[AsyncClient, None]:
+    """HTTP client presenting a bearer token that fails verification (401 on every guarded route)."""
+    base_url = os.environ.get("BASE_URL")
+    headers = {"Authorization": "Bearer not-a-valid-jwt"}
     if base_url:
         transport = _RetryTransport(AsyncHTTPTransport(retries=_TRANSPORT_RETRIES))
         async with AsyncClient(

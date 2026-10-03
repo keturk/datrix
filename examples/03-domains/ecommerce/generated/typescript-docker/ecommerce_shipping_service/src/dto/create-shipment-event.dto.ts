@@ -1,6 +1,7 @@
 
 import {
   IsDate,
+  IsDefined,
   IsEnum,
   IsNotEmpty,
   IsOptional,
@@ -17,15 +18,18 @@ import { ShipmentStatus } from '../enums/shipment-status.enum';
 export class CreateShipmentEventDto {
 
   @ApiProperty()
+  @IsDefined()
   @IsDate()
   @Type(() => Date)
   timestamp!: Date;
 
   @ApiProperty({ enum: ShipmentStatus, enumName: 'ShipmentStatus' })
+  @IsDefined()
   @IsEnum(ShipmentStatus)
   status!: ShipmentStatus;
 
   @ApiProperty()
+  @IsDefined()
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
@@ -37,6 +41,7 @@ export class CreateShipmentEventDto {
   description?: string | null;
 
   @ApiProperty()
+  @IsDefined()
   @IsUUID()
   shipmentId!: string;
 }

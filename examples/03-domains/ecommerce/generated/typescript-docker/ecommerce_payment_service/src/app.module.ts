@@ -22,7 +22,6 @@ import { MetricsInterceptor } from './observability/metrics.interceptor';
 import { LoggerModule } from './observability/logger.module';
 import { getThrottlerModule } from './ecommerce_payment_service/gateway-throttler.config';
 import { HttpClientsModule } from './http-clients.module';
-import { InternalGuard } from './discovery/internal-guard';
 import { AllExceptionsFilter } from './errors/all-exceptions-filter';
 import { FunctionsService } from './functions';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -52,7 +51,6 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
   ],
   providers: [
     { provide: RemoteConfigClient, useFactory: buildRuntimeReadinessConfigClient },
-    { provide: APP_GUARD, useClass: InternalGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     PaymentService,

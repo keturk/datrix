@@ -6,8 +6,7 @@ import { producerInstance as mqProducerInstance } from '../mq/producer';
 
 export async function userDbUserAfterCreate(
   target: User,
-  db: EntityManager,
-  oldValues?: Record<string, unknown>,
+  em: EntityManager,
 ): Promise<void> {
   if (mqProducerInstance !== null) {
     await mqProducerInstance.publishUserRegistered({ userId: target.id, email: target.email, fullName: target.fullName });

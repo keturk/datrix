@@ -21,7 +21,7 @@ describe('UserApi Custom Endpoints', () => {
   });
 
   describe('POST /api/v1/register?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle postRegister request', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/register?request=integration-path-value')
         .send({});
@@ -30,7 +30,7 @@ describe('UserApi Custom Endpoints', () => {
   });
 
   describe('POST /api/v1/login?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle postLogin request', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/login?request=integration-path-value')
         .send({});
@@ -39,7 +39,7 @@ describe('UserApi Custom Endpoints', () => {
   });
 
   describe('POST /api/v1/logout?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle postLogout request', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/logout?request=integration-path-value')
         .set('Authorization', 'Bearer test-token')
@@ -49,7 +49,7 @@ describe('UserApi Custom Endpoints', () => {
   });
 
   describe('GET /api/v1/me', () => {
-    it('should handle none request', async () => {
+    it('should handle getMe request', async () => {
       const response = await request(app.getHttpServer())
         .get('/api/v1/me')
         .set('Authorization', 'Bearer test-token')
@@ -59,7 +59,7 @@ describe('UserApi Custom Endpoints', () => {
   });
 
   describe('PUT /api/v1/me?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle putMe request', async () => {
       const response = await request(app.getHttpServer())
         .put('/api/v1/me?request=integration-path-value')
         .set('Authorization', 'Bearer test-token')
@@ -69,7 +69,7 @@ describe('UserApi Custom Endpoints', () => {
   });
 
   describe('PUT /api/v1/me/password?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle putMePassword request', async () => {
       const response = await request(app.getHttpServer())
         .put('/api/v1/me/password?request=integration-path-value')
         .set('Authorization', 'Bearer test-token')
@@ -78,8 +78,18 @@ describe('UserApi Custom Endpoints', () => {
     });
   });
 
+  describe('POST /api/v1/me/api-keys?request=integration-path-value', () => {
+    it('should handle postMeApiKeys request', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/me/api-keys?request=integration-path-value')
+        .set('Authorization', 'Bearer test-token')
+        .send({});
+      expect(response.status).toBe(201);
+    });
+  });
+
   describe('POST /api/v1/verify-email?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle postVerifyEmail request', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/verify-email?request=integration-path-value')
         .send({});
@@ -88,7 +98,7 @@ describe('UserApi Custom Endpoints', () => {
   });
 
   describe('POST /api/v1/forgot-password?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle postForgotPassword request', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/forgot-password?request=integration-path-value')
         .send({});
@@ -97,7 +107,7 @@ describe('UserApi Custom Endpoints', () => {
   });
 
   describe('POST /api/v1/reset-password?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle postResetPassword request', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/reset-password?request=integration-path-value')
         .send({});
@@ -106,7 +116,7 @@ describe('UserApi Custom Endpoints', () => {
   });
 
   describe('PUT /api/v1/00000000-0000-0000-0000-000000000001/status?request=integration-path-value', () => {
-    it('should handle none request', async () => {
+    it('should handle putByIdStatus request', async () => {
       const response = await request(app.getHttpServer())
         .put('/api/v1/00000000-0000-0000-0000-000000000001/status?request=integration-path-value')
         .set('Authorization', 'Bearer test-token')
