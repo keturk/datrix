@@ -176,6 +176,7 @@ class Exemption:
     path_glob: str
     reason: str
     matcher: re.Pattern[str]
+    gitignore_matcher: re.Pattern[str]
 
     @property
     def applies_to_every_repo(self) -> bool:
@@ -185,7 +186,7 @@ class Exemption:
         """True when this entry authorizes hiding `shadowed`."""
         if not self.applies_to_every_repo and shadowed.repo not in self.repos:
             return False
-        if self.gitignore != shadowed.rule.gitignore:
+        if self.gitignore_matcher.fullmatch(shadowed.rule.gitignore) is None:
             return False
         if self.pattern != shadowed.rule.pattern:
             return False
@@ -198,14 +199,19 @@ class Exemption:
 
 @dataclass(frozen=True)
 class ExemptionSet:
-    """Every reviewed entry, indexed by the rule identity it excuses."""
+    """Every reviewed entry, indexed by the ignore pattern it excuses.
+
+    The index is keyed by pattern text alone because an entry's `gitignore`
+    field is a segment-aware glob, not a literal; each candidate then checks the
+    blamed `.gitignore` path against its own matcher.
+    """
 
     entries: tuple[Exemption, ...]
-    index: dict[tuple[str, str], tuple[Exemption, ...]]
+    index: dict[str, tuple[Exemption, ...]]
 
     def covering(self, shadowed: ShadowedPath) -> Exemption | None:
         """Return the entry authorizing `shadowed`, or None when it is a violation."""
-        candidates = self.index.get((shadowed.rule.gitignore, shadowed.rule.pattern), ())
+        candidates = self.index.get(shadowed.rule.pattern, ())
         for entry in candidates:
             if entry.covers(shadowed):
                 return entry
@@ -355,13 +361,15 @@ def _parse_entry(entry: object, path: Path, position: int) -> Exemption:
             f"Exemption entry {position} in {path} is {type(entry).__name__}, not an object."
         )
     path_glob = _require_str(entry, "path_glob", path, position)
+    gitignore = _require_str(entry, "gitignore", path, position)
     return Exemption(
         repos=_parse_repos(entry, path, position),
-        gitignore=_require_str(entry, "gitignore", path, position),
+        gitignore=gitignore,
         pattern=_require_str(entry, "pattern", path, position),
         path_glob=path_glob,
         reason=_require_str(entry, "reason", path, position),
         matcher=glob_to_regex(path_glob),
+        gitignore_matcher=glob_to_regex(gitignore),
     )
 
 
@@ -392,9 +400,9 @@ def load_exemptions(path: Path) -> ExemptionSet:
     entries = tuple(
         _parse_entry(entry, path, position) for position, entry in enumerate(raw_entries, start=1)
     )
-    index: dict[tuple[str, str], list[Exemption]] = {}
+    index: dict[str, list[Exemption]] = {}
     for entry in entries:
-        index.setdefault((entry.gitignore, entry.pattern), []).append(entry)
+        index.setdefault(entry.pattern, []).append(entry)
     return ExemptionSet(
         entries=entries, index={key: tuple(value) for key, value in index.items()}
     )
@@ -689,6 +697,12 @@ def _check_glob_semantics() -> list[str]:
         ("*.log", "logs/crash.log", False),
         ("tests/**/.datrix/**", "tests/fixtures/.datrix/schema.json", True),
         ("tests/**/.datrix/**", "src/.datrix/schema.json", False),
+        (".gitignore", ".gitignore", True),
+        (".gitignore", "examples/demo/.gitignore", False),
+        ("examples/**/generated/**/.gitignore", "examples/demo/generated/py/.gitignore", True),
+        ("examples/**/generated/**/.gitignore", "examples/demo/generated/.gitignore", True),
+        ("examples/**/generated/**/.gitignore", ".gitignore", False),
+        ("examples/**/generated/**/.gitignore", "src/pkg/generated/py/.gitignore", False),
     )
     failures: list[str] = []
     for path_glob, candidate, expected in cases:
@@ -755,6 +769,63 @@ def _check_exemption_scope(repo: Path, exemptions: ExemptionSet) -> list[str]:
     cached = found.get(SELF_TEST_EXEMPT_PYCACHE)
     if cached is not None and empty.covering(cached) is not None:
         failures.append("self-test: an empty exemption set excused a shadowed path")
+    return failures
+
+
+SELF_TEST_NESTED_RULE_ENTRY = {
+    "repos": [ALL_REPOS],
+    "gitignore": "examples/**/generated/**/.gitignore",
+    "pattern": "node_modules/",
+    "path_glob": "examples/**/node_modules/**",
+    "reason": "self-test: dependency install output beside a generated example project.",
+}
+SELF_TEST_NESTED_IGNORE_FILES = (
+    "examples/demo/generated/py/.gitignore",
+    "src/pkg/.gitignore",
+    "examples/demo/hand-written/.gitignore",
+)
+SELF_TEST_NESTED_EXEMPT = "examples/demo/generated/py/node_modules/dep/index.js"
+SELF_TEST_NESTED_SRC_RULE = "src/pkg/node_modules/dep/index.js"
+SELF_TEST_NESTED_OTHER_EXAMPLE_RULE = "examples/demo/hand-written/node_modules/dep/index.js"
+
+
+def _check_nested_gitignore_scope(root: Path) -> list[str]:
+    """An entry naming a `.gitignore` glob excuses only the rules that glob names."""
+    failures: list[str] = []
+    repo = root / "nested"
+    _make_repo(
+        repo,
+        ("__pycache__/",),
+        (
+            SELF_TEST_NESTED_EXEMPT,
+            SELF_TEST_NESTED_SRC_RULE,
+            SELF_TEST_NESTED_OTHER_EXAMPLE_RULE,
+            *SELF_TEST_NESTED_IGNORE_FILES,
+        ),
+    )
+    for relpath in SELF_TEST_NESTED_IGNORE_FILES:
+        (repo / relpath).write_text("node_modules/\n", encoding="utf-8")
+    exemptions = ExemptionSet(
+        entries=(entry := _parse_entry(SELF_TEST_NESTED_RULE_ENTRY, Path("<self-test>"), 1),),
+        index={entry.pattern: (entry,)},
+    )
+    found = _by_path(attribute_rules(repo, ignored_paths(repo)))
+    expectations: tuple[tuple[str, bool, str], ...] = (
+        (SELF_TEST_NESTED_EXEMPT, True, "a gitignore-glob entry did not excuse its own generated example"),
+        (SELF_TEST_NESTED_SRC_RULE, False, "a gitignore-glob entry excused a rule from src/"),
+        (
+            SELF_TEST_NESTED_OTHER_EXAMPLE_RULE,
+            False,
+            "a gitignore-glob entry excused a rule outside the generated/ segment",
+        ),
+    )
+    for relpath, should_be_exempt, message in expectations:
+        candidate = found.get(relpath)
+        if candidate is None:
+            failures.append(f"self-test: planted path {relpath} never reached the scanner")
+            continue
+        if (exemptions.covering(candidate) is not None) is not should_be_exempt:
+            failures.append(f"self-test: {message}")
     return failures
 
 
@@ -842,6 +913,7 @@ def self_test(exemptions: ExemptionSet, temp_dir_segment: TempDirSegmentFn) -> l
         failures.extend(_check_exemption_scope(main_repo, exemptions))
         failures.extend(_check_stray_temp_classification(main_repo, exemptions, temp_dir_segment))
         failures.extend(_check_git_semantics(root))
+        failures.extend(_check_nested_gitignore_scope(root))
     return failures
 
 
