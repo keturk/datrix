@@ -2,28 +2,90 @@
 #
 # Frozen per-file counts of shared-layer identifiers (class, function,
 # dataclass field, type alias, or type reference) carrying a registered
-# language name as an identifier segment, in datrix_codegen_common.
+# language name OR one of that language's declared alias tokens
+# (declaration_for_language(lang).name_tokens) as an identifier segment,
+# in datrix_codegen_common and datrix_codegen_kernel.
 # Any INCREASE in a file's count fails
 # datrix/scripts/dev/check-import-boundaries.py --check-shared-target-names.
 # Decreases are always allowed and should be captured by re-running with
 # --update-baseline once a later change deletes a target-named surface.
-# The terminal state is a single reviewed exemption entry --
-# container_image_supply.py count 1, the scope-fenced PYTHON_BASE_IMAGE_DIR
-# (the shared per-system base-image directory name every platform emitter
-# must agree on byte-for-byte) -- every other entry drives to 0 as later
-# migration work removes each remaining target-named surface. The four
-# sql/nosql-substring identifiers considered during this ratchet's design
-# (sql_engine, sql_dialect, NoSQLSeedWriter, NoSqlFilterSyntax) are NOT hits
-# under this ratchet's languages-only vocabulary (sql is not a registered
-# datrix.languages entry) -- they are proven non-matches by this ratchet's
-# own self-test, not baseline entries.
+# Every entry is a reviewed exemption and MUST carry a written `reason`
+# naming the identifiers, why they stay, and what drives them to zero;
+# an entry without one fails the check. --update-baseline reads every
+# reason back and re-emits it, and names a reasoned entry that no longer
+# has a hit. The four sql/nosql-substring identifiers considered during
+# this ratchet's design (sql_engine, sql_dialect, NoSQLSeedWriter,
+# NoSqlFilterSyntax) are NOT hits under this ratchet's languages-only
+# vocabulary (sql is not a registered datrix.languages entry) -- they are
+# proven non-matches by this ratchet's own self-test, not baseline entries.
 #
 # Format:
 #   [[baseline]]
 #   file = "path/relative/to/monorepo-root, forward slashes"
 #   count = <int>
+#   reason = "identifiers, why they stay, what drives them to zero"
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/entity.py"
+count = 1
+reason = "EntityTsEmitSlice (:59, a type reference): the TypeScript entity-emit slice declared in context_models/entity.py and consumed by the TypeScript entity micro-generator and hooks, so it cannot be renamed inside this change without touching those packages. Drives to zero when the slice is renamed target-neutrally or moved into the TypeScript package, together with the context_models/entity.py entry."
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/graphql_ts_field.py"
+count = 8
+reason = "GraphqlTsFieldSpec (seven type references) and describe_graphql_field_type_ts (:265): the whole module maps Datrix types to NestJS GraphQL field metadata and is intentionally TypeScript-shaped; it is not moved by this consolidation and its names are consumed by the TypeScript generator and context_models/graphql.py. Drives to zero when the module moves into the TypeScript package or is generalized behind a per-language field-descriptor parameter."
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/pubsub_connection.py"
+count = 6
+reason = "_build_pubsub_nest_event_rows (:25), build_pubsub_nest_handler_rows (:65) and the PubsubNestEventRow / PubsubNestHandlerRow type references: NestJS-shaped pub/sub row builders whose row types are declared in context_models/pubsub_connection.py and consumed by the TypeScript pub/sub micro-generator, so a rename touches another package. Drives to zero with the context_models/pubsub_connection.py entry when the rows are renamed target-neutrally or move into the TypeScript package."
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/context_models/entity.py"
+count = 2
+reason = "EntityTsEmitSlice (class :57 and its :92 reference): the TypeScript entity-emit slice, consumed by the TypeScript entity micro-generator and hooks, so a rename touches another package. Drives to zero with the algorithms/entity.py entry when the slice is renamed target-neutrally or moved into the TypeScript package."
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/context_models/graphql.py"
+count = 9
+reason = "GraphqlTsFieldSpec (class :18 and three references), the fields ts_type (:21) and ts_field_spec (:36, :53, :95), and name_ts_camel (:106): the context models of the TypeScript-shaped GraphQL field descriptor in algorithms/graphql_ts_field.py, read by the TypeScript generator's templates, so they stay while that module stays. Drives to zero with the algorithms/graphql_ts_field.py entry."
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/context_models/pubsub_connection.py"
+count = 4
+reason = "PubsubNestEventRow (class :11, reference :36) and PubsubNestHandlerRow (class :21, reference :37): NestJS-shaped pub/sub row types consumed by the TypeScript pub/sub micro-generator, so a rename touches another package. Drives to zero with the algorithms/pubsub_connection.py entry."
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/context_models/replay_operator_body_facts.py"
+count = 1
+reason = "'_ts' (:486) is not an identifier: it is the string value '_ts' (timestamp field-name suffix) inside the _TIMESTAMP_FIELD_SUFFIXES tuple, which the scanner walks as a type expression because the assignment is annotated. It carries no language and cannot be renamed. Drives to zero when the scanner stops treating the string values of a non-alias annotated assignment as forward references."
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/node_package_managers.py"
+count = 1
+reason = "NPM_UNATTENDED_FLAGS (:159): the npm package manager's unattended-install flag set, a Node-ecosystem tool fact in a module that models Node package managers and is consumed by the Angular client target's hooks, so a rename touches another package. Drives to zero when the flag set is keyed by package-manager name inside a per-manager table instead of a module constant."
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/spec_belongs_to_fk.py"
+count = 1
+reason = "parent_create_kwargs_py (:54): a field of the shared belongs-to-FK spec read by the Python generator and its tests, so a rename touches another package. Drives to zero when the field is renamed target-neutrally together with its consumers."
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/orchestration/contexts/cqrs_contexts.py"
+count = 2
+reason = "sqlalchemy_column_expr (:84) and mikro_orm_column_spec (:85): CQRS view-context fields carrying the per-ORM column rendering, read by the Python and TypeScript generators and their tests, so a rename touches other packages. Drives to zero when the fields are replaced by one target-neutral rendered-column field."
+
+[[baseline]]
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/deploy_entrypoint.py"
+count = 2
+reason = "DEPLOY_PY_NAME (:60, 'deploy.py') and DEPLOY_APP_PY_NAME (:75, 'deploy-app.py'): the 'py' segment is the file extension of the generated deployment script, which is Python by design on every platform; the names are shared by the docker, azure and aws platform packages and their tests, so a rename touches other packages. Drives to zero if the deployment script's file names are ever declared per platform instead of as shared constants."
 
 [[baseline]]
 file = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/container_image_supply.py"
 count = 1
 reason = "PYTHON_BASE_IMAGE_DIR (:60) is a genuine target name, but datrix-codegen-docker consumes it directly and this design excludes datrix-codegen-docker from scope -- scope-fenced exemption; needs a follow-up design scoping docker's base-image-family naming. NOTE: _BASE_IMAGE_FAMILY_SUFFIX (:53) is NOT a hit -- its IDENTIFIER carries no language segment; only its string VALUE ('-python-base') does, which is outside this ratchet's identifier scope."
+
+[[baseline]]
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/web_security_headers.py"
+count = 1
+reason = "'js' (:62) is not an identifier: it is the string value 'js' (a content-hashed asset file extension) inside the WEB_HASHED_ASSET_EXTENSIONS tuple, which the scanner walks as a type expression because the assignment is annotated. It carries no language and cannot be renamed. Drives to zero when the scanner stops treating the string values of a non-alias annotated assignment as forward references."

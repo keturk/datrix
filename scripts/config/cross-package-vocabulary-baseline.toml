@@ -468,10 +468,6 @@ file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/_
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/_graphql_schema_types.py"
-count = 3
-
-[[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/cross_cutting/_deployment_test_cases.py"
 count = 2
 

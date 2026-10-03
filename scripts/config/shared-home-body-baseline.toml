@@ -1,0 +1,40 @@
+# Decrease-only per-package pin of shared-home duplicate bodies
+# (scripts/library/test/shared_home_bodies.py, wrapped by scripts/test/shared-home-body-gate.ps1).
+#
+# `count` is the number of functions in `package` (an import name) whose normalized body equals
+# the body of a public function in another package's shared home. A live count ABOVE `count`
+# fails the gate; a count below it passes and is lowered with -UpdateBaseline. A package with no
+# entry is pinned at 0. `seed` is the first measurement and never changes: the closing check
+# proves every package's count strictly below its seed. Every entry carries a written `reason`;
+# -UpdateBaseline reads it back and re-emits it.
+#
+# Format:
+#   [[baseline]]
+#   package = "datrix_codegen_python"
+#   count = <int>
+#   seed = <int>
+#   reason = "what the remaining duplicates are and why they remain"
+
+[[baseline]]
+package = "datrix_codegen_common"
+count = 0
+seed = 1
+reason = "Every duplicate of a shared-home function in this package was removed (the gate lists 0 hits); the entry remains as the seed record and the count only ever drops."
+
+[[baseline]]
+package = "datrix_codegen_kernel"
+count = 0
+seed = 1
+reason = "Every duplicate of a shared-home function in this package was removed (the gate lists 0 hits); the entry remains as the seed record and the count only ever drops."
+
+[[baseline]]
+package = "datrix_codegen_python"
+count = 0
+seed = 2
+reason = "Every duplicate of a shared-home function in this package was removed (the gate lists 0 hits); the entry remains as the seed record and the count only ever drops."
+
+[[baseline]]
+package = "datrix_common"
+count = 0
+seed = 1
+reason = "Every duplicate of a shared-home function in this package was removed (the gate lists 0 hits); the entry remains as the seed record and the count only ever drops."
