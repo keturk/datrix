@@ -1997,9 +1997,14 @@ config extern pricing.PricingEngine {
 | `health.timeout` | duration string | `5s` | Health check response timeout |
 | `health.startPeriod` | duration string | `40s` | Grace period before first check |
 | `health.retries` | integer | `3` | Failures before unhealthy |
-| `auth.type` | string | `none` | `apiKey`, `bearer`, `serviceJwt`, `none` |
+| `auth.type` | string | `none` | `apiKey`, `bearer`, `serviceJwt`, `oauth2ClientCredentials`, `none` |
 | `auth.header` | string | — | Header name for `apiKey` auth |
 | `auth.secret` | string | — | Environment variable name holding the credential |
+| `auth.oauth2ClientCredentials.tokenUrl` | string | — | OAuth token endpoint the client posts `grant_type=client_credentials` to. The `auth.oauth2ClientCredentials` block is **required** when `auth.type` is `oauth2ClientCredentials` and rejected for every other type |
+| `auth.oauth2ClientCredentials.clientIdEnvVar` | string | — | Name of the environment variable holding the client id. Required for this type; the value is read at runtime and never written into config |
+| `auth.oauth2ClientCredentials.clientSecretEnvVar` | string | — | Name of the environment variable holding the client secret. Required for this type; the value is read at runtime and never written into config |
+| `auth.oauth2ClientCredentials.scopes` | list of strings | `[]` | Scopes requested with the token |
+| `auth.oauth2ClientCredentials.tokenCacheTtlSeconds` | integer | `3500` | Seconds the access token is cached before a new one is fetched. Must be positive |
 | `retry.maxAttempts` | integer | `3` | Maximum retry attempts |
 | `retry.backoff` | string | `exponential` | `exponential`, `linear`, `fixed` |
 | `resources.memory` | string | — | Memory limit (e.g., `512m`, `1g`) |
