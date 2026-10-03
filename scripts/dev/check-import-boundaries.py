@@ -9299,6 +9299,67 @@ def _self_test_reexport_facade_scanner() -> bool:
             and unresolved_hits[0].providing_module == "datrix_fixture.no_such_module",
         )
 
+        # Entry-point case: a pyproject.toml `module:attr` value is a site. An
+        # attr the module defines is zero hits; an attr it does not define is
+        # one entry_point hit attributed to the module's file; a module that
+        # resolves to nothing on disk is one entry_point hit attributed to the
+        # dotted path.
+        ep_repo = scratch_dir / "ep_repo"
+        ep_root = ep_repo / "datrix-fixture-ep"
+        ep_src = ep_root / "src" / "datrix_fixture_ep"
+        ep_src.mkdir(parents=True, exist_ok=True)
+        (ep_src / "__init__.py").write_text('"""Fixture."""\n', encoding="utf-8")
+        (ep_src / "plugin.py").write_text(
+            "class DefinedPlugin:\n    pass\n", encoding="utf-8"
+        )
+        ep_packages = {
+            "datrix_fixture_ep": PackageInfo(
+                name="datrix_fixture_ep", root=ep_root, src_dir=ep_src
+            )
+        }
+
+        def _entry_point_hits(
+            import_package: str, attribute: str
+        ) -> list[ReexportFacadeHit]:
+            _self_test_write_manifest(
+                ep_repo,
+                "datrix-fixture-ep",
+                import_package,
+                entry_point_groups={"datrix.languages": {"fixture": attribute}},
+            )
+            _analyze_module_file.cache_clear()
+            _parse_module_source.cache_clear()
+            scanned = scan_reexport_facades(ep_packages, ep_repo)
+            return [
+                hit
+                for hits in scanned.values()
+                for hit in hits
+                if hit.kind == "entry_point"
+            ]
+
+        ok &= _check(
+            "an entry point naming an attr its module defines is zero entry_point hits",
+            _entry_point_hits("datrix_fixture_ep", "DefinedPlugin") == [],
+        )
+        undefined_attr_hits = _entry_point_hits("datrix_fixture_ep", "MissingPlugin")
+        ok &= _check(
+            "an entry point naming an attr its module does not define is exactly "
+            "one entry_point hit attributed to that module's file",
+            len(undefined_attr_hits) == 1
+            and undefined_attr_hits[0].name == "MissingPlugin"
+            and undefined_attr_hits[0].providing_module.endswith(
+                "src/datrix_fixture_ep/plugin.py"
+            ),
+        )
+        unresolved_ep_hits = _entry_point_hits("datrix_fixture_ep.nowhere", "DefinedPlugin")
+        ok &= _check(
+            "an entry point naming a module that resolves to nothing on disk is "
+            "exactly one entry_point hit attributed to the dotted path",
+            len(unresolved_ep_hits) == 1
+            and unresolved_ep_hits[0].providing_module
+            == "datrix_fixture_ep.nowhere.plugin",
+        )
+
         # Relative imports resolve to their absolute module from the file's
         # own dotted name, on both the provider and the consumer side.
         rel_pkg_dir = fixture_src / "relpkg"
