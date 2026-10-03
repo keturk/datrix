@@ -70,7 +70,7 @@ import shlex
 import sys
 from typing import Any, Final
 
-from _command_shape import executable_text, leading_token, segments
+from _command_shape import executable_text, is_read_only, leading_token, segments
 
 # Subcommands that always discard or rewrite working-tree / history state.
 _ALWAYS_BLOCKED = {
@@ -403,6 +403,80 @@ def _check_type_checker(command: str) -> None:
             )
 
 
+# FAMILY 3 -- `pytest` invoked directly. `test.ps1` owns the interpreter, the selection
+# guards (-Specific/-Tag limits), the run directory and the structured results; a bare
+# pytest bypasses all four, including the guard that refuses a whole-suite run.
+_PYTEST_NAMES = frozenset({"pytest", "py.test", "ptw"})
+_PACKAGE_RUNNERS = frozenset({"uv", "uvx", "poetry", "pipenv", "pdm", "hatch", "pipx", "tox", "nox"})
+_PYTEST_MODULE_RE = re.compile(r"(?<![\w.-])-m\s+pytest\b", re.IGNORECASE)
+
+_PYTEST_TAIL = (
+    "\n\nCLAUDE.md, 'Running Python': 'Never invoke `pytest` directly, and never "
+    "reverse-engineer `test.ps1` to discover its interpreter.' `test.ps1` is the only "
+    "way an agent runs tests: it picks the shared venv's interpreter, enforces the "
+    "targeting limits, writes the run directory the fix skills read, and is where the "
+    "whole-suite guard lives. A bare pytest bypasses every one of those.\n\n"
+    "Use:\n"
+    "  powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" <package> -Specific \"a.py,b.py\"\n"
+    "  powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" <pkg-a> <pkg-b> -Tag <tag>\n"
+    "  powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" <package> -ListTags   (runs nothing)\n"
+    "(datrix/scripts/test/quick-reference.md). A one-off script is "
+    "`D:\\datrix\\.venv\\Scripts\\python.exe <script>`, not pytest."
+)
+
+# FAMILY 4 -- a polling loop inside one tool call. A background task notifies you when
+# it completes; a loop that sleeps and re-checks costs a tool call plus its output per
+# turn of the loop, can outlive the tool timeout and be moved to the background itself,
+# and is the exact shape execution-contract-spend.md section 11.1 forbids.
+_QUOTED_RE = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'")
+# `until|while <check> ... do ... sleep ...`, the sleep inside the loop body (no `done` in
+# between), whether the loop is written on one line or several.
+_SHELL_POLL_RE = re.compile(
+    r"(?:^|[\s;&|(])(?:until|while)\b[\s\S]{0,300}?\bdo\b(?:(?!\bdone\b)[\s\S]){0,300}?"
+    r"\b(?:sleep|start-sleep)\b",
+    re.IGNORECASE,
+)
+_POWERSHELL_POLL_RE = re.compile(
+    r"\bwhile\s*\(.*?\)\s*\{[^}]*\bstart-sleep\b"
+    r"|\bdo\s*\{[^}]*\bstart-sleep\b[^}]*\}\s*(?:while|until)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_POLLING_TAIL = (
+    "\n\nCLAUDE.md, Budget: 'Wait by notification, never by polling. Use "
+    "`run_in_background` and resume on the notification. Never `until <check>; do "
+    "sleep N; done`.' (`execution-contract-spend.md` section 11.1.)\n\n"
+    "Launch the long task with `run_in_background: true` and end your turn: the "
+    "harness re-invokes you when it completes. Waiting for a notification is not "
+    "handing back. To watch EXTERNAL state the harness cannot observe (a CI run, a "
+    "deploy, a remote queue), use the Monitor tool or `ScheduleWakeup` with an interval "
+    "matched to how fast that state changes -- not a sleep loop in one call."
+)
+
+
+def _check_pytest(command: str) -> None:
+    """Block a segment that runs pytest itself, directly or through a package runner."""
+    for segment in segments(executable_text(command)):
+        token = leading_token(segment)
+        if token in _PYTEST_NAMES:
+            _block(f"BLOCKED: `{token}` run directly.", _PYTEST_TAIL)
+        if token in _PY_LAUNCHERS and _PYTEST_MODULE_RE.search(segment):
+            _block("BLOCKED: `-m pytest` runs pytest directly.", _PYTEST_TAIL)
+        if token in _PACKAGE_RUNNERS:
+            words = {word.strip("\"'").lower() for word in segment.split()}
+            if words & _PYTEST_NAMES:
+                _block(f"BLOCKED: `{token} ... pytest` runs pytest directly.", _PYTEST_TAIL)
+
+
+def _check_polling(command: str) -> None:
+    """Block a sleep-and-recheck loop. Quoted text is blanked first, so a loop that is only
+    being printed, grepped for, or passed as an argument is never mistaken for one that runs."""
+    unquoted = _QUOTED_RE.sub('""', "\n".join(
+        part for part in command.splitlines() if not is_read_only(part)))
+    if _SHELL_POLL_RE.search(unquoted) or _POWERSHELL_POLL_RE.search(unquoted):
+        _block("BLOCKED: a sleep-and-recheck loop polls inside one tool call.", _POLLING_TAIL)
+
+
 def main() -> None:
     try:
         data = json.loads(sys.stdin.read())
@@ -413,6 +487,8 @@ def main() -> None:
     if command:
         _check_command(command, data.get("transcript_path") or "")
         _check_type_checker(command)
+        _check_pytest(command)
+        _check_polling(command)
 
     sys.exit(0)
 

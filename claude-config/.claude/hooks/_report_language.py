@@ -491,9 +491,11 @@ DODGE_REMEDY: Final = (
     "  1. DO IT. (This is the default and almost always the right answer.)\n"
     "  2. FILE IT - create a real tracked task file and cite its path, if it is "
     "genuinely an independent root cause.\n"
-    "  3. WRITE A FINDING - if it is design-sized or on a surface you did not "
-    "touch, write d:\\datrix\\reports\\finding\\YYYYMMDD-HHMMSS-<slug>.md "
-    "(execution-contract §5A), cite its path, and finish your own task.\n"
+    "  3. WRITE A FINDING - if it is design-sized or unrelated to your task (a "
+    "surface you did not touch), just write "
+    "d:\\datrix\\reports\\finding\\YYYYMMDD-HHMMSS-<slug>.md "
+    "(execution-contract-reporting.md §5A), cite its path, and finish your own "
+    "task.\n"
     "  4. PROVE A BLOCKER - give all four: verbatim error text; the fix you "
     "actually wrote and ran (file:line); why it failed; and the B1-B4 code. "
     "Analysis alone is not an attempt.\n\n"
@@ -504,8 +506,8 @@ DODGE_REMEDY: Final = (
 # Neither of the next two is excused by a blocker proof or a filed task: they do
 # not describe WHOSE work it is, they describe shipping the wrong work.
 SECURITY_REMEDY: Final = (
-    "Per .claude/skills/_shared/execution-contract.md §13, security is a ranked "
-    "requirement, not a trade-off axis.\n\n"
+    "Per .claude/skills/_shared/execution-contract-security.md §13, security is a "
+    "ranked requirement, not a trade-off axis.\n\n"
     "NEVER propose or implement a less secure option when a more secure one is "
     "available. Convenience, brevity, fewer moving parts, one less dependency, "
     "and finishing sooner do NOT outrank it. If the secure option costs more "

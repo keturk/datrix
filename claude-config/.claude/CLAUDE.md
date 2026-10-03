@@ -5,28 +5,35 @@
 ## Read-When-Needed Rules
 
 This file holds only what applies to *every* turn. Everything else lives in a doc you read
-when the work calls for it. Read the doc — do not act from memory of it.
+when the work calls for it — **open the one for your task, not all of them.** Read the doc; do
+not act from memory of it. **Don't know where something is?** Ask:
+`powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` — a brief answer
+from the docs with the file and line range to open (a lead: confirm before acting).
 
 | Before you… | Read |
 |---|---|
 | mark a task COMPLETED, file a task, close a phase, run an orchestrator | `.claude/rules/task-orchestration.md` |
 | implement from a design doc, write a commit/PR body, touch `docs/` | `.claude/rules/design-and-docs.md` |
 | create a directory, add a test, write into `D:\datrix\datrix` | `.claude/rules/repo-boundaries.md` |
-| dispatch a subagent or plan how much to spend | execution-contract §10–§11 |
-| deploy, or debug a deploy/runtime failure | execution-contract §12 |
-| touch auth, secrets, TLS, input handling, permissions, crypto, or an emitted default | execution-contract §13 |
-| feel pressure to ship a smaller change than the defect deserves | execution-contract §14 |
+| dispatch a subagent or plan how much to spend | `.claude/skills/_shared/execution-contract-spend.md` (§10–§11) |
+| deploy, or debug a deploy/runtime failure | `execution-contract-verification.md` (§12); `ai-agent-rules/static-analysis-first.md` |
+| touch auth, secrets, TLS, input handling, permissions, crypto, or an emitted default | `execution-contract-security.md` (§13); `ai-agent-rules/secure-by-default.md` |
+| write a findings file, a report, a commit/PR body, or a committed comment/doc | `execution-contract-reporting.md` (§5A, §7, §7A) |
+| feel pressure to ship a smaller change than the defect deserves | execution-contract §14 (in the core file) |
+| change a shared layer, or two targets behave differently | `ai-agent-rules/multi-target-invariants.md` |
+| touch a subsystem (plugins, parity, auth, clients, migrations, runtime, LSP, agents, …) | the matching knowledge pack in the architecture cheat sheet's table (`datrix/docs/architecture/packs/`) |
+| write code, or review it | `ai-agent-rules/prohibited-patterns.md`, `code-quality-standards.md` (under `datrix-common/docs/contributing/`) |
+| write a test | `datrix-common/docs/contributing/test-guidelines/` |
 | call any repo script | `datrix/scripts/quick-reference.md` |
 | implement significant new logic, or look for a definition or its uses | code-index MCP tools (`find_canonical`, `find_symbol`, `find_references`, `outline`, `search`); no MCP → `datrix/scripts/dev/code-index.ps1` |
 | read a large file whole to answer a question about it, or read a test/generation/deploy log | local-model MCP tools `ask_files` (what code does, how something is done — **not** definitions or call sites, which a model invents: use the code index) / `digest_log` (`datrix-local-llm`): the answer cites `path:line` and is a lead — confirm the cited lines with a ranged Read before acting; no MCP → read by range |
 
-**Architecture:** `datrix/docs/architecture/architecture-cheat-sheet.md`,
-`design-principles-cheat-sheet.md`, then `architecture-overview.md` (index).
-Pipeline: `.dtrx → TreeSitterParser + Transformers → Application (validated AST) → Generators` — no IR layer.
-**Agent rules:** `datrix-common/docs/contributing/ai-agent-rules.md` (index).
-**Test guidelines:** `datrix-common/docs/contributing/test-guidelines/`.
-**Full contract:** `.claude/skills/_shared/execution-contract.md` — governs every agent and
-skill, and overrides any softer language here.
+**Mandatory before your first edit (two short cores):** `datrix/docs/architecture/architecture-cheat-sheet.md`
+(the map and pack index) and `datrix-common/docs/contributing/ai-agent-rules.md` (the core rules and
+pack index); `gate-mandatory-reads.py` blocks Write/Edit until both are read, and re-arms after a
+compaction. Pipeline: `.dtrx → TreeSitterParser + Transformers → Application (validated AST) → Generators`
+— no IR layer. **Full contract:** `.claude/skills/_shared/execution-contract.md` (core; topic files in the
+table above; section numbers are stable) — it overrides any softer language here.
 
 ## Execution Contract
 
@@ -55,33 +62,26 @@ code and run it); why it failed; and the B1–B4 code.
 or file a real tracked task. Mentioning it in prose and moving on is not an outcome.
 This covers **small** defects found while doing the task. Anything that would need its own
 design (a new capability, or new behaviour across languages or subsystems) is never fixed in
-place and never filed into the running phase.
+place and never filed into the running phase. **Something unrelated to your task** — noticed in
+passing, on a surface you did not touch — is not yours to fix: just write the findings file below.
 
-**Nothing you notice is dropped.** A design-sized defect, a design flaw, or an issue on a
-surface you did not touch gets a **findings file**. Write it to
-`d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md`, cite its path in your reply, and carry
-on with your task. Keep it brief: what is wrong, where (`file:line`), the evidence, and the
-impact. Do not search the folder first; duplicates are fine. Full text: execution-contract
-§5 and §5A.
+**Nothing you notice is dropped.** A design-sized defect, a design flaw, or anything unrelated
+to your task gets a **findings file** at `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md`.
+Just write it: **do not look for an existing one** (duplicates are fine; `/consolidate-findings`
+merges them), do not fix it, do not file a task. Cite its path in your reply and carry on.
+Format: execution-contract-reporting.md §5A.
 
 **Exactly two things end a turn: the task is FINISHED, or Jon tells you to stop.** Running
 long, getting tired of the loop, and reaching a natural-feeling pause are not exits.
 
 **Running low on context is not an exit either.** Context is compacted and the work
 continues — "I'm near the end of my context window" is not on the B1–B4 list and never
-will be. It is the most seductive form of quitting because it sounds like engineering
-prudence, it is unfalsifiable from Jon's side, and it can be written in the same breath as
-a tidy summary. If context is genuinely tight, spend what remains on the FIX, not on a
-handover document: write the smallest correct change, run its check, and keep going. What
-survives compaction is the code you landed and the tests you left green, never the report
-you wrote instead.
+will be. Spend what remains on the FIX, not on a handover document.
 
 **A report is not an exit.** If your draft reply contains a "remaining", "still to fix", or
-"next up" section, you are not finished: delete the section and go fix those items. This
-governs a single continuous task, not just numbered lists — "fix every error in X" is
-finished at **zero** errors. When Jon authorizes a set of items, the turn ends only when
-EVERY item is fixed-and-proven, never at the boundary between items. A green checkmark and a
-tidy summary are a *byproduct* of progress, not the deliverable.
+"next up" section, you are not finished: delete the section and go fix those items. "Fix every
+error in X" is finished at **zero** errors. When Jon authorizes a set of items, the turn ends
+only when EVERY item is fixed-and-proven, never at the boundary between items.
 
 **Skipping is not finishing.** "I didn't verify", "not tested", "should work" is the same
 failure as "out of scope" — an unverified claim is not a result. Report what you ran and
@@ -91,29 +91,23 @@ what it printed.
 what is left of your context, budget, turn, or patience. "A quick fix for now", "the
 minimal change to get it green", "a temporary shim until the real thing lands", "I'll
 harden it later" are all banned, and remain banned when you say them honestly. **There is
-no later**: the code you land survives, the note explaining it was provisional does not.
-If the correct fix is large, do it and report the expansion. Full text: execution-contract §14.
+no later.** If the correct fix is large, do it and report the expansion (§14).
 
 **The only interruption is Jon.** A decision genuinely reserved to him (a true B2, or
-something he said to check with him on) → ask in one line, and meanwhile keep working
-everything that does not depend on the answer. Left running unattended, the correct end
-state is "all items done or provably blocked," never "stopped politely partway."
+something he said to check with him on) → ask in one line, and keep working everything that
+does not depend on the answer.
 
 **Scope: expansion, not abandonment.** *Before* starting, a task spanning 3+ unrelated
-subsystems may be split — a planning call with a clean slate. *Once started*, discovering
-the job is bigger is grounds to **expand and continue**, never to stop. (Sole exception: an
-explicit `PARALLEL_WAVE: files are exclusive` dispatch → return `EXPANSION_REQUIRED` naming
-the files. That is not BLOCKED; it means "I know the fix and need the lock.")
+subsystems may be split. *Once started*, a bigger job is grounds to **expand and continue**,
+never to stop. (Sole exception: an explicit `PARALLEL_WAVE: files are exclusive` dispatch →
+return `EXPANSION_REQUIRED` naming the files; that is not BLOCKED.)
 
 ## No Nested Agents
 
-**Only `/task-orchestrator` dispatches subagents.** Planning and design skills —
-`/operationalize-design`, `/generate-tasks` — never do: they read, decide and write every
-file in the session themselves. The orchestrator's dispatches are sized per execution-contract
-§10. **A subagent never spawns subagents.** An agent that was itself dispatched may not dispatch more: a nested swarm multiplies
-token cost with no added coverage. Depth is one. If you are a subagent, do the work yourself,
-sequentially, and report any expansion to the dispatcher. `guard-no-nested-agents.py`
-refuses the `Agent`/`Task` tool for any caller that is a subagent, with no override.
+**Only `/task-orchestrator` dispatches subagents** (sized per `execution-contract-spend.md` §10).
+Planning and design skills (`/operationalize-design`, `/generate-tasks`) never do. **A subagent never
+spawns subagents** — depth is one; do the work yourself, sequentially, and report any expansion to
+the dispatcher. `guard-no-nested-agents.py` refuses it, with no override.
 
 ## Enforced by the Harness
 
@@ -134,10 +128,12 @@ doing the wrong thing.
 | pytest collection | `datrix_common.testing.feature_tags` | a `-Tag`/`-Keyword` selection keeping more than 25% of a package's test tree (above 300 tests) — a full suite by instalments |
 | `PreToolUse(Bash\|PowerShell)` | `guard-untargeted-scans.py` | whole-package `semgrep.ps1`/`libcst.ps1`/`ast-grep.ps1` runs with no `-Rule` and no `SCAN_QUESTION:` in the description; `-All` and subagent runs unconditionally |
 | `PreToolUse(Bash\|PowerShell)` | `validate-script-invocation.py` | `generate.ps1` with `-All`/`-Domains`/`-TestSet` (no override) |
-| `PreToolUse(Bash\|PowerShell)` | `guard-forbidden-commands.py` | git reverts, standalone type-checkers (`mypy` and equivalents, wrappers included), and other prohibited commands. Sole exception: while Jon's `/resolve-conflicts` is the latest prompt, path-limited stash, index-only reset and `--ours/--theirs` pass |
+| `PreToolUse(Bash\|PowerShell)` | `guard-forbidden-commands.py` | git reverts, standalone type-checkers (`mypy` and equivalents, wrappers included), `pytest` invoked directly (use `test.ps1`), sleep-and-recheck polling loops inside one call (use `run_in_background`), and other prohibited commands. Sole exception: while Jon's `/resolve-conflicts` is the latest prompt, path-limited stash, index-only reset and `--ours/--theirs` pass |
 | `PreToolUse(Bash\|PowerShell)` | `guard-shell-file-writes.py` | authoring file content from a shell — heredocs, `>`/`>>` into a file, `Set-Content`/`Out-File`, and `python -c`/`python - <<` bodies that write files |
 | `PreToolUse(Bash\|PowerShell)` | `guard-repo-temp-dirs.py` | opening a temp/scratch dir inside a package repo from a shell — the `mkdir`, the redirect, and the `-Output*` argument |
 | `PreToolUse(Write\|Edit\|NotebookEdit)` | `guard-repo-temp-dirs.py`, `guard-temp-file-policy.py` | temp/scratch dirs and files inside package repos |
+| `PreToolUse(Write\|Edit\|NotebookEdit)` | `guard-repo-policy-edits.py` | a GitHub Actions workflow; marking a task COMPLETED by editing its heading instead of `complete.ps1`; writing into a `.tasks/phase-NN/` that does not exist (opening a phase) unless `/generate-tasks` or `/operationalize-design` is the recorded skill |
+| `PreToolUse(Write\|Edit\|NotebookEdit)` | `guard-code-standards.py` | an edit that ADDS a mock/`SimpleNamespace`/`mocker` to a test, an `except … : pass` handler, or a `# TODO`/`FIXME` comment to framework Python (the delta only — existing code never blocks; unparseable → allowed) |
 | `PreToolUse(Write\|Edit\|NotebookEdit)` | `gate-mandatory-reads.py` | any edit until the gated docs are read in this session (and re-read after a compaction) |
 | `PreToolUse(Read)` | `redirect-large-read.py` | the **first** whole read (no `offset`/`limit`) of a large `.py` file or test log in the framework repos — answered with the file's code-index outline, or a local model's digest of the log; repeat the same Read to get the whole file (shown once per file per agent) |
 | `PreToolUse(AskUserQuestion)` | `gate-decision-escalation.py` | handing a decision back to Jon mid-run instead of escalating |
@@ -146,11 +142,6 @@ doing the wrong thing.
 for on every turn and competes with everything else in context; a rule in a hook is paid for
 only when it fires. If it cannot be evaluated mechanically, it belongs in a read-when-needed
 doc — see `.claude/hooks/checklist.py` for the config-driven form.
-
-**Mandatory reads:** the architecture cheat sheet and the agent rules are NOT injected —
-only this file and `MEMORY.md` are. Read them before your first edit; `gate-mandatory-reads.py`
-blocks Write/Edit until you do. Post-compaction every file you read is gone, and the same gate
-re-arms: re-read before acting.
 
 ## Core Principles
 
@@ -164,48 +155,32 @@ re-arms: re-read before acting.
   same redirections, same environment. (The same `az` command can exit 0 in bash and exit 1
   under PowerShell `2>$null`.)
 - **Static analysis first.** A deploy or runtime run is the most expensive, latest-arriving
-  evidence available. Climb the ladder from the top: read source/template → parse the emitted
-  artifact → targeted test → repo static gate → the tagged tests of the behaviour across the
-  packages it reaches → generate → deploy.
-  *"I'll just deploy and see"* is the most expensive sentence available to you. **The ladder
-  is a menu ordered by cost, not a sequence to execute** — each rung is taken only for a
-  question that rung answers and a cheaper one cannot; a rung run because it is on the list
-  is waste (see Budget).
-- **Every seam gets a set comparison, and it lives in code.** Name what produces the
-  names/values and what consumes them, compute `consumed − produced`, require it empty or
-  explained, then land the comparison as a validator or test. Parse structure; don't eyeball
-  it with a regex, and prove your matcher finds an instance you know is there.
-- **A runtime failure is first a static-analysis failure.** After every deploy/run failure,
-  the mandatory second question is *"what check would have caught this before the run, and
-  where does it live?"* — and you land that check with the fix.
-- **An insertion IS an integration.** Adding a step to a pipeline, a leg to a release script,
-  or a call between two functions is complete only when you have read the neighbours: what
-  upstream guarantees, what downstream requires (its guards, `Test-Path`s, early errors), and
-  what both sides believe about any shared resource. A step's contract is not its body.
-  Editing the frame is not reading the contents; an answer settled in a neighbouring context
-  is a hypothesis about this one, not a conclusion.
-- **Fix the class, not the instance.** Characterize the shape, enumerate every occurrence in
-  one static pass, fix them together. Symptom-by-symptom is how a five-minute defect becomes
-  a five-hour deploy loop.
+  evidence: read source/template → parse the emitted artifact → targeted test → repo static
+  gate → tagged tests across the packages reached → generate → deploy. *"I'll just deploy and
+  see"* is the most expensive sentence available to you. **The ladder is a menu ordered by
+  cost, not a sequence to execute** — a rung is taken only for a question it answers and a
+  cheaper one cannot (see Budget).
+- **Every seam gets a set comparison, and it lives in code** (`consumed − produced`, landed as a
+  validator or test; parse structure, never eyeball it with a regex). After any run failure ask
+  *"what check would have caught this before the run, and where does it live?"* and land it
+  with the fix. **An insertion IS an integration** — read the neighbours. **Fix the class, not
+  the instance.** Details: `ai-agent-rules/static-analysis-first.md`, `execution-contract-verification.md` §12.
 - **Datrix is a multi-language, multi-platform generator** — not limited to Python/TypeScript,
-  not limited to Docker/AWS/Azure. Place fixes at the most language/platform-agnostic layer
-  that can own them; specifics live only in the owning codegen package. Never hardcode the
-  assumption that currently-shipped targets are the only targets.
+  not limited to Docker/AWS/Azure. Place fixes at the most agnostic layer that can own them;
+  never hardcode that the shipped targets are the only targets
+  (`ai-agent-rules/multi-target-invariants.md`).
 - **Security outranks everything except correctness.** **Never propose or implement a less
-  secure option when a more secure one is available** — convenience, brevity, fewer moving
-  parts, and finishing sooner do not outrank it, and a difference in security posture
-  settles a design choice rather than creating a B2. Fail closed: a control that cannot
-  evaluate its input denies. Never disable, loosen, or exempt a security control to turn a
-  red check green. This binds what the generator *emits* as hard as what you write — an
-  insecure default in a template ships once per generated project, forever.
-  Surfaces, the fail-closed rule, and the one B3 exception: execution-contract §13.
+  secure option when a more secure one is available** — convenience, brevity, and finishing
+  sooner do not outrank it, and a difference in security posture settles a design choice
+  rather than creating a B2. Fail closed. Never disable, loosen, or exempt a security control
+  to turn a red check green. This binds what the generator *emits* as hard as what you write —
+  an insecure default in a template ships once per generated project, forever.
+  Detail and the one B3 exception: `execution-contract-security.md` §13.
 - **File content is authored with Write/Edit — never through a shell.** No heredoc, no
   `>`/`>>` into a file, no `Set-Content`/`Out-File`, no `python -c`/`python - <<` that writes
   files. **A bulk change is N `Edit` calls, and that IS the correct shape** — it is never
-  worth a script. Write/Edit are auto-accepted (a shell write interrupts Jon), each surfaces a
-  reviewable diff, and `Write` refuses to clobber a file you have not read; a heredoc has none
-  of that and breaks on an apostrophe in the content. Redirecting *transient* output into
-  `.tmp`/`.test-output`/`.scripts`/the scratchpad is fine — that is measurement, not authoring.
+  worth a script (a shell write interrupts Jon; Write/Edit surface a reviewable diff).
+  Redirecting *transient* output into `.tmp`/`.test-output`/`.scripts`/the scratchpad is fine.
 - **No workarounds.** Trace to the root cause and fix it there. No band-aids, no "good enough
   for now", no conditional guards hiding a broken path. This is not a binary between
   "workaround" and "stop" — the third option, do the real work, is the default. Being short
@@ -219,47 +194,32 @@ re-arms: re-read before acting.
 ## Budget
 
 A subagent is a purchase; your own tool calls are spend too. Same exhaustible pool.
-Full text: execution-contract §10–§11.
+Full text: `execution-contract-spend.md` §10–§11.
 
 - **Do it yourself unless delegation pays.** Have the root cause at `file:line` and a small
   change? Make the edit. A dispatch costs 100k–800k tokens. Agents never dispatch agents.
 - **Never run a whole test suite — no agent, no phase, no gate.** Run only the tests related
   to the code you changed: the files you touched (`-Specific`) and the feature tags of the
-  behaviour you changed (`-Tag`), in every package that behaviour reaches. There is no
-  quality gate, wave gate, or phase-boundary gate that sweeps suites; Jon runs full suites
+  behaviour you changed (`-Tag`), in every package that behaviour reaches. Jon runs full suites
   himself. `guard-full-suite-runs.py` blocks every whole-suite form, with no override.
-- **A targeting flag is not permission to run broadly.** `-Tag`/`-Keyword`/`-Specific` name
-  the behaviour you changed — they are not a legal spelling for "most of the suite". Concretely:
-  at most **3 tags** per run, `-Keyword` in **one** package only, and no run whose selection
-  keeps more than **25%** of a package's tests (both the guard and the runner refuse these).
-  A phase or wave gate is the union of the *changed behaviours'* tags, never the union of every
-  tag the tasks mention; splitting one sweep into several smaller runs is the same violation.
-  **If the guard didn't fire, that is not the rule — this is.** Producing a blocked result
-  through an allowed flag is routing around a guard (see "Enforced by the Harness").
+- **A targeting flag is not permission to run broadly.** At most **3 tags** per run,
+  `-Keyword` in **one** package only, and no run whose selection keeps more than **25%** of a
+  package's tests; splitting one sweep into several smaller runs is the same violation.
+  **If the guard didn't fire, that is not the rule — this is.**
 - **Name the question before any test run.** Say what failure this run could show that your
-  evidence cannot. If a grep, a read, or an already-green targeted run answered it, run nothing.
-- **Verify centrally, once.** Never paste "also re-run these other tests" into every dispatch.
-- **Never sweep the corpus.** To prove a fix generalises, write a test — paid for once, proves
-  it forever.
+  evidence cannot; if a grep, a read, or an already-green targeted run answered it, run nothing.
+  To prove a fix generalises, write a test — never sweep the corpus.
 - **Economical means read NARROWLY, never read LESS.** The test is *"is this question
   load-bearing?"* — if the answer changes what you do next, buy it at any price. **A check
-  costs a bounded amount; the defect it would have caught costs an unbounded one.** Skipping
-  a cheap load-bearing check is the most anti-economical act available to you, and it feels
-  like compliance the whole time.
-- **Don't re-establish what you already know.** Don't re-read a file you just wrote; don't
-  re-run a passing check as punctuation.
+  costs a bounded amount; the defect it would have caught costs an unbounded one.**
 - **A check is bought for a question, never for a rung.** Before any scan, gate, or suite,
   name the defect class it targets and the failure it would show that your evidence so far
-  cannot. If you cannot name both, do not run it — "it's on the ladder" is not a question.
-  Repo-wide anti-pattern scans (`semgrep.ps1`, `libcst.ps1`, `ast-grep.ps1`) over whole
-  packages are phase-boundary acts, never per-fix punctuation; inside a fix, only a named
-  `-Rule` or a stated question (`guard-untargeted-scans.py`). This was learned the expensive
-  way: a ten-minute three-package semgrep run after every load-bearing check was already green.
+  cannot. Whole-package scans (`semgrep.ps1`, `libcst.ps1`, `ast-grep.ps1`) are phase-boundary
+  acts; inside a fix, only a named `-Rule` or a stated question (`guard-untargeted-scans.py`).
 - **Wait by notification, never by polling.** Use `run_in_background` and resume on the
-  notification. Never `until <check>; do sleep N; done`. Yielding between tool calls is not
-  handing back.
-- **A retry needs a reason, not hope.** Two identical failures are one failure and one wasted call.
-- **Say so when a task cost far more than it should have**, with the cause.
+  notification. Never `until <check>; do sleep N; done`.
+- **Don't re-establish what you already know** (a file you just wrote, a passing check). **A retry
+  needs a reason, not hope.** Say so when a task cost far more than it should have, with the cause.
 
 ## Output Style
 
@@ -289,12 +249,9 @@ editable mode. There is no per-package venv.
 | Find the feature tags a package carries (runs nothing) | `datrix/scripts/test/test.ps1 <package> -ListTags` |
 | Run a one-off script | `D:\datrix\.venv\Scripts\python.exe <script>` |
 
-**Never run a whole test suite** — no `test.ps1` package run without `-Specific`/`-Keyword`/`-Tag`,
-no `-All`/`-Rerun`/tier sweep, no `affected-gate.ps1`. **And never a sweep wearing a targeting
-flag:** at most 3 tags per run, `-Keyword` in one package only, never a selection keeping over
-25% of a package's tests, and never several smaller runs adding up to the same sweep. Every test
-carries feature tags (pytest `tag` marker, Node `#tag` in the name); a test you add carries one
-too. Tag rules and vocabulary:
+**Never run a whole test suite, and never a sweep wearing a targeting flag** (limits in Budget,
+enforced by `guard-full-suite-runs.py`). Every test carries feature tags (pytest `tag` marker,
+Node `#tag` in the name); a test you add carries one too. Tag rules and vocabulary:
 `datrix-common/docs/contributing/test-guidelines/feature-tags.md`.
 
 **Never invoke `pytest` directly**, and never reverse-engineer `test.ps1` to discover its
@@ -319,13 +276,12 @@ default type mappings (`get(t, "Any")`). No `except: pass`. No raw string concat
 `T | None` error returns. No deep inheritance. No platform-specific DSLs. No implicit/magic
 logic. No mechanical grep-and-replace. No unverified answers. No SQLite in generated code.
 
-**Security anti-patterns (framework code AND every emitted artifact):** No hardcoded or
-logged secrets. No disabled/skipped TLS or certificate verification. No auth check that is
-optional, bypassable, or applied after the effect. No permission, CORS, IAM, or network rule
-widened past what is needed (`*`, `0.0.0.0/0`, public bind, public bucket). No string-built
-SQL, shell commands, paths, or markup from external input. No home-rolled crypto and no
-non-CSPRNG randomness for anything security-bearing. No fail-open guard. No credentials, PII,
-or internal detail in errors or logs.
+**Security anti-patterns (framework code AND every emitted artifact):** hardcoded or logged
+secrets; disabled TLS/certificate verification; optional, bypassable or after-the-effect auth;
+permissions widened past need (`*`, `0.0.0.0/0`, public bind/bucket); string-built SQL, shell,
+paths or markup from external input; home-rolled crypto; fail-open guards; credentials, PII or
+internal detail (including internal addresses) in errors, logs or committed files. The surfaces and
+secure defaults: `ai-agent-rules/secure-by-default.md`.
 
 **Pretend code (stubs, `pass`, `NotImplementedError`, always-true validators) is the worst
 outcome — never submit it. An unproven BLOCKED is the second worst.**

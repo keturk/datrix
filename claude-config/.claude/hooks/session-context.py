@@ -63,8 +63,11 @@ _STATE_DIR: Final = os.path.join(_REPO_ROOT, ".claude", "hooks", ".state")
 # Sources whose context is genuinely gone, so the read ledger must start empty.
 _RESETTING_SOURCES: Final = ("compact", "clear")
 
-# Emitted verbatim into the post-compaction window. Small, and the highest
-# authority in the repo — worth their tokens on every compaction.
+# Emitted verbatim into the post-compaction window. The contract's CORE (the closed
+# blocker list, the proof, the exit rules, §14) and the principles sheet are the
+# highest authority in the repo — worth their tokens on every compaction. The
+# contract's topic files (spend, verification, security, reporting) are read when
+# the work calls for them, as CLAUDE.md's lead table says.
 _INLINE_DOCS: Final = (
     (".claude/skills/_shared/execution-contract.md", "EXECUTION CONTRACT"),
     (
@@ -80,6 +83,15 @@ _GATED_DOCS: Final = (
         "datrix-common/docs/contributing/ai-agent-rules.md",
         "Agent rules (read its sub-docs under ai-agent-rules/ as the work requires)",
     ),
+)
+
+# Said in every session start: the docs are packs read on demand, and this finds the right one.
+_INEEDTOKNOW_NOTE: Final = (
+    "Don't know where something is documented? Ask instead of loading docs: "
+    f'`powershell -File "{_REPO_ROOT}/datrix/scripts/dev/ineedtoknow.ps1" "<your question>"` '
+    "answers from the architecture packs, agent rules and execution contract with the file and "
+    "line range to open (a lead: open the lines before acting). The docs are read on demand, "
+    "by pack — not all up front."
 )
 
 # How far back a task file counts as "the work in flight".
@@ -311,7 +323,8 @@ def _compaction_context(gated: list[tuple[str, str]], now: float) -> str:
             "This is not advisory. Write, Edit, and NotebookEdit are BLOCKED by a "
             "PreToolUse hook until every file above has been read in this "
             "post-compaction window. Reading them first costs you one step; "
-            "discovering the block costs you a turn."
+            "discovering the block costs you a turn.\n\n"
+            f"{_INEEDTOKNOW_NOTE}"
         )
 
     ledger = _ledger_section()
@@ -346,7 +359,8 @@ def _fresh_session_context(gated: list[tuple[str, str]]) -> str:
         "neither — which is exactly what happened, 66 edits deep, in "
         "datrix-codegen-azure.\n\n"
         "Answering a question costs nothing here: the block fires on the first edit, "
-        "not now."
+        "not now.\n\n"
+        f"{_INEEDTOKNOW_NOTE}"
     ]
     canary = _schema_canary()
     if canary:

@@ -180,6 +180,43 @@ check("closed: a follow-up prompt ends the window", in_window(STASH_PATHS, FOLLO
 check("closed: the tag quoted mid-prompt", in_window(STASH_PATHS, QUOTED), BLOCK)
 check("closed: meta text is not Jon's prompt", in_window(STASH_PATHS, MODEL_INVOKED), BLOCK)
 
+print("== pytest invoked directly (test.ps1 owns the interpreter and the guards) ==")
+check("bare pytest", cmd("pytest tests/unit/test_a.py"), BLOCK)
+check("pytest -x", cmd("pytest -x -q"), BLOCK)
+check("venv pytest.exe, absolute", cmd(r"D:\datrix\.venv\Scripts\pytest.exe datrix-common/tests"), BLOCK)
+check("python -m pytest", cmd("python -m pytest tests/unit"), BLOCK)
+check("venv python -m pytest", cmd("D:/datrix/.venv/Scripts/python.exe -m pytest -k foo"), BLOCK)
+check("uv run pytest", cmd("uv run pytest tests"), BLOCK)
+check("poetry run pytest", cmd("poetry run pytest"), BLOCK)
+check("chained after cd", cmd("cd datrix-common && pytest tests/unit"), BLOCK)
+check("PowerShell tool", cmd("pytest tests/unit", tool="PowerShell"), BLOCK)
+check("test.ps1 -Specific stays allowed",
+      cmd('powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common -Specific "tests/unit/test_a.py"'),
+      ALLOW)
+check("test.ps1 -Tag stays allowed",
+      cmd('powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common datrix-cli -Tag config-resolution'),
+      ALLOW)
+check("a one-off script stays allowed", cmd("D:/datrix/.venv/Scripts/python.exe .scripts/probe.py"), ALLOW)
+check("grep for pytest is a read", cmd("grep -rn pytest datrix-common/pyproject.toml"), ALLOW)
+check("cat a pytest config is a read", cmd("cat datrix-common/pytest.ini"), ALLOW)
+check("pip show pytest is not a run", cmd("D:/datrix/.venv/Scripts/python.exe -m pip show pytest"), ALLOW)
+check("quoted mention in a commit message", cmd('git commit -m "stop calling pytest directly"'), ALLOW)
+
+print("== polling loops inside one tool call ==")
+check("until ... sleep", cmd("until test -f out.log; do sleep 5; done"), BLOCK)
+check("while ... sleep", cmd("while ! curl -s localhost:8000; do sleep 2; done"), BLOCK)
+check("multi-line until", cmd("until [ -f done ]\ndo\n  sleep 10\ndone"), BLOCK)
+check("PowerShell while / Start-Sleep",
+      cmd("while (-not (Test-Path out.log)) { Start-Sleep -Seconds 5 }", tool="PowerShell"), BLOCK)
+check("PowerShell do/while Start-Sleep",
+      cmd("do { Start-Sleep 3 } while (-not (Test-Path x))", tool="PowerShell"), BLOCK)
+check("a for loop without sleep stays allowed", cmd("for f in a b c; do echo $f; done"), ALLOW)
+check("a while-read loop stays allowed", cmd("while read -r l; do echo $l; done < list.txt"), ALLOW)
+check("a plain command stays allowed", cmd("ls -la"), ALLOW)
+check("grep for the loop text is a read", cmd('grep -n "until .*; do sleep" CLAUDE.md'), ALLOW)
+check("echoing the rule in quotes is not a loop",
+      cmd('echo "never write until x; do sleep 5; done"'), ALLOW)
+
 print()
 if fails:
     print(f"{len(fails)} FAILURE(S):")

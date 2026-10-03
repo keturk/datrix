@@ -32,8 +32,10 @@ Before touching the target, read these to ground yourself in how Datrix actually
 
 1. `datrix/docs/architecture/architecture-cheat-sheet.md`
 2. `datrix/docs/architecture/design-principles-cheat-sheet.md`
-3. `datrix/docs/architecture/architecture-overview.md` (index — follow into its sub-docs under `datrix/docs/architecture/architecture/` as the target demands: `pipeline-and-capabilities.md`, `repository-architecture.md`, `builtin-traits-enums.md`)
-4. `datrix-common/docs/contributing/ai-agent-rules.md` (index — sub-docs under `datrix-common/docs/contributing/ai-agent-rules/`: `prohibited-patterns.md`, `code-quality-standards.md`, `repo-specific-rules.md`, `canonical-imports.md`)
+3. The knowledge pack(s) for the target's area — the index is in the cheat sheet (`datrix/docs/architecture/packs/`); `datrix/docs/architecture/architecture-overview.md` only for the rationale behind a numbered decision, then its sub-docs under `datrix/docs/architecture/architecture/` as the target demands (`pipeline-and-capabilities.md`, `repository-architecture.md`, `builtin-traits-enums.md`)
+4. `datrix-common/docs/contributing/ai-agent-rules.md` (core + read-when index — packs under `datrix-common/docs/contributing/ai-agent-rules/`: `secure-by-default.md`, `static-analysis-first.md`, `multi-target-invariants.md`, `logic-map.md`, `prohibited-patterns.md`, `code-quality-standards.md`, `repo-specific-rules.md`, `canonical-imports.md`; read the ones the target needs)
+
+When you do not know which doc holds a fact, ask rather than load: `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` returns a brief answer with the file and line range to open. A cited answer is a lead, not a finding.
 
 Per Jon's memory policy, the repo `docs/` folders are the **only** trusted knowledge store. If the target sits in a specific package, also read that package's own `docs/` before analyzing its source.
 

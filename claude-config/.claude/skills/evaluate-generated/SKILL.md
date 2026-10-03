@@ -59,12 +59,12 @@ For complete documentation index with "When to use" guidance, see [doc_index.md]
 
 **Essential reads (MANDATORY before starting):**
 - [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle
-- [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → System architecture
-- [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → Design philosophy
+- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md) → the architecture map, with the knowledge-pack index (open the pack for the surface you evaluate)
 
-**Quick refs:**
-- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
+**On demand:**
+- [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) and [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → the *why* behind a numbered decision or principle
 - [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
+- **Don't know where something is documented?** `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` — a brief answer with the file and line range to open (a lead: open the lines before acting).
 
 ### Project Structure
 Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.

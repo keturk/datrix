@@ -132,7 +132,7 @@ The following ambiguities must be resolved before tasks can be generated.
 ### Step 3: Read Project Context
 
 Read these mandatory context files:
-- `d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md` — Agent rules and code quality standards (index with links to sub-documents: `ai-agent-rules/prohibited-patterns.md`, `ai-agent-rules/code-quality-standards.md`, `ai-agent-rules/repo-specific-rules.md`, `ai-agent-rules/canonical-imports.md`)
+- `d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md` — Agent rules core with a read-when index into the packs (`ai-agent-rules/secure-by-default.md`, `static-analysis-first.md`, `multi-target-invariants.md`, `logic-map.md`, `prohibited-patterns.md`, `code-quality-standards.md`, `repo-specific-rules.md`, `canonical-imports.md`); the task names only the packs its surfaces need
 - `d:\datrix\.claude\rules.md` — Claude Code rules for the project
 - Architecture and design principle docs referenced in the design document
 
@@ -176,7 +176,7 @@ For each task, create a file following this exact structure:
 Every task file MUST follow this template:
 
 ```markdown
-> **Peruse 'd:\datrix\datrix-common\docs\contributing\ai-agent-rules.md' (and its sub-documents) and follow the rules**
+> **Peruse 'd:\datrix\datrix-common\docs\contributing\ai-agent-rules.md' (the core, then only the packs its read-when index names for this task's surfaces) and follow the rules**
 
 # Task {NN}-{TT}: {Title}
 
@@ -199,7 +199,7 @@ Key module paths: {list ONLY the module paths this task actually touches or cons
 
 **IMPORTANT:** All file paths in this section MUST be absolute paths (e.g., `d:\datrix\...`), never relative paths.
 
-1. **Agent rules:** `d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md` (index with links to sub-documents)
+1. **Agent rules:** `d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md` (core with a read-when index into the packs; name here the packs this task needs, and the architecture knowledge pack for its surface)
 2. **Test guidelines:** `d:\datrix\datrix-common\docs\contributing\test-guidelines\` (unit, integration, e2e — each an index with links to shared sub-documents under `shared/`)
 3. **Design doc:** `{absolute-design-doc-path}` -- Section(s) {X.Y}
 {4. **Edit sites** — the files this task changes, each with the line range to read: `{absolute-path}` (lines {a-b}) -- {why}. Architecture docs and example .dtrx files the task works from. ALL with absolute paths.}
@@ -332,7 +332,7 @@ does not exist yet and that several tests share.}
 
 **Never ask a model where something is defined or who calls it.** A local model asked that invents definitions and callers in files it was never given (observed). `symbol` and `refs` answer both exactly and cost nothing; `validate-task.ps1` rejects an `explain` question of that shape.
 
-**Learn the facts the way the implementer will.** Use the code-index tools (`find_symbol`, `find_references`, `outline`, or `dev/code-index.ps1`) and `ask_files` instead of reading source to write the task: the `file:line` facts in "Verified facts" are then exact copies of what the index says, not of what a reading remembered. An entry that does not resolve when the task is written is a premise that is already false.
+**Learn the facts the way the implementer will.** Use the code-index tools (`find_symbol`, `find_references`, `outline`, or `dev/code-index.ps1`) and `ask_files` instead of reading source to write the task (for documented knowledge — a rule, an invariant, which pack holds what — ask `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` instead of reading the docs): the `file:line` facts in "Verified facts" are then exact copies of what the index says, not of what a reading remembered. An entry that does not resolve when the task is written is a premise that is already false.
 
 **Example** (a task that adds an identifier-boundary match to one helper):
 ```
@@ -504,7 +504,7 @@ Quality gate tasks should:
 Quality gate task template:
 
 ```markdown
-> **Peruse 'd:\datrix\datrix-common\docs\contributing\ai-agent-rules.md' (and its sub-documents) and follow the rules**
+> **Peruse 'd:\datrix\datrix-common\docs\contributing\ai-agent-rules.md' (the core, then only the packs its read-when index names for this task's surfaces) and follow the rules**
 
 # Task {NN}-{TT}: Quality Gate -- {package-name}
 

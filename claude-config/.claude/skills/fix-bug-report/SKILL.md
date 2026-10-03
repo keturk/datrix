@@ -158,7 +158,7 @@ git -C <dsl-root>       diff --stat
 
 ## Prereqs
 
-Read first: `$DATRIX_HOME` `CLAUDE.md`, `MEMORY.md`, `datrix-common/docs/contributing/ai-agent-rules.md` + `test-guidelines/`.
+Read first: `$DATRIX_HOME` `CLAUDE.md`, `MEMORY.md`, `datrix-common/docs/contributing/ai-agent-rules.md` (core; open the packs its index names for the surface you touch) + `test-guidelines/`. Don't know where something is documented? `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"`.
 
 ---
 

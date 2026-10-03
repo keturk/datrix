@@ -48,7 +48,8 @@ FIX: false          # review only — report findings, do not modify code
 - `d:\datrix\.claude\CLAUDE.md` and `MEMORY.md`
 - The DESIGN document **in full** — it is the scope boundary and the source of truth
 - [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md), [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
-- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) (index → prohibited-patterns, code-quality-standards, repo-specific-rules, canonical-imports)
+- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) (core + read-when index → the packs; read the ones the design's surfaces need)
+- **Don't know where something is documented?** `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` — a brief answer with the file and line range to open (a lead: open the lines before acting).
 - For any package you will touch, its [test-guidelines/](../../../../../datrix-common/docs/contributing/test-guidelines/)
 
 ## Governing rules (from CLAUDE.md — these bite in every phase)

@@ -7,6 +7,20 @@ contract is what "confident" means.**
 The default outcome of any task is **the problem is fixed**. Not "investigated." Not "reported."
 Not "escalated." Fixed, and proven fixed.
 
+**Section numbers are stable and cited by number across the repo.** This file holds the core
+(§1–§6, §8–§9, §14). The other sections live in topic files; each has a stub below at its own number,
+so `§13` still lands here and points to where it is:
+
+| Section | Topic | File — read when |
+|---|---|---|
+| §2A | Investigate, don't guess | [execution-contract-verification.md](./execution-contract-verification.md) — about to guess at a cause or edit "to see if it helps" |
+| §5A, §7, §7A | Findings files; banned report vocabulary; no design-doc citations | [execution-contract-reporting.md](./execution-contract-reporting.md) — writing a findings file, a report, a commit/PR body, or a committed comment/doc |
+| §10, §11 | Delegation economy; your own tool calls are spend | [execution-contract-spend.md](./execution-contract-spend.md) — dispatching a subagent, or about to run a command, scan or test |
+| §12 | Prove it statically before at runtime | [execution-contract-verification.md](./execution-contract-verification.md) — about to generate/build/deploy to learn something; a run failed; touching a producer/consumer pair |
+| §13 | Security is a ranked requirement | [execution-contract-security.md](./execution-contract-security.md) — touching auth, secrets, TLS, input, permissions, crypto, an emitted default |
+
+Not sure which section holds what you need? `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"`.
+
 ---
 
 ## 1. The closed blocker list
@@ -49,33 +63,11 @@ Every one of these has been used to dodge. Each is now explicitly work:
 
 ## 2A. Investigate, don't guess — act on evidence, never on a hunch
 
-**Hypothesizing is not investigating.** Guessing at a cause, changing something, and seeing if the
-symptom moves is banned. "Throwing mud at the wall to see what sticks" wastes the turn and usually
-fixes nothing. Every action you take must be justified by evidence you have *already gathered* —
-read code, captured error text, an observed value — not by a theory you have not yet confirmed.
-
-The rule:
-
-- **Read to the fact before you touch anything.** The cause of a failure is discoverable by reading
-  the relevant code, the error output, and the data. Find it. Do not assume what a function
-  returns, what a config holds, what a symbol means, or where control flows — open the file and
-  confirm it. "Never assume/fabricate — look it up" (CLAUDE.md § Core Principles) is not advice; it
-  is the method.
-- **A hypothesis is a question, not a license to edit.** If you have a theory, the next step is to
-  *confirm or kill it with data* (read the code path, add a targeted observation, capture the real
-  value) — not to apply a speculative fix and hope. Confirm first, then act once.
-- **No speculative edit.** Do not change code "to see if it helps," do not fix a thing you have not
-  first proven is the cause, do not try several changes at once hoping one lands. One confirmed
-  root cause → one deliberate fix.
-- **When you don't know, get the data — you are never stuck for lack of a guess.** The answer to
-  "what's causing this?" is always another read, another captured error, another observed value —
-  never a fresh guess layered on an unconfirmed one. This binds with § "No second hypothesis
-  without the error text": if the evidence is invisible, your first action is to *make it visible*,
-  not to theorize around it.
-
-An edit whose only justification is "I think this might be it" is a defect in method, whether or not
-it happens to work. State the evidence that drove each change; if you cannot, you have not
-investigated yet.
+*Held in [execution-contract-verification.md](./execution-contract-verification.md).* Summary:
+hypothesizing is not investigating; read to the fact before you touch anything; a hypothesis is a
+question to confirm or kill with data, never a licence to edit; no speculative edit; when you don't
+know, get the data. An edit whose only justification is "I think this might be it" is a defect in
+method.
 
 ## 3. BLOCKED is a claim you must prove, not a status you may choose
 
@@ -133,8 +125,10 @@ Any defect you discover on a surface you touched is **yours**. Three outcomes, a
    the failure mode this contract exists to prevent. If it was worth typing a sentence about, it
    was worth a fix or a task file.
 
-A defect that is not yours to fix now — design-sized, or on a surface you did not touch — is
-neither fixed nor ignored. It gets a findings file (§5A).
+A defect that is not yours to fix now — design-sized, or **unrelated to your task** (noticed in
+passing, on a surface you did not touch) — is neither fixed nor ignored. It gets a findings file
+(§5A): just write it. Do not search the findings folder for a duplicate, do not fix it, do not file
+a task for it, and do not leave it as a line in your report.
 
 **Filing is bounded — it is never authorization to open a new phase.** A filed task goes in the
 phase you are **currently executing**, in the owning package's existing `.tasks\phase-{NN}\`,
@@ -166,52 +160,11 @@ so that it becomes mandatory, is scope creep, however real the defect is.
 
 ## 5A. Findings files — nothing you notice is dropped
 
-Some things you notice are not yours to fix now:
-
-- a defect whose fix would need its own design (§5 above);
-- a design flaw, a wrong or risky pattern, or a gap in a doc, test, or tool;
-- a defect on a surface you did **not** touch, noticed in passing.
-
-Each one gets a **findings file**. Ignoring it, or mentioning it only in your reply, is not an
-outcome. Write the file, then carry on with your own task. A findings file is never a reason to
-stop, and it never replaces fixing a small defect on a surface you touched. That is still §5
-outcome 1.
-
-**Where.** `d:\datrix\reports\finding\`, one file per issue, named
-`YYYYMMDD-HHMMSS-<short-kebab-slug>.md` from the current local time (e.g.
-`20260927-141503-compose-env-key-never-supplied.md`). Get the time from the shell
-(`Get-Date -Format yyyyMMdd-HHmmss`). Create the folder if it is missing. Write it with the
-`Write` tool.
-
-**No search first.** Do not read or search the folder for an existing entry. Duplicates are fine;
-`/consolidate-findings` merges them later.
-
-**Content.** Brief: enough for someone with no context to understand and fix the issue, and no
-more. Aim for under 30 lines.
-
-```markdown
-# <one-line statement of the issue>
-
-- **Found:** <YYYY-MM-DD HH:MM> while <the task you were doing, one line>
-- **Where:** <repo/path/file.py:123> (every location you saw)
-- **Kind:** bug | design flaw | security | test gap | doc drift | tooling | other
-
-## Issue
-<2-5 sentences: what is wrong and the evidence you saw — a line you read, an error you captured.>
-
-## Impact
-<1-3 sentences: what breaks, for whom, and when.>
-
-## Suggested direction
-<Optional, 1-3 lines. Omit it if you do not know.>
-```
-
-State only what you saw. A guess is labelled as a guess. The file sits outside every repo, but
-treat it as shareable anyway: no secrets, credentials, or customer data.
-
-**Report it.** Cite the file path in your reply or report, e.g.
-`Finding: d:\datrix\reports\finding\20260927-141503-compose-env-key-never-supplied.md`. The stop
-gates accept that path as a disposition, the same as a filed task path.
+*Held in [execution-contract-reporting.md](./execution-contract-reporting.md).* Summary: a defect
+that needs its own design, a design flaw, or an issue on a surface you did not touch gets a findings
+file at `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md` (brief; no search first; duplicates are
+fine), and you cite its path in your reply. A findings file never replaces fixing a small defect on a
+surface you touched, and is never a reason to stop.
 
 ## 6. Escalate before you stop — never instead of fixing
 
@@ -222,52 +175,18 @@ invalid report under §3.
 
 ## 7. Banned report vocabulary
 
-These phrases must **never** appear in an agent report, a `## How Solved`, or an
-`## Implementation Notes` section unless immediately followed by a valid §3 blocker proof, a §5
-filed task ID, or a §5A findings file path:
-
-```
-out of scope · outside the scope · not part of this task · beyond the scope
-pre-existing (as an excuse) · categorically behavioral · environmental issue
-should be tracked separately · left as-is · left for a follow-up · future work
-would require broader changes · someone else's · not my file · deferred
-partial · workaround · dual path · not yet wired · remains unchanged · TODO
-```
-
-Two further families are banned outright — they do not describe *whose* work it is, they describe
-shipping the wrong work. A proof or a task ID does **not** excuse either one:
-
-```
-EXPEDIENT (§14):  quick fix · temporary fix · interim fix · stopgap · band-aid
-                  minimal change to get it green · for now · good enough for now
-                  harden it later · revisit this later · proper fix can come later
-                  to save context/tokens/budget · smallest thing that unblocks
-
-DOWNGRADE (§13):  disabled the auth check · relaxed the validation · loosened CORS
-                  turned off TLS verification · bypassed authorization
-                  hardcoded the credential · less secure but simpler · insecure default
-```
-
-A `SubagentStop` hook greps for these, and the always-on `Stop` gate greps the main loop for the
-same two families. A hit without an accompanying proof or task ID marks the report **invalid** and
-the task **not complete** — regardless of test-suite color.
-
-This is not a vocabulary game: **do not evade the grep by rephrasing.** Rephrasing a dodge to slip
-past the check is a worse offense than the dodge, because it is deliberate. The rule is the
-*behavior*, not the wordlist.
+*Held in [execution-contract-reporting.md](./execution-contract-reporting.md).* Summary: phrases
+that dodge (`out of scope`, `pre-existing` as an excuse, `deferred`, `partial`, `workaround`, `TODO`,
+…) may not appear in a report, `## How Solved` or `## Implementation Notes` unless immediately
+followed by a valid §3 proof, a §5 task ID, or a §5A findings path; the EXPEDIENT (§14) and
+DOWNGRADE (§13) families are banned outright, with no excuse. A `SubagentStop` hook and the `Stop`
+gate grep for them. Do not evade the grep by rephrasing — the rule is the behaviour, not the wordlist.
 
 ## 7A. Never cite a design doc or task file in a committed artifact
 
-Design docs (`design/`) and task files are `.gitignored` and authored on two machines, so their
-numbering collides (two different `044-…` docs, same-numbered tasks) and none of them exists after
-a clone. **A reference to one from anything committed is a dangling pointer** — it points at the
-wrong artifact, or nothing, on another machine.
-
-So a design-doc or task-file number, filename, ID, or path must **never** appear in: code comments,
-docstrings, committed documentation (`docs/`, READMEs), commit messages, or PR bodies. State *what*
-the code does and *why* — never "implements design 044-x" or "per task 03-12". This is exempt only
-for design/task files referencing *each other* (`Design reference:`, `Depends on:`): that is
-internal, gitignored orchestration machinery, not a committed artifact.
+*Held in [execution-contract-reporting.md](./execution-contract-reporting.md).* Summary: design docs
+and task files are gitignored and numbered per machine, so no number, filename, ID or path of one may
+appear in code comments, docstrings, committed docs, commit messages or PR bodies.
 
 ## 8. What "done" means
 
@@ -325,450 +244,38 @@ found (§5) must still be present in full. Tight means *no filler*, not *less pr
 
 ## 10. Delegation economy — a subagent is a purchase, not a free action
 
-Every dispatched agent costs real budget drawn from a shared, exhaustible pool. A run that reaches
-the right answer by spending a week of budget in a day is **not** a good run. Cost is part of the
-engineering judgment, exactly like correctness and scope — not a separate concern owned by someone
-else. You cannot see the meter; that does not excuse you, because you can see every agent's reported
-token count and you can see how many you dispatched.
-
-### 10.0 Depth is one — agents never dispatch agents
-
-The session Jon talks to — an orchestrator running waves — may dispatch agents. Planning and
-design skills never do: `/operationalize-design` (and `/generate-tasks`) read, decide and write
-every file in the session itself, because a dispatched writer re-reads the template, the design
-and the manifest before producing anything — a three-writer fan-out once spent 339k tokens and
-wrote no task file. **An agent that was itself dispatched may not dispatch more.** A nested
-fan-out multiplies token cost with no added coverage (one such child burned >140k tokens almost
-entirely on dispatch overhead) and fragments reporting. If you are a subagent, do the work
-yourself, sequentially, and report any expansion to the dispatcher. `guard-no-nested-agents.py`
-refuses the `Agent`/`Task` tool for any caller that is a subagent, with no override. Every
-dispatch brief you write as an orchestrator says so: `Do NOT spawn subagents. Do this work
-yourself, sequentially.`
-
-### 10.1 Do it yourself unless delegation actually pays
-
-Before dispatching, ask: *do I already know the fix?* If you have the root cause at `file:line` and
-the change is small and contained, **make the edit**. A dispatch costs 100k–800k tokens; the same
-edit made directly costs a handful of tool calls. Delegation earns its price when the work is large,
-genuinely parallel, or needs a context you do not want to load — never as a default reflex, and never
-as a way to avoid doing a small thing yourself.
-
-Reach for an agent when: the task needs broad exploration you have not done; several genuinely
-independent workstreams can proceed at once; or the reading required would blow the orchestrator's
-context. Do not reach for one to: apply a fix you have already diagnosed, edit a config or fixture,
-correct documentation, or run a command and read its output.
-
-### 10.2 Size the dispatch to the defect
-
-Scale the ask to what is actually unknown. A three-error fix with a known root cause is a small,
-tightly-scoped dispatch, not a request for exhaustive investigation, broad test runs, and
-multi-example verification (no agent ever runs a whole suite — §12.1). Every extra acceptance criterion you write is budget the agent will
-spend. Ask for the smallest evidence that actually proves the fix.
-
-### 10.3 Verify centrally, once — never N times in parallel
-
-**Do not put a "regenerate these other examples / re-run these other tests" list in every dispatch.**
-If the orchestrator verifies the wave's targeted tests after the wave lands — and it should — then every
-per-agent copy of that verification is pure duplication, multiplied by the number of agents. One
-central verification catches the same regressions as N scattered ones, at 1/N the cost.
-
-The narrow exception: when an agent is changing a surface so shared that it must know immediately
-whether it broke a sibling, give it exactly one no-regression target, not four.
-
-### 10.4 A large or empty return is a signal — act on it
-
-Every completion reports its token usage. Read it. Then react:
-
-- An agent that returns **without a usable report** after a large spend means the task was mis-sized.
-  **Shrink the next dispatch. Never re-dispatch the same shape at the same size.**
-- Two such returns in a run means your sizing model is wrong, not that the agents are unlucky.
-- Track the running total across a session. If you cannot state roughly what the run has spent so
-  far, you are not managing it.
-
-### 10.5 Cap concurrency to the real constraint
-
-Parallel agents buy wall-clock, and wall-clock is rarely the binding constraint. Dispatching seven
-agents where two would do multiplies cost by three and a half for a result that arrives slightly
-sooner. Parallelise when the workstreams are genuinely independent and the total is bounded — not to
-feel busy.
-
-### 10.6 Never sweep — not across examples, not across languages
-
-Regenerating unrelated examples, running whole test suites, or re-verifying already-green work "to
-be safe" is the single easiest way to burn budget for no information. No agent runs a whole suite —
-`guard-full-suite-runs.py` refuses every form, for every agent, with no override. Generation
-granularity and targeted-only verification are cost rules as much as correctness rules. To prove a fix
-generalises, **write a test** — it proves the invariant permanently and costs once, where a corpus
-sweep proves it once and evaporates.
-
-**A sweep wearing a targeting flag is still a sweep.** `-Tag`, `-Keyword` and `-Specific` exist to
-name the behaviour you changed; assembling a wide list of them, or splitting one sweep across
-several runs, is a whole-suite run by instalments. Hard ceilings, enforced by the guard and by the
-runner's own collection check: at most 3 tags per run, `-Keyword` in one package, and no selection
-keeping over 25% of a package's tests. **The guard staying silent is not a verdict** — producing a
-blocked result through an allowed flag is routing around a guard, which §14 and CLAUDE.md both ban.
-Before any run, name the failure it could reveal that your evidence cannot; if a grep, a read, or an
-already-green targeted run answered it, run nothing.
-
-**Scope is one example AND one language.** Fix the example for the language it actually failed under.
-Do **not** generate it for the other registered languages to discover whether they are affected too —
-that multiplies the cost of the task you were given by the number of targets, to answer a question
-nobody asked. Widening scope that way is Jon's budget decision: **ask in one line and wait.** Group
-generation (`-All`/`-Domains`/`-TestSet`) is hard-blocked by `PreToolUse` →
-`validate-script-invocation.py` and cannot be overridden.
-
-### 10.7 Interrupted work is not banked
-
-An agent killed mid-run may have produced nothing, and its partial edits are unverified. Re-measure
-from disk before assuming any of it landed. Budget already spent on a killed agent is gone — do not
-compound it by trusting its unproven output.
-
----
+*Held in [execution-contract-spend.md](./execution-contract-spend.md) (§10.0–§10.7).* Summary: every
+dispatch costs 100k–800k tokens from a shared pool. **Depth is one — an agent that was itself
+dispatched may not dispatch more** (`guard-no-nested-agents.py`). Do it yourself unless delegation
+pays; size a dispatch to the defect; verify centrally, once; read a large or empty return as a
+signal; never sweep (no agent runs a whole suite; at most 3 tags per run, `-Keyword` in one package,
+no selection over 25% of a package; one example and one language).
 
 ## 11. Your own tool calls are spend too
 
-§10 governs what you buy from OTHER agents. This section governs what you spend yourself. The two
-are the same budget, and an orchestrator that sizes its dispatches perfectly while burning a hundred
-redundant tool calls of its own has not managed anything.
-
-**Every tool call costs its arguments plus its entire result, in tokens, forever** — the output stays
-in context for the rest of the session. A command whose output you will not read is pure loss. A
-command you have already run, whose answer has not changed, is pure loss. Time is the same resource
-seen from the other side: a five-minute regeneration to confirm a one-line change tells you what a
-five-second targeted check would have.
-
-### 11.0 Economical means read NARROWLY — never read LESS
-
-**This section is not a license to cut corners, and reading it that way inverts it.** Everything
-below is about eliminating calls that buy *nothing* — a rerun whose answer cannot have changed, a
-result you will not read, a sweep for information you already hold. **A call that would tell you
-something you do not know is never the thing to cut.**
-
-The arithmetic is asymmetric and it always points the same way: **a check has a small bounded cost;
-the defect it would have caught has an unbounded one.** A `grep` costs one call. Missing what it
-would have shown costs a failed deploy, Jon's time, the re-diagnosis, and the re-run — routinely
-three orders of magnitude more, and paid in the expensive currencies (wall-clock, cloud spend,
-Jon's attention) rather than the cheap one. **Economy is minimizing expected TOTAL cost, not
-per-step cost.** Skipping a cheap load-bearing check is the single most anti-economical thing you
-can do, and it feels like compliance the entire time it is happening.
-
-So the test is never "is this call cheap?" — it is **"is this question load-bearing?"** If the
-answer changes what you do next, buy it, at whatever it costs. If it does not, skip it, however
-cheap it looks. Narrow the *form* of every check to the least it can be (a `grep` over a read, one
-targeted test over a tag run, a parse over a regeneration) — but never narrow the *set* of questions
-you must answer to be correct.
-
-**A check is bought for a question, never for a rung.** The static-analysis ladder and the
-verification tiers are menus ordered by cost, not sequences to execute. Before running any scan,
-gate, or test run, write down (to yourself) the defect class it targets and the failure it would
-show that the evidence you already hold cannot. If you cannot name both, the check is punctuation:
-it can only return "clean" on code you have already read, and its cost — minutes of wall-clock,
-Jon's attention, and a background task to babysit — is paid for nothing. The concrete case: a
-three-package `semgrep.ps1` run after the targeted tests, the plugin-load proof, and both repo
-gates were already green, launched because "repo static gate" was the next rung. Whole-package
-anti-pattern scans are phase-boundary acts; `guard-untargeted-scans.py` refuses them inside a fix
-without a named `-Rule` or a stated `SCAN_QUESTION:`, and refuses `-All` and subagent runs outright.
-
-### 11.1 Wait by notification, never by polling
-
-**A background task notifies you when it completes. Do not poll it.** Launch it with
-`run_in_background`, end the turn, and resume when the notification arrives. That is the supported
-mechanism and it costs nothing while waiting.
-
-Do **not** write `until <check>; do sleep N; done` loops to keep a turn alive while a task you
-started finishes. Each poll is a tool call plus its result; a long loop can exceed the tool timeout
-and get moved to the background itself, leaving a background task waiting on a background task.
-
-This mistake comes from a specific misreading, so name it to avoid it: **"do not end the turn with
-work unfinished" (§8A) is not "do not yield control between tool calls."** Waiting for a task
-notification is not handing back — the harness re-invokes you and the work continues. §8A forbids
-*reporting partial progress as if it were an outcome*, not pausing for a mechanism that resumes you.
-
-**Foreground `sleep` is blocked by the harness.** If you find yourself constructing a loop to route
-around that block, stop: a guard you have to work around is a signal you are doing the wrong thing,
-not an obstacle to defeat. Poll only external state the harness cannot observe (a CI run, a remote
-queue), and then match the interval to how fast that state actually changes.
-
-### 11.2 Do not re-establish what you already know
-
-- **Do not re-read a file you just wrote.** `Edit`/`Write` fail loudly if they did not apply; a
-  confirming read buys nothing and costs the whole file.
-- **Do not re-run a passing check to feel better.** Green does not decay because you changed an
-  unrelated file. Re-run a test when your change could plausibly affect it — not as punctuation.
-- **Do not regenerate a project to verify a change you can verify at the source.** Regeneration is
-  minutes and a large output; reading the emitted template or running its unit test is seconds.
-  Regenerate when the artifact is the deliverable, or when nothing cheaper can prove the point.
-- **Do not restate context back to yourself.** Re-printing a file you already hold, re-listing a
-  directory you already listed, or dumping a log you have already read adds tokens and no knowledge.
-
-### 11.3 Ask the cheapest question that distinguishes the answers
-
-Before running anything, know what each outcome would change. If both outcomes lead to the same next
-action, the command is not worth running. Prefer the narrowest form that settles it: one targeted
-test over a tag run, one `grep` over a full read, one `--query` over a full JSON dump, `head` over
-the whole file. **Then actually read what came back** — an unread result is the most expensive kind,
-because you paid for it and learned nothing.
-
-### 11.4 A retry needs a reason, not just hope
-
-Re-running a failed command unchanged is a bet that the world changed. Sometimes it did (a
-propagation delay, an async purge) — and then the retry belongs in the *code*, bounded and explained,
-not in your fingers. Otherwise, change something first: read the error, narrow the scope, fix the
-cause. Two identical failures are one failure and one wasted call.
-
-### 11.5 Report the spend when it was large
-
-If a task cost far more than it should have, say so plainly in the report, with the cause. Cost
-overruns that nobody names repeat. This is not self-flagellation — it is the same
-report-what-happened discipline §9 applies to correctness.
+*Held in [execution-contract-spend.md](./execution-contract-spend.md) (§11.0–§11.5).* Summary:
+economical means read **narrowly**, never read **less** — buy any question that is load-bearing;
+**a check is bought for a question, never for a rung**; wait by notification, never by polling; do
+not re-establish what you already know; a retry needs a reason; report the spend when it was large.
 
 ## 12. Prove it statically before you prove it at runtime
 
-§2A says act on evidence, not on a hunch. This section says **where to go get that evidence**: the
-cheapest rung that can actually falsify the claim, which is almost never a deploy.
-
-A deployment or a runtime run is the **most expensive and latest-arriving** evidence in the repo. It
-costs minutes to hours, it costs real cloud money, it reports one failure at a time, and it reports
-it *after* the artifact is already out in the world. Nearly every defect it finds was sitting in a
-file on disk the whole time, discoverable by reading or parsing that file. Waiting for a deploy to
-tell you something a `grep` would have told you is not thoroughness — it is the slowest possible way
-to be wrong.
-
-### 12.1 The evidence ladder — start at the top, stop as soon as the question is settled
-
-Each rung costs roughly an order of magnitude more than the one above it, and reports later:
-
-1. **Read the source / template / config** that produces the artifact.
-2. **Parse the emitted artifact** and compute over it (set difference, key census, structural query).
-3. **Targeted test** in the owning package (`test.ps1 <pkg> -Specific "…"`).
-4. **A repo static gate** — the scans and parity gates listed in 12.5.
-5. **The tagged tests of the changed behaviour** in every package the change reaches
-   (`test.ps1 <pkg-a> <pkg-b> -Tag <tag>`; `_shared/verification-strategy.md`). There is no
-   whole-suite rung: no agent runs a whole package suite, ever.
-6. **Generate the affected project** and inspect the output.
-7. **Deploy / run it.**
-
-**Never reach for a lower rung to answer a question an upper rung settles.** "I'll just deploy and
-see" is the single most expensive sentence available to you. Conversely, do not stop at an upper rung
-that *cannot* settle the question — a unit test does not prove a cloud resource name is free.
-
-### 12.2 Every seam gets a set comparison, and the comparison lives in code
-
-The dominant defect class in a generator is the **seam**: artifact A produces a set of names or
-values, artifact B consumes a set, and **nothing compares the two**. A compose file interpolating
-variables nobody supplies; a config-store key declared but never given a value; an environment file
-assigning a key blank and shadowing the real value; a bicep member key the resolver spells
-differently. Every one of these is a **set difference you can compute without running anything**.
-
-So, whenever you touch a producer or a consumer:
-
-- Name both sides explicitly — *this* code writes the keys, *that* code reads them.
-- Compute `consumed − produced`. It must be empty, or every element must be explained.
-- **Then put that comparison somewhere it runs by itself** — a generation-time validator in the
-  owning package, or a test. A set difference you computed by hand proves today's tree; a validator
-  proves every tree from now on. This is the same rule as CLAUDE.md's "to prove a fix generalises,
-  write a test," applied to seams.
-
-A validator that fails **at generation time** with the key, the producer that should have supplied
-it, and the fix, is worth more than any amount of deploy-time diagnosis.
-
-### 12.3 A runtime failure is first a static-analysis failure
-
-When a deploy or a run fails, the fix is only half the work. The other half is a mandatory second
-question:
-
-> **What check would have caught this before the run, and where does it live?**
-
-Land that check together with the fix. If you fix the instance and ship no check, you have
-guaranteed that the next member of the same defect class also waits for a deploy to be discovered —
-and you will pay the same minutes and the same money again. "Found it, you fix it" (§5) covers the
-instance; this covers the class.
-
-### 12.4 Parse structure; do not eyeball it with a regex
-
-A matcher that cannot see what it claims to cover is worse than no matcher — it produces a confident
-"clean" result and it will be believed. This has already cost a full deploy cycle here: a single-line
-`grep -o '\${[^}]*}'` over a generated compose file found **10** mandatory interpolations where
-**44** existed, because the YAML emitter wraps them across lines. The count was reported as fixed on
-that basis.
-
-- Use a real parser (`yaml`, `json`, Python `ast`, the tree-sitter parser) or normalize first
-  (collapse whitespace) before matching.
-- **Prove your matcher is non-vacuous**: check that it finds an instance you already know is there.
-  A scan that can only return zero is not evidence.
-- Report the census, not the verdict — "44 required variables, 44 supplied" beats "looks fine."
-
-### 12.5 Use the checks that already exist before writing a new one
-
-These are cheap, already maintained, and cover most cross-cutting classes. Run the ones whose surface
-you touched (paths relative to `d:/datrix/datrix/scripts/`):
-
-| Surface | Check |
-|---|---|
-| Python anti-patterns | `dev/semgrep.ps1` (`-ListRules`, `-Rule <name>`), `dev/libcst.ps1` |
-| Layering / target-name leakage | `dev/check-import-boundaries.ps1` (`-CheckTargetLiterals`, `-CheckProviderConditionals`, `-CheckSharedVocabulary`, `-CheckSharedTargetNames`) |
-| Debug scatter, stale bytecode | `dev/check-debug-artifacts.ps1`, `dev/check-python-bytecode.ps1` |
-| Docs drift | `dev/check-docs.ps1`, `test/check-docs-conformance.ps1` |
-| Generated-output preservation | A test in the owning package rendering the construct and asserting its output (no stored snapshot exists — `datrix/docs/architecture/generated-output-stability.md`); cross-language presence: `test/artifact-role-parity-gate.ps1` over a complete local `.generated/` corpus |
-| Realization / parity holes | `test/block-realization-parity-gate.ps1`, `test/standing-conformance-gate.ps1`, `test/supported-domain-parity-gate.ps1`, `test/observability-axis-parity-gate.ps1`, `test/gendsl-corpus-resolution-gate.ps1` |
-| Duplicate logic | code-index `find_canonical` / `find_symbol` (MCP tools, or `dev/code-index.ps1 -Canonical` / `-Symbol`) |
-
-Full selection rules: `_shared/verification-strategy.md`. **Never run a standalone type-checker** —
-`mypy` and equivalents are not part of verification here (CLAUDE.md § Running Python).
-
-### 12.6 Be systematic: fix the class, not the instance
-
-Symptom-by-symptom is how a five-minute defect becomes a five-hour deploy loop — each round trip
-surfaces exactly one more instance of a class you could have enumerated in one pass.
-
-When a defect appears, **characterize the class before fixing the instance**: what is the general
-shape (a seam, a missing validator, an own-vs-shared enumeration mismatch, a blank-shadowing key),
-and where else does that shape occur? Enumerate all occurrences with one static pass, then fix them
-together and land the check from §12.3. One pass over the whole class beats N deploys that each
-reveal one member of it.
-
-### 12.7 An insertion is an integration — there is no "just placing a call"
-
-Adding a step to a pipeline, a leg to a release script, a stage to a generator, a hook to a chain, or
-a call between two existing functions **is an integration by default**, and it is only complete when
-you have read the neighbours. A step's real contract is not its own body — it is **the postcondition
-it must leave behind and the precondition the next step demands.** That contract lives in the
-neighbouring code, so it cannot be established by reading the thing you inserted.
-
-Before the insertion lands, know all three:
-
-- **What the upstream step guarantees** when it hands over.
-- **What the downstream step requires** to start — its explicit guards, its `Test-Path`s, its
-  early `raise`/`Write-Error` blocks, and the assumptions its header prose states.
-- **What both sides believe about any shared resource** the new step touches: which file, which
-  path, which key, written by whom, on which machine. Two steps holding different answers is the
-  seam of §12.2, and it is found by one `grep` for the resource name across the directory.
-
-Two traps make this feel unnecessary at exactly the moment it is not:
-
-- **Editing the frame is not reading the contents.** You can add a leg, renumber the banner, add a
-  skip flag, and wire a probe — touching the orchestrator repeatedly — without any of those edits
-  forcing you to read what a single step does. Structural familiarity is not knowledge of behavior.
-- **An answer settled in a neighbouring context is not settled here.** A decision made for one
-  profile, target, or environment is a *hypothesis* about this one (§2A), not a conclusion. Carrying
-  it across unexamined is how an assumption enters without ever feeling like a guess. Re-derive it,
-  or confirm the neighbour's code agrees — especially when a sibling file's own documentation says
-  it does the opposite.
-
----
+*Held in [execution-contract-verification.md](./execution-contract-verification.md) (§12.1–§12.7).*
+Summary: climb the evidence ladder from the top (read source → parse the artifact → targeted test →
+repo gate → tagged tests across the packages reached → generate → deploy) and stop where the question
+is settled; every seam gets a `consumed − produced` set comparison that lives in code; a runtime
+failure is first a static-analysis failure (land the check that would have caught it); parse
+structure, never eyeball it with a regex; use the checks that already exist; fix the class, not the
+instance; an insertion is an integration.
 
 ## 13. Security is a ranked requirement, not a trade-off axis
 
-**When two implementations differ in security posture, you build the more secure one.** Not
-"consider it", not "recommend it and offer the convenient alternative", not "note the risk and ship
-the easy path". Build it. **Never propose or implement a less secure option when a more secure one
-is available.**
-
-This is a *ranking*, not a preference to balance. Convenience, brevity, familiarity, fewer moving
-parts, and finishing sooner do not outrank it. If the secure option costs more code, more
-configuration, an extra dependency, or an extra hour, **that cost is the price of the correct
-option** — it is not evidence that the other option was reasonable.
-
-### 13.1 It is never a B2, and never Jon's problem to notice
-
-A difference in security posture **settles** a design choice; it does not create a tie. Two options
-that differ only in that one is safer are not "two genuinely defensible designs" — that is one
-defensible design and one defect (§1, B2). Do not escalate it, do not present it as a menu, and do
-not implement the weaker one because it was easier to explain.
-
-The **one** case where a less-secure option is on the table is **B3 USER_FORBADE**: Jon's explicit
-constraint rules the secure option out. Then, and only then, you say so in one line, **name the
-exposure the constraint creates**, and implement **the most secure option compatible with the
-constraint**. You never present the weaker option as your recommendation, and you never implement
-one silently.
-
-### 13.2 What the generator emits counts double
-
-Datrix writes production code and production infrastructure for someone else's system. **An
-insecure default in a generator is not one defect — it is one defect per project generated from
-then on, in codebases nobody on this team will ever read.** A default emitted by a template is a
-security policy applied to every future user of that template.
-
-So the rule applies with equal force to both surfaces:
-
-- **The framework code you write** — parsers, resolvers, validators, CLI, scripts.
-- **Every artifact the generator emits** — service code, SQL, Dockerfiles and compose files, IaC
-  templates, gateway config, CI/ops scripts, generated defaults, and sample/example projects.
-  Examples are copied; an example that authenticates weakly teaches weak authentication.
-
-### 13.3 The surfaces this covers
-
-You do not get to decide a task is "not a security task". Relevance is set by the surface you
-touched, not by whether the word appeared in the request:
-
-- **Authentication and authorization** — per-request enforcement, object-level/tenant isolation, no
-  ambient authority, no "trust the caller", no client-supplied identity.
-- **Secrets and credentials** — never hardcoded, never logged, never defaulted to a literal, never
-  committed; sourced from the platform's secret mechanism.
-- **Transport and storage** — TLS on by default and verified; encryption at rest where the platform
-  offers it; no plaintext channel because it was simpler to wire.
-- **Input handling at trust boundaries** — validate and normalize where untrusted data crosses in,
-  not three layers later "where it's convenient".
-- **Injection surfaces** — parameterized queries, argument vectors instead of shell strings, safe
-  template/path/deserialization handling. Never compose a query, command, path, or markup by string
-  concatenation from external input.
-- **Exposure and permissions** — no public bind, no `0.0.0.0/0`, no wildcard IAM, no public bucket,
-  no permissive CORS, no debug endpoint, and no default-open port because closing it needed a
-  config field.
-- **Error and log content** — no credentials, tokens, PII, or internal detail in responses or logs.
-- **Cryptography** — standard primitives, current parameters, a CSPRNG for anything
-  security-bearing. Never home-rolled.
-- **Dependencies and base images** — pinned, current, from the expected registry.
-
-### 13.4 Fail closed
-
-A security control whose input is missing, unparseable, or unknown **denies**. A guard that permits
-when it cannot evaluate its condition is the banned silent fallback (CLAUDE.md § Anti-patterns)
-applied to the one place it is most expensive: it converts an unknown into an approval, and it is
-invisible in every green test suite. An unrecognized identity provider, an absent claim, an
-unresolved policy, a missing key — each raises with a message naming what was missing and what to
-supply. Never `except: pass` around a check, and never `if not configured: allow`.
-
-### 13.5 Never weaken a control to make something pass
-
-If a test, build, generation run, or deploy fails **against** a security control, the control is the
-requirement and the thing failing it is the defect. Disabling it, loosening it, adding an exemption,
-or widening a permission so the red turns green is a workaround (CLAUDE.md § No Workarounds) *and* a
-silent change to the product's threat model. It is banned even when it is the only thing standing
-between you and a green suite, and especially then.
-
-An existing insecure pattern is not a licence either. "The neighbouring module does it this way" is
-evidence about the neighbour, not permission (§12.7). Found it → §5: fix it, or file it.
-
-### 13.6 A security assumption is a fact you confirm by reading
-
-"That input is validated upstream", "that endpoint is internal-only", "that secret never reaches the
-client" are claims, and §2A governs them: open the file and confirm. The seam discipline of §12.2 is
-the tool — name the producer and the consumer of every trust boundary, compute what crosses it, and
-land the comparison as a validator. A trust boundary nobody compares is the same defect class as an
-unsupplied compose variable, with a worse blast radius.
-
-When a change touches any surface in §13.3, the mandatory second question of §12.3 has a security
-form: **what check would have caught this insecure state before the run, and where does it live?**
-Land it with the fix.
-
-### 13.7 When the design itself specifies the weaker option
-
-A design doc is a scope boundary (`.claude/rules/design-and-docs.md`) and you never edit one during
-implementation. But a security downgrade is not a scope question — it changes the product's threat
-model, which is a decision reserved to Jon. So:
-
-1. **Say it in one line, before you implement that part.** Name the weaker option the design
-   specifies, the exposure it creates, and the secure alternative. That is the whole message.
-2. **Keep working everything that does not depend on the answer** (§6, §8A). This is an escalation
-   to keep going, not a stop.
-3. **Never silently implement the weaker option, and never silently substitute the stronger one.**
-   Silently downgrading is §13; silently overriding the design is a scope violation. One line to
-   Jon settles both.
-
-The same applies to a task file, an issue report, or a bug report that asks for the weaker option.
-An instruction to build something less secure than the available alternative is worth one sentence
-of confirmation, every time.
+*Held in [execution-contract-security.md](./execution-contract-security.md) (§13.1–§13.7).* Summary:
+when two implementations differ in security posture you build the more secure one; it is never a B2
+(the one exception is B3, where you name the exposure and build the most secure compatible option);
+the generator's emitted defaults count double; fail closed; never weaken a control to turn a check
+green; a security assumption is a fact you confirm by reading; when the design itself specifies the
+weaker option, say so to Jon in one line and never silently implement either.
 
 ---
 

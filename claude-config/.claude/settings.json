@@ -83,6 +83,14 @@
           },
           {
             "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/guard-repo-policy-edits.py\""
+          },
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/guard-code-standards.py\""
+          },
+          {
+            "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/gate-mandatory-reads.py\""
           }
         ]

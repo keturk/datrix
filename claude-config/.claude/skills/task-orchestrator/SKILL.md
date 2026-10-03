@@ -80,14 +80,14 @@ For a PHASE/PHASES input the orchestrator discovers tasks automatically — firs
 
 For complete documentation index with "When to use" guidance, see [doc_index.md](../../../../../datrix/docs/doc_index.md).
 
-**Essential reads (MANDATORY before starting):**
-- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle
-- [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → System architecture
-- [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → Design philosophy
+**Essential reads (MANDATORY before starting) — two short cores:**
+- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle, read-when index into the agent-rule packs
+- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md) → the architecture map, with the knowledge-pack index
 
-**Quick refs:**
-- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
+**On demand (the pack for the surface a task touches — not a blanket pre-read):**
+- [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) and [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → the *why* behind a numbered decision or principle
 - [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
+- **Don't know where something is documented?** `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` — a brief answer with the file and line range to open (a lead: open the lines before acting). Every dispatch brief tells the agent the same (see `agent-templates/task-implementation-agent.md`).
 
 ### Project Structure
 Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
@@ -375,7 +375,7 @@ Agents otherwise each re-read the same architecture docs on startup, burning dup
 
 - [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
 - [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
-- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) — the core rules + prohibited patterns
+- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) — the core rules and the read-when pack index (read the packs the run's surfaces need, e.g. prohibited-patterns; not all of them)
 - The `.project-structure.md` for each package that has a task in this run (read per-package, key into the digest by package name)
 
 The digest is **reference context, not a substitute for the task file** — agents still read their own task file and the specific code they touch. Store it as `shared_context` and pass the package-relevant slice in each agent prompt (see 3b). Build it once; reuse for every wave and every phase in the run.
@@ -870,7 +870,7 @@ BLOCKING RULE (execution-contract §1-§3 — read `.claude/skills/_shared/execu
 Your default outcome is THE PROBLEM IS FIXED. There are exactly four blockers: B1 MISSING_ACCESS, B2 UNDECIDABLE (two defensible designs), B3 USER_FORBADE, B4 FENCED_SURFACE. Everything else is work — unclear root cause (keep reading), root cause in another package (go fix it), bigger than estimated (do it), pre-existing (it's yours now), "behavioral/environmental" (prove it with the error text or fix it), no test (write one), "should be tracked separately" (there is no other agent).
 A BLOCKED return is ONLY valid with all four: (1) verbatim error text, (2) the fix you actually wrote and ran, as file:line, (3) why it failed, (4) the B1-B4 code. Missing any → I reject the report and re-dispatch this task to you with your own report quoted back.
 FOUND IT, YOU FIX IT: any defect you discover on a surface you touched is yours — fix it, or file a real tracked task. Prose-only mention is not an outcome.
-FINDINGS FILE: a design-sized defect, a design flaw, or an issue on a surface you did not touch → write d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md (template: execution-contract §5A — what, where file:line, evidence, impact; under 30 lines; no search of the folder first) and keep working.
+FINDINGS FILE: a design-sized defect, a design flaw, or anything unrelated to your task (noticed in passing, on a surface you did not touch) → just write d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md (template: execution-contract §5A — what, where file:line, evidence, impact; under 30 lines) and keep working. Do not look for an existing finding first; do not fix it; do not file a task; do not leave it as a line in your report.
 
 RETURN: files changed (with line counts), `scope_expansion`, the targeted-test result (command + pasted output), `discovered_defects` (each FIXED, FILED, or FINDING with its findings file path), and — only if BLOCKED — the four-part `blocker_proof`. Status: DONE / EXPANSION_REQUIRED / BLOCKED.
 ```

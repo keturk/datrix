@@ -213,7 +213,7 @@ def _block(command: str, why: str) -> None:
         "minutes to hours, real money, one defect reported per round trip, after "
         "the artifact is already out. Nearly everything it will tell you is "
         "sitting in a file on disk right now.\n\n"
-        "Do this first (execution-contract §12):\n"
+        "Do this first (execution-contract-verification.md §12):\n"
         "  1. Name every seam this deploy crosses — env/compose interpolation, "
         "config-store keys, secret names, route inventories, image tags, module "
         "outputs consumed by another module.\n"

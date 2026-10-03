@@ -66,6 +66,7 @@ For complete documentation index with "When to use" guidance, see [doc_index.md]
 - [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle
 - [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md) → System architecture (operative summary)
 - [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md) → Design philosophy (operative summary)
+- **Don't know where something is documented?** `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` — a brief answer with the file and line range to open (a lead: open the lines before acting). Open the architecture knowledge pack for the surface the task touches, not every doc.
 
 **On demand (read only when a task's package or surface needs the depth — not a blanket pre-read):**
 - [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → full architecture index + sub-docs
@@ -201,11 +202,13 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    - Root cause of the failure you were sent to fix → follow it wherever it lives and
      fix it there, even in another package. Report it under scope_expansion.
    - Pre-existing rule violation you happened to SEE while reading (a stale reference,
-     a naming breach, a smell in code you did not touch) → write it down in your report
-     and move on. "Found it, you fix it" covers surfaces you TOUCHED, not surfaces you
+     a naming breach, a smell in code you did not touch) → write a findings file
+     (d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md, execution-contract §5A; do not
+     look for an existing one) and move on. It is not a fix, not a task, and not a line in
+     your report. "Found it, you fix it" covers surfaces you TOUCHED, not surfaces you
      SCANNED; a grep across N files does not make you the owner of N files.
    When both readings are available, ask: does this block the fix I was sent to make?
-   If no, it is a report line.
+   If no, it is a findings file.
    ```
 
    **See the template file for:**

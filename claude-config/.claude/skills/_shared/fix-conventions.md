@@ -6,14 +6,13 @@ Shared conventions used across the fix/troubleshoot skill family. The invoking s
 
 Full index with "When to use" guidance: `d:\datrix\datrix\docs\doc_index.md`.
 
-**Essential reads (MANDATORY before starting):**
-- `d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md` → Core rules, STOP AND THINK principle
-- `d:\datrix\datrix\docs\architecture\architecture-overview.md` → System architecture
-- `d:\datrix\datrix\docs\architecture\design-principles.md` → Design philosophy
+**Essential reads (MANDATORY before starting) — two short cores:**
+- `d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md` → Core rules, STOP AND THINK principle, and the read-when index into the agent-rule packs
+- `d:\datrix\datrix\docs\architecture\architecture-cheat-sheet.md` → the architecture map, with the index of knowledge packs (`docs/architecture/packs/`)
 
-**Quick refs:**
-- `d:\datrix\datrix\docs\architecture\architecture-cheat-sheet.md`
-- `d:\datrix\datrix\docs\architecture\design-principles-cheat-sheet.md`
+**On demand — the pack for the area you are touching, never all of them:**
+- the architecture pack the cheat sheet's table names for the surface; `design-principles-cheat-sheet.md`; `architecture-overview.md` / `design-principles.md` only for the *why* behind a numbered decision
+- **Don't know where something is documented?** `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` — a brief answer with the file and line range to open (a lead: open the lines before acting).
 
 ### Project Structure
 

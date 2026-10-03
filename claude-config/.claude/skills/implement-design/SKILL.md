@@ -57,7 +57,8 @@ FIX: false             # verify-implementation reports only, changes no code
 
 - `d:\datrix\.claude\CLAUDE.md`, `MEMORY.md`, `.claude/rules/design-and-docs.md`
 - The DOCUMENT **in full** — it is the scope boundary
-- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md), [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md), [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md)
+- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md), [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md), [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) (each is a core with a read-when pack index: open the packs for the surfaces the design touches)
+- **Don't know where something is documented?** `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` — a brief answer with the file and line range to open (a lead: open the lines before acting).
 
 ## Run discipline
 

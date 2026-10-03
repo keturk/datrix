@@ -56,7 +56,7 @@ Optional:
 
 ## Documentation Quick Reference
 
-Full index: `d:\datrix\datrix\docs\doc_index.md`. Mandatory before starting: `d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`, `d:\datrix\datrix\docs\architecture\architecture-overview.md`, `d:\datrix\datrix\docs\architecture\design-principles.md` (cheat sheets in the same folders).
+Full index: `d:\datrix\datrix\docs\doc_index.md`. Mandatory before starting (two short cores): `d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md` and `d:\datrix\datrix\docs\architecture\architecture-cheat-sheet.md` (map + knowledge-pack index; open the pack for the surface you evaluate). `architecture-overview.md` / `design-principles.md` are on demand, for the *why* behind a numbered decision. Don't know where something is documented? `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` gives a brief answer with the file and line range to open.
 
 ### Project Structure
 Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.

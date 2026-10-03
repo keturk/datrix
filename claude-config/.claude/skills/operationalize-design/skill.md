@@ -13,7 +13,7 @@ End-to-end pipeline that takes a design document and produces: resolved decision
 
 You are the analyst, decision-maker and writer across all four phases: you read the design and architecture docs, search the codebase for evidence, inventory affected packages and fixtures, decide each question, decompose the work, and write every task file. Spend tokens on narrow, load-bearing reads, not on re-reading:
 
-- Learn code facts with the code-index tools (`find_symbol`, `find_references`, `outline`, `search`, `find_canonical`) and ranged `Read`s — never read a large source file whole to answer a question about it. `ask_files` (local model) gives a cited lead for "what does this do"; confirm the cited lines with a ranged `Read`.
+- Learn code facts with the code-index tools (`find_symbol`, `find_references`, `outline`, `search`, `find_canonical`) and ranged `Read`s — never read a large source file whole to answer a question about it. `ask_files` (local model) gives a cited lead for "what does this do"; confirm the cited lines with a ranged `Read`. For documented knowledge (a rule, an invariant, which pack holds what) ask `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` instead of reading the docs.
 - Read each doc you need once, at the point you need it. Keep a running manifest of facts (file:line) in the scratchpad so a later phase never re-derives them.
 - Write task files one at a time with `Write`, straight from the manifest, in dependency order, running `validate-task.ps1 -Task <file>` after each (see Phase 3).
 
@@ -52,6 +52,7 @@ For complete documentation index with "When to use" guidance, see [doc_index.md]
 - [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle
 - [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md) → System architecture (operative summary)
 - [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md) → Design philosophy (operative summary)
+- **Don't know where something is documented?** `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` — a brief answer with the file and line range to open (a lead: open the lines before acting). Open the architecture knowledge pack for each surface the design touches, not every doc.
 
 **On demand (read only when the design's surfaces need the depth — not a blanket pre-read):**
 - [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → full architecture index + sub-docs
@@ -325,7 +326,7 @@ This gate is the enforcement point for the **Ambiguity resolution — hard gate*
 
    **File structure (from `/generate-tasks`):**
    ```markdown
-   > **Peruse 'd:\datrix\datrix-common\docs\contributing\ai-agent-rules.md' (and its sub-documents) and follow the rules**
+   > **Peruse 'd:\datrix\datrix-common\docs\contributing\ai-agent-rules.md' (the core, then only the packs its read-when index names for this task's surfaces) and follow the rules**
 
    # Task {NN}-{TT}: {Title}
 

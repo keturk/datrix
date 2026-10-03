@@ -37,6 +37,12 @@ This directory configures Claude Code for the Datrix project. `CLAUDE.md` define
 
 ---
 
+## Knowledge: ask, don't load
+
+Agents do not read the docs up front. Two short cores are mandatory before the first edit (the architecture cheat sheet and `ai-agent-rules.md`); everything else is a **knowledge pack** read when the work calls for it, routed by the lead table in `CLAUDE.md` and the pack indexes in those two cores. When an agent does not know where something is documented it asks `datrix/scripts/dev/ineedtoknow.ps1 "<question>"`, which answers briefly from the docs with the file and line range to open, and has a local model read the closest docs (and keep a verified answer) when it holds none. Skills and agent templates carry the same instruction; the session-start hook says it in every session. Reference: `datrix/scripts/dev/quick-reference.md`.
+
+---
+
 ### `/imports`
 
 Looks up canonical Datrix module import paths for common classes and utilities. Contains ~64 mappings covering Entity, Service, generators, type system, migrations, configs, and more. Use when you need the correct import path for a Datrix internal class.

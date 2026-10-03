@@ -56,7 +56,8 @@ FIX: false             # verify-implementation reports only, changes no code
 
 - `d:\datrix\.claude\CLAUDE.md`, `MEMORY.md`, `.claude/rules/design-and-docs.md`, `.claude/rules/repo-boundaries.md`
 - The DOCUMENT **in full** — it is the scope boundary
-- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md), [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md), [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md)
+- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md), [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md), [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) (each is a core with a read-when pack index: open the packs for the surfaces the design touches)
+- **Don't know where something is documented?** `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` — a brief answer with the file and line range to open (a lead: open the lines before acting).
 - `datrix/scripts/quick-reference.md` before calling any repo script
 
 ## Run discipline
@@ -68,7 +69,7 @@ FIX: false             # verify-implementation reports only, changes no code
 - **Never modify the design document.** Only `/absorb-design` touches it (it deletes it). This path never rewrites its `Status:` line either: that edit belongs to `/task-orchestrator`.
 - **Never cite the design in a committed artifact** — no design number, filename, or path in code comments, docstrings, docs, tests, or commit messages (`design-and-docs.md`).
 - **No subagents.** Only `/task-orchestrator` dispatches. Do every step yourself, sequentially. A subagent never runs this skill.
-- **Read narrowly, never less.** Use the code-index tools (`find_canonical`, `find_symbol`, `find_references`, `outline`, `search`) and ranged reads; `ask_files` for "what does this do" is a lead you confirm with a ranged Read. Do not read large source files whole.
+- **Read narrowly, never less.** Use the code-index tools (`find_canonical`, `find_symbol`, `find_references`, `outline`, `search`) and ranged reads; `ask_files` for "what does this do" is a lead you confirm with a ranged Read; `ineedtoknow.ps1 "<question>"` for documented knowledge (a rule, an invariant, which pack holds what). Do not read large source files whole.
 
 ---
 
