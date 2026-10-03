@@ -159,11 +159,11 @@ Self-correcting iterative loop: attempt fix → run tests → analyze failure �
 
 ### `/operationalize-design`
 
-End-to-end design document pipeline: audit → resolve decisions → update docs → generate tasks → delete original. Collapses multi-day design operationalization into a single session.
+End-to-end design document pipeline: audit → resolve decisions → generate tasks → verify coverage. Collapses multi-day design operationalization into a single session.
 
-**Pipeline:** Analysis → Decisions (with evidence) → Documentation Transfer → Task Generation → Cleanup.
+**Pipeline:** Analysis → Decisions (with evidence) → Task Generation → Cleanup (coverage check; the design document is preserved). No official doc is edited by this skill.
 
-**Key constraints:** No tasks without resolved ambiguities. No deleting before transfer verified. Every decision needs codebase evidence. Every task needs acceptance criteria.
+**Key constraints:** No tasks without resolved ambiguities. Every design requirement carried by a task. Every decision needs codebase evidence. Every task needs acceptance criteria. **No subagents** — the session reads, decides, transfers docs and writes every task file itself; subagents are reserved for `/task-orchestrator`.
 
 ### `/task-orchestrator`
 

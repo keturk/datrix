@@ -107,9 +107,10 @@ the files. That is not BLOCKED; it means "I know the fix and need the lock.")
 
 ## No Nested Agents
 
-**A subagent never spawns subagents.** The session Jon talks to — an orchestrator running
-waves, a skill with a delegation strategy — may dispatch agents, sized per execution-contract
-§10. An agent that was itself dispatched may not dispatch more: a nested swarm multiplies
+**Only `/task-orchestrator` dispatches subagents.** Planning and design skills —
+`/operationalize-design`, `/generate-tasks` — never do: they read, decide and write every
+file in the session themselves. The orchestrator's dispatches are sized per execution-contract
+§10. **A subagent never spawns subagents.** An agent that was itself dispatched may not dispatch more: a nested swarm multiplies
 token cost with no added coverage. Depth is one. If you are a subagent, do the work yourself,
 sequentially, and report any expansion to the dispatcher. `guard-no-nested-agents.py`
 refuses the `Agent`/`Task` tool for any caller that is a subagent, with no override.
@@ -341,7 +342,7 @@ outcome — never submit it. An unproven BLOCKED is the second worst.**
 
 **Jon types these — you cannot:** `/delegate`, `/imports`,
 `/logic-map`, `/fix`, `/scope`, `/codegen-review`, `/execute-tasks`,
-`/execute-tasks-parallel`, `/implement-design`, `/resolve-conflicts`. They are
+`/execute-tasks-parallel`, `/implement-design`, `/implement-design-direct`, `/resolve-conflicts`. They are
 `disable-model-invocation`: the Skill tool returns a hard error and forbids reproducing the
 workflow another way. **Do not attempt one, and never file the refusal as BLOCKED** — a
 skill reserved for Jon is not B1–B4, it is not a blocker, and reporting it as one turns a

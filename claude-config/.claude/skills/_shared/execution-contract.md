@@ -333,8 +333,11 @@ token count and you can see how many you dispatched.
 
 ### 10.0 Depth is one — agents never dispatch agents
 
-The session Jon talks to — an orchestrator running waves, a skill with a delegation strategy —
-may dispatch agents. **An agent that was itself dispatched may not dispatch more.** A nested
+The session Jon talks to — an orchestrator running waves — may dispatch agents. Planning and
+design skills never do: `/operationalize-design` (and `/generate-tasks`) read, decide and write
+every file in the session itself, because a dispatched writer re-reads the template, the design
+and the manifest before producing anything — a three-writer fan-out once spent 339k tokens and
+wrote no task file. **An agent that was itself dispatched may not dispatch more.** A nested
 fan-out multiplies token cost with no added coverage (one such child burned >140k tokens almost
 entirely on dispatch overhead) and fragments reporting. If you are a subagent, do the work
 yourself, sequentially, and report any expansion to the dispatcher. `guard-no-nested-agents.py`

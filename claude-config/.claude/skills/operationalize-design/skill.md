@@ -5,36 +5,25 @@ effort: medium
 
 # Operationalize Design Document
 
-End-to-end pipeline that takes a design document and produces: resolved decisions, updated architecture docs, implementation tasks, and cleanup — collapsing what previously took multiple sessions into a single orchestrated workflow.
+End-to-end pipeline that takes a design document and produces: resolved decisions, implementation tasks, and a verification that nothing in the design was left out — collapsing what previously took multiple sessions into a single workflow. It edits no official doc: documentation updates ride inside the implementation tasks it writes, and the design's content reaches the docs through those tasks and `/absorb-design`.
 
-## Your Role — Orchestrate, Delegate, Decide
+## Your Role — Do It Yourself, No Subagents
 
-You run on Opus 4.8 at extra-high effort. That capability is for **judgment, not typing**. You are the orchestrator and decision-maker across the five phases: you own understanding the design, identifying and resolving decision points, deciding the task decomposition and its dependency/enforcement ordering, and every gate in this skill. **Execution** — reading the design doc and architecture docs, searching the codebase for evidence, inventorying affected packages/fixtures, transferring content into official docs, and writing the individual task files — goes to subagents on cheaper models.
+**This skill never dispatches a subagent — no `Agent`/`Task` call, no workflow, no fan-out, of any model tier, for any phase.** Subagents are reserved for `/task-orchestrator`. An earlier version of this skill delegated recon, per-question research, task-file writing and the final cross-check to sonnet/haiku agents; each dispatch re-read the skill template, the design and the manifest before doing anything, and a three-writer fan-out burned 339,000 tokens without producing a single task file. Doing the work in this session costs a fraction of that, and every fact stays in your own context.
 
-Two resources are scarce and both are yours to protect:
-- **Opus tokens** — work a cheaper model can do well (recon reads, per-question codebase searches, writing N task files to a fixed template) must not be done inline.
-- **Your context window** — it must last all five phases. Delegating recon and file-writing keeps your context for the decisions only you can make: the ambiguity hard-gate, the confidence gate, the decomposition, the enforcement ordering, the invariant-surface coverage.
+You are the analyst, decision-maker and writer across all four phases: you read the design and architecture docs, search the codebase for evidence, inventory affected packages and fixtures, decide each question, decompose the work, and write every task file. Spend tokens on narrow, load-bearing reads, not on re-reading:
 
-Delegation is not abdication. Every gate in this skill is still **yours** and is decided on evidence you verify — a subagent's recon or self-report is input to your judgment, never a substitute for it. The ambiguity hard-gate, the confidence gate, and every Phase-4 completeness check are decided by you, on the returned evidence, exactly as written. No gate is relaxed because a subagent did the legwork.
+- Learn code facts with the code-index tools (`find_symbol`, `find_references`, `outline`, `search`, `find_canonical`) and ranged `Read`s — never read a large source file whole to answer a question about it. `ask_files` (local model) gives a cited lead for "what does this do"; confirm the cited lines with a ranged `Read`.
+- Read each doc you need once, at the point you need it. Keep a running manifest of facts (file:line) in the scratchpad so a later phase never re-derives them.
+- Write task files one at a time with `Write`, straight from the manifest, in dependency order, running `validate-task.ps1 -Task <file>` after each (see Phase 3).
 
-### Model tiers
-
-| Tier | Use for | Examples in this pipeline |
-|---|---|---|
-| `haiku` | Mechanical, high-volume, low-ambiguity | Reading the design doc / architecture docs and returning a structured digest; globbing for fixtures/examples/configs on the old path; Phase-5 content-transfer verification |
-| `sonnet` | Well-scoped implementation to a clear spec | Per-question codebase research with a specific answer to find; Phase-3 doc transfer to a target you named; **Phase-4 writing of individual task files to the template and decomposition you specified** |
-| `opus` | Recon/analysis needing strong reasoning | Ambiguous scope investigation, tracing a subtle dual-implementation risk, cross-cutting impact analysis you want a second strong read on |
-| Opus @ xhigh (you) | Judgment — never delegated | Decision-point identification, every decision + confidence gate, the ambiguity hard-gate, the task **decomposition** (numbering, dependencies, enforcement ordering, invariant-surface coverage), and every phase completion gate |
-
-**Dispatch protocol.** Subagents see none of this conversation — every dispatch prompt is self-contained: what to do and why, exact paths (read vs. may-write, and what is out of bounds), the CLAUDE.md constraints that bite (no workarounds, no git reverts, full type hints but never run a type-checker, no mocks, domain isolation, temp files only under `D:\datrix\.tmp\`/`.scripts\`/`.test-output\`, and for Phase-4 the **Task Location Allowlist**), and the exact return format (facts, not prose). Persist substantial subagent outputs under `d:/datrix/.agent_output/<date>-operationalize-<design-slug>/`. Partition write-heavy dispatches so no two agents write the same file; recon/read agents can fan out wider.
-
-**The delegation NEVER moves a decision to a subagent.** You decide; subagents gather and type. In particular: explicit design alternatives (Option A/B) are always YOUR call informed by the user — never handed to an agent to "pick"; the decomposition and dependency graph are yours — agents write the files you specify, they do not invent tasks.
+Every gate in this skill is yours and is decided on evidence you gathered yourself, exactly as written.
 
 ## When to Use
 
 - User has a completed design document ready for implementation
-- User says "operationalize", "implement this design", or "turn this into tasks and docs"
-- User wants decisions resolved, docs updated, and tasks generated in one pass
+- User says "operationalize", "implement this design", or "turn this into tasks"
+- User wants decisions resolved and tasks generated in one pass
 - After a design review is complete and the document is approved
 
 ## How to Invoke
@@ -64,7 +53,7 @@ For complete documentation index with "When to use" guidance, see [doc_index.md]
 - [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md) → System architecture (operative summary)
 - [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md) → Design philosophy (operative summary)
 
-**On demand (read only when the design's surfaces need the depth — not a blanket pre-read; the Phase-1 recon agents read the full docs for you):**
+**On demand (read only when the design's surfaces need the depth — not a blanket pre-read):**
 - [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → full architecture index + sub-docs
 - [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → full design principles
 
@@ -75,11 +64,11 @@ For complete documentation index with "When to use" guidance, see [doc_index.md]
 | DOCUMENT | Yes | Path to the design document to operationalize |
 | TARGET REPOS | No | Which repos the tasks belong to (auto-detected if not specified) |
 | PHASE | No | Phase number for task generation (auto-detected from latest-phase.ps1) |
-| SKIP | No | Phases to skip: `analysis`, `decisions`, `docs`, `tasks`, `cleanup` |
+| SKIP | No | Phases to skip: `analysis`, `decisions`, `tasks`, `cleanup` |
 
 ## Pipeline Phases
 
-This skill executes five phases. Each phase builds on the previous.
+This skill executes four phases. Each phase builds on the previous.
 
 **Execution discipline:**
 - Each phase runs to completion unless BLOCKED
@@ -98,11 +87,11 @@ This skill executes five phases. Each phase builds on the previous.
 - One line per data point. If it fits on one line, don't use three
 
 **Ambiguity resolution — hard gate before Phase 3:**
-- Before any official doc is edited (Phase 3) or any task is generated (Phase 4), there must be ZERO unresolved open questions and ZERO unresolved ambiguities. This is a hard gate: execution work does not begin until it is cleared. Phases 1–2 exist to clear it.
+- Before any task is generated (Phase 3), there must be ZERO unresolved open questions and ZERO unresolved ambiguities. This is a hard gate: execution work does not begin until it is cleared. Phases 1–2 exist to clear it.
 - "Resolved" means resolved by **investigation, never by assumption.** A question is closed only when one of these answers it: codebase evidence (read the actual code), existing-doc cross-reference, logic-map markers, or an explicit answer from the user. "I can think of a reasonable answer" does NOT close a question — that is an assumption, and assumptions are banned (CLAUDE.md: "Never assume/fabricate — look it up").
 - You may NOT declare "no open questions" unless you have investigated each one. The specific failure mode this gate prevents: listing a question in Phase 1, then silently assuming its answer and proceeding. Every closed question must be traceable to the investigation that closed it.
 - Explicit alternatives in the design (Option A/B, multiple named approaches) are ALWAYS user decisions. Investigation informs a recommendation but NEVER closes them — only the user does.
-- If, after genuine investigation, ANY question remains unanswerable from the codebase/docs, OR any explicit alternative remains unchosen → STOP. Present each remaining item with your investigation findings and a recommendation, and WAIT for the user. Do not enter Phase 3 or Phase 4 with any open item.
+- If, after genuine investigation, ANY question remains unanswerable from the codebase/docs, OR any explicit alternative remains unchosen → STOP. Present each remaining item with your investigation findings and a recommendation, and WAIT for the user. Do not enter Phase 3 with any open item.
 - This is the one class of STOP that overrides "run the full pipeline": an unresolved required decision is a genuine blocker (CLAUDE.md: pipeline skills STOP for "unresolved required decisions, missing required inputs"). It is NOT the same as a missing optional validator — do not confuse the two.
 
 ---
@@ -111,17 +100,15 @@ This skill executes five phases. Each phase builds on the previous.
 
 **Goal:** Understand the design completely and identify all decision points.
 
-**Delegate the recon, own the analysis.** The reading and cross-referencing in steps 1–2 is mechanical fan-out — dispatch it; the *identification* in step 3 (what is a decision point, what is genuinely open, what conflicts) is your judgment and stays inline.
+**Do the recon yourself.** Read the design document in full, cross-reference it against the architecture docs, and inventory implementation scope and dual-implementation risk with the code-index tools and ranged reads. No agent does any of this for you.
 
-- Dispatch a **haiku** recon agent to read the design document in full and return a structured digest: every section, every explicitly-marked open question / "TBD" / "Option A vs B", every migration/rollout step (numbered, verbatim), and every place the design says "convert X to Y".
-- Dispatch a **haiku/sonnet** recon agent (in parallel) to cross-reference the design against `d:\datrix\datrix\docs\architecture\` and return: sections that duplicate or conflict with existing docs, and the correct target doc for each new piece of content.
-- Dispatch a **sonnet** recon agent to inventory implementation scope + dual-implementation risk across the repo: every package that consumes/tests/demonstrates the subsystem being changed, and every test fixture, example, and project config currently exercising the OLD path (glob + read). This is the search that catches the "new path ships untested" trap — give it the old-path markers to grep for.
+- Read the design document in full; list every section, every explicitly-marked open question / "TBD" / "Option A vs B", every migration/rollout step (numbered, verbatim), and every place the design says "convert X to Y".
+- Cross-reference the design against `d:\datrix\datrix\docs\architecture\` (`Grep` for the design's terms, then ranged reads): which sections duplicate or conflict with existing docs, and which docs each implementation task must update.
+- Inventory implementation scope and dual-implementation risk: every package that consumes/tests/demonstrates the subsystem being changed (`find_references`), and every test fixture, example, and project config currently exercising the OLD path (`Grep`/`Glob` for the old-path markers). This is the search that catches the "new path ships untested" trap.
 
-Read the digests yourself and do step 3's identification on them. Read the design doc directly yourself for any section the digest leaves ambiguous — recon informs you, it does not replace your own read of anything decision-bearing.
-
-1. Read the design document in full (via the recon digest; read the doc directly for any decision-bearing section)
-2. Cross-reference against existing architecture docs in `d:\datrix\datrix\docs\architecture\` (via the cross-ref recon agent)
-3. Identify (YOUR judgment, on the returned recon):
+1. Read the design document in full
+2. Cross-reference against existing architecture docs in `d:\datrix\datrix\docs\architecture\`
+3. Identify:
    - **Open questions** — explicitly marked or implicit
    - **Decision points** — alternatives presented without resolution
    - **Content overlap** — sections that duplicate or conflict with existing docs
@@ -184,14 +171,12 @@ If you deviated: STOP and explain the deviation to the user.
 
 **Goal:** Make every decision required by the design, with rationale.
 
-**Delegate the evidence-gathering, own the decision.** For each implicit question, the codebase research (steps 1–2) is delegable; the decision and its confidence rating (steps 3–4 + the confidence gate) are yours and are never delegated. Dispatch the open questions as a batch of **sonnet** research agents (one per question, or grouped by subsystem) — fan out independent questions in a single message. Each agent gets the exact question, the relevant paths, and returns **evidence only**: code references, existing patterns, logic-map marker hits — with a factual finding, NOT a decision. You read the returned evidence and make each call yourself.
-
-**Never delegate a decision.** An agent returns "here is what the code does"; YOU return "therefore the decision is X, confidence HIGH, because <cited evidence>". Explicit design alternatives (Option A/B) are never even sent to an agent to decide — they are always LOW-confidence user decisions (see below); at most an agent gathers evidence for your *recommendation*.
+**Research and decide yourself.** For each question, gather the codebase evidence with the code-index tools and ranged reads, then state "therefore the decision is X, confidence HIGH, because <cited evidence>". Explicit design alternatives (Option A/B) are always LOW-confidence user decisions (see below); your evidence informs your *recommendation*, and only the user closes them.
 
 For each open question or decision point:
 
-1. **Research the codebase** — find evidence for the best approach (delegated to a research agent; you consume its evidence)
-2. **Check existing patterns** — query logic map markers if relevant (delegated with step 1)
+1. **Research the codebase** — find evidence for the best approach
+2. **Check existing patterns** — query logic map markers if relevant (`find_canonical`)
 3. **Classify the question (YOUR call):**
    - **Explicit alternative** — the design document presents multiple named options (Option A/B, Approach 1/2, etc.) → confidence is always LOW (requires user input), even if codebase evidence strongly favors one option. The design author listed alternatives for a reason.
    - **Implicit question** — ambiguity or gap in the design that can be resolved from codebase evidence → use the confidence scale below.
@@ -238,84 +223,25 @@ This gate is the enforcement point for the **Ambiguity resolution — hard gate*
 
 ---
 
-### Phase 3: Documentation — Transfer Knowledge to Official Docs
-
-**Goal:** Update existing architecture and documentation files with the design's content.
-
-**You plan the transfer; subagents write it.** Deciding *what* content moves *where* (target doc, section, conflict resolution) is judgment — do it yourself from the Phase-1 cross-ref recon. The actual writing into each target doc is patterned execution — dispatch it to **sonnet** agents, partitioned so no two agents touch the same file. Give each agent: the exact target doc + section, the content to write (the specific design passage), the conflict-resolution directive for that spot (replace / update / append), and "adapt style to match the surrounding doc." You review each returned diff against your transfer plan before accepting it.
-
-For each section of the design document that adds NEW information:
-
-1. Identify the correct target document in `d:\datrix\datrix\docs\` or package `docs/` directories (YOUR call, from the cross-ref recon)
-2. Determine where in the target document the information belongs (YOUR call)
-3. Write the content into the target document, adapting style to match (delegated to a sonnet writer; you review the diff)
-
-**What to transfer:**
-- Architecture decisions → `architecture-overview.md` (and its sub-documents) or package-specific docs
-- Design principles → `design-principles.md`
-- API contracts → package docs
-- Configuration schemas → relevant config docs
-- Usage examples → package READMEs or guides
-
-**What NOT to transfer:**
-- Implementation details that belong in code comments or docstrings
-- Task-level instructions (those go in task files)
-- Temporary notes or discussion context
-
-**Conflict resolution:**
-- If the design UPDATES existing content → replace the old content
-- If the design CONTRADICTS existing content → update to the new design (no backward compat)
-- If the design ADDS to existing content → append in the appropriate section
-
-## Phase 3 Completion Gate
-
-This phase is COMPLETE when:
-- [ ] All unique design content transferred to official docs
-- [ ] No content duplication between design doc and official docs
-- [ ] All conflicts resolved (old content replaced/updated)
-- [ ] Target docs match existing doc style and structure
-- [ ] Output matches the format below exactly
-
-**End-of-phase output (lean — path + action only):**
-
-```
-DOCS UPDATED: {N} files, {N} sections transferred, {N} conflicts resolved
-
-{path} — {action}
-{path} — {action}
-```
-
-## Phase 3 Self-Check
-
-Before proceeding to Phase 4, answer:
-1. Did I transfer ALL unique content from the design to official docs?
-2. Did I identify the correct target docs (not create new standalone docs)?
-3. Did I adapt content style to match the target docs?
-4. Did I deviate from any instruction in this phase? If yes, why?
-
-If you deviated: STOP and explain the deviation to the user.
-
----
-
-### Phase 4: Tasks — Generate Implementation Task Files
+### Phase 3: Tasks — Generate Implementation Task Files
 
 **Goal:** Break the design into implementable tasks with globally unique numbering.
 
-**The decomposition is yours; the file-writing is delegated.** This is the phase where the fan-out pays off most — a design can produce dozens of task files, and writing them inline would exhaust your context. Split it cleanly:
+**You decompose, and you write every task file.** No subagent writes, drafts or reviews any part of this phase.
 
-- **You (Opus) own the decomposition — never delegated.** The full task list, the global numbering, the `Depends on` graph, the **enforcement-before-what-it-governs** ordering (a guard/validator/rejection task precedes and gates every task that relies on it or migrates content it governs), the **invariant-surface coverage** (a task or QG criterion for EVERY surface in a design invariant's set — none silently dropped), which repos get tasks, and where each quality gate sits. Produce a complete task manifest first: for every task — its id, slug, target repo (from the Allowlist), category, `Depends on`, its `**Design reference:**` + `**Design acceptance property:**` (the specific D#/G#/numbered invariant + provable negative+positive check), and the inline design content it must carry. This manifest IS the design conformance of the phase; it cannot be delegated.
-- **Subagents write the files from your manifest.** Once the manifest is complete, dispatch **sonnet** agents to write the actual `.md` task files to the `/generate-tasks` template — partitioned by repo/wave so no two agents write the same file, fanned out in parallel. Each agent gets: the exact task-file path (which you have already validated against the Allowlist), the template (including its `## Orientation` slice), and its tasks' manifest entries (including the inline design content and Design reference/acceptance-property lines to embed). Agents transcribe your manifest into the template; they do NOT decide scope, numbering, or dependencies. **Each writer's prompt also says:** learn the code facts a task cites with the code-index tools (`find_symbol`, `find_references`, `outline`) and `ask_files` — not by reading source whole (a writer measured at ~740k tokens of source reading across 18 agents, every token of it orientation, since writers edit no code) — write the task's `## Orientation` block from them, and run `validate-task.ps1 -Task <file>` on every file it writes, fixing what it reports before it returns. Do not make each writer re-read a large manifest: give it only its own entries and the global-facts section. **Each writer's prompt also says:** write contracts and test lists, not function or test bodies (the implementer writes the code, so a pasted body is written twice and goes stale); keep the task file near 300 lines; give a `**Mirror:** file:line` pointer instead of restating an existing pattern; inline at most about 15 lines of design text.
-- **You verify the written files against your manifest and run the Phase-4 completion gate yourself.** Every checkbox in the completion gate is checked by you on the actual files — the allowlist check, the design-reference check, the enforcement-ordering check, the invariant-surface check, the dual-path check, the migration-step coverage count. A subagent writing the files does not move any of these checks off you.
+- **Decomposition.** The full task list, the global numbering, the `Depends on` graph, the **enforcement-before-what-it-governs** ordering (a guard/validator/rejection task precedes and gates every task that relies on it or migrates content it governs), the **invariant-surface coverage** (a task or QG criterion for EVERY surface in a design invariant's set — none silently dropped), which repos get tasks, and where each quality gate sits. Produce a complete task manifest first (in the scratchpad): for every task — its id, slug, target repo (from the Allowlist), category, `Depends on`, its `**Design reference:**` + `**Design acceptance property:**` (the specific D#/G#/numbered invariant + provable negative+positive check), and the inline design content it must carry. This manifest IS the design conformance of the phase.
+- **Writing.** Write the task files yourself, one `Write` per file, in dependency order, straight from the manifest and the facts you already gathered. Learn any further code fact a task cites with the code-index tools (`find_symbol`, `find_references`, `outline`) and `ask_files` — not by reading source whole — and write the task's `## Orientation` block from them. Write contracts and test lists, not function or test bodies (the implementer writes the code, so a pasted body is written twice and goes stale); keep the task file near 300 lines; give a `**Mirror:** file:line` pointer instead of restating an existing pattern; inline at most about 15 lines of design text. Run `validate-task.ps1 -Task <file>` on each file you write (it checks the orientation entries and `path:line` citations against the tree — it runs no tests) and fix what it reports.
+- **Verification.** Run the Phase-3 completion gate yourself on the actual files — the allowlist check, the design-reference check, the enforcement-ordering check, the invariant-surface check, the dual-path check, the migration-step coverage count.
 
-**MANDATORY FIRST STEP:** Read `d:\datrix\.claude\skills\generate-tasks\SKILL.md` completely before generating any tasks (you read it once; include the relevant template slice in each writer agent's prompt so they don't each re-read it). This skill follows the same workflow as `/generate-tasks` with one critical override described below.
+**MANDATORY FIRST STEP:** Read `d:\datrix\.claude\skills\generate-tasks\SKILL.md` completely before generating any tasks. This skill follows the same workflow as `/generate-tasks` with one critical override described below.
 
-**Phase creation.** This skill is invoked by Jon to plan work, so it is one of the few things allowed to open a new phase. That authority is **not** inherited by the agents it dispatches: a Phase-4 writer agent writes task files into the phase number YOU resolved and must never create a different `.tasks\phase-NN\` directory. Executing skills (`/task-orchestrator`, `/execute-tasks*`) may never create one at all — a task they must file goes in the phase they are executing (CLAUDE.md "Task Orchestration", execution-contract §5).
+**Phase creation.** This skill is invoked by Jon to plan work, so it is one of the few things allowed to open a new phase. Executing skills (`/task-orchestrator`, `/execute-tasks*`) may never create one at all — a task they must file goes in the phase they are executing (CLAUDE.md "Task Orchestration", execution-contract §5).
 
 **HARD CONSTRAINT — Task Location Allowlist:** the full allowlist (20 framework projects) and its rules live in `/generate-tasks` SKILL.md ("Task Location Allowlist — HARD CONSTRAINT"), which the mandatory first step below makes you read. The bindings that bite here: every task file path AND `dependencies.md` MUST begin with `D:\datrix\{project}\.tasks\` where `{project}` is one of the 20 allowlisted names; **the design document being operationalized often lives inside a customer/generated project (e.g. `D:\<Product>\`, or one of its sibling repos when that product is split across several) — the tasks it produces NEVER go there**; tasks with no specific package go in the `D:\datrix\datrix\.tasks` fallback. Task tooling only scans `D:\datrix\*/.tasks` — a `.tasks` folder anywhere else is invisible and its tasks silently never run.
 
 **BEFORE generating tasks:**
 1. Count total tasks needed from the design: implementation tasks (each carrying its own tests + doc updates), migration tasks, and one quality gate per package with 2+ code tasks. Do NOT plan separate per-task test, verify, or docs tasks.
-2. Re-read this entire Phase 4 section completely
+2. Re-read this entire Phase 3 section completely
 3. Confirm in your internal reasoning: "I will generate ALL {N} task files now, not a subset or roadmap"
 
 **CRITICAL:** This phase generates ALL task files. Do NOT:
@@ -325,15 +251,15 @@ If you deviated: STOP and explain the deviation to the user.
 - Stop task generation before all tasks are created
 - Create a TASK-GENERATION-SUMMARY.md instead of actual task files
 
-**Reference-AND-inline requirement (critical):** Phase 5 **preserves** the design document (see Phase 5 — its goal is "Verify Design Document Preservation"). So every task file generated in this phase both **references** the preserved design doc and is **self-contained**:
+**Reference-AND-inline requirement (critical):** Phase 4 **preserves** the design document (see Phase 4 — its goal is "Verify Design Document Preservation"). So every task file generated in this phase both **references** the preserved design doc and is **self-contained**:
 
 - **Reference the design (MANDATORY).** Keep the `/generate-tasks` header lines `**Design reference:** {absolute-design-doc-path} -- Section(s) {X.Y}; implements design decision(s)/invariant(s) {D#/G#/numbered}` and `**Design acceptance property:** {observable end-state proving the task satisfies the design}`. The design doc remains on disk as the durable source of the invariant the task must satisfy — point at it for traceability and re-verification. (Earlier guidance to strip design-doc references stemmed from a since-removed "Phase 5 deletes the doc" behavior; the doc is now preserved, so reference it.)
 - **Inline the content too (MANDATORY), briefly.** In addition to the reference, inline the specific D#/G#/numbered invariant and the rationale an implementer could not guess — **at most about 15 lines** — so it has the context without opening the doc. Reference for traceability; a short inline for self-sufficiency. Do not paste design sections, examples or tables the task does not act on, and do not restate what the orchestrator's shared-context digest or the task's `## Orientation` already delivers.
 - **Bite-size tasks; contracts, not code.** Decompose finely: one cohesive change per task — one file or tightly coupled file group, one language, one behaviour (about 80–250 lines of production code, a task file of about 300 lines). A hoist ported to N languages is one shared task plus N per-language tasks that `Depends on` it; a validator and the migration it polices are two tasks, validator first. Phase and task numbers have no ceiling — three-digit numbers are fine and the tooling handles them; never merge tasks to keep numbers short. A task states contracts (signatures with type hints, step order, raised exceptions, a `**Mirror:** file:line` pointer) and a test list (name, input, the assertion that fails if the behaviour breaks), not function bodies or test bodies; full code appears only where the exact text is the requirement (a template, a regex, a literal table). `validate-task.ps1` warns above 600 lines and fails above 1500.
 - **Include "why" context.** Each task must include enough rationale and design-decision context that an implementer understands not just what to build but why it was designed that way.
 - **List the design doc in "Files to Review".** Include the absolute design-doc path (with the specific sections) under "Files to Review Before Starting", alongside the rules and the **edit sites** (the files — with line ranges — the implementer will change). Files read only to *understand* (callers, definitions, neighbours, a test's style) do NOT go in this list; they go in `## Orientation` (next bullet).
-- **Write the task's `## Orientation` block, and do not read code to write it.** Measured over 82 implementing agents, 57% of the source and test tokens they read were on files they never edited: orientation. The block (template and grammar in `/generate-tasks`, "Orientation") names the facts the implementer needs, and the harness answers them when the agent reads the task file: `symbol:` / `refs:` / `outline:` / `canonical:` are exact code-index answers (use them for every definition and every caller — a local model asked "where is X defined" or "who calls X" invents answers, and `validate-task.ps1` rejects such a question); `explain: <files> :: <question>` is a local model's cited reading, for "what does this do / how is this built" (at most 3 per task, and a lead, never a finding). A writer **learns those facts the same way**: `find_symbol` / `find_references` / `outline` from the code-index MCP tools (or `dev/code-index.ps1`), and `ask_files` for what a module does — not by reading source whole. The task's "Verified facts" are copied from those answers, so each `file:line` is exact.
-- **Every writer runs `validate-task.ps1` on each task it writes and fixes what it reports** (`powershell -File "d:/datrix/datrix/scripts/tasks/validate-task.ps1" -Task <file>`): an orientation entry that does not resolve, or a `path:line` that is not in the file, is an error before the task leaves the writer. Citations drift — phases run for days while other tasks change the same files — so the orchestrator re-runs it before every wave.
+- **Write the task's `## Orientation` block, and do not read code to write it.** Measured over 82 implementing agents, 57% of the source and test tokens they read were on files they never edited: orientation. The block (template and grammar in `/generate-tasks`, "Orientation") names the facts the implementer needs, and the harness answers them when the agent reads the task file: `symbol:` / `refs:` / `outline:` / `canonical:` are exact code-index answers (use them for every definition and every caller — a local model asked "where is X defined" or "who calls X" invents answers, and `validate-task.ps1` rejects such a question); `explain: <files> :: <question>` is a local model's cited reading, for "what does this do / how is this built" (at most 3 per task, and a lead, never a finding). You **learn those facts the same way**: `find_symbol` / `find_references` / `outline` from the code-index MCP tools (or `dev/code-index.ps1`), and `ask_files` for what a module does — not by reading source whole. The task's "Verified facts" are copied from those answers, so each `file:line` is exact.
+- **Run `validate-task.ps1` on each task you write and fix what it reports** (`powershell -File "d:/datrix/datrix/scripts/tasks/validate-task.ps1" -Task <file>`; it runs no tests): an orientation entry that does not resolve, or a `path:line` that is not in the file, is an error before the task is accepted. Citations drift — phases run for days while other tasks change the same files — so the orchestrator re-runs it before every wave.
 - **All file paths MUST be absolute.** Every file path in the generated task files must use absolute paths (e.g., `d:\datrix\datrix\docs\architecture\...`), never relative paths (e.g., `docs/architecture/...`). This applies to all sections: "Files to Review Before Starting", "Design reference", example file references, etc.
 
 **Pre-requisite:** Verify you have read `/generate-tasks` SKILL.md. If not, STOP and read it now.
@@ -411,7 +337,7 @@ If you deviated: STOP and explain the deviation to the user.
 
 5. Generate the dependencies document following generate-tasks Step 7 format exactly — the **JSON document** (with the `provenance` stamp: `generated_by: "/operationalize-design"`, `generated_at`, and the `validated` list of checks that actually ran), nothing else in the file. See `d:\datrix\.claude\skills\generate-tasks\SKILL.md` Step 7 and `dependencies-format.md` for the exact schema. Do NOT emit the legacy "Group N" text format.
 
-## Phase 4 Completion Gate
+## Phase 3 Completion Gate
 
 **Run the mechanical half of this gate with the validator first:**
 ```bash
@@ -437,7 +363,7 @@ This phase is COMPLETE when:
 - [ ] **Enforcement before what it governs:** any task that enforces a design invariant (guard/validator/rejection/conformance check) precedes — and is in `Depends on` of — every task that relies on it or migrates content it governs. No migration is in an earlier or equal wave to its guard
 - [ ] **Invariant-surface coverage:** if the design states an invariant over a SET of surfaces, a task or QG criterion covers EVERY surface in that set — none silently dropped
 
-If any task is described but not generated: Phase 4 is NOT complete.
+If any task is described but not generated: Phase 3 is NOT complete.
 
 **End-of-phase output (lean — counts + paths + pointer to dependencies.md):**
 
@@ -453,9 +379,9 @@ Dependencies: datrix\.tasks\phase-{NN}\dependencies.md
 
 Do NOT duplicate the dependency graph in console output — it is already in `dependencies.md`.
 
-## Phase 4 Self-Check
+## Phase 3 Self-Check
 
-Before proceeding to Phase 5, answer:
+Before proceeding to Phase 4, answer:
 1. Did I generate ALL tasks as actual files (not a summary/roadmap)?
 2. Did I both inline the design invariant (briefly) AND keep the `**Design reference:**` pointer in every task (Reference-AND-inline)? Did I split by language, file group and behaviour so each task is one cohesive change, and write contracts and test lists rather than code bodies?
 3. Does every implementation task carry its OWN `## Tests` + `## Targeted Tests` and its in-scope doc updates (no separate `-tests`/`-docs` tasks)?
@@ -476,24 +402,22 @@ If you deviated: STOP and explain the deviation to the user.
 
 ---
 
-### Phase 5: Cleanup — Verify Design Document Preservation
+### Phase 4: Cleanup — Verify Design Coverage and Preservation
 
-**Goal:** Verify all content has been transferred while preserving the design document.
+**Goal:** Verify every requirement in the design is carried by a task, while preserving the design document. No official doc is edited here.
 
-**Delegate the cross-check, own the verdict.** Comparing the design doc section-by-section against the official docs + task files to find any untransferred content is mechanical — dispatch a **haiku** agent to produce the diff (for each design section: transferred → where, or NOT transferred). You read its report and decide whether transfer is complete; a "nothing remains" claim is accepted only when the agent's per-section evidence supports it. Confirm the design document still exists on disk yourself.
+**Cross-check yourself.** Compare the design doc section-by-section against the task files (`Grep` for each section's distinctive terms): for each design section, carried by which task, or NOT carried. A "nothing remains" verdict needs that per-section evidence. Confirm the design document still exists on disk.
 
-1. Verify ALL content has been transferred to official docs or task files (via the delegated cross-check; you judge the result)
-2. Check that no unique information remains only in the design document
+1. Verify ALL design requirements and doc updates are carried by a task
+2. Check that no unique information remains only in the design document and uncovered by a task
 3. Report completion (design document is preserved)
 
-**If content was NOT fully transferred** (e.g., a section was skipped):
-- Report what remains and why it wasn't transferred
-- WAIT for user decision
+**If a requirement is NOT carried by any task** (e.g., a section was skipped): write the missing task now (Phase 3 rules, same phase) and re-check.
 
-## Phase 5 Completion Gate
+## Phase 4 Completion Gate
 
 This phase is COMPLETE when:
-- [ ] Verified ALL content transferred to official docs or task files
+- [ ] Verified ALL design requirements are carried by a task
 - [ ] Verified no unique information remains only in design document
 - [ ] Design document preserved on filesystem
 - [ ] Output matches the format below exactly
@@ -501,13 +425,13 @@ This phase is COMPLETE when:
 **End-of-phase output (lean):**
 
 ```
-CLEANUP: design preserved at {path}, all content transferred
+CLEANUP: design preserved at {path}, all requirements carried by tasks
 ```
 
-## Phase 5 Self-Check
+## Phase 4 Self-Check
 
 Before reporting completion, answer:
-1. Did I verify ALL content was transferred (not just assume)?
+1. Did I verify ALL requirements are carried by a task (not just assume)?
 2. Did I preserve the design document file?
 3. Did I follow the "Goal:" statement above exactly?
 4. Did I deviate from any instruction in this phase? If yes, why?
@@ -523,7 +447,6 @@ After all phases complete (lean — no "next steps" padding, user knows what to 
 ```
 DONE: {title}
 Decisions: {N} (review: {MEDIUM decision titles, if any})
-Docs: {N} files updated
 Tasks: {N} in phase {NN}
 Dependencies: datrix\.tasks\phase-{NN}\dependencies.md
 Design: preserved at {path}
@@ -531,12 +454,11 @@ Design: preserved at {path}
 
 ## Anti-Patterns
 
-- **NO generating tasks without resolving ambiguities first** — Phase 2 before Phase 4
+- **NO generating tasks without resolving ambiguities first** — Phase 2 before Phase 3
 - **NO closing open questions by assumption** — a question is resolved only when investigation (code, docs, logic-map) or the user answers it. A plausible guess does not clear the ambiguity gate. Every resolved question must be traceable to the investigation that closed it.
-- **NO entering Phase 3/4 with any open item** — unresolved questions and unchosen explicit alternatives are hard blockers; STOP and present findings + recommendations, then WAIT
+- **NO entering Phase 3 with any open item** — unresolved questions and unchosen explicit alternatives are hard blockers; STOP and present findings + recommendations, then WAIT
 - **NO deleting the design doc** — design docs are preserved as historical reference
-- **NO duplicating content** — transfer, don't copy
-- **NO creating new standalone docs** — integrate into existing doc structure
+- **NO editing official docs** — this skill writes only task files and `dependencies.md`; the doc updates are task scope, carried out by the implementers
 - **NO skipping dependency analysis** — task ordering must reflect real dependencies
 - **NO fabricating decisions** — every decision needs evidence from the codebase
 - **NO task files without acceptance criteria** — every task must be verifiable
@@ -546,11 +468,11 @@ Design: preserved at {path}
 - **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
 - **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
 - **NO bloated dependencies.md** — the dependencies document is for AI agent consumption only; it is the Step-7 JSON document (tasks + dependencies + provenance stamp), nothing else. No markdown headers, tables, task inventories, dependency text blocks, or prose around it, and never the legacy "Group N" text format. See generate-tasks Step 7 for the exact schema.
-- **YES design document references in task files** — Phase 5 preserves the design doc, so every task carries `**Design reference:**` + `**Design acceptance property:**` pointing at it AND inlines the relevant content. (Reference for traceability, inline for self-sufficiency.) Do NOT strip the reference.
+- **YES design document references in task files** — Phase 4 preserves the design doc, so every task carries `**Design reference:**` + `**Design acceptance property:**` pointing at it AND inlines the relevant content. (Reference for traceability, inline for self-sufficiency.) Do NOT strip the reference.
 - **NO marking a task/phase done on "generates clean" or "tests green" alone** — a task is done only when its `**Design acceptance property:**` is PROVEN by an executable check (negative + positive) whose output is pasted. Green tests over a half-enforced invariant are a false pass (this is exactly how a config-driven escape hatch once slipped past a validator that only covered the more obvious code path).
 - **NO tasks without targeted tests** — every implementation and test task must have a `## Targeted Tests` section with ready-to-run `-Specific` (files) and `-Tag` (feature tags, across every package the change reaches) commands — never a whole-suite form; every test a task adds carries a feature tag
 - **NO missing quality gates** — every package with 2+ code tasks must have a quality gate task as the final dependency
-- **NO partial task generation** — generate ALL tasks in Phase 4, not a subset with a "roadmap"
+- **NO partial task generation** — generate ALL tasks in Phase 3, not a subset with a "roadmap"
 - **NO asking mid-phase** — complete each phase fully before asking user questions (unless blocked)
 - **NO roadmap/summary files** — generate actual task .md files, not summaries of future work
 - **NO single-package scoping** — if the design affects multiple repos, generate tasks in ALL of them. The design's migration strategy tells you which repos have work.
@@ -558,6 +480,6 @@ Design: preserved at {path}
 - **NO skipping migration tasks** — if the design has a migration/rollout section with numbered steps, every step becomes a task. "Convert X to Y" is not a suggestion — it is implementation work.
 - **NO leaving dual implementations untested** — if the design introduces a new path alongside an old one, old tests will pass on the old path regardless of whether the new path works. Migration tasks must convert fixtures, examples, and configs to the new path so the new implementation is actually exercised.
 - **NO treating migration as "future work"** — unless the design explicitly defers a migration step to a later phase, it belongs in THIS phase. The design document is the scope boundary.
-- **NO delegating a decision or a gate** — subagents gather evidence and write files to your manifest; every decision (each open question, each confidence rating, the task decomposition, the dependency/enforcement ordering) and every phase completion gate is decided by YOU on evidence you verify. A subagent's recon or self-report is input to your judgment, never a substitute for it, and never relaxes a gate.
-- **NO inline execution that a cheaper tier can do** — do not read whole docs, glob fixtures, run per-question codebase searches, transfer doc content, or write task files inline on Opus. Dispatch them; spend Opus tokens and context on judgment only.
+- **NO subagents, ever** — this skill never calls `Agent`/`Task`, never starts a workflow, never fans out, at any model tier, for recon, research, task writing or the Phase-4 cross-check. Subagents are reserved for `/task-orchestrator`. Read narrowly (code-index tools, ranged reads) and write the files yourself.
+- **NO re-reading what you already hold** — keep the manifest of verified facts and cite from it; read a doc or source range once, when you need it.
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

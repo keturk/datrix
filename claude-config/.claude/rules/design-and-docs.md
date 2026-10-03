@@ -11,7 +11,9 @@ unspecified features.
 
 - Operationalize before coding: `/operationalize-design`.
 - Absorb after completion: `/absorb-design`, only after `/verify-implementation` reports the
-  design PROVEN. `/implement-design` (Jon types it) runs implement → verify → absorb as one chain.
+  design PROVEN. `/implement-design` (Jon types it) runs implement → verify → absorb as one chain;
+  `/implement-design-direct` (Jon types it) runs the same chain with no task generation, always
+  implementing straight from the design.
 - **Never modify a design doc during implementation.**
 
 **One exception, and it is exactly one line.** At the very end of a `/task-orchestrator`

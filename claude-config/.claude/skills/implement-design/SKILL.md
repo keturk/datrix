@@ -65,7 +65,7 @@ FIX: false             # verify-implementation reports only, changes no code
 - **The only legitimate waits** are the ones the delegated skills define: an unresolved design decision or unchosen alternative in `/operationalize-design` (or Step 2B's equivalent), a design that specifies a less secure option than one available (execution-contract §13.7), and `/absorb-design`'s "no clear target" / "content missed" prompts. Ask in one line with your recommendation; resume at the exact step you stopped on.
 - **Never modify the design document** except through the skills that are licensed to: `/task-orchestrator` Step 4 rewrites its `Status:` line, `/absorb-design` deletes it. In the direct path nothing edits it.
 - **Never cite the design in a committed artifact** — no design number, filename, or path in code comments, docstrings, docs, tests, or commit messages (`design-and-docs.md`).
-- A subagent never runs this skill and never dispatches agents; the skills it calls dispatch per their own rules.
+- A subagent never runs this skill and never dispatches agents. `/operationalize-design` and `/verify-implementation` run in this session with no subagents; only `/task-orchestrator` dispatches, per its own rules.
 
 ---
 
@@ -134,7 +134,7 @@ Reached only on `Design conformance: PROVEN`.
 
 Invoke `/absorb-design` through the Skill tool with `DOCUMENT: <path>` (and `KEEP SOURCE: true` if Jon set it). It transfers the content into the official docs, replaces every reference, and deletes the source.
 
-On the tasks path, operationalize already moved design content into the docs, so expect many units to report "already present"; that is correct, not a defect. Its "no clear target" and "content missed" prompts are real waits.
+On the tasks path, the implementation tasks already updated the docs their features touch (operationalize itself edits no doc), so expect some units to report "already present"; that is correct, not a defect. Its "no clear target" and "content missed" prompts are real waits.
 
 ## Step 5: Final report
 
