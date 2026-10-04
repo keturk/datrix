@@ -89,7 +89,7 @@ Browse the full example: [ecommerce/](examples/03-domains/ecommerce/), and the s
 |---------|---------|
 | Entities with inheritance | `entity Order extends AuditedEntity { ... }` |
 | Field validation | `String(200) title : trim, unique;` |
-| Computed fields | `Boolean isOverdue := dueDate < now();` |
+| Computed fields | `Boolean isOverdue := dueDate < DateTime.now();` |
 | Relationships | `UUID authorId -> db.Author;` |
 | Enums | `enum OrderStatus { Pending, Confirmed, Shipped }` |
 | REST APIs with auth | `resource db.Order : only(list, get), access(admin);` |
