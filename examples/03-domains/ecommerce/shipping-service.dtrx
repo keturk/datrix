@@ -245,8 +245,6 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
         // Public tracking endpoint - no authentication required
         @path('/track/:trackingNumber')
         get(String trackingNumber) : auth(public) -> ShipmentTracking {
-            let JSON? cached = redis.ShipmentCache.get(trackingNumber);
-
             let Shipment shipment = shippingDb.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
             let Array<ShipmentEvent> events = shippingDb.ShipmentEvent
             .where(shipmentId: shipment.id)

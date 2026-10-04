@@ -1,9 +1,0 @@
-<router-outlet />
-<section data-kind="toasts" aria-live="polite">
-  @for (toast of __ui.toasts(); track toast.id) {
-  <div role="status" data-kind="toast" [attr.data-tone]="toast.tone">
-    <span>{{ toast.text }}</span>
-    <button type="button" (click)="__ui.dismiss(toast.id)" [attr.aria-label]="__messages.key('framework.dismiss').text">&#215;</button>
-  </div>
-  }
-</section>
