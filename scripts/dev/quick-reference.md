@@ -192,6 +192,17 @@ Detects leftover debug/logging artifacts in source code (print, breakpoint, cons
 
 **Self-test detail:** proves both directions — a real artifact IS detected, the same artifact inside a string literal is NOT, and (non-vacuity) those same lines DO match when string-awareness is disabled, so the second check passes because the span logic works rather than because the patterns stopped matching. Runs automatically as **step 1 of every invocation** (not only under `-SelfTest`); a self-test failure exits 2 before any scan result is reported.
 
+### `dev\refresh-seed-datasets.ps1`
+
+Regenerates the seven builtin SeedDSL reference datasets (`Seed.countries()`, `Seed.currencies()`, …) in `datrix-codegen-kernel/src/datrix_codegen_kernel/seed_data/` from their authoritative sources. Needs the network. Every file records its source, URL, version, retrieval date, licence and transform; afterwards the script compares the files with `SEED_DATASETS` and exits 1 while the schema constants differ, printing what they must carry.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Refresh** | `.\dev\refresh-seed-datasets.ps1` | Download (cached), transform, write, compare with the schema |
+| **Custom cache** | `.\dev\refresh-seed-datasets.ps1 -CacheDir D:\other` | Cache downloaded sources elsewhere |
+
+**Parameters:** `-CacheDir`. **Exit codes:** 0 = regenerated and equal to the schema, 1 = schema differs or a source failed.
+
 ### `dev\check-import-boundaries.ps1`
 
 Enforces cross-package import boundary rules across the monorepo. Scans each package's `src/`, `tests/`, `fixtures/`, and `helpers/` directories for forbidden imports using Python AST analysis. See [Import Boundaries](../../../datrix-common/docs/architecture/import-boundaries.md) for the full rule table.
@@ -202,7 +213,7 @@ Enforces cross-package import boundary rules across the monorepo. Scans each pac
 | **Warning mode** | `.\dev\check-import-boundaries.ps1 -Warn` | Report violations, exit 0 |
 | **Custom base dir** | `.\dev\check-import-boundaries.ps1 -BaseDir D:\other` | Different workspace |
 | **Show files** | `.\dev\check-import-boundaries.ps1 -ShowFiles` | Print each file being scanned |
-| **I1 ratchet check** | `.\dev\check-import-boundaries.ps1 -CheckTargetLiterals` | Run the target-literal ratchet (closed-world central-table/enum-member names PLUS a platform-token identifier/module-name shape match PLUS a key/comparand/`.get()`/dict-key/match-value literal-equality shape, an `isinstance`/`issubclass` type-check shape, and an import-module-path shape, each with an own-language exclusion for a language-core package's own served language) against the frozen baseline, over the DERIVED shared-package set |
+| **I1 ratchet check** | `.\dev\check-import-boundaries.ps1 -CheckTargetLiterals` | Run the target-literal ratchet (closed-world central-table/enum-member names PLUS a platform-token identifier/module-name shape match PLUS a key/comparand/`.get()`/dict-key/match-value literal-equality shape, an `isinstance`/`issubclass` type-check shape, and an import-module-path shape, each with an own-language exclusion for a language-core package's own served language; the literal vocabulary also carries every identity provider type an installed platform package owns, plus an `IdentityProvider.<member>` attribute kind for those types and the built-in `external`, with `datrix-common`'s `identity/` tree held at a hard zero and no baseline entry admitted for it) against the frozen baseline, over the DERIVED shared-package set |
 | **Freeze/update baseline** | `.\dev\check-import-boundaries.ps1 -CheckTargetLiterals -UpdateBaseline` | Recompute and overwrite the frozen baseline |
 | **I6 successor ratchet check** | `.\dev\check-import-boundaries.ps1 -CheckProviderConditionals` | Run the provider-conditional ratchet (invariant I6, DI-4/DI-5) — both the `ProviderId`-shaped pattern and the plain-string-literal pattern — against the frozen baseline |
 | **Freeze/update provider-conditional baseline** | `.\dev\check-import-boundaries.ps1 -CheckProviderConditionals -UpdateBaseline` | Recompute and overwrite the frozen provider-conditional baseline |

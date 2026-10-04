@@ -236,9 +236,13 @@ if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
 from datrix_common.plugin.capability_resolution import (  # noqa: E402
     declaration_for_language,
 )
+from datrix_common.config.datasource.identity_config import (  # noqa: E402
+    IdentityProvider as ConfigIdentityProvider,
+)
 from shared.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
     entry_point_module_roots,
+    owned_identity_provider_type_names,
     registered_language_names,
     registered_platform_names,
 )
@@ -891,10 +895,97 @@ def _platform_token_vocabulary() -> frozenset[str]:
 def _target_literal_vocabulary() -> frozenset[str]:
     """Registered language names union registered platform names, INCLUDING
     "local" (unlike _platform_token_vocabulary, which excludes it as an
-    English-word collision for the identifier-segment shape). In a str-equality/
+    English-word collision for the identifier-segment shape), union the identity
+    provider types an installed platform package owns. In a str-equality/
     key/isinstance/import-path position "local" is a target identity, not
-    English prose, and the measured collision count for these new kinds is 0."""
-    return frozenset(registered_language_names()) | frozenset(registered_platform_names())
+    English prose, and the measured collision count for these new kinds is 0.
+    An identity provider type's rules belong to the package that integrates the
+    provider, so a shared layer comparing against one is the same defect as a
+    shared layer comparing against a platform name; the owned types are derived
+    from the installed platform declarations, never listed here."""
+    return (
+        frozenset(registered_language_names())
+        | frozenset(registered_platform_names())
+        | _owned_identity_types()
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def _owned_identity_types() -> frozenset[str]:
+    """The identity provider types an installed platform package owns, read once per run."""
+    return owned_identity_provider_type_names()
+
+
+#: Files that define or bridge the closed ``.dcfg`` identity provider vocabulary
+#: (the enum itself, its bridge to the planner's open identifiers, and the built-in
+#: ``external`` rules): they may name the enum's members and the provider-type
+#: strings, and they are exempt from the identity rules below.
+IDENTITY_VOCABULARY_HOME_SUFFIXES: tuple[str, ...] = (
+    "config/datasource/identity_config.py",
+    "identity/planner/config_bridge.py",
+    "identity/authored_issuer_rules.py",
+)
+
+#: The shared tree where NO identity provider type's rule may live: a hit of an
+#: identity kind here is a hard failure, and no baseline entry is admitted for it.
+IDENTITY_RULES_HARD_ZERO_PREFIX: str = "datrix-common/src/datrix_common/identity/"
+
+#: The target-literal kinds that name an identity provider type.
+IDENTITY_RULE_KINDS: frozenset[str] = frozenset(
+    {"identity_provider_member", "target_name_literal", "target_type_check", "target_module_import"}
+)
+
+
+def _is_identity_vocabulary_home(file_path: Path) -> bool:
+    """Whether *file_path* is one of the identity vocabulary's home files."""
+    posix = file_path.as_posix()
+    return any(posix.endswith(suffix) for suffix in IDENTITY_VOCABULARY_HOME_SUFFIXES)
+
+
+def _identity_provider_member_hits(
+    tree: ast.AST, flagged_values: frozenset[str]
+) -> list[tuple[str, int, str]]:
+    """Find ``IdentityProvider.<MEMBER>`` attribute reads naming a flagged provider type.
+
+    The enum is recognised through the names an ``identity_config`` import binds
+    ``IdentityProvider`` to (any ``as`` alias), so ``IdentityProviderType.ZITADEL`` and
+    ``ConfigIdentityProvider.ZITADEL`` are as visible as ``IdentityProvider.ZITADEL``.
+    A member is flagged when its VALUE is in *flagged_values* (the owned provider
+    types and the built-in ``external``); the credential kind ``apiKey`` names no
+    provider product and is never flagged.
+
+    Returns:
+        ``(identifier, line_number, matched provider type)`` per hit.
+    """
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and node.module.split(".")[-1] == "identity_config"
+        ):
+            for imported in node.names:
+                if imported.name == "IdentityProvider":
+                    aliases.add(imported.asname or imported.name)
+    if not aliases:
+        return []
+    value_by_member = {member.name: member.value for member in ConfigIdentityProvider}
+    hits: list[tuple[str, int, str]] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in aliases
+            and value_by_member.get(node.attr) in flagged_values
+        ):
+            hits.append((f"{node.value.id}.{node.attr}", node.lineno, value_by_member[node.attr]))
+    return hits
+
+
+def _identity_flagged_values() -> frozenset[str]:
+    """Provider types whose members/literals a shared layer must not name: the owned
+    types plus the built-in ``external`` type."""
+    return _owned_identity_types() | {ConfigIdentityProvider.EXTERNAL.value}
 
 
 # ---------------------------------------------------------------------------
@@ -1245,6 +1336,7 @@ class TargetLiteralHit:
         "target_name_literal",
         "target_type_check",
         "target_module_import",
+        "identity_provider_member",
     ]
     # The registered target token *identifier* carries as a segment, is
     # exactly equal to, or (for target_module_import) appears as a dotted-
@@ -1991,8 +2083,12 @@ def scan_file_for_target_literals(
             )
         )
 
+    identity_home = _is_identity_vocabulary_home(file_path)
+
     for value, line_number in target_name_literal_hits(tree, target_literal_names):
         if _is_own_language_excluded(file_path, monorepo_root, value):
+            continue
+        if identity_home and value in _owned_identity_types():
             continue
         hits.append(
             TargetLiteralHit(
@@ -2009,6 +2105,8 @@ def scan_file_for_target_literals(
     ):
         if _is_own_language_excluded(file_path, monorepo_root, matched):
             continue
+        if identity_home and matched in _owned_identity_types():
+            continue
         hits.append(
             TargetLiteralHit(
                 file_path=file_path,
@@ -2024,6 +2122,8 @@ def scan_file_for_target_literals(
     ):
         if _is_own_language_excluded(file_path, monorepo_root, matched):
             continue
+        if identity_home and matched in _owned_identity_types():
+            continue
         hits.append(
             TargetLiteralHit(
                 file_path=file_path,
@@ -2033,6 +2133,20 @@ def scan_file_for_target_literals(
                 matched_target=matched,
             )
         )
+
+    if not identity_home:
+        for identifier, line_number, matched in _identity_provider_member_hits(
+            tree, _identity_flagged_values()
+        ):
+            hits.append(
+                TargetLiteralHit(
+                    file_path=file_path,
+                    line_number=line_number,
+                    identifier=identifier,
+                    kind="identity_provider_member",
+                    matched_target=matched,
+                )
+            )
 
     return hits
 
@@ -2197,6 +2311,54 @@ def check_target_literal_ratchet(
                 f"{frozen} to {current}"
             )
 
+    return messages
+
+
+def check_identity_rules_hard_zero(
+    hits_by_file: dict[Path, list[TargetLiteralHit]],
+    baseline: dict[str, int],
+    monorepo_root: Path,
+) -> list[str]:
+    """Hold the shared identity tree at a HARD ZERO for identity provider type rules.
+
+    An identity provider type's issuer / JWKS / audience rules belong to the package
+    that integrates the provider and are resolved from the plugin registry; nothing
+    under ``IDENTITY_RULES_HARD_ZERO_PREFIX`` may name an owned provider type (as a
+    comparison, key, type check or import path) or an ``IdentityProvider`` member of
+    one. Unlike the decrease-only ratchet, no baseline entry is admitted for that tree.
+
+    Args:
+        hits_by_file: The target-literal scan result.
+        baseline: The frozen per-file counts.
+        monorepo_root: Monorepo root for relative path reporting.
+
+    Returns:
+        One message per identity-rule hit in the tree, and one per baseline entry
+        naming a file in it.
+    """
+    owned = _owned_identity_types()
+    messages: list[str] = []
+    for file_path, hits in sorted(hits_by_file.items()):
+        rel = str(file_path.relative_to(monorepo_root)).replace("\\", "/")
+        if not rel.startswith(IDENTITY_RULES_HARD_ZERO_PREFIX):
+            continue
+        for hit in hits:
+            names_identity_type = hit.kind == "identity_provider_member" or (
+                hit.kind in IDENTITY_RULE_KINDS and hit.matched_target in owned
+            )
+            if names_identity_type:
+                messages.append(
+                    f"{rel}:{hit.line_number}: identity provider type "
+                    f"{hit.matched_target!r} is named here ({hit.kind}: {hit.identifier}); "
+                    f"the shared identity tree holds no provider type's rules -- they belong "
+                    f"to the package that integrates the provider (hard zero, no baseline)"
+                )
+    for rel in sorted(baseline):
+        if rel.startswith(IDENTITY_RULES_HARD_ZERO_PREFIX):
+            messages.append(
+                f"{rel}: the target-literal baseline names a file in the shared identity "
+                f"tree, which is held at hard zero -- delete the entry"
+            )
     return messages
 
 
@@ -9000,6 +9162,133 @@ def _self_test_target_literal_new_kinds() -> bool:
     return ok
 
 
+def _self_test_identity_provider_rules() -> bool:
+    """Identity provider type rules stay out of the shared layers.
+
+    Direct scanner assertions for the owned-type string literal and the
+    ``IdentityProvider`` member kind (planted ``provider_type == <owned type>`` and two
+    ``IdentityProviderType.<member>`` reads), the zero-hit cases (a docstring, the
+    credential kind ``apiKey``, the vocabulary's own home files), and the hard-zero
+    check over the shared identity tree."""
+    _step(
+        "Self-test 25/25: identity provider type rules (owned-type literal, "
+        "IdentityProvider member, home-file exemption, hard zero)"
+    )
+    ok = True
+    owned = sorted(_owned_identity_types())
+    ok &= _check(
+        "at least two identity provider types are owned by installed platform packages "
+        "(the vocabulary is derived, and non-vacuous)",
+        len(owned) >= 2,
+    )
+    if len(owned) < 2:
+        return False
+    first, second = owned[0], owned[1]
+    members = {m.value: m.name for m in ConfigIdentityProvider}
+    scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"identity-rules-{uuid.uuid4().hex}"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        platform_names = _platform_token_vocabulary()
+        target_literal_names = _target_literal_vocabulary()
+        ok &= _check(
+            "the target-literal vocabulary carries every owned identity provider type",
+            frozenset(owned) <= target_literal_names,
+        )
+
+        def _scan(relative_name: str, source: str) -> list[TargetLiteralHit]:
+            file_path = scratch_dir / relative_name
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(source, encoding="utf-8")
+            return scan_file_for_target_literals(
+                file_path, scratch_dir, platform_names, target_literal_names
+            )
+
+        compare_hits = _scan(
+            "owned_compare.py", f'def f(provider_type):\n    return provider_type == "{first}"\n'
+        )
+        ok &= _check(
+            f"provider_type == '{first}' is one target_name_literal hit naming it",
+            sum(
+                1
+                for h in compare_hits
+                if h.kind == "target_name_literal" and h.matched_target == first
+            )
+            == 1,
+        )
+
+        import_line = (
+            "from datrix_common.config.datasource.identity_config import "
+            "IdentityProvider as IdentityProviderType\n\n\n"
+        )
+        member_hits = _scan(
+            "owned_member.py",
+            import_line
+            + "def f(t):\n"
+            + f"    return t in (IdentityProviderType.{members[first]}, "
+            + f"IdentityProviderType.{members[second]})\n",
+        )
+        ok &= _check(
+            "two IdentityProviderType.<owned member> reads are exactly two "
+            "identity_provider_member hits (an import alias is followed)",
+            sum(1 for h in member_hits if h.kind == "identity_provider_member") == 2,
+        )
+
+        docstring_hits = _scan("owned_docstring.py", f'"""Mentions {first} in prose."""\n')
+        ok &= _check(
+            "an owned type named in a docstring is ZERO identity-kind hits",
+            not any(h.kind in IDENTITY_RULE_KINDS for h in docstring_hits),
+        )
+
+        api_key_hits = _scan(
+            "api_key_member.py",
+            import_line
+            + f"def f(t):\n    return t is IdentityProviderType.{members['apiKey']}\n",
+        )
+        ok &= _check(
+            "the credential kind apiKey is NOT an identity_provider_member hit",
+            not any(h.kind == "identity_provider_member" for h in api_key_hits),
+        )
+
+        home_hits = _scan(
+            "config/datasource/identity_config.py",
+            import_line + f'def f(t):\n    return t == "{first}" or t is IdentityProviderType.{members[first]}\n',
+        )
+        ok &= _check(
+            "the vocabulary's own home file (identity_config.py) is exempt from both kinds",
+            not any(h.kind in IDENTITY_RULE_KINDS for h in home_hits),
+        )
+
+        identity_tree_file = (
+            scratch_dir / "datrix-common" / "src" / "datrix_common" / "identity" / "rules.py"
+        )
+        identity_tree_file.parent.mkdir(parents=True, exist_ok=True)
+        identity_tree_file.write_text(
+            f'def f(provider_type):\n    return provider_type == "{first}"\n', encoding="utf-8"
+        )
+        tree_hits = scan_file_for_target_literals(
+            identity_tree_file, scratch_dir, platform_names, target_literal_names
+        )
+        hard_zero = check_identity_rules_hard_zero(
+            {identity_tree_file: tree_hits}, {}, scratch_dir
+        )
+        ok &= _check(
+            "an owned type compared inside the shared identity tree is a hard-zero failure",
+            len(hard_zero) == 1 and first in hard_zero[0],
+        )
+        baseline_message = check_identity_rules_hard_zero(
+            {}, {"datrix-common/src/datrix_common/identity/rules.py": 1}, scratch_dir
+        )
+        ok &= _check(
+            "a baseline entry naming a file in the shared identity tree is refused",
+            len(baseline_message) == 1,
+        )
+        clean = check_identity_rules_hard_zero({}, {}, scratch_dir)
+        ok &= _check("no hits and no baseline entries is clean", clean == [])
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+    return ok
+
+
 def _self_test_reexport_facade_build_fixture_monorepo(tmp_root: Path) -> Path:
     """Build a minimal isolated monorepo: one fixture package
     (``datrix-codegen-fixture``) with a clean ``__init__.py`` (defines
@@ -9573,6 +9862,7 @@ def run_self_test() -> bool:
         _self_test_shared_package_classification_fixture(),
         _self_test_platform_token_scanner(),
         _self_test_target_literal_new_kinds(),
+        _self_test_identity_provider_rules(),
         _self_test_reexport_facade_scanner(),
         _self_test_non_utf8_source_handling(),
     ]
@@ -10208,6 +10498,9 @@ def main() -> int:
             for file_path, hits in target_literal_hits_by_file.items()
         }
         target_literal_messages = check_target_literal_ratchet(current_counts, baseline)
+        target_literal_messages += check_identity_rules_hard_zero(
+            target_literal_hits_by_file, baseline, monorepo_root
+        )
 
     provider_conditional_messages: list[str] = []
     if args.check_provider_conditionals:

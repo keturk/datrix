@@ -22,11 +22,8 @@ from datrix_common.fileops.io import (  # noqa: E402
     read_text_utf8_exact,
     replace_text_utf8_atomic,
 )
-from datrix_language.formatting import (  # noqa: E402
-    FormatOptions,
-    format_dtrx_source,
-    verify_lossless,
-)
+from datrix_language.formatting.formatter import FormatOptions, format_dtrx_source  # noqa: E402
+from datrix_language.formatting.verification import verify_lossless  # noqa: E402
 from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser  # noqa: E402
 
 # Only valid .dtrx files: the formatter refuses a file it cannot parse, and
