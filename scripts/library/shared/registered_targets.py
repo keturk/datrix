@@ -104,6 +104,21 @@ def registered_platform_names() -> frozenset[str]:
     return _registered_names(PLATFORM_GROUP)
 
 
+def owned_identity_provider_type_names() -> frozenset[str]:
+    """Return every identity provider type an installed platform package owns.
+
+    The types whose issuer / JWKS / audience rules are registered on a platform
+    declaration (``identity_provider_type_rules``) -- derived from the installed
+    platform declarations, never a hardcoded literal, so a package integrating a
+    new identity provider is policed from the commit that registers its rules.
+    Loads each platform CLASS to read its declaration; unlike the entry-point
+    name enumerations above, this does import the platform packages.
+    """
+    from datrix_common.identity.provider_type_registry import owned_identity_provider_types
+
+    return frozenset(owned_identity_provider_types(PluginRegistry()))
+
+
 # This file: datrix/scripts/library/shared/registered_targets.py
 # parents[3] -> datrix/ ; parents[4] -> the monorepo root -- shared/ and
 # test/ are sibling directories under library/, so a module living at either

@@ -15,6 +15,14 @@ SCOPE
     customer project content never leaves the machine through these tools. Paths are
     resolved (symbolic links followed) before the check, so ``..`` cannot escape it.
 
+CONTENT FILTER
+    A log under ``.test-output`` can name something from another stack on the machine (a
+    container, a vault, a host) that is not in any framework repository. Every line is
+    checked against the registered customer-term corpus before it is sent; a line carrying a
+    registered term is replaced by a placeholder that keeps its line number, so citations stay
+    valid, and the answer says how many lines were withheld. Without the corpus nothing is
+    read: an unfiltered read would silently send what the filter exists to stop.
+
 AN ANSWER IS A LEAD
     A local model can misread code. Every answer cites the lines it rests on and ends by
     saying so; the agent opens those lines with a ranged Read before acting on it.
@@ -28,12 +36,16 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from dev.customer_domain_isolation import CorpusError, TermCorpus, corpus_path, load_term_corpus, scan_text
 from shared.framework_repos import framework_repos
 from shared.local_llm import ChatRequest, LocalLlmPool
 
 # Workspace folders outside the repositories that hold framework test output.
 WORKSPACE_OUTPUT_DIRS: tuple[str, ...] = (".test-output",)
 GIT_DIR_NAME = ".git"
+# The repository that holds the customer-term corpus (``scripts/config/customer-term-hashes.json``).
+SHOWCASE_REPO = "datrix"
+WITHHELD_LINE = "<line withheld: it carries a registered customer term>"
 GLOB_CHARS = frozenset("*?[")
 
 MAX_FILES = 40
@@ -123,6 +135,18 @@ class ReadScope:
         self.workspace = workspace.resolve()
         self.roots = tuple(repo.resolve() for repo in framework_repos(self.workspace)) + tuple(
             (self.workspace / name).resolve() for name in WORKSPACE_OUTPUT_DIRS)
+        self._term_corpus: TermCorpus | None = None
+
+    def term_corpus(self) -> TermCorpus:
+        """The registered customer terms every line is checked against before it is sent."""
+        if self._term_corpus is None:
+            try:
+                self._term_corpus = load_term_corpus(corpus_path(self.workspace / SHOWCASE_REPO))
+            except CorpusError as exc:
+                raise ReadScopeError(
+                    f"Nothing is sent to a local model without the customer-term corpus to filter it: {exc}"
+                ) from exc
+        return self._term_corpus
 
     def _allowed(self, path: Path) -> bool:
         return GIT_DIR_NAME not in path.parts and any(path.is_relative_to(root) for root in self.roots)
@@ -174,9 +198,13 @@ def read_section(scope: ReadScope, path: Path) -> Section:
     if b"\0" in data[:8192]:
         raise ReadScopeError(f"'{scope.label(path)}' is a binary file; only text can be read.")
     text = data.decode("utf-8-sig", errors="replace")
+    withheld = {number for number, _excerpt in scan_text(text, scope.term_corpus())}
     lines = tuple(
-        f"{number}| {line[:MAX_LINE_CHARS]}" for number, line in enumerate(text.splitlines(), start=1))
-    return Section(scope.label(path), lines)
+        f"{number}| {WITHHELD_LINE if number in withheld else line[:MAX_LINE_CHARS]}"
+        for number, line in enumerate(text.splitlines(), start=1))
+    note = (f"{scope.label(path)}: {len(withheld)} line(s) withheld from the model because they carry a "
+            f"registered customer term." if withheld else "")
+    return Section(scope.label(path), lines, note)
 
 
 def _chars(lines: tuple[str, ...]) -> int:
@@ -210,12 +238,18 @@ def reduce_log(section: Section, budget_chars: int) -> Section:
     total = f"{section.label}: {len(section.lines):,} lines, too many to read whole"
     if not keep:
         tail = _within(section.lines, budget_chars, from_end=True)
-        return Section(section.label, tail, f"{total}; no error marker found, so read its last {len(tail):,} lines.")
+        return Section(section.label, tail, _with_note(
+            section, f"{total}; no error marker found, so read its last {len(tail):,} lines."))
     marked = tuple(section.lines[index] for index in sorted(keep))
     kept = _within(marked, budget_chars, from_end=False)
     cut = f", of which the first {len(kept):,} fit" if len(kept) < len(marked) else ""
-    return Section(section.label, kept,
-                   f"{total}; read the {len(marked):,} lines around error markers{cut} ({LOG_MARKER.pattern}).")
+    return Section(section.label, kept, _with_note(
+        section, f"{total}; read the {len(marked):,} lines around error markers{cut} ({LOG_MARKER.pattern})."))
+
+
+def _with_note(section: Section, note: str) -> str:
+    """*note*, after any note the section already carries (the lines withheld by the content filter)."""
+    return f"{section.note} {note}" if section.note else note
 
 
 def chunk_sections(sections: list[Section], max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
