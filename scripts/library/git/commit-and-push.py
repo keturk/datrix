@@ -1328,7 +1328,7 @@ def enforce_design_task_references(dirty_repos: list[Path]) -> None:
     Checked BEFORE a message is generated or anything is staged, and across ALL
     dirty repos at once. See ``test/design_task_references.py`` for the shapes.
     """
-    if design_task_self_test() != 0:
+    if design_task_self_test(quiet=True) != 0:
         raise ScriptError(
             "Design/task reference scanner failed its own non-vacuity self-test, so its "
             "verdict cannot be trusted and no commit is safe to make."
