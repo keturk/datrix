@@ -741,7 +741,7 @@ deployment:
 
 **DSL:** `dependencies('config/<service-name>/dependencies.dcfg');` inside a **`service { }`** body sets **`Service.dependencies_path`**. Stage 1 config resolution loads **`DependenciesProfileConfig`** (`datrix_common.config.dependencies`) into **`service.dependencies`**.
 
-**Purpose:** supply **operational** metadata for **`uses`** targets — remote **service** URLs, timeouts, retries, and optional **shared**-block overrides — separate from behavioral DSL.
+**Purpose:** supply **operational** metadata for **`uses`** targets — remote **service** URLs, timeouts, retries, — separate from behavioral DSL.
 
 **Shape (per active profile):**
 
@@ -755,13 +755,9 @@ services:
     retry:
       maxAttempts: 3
       backoff: exponential
-
-shared:
-  IngestionEvents: {}
 ```
 
-- **`services`** — keys are the **simple** service names referenced by **`uses`**. Each value is a **`ServiceDependencyConfig`** (`url`, `version`, `healthCheck`, `timeout`, `retry`, optional `loadBalance`, `healthyOnly`).
-- **`shared`** — keys match **`shared BlockName`** containers. Values are **`SharedDependencyConfig`** objects (`extra="allow"`) for engine-specific connection overrides.
+- **`services`** — keys are the **simple** service names referenced by **`uses`**. Each value is a **`ServiceDependencyConfig`** (`url`, `version`, `healthCheck`, `timeout`, `retry`, optional `loadBalance`, `healthyOnly`). An unknown key is an error that names the valid keys.
 
 Files may be **flat** (top-level keys `development` / `production` / `test`) or **nested** profiles; see the loader docstring in **`datrix_common/config/dependencies.py`**.
 
@@ -1369,7 +1365,6 @@ The recommended starting point for the `service` baseline:
 template standardServicePolicy() {
   availability = "required";
   health = "ready";
-  timeout = 5000;
 }
 
 resilience {

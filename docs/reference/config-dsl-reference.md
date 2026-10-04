@@ -687,6 +687,7 @@ config service ecommerce.OrderService {
 - Statements require semicolons (`;`)
 - Block declarations end with `}` and do NOT require trailing semicolons
 - Comments use `//` (single-line) or `/* */` (multi-line)
+- Every section rejects keys it does not declare, at every depth. The error names the key, the section, and the keys that section accepts (never the value, which may be a secret reference). `scripts/test/example-config-load-gate.ps1` loads every profile of every example `.dcfg` to keep the corpus clean
 
 ### Identifiers and Values
 
@@ -983,7 +984,8 @@ resilience {
       }
     }
     service InventoryService {               // per-service override
-      timeout = 2000;
+      availability = "optional";
+      health = "degraded";
     }
     cache sessionCache {                     // per-cache override
       availability = "optional";

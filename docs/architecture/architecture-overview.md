@@ -89,7 +89,6 @@ graph TD
  KN --> K
  S --> B
  S --> K
- S -. interim .-> J
  A --> CC[datrix-codegen-component]
  A --> CGC[datrix-codegen-common]
  M --> CGC
@@ -129,7 +128,7 @@ graph TD
 **Legend:**
 - **datrix-common** (no dependencies) — Foundation (AST model, type system, standard library loader + parser protocols (the stdlib `.dtrx` modules ship with datrix-language), config resolution, plugin protocols, deployment declarations). Does **not** import `datrix-language` — parser and stdlib-loader implementations are injected via protocols — nor the generation framework, which it names only through structural Protocols.
 - **datrix-codegen-kernel** (depends on datrix-common and datrix-migration) — The target-neutral generation framework every generator shares: `Generator`/`GeneratedFile`, the template engine, discovery, the sub-generator registry, the type-mapping registry, the shared route and runtime-configuration derivations, the deploy-script machinery, the GenDSL engine and shared domain definitions, the service-feature vocabulary every feature gate reads, and the Seed reference datasets — plus the language-agnostic services platforms, SQL and component build on: the shared provider library (`platform/`), pooling, the Grafana `DashboardBuilder`, logical-secret manifests, config-store seed planning, shared enums, parity declarations, serverless and replayable-ingestion plans, and RDBMS migration orchestration. It loads no language-layer, generator, parser, semantic or CLI module (its own import-linter contract, `TYPE_CHECKING` included, and a fresh-subprocess test). Every generator, `datrix-codegen-common`, `datrix-cli` and `datrix-testing` declare it; `datrix-common` must never import it. See [datrix-codegen-kernel architecture](../../../datrix-codegen-kernel/docs/architecture.md)
-- **datrix-semantic** (depends on datrix-common) — Semantic analysis: `SemanticAnalyzer` and its declared phase pipeline, every domain validator, synthesis, auth-contract lowering, push device-registry injection. `datrix-language`, `datrix-cli` and `datrix-testing` declare it; `datrix-common` must never import it. The dashed `datrix-codegen-azure` edge is interim: its RDBMS pooling generator reads the Flexible Server connection-capacity table from the pooling validator until that table moves to a per-platform capacity declaration. See [datrix-semantic architecture](../../../datrix-semantic/docs/architecture.md)
+- **datrix-semantic** (depends on datrix-common) — Semantic analysis: `SemanticAnalyzer` and its declared phase pipeline, every domain validator, synthesis, auth-contract lowering, push device-registry injection. `datrix-language`, `datrix-cli` and `datrix-testing` declare it; `datrix-common` must never import it. See [datrix-semantic architecture](../../../datrix-semantic/docs/architecture.md)
 - **datrix-language** (depends on datrix-common and datrix-semantic) — Parser + CST-to-AST transformers, implements `ParserProtocol` and `StdlibParserProtocol` defined in datrix-common; its language server runs semantic analysis
 - **datrix-extensions** (depends on datrix-common) — Optional domain packs; **not** required by `datrix-cli` or generators unless you declare `use extension` and install the pack
 - **datrix-testing** (depends on datrix-common, datrix-semantic and datrix-codegen-kernel) — The shared test harness (factories, fixtures, assertions, `.dtrx` parsing helpers). Every package lists it in its `dev` extra only, so no runtime edge points at it and none is drawn; the `pytest11` feature-tag plugin stays in datrix-common. See [datrix-testing architecture](../../../datrix-testing/docs/architecture.md)
@@ -1055,7 +1054,7 @@ platforms {
 | --- | --- | --- |
 | 1 | Exactly one definition of each hoisted helper exists across the language packages | Duplicate-body scan reports zero exact-duplicate groups for the consolidated symbol set; the only surviving per-package definitions are pure pre-binding adapters — a docstring and a single `return` delegating to the shared builder — not duplicated bodies |
 | 2 | No language package redeclares a shared-enum member set | Shared-vocabulary ratchet passes at a zero baseline; each package's own suites exercise the imported enum |
-| 3 | No symbol in the shared codegen package carries a target name | Shared-layer target-name ratchet matches each registered language's name and its declared `name_tokens` (aliases such as `ts`); a hit is renamed or becomes a reviewed baseline entry with a written reason. It passes at a baseline holding exactly one reviewed exemption at the time of adoption, 70 genuine declarations fixed (down from 76 matched, of which the four `sql`-substring identifiers are provably outside the ratchet's language-derived vocabulary); the closed-world drill's fixture language plugin supplies a struct slice and builds a struct context with no edit to the shared package |
+| 3 | No symbol in the shared codegen package carries a target name | Shared-layer target-name ratchet matches each registered language's name and its declared `name_tokens` (aliases such as `ts`); a hit is renamed or becomes a reviewed baseline entry with a written reason. It passes at a baseline holding exactly one reviewed exemption at the time of adoption, 70 genuine declarations fixed (down from 76 matched, of which the four `sql`-substring identifiers are provably outside the ratchet's language-derived vocabulary); the closed-world drill's fixture language plugin supplies a struct slice and builds a struct context with no edit to the shared package. The one exemption adoption recorded, the container-image-supply base-image directory constant, is retired: the base-image family name is derived from the language name by `shared_base_image_directory`, and the Dockerfile and base-image templates live in the language packages, so no baseline entry names the base-image family |
 | 4 | No package hand-rolls a service-body walk | Zero private body-enumeration helpers survive in the language packages; a regression test proves a typed cross-service call inside a CQRS handler materializes its response module — written first and observed red against the shipped defect |
 | 5 | Every hoist is behavior-preserving | Each affected package's targeted suites pass unchanged; no generated-output diff on the hoisted paths |
 | 6 | Every hoist lands inside an already-declared dependency edge | No hoist adds a new edge: the language packages already declared `datrix-codegen-common`. The D6 scope fence was later retired for both `datrix-codegen-sql` (Decision 42) and `datrix-codegen-component` (which declares the dependency its production modules always carried); `manifest-import-parity-gate.ps1` holds every package's manifest equal to its import set |
@@ -2070,9 +2069,9 @@ dependency (I4); the web-client allowlist is deleted and no frontend target decl
 language package (I5); the shared-layer ratchets derive their scope from entry-point registration
 and fail loud on an unclassified package (I6); no re-export facade survived a phase and each moved
 symbol resolves through exactly one import path (I7); the tagged tests of every reached package
-stayed green through each phase (I8). `datrix-codegen-azure` keeps one interim `datrix-semantic`
-dependency, for the Flexible Server connection-capacity table — tracked as its own finding, not a
-gap in this decision.
+stayed green through each phase (I8). `datrix-codegen-azure` declares no `datrix-semantic`
+dependency: the Flexible Server connection capacity is a per-platform declaration on its own
+block cell.
 
 ---
 
@@ -2785,7 +2784,7 @@ semantic cannot import each other. No hoist adds an edge.
 | BC10 | The AWS managed-key surface check filters `MANAGED` handles as Azure does | most correct output |
 | BC11 | A documented statement carries its doc comment on every `transpile_statement` call, including Flutter's direct calls | reads everything declared |
 | BC12 | Engine and SKU membership failures are one `GenerationError` shape with sorted, comma-joined options | fails closed (uniform class) |
-| BC13 | aws and azure emit alarms and rules for alerts declared on CQRS, jobs, REST and GraphQL surfaces, through the one `collect_alerts` enumeration docker and the language generators already use | reads everything declared |
+| BC13 | aws and azure emit alarms and rules, and the Grafana panels and Azure workbook/Bicep wiring read their alert sets, for alerts declared on CQRS, jobs, REST, GraphQL and WebSocket surfaces, through the one `collect_alerts` enumeration docker and the language generators use | reads everything declared |
 
 **Security posture:** fail closed, strongest behaviour wins, no control weakened, no exemption added.
 - **Inbound API-key authentication.** An empty provider list raises; a store/name combination the

@@ -92,7 +92,7 @@ Datrix-generated automatic migrations do not perform destructive or ambiguous sc
 
 ## D16: RDBMS UUID Is Required and Stable Across Profiles
 
-Every resolved `RdbmsConfig` must contain an `id` UUID authored in ConfigDSL. Normal code generation does not silently generate missing IDs. Within a resolved profile, IDs are unique across service-owned and shared-owned RDBMS blocks. When the same owner-qualified RDBMS block appears in multiple profiles, it must resolve to the same ID.
+Every resolved `RdbmsConfig` must contain an `id` UUID authored in ConfigDSL. Normal code generation does not silently generate missing IDs. Within a resolved profile, IDs are unique across service-owned and shared-owned RDBMS blocks. When the same owner-qualified RDBMS block appears in multiple profiles, it must resolve to the same ID. `load_service_config` and `load_shared_config` enforce this when the config loads: they resolve every profile of the `.dcfg` and reject a block whose ID differs between profiles with `RDBMS_ID_UNSTABLE`, naming the block, the profiles and the IDs. A block absent from some profiles is allowed.
 
 ## D17: Shared-Owned RDBMS Migrations Use Shared Generated Output
 

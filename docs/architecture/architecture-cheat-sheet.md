@@ -69,7 +69,7 @@ Entry-point groups: `datrix.generators`, `datrix.platforms`, `datrix.languages` 
 Each is held by an executable gate; the pack and decision named give the check.
 
 1. **Shared layers ask, targets answer.** No language/provider name in shared packages; target facts live in the target's plugin declaration ([target-plugins](./packs/target-plugins.md)).
-2. **Same source, same behaviour; only rendering differs.** A per-target behaviour difference is a defect; a missing capability is a counted `capability_gaps` row, never an exemption ([parity-and-obligation](./packs/parity-and-obligation.md)).
+2. **Same source, same behaviour; only rendering differs.** A per-target behaviour difference is a defect; a missing capability is a counted `capability_gaps` row, never an exemption. Repo gates derive their target inventories from registration and read each target's generated artifacts through that target's own conformance probes (`LanguagePlugin.conformance_probes`, `PlatformPlugin.declared_conformance_probes()`), never naming a target; each gate's self-test proves it by scanning itself ([parity-and-obligation](./packs/parity-and-obligation.md)).
 3. **One fact, one home.** A function with a shared home has one definition; a hoist removes every private copy ([shared-layer-and-one-fact](./packs/shared-layer-and-one-fact.md)).
 4. **A declared knob must be realized,** and a declared surface is the only emission path for its concern.
 5. **Open-world identifiers fail loud.** Providers, flavors, runtimes, targets are registry-validated, never closed enums.
