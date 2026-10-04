@@ -107,6 +107,16 @@ service shop.StorefrontService('config/storefront-service.dcfg')
         }
     }
 
+    // A service that declares a GraphQL subscription needs a Redis-protocol cache
+    // (engine redis or valkey): each subscription's result is delivered to every
+    // instance of the service over a pub/sub channel of this cache.
+    cache storefrontCache {
+        hash OrderWatch : prefix('order-watch:'), ttl(3600) {
+            UUID orderId : primaryKey;
+            String reference;
+        }
+    }
+
     rest_api StorefrontAPI : basePath("/api/v1"), rdbms(storeDb) {
         // Anonymous catalogue browsing.
         resource storeDb.Product : only(list, get), auth(public);

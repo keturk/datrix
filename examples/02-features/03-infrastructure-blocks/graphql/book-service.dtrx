@@ -39,6 +39,16 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
     }
 
+    // A service that declares a GraphQL subscription needs a Redis-protocol cache
+    // (engine redis or valkey): each subscription's result is delivered to every
+    // instance of the service over a pub/sub channel of this cache.
+    cache redis {
+        hash BookCache : prefix('book:'), ttl(3600) {
+            UUID bookId : primaryKey;
+            String title;
+        }
+    }
+
     subscribe BookEvents {
         on BookAdded(UUID bookId, String title) {
             Log.info("New book added", { bookId: bookId, title: title });

@@ -1,4 +1,14 @@
 ﻿config service shop.StorefrontService {
+  template standardCachePolicy() {
+    availability = "required";
+    health = "ready";
+    operations {
+      read       { onFailure = "raise"; }
+      write      { onFailure = "raise"; }
+      invalidate { onFailure = "warn"; }
+    }
+  }
+
   base {
     port = 8000;
     flavor = "compose";
@@ -33,6 +43,15 @@
       volumePath = "/var/lib/postgresql/data";
       defaultUser = "postgres";
     }
+    cache storefrontCache {
+      engine = "redis";
+      flavor = "container";
+      host = "localhost";
+      port = 6379;
+      dockerImage = "redis:7-alpine";
+      volumePath = "/data";
+      healthCheckCmd = "redis-cli ping";
+    }
     pubsub orderEvents {
       engine = "kafka";
       flavor = "container";
@@ -64,6 +83,11 @@
             initial = "100ms";
             multiplier = 2;
           }
+        }
+      }
+      dependencyPolicy {
+        defaults {
+          cache from standardCachePolicy();
         }
       }
     }
