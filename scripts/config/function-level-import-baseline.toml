@@ -107,6 +107,11 @@ count = 2
 reason = "deployment.secret_backend <-> config.system_config.models / plugin.capability_resolution: system_config.models imports SecretBackendPolicy from secret_backend at module top, and capability_resolution imports system_config.models at module top."
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/identity/provider_type_registry.py"
+count = 1
+reason = "identity.provider_type_registry <-> plugin.capability_resolution / config.system_config.models: capability_resolution imports config.system_config.models at module top, which imports platform_sections, which imports capability_resolution back, so that cycle is only safe to enter from the config side; the identity planner imports this module before either is loaded, so the shared-registry default is read through a function-level import."
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/plugin/descriptor.py"
 count = 2
 reason = "plugin.descriptor <-> plugin.identity / datrix_model.containers: identity imports require_descriptor from descriptor at module top, and containers -> datrix_model.pubsub -> datrix_model._block_provisioning -> plugin.identity reaches descriptor, so the LanguageId and Application annotations stay TYPE_CHECKING-only."

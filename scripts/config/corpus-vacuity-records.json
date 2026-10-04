@@ -86,7 +86,7 @@
       "language": "typescript",
       "domain": "tenancy",
       "status": "unexercised",
-      "reason": "Pattern */src/auth/tenant.guard.ts -- one fixed-name file per service, the TenantGenerator's own structural declaration. No reference example declares the Tenantable entity trait: zero matches across the example .dtrx files, with the same matcher finding the trait in datrix-language's own builtins.dtrx. No example config declares a tenancy { identifier { ... } enforcement: ... } block either: zero matches across the example .dcfg files, with the same matcher finding real tenancy blocks in service configs outside the corpus. Nothing platform-gated stands in the way. The remedy is one entity gaining `with Tenantable` plus a tenancy block in that service's config."
+      "reason": "Pattern */src/auth/tenant*.ts -- two fixed-name files per service (the shared tenant reader and the HTTP binding), the TenantGenerator's own structural declaration. No reference example declares the Tenantable entity trait: zero matches across the example .dtrx files, with the same matcher finding the trait in datrix-language's own builtins.dtrx. No example config declares a tenancy { identifier { ... } enforcement: ... } block either: zero matches across the example .dcfg files, with the same matcher finding real tenancy blocks in service configs outside the corpus. Nothing platform-gated stands in the way. The remedy is one entity gaining `with Tenantable` plus a tenancy block in that service's config."
     }
   ]
 }

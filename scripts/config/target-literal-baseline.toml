@@ -144,24 +144,6 @@ count = 1
 file = "datrix-common/src/datrix_common/config/engine_defaults.py"
 count = 1
 
-# reason: shared deployment-identity model referencing platform-named types
-# (Aws/AzurePlatformConfig), part of the same documented config-schema surface
-# as config/platform/*.py, not this task's scope; the module's own imports of
-# AwsIdentityDeploymentConfig from config.platform.aws and
-# ZitadelIdentityDeploymentConfig from config.platform.docker are now also two
-# target_module_import hits (aws/docker).
-[[baseline]]
-file = "datrix-common/src/datrix_common/identity/deployment_context.py"
-count = 3
-
-# reason: single docker-named import in the shared identity-naming module (its
-# own import of ZitadelIdentityDeploymentConfig from config.platform.docker) --
-# a target_module_import hit naming 'docker'; part of the same documented
-# config-schema surface as config/platform/*.py, not this task's scope.
-[[baseline]]
-file = "datrix-common/src/datrix_common/identity/planner/naming.py"
-count = 1
-
 # reason: shared deployment runtime-bootstrap module referencing every platform's
 # runtime id (docker-compose/AZURE_APP_SERVICE/aws), part of the same documented
 # config-schema surface as config/platform/*.py, not this task's scope.
@@ -196,26 +178,24 @@ count = 1
 file = "datrix-common/src/datrix_common/paths.py"
 count = 1
 
-# reason: shared generation-determinism test fixtures with platform-named helper
-# functions (per-provider infra-sizing/upgrade/parse helpers exercised across
-# AWS and Azure fixtures), not this task's scope; the module also declares
-# several per-target dependency-catalog and file-extension dict literals
-# (PYTHON_DEPS/TS_DEPS/BYTE_COMPARE_EXCLUDES/EXPECTED_EXTENSIONS) keyed by
-# registered language/platform names, now nine target_name_literal dict-key
-# hits, plus a target_module_import hit from its own import of
-# ZitadelIdentityDeploymentConfig out of config.platform.docker.
-[[baseline]]
-file = "datrix-testing/src/datrix_testing/determinism_fixtures.py"
-count = 17
-
 # reason: single platform-named identity example in the shared testing fixtures
 # module, part of the same documented config-schema surface as
 # config/platform/*.py, not this task's scope; the module's own import of
 # ZitadelIdentityDeploymentConfig from config.platform.docker is now also a
-# target_module_import hit naming 'docker'.
+# target_module_import hit naming 'docker'. Two more hits are the dict keys
+# `"zitadel"` and `"cognito"` of the example's `.dcfg` identity-config payloads --
+# the closed config schema's own provider block names (`zitadel { }`, `cognito { }`),
+# fixture DATA that builds a config, not a rule keyed by the provider type.
 [[baseline]]
 file = "datrix-testing/src/datrix_testing/identity_example.py"
-count = 2
+count = 4
+
+# reason: one `IdentityProviderType.ZITADEL` read that builds a Zitadel-provider
+# `IdentityConfig` for the API-key test fixture -- fixture data selecting a provider
+# kind for the config, not an issuer/JWKS/audience rule keyed by the provider type.
+[[baseline]]
+file = "datrix-testing/src/datrix_testing/api_key_identity.py"
+count = 1
 
 # reason: shared testing infra-constants module's repeated docker_image-typed
 # field declarations across its fixture dataclasses, part of the same

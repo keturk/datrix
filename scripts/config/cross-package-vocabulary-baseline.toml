@@ -632,9 +632,5 @@ count = 2
 reason = "SPEC_ASSERTION_BUILTIN_NAMES and SPEC_STATEMENT_BUILTIN_NAMES: the declared spec-test builtin vocabularies every language's lowering table is keyed by. This IS the one home; each language's lowering table (python transpiler/_expr_call_dispatch.py and transpiler/visitor_statements.py, each its own reasoned entry) holds that language's own emitted callables or method names under the same keys and is held equal to the obligation computed for it by that package's seam test."
 
 [[baseline]]
-file = "datrix-testing/src/datrix_testing/determinism_fixtures.py"
-count = 3
-
-[[baseline]]
 file = "datrix-testing/src/datrix_testing/infra_constants.py"
 count = 1
