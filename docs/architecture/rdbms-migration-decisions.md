@@ -242,6 +242,16 @@ Two obligations travel with the type. **The language-runtime mapping is register
 
 **A renderer that meets an operation kind it does not recognise raises.** An operation-dispatch chain with no final branch renders an unrecognised kind as nothing at all — a silently dropped migration step, which is the worst available outcome for an append-only history. The fail-loud branch lands *before* any new operation kind is added to that renderer, never in the same change and never after.
 
+## D42: A Foreign Key Is Created, Named Once, States Both Actions, and Is Re-Asserted When It Drifts
+
+Every foreign-key constraint is named by one function (`fk_<table>_<columns>`, `datrix_migration.foreign_key_naming`), and the snapshot records the realized name, so a drop or re-assertion targets what the database holds. Every baseline creates every key the snapshot records, an entity added later gets its keys in the same revision, and every constraint states `ON DELETE` and `ON UPDATE` from the DSL (default `restrict`) through the one shared keyword spelling -- a constraint with no clause means `NO ACTION`, which is neither the default nor anything an author declared. Referential integrity is therefore enforced on every database a Datrix adapter builds; a Python baseline once created none.
+
+An action is part of the constraint a database enforces, so a change to `onDelete`/`onUpdate` on an existing key is a change (`FOREIGN_KEY_REASSERTED`), where the differ used to alter the schema hash and plan nothing. The same change kind reconciles a database built before names were recorded: the generation has no database connection, so it re-asserts every key the schema keeps once, dropping every name a retired rule may have given it where it exists and adding it under the shared name. On PostgreSQL the new constraint is added `NOT VALID` and then validated; MySQL validates on add. A row with no parent fails the revision, naming the constraint; no row is deleted to make it pass. Re-assertion is classified `risky`, never blocked (it moves and loses no row) -- D21 is unchanged: a *new* key on an existing table is still a generation error.
+
+A relationship change is matched to its constraint by the full (columns, referred table, referred columns) tuple, never by the table alone: an entity with a `createdBy` and an `updatedBy` user holds two keys to one table.
+
+**Rejected: reflect the deployed catalog at generation time to find drifted keys.** The generator has no database connection, and re-asserting every key once is deterministic.
+
 ---
 
 ## See Also

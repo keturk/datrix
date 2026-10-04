@@ -397,6 +397,13 @@ Map<String, Integer> counts;    // Key-value map
 Set<String> categories;         // Unique set
 ```
 
+A `Set` is stored and sent as a JSON array on every backend. Its values are unique: a
+request that repeats a value is refused with `422` (it is never silently de-duplicated),
+and a stored value that is not an array fails on read. A TypeScript service built before
+this encoding stored every `Set` as `{}`; the generated project carries a data revision
+that rewrites those rows to `[]` and logs how many it rewrote. The values those rows held
+were lost and cannot be recovered.
+
 ### Nullability
 
 Add `?` suffix to make a field nullable:
@@ -858,7 +865,7 @@ entity Order {
 
     afterUpdate {
         if (status == OrderStatus.Shipped && $old.status != OrderStatus.Shipped) {
-            dispatch OrderShipped(id, now());
+            dispatch OrderShipped(id, DateTime.now());
         }
     }
 }
@@ -1167,7 +1174,7 @@ Define scheduled or one-off background jobs.
 job CleanupExpiredOrders cron('0 2 * * *') {  // Daily at 2 AM
     let expired = db.Order.filter(
         status == OrderStatus.Pending &&
-        createdAt < now() - 24h
+        createdAt < DateTime.now() - 24h
     );
 
     for (order in expired) {
@@ -1392,7 +1399,7 @@ entity Order {
     Money total := subtotal + tax;
 
     DateTime dueDate;
-    Boolean isOverdue := dueDate < now() && status != OrderStatus.Delivered;
+    Boolean isOverdue := dueDate < DateTime.now() && status != OrderStatus.Delivered;
 }
 ```
 
@@ -1500,7 +1507,7 @@ entity Order {
 ```dtrx
 afterUpdate {
     if (status == OrderStatus.Shipped && $old.status != OrderStatus.Shipped) {
-        dispatch OrderShipped(id, now());
+        dispatch OrderShipped(id, DateTime.now());
     }
 }
 ```

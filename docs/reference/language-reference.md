@@ -118,7 +118,7 @@ entity Order extends BaseEntity with Auditable {
     String(200) description : trim;
     Money total;
     OrderStatus status = OrderStatus.Pending;
-    Boolean isOverdue := dueDate < now();
+    Boolean isOverdue := dueDate < DateTime.now();
 
     index(customerId, status);
 
@@ -431,7 +431,7 @@ Hash caches and counters are defined with TTL and key strategies.
 
 ```dtrx
 job CleanupExpired cron('0 */6 * * *') {
-    let expired = db.Order.filter(status == OrderStatus.Pending && createdAt < now() - 24h);
+    let expired = db.Order.filter(status == OrderStatus.Pending && createdAt < DateTime.now() - 24h);
     for (order in expired) {
         order.status = OrderStatus.Cancelled;
         db.Order.save(order);
