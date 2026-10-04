@@ -334,8 +334,12 @@ def _write(path: str, body: str) -> None:
         handle.write(body)
 
 
-def self_test() -> int:
-    """Prove the detector fires on every reference shape and stays quiet without one."""
+def self_test(quiet: bool = False) -> int:
+    """Prove the detector fires on every reference shape and stays quiet without one.
+
+    ``quiet`` suppresses the success banners (failures always print); the commit
+    runner sets it so a passing self-test adds nothing to every commit's output.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         _write(os.path.join(tmp, "clean.py"),
                "# Emits the response DTO mapping for custom endpoints.\n")
@@ -386,9 +390,11 @@ def self_test() -> int:
             print("SELF-TEST FAILED: a bare 'Phase NN' heading must not be flagged")
             return 1
 
-    if label_self_test() != 0:
+    if label_self_test(quiet) != 0:
         return 1
 
+    if quiet:
+        return 0
     print(
         f"INFO: Non-vacuity self-test passed: the detector flags all {len(shapes)} planted "
         "reference shapes (hyphenated, prose, three-digit, phase dir, .dtrx, "
@@ -430,7 +436,7 @@ _LABEL_FIXTURES: dict[str, tuple[str, int]] = {
 }
 
 
-def label_self_test() -> int:
+def label_self_test(quiet: bool = False) -> int:
     """Prove each item-label shape hits once, each near miss stays silent, and scope holds."""
     with tempfile.TemporaryDirectory() as workspace:
         for rel, (body, _) in _LABEL_FIXTURES.items():
@@ -457,6 +463,8 @@ def label_self_test() -> int:
         if sorted(by_paths) != sorted(hits):
             print("SELF-TEST FAILED: scan_paths disagrees with scan over the same files")
             return 1
+    if quiet:
+        return 0
     positives = sum(1 for _, expected in _LABEL_FIXTURES.values() if expected)
     print(
         f"INFO: Label self-test passed: {positives} planted label/possessive shapes hit exactly "
