@@ -12,7 +12,7 @@ shared ProductCatalogData('config/product-catalog-data.dcfg') {
         }
 
         entity Variant {
-            UUID id : primaryKey = uuid();
+            UUID id : primaryKey, server = uuid();
             belongsTo Product;
             String(50) name;
             Float weight;

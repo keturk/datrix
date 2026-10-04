@@ -1,0 +1,23 @@
+// catalog-writer-service.dtrx
+// Read-write `uses` on a shared rdbms block: this service holds the schema's write access, so it
+// queries AND writes `catalog_db` -- ReportService only reads it. The shared container owns the
+// schema; the migration chain is rendered once and every consumer applies it, so this service
+// needs no database of its own for the catalog.
+service library.CatalogWriterService('config/catalog-writer-service.dcfg') : version('1.0.0'), description('Writes the shared product catalog') {
+    uses ProductCatalogData.catalog_db : readwrite;
+
+    fn register(String sku, String name, Float price, Int stockQty) -> String {
+        catalog_db.Product.create({ sku: sku, name: name, price: price, stockQty: stockQty });
+        return sku;
+    }
+
+    rest_api CatalogWriterAPI : basePath('/api/v1/catalog-writer') {
+        @path('/products/:sku')
+        get findProduct(String sku) : auth(public) -> JSON {
+            let JSON row = catalog_db.Product.where(sku: sku).first();
+            return row;
+        }
+
+    }
+
+}

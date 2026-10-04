@@ -1,4 +1,17 @@
 ﻿config service library.CacheReaderService {
+  template standardCachePolicy() {
+    availability = "required";
+    health = "ready";
+    operations {
+      read {
+        onFailure = "raise";
+      }
+      write {
+        onFailure = "raise";
+      }
+    }
+  }
+
   base {
     port = 8005;
     flavor = "compose";
@@ -68,6 +81,11 @@
             initial = "100ms";
             multiplier = 2;
           }
+        }
+      }
+      dependencyPolicy {
+        defaults {
+          cache from standardCachePolicy();
         }
       }
     }

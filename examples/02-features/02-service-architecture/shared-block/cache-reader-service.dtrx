@@ -12,6 +12,11 @@ service library.CacheReaderService('config/cache-reader-service.dcfg') : version
 
     }
 
+    fn recall(String userId) -> String {
+        let JSON? cached = auth_cache.SessionData.get(userId);
+        return userId;
+    }
+
     rest_api CacheReaderAPI : basePath('/api/v1/cache-reader') {
         @path('/health')
         get() : auth(public) -> String {

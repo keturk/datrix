@@ -234,10 +234,6 @@ config system credentials.System {
           consumerTimeoutSeconds = 300;
           consumerBatchSize = 10;
         }
-        migrationTask {
-          fargateCpu = 256;
-          fargateMemoryMb = 512;
-        }
         scheduledTask {
           retryAttempts = 2;
           maxEventAgeSeconds = 3600;

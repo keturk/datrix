@@ -1,13 +1,14 @@
 
 // reader-service.dtrx
-// Read-only `uses` on a shared rdbms block (qualified access is type-checked;
-// runtime queries against shared schemas are wired like local blocks once deployed).
+// Read-only `uses` on a shared rdbms block: the service realizes the shared entities and a
+// read-only repository, so it queries `catalog_db` like a local block -- a write through this
+// access is rejected at analysis (SHR007). CatalogWriterService holds the write access.
 service library.ReportService('config/report-service.dcfg') : version('1.0.0'), description('Reports from shared reference data') {
     uses ProductCatalogData.catalog_db : readonly;
 
     rdbms reportMeta {
         entity ReportWatermark {
-            UUID id : primaryKey = uuid();
+            UUID id : primaryKey, server = uuid();
             DateTime lastRunAt = DateTime.now();
         }
 
@@ -17,6 +18,12 @@ service library.ReportService('config/report-service.dcfg') : version('1.0.0'), 
         @path('/reports/health')
         get() : auth(public) -> String {
             return "ok";
+        }
+
+        @path('/reports/products/:sku')
+        get productSnapshot(String sku) : auth(public) -> JSON {
+            let JSON row = catalog_db.Product.where(sku: sku).first();
+            return row;
         }
 
     }

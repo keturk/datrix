@@ -1,0 +1,29 @@
+// cache-writer-service.dtrx
+// Read-write `uses` on a shared cache block: the writer sets entries that
+// CacheReaderService reads back under the same keys (the key namespace is the
+// shared container's, never the consuming service's).
+service library.CacheWriterService('config/cache-writer-service.dcfg') : version('1.0.0'), description('Writes the shared session cache') {
+    uses SessionStore : readwrite;
+
+    rdbms writerMeta {
+        entity WriterCacheState {
+            UUID id : primaryKey = uuid();
+            DateTime updatedAt = DateTime.now();
+        }
+
+    }
+
+    fn remember(String userId, String token) -> String {
+        auth_cache.SessionData.set(userId, { userId: userId, token: token, expiresAt: DateTime.now() });
+        return userId;
+    }
+
+    rest_api CacheWriterAPI : basePath('/api/v1/cache-writer') {
+        @path('/health')
+        get() : auth(public) -> String {
+            return "ok";
+        }
+
+    }
+
+}

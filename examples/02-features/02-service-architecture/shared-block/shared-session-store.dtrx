@@ -4,7 +4,7 @@
 shared SessionStore('config/session-store.dcfg') {
     cache auth_cache {
         hash SessionData : prefix('session:'), ttl(3600) {
-            String userId;
+            String userId : primaryKey;
             String token;
             DateTime expiresAt;
         }

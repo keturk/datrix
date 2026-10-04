@@ -5,8 +5,10 @@ include 'shared-session-store.dtrx';
 include 'publisher-service.dtrx';
 include 'subscriber-service.dtrx';
 include 'reader-service.dtrx';
+include 'catalog-writer-service.dtrx';
 include 'storage-writer-service.dtrx';
 include 'cache-reader-service.dtrx';
+include 'cache-writer-service.dtrx';
 
 system library.SharedBlockExampleSystem('config/system.dcfg') : version('1.0.0') {
 }

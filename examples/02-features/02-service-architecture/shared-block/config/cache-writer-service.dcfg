@@ -1,15 +1,19 @@
-﻿config service library.BookService {
+config service library.CacheWriterService {
   template standardCachePolicy() {
     availability = "required";
     health = "ready";
     operations {
-      read       { onFailure = "raise"; }
-      write      { onFailure = "raise"; }
+      read {
+        onFailure = "raise";
+      }
+      write {
+        onFailure = "raise";
+      }
     }
   }
 
   base {
-    port = 8000;
+    port = 8006;
     flavor = "compose";
     replicas = 1;
     resources {
@@ -26,13 +30,13 @@
       path = "/health";
       initialDelay = "10s";
     }
-    rdbms bookDb {
-      id = "f112133d-22f0-4d78-bfeb-b4e141eaf032";
+    rdbms writerMeta {
+      id = "9a5d3a52-0c52-4c64-9a0e-6f1f0d2b7c11";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
       port = 5432;
-      database = "library_books";
+      database = "cachewritermeta";
       poolSize = 20;
       maxOverflow = 20;
       asyncDriver = "postgresql+asyncpg";
@@ -41,27 +45,6 @@
       dockerImage = "postgres:17-alpine";
       volumePath = "/var/lib/postgresql/data";
       defaultUser = "postgres";
-    }
-    cache redis {
-      engine = "redis";
-      flavor = "container";
-      host = "localhost";
-      port = 6379;
-      dockerImage = "redis:7-alpine";
-      volumePath = "/data";
-      healthCheckCmd = "redis-cli ping";
-    }
-    pubsub mq {
-      engine = "kafka";
-      flavor = "container";
-      brokers = ["localhost:9092"];
-      partitions = 3;
-      replicationFactor = 1;
-      retention = "7d";
-      port = 9092;
-      controllerPort = 9093;
-      dockerImage = "confluentinc/cp-kafka:7.6.0";
-      volumePath = "/var/lib/kafka/data";
     }
     registration {
       tags = ["api", "library", "v1"];
@@ -91,7 +74,7 @@
       }
     }
     httpSecurity {
-      allowedHosts = ["book-service.example.com", "localhost"];
+      allowedHosts = ["cache-writer-service.example.com", "localhost"];
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
@@ -165,19 +148,6 @@
 
     flavor = "ecs-fargate";
     replicas = 2;
-    replace rdbms bookDb {
-      id = "f112133d-22f0-4d78-bfeb-b4e141eaf032";
-      engine = "postgres";
-      flavor = "rds";
-      host = "postgres.internal";
-      database = "library_books";
-      poolSize = 40;
-      maxOverflow = 20;
-      ssl = true;
-      asyncDriver = "postgresql+asyncpg";
-      syncDriver = "postgresql+psycopg2";
-      healthCheckSql = "SELECT 1";
-    }
     strategy {
       rolling {
         maxUnavailable = "25%";
