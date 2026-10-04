@@ -1524,9 +1524,69 @@ axis. Fails loud (exit 2) if fewer than 2 targets are registered on an axis bein
 currently-unrealized target (`{axis, target, reason}`). There is no `-UpdateBaseline`: a
 realization change removes its own entry, never a generic freeze command.
 
+### `test\shared-cache-realization-gate.ps1`
+
+Shared-cache realization gate: a service that `uses` a shared cache container realizes that
+container's cache block next to its own (`realized_cache_blocks`). For every registered
+`datrix.languages` target the gate asserts the target's source walks `realized_cache_blocks`; for
+every registered `datrix.platforms` target it asserts the source walks the same set AND calls
+`require_cache_keys_supplied` (every connection key the surface declares is supplied). **Detection
+is STATIC**: the gate AST-parses each target's own `src/` trees (the backend package plus every
+language core it requires), never generating a project. The behavioural assertions per language and
+platform live in each package's own tests.
+
+Derives both target sets from `importlib.metadata.entry_points` at runtime — never a hardcoded
+language or platform list — and refuses to pass (exit 2) with fewer than two targets on an axis.
+
+**Built-in non-vacuity self-test, every invocation.** A planted consumer-blind source tree (it reads
+only the service's own cache block) must be detected, a tree that walks the realized blocks must
+classify realized, and a single-target axis must be refused as vacuous.
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate (both axes)** | `.\test\shared-cache-realization-gate.ps1` | Check every registered language AND platform target |
+| **Single axis** | `.\test\shared-cache-realization-gate.ps1 -Axis platforms` | Check only the platforms axis (or `-Axis languages`) |
+| **Debug** | `.\test\shared-cache-realization-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\shared-cache-realization-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real check |
+
+**Parameters:** `-Axis <languages\|platforms>` (default: both axes), `-Dbg`, `-SelfTest`
+
 **Exit codes:** 0 = every registered target realizes the slice or carries a reviewed exemption
 (and no exemption is stale), 1 = at least one unexempted gap or stale exemption was found, 2 = the
 non-vacuity self-test failed or fewer than 2 targets are registered on an axis being checked.
+
+---
+
+### `test\shared-rdbms-realization-gate.ps1`
+
+Shared-RDBMS realization gate: a service that `uses` a shared container's RDBMS block realizes that
+block next to its own (`realized_rdbms_blocks`). For every registered `datrix.languages` target the
+gate **generates** the shared-rdbms fixture (a shared container's block, a `readwrite` consumer that
+holds a seed, a `readonly` consumer) and applies language-neutral file-set assertions to the emitted
+tree: every consumer emits an entity module for the consumed block, every file of the owner's
+canonical migration chain appears byte for byte in every consumer, and the block's seed is emitted
+in the writer and in no reader. The behavioural assertions per language (typed access, read-only
+repositories, the chain lock key) live in each package's own tests.
+
+Derives the language set from `importlib.metadata.entry_points(group="datrix.languages")` at runtime
+— never a hardcoded language list — and refuses to pass (exit 2) with fewer than two registered
+languages.
+
+**Built-in non-vacuity self-test, every invocation.** A planted language whose consumer emits no
+entity module, one whose carried chain differs from the canonical one, and one that seeds a reader
+must each be reported; a faithful planted language must report nothing; a single-language run must
+be refused as vacuous.
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate** | `.\test\shared-rdbms-realization-gate.ps1` | Generate the fixture for every registered language and check the emitted trees |
+| **Debug** | `.\test\shared-rdbms-realization-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\shared-rdbms-realization-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; generate nothing |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Exit codes:** 0 = every registered language realizes shared consumption, 1 = at least one language
+has a gap, 2 = the non-vacuity self-test failed or fewer than 2 languages are registered.
 
 ---
 
