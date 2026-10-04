@@ -140,10 +140,57 @@ def _is_transient(target: str) -> bool:
     return bool(_TRANSIENT_RE.search(cleaned.replace("\\", "/")))
 
 
+#: A command that runs a quoted script (`bash -c "... > f"`, `eval "..."`, PowerShell): its
+#: quoted body IS shell text, so a `>` inside the quotes can be a real redirect. Such a
+#: segment is scanned unmasked, exactly as before.
+_RUNS_QUOTED_SCRIPT_RE: Final = re.compile(
+    r"(?<![\w./\\-])(?:bash|sh|zsh|dash|ksh|eval|pwsh|powershell|cmd)(?:\.exe)?(?![\w-])",
+    re.IGNORECASE,
+)
+
+#: Shell test expressions, where `>` compares strings rather than redirecting.
+_TEST_EXPRESSION_RE: Final = re.compile(r"\[\[.*?\]\]|(?<!\S)\[ .*? \](?!\S)")
+
+
+def _mask_non_redirect_text(segment: str) -> str:
+    """The segment with quoted text and test expressions blanked, same length.
+
+    A `>` inside a quoted string (`echo "a -> b"`) or a test (`[[ $a > $b ]]`) is not a
+    redirect operator. Blanking keeps every other character at its original offset, so a
+    match found in the masked text locates the real operator in the original.
+    """
+    masked: list[str] = []
+    quote: str | None = None
+    escaped = False
+    for char in segment:
+        if quote is None:
+            masked.append(char)
+            if char in "\"'":
+                quote = char
+            continue
+        if escaped:
+            masked.append(" ")
+            escaped = False
+        elif char == "\\" and quote == '"':
+            masked.append(" ")
+            escaped = True
+        elif char == quote:
+            masked.append(char)
+            quote = None
+        else:
+            masked.append(" ")
+    text = "".join(masked)
+    return _TEST_EXPRESSION_RE.sub(lambda match: " " * len(match.group(0)), text)
+
+
 def _authored_redirect_target(segment: str) -> str | None:
     """Return the redirect target this segment authors, or None."""
-    for match in _REDIRECT_RE.finditer(segment):
-        target = match.group(1)
+    scanned = segment if _RUNS_QUOTED_SCRIPT_RE.search(segment) else _mask_non_redirect_text(segment)
+    for found in _REDIRECT_RE.finditer(scanned):
+        real = _REDIRECT_RE.match(segment, found.start())
+        if real is None:
+            continue
+        target = real.group(1)
         if not _is_transient(target):
             return target
     return None

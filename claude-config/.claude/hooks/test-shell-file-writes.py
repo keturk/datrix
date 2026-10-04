@@ -81,6 +81,21 @@ check("inline python running a real check",
       "python -c \"from datrix_common.config.observability.models import LogCategoryLevels; print(LogCategoryLevels())\"", 0)
 check("a real script writing files as its job",
       "d:/datrix/.venv/Scripts/python.exe scripts/build_thing.py --out d:/datrix/.tmp", 0)
+check("a > inside a quoted echo string is not a redirect",
+      'echo "judge log lines $before -> $after"', 0)
+check("a > inside a quoted string followed by a test",
+      'echo "status $r -> ok" && [ "$r" != "000" ] && echo done', 0)
+check("a > inside a [[ ]] string comparison", '[[ "$a" > "$b" ]] && echo later', 0)
+
+# ---------------------------------------------------------------------------
+# MUST STILL BLOCK -- a quoted > must not hide a real redirect beside it.
+# ---------------------------------------------------------------------------
+check("a real redirect after a quoted arrow",
+      'echo "a -> b" > src/datrix_common/x.py', 2)
+check("a quoted redirect target",
+      'echo "x = 1" > "src/datrix_common/x.py"', 2)
+check("a heredoc into a file whose body quotes an arrow",
+      "cat > src/datrix_common/x.py <<'EOF'\nprint(\"a -> b\")\nEOF", 2)
 
 # ---------------------------------------------------------------------------
 # MUST FAIL OPEN.
