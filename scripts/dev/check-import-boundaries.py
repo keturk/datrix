@@ -148,19 +148,6 @@ key is a duplicate a design requires (Decision 36 D9) and the reason is
 part of the frozen record: the regeneration reads every reason back and
 re-emits it, and names any reasoned entry that no longer has a hit.
 
-Also implements the design-document label check: opt-in via
---check-design-labels, it line-scans every `.py` and `.j2` file under every
-registered package's `src/`+`tests/` trees, PLUS the `datrix` repo's own
-`scripts/dev`, `scripts/library`, and `scripts/test` trees (its equivalent
-of `src/`/`tests/`, since the bare `datrix` repo carries no `src/` directory
-and is therefore never a key in discover_packages()'s returned mapping),
-for a reference number pointing at a gitignored, per-machine-renumbered
-design doc or task file. Unlike every ratchet above, this is a HARD ZERO
-with NO baseline file: a reference to a document that means something
-different -- or nothing -- on a clone is removed entirely wherever found,
-never grandfathered. --update-baseline has no effect on this check (there
-is nothing to seed).
-
 Also implements the re-export-facade ratchet: opt-in via
 --check-reexport-facades, it AST-scans every discovered package's `src/`
 and `tests/` trees, every `.py` file under this repo's own `datrix/scripts/`
@@ -180,7 +167,7 @@ not resolve to any module on disk at all (unresolved). Relative imports
 (`from .a import X`, `from . import sub`) are resolved to their absolute
 module from the scanned file's own dotted name, on both the provider and the
 consumer side, and every package's root-level `.py` files (e.g. `conftest.py`)
-are scanned too. Like --check-design-labels this is a HARD ZERO with NO
+are scanned too. This is a HARD ZERO with NO
 baseline file: any hit fails, one failure message per hit, and
 --update-baseline has no effect on this check (there is nothing to seed).
 `--facade-module`/`--consumer-package` (repeatable) narrow the `--verbose`
@@ -190,7 +177,7 @@ Self-test (--self-test): proves the rule model (the manifest-discovered
 generator taxonomy, build_boundary_rules over it, the allowed-
 subtree carve-outs), the AST scanners (provider-conditional,
 function-level-import, shared-vocabulary, shared-target-name,
-own-target-name, cross-package-vocabulary, design-label, target-literal,
+own-target-name, cross-package-vocabulary, target-literal,
 re-export-facade),
 and the ratchet comparators are non-vacuous --
 including a real mutation-based CLI proof (plants a
@@ -208,8 +195,8 @@ Exit codes:
     0: Clean (no violations) or --warn mode
     1: Violations found in fail mode (import-boundary and/or I1/I6/function-
        level-import/shared-vocabulary/shared-target-name/own-target-name/
-       cross-package-vocabulary/re-export-facade ratchets, or the
-       design-label check), or a self-test failure
+       cross-package-vocabulary/re-export-facade ratchets), or a
+       self-test failure
     2: Usage error, configuration error, or (with --check-target-literals,
        --check-provider-conditionals, --check-function-level-imports,
        --check-shared-vocabulary, --check-shared-target-names,
@@ -229,7 +216,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import tomllib
 import uuid
 from dataclasses import dataclass
@@ -255,6 +241,9 @@ from shared.registered_targets import (  # noqa: E402
     entry_point_module_roots,
     registered_language_names,
     registered_platform_names,
+)
+from shared.target_literal_positions import (  # noqa: E402
+    target_name_literal_hits,
 )
 
 
@@ -938,34 +927,6 @@ def _target_literal_vocabulary() -> frozenset[str]:
 # -- see check_shared_package_provider_literals below for why the
 # enforcement shape is deliberately different): the shared layer must never
 # encode platform-specific policy itself.
-
-
-# ---------------------------------------------------------------------------
-# Design-Document Label Check
-#
-# The numbered design docs and task files that assign a reference label to a
-# decision, invariant, or task item are gitignored and developed
-# independently on two machines, so the same number means something
-# different -- or nothing -- once cloned elsewhere. A label that survives
-# into a committed docstring, comment, template comment, or runtime string is
-# a dangling pointer, and a runtime string carrying one leaks internal
-# planning vocabulary into a user-facing error or log line. Hard zero, no
-# baseline: a label is removed entirely wherever found, never grandfathered
-# in.
-#
-# Matches a parenthesized reference: an open parenthesis immediately
-# followed by one of the three reference letters and a run of digits,
-# optionally continued by a slash- or comma-separated list of more such
-# references, closed by a parenthesis. Also matches the same letter-plus-
-# digits form immediately followed by a colon, used as an inline heading. A
-# bare "Decision NN" mention never matches -- the reference letter is never
-# immediately adjacent to the digits in that citation form -- so it needs no
-# carve-out; it holds by construction. (This comment deliberately never
-# writes out a matching instance of the pattern it documents -- doing so
-# would make this file a hit under its own check.)
-DESIGN_LABEL_PATTERN: re.Pattern[str] = re.compile(
-    r"\((D|G|I)[0-9]+([/,]\s*(D|G|I)?[0-9]+)*\)|\b(D|G|I)[0-9]+:"
-)
 
 
 # ---------------------------------------------------------------------------
@@ -1793,82 +1754,6 @@ def _is_own_language_excluded(
     return matched_target.casefold() == served_language.casefold()
 
 
-def _target_name_literal_compare_hits(
-    node: ast.Compare, target_literal_names: frozenset[str]
-) -> list[tuple[str, int]]:
-    """``(value, line_number)`` for every string constant exactly equal to a
-    *target_literal_names* member appearing as the left/right operand of an
-    ``Eq``/``NotEq``/``In``/``NotIn`` comparison, plus every element of a
-    ``List``/``Tuple``/``Set`` right operand of an ``In``/``NotIn`` (e.g.
-    ``x in ("python", "typescript")`` yields two hits).
-    """
-    hits: list[tuple[str, int]] = []
-
-    def _record(candidate: ast.expr) -> None:
-        if isinstance(candidate, ast.Constant) and isinstance(candidate.value, str):
-            if candidate.value in target_literal_names:
-                hits.append((candidate.value, candidate.lineno))
-
-    prior: ast.expr = node.left
-    for op, comparand in zip(node.ops, node.comparators, strict=True):
-        if isinstance(op, (ast.Eq, ast.NotEq, ast.In, ast.NotIn)):
-            _record(prior)
-            _record(comparand)
-            if isinstance(op, (ast.In, ast.NotIn)) and isinstance(
-                comparand, (ast.List, ast.Tuple, ast.Set)
-            ):
-                for element in comparand.elts:
-                    _record(element)
-        prior = comparand
-    return hits
-
-
-def _target_name_literal_hits(
-    tree: ast.Module, target_literal_names: frozenset[str]
-) -> list[tuple[str, int]]:
-    """``(value, line_number)`` for every string constant exactly equal to a
-    *target_literal_names* member in one of five positions: a
-    ``Compare``'s ``Eq``/``NotEq``/``In``/``NotIn`` operand (see
-    ``_target_name_literal_compare_hits``), an ``ast.Subscript`` slice
-    (``m["azure"]``), the first positional argument of a ``.get(...)`` call
-    (``configs.get("azure")``), an ``ast.Dict`` key (dict-display key), or
-    the pattern value of an ``ast.MatchValue`` inside a ``match`` statement.
-
-    Fails closed by construction: a string constant anywhere else (a
-    docstring, a ``logger.*``/``logging.*`` call argument, a plain
-    assignment RHS, an f-string literal segment) is never visited by any of
-    the five branches below, so it is never a hit -- there is no generic
-    "any string equal to a vocabulary word" fallback.
-    """
-    hits: list[tuple[str, int]] = []
-
-    def _record(candidate: ast.expr) -> None:
-        if isinstance(candidate, ast.Constant) and isinstance(candidate.value, str):
-            if candidate.value in target_literal_names:
-                hits.append((candidate.value, candidate.lineno))
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Compare):
-            hits.extend(_target_name_literal_compare_hits(node, target_literal_names))
-        elif isinstance(node, ast.Subscript):
-            _record(node.slice)
-        elif (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "get"
-            and node.args
-        ):
-            _record(node.args[0])
-        elif isinstance(node, ast.Dict):
-            for key in node.keys:
-                if key is not None:
-                    _record(key)
-        elif isinstance(node, ast.MatchValue):
-            _record(node.value)
-
-    return hits
-
-
 def _target_type_check_hits(
     tree: ast.Module, target_literal_names: frozenset[str]
 ) -> list[tuple[str, int, str]]:
@@ -2106,7 +1991,7 @@ def scan_file_for_target_literals(
             )
         )
 
-    for value, line_number in _target_name_literal_hits(tree, target_literal_names):
+    for value, line_number in target_name_literal_hits(tree, target_literal_names):
         if _is_own_language_excluded(file_path, monorepo_root, value):
             continue
         hits.append(
@@ -2682,116 +2567,6 @@ def check_shared_package_provider_literals(
                 "conditional with a PlatformCapabilityDeclaration/LanguagePlugin "
                 "field the affected platform declares, and ask the resolved "
                 "plugin instead of comparing a provider identifier here."
-            )
-    return messages
-
-
-def _scan_file_for_design_labels(file_path: Path) -> list[tuple[int, str]]:
-    """Line-scan *file_path* for DESIGN_LABEL_PATTERN matches.
-
-    A plain per-line text scan, not an AST walk: a design/task-file label can
-    appear in a docstring, a comment, a Jinja template comment, or a runtime
-    string literal alike, and one text pattern finds all three without
-    needing Python-string-literal-awareness or a Jinja parser.
-    """
-    hits: list[tuple[int, str]] = []
-    text = file_path.read_text(encoding="utf-8-sig")
-    for line_number, line_text in enumerate(text.splitlines(), start=1):
-        if DESIGN_LABEL_PATTERN.search(line_text):
-            hits.append((line_number, line_text))
-    return hits
-
-
-def _scan_file_for_design_labels_or_exit(
-    source_file: Path, monorepo_root: Path
-) -> list[tuple[int, str]]:
-    """Wrap ``_scan_file_for_design_labels`` with the same clean failure shape
-    every other ratchet's policed-file read gets: a read failure -- including
-    a non-UTF-8 file -- names the file and exits 2 rather than crashing
-    uncaught (this scanner has no ast.parse step, so OSError/UnicodeDecodeError
-    is the only failure mode)."""
-    try:
-        return _scan_file_for_design_labels(source_file)
-    except (OSError, UnicodeDecodeError) as e:
-        rel_path = source_file.relative_to(monorepo_root)
-        print(
-            f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
-            f"cannot be read would escape this scan; resolve the read error.",
-            file=sys.stderr,
-        )
-        sys.exit(2)
-
-
-def scan_design_labels(
-    packages: dict[str, PackageInfo], monorepo_root: Path
-) -> dict[Path, list[tuple[int, str]]]:
-    """Scan every registered package's ``src/``+``tests/`` trees, PLUS the
-    ``datrix`` repo's own ``scripts/{dev,library,test}`` trees, for a
-    design/task/phase label (DESIGN_LABEL_PATTERN).
-
-    The ``datrix`` repo carries no ``src/`` directory, so it is never a key
-    in ``packages`` (see ``discover_packages``); ``scripts/dev``,
-    ``scripts/library``, and ``scripts/test`` are its equivalent surface and
-    are scanned separately, unconditionally. Hard zero, no baseline: a
-    design label is removed entirely wherever found, never grandfathered.
-
-    Args:
-        packages: Package name -> PackageInfo, as returned by discover_packages().
-        monorepo_root: Monorepo root directory.
-
-    Returns:
-        Mapping of file path -> list of (line_number, line_text) hits in
-        that file (files with zero hits omitted).
-    """
-    results: dict[Path, list[tuple[int, str]]] = {}
-
-    for package_info in packages.values():
-        for scan_root in (package_info.src_dir, package_info.root / "tests"):
-            if not scan_root.exists():
-                continue
-            for pattern in ("*.py", "*.j2"):
-                for source_file in scan_root.rglob(pattern):
-                    hits = _scan_file_for_design_labels_or_exit(source_file, monorepo_root)
-                    if hits:
-                        results[source_file] = hits
-
-    for subdir_name in ("dev", "library", "test"):
-        scan_root = monorepo_root / "datrix" / "scripts" / subdir_name
-        if not scan_root.exists():
-            continue
-        for source_file in scan_root.rglob("*.py"):
-            hits = _scan_file_for_design_labels_or_exit(source_file, monorepo_root)
-            if hits:
-                results[source_file] = hits
-
-    return results
-
-
-def check_design_labels(
-    hits_by_file: dict[Path, list[tuple[int, str]]], monorepo_root: Path
-) -> list[str]:
-    """Return one message per design-label hit -- ANY hit fails.
-
-    No baseline: unlike the decrease-only ratchets above, a design/task/phase
-    label must be exactly zero, always, since the numbered design docs and
-    task files it points to are gitignored and renumbered independently on
-    every machine -- a surviving label is a dangling pointer the moment it is
-    committed. Returns an empty list only when ``hits_by_file`` is empty.
-
-    Args:
-        hits_by_file: Output of `scan_design_labels`.
-        monorepo_root: Monorepo root for relative path reporting.
-
-    Returns:
-        List of human-readable failure messages, one per hit, sorted by
-        (file, line).
-    """
-    messages: list[str] = []
-    for file_path in sorted(hits_by_file):
-        rel_path = file_path.relative_to(monorepo_root)
-        for line_no, line_text in sorted(hits_by_file[file_path], key=lambda h: h[0]):
-            messages.append(
-                f"{rel_path}:{line_no}: design-document label found: {line_text.strip()}"
             )
     return messages
 
@@ -3962,7 +3737,7 @@ def _scoped_plain_assign_targets(tree: ast.Module) -> list[tuple[str, int]]:
     ``scan_file_for_shared_target_names``: an annotated declaration
     (``StructSliceBuilder: TypeAlias = ...``) is always a genuine module- or
     class-level declaration syntactically, but a PLAIN assignment
-    (``PYTHON_BASE_IMAGE_DIR = "python-base"``) is syntactically identical
+    (``PYTHON_DEFAULT_PORT = 8000``) is syntactically identical
     to an ordinary function-local variable assignment -- the only thing
     that distinguishes a real module constant from
     ``def f(): python_helper = 1`` is WHERE the statement sits in the tree.
@@ -4005,7 +3780,7 @@ def scan_file_for_shared_target_names(
     registered target name as an identifier segment: a class or
     function/method DEFINITION, a dataclass field or type alias declared at
     module or class-body level (either annotated, e.g. ``x: TypeAlias =
-    ...``, or a plain assignment, e.g. ``PYTHON_BASE_IMAGE_DIR = "..."``), or
+    ...``, or a plain assignment, e.g. ``PYTHON_DEFAULT_PORT = ...``), or
     a type reference (an ``isinstance()``/``issubclass()`` argument, a base
     class, a type annotation, or a type-alias union member).
 
@@ -4032,7 +3807,7 @@ def scan_file_for_shared_target_names(
     (the struct-slice dataclasses, the ``StructSliceBuilder`` union, the
     ``build_struct_context`` isinstance ladder,
     ``CqrsBusRegistration.import_line_python``, and the plain module-level
-    constant ``PYTHON_BASE_IMAGE_DIR``) while leaving ordinary local code and
+    constant ``PYTHON_DEFAULT_PORT``) while leaving ordinary local code and
     reads of out-of-scope packages' fields untouched.
 
     Args:
@@ -5912,7 +5687,7 @@ def _self_test_no_testkit_carve_out(
     testkit import in a platform's test tree is reported by the default
     (unratcheted) boundary scan."""
     _step(
-        "Self-test 1/25: platforms, SQL and component forbid "
+        "Self-test 1/24: platforms, SQL and component forbid "
         "datrix_codegen_common in tests/ exactly as in src/"
     )
     ok = True
@@ -6033,7 +5808,7 @@ def _self_test_dotted_precision_and_carveout(rules: dict[str, BoundaryRule]) -> 
     """Subtree matching is exact-or-child (not raw prefix), and the one
     surviving carve-out (datrix_testing's kernel allowed_subtrees) never
     leaks to a package that did not opt in."""
-    _step("Self-test 2/25: dotted-boundary precision and kernel-carve-out non-leakage")
+    _step("Self-test 2/24: dotted-boundary precision and kernel-carve-out non-leakage")
     ok = True
     platform_source = "datrix_codegen_aws"
     ok &= _check(
@@ -6103,7 +5878,7 @@ def _self_test_dotted_precision_and_carveout(rules: dict[str, BoundaryRule]) -> 
 def _self_test_sql_and_component_coverage(rules: dict[str, BoundaryRule]) -> bool:
     """The rule table covers datrix_codegen_sql and datrix_codegen_component,
     each enforcing the sibling-language prohibition absolutely."""
-    _step("Self-test 3/25: SQL and Component boundary rule coverage")
+    _step("Self-test 3/24: SQL and Component boundary rule coverage")
     ok = True
 
     ok &= _check(
@@ -6362,7 +6137,7 @@ def _self_test_platform_to_platform_prohibition(
     monorepo must classify exactly as its manifests say.
     """
     _step(
-        "Self-test 4/25: taxonomy discovery + platform -> sibling-platform "
+        "Self-test 4/24: taxonomy discovery + platform -> sibling-platform "
         "import prohibition"
     )
     ok = True
@@ -6488,7 +6263,7 @@ def _self_test_platform_cli_non_vacuity() -> bool:
     clears (exit 0) -- i.e. the rule flags the defect and permits the fix.
     """
     _step(
-        "Self-test 10/25: platform -> platform CLI mutation non-vacuity "
+        "Self-test 10/24: platform -> platform CLI mutation non-vacuity "
         "(plant a real aws -> docker import, prove detection, prove the shared-layer fix clears it)"
     )
     ok = True
@@ -6633,7 +6408,7 @@ def _self_test_provider_literal_cli_non_vacuity() -> bool:
     monorepo rather than the real committed baseline.
     """
     _step(
-        "Self-test 11/25: provider-literal ratchet CLI mutation non-vacuity "
+        "Self-test 11/24: provider-literal ratchet CLI mutation non-vacuity "
         '(plant a real == "azure" conditional, prove detection, prove it clears on revert)'
     )
     ok = True
@@ -6728,7 +6503,7 @@ def _self_test_shared_package_provider_literal_cli_non_vacuity() -> bool:
     required NEGATIVE acceptance proof for D6.1's shared-package half.
     """
     _step(
-        "Self-test 12/25: shared-package provider-literal zero-tolerance CLI "
+        "Self-test 12/24: shared-package provider-literal zero-tolerance CLI "
         'mutation non-vacuity (plant a real == "azure" conditional in '
         "datrix-common, prove detection, prove it clears on revert)"
     )
@@ -6794,7 +6569,7 @@ def _self_test_shared_vocabulary_scanner() -> bool:
     shape's bare-literal redeclaration is detected while its importing form
     is not."""
     _step(
-        "Self-test 13/25: shared-vocabulary scanner (detection + exemption "
+        "Self-test 13/24: shared-vocabulary scanner (detection + exemption "
         "non-vacuity, Enum and non-Enum canonical sources alike)"
     )
     ok = True
@@ -7188,7 +6963,7 @@ def _self_test_shared_vocabulary_cli_non_vacuity() -> bool:
     fixture file.
     """
     _step(
-        "Self-test 14/25: shared-vocabulary ratchet CLI mutation non-vacuity "
+        "Self-test 14/24: shared-vocabulary ratchet CLI mutation non-vacuity "
         "(fixture importing QueryTerminal exits 0; redeclaring its four "
         "members as bare literals exits 1; reverting clears it -- plus one "
         "mutate/detect/revert cycle per non-Enum canonical vocabulary)"
@@ -7275,7 +7050,7 @@ def _self_test_shared_target_name_scanner() -> bool:
     design, and the full scanner does not flag a bare local variable inside
     a function body but DOES detect a plain module-level constant via the
     scoped Assign path."""
-    _step("Self-test 15/25: shared-target-name scanner (segment matching + non-flood proof)")
+    _step("Self-test 15/24: shared-target-name scanner (segment matching + non-flood proof)")
     ok = True
 
     # Synthetic vocabulary: "java" is kept only as the short name whose
@@ -7389,13 +7164,13 @@ def _self_test_shared_target_name_scanner() -> bool:
 
         module_constant_file = scratch_dir / "module_constant.py"
         module_constant_file.write_text(
-            'PYTHON_BASE_IMAGE_DIR = "python-base"\n', encoding="utf-8"
+            "PYTHON_DEFAULT_PORT = 8000\n", encoding="utf-8"
         )
         module_constant_hits = scan_file_for_shared_target_names(
             module_constant_file, target_names
         )
         ok &= _check(
-            "a plain MODULE-level constant (PYTHON_BASE_IMAGE_DIR) IS flagged via "
+            "a plain MODULE-level constant (PYTHON_DEFAULT_PORT) IS flagged via "
             "the scoped Assign path, matched_target == 'python'",
             len(module_constant_hits) == 1
             and module_constant_hits[0].matched_target == "python"
@@ -7512,7 +7287,7 @@ def _self_test_shared_target_name_cli_non_vacuity() -> bool:
     proves it clears.
     """
     _step(
-        "Self-test 16/25: shared-target-name ratchet CLI mutation non-vacuity "
+        "Self-test 16/24: shared-target-name ratchet CLI mutation non-vacuity "
         "('class PythonFooSlice' and a live alias-token class exit 1; "
         "'class FooSliceProtocol' exits 0)"
     )
@@ -7600,7 +7375,7 @@ def _self_test_provider_conditional_scanner() -> bool:
     conditional shape (ProviderId-shaped, deployment-provider-value, match/case,
     and -- added by this task -- the two D5 provider-literal sub-patterns) and
     excludes every look-alike that must not ratchet."""
-    _step("Self-test 5/25: provider-conditional AST scanner (detection + exclusion)")
+    _step("Self-test 5/24: provider-conditional AST scanner (detection + exclusion)")
     ok = True
     provider_ids = registered_platform_names()
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"provider-scanner-{uuid.uuid4().hex}"
@@ -7750,7 +7525,7 @@ def _self_test_function_level_import_scanner() -> bool:
     """scan_file_for_function_level_imports counts zero for module-top
     imports and exactly one for each nested (function/TYPE_CHECKING/
     try-except) import."""
-    _step("Self-test 6/25: function-level-import AST scanner")
+    _step("Self-test 6/24: function-level-import AST scanner")
     ok = True
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"fli-scanner-{uuid.uuid4().hex}"
     scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -7792,7 +7567,7 @@ def _self_test_function_level_import_scanner() -> bool:
 def _self_test_ratchets() -> bool:
     """All three ratchet comparators fire on any per-file increase, never on
     a decrease, and treat a baseline-absent file as baseline 0."""
-    _step("Self-test 7/25: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
+    _step("Self-test 7/24: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
     ok = True
 
     clean = check_provider_conditional_ratchet(
@@ -8081,7 +7856,7 @@ def _self_test_cli_non_vacuity() -> bool:
     temporarily-mutated fixture tree -- never a simulated one, and never the
     real datrix-common source tree."""
     _step(
-        "Self-test 8/25: function-level-import CLI mutation non-vacuity "
+        "Self-test 8/24: function-level-import CLI mutation non-vacuity "
         "(plant a real regression, prove detection, prove it clears on revert)"
     )
     ok = True
@@ -8129,7 +7904,7 @@ def _self_test_function_level_scope_and_entries() -> bool:
     entry each fails the flag and clears when removed. ``--update-baseline``
     refuses to raise a count and lowers one, keeping its reason."""
     _step(
-        "Self-test 9/25: function-level-import scope (every policed package, "
+        "Self-test 9/24: function-level-import scope (every policed package, "
         "tracked moved modules) and fail-closed baseline entries"
     )
     ok = True
@@ -8234,7 +8009,7 @@ def _self_test_cross_package_vocabulary_scanner() -> bool:
     EnumClass.MEMBER references, and DOES recognize a bare tuple literal as
     a candidate container shape."""
     _step(
-        "Self-test 17/25: cross-package-vocabulary scanner (cross-package "
+        "Self-test 17/24: cross-package-vocabulary scanner (cross-package "
         "duplicate detection + same-package/qualified-enum/uniqueness "
         "exemptions + bare-tuple recognition)"
     )
@@ -8434,7 +8209,7 @@ def _self_test_cross_package_vocabulary_cli_non_vacuity() -> bool:
     the scanner-level self-test, ``_self_test_cross_package_vocabulary_scanner``,
     which this CLI proof complements with a real subprocess round-trip)."""
     _step(
-        "Self-test 18/25: cross-package-vocabulary ratchet CLI mutation "
+        "Self-test 18/24: cross-package-vocabulary ratchet CLI mutation "
         "non-vacuity (two non-overlapping fixture packages exit 0; "
         "redeclaring alpha's set in beta exits 1; reverting clears it; a "
         "written D9 reason survives --update-baseline and a vanished "
@@ -8602,7 +8377,7 @@ def _self_test_own_target_name_cli_non_vacuity() -> bool:
     delta), then reverts and proves it clears.
     """
     _step(
-        "Self-test 19/25: own-target-name ratchet (scanner shape, ratchet "
+        "Self-test 19/24: own-target-name ratchet (scanner shape, ratchet "
         "comparator, baseline round-trip, and CLI mutation non-vacuity: "
         "'build_python_thing' exits 1; 'build_thing' exits 0)"
     )
@@ -8749,49 +8524,6 @@ def _self_test_own_target_name_cli_non_vacuity() -> bool:
     return ok
 
 
-def _self_test_design_label_cli_non_vacuity() -> bool:
-    """Plant a design-label hit in an isolated fixture tree, prove the scanner
-    finds it, remove it, prove the scanner clears -- the same plant/observe/
-    revert shape every other ratchet's CLI non-vacuity self-test already uses.
-
-    The planted label is assembled from parts rather than written as a
-    literal in this file's own source: a literal instance here would itself
-    be a hit the moment this file is scanned by the check being tested.
-    """
-    _step(
-        "Self-test 20/25: design-label scanner mutation non-vacuity (plant a "
-        "label, prove detection, prove it clears on revert)"
-    )
-    ok = True
-    planted_label = "(" + "D" + "99" + ")"
-    with tempfile.TemporaryDirectory() as tmp:
-        fixture_root = Path(tmp) / "datrix-fixture"
-        fixture_src = fixture_root / "src" / "datrix_fixture"
-        fixture_src.mkdir(parents=True)
-        target_file = fixture_src / "module.py"
-
-        target_file.write_text(
-            f'"""A docstring mentioning {planted_label} for no reason."""\n'
-        )
-        packages = {
-            "datrix_fixture": PackageInfo(
-                name="datrix_fixture", root=fixture_root, src_dir=fixture_src
-            )
-        }
-        hits = scan_design_labels(packages, Path(tmp))
-        messages = check_design_labels(hits, Path(tmp))
-        ok &= _check("design-label scanner detects a planted hit", bool(messages))
-
-        target_file.write_text('"""A docstring with no label at all."""\n')
-        hits_after = scan_design_labels(packages, Path(tmp))
-        messages_after = check_design_labels(hits_after, Path(tmp))
-        ok &= _check(
-            f"design-label scanner clears after the label is removed, got {messages_after}",
-            not messages_after,
-        )
-    return ok
-
-
 def _self_test_shared_package_classification_fixture() -> bool:
     """``discover_shared_packages`` excludes a taxonomy-classified package,
     includes an entry-point-less package that has a real ``src/`` tree, and
@@ -8800,7 +8532,7 @@ def _self_test_shared_package_classification_fixture() -> bool:
     entry-point group, even with no ``src/`` tree at all to scan (the
     fail-loud check fires from the manifest walk alone)."""
     _step(
-        "Self-test 21/25: shared-package classification (derivation "
+        "Self-test 20/24: shared-package classification (derivation "
         "excludes/includes correctly; fail-loud on an unclassifiable package)"
     )
     ok = True
@@ -8914,7 +8646,7 @@ def _self_test_platform_token_scanner() -> bool:
     clears on revert), mirroring the G2 shared-target-name ratchet's own
     CLI-mutation non-vacuity shape rather than an in-process call alone."""
     _step(
-        "Self-test 22/25: platform-token identifier/module-name shape match "
+        "Self-test 21/24: platform-token identifier/module-name shape match "
         "(direct scanner assertions + CLI mutation non-vacuity)"
     )
     ok = True
@@ -9029,7 +8761,7 @@ def _self_test_target_literal_new_kinds() -> bool:
     any target-literal-ratchet mutation, not specific to the platform-token
     kinds)."""
     _step(
-        "Self-test 23/25: target-literal key/comparand/isinstance/import-path "
+        "Self-test 22/24: target-literal key/comparand/isinstance/import-path "
         "shapes (direct scanner assertions + own-language exclusion + CLI "
         "mutation non-vacuity)"
     )
@@ -9328,7 +9060,7 @@ def _self_test_reexport_facade_scanner() -> bool:
     proving the worklist prints the planted sites with the consumer hit's
     resolved defining module."""
     _step(
-        "Self-test 24/25: re-export-facade scanner (provider/consumer/"
+        "Self-test 23/24: re-export-facade scanner (provider/consumer/"
         "entry-point/unresolved shapes, TYPE_CHECKING definition, submodule "
         "exemption) + CLI mutation non-vacuity + filtered worklist"
     )
@@ -9766,7 +9498,7 @@ def _self_test_non_utf8_source_handling() -> bool:
     closed with the same clean message every other bad file gets, instead of
     crashing the whole scan."""
     _step(
-        "Self-test 25/25: a non-UTF-8 source file is reported by path, "
+        "Self-test 24/24: a non-UTF-8 source file is reported by path, "
         "never an uncaught crash"
     )
     ok = True
@@ -9838,7 +9570,6 @@ def run_self_test() -> bool:
         _self_test_cross_package_vocabulary_scanner(),
         _self_test_cross_package_vocabulary_cli_non_vacuity(),
         _self_test_own_target_name_cli_non_vacuity(),
-        _self_test_design_label_cli_non_vacuity(),
         _self_test_shared_package_classification_fixture(),
         _self_test_platform_token_scanner(),
         _self_test_target_literal_new_kinds(),
@@ -9969,21 +9700,6 @@ def main() -> int:
             "segment -- a name-keyed behaviour-parity scan cannot see a "
             "parallel implementation hiding behind its own language's name "
             "in the function name."
-        ),
-    )
-    parser.add_argument(
-        "--check-design-labels",
-        action="store_true",
-        help=(
-            "Run the design-document label check in addition to the "
-            "import-boundary check. Fails when a docstring, comment, "
-            "template comment, or runtime string in a registered "
-            "package's src/+tests/ tree (or the datrix repo's own "
-            "scripts/dev, scripts/library, scripts/test trees) carries a "
-            "parenthesized or colon-suffixed design/task/phase reference "
-            "number -- those numbered files are gitignored and renumbered "
-            "independently per machine, so a surviving reference is a "
-            "dangling pointer. Hard zero, no baseline: any hit fails."
         ),
     )
     parser.add_argument(
@@ -10224,18 +9940,10 @@ def main() -> int:
             shared_package_hits_by_file, monorepo_root
         )
 
-    # Design-document label check -- also a hard zero with no baseline file,
-    # so it is computed unconditionally here for the same reason as the
-    # shared-package check above: a real hit must fail even inside an
-    # --update-baseline run requested for a different flag.
-    design_label_messages: list[str] = []
-    if args.check_design_labels:
-        design_label_hits_by_file = scan_design_labels(packages, monorepo_root)
-        design_label_messages = check_design_labels(design_label_hits_by_file, monorepo_root)
-
     # Re-export-facade check (exactly one import path per symbol) -- a hard
     # zero with no baseline file, computed unconditionally for the same
-    # reason as the design-label check above.
+    # reason as the shared-package check above: a real hit must fail even
+    # inside an --update-baseline run requested for a different flag.
     reexport_facade_messages: list[str] = []
     reexport_facade_hits_by_module: dict[str, list[ReexportFacadeHit]] = {}
     if args.check_reexport_facades:
@@ -10428,9 +10136,9 @@ def main() -> int:
             )
             updated_any = True
 
-        # The design-label and re-export-facade checks have no baseline, so
-        # requesting either alone must not fall through to the target-literal
-        # default and overwrite an unrelated baseline.
+        # The re-export-facade check has no baseline, so requesting it alone
+        # must not fall through to the target-literal default and overwrite an
+        # unrelated baseline.
         if args.check_target_literals or not (
             args.check_provider_conditionals
             or args.check_function_level_imports
@@ -10438,7 +10146,6 @@ def main() -> int:
             or args.check_shared_target_names
             or args.check_cross_package_vocabulary
             or args.check_own_target_names
-            or args.check_design_labels
             or args.check_reexport_facades
         ):
             target_literal_hits_by_file = scan_target_literals(
@@ -10462,17 +10169,6 @@ def main() -> int:
                 "these packages have no baseline to update; fix the code instead:\n"
             )
             for message in shared_package_provider_literal_messages:
-                print(message)
-            print()
-            return 1
-
-        if design_label_messages:
-            print(
-                f"Error: design-document label check failed for "
-                f"{len(design_label_messages)} occurrence(s) -- there is no "
-                "baseline to update; fix the code instead:\n"
-            )
-            for message in design_label_messages:
                 print(message)
             print()
             return 1
@@ -10693,7 +10389,6 @@ def main() -> int:
         or shared_target_name_messages
         or cross_package_vocabulary_messages
         or own_target_name_messages
-        or design_label_messages
         or reexport_facade_messages
     ):
         mode = "Warning" if args.warn else "Error"
@@ -10779,16 +10474,6 @@ def main() -> int:
                 print(message)
             print()
 
-        if design_label_messages:
-            print(
-                f"{mode}: design-document label check failed for "
-                f"{len(design_label_messages)} occurrence(s) (no baseline -- "
-                f"any hit fails):\n"
-            )
-            for message in design_label_messages:
-                print(message)
-            print()
-
         if reexport_facade_messages:
             print(
                 f"{mode}: re-export-facade check failed for "
@@ -10810,9 +10495,6 @@ def main() -> int:
             "Shared-package provider-literal zero-tolerance check: 0 hits "
             f"({shared_package_list})."
         )
-
-    if args.check_design_labels:
-        print("Design-document label check: 0 hits.")
 
     if args.check_reexport_facades:
         print("Re-export-facade check: 0 hits.")

@@ -43,8 +43,8 @@
  is passed (without -CheckTargetLiterals), in which case it updates
  provider-conditional-baseline.toml instead. Pass both -CheckTargetLiterals and
  -CheckProviderConditionals to update both baselines in one run.
- -CheckDesignLabels and -CheckReexportFacades are hard zeros with no
- baseline: -UpdateBaseline writes nothing for them.
+ -CheckReexportFacades is a hard zero with no baseline: -UpdateBaseline
+ writes nothing for it.
 
 .PARAMETER CheckProviderConditionals
  Run the I6 successor ratchet check (invariant I6, DI-4/DI-5) in
@@ -114,17 +114,6 @@
  scoped to function/method DEFINITION names only, never a class name,
  field, or type reference. Compares current per-package counts against the
  frozen baseline at scripts/config/own-target-name-baseline.toml.
-
-.PARAMETER CheckDesignLabels
- Run the design-document label check in addition to the import-boundary
- check. Fails when a docstring, comment, template comment, or runtime
- string under a registered package's src/+tests/ trees (or the datrix
- repo's own scripts/dev, scripts/library, scripts/test trees) carries a
- parenthesized or colon-suffixed design/task/phase reference number --
- those numbered files are gitignored and renumbered independently per
- machine, so a surviving reference is a dangling pointer. Hard zero, no
- baseline file: any hit fails, and -UpdateBaseline has no effect on this
- check.
 
 .PARAMETER CheckReexportFacades
  Run the re-export-facade check in addition to the import-boundary
@@ -246,10 +235,6 @@
  Recompute and overwrite the frozen own-target-name baseline
 
 .EXAMPLE
- .\check-import-boundaries.ps1 -CheckDesignLabels
- Run the design-document label check (hard zero, no baseline)
-
-.EXAMPLE
  .\check-import-boundaries.ps1 -CheckReexportFacades
  Run the re-export-facade check (hard zero, no baseline)
 
@@ -296,9 +281,6 @@ param(
 
     [Parameter()]
     [switch]$CheckOwnTargetNames,
-
-    [Parameter()]
-    [switch]$CheckDesignLabels,
 
     [Parameter()]
     [switch]$CheckReexportFacades,
@@ -389,7 +371,6 @@ try {
     if ($CheckSharedTargetNames) { $pythonArgs += "--check-shared-target-names" }
     if ($CheckCrossPackageVocabulary) { $pythonArgs += "--check-cross-package-vocabulary" }
     if ($CheckOwnTargetNames) { $pythonArgs += "--check-own-target-names" }
-    if ($CheckDesignLabels) { $pythonArgs += "--check-design-labels" }
     if ($CheckReexportFacades) { $pythonArgs += "--check-reexport-facades" }
     foreach ($module in $FacadeModule) { $pythonArgs += "--facade-module"; $pythonArgs += $module }
     foreach ($repo in $ConsumerPackage) { $pythonArgs += "--consumer-package"; $pythonArgs += $repo }
