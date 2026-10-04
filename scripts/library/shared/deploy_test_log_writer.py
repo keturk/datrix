@@ -542,7 +542,7 @@ class DeployTestLogWriter:
 
         return self._run_dir / "index.json"
 
-    # --- Phase detection (Q4: hybrid) ---
+    # --- Phase detection (hybrid) ---
 
     def _detect_phases(self) -> dict[str, PhaseResult]:
         """Detect deploy test phase results using hybrid approach.
@@ -1170,7 +1170,7 @@ class DeployTestLogWriter:
 
         return failures, services
 
-    # --- Docker log excerpting (Q2/Q6: error-grep + tail) ---
+    # --- Docker log excerpting (error-grep + tail) ---
 
     def _excerpt_docker_log(self, log_path: Path) -> str:
         """Extract error-relevant lines from a Docker container log.
@@ -1316,7 +1316,7 @@ class DeployTestLogWriter:
 
         return errors
 
-    # --- Transient classification (Q1: shared patterns) ---
+    # --- Transient classification (shared patterns) ---
 
     def _classify_failure(self, error_message: str) -> str:
         """Classify a test failure as transient or logic.

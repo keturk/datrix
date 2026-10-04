@@ -13,10 +13,11 @@ default sweep sets, gate target lists -- MUST source it here (Python) or via the
 sibling PowerShell ``Get-DatrixInstalledLanguages`` / ``Get-DatrixInstalledPlatforms``
 helpers, so the answer stays derived from the registered set.
 
-Run directly to print the set for shell consumption::
+Run from ``scripts/library`` to print the set for shell consumption::
 
-    python registered_targets.py languages   # one name per line, sorted
-    python registered_targets.py platforms
+    python -m shared.registered_targets languages   # one name per line, sorted
+    python -m shared.registered_targets platforms
+    python -m shared.registered_targets --self-test  # non-vacuity of target_references_in_module
 
 Every script that also needs "which on-disk ``src/`` directories implement this
 registered target" sources it here too, via
@@ -31,9 +32,11 @@ tests.
 
 from __future__ import annotations
 
+import ast
 import logging
 import sys
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
@@ -48,6 +51,8 @@ from datrix_common.plugin.registry import (
     entry_points,
 )
 from datrix_testing.target_distributions import target_import_names
+
+from shared.target_literal_positions import target_name_literal_hits
 
 logger = logging.getLogger(__name__)
 
@@ -475,25 +480,199 @@ def discover_all_other_package_src_dirs(monorepo_root: Path, exclude_dirs: froze
     return sorted(src_dir for src_dir in all_locations.values() if src_dir not in exclude_dirs)
 
 
+#: Kind labels of a ``TargetReference``.
+REFERENCE_KIND_IMPORT: Final[str] = "target_package_import"
+REFERENCE_KIND_NAME_LITERAL: Final[str] = "target_name_literal"
+
+
+@dataclass(frozen=True)
+class TargetReference:
+    """One place a module names a registered target.
+
+    Attributes:
+        line: 1-based source line.
+        kind: ``REFERENCE_KIND_IMPORT`` or ``REFERENCE_KIND_NAME_LITERAL``.
+        token: The imported top-level module, or the registered target name.
+    """
+
+    line: int
+    kind: str
+    token: str
+
+
+def _target_package_import_roots(monorepo_root: Path) -> frozenset[str]:
+    """Import roots of every registered language/platform package and the cores they require.
+
+    Derived from ``discover_target_package_src_dirs`` over both axes: each
+    resolved ``src/<import_name>`` directory contributes ``<import_name>``.
+    """
+    roots: set[str] = set()
+    for axis, names in (
+        (AXIS_LANGUAGES, registered_language_names()),
+        (AXIS_PLATFORMS, registered_platform_names()),
+    ):
+        src_dirs = discover_target_package_src_dirs(axis, names, monorepo_root)
+        roots.update(src_dir.name for src_dir in all_src_dirs(src_dirs))
+    return frozenset(roots)
+
+
+def _target_references_in_source(
+    source: str, target_names: frozenset[str], import_roots: frozenset[str]
+) -> tuple[TargetReference, ...]:
+    """Every target reference in *source*, ordered by line.
+
+    Raises:
+        SyntaxError: *source* does not parse.
+    """
+    tree = ast.parse(source)
+    references = [
+        TargetReference(line=line, kind=REFERENCE_KIND_NAME_LITERAL, token=value)
+        for value, line in target_name_literal_hits(tree, target_names)
+    ]
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            imported = [node.module] if node.module and node.level == 0 else []
+        elif isinstance(node, ast.Import):
+            imported = [alias.name for alias in node.names]
+        else:
+            continue
+        for module_name in imported:
+            root = module_name.split(".")[0]
+            if root in import_roots:
+                references.append(
+                    TargetReference(line=node.lineno, kind=REFERENCE_KIND_IMPORT, token=root)
+                )
+    return tuple(sorted(references, key=lambda ref: (ref.line, ref.kind, ref.token)))
+
+
+def target_references_in_module(module_path: Path) -> tuple[TargetReference, ...]:
+    """Every place the module at *module_path* names a registered target.
+
+    A cross-target gate enumerates targets from registration and must never name
+    one, so each gate runs this over itself as the first step of its self-test.
+    Two shapes count:
+
+    1. an ``Import``/``ImportFrom`` whose top-level module is the import root of
+       a registered language or platform package, or of a core those packages
+       require (derived from ``discover_target_package_src_dirs`` over both
+       axes, never listed);
+    2. a ``str`` constant equal to a registered language or platform name in a
+       target-identity position (``shared.target_literal_positions``).
+
+    Docstrings, log-message arguments and every other string position are not
+    hits.
+
+    Args:
+        module_path: The Python module to scan.
+
+    Returns:
+        The references, ordered by line; empty when the module names no target.
+
+    Raises:
+        SyntaxError: The module does not parse.
+        OSError: The module cannot be read.
+    """
+    target_names = registered_language_names() | registered_platform_names()
+    return _target_references_in_source(
+        module_path.read_text(encoding="utf-8"),
+        target_names,
+        _target_package_import_roots(WORKSPACE_ROOT),
+    )
+
+
+def format_target_references(module_path: Path, references: tuple[TargetReference, ...]) -> str:
+    """One line per reference: ``<module>:<line>: <kind> '<token>'``."""
+    return "\n".join(
+        f"{module_path.name}:{ref.line}: {ref.kind} '{ref.token}'" for ref in references
+    )
+
+
+def self_test_gate_names_no_target(gate_file: str) -> list[str]:
+    """Failure lines when the gate at *gate_file* names a registered target (empty = clean).
+
+    The one call every cross-target gate makes as the first step of its
+    self-test: ``failures = self_test_gate_names_no_target(__file__)``.
+    """
+    module_path = Path(gate_file)
+    references = target_references_in_module(module_path)
+    if not references:
+        return []
+    return [
+        f"{module_path.name} names a registered target; a gate that enumerates targets "
+        "must read each through its plugin, never by name. Expected zero references. "
+        "Fix: move the per-target knowledge into the target's conformance probes or "
+        "capability declaration.",
+        *format_target_references(module_path, references).splitlines(),
+    ]
+
+
+def _run_self_test() -> int:
+    """Prove ``target_references_in_module`` is non-vacuous and precise (exit 0/2)."""
+    languages = sorted(registered_language_names())
+    platforms = sorted(registered_platform_names())
+    import_roots = sorted(_target_package_import_roots(WORKSPACE_ROOT))
+    if not languages or not platforms or not import_roots:
+        print(
+            "self-test: no registered languages/platforms/import roots discovered; "
+            "install the datrix-codegen-<x> packages into D:\\datrix\\.venv",
+            file=sys.stderr,
+        )
+        return 2
+    names = frozenset(languages) | frozenset(platforms)
+    roots = frozenset(import_roots)
+    planted = (
+        f"TABLE = {{{languages[0]!r}: print}}\n"
+        f"flag = value == {platforms[0]!r}\n"
+        f"from {import_roots[0]}.sub import imported\n"
+    )
+    near_misses = (
+        f'"""Docstring naming {languages[0]} and {platforms[0]}."""\n'
+        "import logging\n"
+        "logger = logging.getLogger(__name__)\n"
+        f"logger.info('target %s', {platforms[0]!r})\n"
+        f"label = {languages[0]!r}\n"
+    )
+    failures: list[str] = []
+    planted_hits = _target_references_in_source(planted, names, roots)
+    if len(planted_hits) != 3:
+        failures.append(f"planted fixture: expected 3 hits, got {len(planted_hits)}: {planted_hits}")
+    near_miss_hits = _target_references_in_source(near_misses, names, roots)
+    if near_miss_hits:
+        failures.append(f"near-miss fixture: expected 0 hits, got {near_miss_hits}")
+    clean_hits = _target_references_in_source("import os\nvalue = os.getcwd()\n", names, roots)
+    if clean_hits:
+        failures.append(f"clean fixture: expected 0 hits, got {clean_hits}")
+    for failure in failures:
+        print(f"self-test FAILED: {failure}", file=sys.stderr)
+    if not failures:
+        print("self-test passed: planted fixture hits 3, near-misses 0, clean module 0")
+    return 2 if failures else 0
+
+
 _KIND_TO_ENUMERATOR = {
     "languages": registered_language_names,
     "platforms": registered_platform_names,
 }
+
+_SELF_TEST_FLAG: Final[str] = "--self-test"
 
 
 def main(argv: list[str] | None = None) -> int:
     """Print the requested registered target set, one name per line, sorted.
 
     Args:
-        argv: CLI args; ``argv[0]`` selects ``languages`` or ``platforms``.
+        argv: CLI args; ``argv[0]`` selects ``languages`` or ``platforms``, or
+            ``--self-test`` runs the module's own non-vacuity check.
 
     Returns:
-        Process exit code (0 on success, 2 on a usage error).
+        Process exit code (0 on success, 2 on a usage error or a failed self-test).
     """
     args = sys.argv[1:] if argv is None else argv
+    if args == [_SELF_TEST_FLAG]:
+        return _run_self_test()
     if len(args) != 1 or args[0] not in _KIND_TO_ENUMERATOR:
         kinds = ", ".join(sorted(_KIND_TO_ENUMERATOR))
-        print(f"usage: registered_targets.py <{kinds}>", file=sys.stderr)
+        print(f"usage: registered_targets.py <{kinds}> | {_SELF_TEST_FLAG}", file=sys.stderr)
         return 2
     for name in sorted(_KIND_TO_ENUMERATOR[args[0]]()):
         print(name)
