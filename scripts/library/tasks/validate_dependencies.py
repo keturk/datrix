@@ -58,6 +58,7 @@ from task_metadata import (
     normalize_task_id,
     parse_dependencies_md,
     parse_task_file,
+    parse_task_text,
     task_id_from_filename,
     task_id_number,
     task_id_phase,
@@ -490,6 +491,25 @@ def _self_test_id_parsing() -> list[str]:
         "dates are not task references",
         extract_dependency_ids(" 2026-07-13 and 13-07-2026"),
         [],
+    )
+    # Prose beneath the metadata block (after a blank line) is not a dependency list: its
+    # task-shaped tokens and file line ranges must not become edges.
+    with_prose = (
+        "# Example heading\n\n**Package:** datrix-common\n"
+        f"**Depends on:** {qualified('58-06')}\n\n"
+        f"> Context: unlike 56-40 and 56-05/06/07, see `_file.py:61-81`.\n"
+    )
+    parsed = parse_task_text(Path(f"{prefix}58-08-example.md"), with_prose)
+    check("prose after the field is not scanned", parsed.depends_on, [qualified("58-06")])
+    contiguous = (
+        "# Example heading\n\n**Package:** datrix-common\n"
+        f"**Depends on:** {qualified('58-06')},\n{qualified('58-07')}\n"
+    )
+    parsed = parse_task_text(Path(f"{prefix}58-08-example.md"), contiguous)
+    check(
+        "a list continued on the next line is read whole",
+        parsed.depends_on,
+        [qualified("58-06"), qualified("58-07")],
     )
     return failures
 

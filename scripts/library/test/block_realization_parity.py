@@ -176,7 +176,6 @@ _PLATFORM_FACT_FIELDS: Final[frozenset[str]] = frozenset({
     "identity_write_back",
     "cdn_invalidation_realization",
     "requires_trusted_caller_behind_managed_gateway",
-    "realizes_inprocess_async_hosting",
     "native_identity_provider",
     "gateway_terminates_tls",
     "rdbms_login_principal_is_per_service",
@@ -187,6 +186,7 @@ _PLATFORM_FACT_FIELDS: Final[frozenset[str]] = frozenset({
     "cache_pooled_slice_delivery",
     "publishes_gateway_behind_managed_edge",
     "trusted_edge_client_address_include",
+    "client_address_source",
     "deploy_preflight_entrypoint",
 })
 

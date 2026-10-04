@@ -168,6 +168,10 @@ def _workspace() -> Iterator[Path]:
         _write(root / "datrix-alpha/src/alpha_pkg/plugin/capability.py", _lines(20))
         _write(root / "datrix-beta/src/beta_pkg/plugin/capability.py", _lines(90))
         _write(root / "datrix-beta/src/beta_pkg/only_beta.py", _lines(30))
+        # The local-model reader filters every line against the customer-term corpus and refuses
+        # to read without one; this workspace registers no customer.
+        _write(root / "datrix/scripts/config/customer-term-hashes.json",
+               json.dumps({"algorithm": "sha256", "min_token_length": 5, "terms": []}))
         yield root
 
 

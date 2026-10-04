@@ -61,6 +61,7 @@ from datrix_codegen_common.generation.http_headers import (  # noqa: E402
     RETIRED_HEADERS,
     FrameworkHeader,
 )
+from datrix_codegen_kernel.generation.client_address import CLIENT_ADDRESS_HEADER  # noqa: E402
 from datrix_codegen_kernel.generation.trusted_caller import CALLER_TOKEN_HEADER  # noqa: E402
 
 from shared.registered_targets import registered_language_names  # noqa: E402
@@ -132,9 +133,10 @@ def registry_constant_families() -> dict[str, str]:
     """Derive ``{constant name: family}`` from the registry module's own
     exports, so a new family's constant is recognized with no edit here.
 
-    ``CALLER_TOKEN_HEADER`` is not in that ``__all__`` -- its one import path
-    is its owning module (``trusted_caller``), not the re-export the registry
-    module used to index. It is added here directly so a ``.py`` file
+    ``CALLER_TOKEN_HEADER`` and ``CLIENT_ADDRESS_HEADER`` are not in that
+    ``__all__`` -- each one's import path is its owning kernel module
+    (``trusted_caller``, ``client_address``), not a re-export the registry
+    module indexes. They are added here directly so a ``.py`` file
     referencing the constant still realizes its family."""
     by_name = {header.name.lower(): header.family for header in FRAMEWORK_HEADERS}
     families: dict[str, str] = {}
@@ -145,6 +147,7 @@ def registry_constant_families() -> dict[str, str]:
         if isinstance(value, str) and value.lower() in by_name:
             families[exported] = by_name[value.lower()]
     families["CALLER_TOKEN_HEADER"] = by_name[CALLER_TOKEN_HEADER.lower()]
+    families["CLIENT_ADDRESS_HEADER"] = by_name[CLIENT_ADDRESS_HEADER.lower()]
     return families
 
 

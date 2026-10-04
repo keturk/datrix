@@ -32,6 +32,7 @@ if str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
 from dev.local_llm_mcp import LocalLlmServer, LocalReader  # noqa: E402
+from dev.customer_domain_isolation import hash_term  # noqa: E402
 from shared.local_llm import LocalLlmPool, LocalLlmSettings  # noqa: E402
 from shared.local_llm_usage import USAGE_LOG_VARIABLE  # noqa: E402
 from shared.local_reading import (  # noqa: E402
@@ -59,6 +60,8 @@ _LOOPBACK = "127.0.0.1"
 _MCP_SCRIPT = _LIBRARY_DIR / "dev" / "local_llm_mcp.py"
 
 _A_PY = "def alpha():\n    return 1\n\n\ndef beta():\n    return 2\n"
+# A registered customer term for the fixture workspace: a made-up word no real stack uses.
+_GATE_TERM = "zzgateterm"
 
 
 def _ok(msg: str) -> None:
@@ -106,6 +109,9 @@ def _workspace() -> Iterator[Path]:
         _write(root / "acme-shop" / "x.py", "SECRET_DOMAIN = 1\n")
         _write(root / ".tmp" / "generated" / "app.py", "GENERATED = 1\n")
         _write(root / ".test-output" / "run.log", "collected 3 items\nE   AssertionError: boom\n1 failed\n")
+        _write(root / "datrix" / "scripts" / "config" / "customer-term-hashes.json", json.dumps({
+            "algorithm": "sha256", "min_token_length": 5,
+            "terms": [{"hash": hash_term(_GATE_TERM), "hint": "gate fixture"}]}))
         yield root
 
 
@@ -309,6 +315,33 @@ def check_ask_over_many_chunks_maps_then_merges() -> None:
         assert result.text.startswith("merged:") and not result.notes, (result.text, result.notes)
 
 
+def check_a_line_with_a_registered_customer_term_is_never_sent() -> None:
+    log = ("collected 3 items\nERROR port conflict: container zzgateterm-db is already bound\n"
+           "E   AssertionError: boom\n1 failed\n")
+    with _workspace() as root, _ModelServer("gate-model", lambda _s, _u: "ok") as server:
+        _write(root / ".test-output" / "other-stack.log", log)
+        result = digest_log(ReadScope(root), _pool(server, root / "usage.jsonl"), ".test-output/other-stack.log", "")
+        sent = server.requests[0][1]
+        assert _GATE_TERM not in sent.lower(), "a registered customer term reached the model server"
+        assert "2| <line withheld" in sent and "3| E   AssertionError: boom" in sent, sent
+        assert any("1 line(s) withheld" in note for note in result.notes), result.notes
+        _write(root / "datrix-alpha" / "src" / "c.py", f"# {_GATE_TERM}\nX = 1\n")
+        ask_files(ReadScope(root), _pool(server, root / "usage.jsonl"), ["datrix-alpha/src/c.py"], "q")
+        assert _GATE_TERM not in server.requests[-1][1].lower(), "the filter covers source files as well as logs"
+
+
+def check_no_term_corpus_means_nothing_is_read() -> None:
+    with _workspace() as root, _ModelServer("gate-model", lambda _s, _u: "ok") as server:
+        (root / "datrix" / "scripts" / "config" / "customer-term-hashes.json").unlink()
+        message = ""
+        try:
+            ask_files(ReadScope(root), _pool(server, root / "usage.jsonl"), ["datrix-alpha/src/a.py"], "q")
+        except ReadScopeError as exc:
+            message = str(exc)
+        assert "without the customer-term corpus" in message, message
+        assert not server.requests, "an unfiltered read must not reach the model server"
+
+
 def check_digest_log_checks_only_its_own_line_citations() -> None:
     answer = "AssertionError: boom, 1 time, first at .test-output/run.log:2, raised from src/app.py:41; " \
              "also .test-output/run.log:77."
@@ -425,6 +458,8 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_ask_files_sends_numbered_lines_and_checks_citations,
     check_ask_files_flags_quoted_code_the_model_was_not_sent,
     check_ask_over_many_chunks_maps_then_merges,
+    check_a_line_with_a_registered_customer_term_is_never_sent,
+    check_no_term_corpus_means_nothing_is_read,
     check_digest_log_checks_only_its_own_line_citations,
     check_mcp_server_answers_and_refuses_out_of_scope,
     check_mcp_server_reports_no_model_server_as_a_tool_error,

@@ -445,6 +445,9 @@ def _collect_fields(lines: list[str], roles: list[str]) -> dict[str, str]:
 
     A field's text runs until the next known field label, the next markdown
     heading, or EOF. Fenced code lines neither terminate nor extend a field.
+    The ``Depends on`` field also ends at the first blank line after its text: prose
+    placed beneath the metadata block (a note naming other tasks, a file line range)
+    is not a dependency list, and reading it as one invents edges.
     """
     collected: dict[str, list[str]] = {}
     current: str | None = None
@@ -452,6 +455,13 @@ def _collect_fields(lines: list[str], roles: list[str]) -> dict[str, str]:
         if role != _LINE_ROLE_TEXT:
             continue
         if line.startswith("#"):
+            current = None
+            continue
+        if (
+            current == _FIELD_DEPENDS_ON
+            and not line.strip()
+            and any(part.strip() for part in collected[current])
+        ):
             current = None
             continue
         label_match = _FIELD_LABEL_PATTERN.match(line)
