@@ -81,11 +81,6 @@ count = 2
 reason = "DEPLOY_PY_NAME (:60, 'deploy.py') and DEPLOY_APP_PY_NAME (:75, 'deploy-app.py'): the 'py' segment is the file extension of the generated deployment script, which is Python by design on every platform; the names are shared by the docker, azure and aws platform packages and their tests, so a rename touches other packages. Drives to zero if the deployment script's file names are ever declared per platform instead of as shared constants."
 
 [[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/container_image_supply.py"
-count = 1
-reason = "PYTHON_BASE_IMAGE_DIR (:60) is a genuine target name, but datrix-codegen-docker consumes it directly and this design excludes datrix-codegen-docker from scope -- scope-fenced exemption; needs a follow-up design scoping docker's base-image-family naming. NOTE: _BASE_IMAGE_FAMILY_SUFFIX (:53) is NOT a hit -- its IDENTIFIER carries no language segment; only its string VALUE ('-python-base') does, which is outside this ratchet's identifier scope."
-
-[[baseline]]
 file = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/web_security_headers.py"
 count = 1
 reason = "'js' (:62) is not an identifier: it is the string value 'js' (a content-hashed asset file extension) inside the WEB_HASHED_ASSET_EXTENSIONS tuple, which the scanner walks as a type expression because the assignment is annotated. It carries no language and cannot be renamed. Drives to zero when the scanner stops treating the string values of a non-alias annotated assignment as forward references."

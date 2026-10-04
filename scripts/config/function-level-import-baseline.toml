@@ -87,11 +87,6 @@ count = 1
 reason = "datrix_model.ingress <-> datrix_model.containers: containers imports ServiceIngressExposure from ingress at module top, so ingress' Service annotation stays TYPE_CHECKING-only."
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/observability_validation.py"
-count = 1
-reason = "datrix_model.observability_validation <-> datrix_model.containers: containers imports validate_alerts/validate_audit from observability_validation at module top, so its Service/Shared annotations stay TYPE_CHECKING-only."
-
-[[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/pubsub.py"
 count = 2
 reason = "datrix_model.pubsub <-> datrix_model.callables / datrix_model.containers: callables imports Topic and containers imports Event/PubsubBlock/Subscription from pubsub at module top, so pubsub's EventHandler and Service/Shared annotations stay TYPE_CHECKING-only."

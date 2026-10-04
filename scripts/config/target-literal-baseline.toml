@@ -65,19 +65,9 @@ count = 17
 file = "datrix-common/src/datrix_common/config/platform/docker.py"
 count = 19
 
-# reason: the shared project-config model's platform-config union (Aws/Azure/AzureVm/
-# DockerPlatformConfig references and platform-named fields) -- same documented
-# config-schema surface as config/platform/*.py, not this task's scope; the
-# module's own imports of AwsPlatformConfig/AzurePlatformConfig/DockerPlatformConfig
-# from their respective config.platform.<provider> modules are now also three
-# target_module_import hits (aws/azure/docker).
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/project/models.py"
-count = 14
-
-# reason: shared system-config model referencing the same documented platform-config
-# union (Aws/Azure/DockerPlatformConfig) as config/project/models.py, not this
-# task's scope; the module's own imports of AwsPlatformConfig/AzurePlatformConfig/
+# reason: shared system-config model referencing the documented platform-config
+# union (Aws/Azure/DockerPlatformConfig), same config-schema surface as
+# config/platform/*.py, not this task's scope; the module's own imports of AwsPlatformConfig/AzurePlatformConfig/
 # DockerPlatformConfig from their respective config.platform.<provider> modules
 # are now also three target_module_import hits (aws/azure/docker).
 [[baseline]]
@@ -205,24 +195,6 @@ count = 1
 [[baseline]]
 file = "datrix-common/src/datrix_common/paths.py"
 count = 1
-
-# reason: pre-existing Azure Flexible Server / AWS RDBMS connection-limit tables
-# in a shared semantic validator (azure_flex_max_connections and its sibling
-# per-provider ceiling constants) -- provider-specific tables living in the
-# shared layer, scheduled for relocation to the owning platform package, not
-# this task's scope.
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/pooling_rdbms.py"
-count = 4
-
-# reason: single docker-named helper in the shared test-context fixtures module,
-# part of the same documented config-schema surface as config/platform/*.py,
-# not this task's scope; the module's kwargs dict literal's "python" key and
-# its kwargs["docker"] assignment subscript are now also target_name_literal
-# hits naming 'python' and 'docker' respectively.
-[[baseline]]
-file = "datrix-testing/src/datrix_testing/context.py"
-count = 3
 
 # reason: shared generation-determinism test fixtures with platform-named helper
 # functions (per-provider infra-sizing/upgrade/parse helpers exercised across
