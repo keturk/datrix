@@ -40,11 +40,35 @@ datrix-language: has changes
 
 ## pull.ps1
 
-Pulls latest changes from remote for all repositories.
+Pulls latest changes from remote for all repositories. A thin PowerShell wrapper delegates to `scripts/library/git/pull.py`.
 
 ```powershell
 .\pull.ps1
 ```
+
+Git's output is printed under each repo's name; after the last pull, a summary groups every repo by outcome:
+
+```
+========================================================================
+Pull summary: 21 repositories
+========================================================================
+Updated (2):
+  datrix-common  (1a2b3c4d5..6e7f8a9b0, 3 commit(s))
+  datrix-language  (...)
+Up to date (17):
+  datrix-cli
+  ...
+Conflict (1):
+  datrix-semantic
+      src/datrix_semantic/analyzer.py
+Blocked by local changes (1):
+  datrix
+      docs/architecture/config-system.md
+========================================================================
+2 repositories need attention.
+```
+
+Exit code 0 when every repo is updated or up to date, 1 when any conflicted, was blocked or failed, 2 when the run could not start.
 
 ## commit-and-push.ps1
 

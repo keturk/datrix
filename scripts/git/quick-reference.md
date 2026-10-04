@@ -21,13 +21,15 @@ Shows git status for all repositories under the workspace root.
 
 ## `git\pull.ps1`
 
-Pulls all git repositories under the workspace root.
+Pulls all git repositories under the workspace root (wraps `library\git\pull.py`), printing git's output per repo, then one summary grouping every repo by outcome: **Updated** (old..new, commit count), **Up to date**, **Conflict** (unmerged paths listed), **Blocked by local changes** (the paths the pull would overwrite; nothing merged — Jon's `/resolve-conflicts`), **Failed** (git's error line).
 
 | Mode | Command |
 |------|---------|
 | **Pull all** | `.\git\pull.ps1` |
 
-**Parameters:** `-Dbg`
+**Parameters:** none.
+
+**Exit codes:** 0 = every repo updated or up to date, 1 = at least one conflicted, was blocked or failed, 2 = the run could not start.
 
 ---
 
