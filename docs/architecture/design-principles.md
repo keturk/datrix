@@ -795,7 +795,7 @@ The rule has an inverse that is easier to get wrong, because a large duplicated 
 
 ### One HTTP Start-Command Contract (Adopted)
 
-**Principle:** A container-hosted service's HTTP start command has a single source of truth: the `LanguageRuntimeSpec.container_command()` contract (gunicorn/UvicornWorker for Python), rendered into the container image's `ENTRYPOINT`/`CMD`. A service starts the same way on every host — there is no per-host command override in container mode, and no hardcoded start command duplicated in a Dockerfile template.
+**Principle:** A container-hosted service's HTTP start command has a single source of truth: the `LanguageRuntimeSpec.container_command()` contract (gunicorn under the service's own generated `UvicornWorker` subclass for Python), rendered into the container image's `ENTRYPOINT`/`CMD`. A service starts the same way on every host — there is no per-host command override in container mode, and no hardcoded start command duplicated in a Dockerfile template.
 
 **Why:**
 - Two definitions of the same behavior drift silently: prior to this principle a Dockerfile template hardcoded a `uvicorn` `CMD` while the shared runtime contract returned `gunicorn` — two sources of truth for how the same service starts

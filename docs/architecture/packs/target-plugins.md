@@ -17,6 +17,7 @@ Open-world targets, derived conformance: [Decision 15](../architecture-overview.
 | I5 | No `(target → policy)` / `(target × target)` tables in shared layers | Subsumed by I1 |
 | I6 | Language packages contain zero provider conditionals; shared packages are held to a separate hard zero (no baseline) | `check-import-boundaries.ps1 -CheckProviderConditionals`; a package the derivation cannot classify aborts the scan naming it. The shared orchestrator asks the platform (`PlatformCapabilityDeclaration.injected_test_identity_providers`) rather than naming a provider |
 | I7 | Import-boundary allowlist empty | `import-boundary-allowlist.toml` has zero entries |
+| I8 | An identity provider type's rules (issuer, JWKS, audience, operator prerequisites) have exactly one owner — the package that integrates the provider — and no shared layer holds one; the shared identity tree is held at a hard zero (no baseline) | `check-import-boundaries.ps1 -CheckTargetLiterals` (the owned provider types are derived from the installed platform declarations; kinds `target_name_literal` and `identity_provider_member`); `datrix-common/tests/integration/identity/test_provider_type_ownership.py` (every realized type resolves to one owner); `identity_provider_type_rules` fails loud on an unowned or doubly-owned type |
 
 (The check commands are `powershell -File "d:/datrix/datrix/scripts/dev/check-import-boundaries.ps1" <flag>`.)
 
@@ -25,6 +26,8 @@ Open-world targets, derived conformance: [Decision 15](../architecture-overview.
 [Decision 22](../architecture-overview.md#decision-22-open-world-identity-providers-and-infrastructure-flavors-adopted) — Adopted.
 
 Identity provider types, the six infrastructure flavors (Rdbms/Cache/Pubsub/Queue/Nosql/Storage) and deployment runtimes are **open identifiers validated against the installed platform plugins** — no central capability matrix, no closed enums. Each platform declares its own column (identity `(provider type, feature)`, flavor cells, runtime support, identity write-back claim/encoding) in its `PlatformCapabilityDeclaration`. An unknown value fails loud, listing what the installed plugins declare. A platform declaring no write-back realization fails loud on write-back.
+
+**Identity provider rules have one owner.** What a provider type's issuer, JWKS and audience are is a fact about the provider product, not the platform hosting it, so the rules live in the package that integrates the provider (docker → `zitadel`, aws → `cognito`, azure → `entra-id` / `entra-external-id`; `external` is built in) and are registered on that package's `PlatformCapabilityDeclaration.identity_provider_type_rules`. A platform that only realizes a type owns nothing. The shared planner asks the registry; the deploy-time identity context is an open map keyed by provider type and built by one reader from each platform's declared projection.
 
 ## Foundation Package Restructure
 

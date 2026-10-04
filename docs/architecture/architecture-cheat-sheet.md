@@ -76,6 +76,9 @@ Each is held by an executable gate; the pack and decision named give the check.
 6. **Zero-environment runtime; credentials fail closed;** a missing value is never defaulted ([runtime-and-deploy](./packs/runtime-and-deploy.md)).
 7. **Every seam gets a set comparison in code** (producer vs consumer), landed as a validator or test.
 8. **One import path per symbol;** no upward imports ([target-plugins](./packs/target-plugins.md)).
+9. **Connection-bearing surfaces walk the realized or connected block set.** What a service connects to (cache clients, settings, connection keys, network reach, access grants) is derived from `realized_cache_blocks(service)` (its own blocks plus the shared ones it consumes through `uses`), never from the service's own block alone; every platform proves it supplied each key the connection surface declares (`require_cache_keys_supplied`). Held by `datrix/scripts/test/shared-cache-realization-gate.ps1`.
+
+10. **One async-hosting decision.** Whether a service's consumers, queue workers and jobs run in its web app (`hosting = "inProcess"`) or in dedicated runtimes is answered once, by the kernel's `resolve_service_async_hosting`, and every platform and language realizes the answer from the kernel `InProcessHostingPlan`; a target never carries its own "supports in-process" flag. A host that suspends idle processes is refused, never silently degraded.
 
 ## Technology
 

@@ -131,11 +131,13 @@ seed service ecommerce.CatalogService {
   rdbms catalogDb {
     volume {
       Product from "seed-data/products-20000.csv";
-      ProductVariant from "seed-data/variants-80000.jsonl";
+      ProductVariant from "seed-data/variants-40000.jsonl";
     }
   }
 }
 ```
+
+An imported file is read once, before analysis, and is bounded: at most 8 MiB, 50 000 rows and 256 columns, UTF-8 only, and located inside the project. Every row becomes generated source, so data beyond those bounds is a bulk load, not seed data. See the [SeedDSL syntax reference](../../../datrix-language/docs/reference/seed-dsl-syntax-reference.md#external-file-import) for the formats and the cell rules.
 
 ---
 

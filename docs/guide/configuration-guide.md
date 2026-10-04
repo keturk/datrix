@@ -65,7 +65,6 @@ Each new surface lives in one of two config locations, chosen by ownership bound
 | AWS ECS/App Runner healthcheck timing | `platforms.aws.ecsHealthCheck` | E | system | `ecsHealthCheck { interval = "30s"; … }` |
 | AWS ECS autoscaling (CPU target, scale cooldowns) | `platforms.aws.ecsScaling` | E | system | `ecsScaling { cpuTarget = 70; … }` |
 | AWS Lambda trigger settings | `platforms.aws.consumerLambdaTriggers` | E | system | `consumerLambdaTriggers { maxReceiveCount = 3; … }` |
-| AWS migration task sizing (Fargate CPU/memory) | `platforms.aws.migrationTask` | C | system | `migrationTask { fargateCpu = 256; … }` |
 | AWS scheduled task config (retry attempts, max age, DLQ retention) | `platforms.aws.scheduledTask` | C | system | `scheduledTask { retryAttempts = 2; … }` |
 | AWS AppConfig rollout (growth/bake/replicate) | `platforms.aws.appConfig` | E | system | `appConfig { rollout { growth = 10; … } }` |
 | AWS CloudFront (connection retries/timeout) | `platforms.aws.cloudFront` | E | system | `cloudFront { connectionRetries = 3; … }` |

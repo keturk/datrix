@@ -98,9 +98,11 @@ Every resolved `RdbmsConfig` must contain an `id` UUID authored in ConfigDSL. No
 
 Shared-owned RDBMS blocks are first-class migration targets. Their adapter-native migration files are generated under the shared block output tree using `SharedPaths.rdbms_dir`, not under a consuming service. The canonical app-level state path is keyed by `(rdbms_id, target)` (see D35) — one shared block has one independent state lifetime per deployment target.
 
-## D18: Shared-Owned RDBMS Migrations Are Deployment-Level Apply Units
+## D18: Shared-Owned RDBMS Migrations Are One Chain Per `rdbms_id`, Applied By Every Consumer Under One Lock
 
-Shared-owned RDBMS migrations are applied once per `rdbms_id` by platform/deployment wiring. They are not run by each consuming service and are not assigned to one arbitrary service owner. Platform generators create one migration init/job per shared-owned RDBMS block and wire consuming services to wait for it when needed.
+A shared container's RDBMS block is rendered once per `rdbms_id` into the shared container's own output (D17) and carried byte for byte into every consumer. Every service that `uses` the block applies that one chain in its own migration step (an owned block's step, run first), under one advisory lock the block's dialect derives from the lower-case `rdbms_id` (`SQLDialect.session_lock_sql`; PostgreSQL `hashtext`, MySQL `GET_LOCK` over a 64-character name). The first consumer to hold the lock applies the revisions and the others find nothing left to do, so concurrent consumers serialize without a platform-owned apply unit and no consumer allocates a revision of its own. Shared-block seeds run only in a consumer that holds `readwrite` access, inside the same lock; a `readonly` consumer never seeds.
+
+No platform creates a migration init/job for a shared block, and a service is a consumer only through a resolved `uses` directive -- never by one of its own blocks sharing a `config.id`.
 
 ## D19: No Legacy Generated-Output Adoption Path
 
