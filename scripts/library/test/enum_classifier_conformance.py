@@ -15,17 +15,19 @@ entry points at runtime via `shared.registered_targets.registered_language_names
 `enum_emitting_language_names` further narrows that set from each plugin's own registered
 sub-generator domain (`"enum"`), never from a language-name literal.
 
-`collect_conformance_facts` alone carries per-language rendering mechanics, keyed by language
-name -- this is the one place this deliberately sanctions that, because each language emits
-its classifier through a genuinely different template/context-builder shape (classmethods on
-python, a merged namespace on typescript) with no shared render interface to call generically.
-The TARGET SET this gate evaluates never comes from that dispatch table's keys -- only from
-`enum_emitting_language_names(registered_language_names())` -- and a registered enum-emitting
-language absent from the dispatch table is a loud `RuntimeError`, never a silent skip.
+How a language renders its enum file belongs to the language: each registered language declares
+a `LanguageConformanceProbes` (`LanguagePlugin.conformance_probes`,
+`datrix_codegen_kernel.parity.conformance_probes`) whose `render_enum_classifier` renders the
+fixture enum through that language's own enum generation. How the classifier definitions are
+SPELLED in that source is data on the language's capability declaration
+(`LanguageCapabilityDeclaration.enum_classifier_idioms`). The exception a miss must raise is read
+from the language's own transpiler profile -- never from the probe, so a probe cannot choose what
+it is checked against. This gate holds the comparison and the fixture and NEVER names a language;
+its self-test proves that first (`shared.registered_targets.target_references_in_module`).
 
 The gate is a hard zero: every enum-emitting language must be fully conformant, and a language
 that is not fails the gate naming the missing classifier behaviour. No exemption of any kind
-exists.
+exists. A language with no probes or no declared idioms fails loud, never a silent skip.
 
 Run with `--self-test` to verify the comparator is non-vacuous before trusting a real run.
 """
@@ -36,7 +38,7 @@ import argparse
 import logging
 import re
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -46,17 +48,30 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from shared.registered_targets import registered_language_names  # noqa: E402
+from shared.registered_targets import (  # noqa: E402
+    registered_language_names,
+    self_test_gate_names_no_target,
+)
 
-from datrix_codegen_common.templates import shared_template_dir  # noqa: E402
 from datrix_common.datrix_model.enums import Enum, EnumValue  # noqa: E402
+from datrix_common.errors.plugin import PluginValidationError  # noqa: E402
+from datrix_common.paths import ServicePaths  # noqa: E402
+from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
+from datrix_common.plugin.language_capability import (  # noqa: E402
+    EnumClassifierIdioms,
+    LanguageCapabilityDeclaration,
+)
 from datrix_codegen_kernel.generation.discovery import get_language_plugin  # noqa: E402
 from datrix_codegen_kernel.generation.gendsl_ir import DomainDefinition  # noqa: E402
-from datrix_codegen_kernel.generation.generator import GeneratedFile  # noqa: E402
-from datrix_codegen_kernel.generation.plugin_helpers import template_dir_for  # noqa: E402
 from datrix_codegen_kernel.generation.registry import SubGeneratorSpec  # noqa: E402
-from datrix_codegen_kernel.generation.template_generator import TemplateGenerator  # noqa: E402
-from datrix_common.paths import ServicePaths  # noqa: E402
+from datrix_codegen_kernel.parity.conformance_probes import (  # noqa: E402
+    DocumentationSurfaces,
+    EnumClassifierRender,
+    LanguageConformanceProbes,
+    ResponseBodyWireField,
+    conformance_probes_of_language_plugin,
+    language_conformance_probes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -189,11 +204,9 @@ def _registered_domain_names(specs: list[SubGeneratorSpec]) -> frozenset[str]:
 def enum_emitting_language_names(languages: frozenset[str]) -> frozenset[str]:
     """Return the subset of *languages* whose plugin emits enum types.
 
-    Every currently registered language emits enum types; sql/docker/aws/azure/common do not
-    register under `datrix.languages` as enum-emitting targets in the first place (they are not
-    `datrix.languages` entry points at all -- sql/docker are platform/db targets, not languages).
-    This function exists so a future non-enum-emitting LANGUAGE plugin (if one is ever added)
-    is excluded rather than silently required to conform.
+    Every currently registered language emits enum types. This function exists so a future
+    non-enum-emitting LANGUAGE plugin (if one is ever added) is excluded rather than silently
+    required to conform.
 
     The capability signal is each plugin's own sub-generator registration -- does it register a
     sub-generator under the `"enum"` GenDSL domain (`_registered_domain_names`) -- never a
@@ -216,61 +229,27 @@ def enum_emitting_language_names(languages: frozenset[str]) -> frozenset[str]:
     return frozenset(emitting)
 
 
-#: Per-language `TemplateGenerator` is expensive to build (walks the template tree) and stateless
-#: once built -- cached by language name for the lifetime of one gate invocation.
-_TEMPLATE_GEN_CACHE: dict[str, TemplateGenerator] = {}
-
-
-def _template_generator_for(language: str, plugin_module_file: str) -> TemplateGenerator:
-    """Build (once, cached) *language*'s own real `TemplateGenerator`.
-
-    Uses the SAME production resolution every language's own `plugin.py` uses elsewhere in that
-    package (`template_dir_for(<package>.plugin.__file__)` -- verified against
-    `datrix_codegen_python`'s own `http_contract_overlay_generator.py`/`runtime_requirements.py`
-    call sites; every language package keeps its `templates/` directory as a direct sibling of
-    its own `plugin.py`, so `levels_up=0` resolves correctly for each).
+def _single_rendered_content(sources: Sequence[str], language: str) -> str:
+    """Return the sole rendered source, or raise loud on an unexpected count.
 
     Args:
-        language: The `datrix.languages` entry-point name (also the Jinja `target_language`).
-        plugin_module_file: `__file__` of that language's own `plugin` module.
-
-    Returns:
-        The cached (or newly built) `TemplateGenerator`.
-    """
-    cached = _TEMPLATE_GEN_CACHE.get(language)
-    if cached is not None:
-        return cached
-    template_gen = TemplateGenerator(
-        template_dir=template_dir_for(plugin_module_file),
-        target_language=language,
-        shared_template_dir=shared_template_dir(),
-    )
-    _TEMPLATE_GEN_CACHE[language] = template_gen
-    return template_gen
-
-
-def _single_rendered_content(files: list[GeneratedFile], language: str) -> str:
-    """Return the sole rendered file's content, or raise loud on an unexpected count.
-
-    Args:
-        files: The `GeneratedFile`s a language's `EnumGenerator.generate_enums` produced for
-            exactly one fixture enum.
+        sources: The sources a language's probe rendered for exactly one fixture enum.
         language: The language under render, for the error message.
 
     Returns:
-        `files[0].content`.
+        `sources[0]`.
 
     Raises:
-        RuntimeError: If *files* does not contain exactly one entry.
+        RuntimeError: If *sources* does not contain exactly one entry.
     """
-    if len(files) != 1:
+    if len(sources) != 1:
         raise RuntimeError(
-            f"{language}'s EnumGenerator rendered {len(files)} file(s) for the single fixture "
-            f"enum {_FIXTURE_ENUM_NAME!r}, expected exactly 1. This is a harder failure than a "
-            f"conformance gap -- investigate {language}'s EnumGenerator.generate_enums for an "
+            f"{language}'s conformance probe rendered {len(sources)} source(s) for the single "
+            f"fixture enum {_FIXTURE_ENUM_NAME!r}, expected exactly 1. This is a harder failure "
+            f"than a conformance gap -- investigate {language}'s render_enum_classifier for an "
             f"unexpected extra or missing emission."
         )
-    return files[0].content
+    return sources[0]
 
 
 def _facts_from_render(
@@ -323,79 +302,57 @@ def _facts_from_render(
 
 
 # ---------------------------------------------------------------------------
-# Per-language rendering mechanics (see this module's own docstring for why
-# this is the one sanctioned place that special-cases by language name).
+# Rendering through each language's own probe
 # ---------------------------------------------------------------------------
 
-_PYTHON_RAISE_RE: Final[re.Pattern[str]] = re.compile(r'raise\s+(\w+)\(\[\s*"([^"]*)"\s*\]\)')
-_TS_THROW_RE: Final[re.Pattern[str]] = re.compile(r"throw new (\w+)\('([^']*)'\);")
+
+def require_enum_classifier_idioms(language: str, declaration: LanguageCapabilityDeclaration) -> EnumClassifierIdioms:
+    """The enum-classifier idioms *declaration* carries.
+
+    Raises:
+        RuntimeError: *declaration* declares no enum-classifier idioms.
+    """
+    idioms = declaration.enum_classifier_idioms
+    if idioms is None:
+        raise RuntimeError(
+            f"Language {language!r} declares no enum-classifier idioms: its "
+            f"LanguageCapabilityDeclaration.enum_classifier_idioms is None. The gate cannot "
+            f"recognize the classifier definitions in {language}'s rendered enum source. Fix: "
+            f"declare an EnumClassifierIdioms (equals/contains definition patterns and the "
+            f"two-group no-match raise pattern) on {language}'s capability declaration."
+        )
+    return idioms
 
 
-def _python_facts(fixture: Enum, paths: ServicePaths) -> ClassifierConformanceFacts:
-    """Render *fixture* through python's real `EnumGenerator` and observe its classifier facts."""
-    import datrix_codegen_python.plugin as _plugin_module
-    from datrix_codegen_python.generators.entity.enum_generator import EnumGenerator
-    from datrix_codegen_python.profile import PYTHON_PROFILE
+def facts_from_probe(
+    language: str,
+    fixture: Enum,
+    probes: LanguageConformanceProbes,
+    idioms: EnumClassifierIdioms,
+    expected_exception: str,
+) -> ClassifierConformanceFacts:
+    """Render *fixture* through *probes* and observe its classifier facts, read with *idioms*.
 
-    template_gen = _template_generator_for("python", _plugin_module.__file__)
-    files = EnumGenerator(template_gen).generate_enums(paths, {str(fixture.name): fixture})
-    content = _single_rendered_content(files, "python")
+    Raises:
+        RuntimeError: The probe did not render exactly one source.
+    """
+    render: EnumClassifierRender = probes.render_enum_classifier(fixture, ServicePaths(_FIXTURE_SERVICE_NAME))
+    content = _single_rendered_content(render.sources, language)
     return _facts_from_render(
         content,
-        has_equals_keyword="def equalsKeyword(" in content,
-        has_contains_keyword="def containsKeyword(" in content,
-        raise_pattern=_PYTHON_RAISE_RE,
-        expected_exception=PYTHON_PROFILE.errors.unrecognized_value_exception,
+        has_equals_keyword=re.search(idioms.equals_keyword_definition, content) is not None,
+        has_contains_keyword=re.search(idioms.contains_keyword_definition, content) is not None,
+        raise_pattern=re.compile(idioms.no_match_raise),
+        expected_exception=expected_exception,
         enum_name=str(fixture.name),
     )
-
-
-def _typescript_facts(fixture: Enum, paths: ServicePaths) -> ClassifierConformanceFacts:
-    """Render *fixture* through typescript's real context-builder + template render."""
-    import datrix_codegen_typescript.plugin as _plugin_module
-    from datrix_codegen_typescript_core.file_helpers import render_ts_file_with_context
-    from datrix_codegen_typescript.generators.entity.enum_generator import (
-        build_enum_template_context,
-    )
-    from datrix_codegen_typescript_core.profile import TS_PROFILE
-
-    template_gen = _template_generator_for("typescript", _plugin_module.__file__)
-    context = build_enum_template_context(fixture, paths)
-    generated = render_ts_file_with_context(
-        template_gen,
-        "entity/enum.ts.j2",
-        Path(f"{fixture.name}.enum.ts"),
-        context,
-    )
-    content = generated.content
-    return _facts_from_render(
-        content,
-        has_equals_keyword="export function equalsKeyword(" in content,
-        has_contains_keyword="export function containsKeyword(" in content,
-        raise_pattern=_TS_THROW_RE,
-        expected_exception=TS_PROFILE.errors.unrecognized_value_exception,
-        enum_name=str(fixture.name),
-    )
-
-
-#: Rendering mechanics for each language known to this gate today. NEVER the source of the target
-#: SET under comparison (that is always `enum_emitting_language_names(registered_language_names())`
-#: -- see this module's own docstring). A registered enum-emitting language absent from this table
-#: is a loud `RuntimeError` from `collect_conformance_facts`, never a silently skipped language.
-_LANGUAGE_COLLECTORS: Final[dict[str, Callable[[Enum, ServicePaths], ClassifierConformanceFacts]]] = {
-    "python": _python_facts,
-    "typescript": _typescript_facts,
-}
 
 
 def collect_conformance_facts(language: str, fixture: Enum) -> ClassifierConformanceFacts:
     """Render *fixture*'s enum file for *language* and observe its classifier facts.
 
-    Uses the SAME in-process context-builder + template-render call each language's own unit
-    tests use (see `enum_generator.py`'s `build_enum_template_context` in each language
-    package, and the render helper each package exposes alongside it -- e.g.
-    `datrix_codegen_python.generators._helpers.render_python_file` for python). No `.dtrx` file is
-    written to disk and no subprocess/CLI generation is invoked.
+    The probe is the language's own (`LanguagePlugin.conformance_probes`), the idioms are its
+    declared data, and the expected exception is read from its own transpiler profile.
 
     Args:
         language: A `datrix.languages` entry-point name.
@@ -405,31 +362,21 @@ def collect_conformance_facts(language: str, fixture: Enum) -> ClassifierConform
         The observed `ClassifierConformanceFacts` for *language*.
 
     Raises:
-        RuntimeError: If *language*'s plugin cannot render an enum file at all (a harder failure
-            than a conformance gap -- surfaced distinctly so it is never miscounted as "renders
-            but violates one property"), or if *language* is not one this gate knows how to
-            render at all (no dispatch entry in `_LANGUAGE_COLLECTORS`).
+        PluginValidationError: *language* declares no (or incomplete) conformance probes.
+        RuntimeError: *language* declares no enum-classifier idioms, or its probe cannot render an
+            enum at all (a harder failure than a conformance gap -- surfaced distinctly so it is
+            never miscounted as "renders but violates one property").
     """
-    collector = _LANGUAGE_COLLECTORS.get(language)
-    if collector is None:
-        raise RuntimeError(
-            f"No enum-classifier rendering mechanics are registered in this gate for language "
-            f"{language!r} (registered mechanics: {sorted(_LANGUAGE_COLLECTORS)}). "
-            f"enum_emitting_language_names() derived {language!r} as enum-emitting from its own "
-            f"plugin registration, but each language's classifier template/context-builder shape "
-            f"differs enough per language that this gate cannot render it generically. Fix: "
-            f"add a _{language}_facts collector mirroring the existing ones (see "
-            f"{', '.join(f'_{name}_facts' for name in sorted(_LANGUAGE_COLLECTORS))}) and register it in "
-            f"_LANGUAGE_COLLECTORS. This is a loud, fail-closed gap -- never a silent skip."
-        )
-    paths = ServicePaths(_FIXTURE_SERVICE_NAME)
+    probes = language_conformance_probes(language)
+    idioms = require_enum_classifier_idioms(language, declaration_for_language(language))
+    expected_exception = get_language_plugin(language).transpiler_profile.language_profile.errors.unrecognized_value_exception
     try:
-        return collector(fixture, paths)
+        return facts_from_probe(language, fixture, probes, idioms, expected_exception)
     except RuntimeError:
         raise
     except Exception as exc:
         raise RuntimeError(
-            f"{language}'s EnumGenerator could not render the fixture enum "
+            f"{language}'s conformance probe could not render the fixture enum "
             f"{_FIXTURE_ENUM_NAME!r}: {exc}. This is a harder failure than a conformance gap -- "
             f"{language}'s enum generator itself is broken, not merely non-conformant."
         ) from exc
@@ -474,8 +421,115 @@ def conformance_exit_code(violations: Mapping[str, ClassifierConformanceFacts]) 
     return 1 if violations else 0
 
 
+# ---------------------------------------------------------------------------
+# Non-vacuity self-test
+# ---------------------------------------------------------------------------
+
+#: The idioms and exception of the self-test's fixture language.
+_SELF_TEST_IDIOMS: Final[EnumClassifierIdioms] = EnumClassifierIdioms(
+    equals_keyword_definition=r"function equals\(",
+    contains_keyword_definition=r"function contains\(",
+    no_match_raise=r"raise (\w+)\('([^']*)'\)",
+)
+_SELF_TEST_EXCEPTION: Final[str] = "FixtureUnrecognized"
+#: A `LanguageCapabilityDeclaration.name_tokens` entry must be a lowercase alphanumeric segment.
+_SELF_TEST_NAME_TOKEN: Final[str] = "selftestlang"
+_SELF_TEST_MESSAGE: Final[str] = _EXPECTED_MESSAGE_TEMPLATE.format(enum_name=_FIXTURE_ENUM_NAME)
+
+
+class _FixtureEnumProbes:
+    """An in-process fixture language whose probe renders a fixed set of sources."""
+
+    def __init__(self, sources: tuple[str, ...]) -> None:
+        self._sources = sources
+
+    def response_body_wire_fields(self, generated_root: Path) -> tuple[ResponseBodyWireField, ...]:
+        return ()
+
+    def documentation_surfaces(self, generated_root: Path, files: Sequence[Path]) -> DocumentationSurfaces:
+        return DocumentationSurfaces(frozenset(), frozenset())
+
+    def render_enum_classifier(self, enum: Enum, paths: ServicePaths) -> EnumClassifierRender:
+        return EnumClassifierRender(self._sources)
+
+
+class _FixturePluginWithoutProbes:
+    """A fixture language plugin with no `conformance_probes` member."""
+
+
+def _fixture_source(*, contains: bool = True, message: str = _SELF_TEST_MESSAGE) -> str:
+    lines = ["function equals(value) {}"]
+    if contains:
+        lines.append("function contains(value) {}")
+    lines.append(f"raise {_SELF_TEST_EXCEPTION}('{message}')")
+    return "\n".join(lines)
+
+
+def _fixture_facts(*sources: str) -> ClassifierConformanceFacts:
+    return facts_from_probe(
+        _SELF_TEST_LANGUAGE_A,
+        build_fixture_enum(),
+        _FixtureEnumProbes(sources),  # type: ignore[arg-type]  # a fixture satisfying the probe members the gate calls
+        _SELF_TEST_IDIOMS,
+        _SELF_TEST_EXCEPTION,
+    )
+
+
+def _run_probe_dispatch_self_test() -> None:
+    """Drive the gate's real render-and-read path with in-process fixture probes.
+
+    The fixture language's name is not a registered one: a conformant render passes, a planted
+    divergence (a missing classifier, a disclosing message) fails, a probe returning no source or
+    two sources fails loud, a declaration with no idioms fails loud, and a plugin with no probe
+    member fails with the accessor's message.
+
+    Raises:
+        AssertionError: Any case does not produce the expected result.
+    """
+    if not _fixture_facts(_fixture_source()).is_fully_conformant():
+        raise AssertionError("a conformant fixture render was reported as non-conformant -- over-triggering")
+    if _fixture_facts(_fixture_source(contains=False)).is_fully_conformant():
+        raise AssertionError("a fixture render with no containsKeyword definition was not reported")
+    disclosing = _fixture_source(message=f"{_SELF_TEST_MESSAGE} {_FIXTURE_KEYWORD_HIT}")
+    if _fixture_facts(disclosing).is_fully_conformant():
+        raise AssertionError("a fixture render whose raise message discloses a keyword was not reported")
+    wrong_exception = _fixture_source().replace(_SELF_TEST_EXCEPTION, "SomeOtherError")
+    if _fixture_facts(wrong_exception).is_fully_conformant():
+        raise AssertionError("a fixture render raising an undeclared exception was not reported")
+    for sources in ((), (_fixture_source(), _fixture_source())):
+        try:
+            _fixture_facts(*sources)
+        except RuntimeError as exc:
+            if _SELF_TEST_LANGUAGE_A not in str(exc):
+                raise AssertionError(f"the refusal of {len(sources)} rendered source(s) did not name the language") from exc
+        else:
+            raise AssertionError(f"a probe rendering {len(sources)} source(s) was not refused -- exactly one is required")
+
+    bare_declaration = LanguageCapabilityDeclaration(
+        language_label=_SELF_TEST_LANGUAGE_A,
+        name_tokens=frozenset({_SELF_TEST_NAME_TOKEN}),
+        response_body_transform_idioms=(r"\bfixtureTransform\(",),
+    )
+    try:
+        require_enum_classifier_idioms(_SELF_TEST_LANGUAGE_A, bare_declaration)
+    except RuntimeError as exc:
+        if "declares no enum-classifier idioms" not in str(exc) or _SELF_TEST_LANGUAGE_A not in str(exc):
+            raise AssertionError(f"the refusal of a declaration with no idioms was not named ({exc})") from exc
+    else:
+        raise AssertionError("a declaration with no enum-classifier idioms was not refused")
+
+    try:
+        conformance_probes_of_language_plugin(_SELF_TEST_LANGUAGE_A, _FixturePluginWithoutProbes())
+    except PluginValidationError as exc:
+        if _SELF_TEST_LANGUAGE_A not in str(exc) or "declares no conformance probes" not in str(exc):
+            raise AssertionError(f"a plugin with no probe member failed without the accessor's message ({exc})") from exc
+    else:
+        raise AssertionError("a plugin with no probe member was not refused")
+
+
 def run_self_test() -> None:
-    """Prove the comparator detects a forced conformance gap before any real run is trusted.
+    """Prove this gate names no target and the comparator detects a forced conformance gap
+    before any real run is trusted.
 
     Feeds `compare_classifier_conformance` a synthetic FULLY-CONFORMANT pair (both synthetic
     languages have every `ClassifierConformanceFacts` field True -- must report zero violations)
@@ -483,12 +537,16 @@ def run_self_test() -> None:
     report exactly that language as non-conformant, and must NOT report the other language).
     The verdict over each result must pass the first pair and fail the second, and
     `conformance_exit_code` takes no exemption input, so a non-conformant language has no path
-    to a pass.
-    Mirrors `supported_domain_parity.run_self_test`'s matching/forced-mismatch shape.
+    to a pass. Then drives the real render path with fixture probes
+    (`_run_probe_dispatch_self_test`).
 
     Raises:
         AssertionError: Either synthetic case does not produce the expected result.
     """
+    names_a_target = self_test_gate_names_no_target(__file__)
+    if names_a_target:
+        raise AssertionError("\n".join(names_a_target))
+
     fully_conformant = ClassifierConformanceFacts(
         has_equals_keyword=True,
         has_contains_keyword=True,
@@ -538,6 +596,7 @@ def run_self_test() -> None:
             f"turn that failure into a pass (got {conformance_exit_code(matching_result)} and "
             f"{conformance_exit_code(mismatched_result)})."
         )
+    _run_probe_dispatch_self_test()
 
 
 def check_enum_classifier_conformance() -> int:

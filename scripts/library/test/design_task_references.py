@@ -29,6 +29,14 @@ through while it reported clean:
   packages and every ``tests/`` tree in the workspace. Roots are derived from
   what is on disk, so a new package is scanned the day it appears.
 
+* **Item labels.** Findings, reviews and designs number their own items
+  (``(C5)``, ``(F15)``, ``P42:``, ``U01:``), and a comment carrying one points
+  into a gitignored document as surely as a task id. A second gate covered only
+  ``D``/``G``/``I`` and only ``.py``/``.j2``; this gate now owns every label
+  letter across every scanned extension inside a package's ``src``, ``tests``
+  and ``scripts`` (and the showcase repo's ``scripts``) -- ``LABEL_PATTERNS``.
+  The same scan runs at commit time (``scan_paths``) over pending changes.
+
 The terminal state is zero: there is no baseline and no count to ratchet down,
 because every reference found when those holes were closed was removed rather
 than pinned. Adding an ``ALLOWLIST`` entry is the only escape hatch, and it is
@@ -80,7 +88,40 @@ PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         ),
     ),
     ("phase dir", re.compile(r"\.tasks[/\\]phase-\d{2,3}")),
+    # The possessive of a bare task id (`46-24's`): the form carries no `task`
+    # noun, so the patterns above never see it. A bare `NN-NN` without the
+    # possessive stays unpoliced -- it is a date or a line range far more often.
+    ("task-file id (possessive)", re.compile(r"\b\d{2}-\d{2,3}'s\b")),
 )
+
+# Item labels -- `(C5)`, `(F15)`, `P42:`, `U01:` -- are how findings, reviews and
+# designs number their own items, so a comment that carries one points into a
+# gitignored document just as a task id does. The `D`/`G`/`I` branches take any
+# digit count; every other capital letter takes one or two, which keeps ruff and
+# pylint codes (`F821`, `A002`, `R0801`, `F401/F811/I001`) out. The colon form
+# also refuses a preceding `.` or word character, so `StorageProvider.S3:` is
+# attribute access, not a heading. Applied to one line at a time and only inside
+# a code subtree: committed docs use labelled items as their own vocabulary.
+LABEL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "item label (parenthesized)",
+        re.compile(r"\((?:[DGI][0-9]+|[A-Z][0-9]{1,2})(?:[/,]\s*[A-Z]?[0-9]+)*\)"),
+    ),
+    (
+        "item label (heading)",
+        re.compile(r"\b[DGI][0-9]+:|(?<![.\w])[A-Z][0-9]{1,2}:(?=\s|$)"),
+    ),
+)
+
+#: Reviewed label-shaped tokens that are not references, as exact
+#: ``(workspace-relative path, token)`` pairs with the reason. A token outside
+#: its listed file is a hit; the exemption never travels.
+LABEL_TOKEN_EXCEPTIONS: dict[tuple[str, str], str] = {
+    (
+        "datrix-codegen-azure/src/datrix_codegen_azure/generators/monitor_workbooks.py",
+        "P95",
+    ): "emitted workbook chart title naming the 95th-percentile aggregation",
+}
 
 # Deliberately NOT a pattern: a bare ``phase 88``. The committed architecture
 # docs use "Phase NN capabilities" as product vocabulary for delivery waves,
@@ -110,6 +151,14 @@ PACKAGE_SUBTREES = ("src", "tests", "docs", "scripts")
 
 #: Committed subtrees of the ``datrix`` showcase repo, which has no ``src``.
 SHOWCASE_SUBTREES = ("scripts", "docs", "examples")
+
+#: The subtrees where item labels are policed. ``docs`` and ``examples`` are
+#: left out on purpose: committed documentation numbers its own items.
+PACKAGE_CODE_SUBTREES = ("src", "tests", "scripts")
+SHOWCASE_CODE_SUBTREES = ("scripts",)
+
+#: The showcase repo's directory name; every other repo is ``datrix-<name>``.
+SHOWCASE_REPO = "datrix"
 
 # Files allowed to contain the *shape* of a reference because they document the
 # ID FORMAT itself or synthesize fixtures. Each entry needs a reason: this list
@@ -143,19 +192,78 @@ ALLOWLIST: dict[str, str] = {
 _CONTINUATION_LEADER = re.compile(r"^\s*(?:#:?|///?:?|\*|--|;)?\s*")
 
 
-def _norm(path: str) -> str:
-    return path.replace("\\", "/").removeprefix("D:/datrix/").removeprefix("d:/datrix/")
+_LABEL_TOKEN = re.compile(r"[A-Z][0-9]+")
 
 
-def _line_hit(line: str, next_line: str) -> str | None:
-    """The label of the reference starting on *line*, or None."""
+def _norm(path: str, workspace: str = WORKSPACE_ROOT) -> str:
+    """*path* with forward slashes, relative to *workspace* when it lies under it."""
+    unified = path.replace("\\", "/")
+    prefix = workspace.replace("\\", "/").rstrip("/") + "/"
+    if unified.lower().startswith(prefix.lower()):
+        return unified[len(prefix):]
+    return unified
+
+
+def _repo_subtrees(repo: str) -> tuple[str, ...]:
+    return SHOWCASE_SUBTREES if repo == SHOWCASE_REPO else PACKAGE_SUBTREES
+
+
+def _in_code_subtree(rel: str) -> bool:
+    """True when workspace-relative *rel* lies in a subtree where item labels are policed."""
+    parts = rel.split("/")
+    if len(parts) < 3 or not parts[0].startswith(SHOWCASE_REPO):
+        return False
+    code_subtrees = SHOWCASE_CODE_SUBTREES if parts[0] == SHOWCASE_REPO else PACKAGE_CODE_SUBTREES
+    return parts[1] in code_subtrees
+
+
+def _label_excepted(rel: str, matched: str) -> bool:
+    """True when every label token in *matched* is a reviewed exception for *rel*."""
+    tokens = _LABEL_TOKEN.findall(matched)
+    return bool(tokens) and all((rel, token) in LABEL_TOKEN_EXCEPTIONS for token in tokens)
+
+
+def _label_hit(line: str, rel: str) -> str | None:
+    for label, pattern in LABEL_PATTERNS:
+        for match in pattern.finditer(line):
+            if not _label_excepted(rel, match.group()):
+                return label
+    return None
+
+
+def _line_hit(line: str, next_line: str, rel: str = "") -> str | None:
+    """The label of the reference starting on *line*, or None.
+
+    Item labels are matched on *line* alone (a label never wraps) and only when
+    *rel* lies in a code subtree.
+    """
     joined = f"{line.rstrip()} {_CONTINUATION_LEADER.sub('', next_line, count=1)}"
     boundary = len(line.rstrip())
     for label, pattern in PATTERNS:
         match = pattern.search(joined)
         if match is not None and match.start() < boundary:
             return label
+    if _in_code_subtree(rel):
+        return _label_hit(line, rel)
     return None
+
+
+def _file_hits(path: str, rel: str) -> list[tuple[int, str, str]]:
+    """(lineno, label, line) for every reference in the file at *path*."""
+    if rel in ALLOWLIST:
+        return []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return []
+    hits: list[tuple[int, str, str]] = []
+    for lineno, line in enumerate(lines, 1):
+        next_line = lines[lineno] if lineno < len(lines) else ""
+        label = _line_hit(line, next_line, rel)
+        if label is not None:
+            hits.append((lineno, label, line.strip()[:160]))
+    return hits
 
 
 def default_roots(workspace: str = WORKSPACE_ROOT) -> list[str]:
@@ -178,7 +286,7 @@ def default_roots(workspace: str = WORKSPACE_ROOT) -> list[str]:
     return roots
 
 
-def scan(roots: list[str]) -> list[tuple[str, int, str, str]]:
+def scan(roots: list[str], workspace: str = WORKSPACE_ROOT) -> list[tuple[str, int, str, str]]:
     """Return (relative_path, lineno, label, line) for every reference found."""
     hits: list[tuple[str, int, str, str]] = []
     for root in roots:
@@ -188,19 +296,36 @@ def scan(roots: list[str]) -> list[tuple[str, int, str, str]]:
                 if not filename.endswith(SCAN_EXTENSIONS):
                     continue
                 path = os.path.join(dirpath, filename)
-                rel = _norm(path)
-                if rel in ALLOWLIST:
-                    continue
-                try:
-                    text = open(path, encoding="utf-8", errors="replace").read()
-                except OSError:
-                    continue
-                lines = text.splitlines()
-                for lineno, line in enumerate(lines, 1):
-                    next_line = lines[lineno] if lineno < len(lines) else ""
-                    label = _line_hit(line, next_line)
-                    if label is not None:
-                        hits.append((rel, lineno, label, line.strip()[:160]))
+                rel = _norm(path, workspace)
+                hits.extend((rel, lineno, label, line) for lineno, label, line in _file_hits(path, rel))
+    return hits
+
+
+def _in_scanned_tree(rel: str) -> bool:
+    """True when workspace-relative *rel* is a file :func:`scan` would visit under ``default_roots``."""
+    parts = rel.split("/")
+    if len(parts) < 3 or not parts[0].startswith(SHOWCASE_REPO):
+        return False
+    if parts[1] not in _repo_subtrees(parts[0]) or not parts[-1].endswith(SCAN_EXTENSIONS):
+        return False
+    return not any(part in SKIP_DIRS for part in parts[2:-1])
+
+
+def scan_paths(rel_paths: list[str], workspace: str = WORKSPACE_ROOT) -> list[tuple[str, int, str, str]]:
+    """The :func:`scan` verdict for specific workspace-relative files (the commit-time entry).
+
+    Files outside the committed trees, with an unscanned extension, or under a
+    skipped directory are not visited, exactly as in a full scan.
+    """
+    hits: list[tuple[str, int, str, str]] = []
+    for rel in rel_paths:
+        rel = rel.replace("\\", "/")
+        if not _in_scanned_tree(rel):
+            continue
+        path = os.path.join(workspace, rel)
+        if not os.path.isfile(path):
+            continue
+        hits.extend((rel, lineno, label, line) for lineno, label, line in _file_hits(path, rel))
     return hits
 
 
@@ -261,6 +386,9 @@ def self_test() -> int:
             print("SELF-TEST FAILED: a bare 'Phase NN' heading must not be flagged")
             return 1
 
+    if label_self_test() != 0:
+        return 1
+
     print(
         f"INFO: Non-vacuity self-test passed: the detector flags all {len(shapes)} planted "
         "reference shapes (hyphenated, prose, three-digit, phase dir, .dtrx, "
@@ -269,6 +397,71 @@ def self_test() -> int:
         "multi-space, underscore and zero separators, and a reference split "
         "across a line break under '#', ' * ' and no leader), reports zero for a "
         "clean file, and leaves a bare delivery-wave heading alone."
+    )
+    return 0
+
+
+_EXCEPTED_LABEL_FILE = "datrix-codegen-azure/src/datrix_codegen_azure/generators/monitor_workbooks.py"
+_FIXTURE_PACKAGE = "datrix-fixture"
+
+#: Fixture file -> (body, expected hits), planted into a workspace that has
+#: ``src/``, ``tests/``, ``scripts/`` and ``docs/`` trees so the scope rule is
+#: exercised rather than assumed. Every positive is a label shape the earlier
+#: gates reported clean while real references sat in the tree; every
+#: near-miss negative is a shape the widened letter class must leave alone.
+_LABEL_FIXTURES: dict[str, tuple[str, int]] = {
+    f"{_FIXTURE_PACKAGE}/src/paren_dgi.py": ("# Mirrors the rule (D14) of the plan.\n", 1),
+    f"{_FIXTURE_PACKAGE}/src/paren_other.py": ("# Rejects the empty set (C5).\n", 1),
+    f"{_FIXTURE_PACKAGE}/src/heading.py": ("# C5: reject the empty set.\n", 1),
+    f"{_FIXTURE_PACKAGE}/src/banner.py": ("# ── C4: validation ──\n", 1),
+    f"{_FIXTURE_PACKAGE}/tests/paren_f.py": ("# Covers (F15) of the plan.\n", 1),
+    f"{_FIXTURE_PACKAGE}/tests/slash_colon.py": ("# P6/P12: both directions.\n", 1),
+    f"{_FIXTURE_PACKAGE}/tests/after_hyphen.py": ("# Rule VAL-EL-U01: a bare element.\n", 1),
+    f"{_FIXTURE_PACKAGE}/tests/possessive.py": ("# Mirrors 46-24's cascade.\n", 1),
+    f"{_FIXTURE_PACKAGE}/scripts/widened_extension.mjs": ("// Guards (G7) of the plan.\n", 1),
+    f"{_FIXTURE_PACKAGE}/src/other_percentile.py": ('TITLE = "Latency (P95)"\n', 1),
+    f"{_FIXTURE_PACKAGE}/docs/possessive.md": ("Mirrors 46-24's cascade.\n", 1),
+    f"{_FIXTURE_PACKAGE}/src/attribute_access.py": ("if provider == StorageProvider.S3:\n    pass\n", 0),
+    f"{_FIXTURE_PACKAGE}/src/lint_codes.py": (
+        "import x  # noqa (F401/F811/I001)\ny = 1  # (A002) (R0801)\n", 0),
+    f"{_FIXTURE_PACKAGE}/src/line_range.py": ("# see lines 64-69 of the module\n", 0),
+    f"{_FIXTURE_PACKAGE}/docs/vocabulary.md": ("Item (D1) of the decision log; C5: a heading.\n", 0),
+    _EXCEPTED_LABEL_FILE: ('TITLE = "Latency (P95)"\n', 0),
+}
+
+
+def label_self_test() -> int:
+    """Prove each item-label shape hits once, each near miss stays silent, and scope holds."""
+    with tempfile.TemporaryDirectory() as workspace:
+        for rel, (body, _) in _LABEL_FIXTURES.items():
+            path = os.path.join(workspace, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            _write(path, body)
+        roots = default_roots(workspace)
+        if len(roots) < 2:
+            print(f"SELF-TEST FAILED: default_roots found no fixture trees under {workspace}: {roots}")
+            return 1
+        hits = scan(roots, workspace)
+        counts: dict[str, int] = {}
+        for rel, _, _, _ in hits:
+            counts[rel] = counts.get(rel, 0) + 1
+        wrong = {
+            rel: (expected, counts.get(rel, 0))
+            for rel, (_, expected) in _LABEL_FIXTURES.items()
+            if counts.get(rel, 0) != expected
+        }
+        if wrong:
+            print(f"SELF-TEST FAILED: label fixtures (expected, got) mismatch: {wrong}")
+            return 1
+        by_paths = scan_paths(list(_LABEL_FIXTURES), workspace)
+        if sorted(by_paths) != sorted(hits):
+            print("SELF-TEST FAILED: scan_paths disagrees with scan over the same files")
+            return 1
+    positives = sum(1 for _, expected in _LABEL_FIXTURES.values() if expected)
+    print(
+        f"INFO: Label self-test passed: {positives} planted label/possessive shapes hit exactly "
+        f"once; {len(_LABEL_FIXTURES) - positives} near misses (attribute access, lint codes, "
+        "line ranges, docs vocabulary, the reviewed token in its own file) stay silent."
     )
     return 0
 

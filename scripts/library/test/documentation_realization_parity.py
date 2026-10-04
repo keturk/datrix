@@ -38,28 +38,21 @@ ASSERTING ON GENERATED ARTIFACTS, NOT A RUNNING SERVICE
 The property under test is where each target puts the author's text, so
 this gate asserts over the GENERATED SOURCE ARTIFACTS themselves -- no
 generated project is built or started -- parsed structurally (never a
-line-oriented regex over the whole file):
+line-oriented regex over the whole file).
 
-- Python: the real ``ast`` module (keyword-argument string constants named
-  ``summary``/``description`` on any call, plus a class/function/async-
-  function docstring via ``ast.get_docstring`` -- the landing site for a
-  construct with no decorator/keyword surface: an enum value's text folds
-  into the enclosing ``Enum`` class's own docstring, a service function's
-  text becomes its own docstring) plus the real ``tokenize`` module
-  (COMMENT tokens) -- never a substring search.
-- C-family targets (TypeScript): a hand-rolled but genuinely structural
-  lexer (:func:`_classify_spans`) that separates STRING/LINE_COMMENT/
-  TRIPLE_SLASH/DOC_BLOCK/BLOCK_COMMENT spans from code, so a marker sentence
-  sitting inside a string literal is never confused with the same text
-  sitting inside a comment. Published-surface values are extracted two ways:
-  finding a decorator anchor (``@ApiOperation(``, ...) OUTSIDE any
-  string/comment span and then bracket-depth-tracking to the matching close,
-  collecting every string literal inside that span
-  (:func:`_bracketed_call_strings`); and reading ``/** ... */`` JSDoc
-  doc-comment blocks (:func:`_doc_block_published_texts`) -- the landing
-  site for a construct with no decorator surface (an enum value, a service
-  function, an entity's DTO class), distinguished structurally from a plain
-  ``/* ... */`` block comment by the lexer's own ``/**`` opener.
+HOW A TARGET'S ARTIFACTS ARE READ BELONGS TO THE TARGET: each registered
+language declares a ``LanguageConformanceProbes``
+(``LanguagePlugin.conformance_probes``,
+``datrix_codegen_kernel.parity.conformance_probes``) whose
+``documentation_surfaces(generated_root, files)`` returns the published and
+source-comment text of its own generated files, using the parser its own syntax
+needs (a language with a native AST uses it; a C-family language uses the shared
+structural lexer ``datrix_codegen_kernel.parity.c_family_source_scan``). The
+extractors themselves are proven by the owning packages' tests; this gate
+holds the fixture, the per-cell comparison and the coverage census, and NEVER
+names a target -- its self-test proves that first
+(``shared.registered_targets.target_references_in_module``). A probe that finds
+no documentation surface at all fails the run.
 
 Each registered target's own package proves a real end-to-end document for
 this feature: python asserts against a real FastAPI router's ``.openapi()``,
@@ -76,13 +69,11 @@ non-vacuity-self-test shape of ``block_realization_parity.py`` and
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import logging
 import re
 import shutil
 import sys
-import tokenize
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
@@ -95,7 +86,20 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from shared.registered_targets import registered_language_names  # noqa: E402
+from shared.registered_targets import (  # noqa: E402
+    registered_language_names,
+    self_test_gate_names_no_target,
+)
+
+from datrix_codegen_kernel.parity.conformance_probes import (  # noqa: E402
+    DocumentationSurfaces,
+    EnumClassifierRender,
+    LanguageConformanceProbes,
+    ResponseBodyWireField,
+    conformance_probes_of_language_plugin,
+    language_conformance_probes,
+)
+from datrix_common.errors.plugin import PluginValidationError  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -653,17 +657,23 @@ def generate_for_target(system_dtrx: Path, output_dir: Path, target: str) -> lis
 
 @dataclass(frozen=True)
 class ArtifactTextIndex:
-    """Structurally extracted text surfaces from one target's generated tree.
+    """The documentation surfaces one target's probe read from its generated tree.
 
-    ``published_strings`` holds every string value this target's own
+    ``surfaces.published`` holds every string value this target's own
     published-documentation mechanism carries (an OpenAPI-decorator keyword
-    argument, an XML ``<summary>``/``<remarks>`` element, ...).
-    ``source_comments`` holds every plain source-commentary comment's text
-    (``#``/``//``, never ``///``).
+    argument, a doc block, ...). ``surfaces.source_comments`` holds every plain
+    source-commentary comment's text (``#``/``//``, never ``///``).
     """
 
-    published_strings: frozenset[str]
-    source_comments: frozenset[str]
+    surfaces: DocumentationSurfaces
+
+    @property
+    def published_strings(self) -> frozenset[str]:
+        return self.surfaces.published
+
+    @property
+    def source_comments(self) -> frozenset[str]:
+        return self.surfaces.source_comments
 
     def has_published(self, text: str) -> bool:
         return any(text in s for s in self.published_strings)
@@ -672,334 +682,34 @@ class ArtifactTextIndex:
         return any(text in s for s in self.source_comments)
 
 
-def _python_index(files: list[Path]) -> ArtifactTextIndex:
-    """Real ``ast`` + ``tokenize`` extraction for generated Python.
-
-    Published: the string value of any call keyword argument named
-    ``summary`` or ``description`` (covers the route decorator, ``Field(...)``,
-    and ``strawberry.field(...)``/``strawberry.type(...)`` alike, without
-    hand-listing each callee -- the keyword name IS the documentation
-    contract per ``datrix_codegen_python``'s own realization), plus the
-    docstring of any class/function/async-function definition
-    (``ast.get_docstring`` -- a real AST query, never a substring search)
-    -- the landing site for a construct with no decorator/keyword surface:
-    an enum value's text folds into the enclosing ``Enum`` class's own
-    docstring, a service function's text becomes its own docstring.
-    Source: every ``#`` comment token's text (``tokenize.COMMENT`` -- a real
-    comment token, never a substring inside a string literal).
-    """
-    import ast
-
-    published: set[str] = set()
-    comments: set[str] = set()
-    for f in files:
-        if f.suffix != ".py":
-            continue
-        text = f.read_text(encoding="utf-8")
-        try:
-            tree = ast.parse(text, filename=str(f))
-        except SyntaxError as exc:
-            raise ValueError(f"generated Python file failed to parse: {f}: {exc}") from exc
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-                docstring = ast.get_docstring(node)
-                if docstring:
-                    published.add(docstring)
-            if not isinstance(node, ast.Call):
-                continue
-            for kw in node.keywords:
-                if (
-                    kw.arg in ("summary", "description")
-                    and isinstance(kw.value, ast.Constant)
-                    and isinstance(kw.value.value, str)
-                ):
-                    published.add(kw.value.value)
-        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
-            if tok.type != tokenize.COMMENT:
-                continue
-            body = tok.string[1:]
-            if body.startswith(" "):
-                body = body[1:]
-            comments.add(body.rstrip())
-    return ArtifactTextIndex(frozenset(published), frozenset(comments))
-
-
-#: Common backslash-escape decodings applied while lexing a C-family string
-#: literal -- an escaped quote/backslash must become the real
-#: character, or a marker text containing an apostrophe (e.g. "product's")
-#: fails containment against the raw ``\'``-escaped source text.
-_STRING_ESCAPES: Final[dict[str, str]] = {
-    "'": "'", '"': '"', "`": "`", "\\": "\\", "n": "\n", "t": "\t", "r": "\r",
-}
-
-_Span = tuple[int, int, str, str]  # (start, end, kind, value)
-
-
-def _classify_spans(text: str) -> list[_Span]:
-    """Real character-by-character lexing of a C-family source file into
-    typed spans: ``STRING``, ``LINE_COMMENT`` (``//``), ``TRIPLE_SLASH``
-    (``///`` -- a compiler directive line, never a plain source comment and
-    never a published surface for any registered target), ``DOC_BLOCK``
-    (``/** ... */``, the JSDoc doc-comment convention), ``BLOCK_COMMENT``
-    (``/* ... */``, never a doc surface), ``OTHER`` (code).
-    String/char/template-literal quoting respects backslash escapes.
-    ``DOC_BLOCK`` is distinguished from ``BLOCK_COMMENT`` by its literal
-    ``/**`` opener, checked before the generic ``/*`` check, exactly
-    mirroring how ``TRIPLE_SLASH`` (``///``) is distinguished from
-    ``LINE_COMMENT`` (``//``) by checking the three-char prefix first. This
-    is the structural foundation every extractor below builds on -- never a
-    line-oriented regex over the raw file text.
-    """
-    spans: list[_Span] = []
-    n = len(text)
-    i = 0
-    start_other = 0
-
-    def flush(end: int) -> None:
-        nonlocal start_other
-        if end > start_other:
-            spans.append((start_other, end, "OTHER", text[start_other:end]))
-        start_other = end
-
-    while i < n:
-        three = text[i:i + 3]
-        two = text[i:i + 2]
-        if three == "///":
-            flush(i)
-            j = text.find("\n", i)
-            j = n if j == -1 else j
-            spans.append((i, j, "TRIPLE_SLASH", text[i + 3:j]))
-            i = j
-            start_other = i
-            continue
-        if three == "/**" and text[i:i + 4] != "/**/":
-            flush(i)
-            close = text.find("*/", i + 3)
-            body_end = n if close == -1 else close
-            end = n if close == -1 else close + 2
-            spans.append((i, end, "DOC_BLOCK", text[i + 3:body_end]))
-            i = end
-            start_other = i
-            continue
-        if two == "//":
-            flush(i)
-            j = text.find("\n", i)
-            j = n if j == -1 else j
-            spans.append((i, j, "LINE_COMMENT", text[i + 2:j]))
-            i = j
-            start_other = i
-            continue
-        if two == "/*":
-            flush(i)
-            close = text.find("*/", i + 2)
-            body_end = n if close == -1 else close
-            end = n if close == -1 else close + 2
-            spans.append((i, end, "BLOCK_COMMENT", text[i + 2:body_end]))
-            i = end
-            start_other = i
-            continue
-        c = text[i]
-        if c in "\"'`":
-            flush(i)
-            quote = c
-            j = i + 1
-            value_chars: list[str] = []
-            while j < n:
-                ch = text[j]
-                if ch == "\\" and j + 1 < n:
-                    nxt = text[j + 1]
-                    value_chars.append(_STRING_ESCAPES.get(nxt, nxt))
-                    j += 2
-                    continue
-                if ch == quote:
-                    j += 1
-                    break
-                value_chars.append(ch)
-                j += 1
-            j = min(j, n)
-            spans.append((i, j, "STRING", "".join(value_chars)))
-            i = j
-            start_other = i
-            continue
-        i += 1
-    flush(n)
-    return spans
-
-
-def _group_consecutive_spans(spans: list[_Span], kind: str) -> list[list[str]]:
-    """Group consecutive spans of *kind* into blocks, bridged by whitespace-
-    only OTHER spans between them (a multi-line ``//`` note word-wrapped by a
-    formatter lands as several adjacent same-kind spans separated only by
-    the newline/indentation between physical lines -- they belong to one
-    logical comment, not several unrelated ones)."""
-    blocks: list[list[str]] = []
-    current: list[str] = []
-    for (_, _, k, v) in spans:
-        if k == kind:
-            current.append(v)
-            continue
-        if k == "OTHER" and v.strip() == "":
-            continue
-        if current:
-            blocks.append(current)
-            current = []
-    if current:
-        blocks.append(current)
-    return blocks
-
-
-def _line_comments(spans: list[_Span]) -> set[str]:
-    """Every plain ``//`` comment's text, as both the single-line form (so a
-    short, standalone note still matches) and the whole word-wrapped block
-    joined with spaces (so a formatter that wraps one long note across
-    several ``//`` lines still yields the complete sentence as one string).
-    """
-    texts: set[str] = set()
-    for block in _group_consecutive_spans(spans, "LINE_COMMENT"):
-        joined = " ".join(line.strip() for line in block if line.strip())
-        if joined:
-            texts.add(joined)
-        for line in block:
-            if line.strip():
-                texts.add(line.strip())
-    return texts
-
-
-def _scan_call_body(text: str, spans: list[_Span], start_pos: int) -> set[str]:
-    """From *start_pos* (immediately after an anchor's opening ``(``),
-    bracket-depth-track forward through *spans* to the matching close,
-    collecting every STRING span's value encountered while inside the call.
-    Depth counts any of ``( { [`` / ``) } ]`` uniformly -- sufficient to find
-    the call's own closing bracket without needing to distinguish paren vs.
-    brace, since generated code is always bracket-balanced.
-    """
-    depth = 1
-    strings: set[str] = set()
-    for (s, e, k, v) in spans:
-        if e <= start_pos:
-            continue
-        if k == "OTHER":
-            local = v[max(0, start_pos - s):]
-            for ch in local:
-                if ch in "({[":
-                    depth += 1
-                elif ch in ")}]":
-                    depth -= 1
-                    if depth == 0:
-                        return strings
-        elif k == "STRING":
-            if depth >= 1:
-                strings.add(v)
-    return strings
-
-
-def _bracketed_call_strings(text: str, spans: list[_Span], anchor_re: re.Pattern[str]) -> set[str]:
-    """Every string literal inside a balanced-bracket call whose anchor
-    (e.g. ``@ApiOperation(``) matches *anchor_re*, found only within OTHER
-    (code, not string/comment) spans."""
-    strings: set[str] = set()
-    for (s, e, k, v) in spans:
-        if k != "OTHER":
-            continue
-        for m in anchor_re.finditer(v):
-            abs_after_open = s + m.end()
-            strings |= _scan_call_body(text, spans, abs_after_open)
-    return strings
-
-
-_DOC_BLOCK_LINE_PREFIX_RE: Final[re.Pattern[str]] = re.compile(r"^[ \t]*\*[ \t]?")
-
-
-def _doc_block_published_texts(spans: list[_Span]) -> set[str]:
-    """Extract published text from ``/** ... */`` JSDoc doc-comment blocks --
-    the C-family landing site for a construct with no decorator surface (an
-    enum value, a service function, an entity's DTO class).
-    :func:`_classify_spans` already distinguishes this convention
-    structurally from a plain ``/* ... */`` block comment (never a doc
-    surface) by its literal ``/**`` opener, mirroring the ``///`` vs ``//``
-    distinction it draws for line comments.
-
-    Each ``DOC_BLOCK`` span's raw (stripped) content is kept as-is -- a
-    single-line published text still matches by containment even with its
-    conventional leading ``" * "`` intact -- and a second, cleaned
-    reconstruction strips that leading ``" * "`` continuation marker from
-    every physical line and rejoins them, so a published text that would
-    otherwise straddle the marker (a multi-paragraph doc block) still
-    matches as one contiguous string. Never a regex over the whole file --
-    both forms are read from the span :func:`_classify_spans` already
-    isolated.
-    """
-    texts: set[str] = set()
-    for (_, _, kind, value) in spans:
-        if kind != "DOC_BLOCK":
-            continue
-        raw = value.strip()
-        if raw:
-            texts.add(raw)
-        cleaned_lines = [
-            _DOC_BLOCK_LINE_PREFIX_RE.sub("", line, count=1).strip()
-            for line in value.split("\n")
-        ]
-        cleaned = "\n".join(line for line in cleaned_lines if line)
-        if cleaned:
-            texts.add(cleaned)
-    return texts
-
-
-#: Per-target published-surface annotation anchors. Anchor regex captures
-#: through the opening ``(`` so `_bracketed_call_strings` can start counting
-#: bracket depth at 1 immediately after the match.
-_ANNOTATION_ANCHORS: Final[dict[str, tuple[str, ...]]] = {
-    "typescript": (
-        r"@ApiOperation\s*\(", r"@ApiProperty(?:Optional)?\s*\(", r"@ApiSchema\s*\(",
-    ),
-}
-
-_SOURCE_EXTENSION: Final[dict[str, str]] = {
-    "typescript": ".ts",
-}
-
-
-def _c_family_index(files: list[Path], target: str) -> ArtifactTextIndex:
-    """Structural extraction for a C-family target, dispatched by *target*.
+def index_from_probes(
+    target: str, probes: LanguageConformanceProbes, generated_root: Path, files: Sequence[Path]
+) -> ArtifactTextIndex:
+    """Read *target*'s documentation surfaces through its own *probes*.
 
     Raises:
-        ValueError: *target* has no registered probe (see module docstring
-            -- per-target extraction logic is inherent to genuinely
-            different published-doc syntax across languages; a target
-            reaching here without one fails loud rather than being silently
-            skipped).
+        ValueError: the probe found no documentation surface at all in the
+            generated files (a probe that finds nothing proves nothing).
     """
-    extension = _SOURCE_EXTENSION.get(target)
-    if extension is None:
+    surfaces = probes.documentation_surfaces(generated_root, files)
+    if not surfaces.published and not surfaces.source_comments:
         raise ValueError(
-            f"documentation-realization-parity-gate has no structural artifact "
-            f"probe registered for target {target!r}. Registered probes: "
-            f"python (ast/tokenize), {sorted(_SOURCE_EXTENSION)} (structural "
-            f"lexer). Add a probe for this target rather than silently "
-            f"skipping it -- see _c_family_index / _python_index."
+            f"probe for {target!r} found no documentation surface in the {len(files)} generated "
+            f"file(s); a census that finds nothing proves nothing. Expected at least one "
+            f"published or source-comment text from the fixture's documented constructs. Fix: "
+            f"make the language's documentation_surfaces read the surfaces its generator emits."
         )
-    anchors = tuple(re.compile(p) for p in _ANNOTATION_ANCHORS.get(target, ()))
-
-    published: set[str] = set()
-    comments: set[str] = set()
-    for f in files:
-        if f.suffix != extension:
-            continue
-        text = f.read_text(encoding="utf-8")
-        spans = _classify_spans(text)
-        comments |= _line_comments(spans)
-        for anchor_re in anchors:
-            published |= _bracketed_call_strings(text, spans, anchor_re)
-        published |= _doc_block_published_texts(spans)
-    return ArtifactTextIndex(frozenset(published), frozenset(comments))
+    return ArtifactTextIndex(surfaces)
 
 
-def build_index(target: str, files: list[Path]) -> ArtifactTextIndex:
-    """Dispatch to the right structural extractor for *target*."""
-    if target == "python":
-        return _python_index(files)
-    return _c_family_index(files, target)
+def build_index(target: str, generated_root: Path, files: Sequence[Path]) -> ArtifactTextIndex:
+    """Resolve *target*'s conformance probes and read its generated *files* through them.
+
+    Raises:
+        PluginValidationError: *target* declares no (or incomplete) conformance probes.
+        ValueError: the probe found no documentation surface.
+    """
+    return index_from_probes(target, language_conformance_probes(target), generated_root, files)
 
 
 # ---------------------------------------------------------------------------
@@ -1304,28 +1014,27 @@ def write_coverage_baseline(holes: dict[str, int]) -> None:
 
 
 def run_self_test() -> list[str]:
-    """Prove the fixture and every structural extractor are non-vacuous
-    BEFORE any real comparison is trusted.
+    """Prove this gate names no target and the fixture and comparison are
+    non-vacuous BEFORE any real comparison is trusted.
 
-    1. Every marker text the fixture claims to carry is actually present in
+    1. This gate names no registered target (imports or name literals).
+    2. Every marker text the fixture claims to carry is actually present in
        the fixture DSL source (a scan that can only return zero is not
        evidence -- this proves the fixture itself is not empty/wrong).
-    2. The Python extractor finds a known-present published summary/
-       description and a known-present source comment in a synthetic
-       snippet it has never seen, and does NOT leak the comment into the
-       published set -- plus a known-present docstring on a plain
-       (no-decorator) function.
-    3. The C-family extractor does the same, via the real
-       bracket-depth-tracking annotation-argument scan, plus a known-present
-       ``/** ... */`` doc block, and does NOT treat a sibling plain
-       ``/* ... */`` block comment as published.
+    3. The gate's real dispatch, driven with in-process fixture probes whose
+       language name is not a registered one, reads a conformant surface set,
+       reports a planted unpopulated cell, fails on an empty probe result and
+       fails on a plugin with no probe member. (The per-language extractors are
+       proven by the owning packages' own tests.)
     4. A planted unpopulated cell is reported as a hole and fails the gate,
        with no exemption input to pass it.
 
     Returns:
-        A list of failure descriptions -- empty means every extractor is sound.
+        A list of failure descriptions -- empty means the comparison is sound.
     """
-    problems: list[str] = []
+    problems: list[str] = list(self_test_gate_names_no_target(__file__))
+    if problems:
+        return problems
 
     for marker in _all_marker_texts():
         if marker not in _SERVICE_DTRX:
@@ -1335,93 +1044,112 @@ def run_self_test() -> list[str]:
                 f"own constants."
             )
 
-    synth_py = (
-        "from fastapi import APIRouter\n"
-        "router = APIRouter()\n\n\n"
-        "@router.get(\"/x\", summary=\"SELF_TEST_PY_SUMMARY\", description=\"SELF_TEST_PY_DESC\")\n"
-        "async def handler():\n"
-        "    # SELF_TEST_PY_SOURCE_NOTE\n"
-        "    pass\n"
-        "\n\n"
-        "def documented_helper():\n"
-        "    \"\"\"SELF_TEST_PY_DOCSTRING\"\"\"\n"
-        "    return None\n"
-    )
-    import tempfile
-    tmp_dir = Path(tempfile.mkdtemp(prefix="doc-realization-selftest-py-"))
-    try:
-        py_file = tmp_dir / "handler.py"
-        py_file.write_text(synth_py, encoding="utf-8")
-        py_index = _python_index([py_file])
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-
-    if not py_index.has_published("SELF_TEST_PY_SUMMARY") or not py_index.has_published("SELF_TEST_PY_DESC"):
-        problems.append(
-            f"self-test: python extractor did not find a known-present "
-            f"published summary/description (found: {sorted(py_index.published_strings)})"
-        )
-    if not py_index.has_source_comment("SELF_TEST_PY_SOURCE_NOTE"):
-        problems.append(
-            f"self-test: python extractor did not find a known-present source "
-            f"comment (found: {sorted(py_index.source_comments)})"
-        )
-    if py_index.has_published("SELF_TEST_PY_SOURCE_NOTE"):
-        problems.append("self-test: python extractor leaked a source comment into the published set")
-    if not py_index.has_published("SELF_TEST_PY_DOCSTRING"):
-        problems.append(
-            f"self-test: python extractor did not find a known-present "
-            f"docstring on a plain (no-decorator) function "
-            f"(found: {sorted(py_index.published_strings)})"
-        )
-
-    synth_ts = (
-        "@ApiOperation({ summary: 'SELF_TEST_TS_SUMMARY', description: 'SELF_TEST_TS_DESC' })\n"
-        "async handler() {\n"
-        "  // SELF_TEST_TS_SOURCE_NOTE\n"
-        "  return this.svc.find();\n"
-        "}\n"
-    )
-    ts_spans = _classify_spans(synth_ts)
-    ts_published = _bracketed_call_strings(synth_ts, ts_spans, re.compile(r"@ApiOperation\s*\("))
-    ts_comments = _line_comments(ts_spans)
-    if "SELF_TEST_TS_SUMMARY" not in ts_published or "SELF_TEST_TS_DESC" not in ts_published:
-        problems.append(
-            f"self-test: C-family extractor did not find a known-present "
-            f"published summary/description (found: {sorted(ts_published)})"
-        )
-    if not any("SELF_TEST_TS_SOURCE_NOTE" in c for c in ts_comments):
-        problems.append(
-            f"self-test: C-family extractor did not find a known-present "
-            f"source comment (found: {sorted(ts_comments)})"
-        )
-    if "SELF_TEST_TS_SOURCE_NOTE" in ts_published:
-        problems.append("self-test: C-family extractor leaked a source comment into the published set")
-
-    synth_doc_block = (
-        "/**\n"
-        " * SELF_TEST_DOC_BLOCK_TEXT\n"
-        " */\n"
-        "export class SelfTestClass {}\n"
-        "/* SELF_TEST_PLAIN_BLOCK_COMMENT_NOT_DOC */\n"
-        "export class SelfTestOther {}\n"
-    )
-    doc_block_spans = _classify_spans(synth_doc_block)
-    doc_block_published = _doc_block_published_texts(doc_block_spans)
-    if not any("SELF_TEST_DOC_BLOCK_TEXT" in t for t in doc_block_published):
-        problems.append(
-            f"self-test: doc-block extractor did not find a known-present "
-            f"/** ... */ published text (found: {sorted(doc_block_published)})"
-        )
-    if any("SELF_TEST_PLAIN_BLOCK_COMMENT_NOT_DOC" in t for t in doc_block_published):
-        problems.append(
-            "self-test: doc-block extractor treated a plain /* ... */ block "
-            "comment (no doubled-star opener) as a published doc block"
-        )
-
+    problems.extend(_probe_dispatch_self_test())
     problems.extend(_hard_zero_self_test())
     problems.extend(_coverage_census_self_test())
 
+    return problems
+
+
+#: The fixture language's name -- deliberately not a registered one.
+_SELF_TEST_LANGUAGE: Final[str] = "self_test_lang"
+
+
+class _FixtureDocumentationProbes:
+    """An in-process fixture language whose probe returns fixed surfaces."""
+
+    def __init__(self, surfaces: DocumentationSurfaces) -> None:
+        self._surfaces = surfaces
+
+    def response_body_wire_fields(self, generated_root: Path) -> tuple[ResponseBodyWireField, ...]:
+        return ()
+
+    def documentation_surfaces(self, generated_root: Path, files: Sequence[Path]) -> DocumentationSurfaces:
+        return self._surfaces
+
+    def render_enum_classifier(self, enum: object, paths: object) -> EnumClassifierRender:
+        return EnumClassifierRender(())
+
+
+class _FixturePluginWithoutProbes:
+    """A fixture language plugin with no `conformance_probes` member."""
+
+
+def _fully_documented_surfaces() -> DocumentationSurfaces:
+    """Surfaces carrying every marker text on its right side of the published/source divide."""
+    published = {
+        ENDPOINT_PUBLISHED_SUMMARY,
+        ENDPOINT_PUBLISHED_DESCRIPTION,
+        ENTITY_PUBLISHED_TEXT,
+        FIELD_PUBLISHED_TEXT,
+        ENUM_VALUE_PUBLISHED_TEXT,
+        STRUCT_FIELD_PUBLISHED_TEXT,
+        FUNCTION_PUBLISHED_TEXT,
+    }
+    comments = {
+        ENDPOINT_SOURCE_NOTE,
+        ENTITY_SOURCE_NOTE,
+        FIELD_SOURCE_NOTE,
+        ENUM_VALUE_SOURCE_NOTE,
+        STRUCT_FIELD_SOURCE_NOTE,
+        FUNCTION_SOURCE_NOTE,
+    }
+    return DocumentationSurfaces(frozenset(published), frozenset(comments))
+
+
+def _probe_dispatch_self_test() -> list[str]:
+    """Drive the gate's real surface reading and checking with fixture probes.
+
+    A fully documented fixture passes every cell; a fixture whose published set
+    lacks the entity text is reported as exactly that hole; a fixture that leaks
+    a source note into the published set fails that construct's source cell; an
+    empty probe result is refused; a plugin with no probe member is refused with
+    the accessor's message.
+    """
+    problems: list[str] = []
+    root = Path(".")
+
+    def holes_for(surfaces: DocumentationSurfaces) -> list[SurfaceCheck]:
+        index = index_from_probes(
+            _SELF_TEST_LANGUAGE, _FixtureDocumentationProbes(surfaces), root, [root / "fixture.src"]
+        )
+        return census_target_checks(check_all_surfaces(_SELF_TEST_LANGUAGE, index))[1]
+
+    full = _fully_documented_surfaces()
+    if holes_for(full):
+        problems.append("self-test: a fully documented fixture probe reported a hole -- over-triggering.")
+
+    without_entity = DocumentationSurfaces(full.published - {ENTITY_PUBLISHED_TEXT}, full.source_comments)
+    found = [(hole.construct_kind, hole.surface) for hole in holes_for(without_entity)]
+    if found != [("entity", "published")]:
+        problems.append(
+            f"self-test: a fixture whose published set lacks the entity text must be exactly one "
+            f"(entity, published) hole, got {found}."
+        )
+
+    leaking = DocumentationSurfaces(full.published | {FIELD_SOURCE_NOTE}, full.source_comments)
+    found = [(hole.construct_kind, hole.surface) for hole in holes_for(leaking)]
+    if found != [("field", "source")]:
+        problems.append(
+            f"self-test: a fixture leaking a source note into the published set must be exactly one "
+            f"(field, source) hole, got {found}."
+        )
+
+    try:
+        holes_for(DocumentationSurfaces(frozenset(), frozenset()))
+    except ValueError as exc:
+        if _SELF_TEST_LANGUAGE not in str(exc) or "found no documentation surface" not in str(exc):
+            problems.append(f"self-test: the refusal of an empty probe result did not name the language ({exc}).")
+    else:
+        problems.append("self-test: a probe returning no documentation surface was not refused.")
+
+    try:
+        conformance_probes_of_language_plugin(_SELF_TEST_LANGUAGE, _FixturePluginWithoutProbes())
+    except PluginValidationError as exc:
+        if _SELF_TEST_LANGUAGE not in str(exc) or "declares no conformance probes" not in str(exc):
+            problems.append(f"self-test: a plugin with no probe member failed without the accessor's message ({exc}).")
+    else:
+        problems.append("self-test: a plugin with no probe member was not refused.")
     return problems
 
 
@@ -1617,7 +1345,7 @@ def run_gate(*, debug: bool = False, update_coverage_baseline: bool = False) -> 
         out_dir = SCRATCH_ROOT / "generated" / target
         try:
             files = generate_for_target(system_dtrx, out_dir, target)
-            index = build_index(target, files)
+            index = build_index(target, out_dir, files)
             per_target_checks[target] = check_all_surfaces(target, index)
             per_target_holes[target] = coverage_holes(
                 attached_runs, generated_output_blob(out_dir)

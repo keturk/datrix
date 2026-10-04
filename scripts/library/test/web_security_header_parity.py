@@ -4,26 +4,21 @@ web client realizes the ONE declared security-header set from
 generated static site is either fronted by the full header set its own
 topology requires, or it is a defect, never a documented gap.
 
-Every static-site hosting realization -- docker/local's loopback nginx
-container, AWS's CloudFront response-headers policy, Azure's Static Web Apps
-`staticwebapp.config.json` -- consumes
+Every static-site hosting realization consumes
 `datrix_codegen_kernel.platform.web_security_headers.build_web_security_headers`,
-but none of the three spells a header NAME literally in its own package
-source: each threads the shared builder's `WebSecurityHeaderSet.as_header_dict()`
-straight into its own rendering primitive (a Jinja loop, a CDK IR list, a JSON
-object), so a census of `.py`/`.j2` source text -- the technique
-`framework_header_parity.py` and `problem_type_parity.py` use for a WIRE
-NAME spelled directly in source -- finds nothing to compare on any of the
-three. This gate instead DRIVES the real generation composition for one
-shared fixture (app, web target, environment): it renders each platform's
-real artifact (the nginx server block, the CloudFront response-headers
-policy IR, the `staticwebapp.config.json` payload) from a `WebSecurityHeaderSet`
-built by the same shared function every platform calls, then parses the
-EMITTED artifact structurally -- nginx `add_header` directives, the CDK
-policy's typed security-header slots plus its `ResponseCustomHeader` call
-list, the parsed JSON `globalHeaders` object --
-to prove the artifact actually carries what the shared builder computed,
-never merely that the platform's source happens to call the right function.
+but none spells a header NAME literally in its own package source: each threads
+the shared builder's `WebSecurityHeaderSet.as_header_dict()` straight into its
+own rendering primitive (a Jinja loop, a CDK IR list, a JSON object), so a
+census of `.py`/`.j2` source text -- the technique `framework_header_parity.py`
+and `problem_type_parity.py` use for a WIRE NAME spelled directly in source --
+finds nothing to compare. How a platform's rendered artifact is read therefore
+belongs to the platform: each registered platform declares a
+`PlatformConformanceProbes` (`PlatformPlugin.declared_conformance_probes()`,
+`datrix_codegen_kernel.parity.conformance_probes`) whose
+`realized_web_security_headers(header_set)` renders the platform's real artifact
+for one shared fixture header set and parses the EMITTED artifact structurally.
+This gate holds the comparison and the fixture and NEVER names a platform; its
+self-test proves that first (`shared.registered_targets.target_references_in_module`).
 
 Strict-Transport-Security is the one family whose PRESENCE is itself
 topology-dependent -- `build_web_security_headers` omits it, correctly, on a
@@ -33,11 +28,13 @@ everywhere a platform realizes `static_web_hosting`): it is read from the
 platform's own `PlatformCapabilityDeclaration.static_web_hosting.origin`
 (`"loopback_port"` vs `"domain"`) and used to compute that platform's own
 topology-correct expected family set via the SAME shared builder, never a
-hand-typed exemption. Every registered platform is censused: a platform whose
-declaration carries no origin is a defect that fails the run, never a skip.
+hand-typed exemption. The census is keyed by registered platform NAME, so every
+registered platform is proven individually, never folded with another that
+shares a package. A platform whose static web hosting declares no origin is a
+defect that fails the run, never a skip; a probe that returns no header fails.
 
-Platform set from the installed `datrix.platforms` entry points at runtime;
-the declared header set read from `datrix_codegen_kernel.platform.web_security_headers`
+Platform set from the installed `datrix.platforms` entry points at runtime; the
+declared header set read from `datrix_codegen_kernel.platform.web_security_headers`
 at runtime -- never a table in this script. Runs a built-in non-vacuity
 self-test on every invocation. Repo-level validation script (per the datrix
 showcase boundary -- no pytest suite lives in datrix).
@@ -46,11 +43,9 @@ showcase boundary -- no pytest suite lives in datrix).
 from __future__ import annotations
 
 import argparse
-import json
 import logging
-import re
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
@@ -59,21 +54,23 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from datrix_codegen_kernel.generation.template_generator import TemplateGenerator  # noqa: E402
+from datrix_codegen_kernel.parity.conformance_probes import (  # noqa: E402
+    PlatformConformanceProbes,
+    conformance_probes_of_platform_class,
+    platform_conformance_probes,
+)
 from datrix_codegen_kernel.platform.web_security_headers import (  # noqa: E402
     WebSecurityHeaderSet,
     build_web_security_headers,
 )
+from datrix_common.errors.plugin import PluginValidationError  # noqa: E402
 from datrix_common.plugin.capability_resolution import declaration_for_provider  # noqa: E402
 from shared.registered_targets import (  # noqa: E402
-    AXIS_PLATFORMS,
-    WORKSPACE_ROOT,
-    discover_target_package_src_dirs,
     registered_platform_names,
+    self_test_gate_names_no_target,
 )
 
 if TYPE_CHECKING:
-    from datrix_codegen_aws.iac.cdk_ir import CallExpr, Expr
     from datrix_common.plugin.capability import PlatformCapabilityDeclaration
 
 logger = logging.getLogger(__name__)
@@ -84,14 +81,9 @@ EXIT_USAGE: Final[int] = 2
 
 _MIN_PLATFORMS_FOR_COMPARISON: Final[int] = 2
 
-#: Matches `discover_target_package_src_dirs`'s own fold-label join --
-#: several registered `datrix.platforms` names sharing one package (e.g.
-#: "azure+azure-vm", "docker+local") are folded into one comparison label;
-#: this splits it back to the constituent names when the per-name
-#: `static_web_hosting` declaration must be read individually. Kept as a
-#: private literal rather than importing the module-private separator
-#: constant, mirroring `behaviour_parity.py`'s own `_LABEL_JOIN_SEPARATOR`.
-_LABEL_JOIN_SEPARATOR: Final[str] = "+"
+#: The static-hosting origin shape a loopback platform declares; every other
+#: declared origin is a domain-fronted topology.
+_LOOPBACK_ORIGIN: Final[str] = "loopback_port"
 
 #: The exact CSP directive tokens a Content-Security-Policy value must never
 #: contain (the shared builder's own contract -- see its module docstring),
@@ -100,36 +92,16 @@ _LABEL_JOIN_SEPARATOR: Final[str] = "+"
 #: case-folded, so a platform cannot dodge the check by re-casing the token.
 _UNSAFE_CSP_TOKENS: Final[tuple[str, ...]] = ("unsafe-inline", "unsafe-eval")
 
-#: One shared fixture (app, web target, environment) every platform's
-#: artifact is rendered against -- domain-neutral placeholders, never a real
-#: or customer origin. `is_loopback` is the one input that varies, resolved
-#: per platform from its own `static_web_hosting.origin` declaration.
+#: One shared fixture header set every platform's artifact is rendered
+#: against -- domain-neutral placeholders, never a real or customer origin.
+#: `is_loopback` is the one input that varies, resolved per platform from its
+#: own `static_web_hosting.origin` declaration.
 _FIXTURE_API_ORIGIN: Final[str] = "https://api.fixture.example"
 _FIXTURE_IDENTITY_AUTHORITY: Final[str] = "https://auth.fixture.example"
 
-#: The fixture web app a platform's rendered static-site config serves.
-_FIXTURE_APP_KEY: Final[str] = "fixture-storefront"
-_FIXTURE_WEB_TARGET: Final[str] = "fixtureweb"
-_FIXTURE_ENVIRONMENT: Final[str] = "test"
-
-#: nginx `add_header <Name> "<Value>" always;` directive -- the exact
-#: grammar `web_static_site_nginx.conf.j2`'s header loop emits (see its own
-#: header block comment: "never a second, hand-written header list"). A
-#: header VALUE never contains a literal `" always;`, so this is an exact
-#: structural parse of one directive line, not a loose scan. Applied only at
-#: nginx BRACE DEPTH 1 (directly inside `server { }`, before any nested
-#: `location { }`) -- see `_docker_driver`: a `location` block's own
-#: `add_header Cache-Control ...` directives are a real, legitimate part of
-#: the emitted config but are scoped to that location only (nginx's own
-#: semantics: directives at server level apply to every response; a
-#: location's directives apply only inside it) and are not part of the
-#: shared security-header set, so counting them would be a false positive.
-_NGINX_ADD_HEADER_RE: Final[re.Pattern[str]] = re.compile(r'^\s*add_header\s+(\S+)\s+"(.*)"\s+always;\s*$')
-
-#: The nginx brace depth the security-header loop is emitted at: directly
-#: inside `server { }` (depth 1), never inside a nested `location { }`
-#: (depth 2+). See `_NGINX_ADD_HEADER_RE`.
-_NGINX_SERVER_BLOCK_DEPTH: Final[int] = 1
+#: Names used only by the self-test's fixture probes -- deliberately not
+#: registered platform names.
+_SELF_TEST_PLATFORM: Final[str] = "self_test_platform"
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +187,6 @@ class CspSample:
 @dataclass(frozen=True, slots=True)
 class PlatformCensus:
     platform: str
-    package: str
     header_spellings: tuple[HeaderSpelling, ...]
     csp_samples: tuple[CspSample, ...]
     expected_headers: Mapping[str, str]
@@ -301,7 +272,7 @@ def _family_problems(
     problems: list[str] = []
     for family in sorted(realized - families):
         problems.append(
-            f"{census.package} ({platform}): emits header {family!r}, which is "
+            f"{platform}: emits header {family!r}, which is "
             f"not part of the one declared web-security header set "
             f"(datrix_codegen_kernel.platform.web_security_headers). Fix: remove the "
             f"hand-written header, or thread it through build_web_security_headers "
@@ -309,7 +280,7 @@ def _family_problems(
         )
     for family in sorted(census.expected_families - realized):
         problems.append(
-            f"{census.package} ({platform}): does not realize declared header "
+            f"{platform}: does not realize declared header "
             f"family {family!r} for its own topology. Fix: thread "
             f"build_web_security_headers's output for this header into the "
             f"platform's rendering path -- there is no declared-hole escape for "
@@ -327,7 +298,7 @@ def _value_problems(platform: str, census: PlatformCensus) -> list[str]:
         if expected_value is None or spelling.value == expected_value:
             continue
         problems.append(
-            f"{census.package} ({platform}): {spelling.relative_path}:{spelling.line}: "
+            f"{platform}: {spelling.relative_path}:{spelling.line}: "
             f"emits {spelling.header_name!r} as {spelling.value!r}, but the one declared "
             f"set computes {expected_value!r} for this platform's topology. Fix: emit "
             f"build_web_security_headers's value unchanged -- a platform never rewrites "
@@ -339,7 +310,7 @@ def _value_problems(platform: str, census: PlatformCensus) -> list[str]:
 def _csp_problems(platform: str, census: PlatformCensus) -> list[str]:
     """Violations of the CSP negative check: every unsafe token in an emitted CSP."""
     return [
-        f"{census.package} ({platform}): {sample.relative_path}:"
+        f"{platform}: {sample.relative_path}:"
         f"{sample.line}: Content-Security-Policy contains {token!r}, "
         f"forbidden regardless of family completeness. Fix: remove "
         f"the unsafe directive token from the CSP the platform emits."
@@ -368,363 +339,33 @@ def render_report(families: frozenset[str], verdicts: Mapping[str, PlatformVerdi
 
 
 # ---------------------------------------------------------------------------
-# Platform-axis resolution (which packages realize static_web_hosting, and
-# in what origin shape)
+# Platform axis: which registered platforms host a static site, and in what
+# origin shape
 # ---------------------------------------------------------------------------
 
 
 def _declared_hosting_origin(declaration: PlatformCapabilityDeclaration) -> str | None:
     """The origin a platform's static web hosting declares, or `None` when it
-    serves no static site (presence only; `_resolve_platform_origin` refuses a `None`)."""
+    serves no static site."""
     hosting = declaration.static_web_hosting
     return None if hosting is None else hosting.origin
 
 
-def _resolve_platform_origin(label: str, origins: Mapping[str, str | None]) -> str:
-    """Return the static-hosting origin of one folded platform *label* given the
-    origin each of its constituent registered names declares.
-
-    Every registered platform serves static web hosting, so a constituent name
-    that declares no origin is a defect, never a skip. Constituent names within
-    the SAME package that disagree on origin is a real configuration defect (the
-    platform axis assumes one physical realization per package) and raises
-    rather than picking one silently.
-
-    Args:
-        label: The folded platform label (`discover_target_package_src_dirs`
-            output), e.g. `"docker+local"`.
-        origins: `{registered name: its static_web_hosting.origin}` for every
-            name folded into *label*.
-
-    Returns:
-        The single origin every constituent name declares.
+def _require_origin(platform: str, declaration: PlatformCapabilityDeclaration) -> str:
+    """The static-hosting origin of *platform*, which declares static web hosting.
 
     Raises:
-        ValueError: A constituent name declares no origin, or constituent
-            names disagree on origin.
+        ValueError: The platform declares static web hosting with no origin.
     """
-    originless = sorted(name for name, origin in origins.items() if origin is None)
-    if originless:
+    origin = _declared_hosting_origin(declaration)
+    if origin is None:
         raise ValueError(
-            f"{label}: registered name(s) {originless} declare no static_web_hosting "
-            f"origin. Expected: every registered platform serves static web hosting, "
-            f"a loopback platform at 'loopback_port'. Fix: declare the origin on "
-            f"that platform's capability declaration."
+            f"{platform}: declares static_web_hosting with no origin. Expected a "
+            f"topology the header set can be computed for ('{_LOOPBACK_ORIGIN}' or a "
+            f"domain origin). Fix: declare the origin on that platform's capability "
+            f"declaration."
         )
-    distinct_origins = frozenset(origin for origin in origins.values() if origin is not None)
-    if len(distinct_origins) != 1:
-        raise ValueError(
-            f"{label}: registered names {sorted(origins)} declare static_web_hosting "
-            f"with disagreeing origins {sorted(distinct_origins)} "
-            f"-- the platform axis assumes one physical realization per package. "
-            f"Fix: reconcile the declarations, or split the package so each origin "
-            f"shape gets its own comparison entry."
-        )
-    return next(iter(distinct_origins))
-
-
-# ---------------------------------------------------------------------------
-# Per-platform drivers -- each renders the REAL artifact for the shared
-# fixture and parses it structurally. Genuinely different techniques per
-# platform (a Jinja-rendered nginx block, a CDK IR call tree, a JSON
-# payload), so dispatch is a closed table keyed by the package's import
-# name, mirroring field_error_path_parity.py's per-language technique
-# dispatch -- never a generic file-text census (see module docstring for why
-# that technique finds nothing here).
-# ---------------------------------------------------------------------------
-
-
-def _parse_server_level_add_headers(rendered: str) -> dict[str, str]:
-    """Parse every `add_header` directive at nginx brace depth 1 (directly
-    inside `server { }`) out of *rendered* -- tracking brace depth per line
-    so a `location { }` block's own, differently-scoped `add_header`
-    directives (Cache-Control) are excluded by nginx's own block structure,
-    never by indentation or a hand-picked line range."""
-    depth = 0
-    headers: dict[str, str] = {}
-    for line in rendered.splitlines():
-        if depth == _NGINX_SERVER_BLOCK_DEPTH:
-            match = _NGINX_ADD_HEADER_RE.match(line)
-            if match:
-                headers[match.group(1)] = match.group(2)
-        depth += line.count("{") - line.count("}")
-    return headers
-
-
-def _docker_driver(src_dir: Path, header_set: WebSecurityHeaderSet) -> dict[str, str]:
-    """Render docker's real nginx server block and parse its server-level
-    `add_header` directives -- the header names are Jinja variables in the
-    template (`{{ name }}`/`{{ value }}`), never literal source text, so
-    only the RENDERED artifact carries them."""
-    from datrix_codegen_kernel.generation.client_runtime_paths import client_resolved_runtime_config_path
-    from datrix_codegen_docker.generators.compose._client_runtime_resolver import (
-        STATIC_SITE_RUNTIME_CONFIG_MOUNT,
-    )
-    from datrix_codegen_docker.generators.compose._web_static_site import (
-        render_static_site_nginx_conf,
-    )
-
-    template_gen = TemplateGenerator(template_dir=src_dir / "templates", target_language="docker")
-    # The runtime-config location is built exactly as the wiring builds it,
-    # for the fixture's own app/target/environment; it does not bear on the
-    # headers this census reads.
-    runtime_config_name = client_resolved_runtime_config_path(
-        _FIXTURE_APP_KEY, _FIXTURE_WEB_TARGET, _FIXTURE_ENVIRONMENT
-    ).name
-    rendered = render_static_site_nginx_conf(
-        template_gen,
-        header_set,
-        spa_fallback_paths=(),
-        runtime_config_file=f"{STATIC_SITE_RUNTIME_CONFIG_MOUNT}/{runtime_config_name}",
-    )
-    headers = _parse_server_level_add_headers(rendered)
-    if not headers:
-        raise ValueError(
-            "docker's rendered nginx static-site config carries zero server-level "
-            "'add_header ... always;' directives for the fixture header set -- "
-            "render_static_site_nginx_conf's template or header loop changed shape; "
-            "update _parse_server_level_add_headers in web_security_header_parity.py "
-            "to match."
-        )
-    return headers
-
-
-def _keyword_value(call: CallExpr, keyword_name: str, *, context: str) -> Expr:
-    """Return *call*'s keyword argument named *keyword_name*, raising with
-    *context* if none matches -- the one keyword-lookup primitive both
-    `_literal_str_keyword` and `_extract_aws_response_headers` walk the CDK
-    IR through (the CDK IR walk's own structural-parse discipline; see
-    module docstring: "parsing each artifact structurally... never a
-    single-line regex")."""
-    for keyword in call.keywords:
-        if keyword.name == keyword_name:
-            return keyword.value
-    raise ValueError(
-        f"{context}: carries no {keyword_name!r} keyword. "
-        f"build_response_headers_policy's IR shape changed; update the parity "
-        f"gate's CDK IR walk to match."
-    )
-
-
-def _literal_str_keyword(call: CallExpr, keyword_name: str, *, context: str) -> str:
-    """Return the string `Literal.value` of *call*'s keyword argument named
-    *keyword_name*, via `_keyword_value`, raising with *context* if it is not
-    a string `Literal`."""
-    from datrix_codegen_aws.iac.cdk_ir import Literal
-
-    value = _keyword_value(call, keyword_name, context=context)
-    if isinstance(value, Literal) and isinstance(value.value, str):
-        return value.value
-    raise ValueError(
-        f"{context}: keyword {keyword_name!r} is not a string Literal ({value!r}). "
-        f"build_response_headers_policy's IR shape changed; update the parity "
-        f"gate's CDK IR walk to match."
-    )
-
-
-#: CloudFront's typed security-header slot (`ResponseSecurityHeadersBehavior`
-#: keyword) -> the wire header CloudFront emits for it. CloudFront refuses
-#: these headers as custom headers, so the AWS realization carries them only
-#: here; each slot is decoded back to its wire value below.
-_CLOUDFRONT_SECURITY_SLOT_HEADERS: Final[dict[str, str]] = {
-    "content_security_policy": "Content-Security-Policy",
-    "strict_transport_security": "Strict-Transport-Security",
-    "content_type_options": "X-Content-Type-Options",
-    "referrer_policy": "Referrer-Policy",
-}
-
-#: The value CloudFront's `X-Content-Type-Options` slot emits.
-_CLOUDFRONT_CONTENT_TYPE_OPTIONS_VALUE: Final[str] = "nosniff"
-
-
-def _as_call(expr: Expr, *, context: str) -> CallExpr:
-    """Return *expr* as a `CallExpr`, raising with *context* otherwise."""
-    from datrix_codegen_aws.iac.cdk_ir import CallExpr
-
-    if isinstance(expr, CallExpr):
-        return expr
-    raise ValueError(
-        f"{context} is not a CallExpr ({expr!r}). build_response_headers_policy's "
-        f"IR shape changed; update the parity gate's CDK IR walk to match."
-    )
-
-
-def _literal_keyword(call: CallExpr, keyword_name: str, *, context: str) -> object:
-    """Return the `Literal.value` of *call*'s keyword *keyword_name*."""
-    from datrix_codegen_aws.iac.cdk_ir import Literal
-
-    value = _keyword_value(call, keyword_name, context=context)
-    if isinstance(value, Literal):
-        return value.value
-    raise ValueError(
-        f"{context}: keyword {keyword_name!r} is not a Literal ({value!r}). "
-        f"build_response_headers_policy's IR shape changed."
-    )
-
-
-def _decode_aws_hsts(slot: CallExpr) -> str:
-    """`ResponseHeadersStrictTransportSecurity(access_control_max_age=Duration.seconds(N),
-    include_subdomains=..., preload=...)` -> the header value CloudFront emits."""
-    from datrix_codegen_aws.iac.cdk_ir import Literal
-
-    context = "ResponseHeadersStrictTransportSecurity"
-    max_age_call = _as_call(_keyword_value(slot, "access_control_max_age", context=context), context=context)
-    if len(max_age_call.args) != 1 or not isinstance(max_age_call.args[0], Literal):
-        raise ValueError(f"{context}: access_control_max_age is not Duration.seconds(<literal>).")
-    value = f"max-age={max_age_call.args[0].value}"
-    if _literal_keyword(slot, "include_subdomains", context=context) is True:
-        value += "; includeSubDomains"
-    if _literal_keyword(slot, "preload", context=context) is True:
-        value += "; preload"
-    return value
-
-
-def _decode_aws_referrer_policy(slot: CallExpr) -> str:
-    """`ResponseHeadersReferrerPolicy(referrer_policy=cloudfront.HeadersReferrerPolicy.X)`
-    -> the `Referrer-Policy` token CloudFront emits (`X` lower-cased, `_` -> `-`)."""
-    from datrix_codegen_aws.iac.cdk_ir import AttrRef
-
-    member = _keyword_value(slot, "referrer_policy", context="ResponseHeadersReferrerPolicy")
-    if not isinstance(member, AttrRef):
-        raise ValueError(
-            f"ResponseHeadersReferrerPolicy: referrer_policy is not a "
-            f"HeadersReferrerPolicy member ({member!r})."
-        )
-    return member.attr.lower().replace("_", "-")
-
-
-def _decode_aws_security_slot(slot_name: str, slot: CallExpr) -> str:
-    """The wire value CloudFront emits for one typed security-header slot."""
-    if slot_name == "content_security_policy":
-        return _literal_str_keyword(slot, "content_security_policy", context="ResponseHeadersContentSecurityPolicy")
-    if slot_name == "strict_transport_security":
-        return _decode_aws_hsts(slot)
-    if slot_name == "content_type_options":
-        return _CLOUDFRONT_CONTENT_TYPE_OPTIONS_VALUE
-    if slot_name == "referrer_policy":
-        return _decode_aws_referrer_policy(slot)
-    raise ValueError(
-        f"No decoder for CloudFront security-header slot {slot_name!r}; "
-        f"_CLOUDFRONT_SECURITY_SLOT_HEADERS and _decode_aws_security_slot disagree."
-    )
-
-
-def _extract_aws_security_headers(policy_call: CallExpr) -> dict[str, str]:
-    """Every header the policy's typed `security_headers_behavior` emits."""
-    behavior = _as_call(
-        _keyword_value(policy_call, "security_headers_behavior", context="ResponseHeadersPolicy"),
-        context="ResponseHeadersPolicy.security_headers_behavior",
-    )
-    headers: dict[str, str] = {}
-    for keyword in behavior.keywords:
-        slot = _as_call(keyword.value, context=f"ResponseSecurityHeadersBehavior.{keyword.name}")
-        if _literal_keyword(slot, "override", context=keyword.name) is not True:
-            raise ValueError(
-                f"ResponseSecurityHeadersBehavior.{keyword.name} does not override the "
-                f"origin's copy -- an origin header could replace the declared value."
-            )
-        if keyword.name not in _CLOUDFRONT_SECURITY_SLOT_HEADERS:
-            raise ValueError(
-                f"ResponseSecurityHeadersBehavior carries slot {keyword.name!r}, which "
-                f"this gate cannot decode. Known slots: "
-                f"{sorted(_CLOUDFRONT_SECURITY_SLOT_HEADERS)}. Fix: add its decoder to "
-                f"web_security_header_parity.py."
-            )
-        headers[_CLOUDFRONT_SECURITY_SLOT_HEADERS[keyword.name]] = _decode_aws_security_slot(
-            keyword.name, slot
-        )
-    return headers
-
-
-def _extract_aws_response_headers(policy_call: CallExpr) -> dict[str, str]:
-    """Walk `build_response_headers_policy`'s returned
-    `cloudfront.ResponseHeadersPolicy(...)` CDK IR -- already a typed,
-    structured AST-equivalent Datrix itself builds -- to extract every
-    `(header, value)` pair CloudFront will emit: each typed slot of
-    `security_headers_behavior` decoded to its wire header, plus every
-    `ResponseCustomHeader(...)` of `custom_headers_behavior`. A header that
-    appears in both halves is a defect (CloudFront refuses a security header
-    as a custom header), reported by name."""
-    headers = _extract_aws_security_headers(policy_call)
-    for name, value in _extract_aws_custom_headers(policy_call).items():
-        if name.lower() in {existing.lower() for existing in headers}:
-            raise ValueError(
-                f"AWS response-headers policy carries {name!r} both as a typed "
-                f"security header and as a custom header; CloudFront refuses the policy."
-            )
-        headers[name] = value
-    return headers
-
-
-def _extract_aws_custom_headers(policy_call: CallExpr) -> dict[str, str]:
-    """Every `(header, value)` pair of the policy's `custom_headers_behavior`."""
-    from datrix_codegen_aws.iac.cdk_ir import CallExpr, ListLiteral
-
-    behavior_call = _keyword_value(policy_call, "custom_headers_behavior", context="ResponseHeadersPolicy")
-    if not isinstance(behavior_call, CallExpr):
-        raise ValueError(
-            f"ResponseHeadersPolicy: 'custom_headers_behavior' is not a CallExpr "
-            f"({behavior_call!r}). build_response_headers_policy's IR shape changed."
-        )
-    custom_headers = _keyword_value(behavior_call, "custom_headers", context="ResponseCustomHeadersBehavior")
-    if not isinstance(custom_headers, ListLiteral):
-        raise ValueError(
-            f"ResponseCustomHeadersBehavior: 'custom_headers' is not a ListLiteral "
-            f"({custom_headers!r}). build_response_headers_policy's IR shape changed."
-        )
-    headers: dict[str, str] = {}
-    for element in custom_headers.elements:
-        if not isinstance(element, CallExpr):
-            raise ValueError(
-                f"ResponseCustomHeadersBehavior.custom_headers element is not a "
-                f"CallExpr ({element!r}). build_response_headers_policy's IR shape "
-                f"changed."
-            )
-        name = _literal_str_keyword(element, "header", context="ResponseCustomHeader")
-        value = _literal_str_keyword(element, "value", context="ResponseCustomHeader")
-        headers[name] = value
-    return headers
-
-
-def _aws_driver(src_dir: Path, header_set: WebSecurityHeaderSet) -> dict[str, str]:  # noqa: ARG001
-    """Build AWS's real CloudFront response-headers policy IR and walk it --
-    `src_dir` is unused (AWS's builder is pure over `header_set`) but kept
-    for a uniform driver signature across all three platforms."""
-    from datrix_codegen_aws.iac.build_web_static_site_stack import build_response_headers_policy
-
-    policy_call = build_response_headers_policy(header_set)
-    return _extract_aws_response_headers(policy_call)
-
-
-def _azure_driver(src_dir: Path, header_set: WebSecurityHeaderSet) -> dict[str, str]:  # noqa: ARG001
-    """Render azure's real `staticwebapp.config.json` and parse its
-    `globalHeaders` object -- `src_dir` is unused (azure's renderer is pure
-    over `header_set`) but kept for a uniform driver signature."""
-    from datrix_codegen_azure.generators.static_web_app_config import render_staticwebapp_config
-
-    rendered = render_staticwebapp_config(header_set, spa_fallback_paths=())
-    payload = json.loads(rendered)
-    global_headers = payload.get("globalHeaders")
-    if not isinstance(global_headers, dict):
-        raise ValueError(
-            "azure's rendered staticwebapp.config.json carries no 'globalHeaders' "
-            "object -- render_staticwebapp_config's shape changed; update the "
-            "parity gate's JSON extraction to match."
-        )
-    return {str(name): str(value) for name, value in global_headers.items()}
-
-
-#: Closed dispatch table: package import name -> the function that drives
-#: its real generation composition and returns `{header name: value}` for
-#: the shared fixture. A registered platform whose package has no entry here
-#: is a loud failure (see `scan_all_registered_platforms`), never a silent
-#: skip -- a new static-site-hosting platform lands with its own driver, not
-#: by falling through unnoticed.
-_PLATFORM_DRIVERS: Final[dict[str, Callable[[Path, WebSecurityHeaderSet], dict[str, str]]]] = {
-    "datrix_codegen_docker": _docker_driver,
-    "datrix_codegen_aws": _aws_driver,
-    "datrix_codegen_azure": _azure_driver,
-}
+    return origin
 
 
 # ---------------------------------------------------------------------------
@@ -744,63 +385,67 @@ def _require_min_platforms(platform_names: frozenset[str]) -> None:
         raise SystemExit(EXIT_USAGE)
 
 
-def scan_all_registered_platforms() -> dict[str, PlatformCensus]:
-    """Census every package backing a registered `datrix.platforms` entry,
-    driving its real generation composition for the shared fixture. Every
-    registered platform serves static web hosting, so every one is censused;
-    a platform declaring no origin is a defect (see `_resolve_platform_origin`).
-
-    Returns:
-        `{label: PlatformCensus}` for every registered platform label.
+def census_platform(platform: str, probes: PlatformConformanceProbes, *, is_loopback: bool) -> PlatformCensus:
+    """Census one platform: render its artifact through *probes* for the shared fixture.
 
     Raises:
-        ValueError: A package has no entry in `_PLATFORM_DRIVERS`, or its
-            constituent registered names declare no origin or disagree on
-            origin (see `_resolve_platform_origin`).
+        ValueError: The probe returned no header (a probe that finds nothing
+            proves nothing).
+    """
+    header_set = _fixture_header_set(is_loopback=is_loopback)
+    effective_headers = dict(probes.realized_web_security_headers(header_set))
+    if not effective_headers:
+        raise ValueError(
+            f"probe for {platform!r} emitted no header for the fixture header set; a "
+            f"census that finds nothing proves nothing. Expected every header of the "
+            f"declared set. Fix: make the platform's realized_web_security_headers read "
+            f"the headers its rendered artifact carries."
+        )
+    artifact_label = f"{platform} (rendered fixture artifact)"
+    header_spellings = tuple(
+        HeaderSpelling(platform, artifact_label, 0, header_name, effective_headers[header_name])
+        for header_name in sorted(effective_headers)
+    )
+    csp_value = effective_headers.get(_csp_header_name(header_set))
+    csp_samples = (CspSample(platform, artifact_label, 0, csp_value),) if csp_value is not None else ()
+    return PlatformCensus(platform, header_spellings, csp_samples, header_set.as_header_dict())
+
+
+def scan_all_registered_platforms() -> dict[str, PlatformCensus]:
+    """Census every registered `datrix.platforms` name that realizes static web hosting.
+
+    Each name is read through its own conformance probes, driving the platform's
+    real generation composition for the shared fixture. The census is keyed by
+    registered name, so two names sharing one package are each proven.
+
+    Returns:
+        `{registered name: PlatformCensus}`.
+
+    Raises:
+        PluginValidationError: A realizing platform declares no (or incomplete)
+            conformance probes.
+        ValueError: A platform declares hosting with no origin, or its probe
+            returned no header.
     """
     platform_names = registered_platform_names()
     _require_min_platforms(platform_names)
-    src_dirs = discover_target_package_src_dirs(AXIS_PLATFORMS, platform_names, WORKSPACE_ROOT)
     censuses: dict[str, PlatformCensus] = {}
-    for label, platform_src_dirs in sorted(src_dirs.items()):
-        # The census drives the registering package's own generation
-        # composition: the first src dir is always the package whose entry
-        # point registers the platform (any core it requires follows it).
-        src_dir = platform_src_dirs[0]
-        package = src_dir.parents[1].name
-        member_names = label.split(_LABEL_JOIN_SEPARATOR)
-        declared_origins = {
-            name: _declared_hosting_origin(declaration_for_provider(name)) for name in member_names
-        }
-        origin = _resolve_platform_origin(label, declared_origins)
-        is_loopback = origin == "loopback_port"
-        import_name = src_dir.name
-        driver = _PLATFORM_DRIVERS.get(import_name)
-        if driver is None:
-            raise ValueError(
-                f"{package} ({import_name}) realizes static_web_hosting "
-                f"(origin={origin!r}) but web_security_header_parity.py has no "
-                f"census driver for it in _PLATFORM_DRIVERS. Fix: add one that "
-                f"drives this platform's real generation composition and returns "
-                f"its effective {{header name: value}} set."
-            )
-        header_set = _fixture_header_set(is_loopback=is_loopback)
-        effective_headers = driver(src_dir, header_set)
-        artifact_label = f"{import_name} (rendered fixture artifact)"
-        header_spellings = tuple(
-            HeaderSpelling(label, artifact_label, 0, header_name, effective_headers[header_name])
-            for header_name in sorted(effective_headers)
+    for name in sorted(platform_names):
+        declaration = declaration_for_provider(name)
+        if declaration.static_web_hosting is None:
+            logger.info("platform %s declares no static web hosting; not censused", name)
+            continue
+        origin = _require_origin(name, declaration)
+        censuses[name] = census_platform(
+            name, platform_conformance_probes(name), is_loopback=origin == _LOOPBACK_ORIGIN
         )
-        csp_header_name = _csp_header_name(header_set)
-        csp_value = effective_headers.get(csp_header_name)
-        csp_samples = (CspSample(label, artifact_label, 0, csp_value),) if csp_value is not None else ()
-        censuses[label] = PlatformCensus(label, package, header_spellings, csp_samples, header_set.as_header_dict())
         logger.debug(
-            "census platform=%s package=%s origin=%s realized=%d",
-            label,
-            package,
-            origin,
-            len(header_spellings),
+            "census platform=%s origin=%s realized=%d", name, origin, len(censuses[name].header_spellings)
+        )
+    if len(censuses) < _MIN_PLATFORMS_FOR_COMPARISON:
+        raise ValueError(
+            f"only {len(censuses)} registered platform(s) ({sorted(censuses)}) declare static web "
+            f"hosting; a cross-platform parity gate needs at least {_MIN_PLATFORMS_FOR_COMPARISON}."
         )
     return censuses
 
@@ -840,7 +485,7 @@ def _planted_census(
     )
     csp_name = _csp_header_name(_fixture_header_set(is_loopback=False))
     samples = (CspSample(platform, "planted", 1, emitted[csp_name]),) if csp_name in emitted else ()
-    return PlatformCensus(platform, f"datrix-codegen-{platform}", spellings, samples, expected_headers)
+    return PlatformCensus(platform, spellings, samples, expected_headers)
 
 
 def _self_test_comparator(
@@ -941,28 +586,6 @@ def _self_test_comparator(
     return ok
 
 
-def _self_test_origin_resolution() -> bool:
-    ok = True
-    origin = _resolve_platform_origin("docker+local", {"local": "loopback_port"})
-    ok &= _assert(origin == "loopback_port", "one name yields its origin")
-
-    origin = _resolve_platform_origin("azure+azure-vm", {"azure": "domain", "azure-vm": "domain"})
-    ok &= _assert(origin == "domain", "two agreeing names yield their shared origin")
-
-    try:
-        _resolve_platform_origin("alpha+beta", {"alpha": "domain", "beta": "loopback_port"})
-        ok &= _assert(False, "two disagreeing names raise")
-    except ValueError:
-        ok &= _assert(True, "two disagreeing names raise")
-
-    try:
-        _resolve_platform_origin("alpha", {"alpha": None})
-        ok &= _assert(False, "a name declaring no origin raises")
-    except ValueError:
-        ok &= _assert(True, "a name declaring no origin raises")
-    return ok
-
-
 def _self_test_topology_families(families: frozenset[str]) -> bool:
     ok = True
     loopback = _topology_families(is_loopback=True)
@@ -985,6 +608,72 @@ def _self_test_min_platforms() -> bool:
         return _assert(exc.code == EXIT_USAGE, "fewer than two registered platforms is refused")
 
 
+class _ConformantFixtureProbes:
+    """A fixture platform whose artifact carries exactly the declared header set."""
+
+    def realized_web_security_headers(self, header_set: WebSecurityHeaderSet) -> Mapping[str, str]:
+        return dict(header_set.as_header_dict())
+
+
+class _DivergentFixtureProbes:
+    """A fixture platform whose artifact weakens one declared header value."""
+
+    def realized_web_security_headers(self, header_set: WebSecurityHeaderSet) -> Mapping[str, str]:
+        headers = dict(header_set.as_header_dict())
+        victim = next(name for name in sorted(headers) if headers[name] != header_set.content_security_policy)
+        headers[victim] = f"{headers[victim]}-weakened"
+        return headers
+
+
+class _EmptyFixtureProbes:
+    """A fixture platform whose probe finds no header in its artifact."""
+
+    def realized_web_security_headers(self, header_set: WebSecurityHeaderSet) -> Mapping[str, str]:
+        return {}
+
+
+class _FixturePlatformWithoutProbes:
+    """A fixture platform class with no `declared_conformance_probes` member."""
+
+
+def _self_test_probe_dispatch(families: frozenset[str]) -> bool:
+    """Drive the gate's real dispatch with in-process fixture probes whose
+    platform name is not a registered one."""
+    ok = True
+    for is_loopback in (False, True):
+        topology = "loopback" if is_loopback else "domain"
+        census = census_platform(_SELF_TEST_PLATFORM, _ConformantFixtureProbes(), is_loopback=is_loopback)
+        problems, _ = evaluate(families, {_SELF_TEST_PLATFORM: census})
+        dead_contract_only = all("dead contract" in problem for problem in problems)
+        ok &= _assert(dead_contract_only, f"a conformant fixture probe ({topology}) reports no platform problem")
+
+    divergent = census_platform(_SELF_TEST_PLATFORM, _DivergentFixtureProbes(), is_loopback=False)
+    problems, _ = evaluate(families, {_SELF_TEST_PLATFORM: divergent})
+    ok &= _assert(
+        any("declared set computes" in problem for problem in problems),
+        "a fixture probe whose artifact weakens a header value is a violation",
+    )
+
+    try:
+        census_platform(_SELF_TEST_PLATFORM, _EmptyFixtureProbes(), is_loopback=False)
+        ok &= _assert(False, "a fixture probe returning no header fails")
+    except ValueError as exc:
+        ok &= _assert(
+            _SELF_TEST_PLATFORM in str(exc) and "emitted no header" in str(exc),
+            "a fixture probe returning no header fails naming the platform",
+        )
+
+    try:
+        conformance_probes_of_platform_class(_SELF_TEST_PLATFORM, _FixturePlatformWithoutProbes)
+        ok &= _assert(False, "a fixture platform with no probe member fails")
+    except PluginValidationError as exc:
+        ok &= _assert(
+            _SELF_TEST_PLATFORM in str(exc) and "declares no conformance probes" in str(exc),
+            "a fixture platform with no probe member fails with the accessor's message",
+        )
+    return ok
+
+
 def _self_test_live_scan(families: frozenset[str]) -> bool:
     """The live scan must find every declared family realized by at least one
     REAL registered platform -- driving the real generation composition, not
@@ -1005,8 +694,18 @@ def _self_test_live_scan(families: frozenset[str]) -> bool:
     return ok
 
 
+def _self_test_names_no_target() -> bool:
+    """This gate enumerates platforms from registration and must name none."""
+    failures = self_test_gate_names_no_target(__file__)
+    for line in failures:
+        print(f"  FAIL: {line}")
+    return _assert(not failures, "this gate names no registered target (imports and name literals)")
+
+
 def self_test() -> bool:
     print("Non-vacuity self-test:")
+    if not _self_test_names_no_target():
+        return False
     families = declared_header_families()
     ok = _assert(len(families) >= 2, "the shared builder declares at least two header families")
     ok &= _self_test_comparator(
@@ -1014,9 +713,9 @@ def self_test() -> bool:
         _fixture_header_set(is_loopback=False).as_header_dict(),
         _fixture_header_set(is_loopback=True).as_header_dict(),
     )
-    ok &= _self_test_origin_resolution()
     ok &= _self_test_topology_families(families)
     ok &= _self_test_min_platforms()
+    ok &= _self_test_probe_dispatch(families)
     ok &= _self_test_live_scan(families)
     return ok
 
@@ -1044,7 +743,7 @@ def main(argv: list[str] | None = None) -> int:
     families = declared_header_families()
     try:
         censuses = scan_all_registered_platforms()
-    except ValueError as exc:
+    except (ValueError, PluginValidationError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return EXIT_USAGE
     problems, verdicts = evaluate(families, censuses)

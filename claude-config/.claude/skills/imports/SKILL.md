@@ -50,7 +50,7 @@ disable-model-invocation: true
 - `datrix_common.paths` → `ServicePaths`
 - `datrix_common.config.codegen_context` → `CodegenContext`
 - `datrix_common.config.platform` → `BasePlatformConfig`, `DockerPlatformConfig`, `AwsPlatformConfig`, `AzurePlatformConfig`
-- `datrix_common.config.project.models` → `ProjectConfig`, `InfraImageCatalog`, `PlatformsConfig`
+- `datrix_common.config.project.models` → `ProjectConfig`, `EmptyProjectSettings`
 - `datrix_common.config.project.catalog` → `get_dependency_version`, `CatalogLookupError`
 - `datrix_common.config.datasource.broker_engine` → `BrokerEngine`, `get_broker_engine`, `KAFKA`, `all_broker_engines`
 - `datrix_common.config.datasource.cache_engine` → `CacheEngine`, `get_cache_engine`, `REDIS`, `all_cache_engines` (plus `rdbms_engine`, `nosql_engine`, `models`)

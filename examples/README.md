@@ -231,6 +231,15 @@ example; it is copied verbatim from a `datrix generate` run minus build output, 
 run's `.datrix/` state, and the per-service `secrets/` directories the generated
 `.gitignore` already excludes. Regenerating is still the supported workflow.
 
+`scripts/dev/refresh-example-snapshot.ps1 -Source <system.dtrx> -Language <name>` regenerates
+one snapshot in one registered language and replaces its directory with exactly what a commit
+keeps (the exclusions are asked of git, not restated). `scripts/test/example-snapshot-gate.ps1`
+holds the snapshots to the registered targets: every directory is `<language>-<platform>` over
+registered `datrix.languages` and `datrix.platforms` names, each example carries one snapshot
+per registered language for every platform it carries, and every dotted `datrix_*` reference in
+a snapshot or a generator template resolves through `importlib`. A snapshot for a language that
+can no longer be generated is deleted, never kept as history.
+
 ### Entry Point Pattern
 
 The `system.dtrx` file is the **entry point** for each project:

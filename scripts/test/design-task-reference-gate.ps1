@@ -11,18 +11,30 @@
  nothing, or to a different artifact elsewhere.
 
  This gate scans the committed trees for the SHAPE of such a reference
- (task-NN-MM, design/NNN-slug, "design doc NNN", .tasks/phase-NN) and fails on
- any hit. Design and task files referencing each other are exempt and their
- trees are skipped -- that is gitignored orchestration machinery.
+ (task-NN-MM, the possessive NN-MM's, design/NNN-slug, "design doc NNN",
+ .tasks/phase-NN) and fails on any hit. It also owns the ITEM LABELS that
+ findings, reviews and designs number their items with -- a parenthesized label
+ (one capital letter and its digits inside parentheses) and a heading label (the
+ same letter and digits followed by a colon) -- in any label letter, inside a package's src, tests and scripts (and the datrix repo's
+ scripts) across every scanned extension. Item labels are not policed under
+ docs or examples, where documents number their own items. Ruff and pylint
+ codes (F821, A002, R0801, F401/F811/I001) and attribute access
+ (StorageProvider.S3:) never match. A reviewed (file, token) exception list
+ covers the one label-shaped token that is emitted content. Design and task
+ files referencing each other are exempt and their trees are skipped -- that is
+ gitignored orchestration machinery.
+
+ The same scan runs at commit time over the pending files of every dirty repo
+ (git\commit-and-push.ps1), with no skip switch.
 
  The non-vacuity self-test runs on EVERY invocation before the real scan, so a
  green result can never mean "the detector was broken". Use -SelfTest to run
  only that leg.
 
 .PARAMETER Roots
- Comma-separated directories to scan. When omitted, scans the committed trees:
- datrix/scripts, datrix/docs, datrix-common/src, datrix-common/docs, and
- datrix-codegen-common/src.
+ Comma-separated directories to scan. When omitted, scans every committed tree,
+ derived from disk: each datrix-* package's src, tests, docs and scripts
+ subtrees, and the datrix showcase repo's scripts, docs and examples.
 
 .PARAMETER SelfTest
  Run only the non-vacuity self-test and skip the real scan.

@@ -9,41 +9,46 @@ that one rule. It is a hard zero: every registered language is obligated to
 realize it, and no declaration excuses a language that does not.
 
 Realization is a runtime BEHAVIOUR, not a literal wire string every backend
-spells identically (unlike a problem-type URN or a framework header name), so
-there is no single cross-language regex to census for. Each realizing
-language's construction technique is language-specific evidence, gathered by
-reading its real source:
+spells identically, so there is no single cross-language regex to census for.
+Each language DECLARES how it realizes the rule on its own
+`LanguageCapabilityDeclaration.field_error_path_realization`, and this gate
+holds only the two techniques that declaration can name -- a closed set in the
+shared declaration module, never a language name:
 
-* **python** realizes the rule with a real, callable, unit-tested mapping
-  function (`format_field_error_path`, inlined verbatim into the generated
-  exception handler) -- censused by finding its definition and EXECUTING it
-  against the shared canonical fixture, the only way to prove what a generic
-  mapping *function* (not a literal string) actually produces.
-* **typescript** realizes the rule with a hand-written recursive builder over
-  class-validator's own `ValidationError` tree -- censused by confirming its
-  two required construction lines (bracket-indexed, dot-joined) are present.
-* A language with no known construction technique censuses to zero sites,
-  which `evaluate()` reports as a language that does not realize the rule.
+* `ExecutedFieldErrorPathFormatter` -- the language inlines a reference
+  function. The gate checks the declared module lies inside the language's own
+  distribution, imports it and EXECUTES the function against the shared
+  canonical fixture (the only way to prove what a mapping *function* produces).
+  A declared request classifier is executed against the located fixture too.
+* `TemplateFieldErrorPathConstruction` -- the language builds the path in
+  template code. The gate checks the declared template exists in exactly one of
+  the language's packages, the builder's anchor is present and every declared
+  construction is present.
 
-Language set from the installed `datrix.languages` entry points at runtime --
-never a table in this script. Runs a built-in non-vacuity self-test on every
-invocation. Repo-level validation script (per the datrix showcase boundary --
-no pytest suite lives in datrix).
+Both techniques also prove the declared call site matches in the language's
+sources: a realization nothing calls is not on the emission path.
+
+A language declaring nothing fails by name. Language set from the installed
+`datrix.languages` entry points at runtime -- never a table in this script. Runs
+a built-in non-vacuity self-test on every invocation. Repo-level validation
+script (per the datrix showcase boundary -- no pytest suite lives in datrix).
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import importlib
 import importlib.util
+import inspect
 import logging
 import re
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from types import ModuleType
 from typing import Final
 
 _LIBRARY_DIR = Path(__file__).resolve().parent.parent
@@ -54,6 +59,13 @@ from datrix_common.datrix_model.problem_types import (  # noqa: E402
     FIELD_ERROR_PATH_RULE,
     FieldErrorCode,
     FieldErrorLocation,
+)
+from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
+from datrix_common.plugin.language_capability import (  # noqa: E402
+    ExecutedFieldErrorPathFormatter,
+    ExecutedLocatedClassifier,
+    FieldErrorPathRealization,
+    TemplateFieldErrorPathConstruction,
 )
 
 from shared.registered_targets import registered_language_names  # noqa: E402
@@ -99,7 +111,7 @@ _CANONICAL_PATH_FIELD_NAMES: Final[dict[str, str]] = {"sku": "sku"}
 
 @dataclass(frozen=True, slots=True)
 class RealizationSite:
-    """One place a language's source spells a field-error-path construction --
+    """One place a language's source realizes the field-error-path rule --
     a candidate realization or divergence, found by the census."""
 
     language: str
@@ -108,9 +120,21 @@ class RealizationSite:
     relative_path: str
     line: int
     spelled_path: str
-    """The literal example path this site produces for the shared canonical
-    fixture loc (`FIELD_ERROR_PATH_RULE`'s own worked example) -- read from the
-    evidence gathered against the real per-language sites, never invented."""
+    """The path this site produces for the shared canonical fixture loc
+    (`FIELD_ERROR_PATH_RULE`'s own worked example): the executed function's real
+    output, or the canonical form when every declared construction is present,
+    or the canonical form annotated with what is missing."""
+
+
+@dataclass(frozen=True, slots=True)
+class LanguageCensus:
+    """What the gate found for one language that declared a realization."""
+
+    sites: tuple[RealizationSite, ...]
+    defects: tuple[str, ...]
+    """Declared-but-unproven facts: a module or template outside the language's
+    distribution, an absent anchor or function, an uncalled realization, a
+    classifier that places an entry wrongly."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,57 +159,90 @@ def _iter_source_files(src_dir: Path) -> list[Path]:
     return files
 
 
+def _package_of(src_dir: Path) -> str:
+    """`<package>/src/<import_name>` -> `<package>`."""
+    return src_dir.parents[1].name
+
+
+def _containing_src_dir(path: Path, src_dirs: tuple[Path, ...]) -> Path | None:
+    resolved = path.resolve()
+    for src_dir in src_dirs:
+        if resolved.is_relative_to(src_dir.resolve()):
+            return src_dir
+    return None
+
+
+def _call_site_defect(
+    call_site: str, src_dirs: tuple[Path, ...], *, excluding: frozenset[Path]
+) -> str | None:
+    """A defect when *call_site* matches in no `.j2`/`.py` source of the language
+    (apart from *excluding*, the realization's own definition file)."""
+    pattern = re.compile(call_site)
+    for src_dir in src_dirs:
+        for path in _iter_source_files(src_dir):
+            if path.resolve() in excluding:
+                continue
+            if pattern.search(path.read_text(encoding="utf-8")):
+                return None
+    return (
+        f"declared call site {call_site!r} matches no .j2/.py source of the language: the "
+        f"realization is defined but not on the emission path. Fix: call it from the emitted "
+        f"code, or correct the declared call_site."
+    )
+
+
 # ---------------------------------------------------------------------------
-# Per-language census
+# Technique: executed formatter
 # ---------------------------------------------------------------------------
 
-_PYTHON_FORMATTER_DEF_RE: Final[re.Pattern[str]] = re.compile(r"def\s+format_field_error_path\(")
-_PYTHON_CLASSIFIER_DEF_RE: Final[re.Pattern[str]] = re.compile(r"def\s+classify_request_validation\(")
-_TS_BUILDER_DEF_RE: Final[re.Pattern[str]] = re.compile(r"function\s+joinPath\(")
-_TS_ARRAY_BRACKET_RE: Final[re.Pattern[str]] = re.compile(r"\$\{parentPath\}\[\$\{property\}\]")
-_TS_DOT_JOIN_RE: Final[re.Pattern[str]] = re.compile(r"\$\{parentPath\}\.\$\{property\}")
 
-
-def _load_module_from_path(path: Path) -> ModuleType:
-    """Dynamically load *path* as a standalone module.
-
-    The only way to prove what a generic mapping FUNCTION (not a literal
-    string) actually produces is to execute it -- so python's census loads
-    the real, self-contained runtime file it finds and calls its function
-    against the canonical fixture, rather than guessing its behaviour from
-    text.
-
-    Raises:
-        ImportError: `path` cannot be turned into a loadable module spec.
-    """
-    name = f"_field_error_path_census_{path.stem}"
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load a module spec for {path}.")
-    module = importlib.util.module_from_spec(spec)
-    # A dataclass resolves its string annotations through its own module's entry
-    # in sys.modules, so the module is registered for the length of the exec.
-    sys.modules[name] = module
+def _import_declared_module(
+    module_name: str, src_dirs: tuple[Path, ...]
+) -> tuple[object | None, Path | None, str | None]:
+    """Import *module_name* only when it lies inside one of the language's own
+    src dirs. Returns `(module, origin, defect)`; a defect leaves the other two
+    `None`. A declaration pointing into another distribution is a violation,
+    never an execution."""
     try:
-        spec.loader.exec_module(module)
-    finally:
-        del sys.modules[name]
-    return module
+        spec = importlib.util.find_spec(module_name)
+    except ImportError as exc:
+        return None, None, f"declared module {module_name!r} is not importable ({exc})"
+    if spec is None or spec.origin is None or spec.origin in ("built-in", "frozen"):
+        return None, None, f"declared module {module_name!r} has no source file to execute"
+    origin = Path(spec.origin)
+    if _containing_src_dir(origin, src_dirs) is None:
+        return (
+            None,
+            None,
+            f"declared module {module_name!r} resolves to {origin}, outside this language's own "
+            f"src dirs ({', '.join(str(d) for d in src_dirs)}); the gate executes only a module "
+            f"inside the declaring language's distribution",
+        )
+    return importlib.import_module(module_name), origin, None
 
 
-def _classifier_divergence(path: Path) -> str | None:
-    """What `classify_request_validation` produces for the located canonical
-    fixture when that differs from the registry's derivation, else `None`.
-
-    The classifier takes the body formatter as an argument; the realization that
-    ships beside it (`field_error_path.py`) is the one it is executed with."""
-    classify = getattr(_load_module_from_path(path), "classify_request_validation", None)
-    if classify is None:
+def _function_line(function: object) -> int | None:
+    if not inspect.isfunction(function):
         return None
-    formatter_path = path.with_name("field_error_path.py")
-    formatter = getattr(_load_module_from_path(formatter_path), "format_field_error_path", None)
-    if formatter is None:
-        return f"no format_field_error_path beside {path.name}"
+    try:
+        return inspect.getsourcelines(function)[1]
+    except OSError:
+        return None
+
+
+def _classifier_divergence(
+    classifier: ExecutedLocatedClassifier,
+    formatter: object,
+    src_dirs: tuple[Path, ...],
+) -> str | None:
+    """What the declared classifier produces for the located canonical fixture
+    when that differs from the registry's derivation, else `None`."""
+    module, _, defect = _import_declared_module(classifier.module, src_dirs)
+    if defect is not None:
+        return f"located classifier: {defect}"
+    classify = getattr(module, classifier.function, None)
+    if classify is None:
+        return f"located classifier {classifier.module}.{classifier.function} does not exist"
     refusal = classify(
         _CANONICAL_LOCATED_ERRORS,
         path_field_names=_CANONICAL_PATH_FIELD_NAMES,
@@ -194,101 +251,120 @@ def _classifier_divergence(path: Path) -> str | None:
     produced = tuple((e.location, e.field, e.code) for e in refusal.errors)
     if produced == _CANONICAL_LOCATED:
         return None
-    return f"located entries {produced!r}, expected {_CANONICAL_LOCATED!r}"
+    return (
+        f"located classifier {classifier.module}.{classifier.function} produced located entries "
+        f"{produced!r}, expected {_CANONICAL_LOCATED!r}"
+    )
 
 
-def _census_python(package: str, src_dir: Path, files: list[Path]) -> tuple[RealizationSite, ...]:
-    """Python realizes the rule with a real, callable mapping function --
-    found by its definition, then EXECUTED against the canonical fixture. The
-    request classifier is executed against the located fixture too: a path or
-    query entry that lands in the wrong location, field or code is a divergence
-    recorded at the classifier's definition."""
-    sites: list[RealizationSite] = []
-    for path in files:
-        if path.suffix != ".py":
-            continue
-        text = path.read_text(encoding="utf-8")
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            if _PYTHON_CLASSIFIER_DEF_RE.search(line):
-                divergence = _classifier_divergence(path)
-                if divergence is not None:
-                    sites.append(
-                        RealizationSite(
-                            "python",
-                            package,
-                            path.relative_to(src_dir).as_posix(),
-                            line_number,
-                            f"{_CANONICAL_PATH} ({divergence})",
-                        )
-                    )
-            if not _PYTHON_FORMATTER_DEF_RE.search(line):
-                continue
-            module = _load_module_from_path(path)
-            formatter = getattr(module, "format_field_error_path", None)
-            if formatter is None:
-                continue
-            produced = formatter(_CANONICAL_LOC)
-            sites.append(
-                RealizationSite("python", package, path.relative_to(src_dir).as_posix(), line_number, produced)
-            )
-    return tuple(sites)
+def _census_executed(
+    language: str, src_dirs: tuple[Path, ...], realization: ExecutedFieldErrorPathFormatter
+) -> LanguageCensus:
+    module, origin, defect = _import_declared_module(realization.module, src_dirs)
+    if defect is not None or origin is None:
+        return LanguageCensus((), (defect or "declared module could not be imported",))
+    formatter = getattr(module, realization.function, None)
+    if formatter is None:
+        return LanguageCensus(
+            (), (f"declared function {realization.module}.{realization.function} does not exist",)
+        )
+    line = _function_line(formatter)
+    if line is None:
+        return LanguageCensus(
+            (),
+            (f"declared function {realization.module}.{realization.function} is not a plain function "
+             f"defined in source",),
+        )
+    src_dir = _containing_src_dir(origin, src_dirs)
+    if src_dir is None:
+        return LanguageCensus((), (f"declared module {realization.module!r} left the language's src dirs",))
+    site = RealizationSite(
+        language,
+        _package_of(src_dir),
+        origin.resolve().relative_to(src_dir.resolve()).as_posix(),
+        line,
+        formatter(_CANONICAL_LOC),
+    )
+    defects: list[str] = []
+    if realization.located_classifier is not None:
+        divergence = _classifier_divergence(realization.located_classifier, formatter, src_dirs)
+        if divergence is not None:
+            defects.append(divergence)
+    call_defect = _call_site_defect(
+        realization.call_site, src_dirs, excluding=frozenset({origin.resolve()})
+    )
+    if call_defect is not None:
+        defects.append(call_defect)
+    return LanguageCensus((site,), tuple(defects))
 
 
-def _census_typescript(package: str, src_dir: Path, files: list[Path]) -> tuple[RealizationSite, ...]:
-    """TypeScript realizes the rule with a hand-written recursive builder over
-    class-validator's own `ValidationError` tree (`request-validation.ts.j2`'s
-    `joinPath`). class-validator's tree starts at the DTO's
-    own properties (no `body` wrapper), so the rule is realized exactly when
-    the builder joins named segments with `.` and numeric-string segments
-    with `[n]`; a builder present but missing either construction line is a
-    divergence, not silence."""
-    sites: list[RealizationSite] = []
-    for path in files:
-        text = path.read_text(encoding="utf-8")
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            if not _TS_BUILDER_DEF_RE.search(line):
-                continue
-            relative = path.relative_to(src_dir).as_posix()
-            if _TS_ARRAY_BRACKET_RE.search(text) and _TS_DOT_JOIN_RE.search(text):
-                sites.append(RealizationSite("typescript", package, relative, line_number, _CANONICAL_PATH))
-            else:
-                sites.append(
-                    RealizationSite(
-                        "typescript",
-                        package,
-                        relative,
-                        line_number,
-                        f"{_CANONICAL_PATH} (missing the canonical `[n]`-index / `.`-join "
-                        f"construction)",
-                    )
-                )
-    return tuple(sites)
+# ---------------------------------------------------------------------------
+# Technique: template construction
+# ---------------------------------------------------------------------------
 
 
-#: `{language: detector}` -- the plumbing that dispatches a discovered
-#: language's sources to its own construction-technique census. A language
-#: absent here (a future target, or one with no known technique yet) censuses
-#: to zero sites, which `evaluate()` reports as a language that does not
-#: realize the rule. This is NOT the retired per-family mapping shape: it
-#: holds only a census FUNCTION, because there is no family axis on a
-#: one-rule gate.
-_CENSUS_DISPATCH: Final[Mapping[str, Callable[[str, Path, list[Path]], tuple[RealizationSite, ...]]]] = {
-    "python": _census_python,
-    "typescript": _census_typescript,
-}
+def _census_template(
+    language: str, src_dirs: tuple[Path, ...], realization: TemplateFieldErrorPathConstruction
+) -> LanguageCensus:
+    holders = [src_dir for src_dir in src_dirs if (src_dir / realization.template).is_file()]
+    if not holders:
+        return LanguageCensus(
+            (),
+            (f"declared template {realization.template!r} exists under none of this language's "
+             f"src dirs ({', '.join(str(d) for d in src_dirs)})",),
+        )
+    if len(holders) > 1:
+        return LanguageCensus(
+            (),
+            (f"declared template {realization.template!r} exists in {len(holders)} of this "
+             f"language's packages ({', '.join(_package_of(d) for d in holders)}); the path must "
+             f"name exactly one",),
+        )
+    src_dir = holders[0]
+    path = src_dir / realization.template
+    if _containing_src_dir(path, (src_dir,)) is None:
+        return LanguageCensus(
+            (), (f"declared template {realization.template!r} resolves outside {src_dir}",)
+        )
+    text = path.read_text(encoding="utf-8")
+    anchor = re.search(realization.anchor, text)
+    if anchor is None:
+        return LanguageCensus(
+            (),
+            (f"declared anchor {realization.anchor!r} is absent from {realization.template!r}: "
+             f"the builder it names is not defined there",),
+        )
+    line = text.count("\n", 0, anchor.start()) + 1
+    missing = [c for c in realization.constructions if re.search(c, text) is None]
+    spelled = (
+        _CANONICAL_PATH
+        if not missing
+        else f"{_CANONICAL_PATH} (missing the declared construction(s) {missing!r})"
+    )
+    site = RealizationSite(language, _package_of(src_dir), realization.template, line, spelled)
+    defects: list[str] = []
+    call_defect = _call_site_defect(realization.call_site, src_dirs, excluding=frozenset())
+    if call_defect is not None:
+        defects.append(call_defect)
+    return LanguageCensus((site,), tuple(defects))
 
 
-def census_sources(language: str, src_dirs: tuple[Path, ...]) -> tuple[RealizationSite, ...]:
-    """Every field-error-path construction site for `language` under every
-    package implementing it -- its backend and each language core. Each
-    `src_dir` is `<package>/src/<import_name>`; a site records its package."""
-    detector = _CENSUS_DISPATCH.get(language)
-    if detector is None:
-        return ()
-    sites: list[RealizationSite] = []
-    for src_dir in src_dirs:
-        sites.extend(detector(src_dir.parents[1].name, src_dir, _iter_source_files(src_dir)))
-    return tuple(sites)
+def census_language(
+    language: str,
+    src_dirs: tuple[Path, ...],
+    realization: FieldErrorPathRealization,
+) -> LanguageCensus:
+    """Census one language under every package implementing it -- its backend
+    and each language core -- by the technique its declaration names. Dispatches
+    on the declaration TYPE, a closed set in the shared declaration module."""
+    if isinstance(realization, ExecutedFieldErrorPathFormatter):
+        return _census_executed(language, src_dirs, realization)
+    if isinstance(realization, TemplateFieldErrorPathConstruction):
+        return _census_template(language, src_dirs, realization)
+    raise TypeError(
+        f"{language}: field_error_path_realization is a {type(realization).__name__}; expected an "
+        f"ExecutedFieldErrorPathFormatter or a TemplateFieldErrorPathConstruction."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -298,38 +374,48 @@ def census_sources(language: str, src_dirs: tuple[Path, ...]) -> tuple[Realizati
 
 def evaluate(
     canonical_path: str,
-    censuses: Mapping[str, tuple[RealizationSite, ...]],
+    censuses: Mapping[str, LanguageCensus | None],
 ) -> tuple[list[str], dict[str, LanguageVerdict]]:
     """Every violation across every registered language, plus the per-language
     verdicts the report renders.
 
-    A language realizes the rule when its census sites spell *canonical_path*
-    exactly for the shared fixture. Every registered language is obligated to:
-    an empty census is a language that does not realize the rule (fails, and no
-    declaration can excuse it), and a divergent spelling is a violation naming
-    the found spelling and the expected one.
+    A language realizes the rule when its declared realization is proven (no
+    defect) and spells *canonical_path* exactly for the shared fixture. Every
+    registered language is obligated to: a language that declared nothing
+    (`None`) fails by name, a declared-but-unproven realization is a violation
+    naming the defect, and a divergent spelling names the found and expected
+    paths. No declaration can excuse a language.
     """
     problems: list[str] = []
     verdicts: dict[str, LanguageVerdict] = {}
     for language in sorted(censuses):
-        sites = censuses[language]
-        realized = any(site.spelled_path == canonical_path for site in sites)
-        for site in sites:
-            if site.spelled_path == canonical_path:
-                continue
+        census = censuses[language]
+        if census is None:
+            problems.append(
+                f"{language}: declares no field-error-path realization on its "
+                f"LanguageCapabilityDeclaration. Every registered language is obligated to realize "
+                f"FIELD_ERROR_PATH_RULE and to declare how. Fix: set field_error_path_realization."
+            )
+            verdicts[language] = LanguageVerdict(language, False)
+            continue
+        divergent = [site for site in census.sites if site.spelled_path != canonical_path]
+        for site in divergent:
             problems.append(
                 f"{language}: {site.package}: {site.relative_path}:{site.line}: spells field-error path "
                 f"{site.spelled_path!r}, which diverges from the canonical form "
                 f"{canonical_path!r} FIELD_ERROR_PATH_RULE derives. Fix: match the rule's "
                 f"dot-separated, body-prefix-free, `[n]`-indexed form."
             )
-        if not sites:
+        for defect in census.defects:
+            problems.append(f"{language}: {defect}")
+        if not census.sites and not census.defects:
             problems.append(
                 f"{language}: does not spell the canonical field-error path "
-                f"({canonical_path!r}). Every registered language is obligated to realize "
-                f"FIELD_ERROR_PATH_RULE. Fix: realize the rule's form in the language's sources."
+                f"({canonical_path!r}). Fix: realize the rule's form in the language's sources."
             )
-        verdicts[language] = LanguageVerdict(language, realized)
+        verdicts[language] = LanguageVerdict(
+            language, bool(census.sites) and not divergent and not census.defects
+        )
     return problems, verdicts
 
 
@@ -344,16 +430,19 @@ def _require_min_languages(language_names: frozenset[str]) -> None:
         raise SystemExit(EXIT_USAGE)
 
 
-def scan_all_registered_languages() -> dict[str, tuple[RealizationSite, ...]]:
-    """Census every registered `datrix.languages` package's `.py`/`.j2` sources
-    for field-error-path construction sites."""
+def scan_all_registered_languages() -> dict[str, LanguageCensus | None]:
+    """Census every registered `datrix.languages` package by the realization it
+    declares; a language that declares none is `None`, never skipped."""
     language_names = registered_language_names()
     _require_min_languages(language_names)
     src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, language_names, WORKSPACE_ROOT)
-    censuses: dict[str, tuple[RealizationSite, ...]] = {}
+    censuses: dict[str, LanguageCensus | None] = {}
     for language, language_src_dirs in sorted(src_dirs.items()):
-        censuses[language] = census_sources(language, language_src_dirs)
-        logger.debug("census language=%s sites=%d", language, len(censuses[language]))
+        realization = declaration_for_language(language).field_error_path_realization
+        censuses[language] = (
+            None if realization is None else census_language(language, language_src_dirs, realization)
+        )
+        logger.debug("census language=%s declared=%s", language, realization is not None)
     return censuses
 
 
@@ -371,14 +460,28 @@ def render_report(canonical_path: str, verdicts: Mapping[str, LanguageVerdict]) 
 # Non-vacuity self-test
 # ---------------------------------------------------------------------------
 
+_FIXTURE_LANGUAGE: Final[str] = "selftestlang"
+_FIXTURE_CALL_SITE: Final[str] = r"render_path\(loc\)"
+_FIXTURE_CALL_SOURCE: Final[str] = "result = render_path(loc)\n"
+
 
 def _assert(condition: bool, label: str) -> bool:
     print(f"  {'PASS' if condition else 'FAIL'}: {label}")
     return condition
 
 
-def _planted(language: str, spelled_path: str) -> tuple[RealizationSite, ...]:
-    return (RealizationSite(language, f"datrix-codegen-{language}", "planted.j2", 1, spelled_path),)
+def _planted(language: str, spelled_path: str) -> LanguageCensus:
+    return LanguageCensus(
+        (RealizationSite(language, f"datrix-codegen-{language}", "planted.j2", 1, spelled_path),), ()
+    )
+
+
+def _raises_value_error(call: Callable[[], object]) -> bool:
+    try:
+        call()
+    except ValueError:
+        return True
+    return False
 
 
 def _self_test_comparator() -> bool:
@@ -398,16 +501,28 @@ def _self_test_comparator() -> bool:
         "a divergent spelling is one violation naming the found and expected paths",
     )
 
-    unrealized = {"alpha": (), "beta": clean["beta"]}
-    problems, verdicts = evaluate(canonical, unrealized)
+    undeclared = {"alpha": None, "beta": clean["beta"]}
+    problems, verdicts = evaluate(canonical, undeclared)
     ok &= _assert(
-        len(problems) == 1 and problems[0].startswith("alpha:") and "does not spell" in problems[0],
-        "a language that realizes nothing is exactly one problem naming it, and evaluate takes no "
+        len(problems) == 1
+        and problems[0].startswith("alpha:")
+        and "declares no field-error-path realization" in problems[0],
+        "a language declaring None is exactly one problem naming it, and evaluate takes no "
         "declaration input that could excuse it",
     )
     ok &= _assert(
         not verdicts["alpha"].realized and verdicts["beta"].realized,
-        "the verdict marks only the non-realizing language missing",
+        "the verdict marks only the undeclaring language missing",
+    )
+
+    defective = {
+        "alpha": LanguageCensus(clean["alpha"].sites, ("declared call site 'x' matches nothing",)),
+        "beta": clean["beta"],
+    }
+    problems, verdicts = evaluate(canonical, defective)
+    ok &= _assert(
+        len(problems) == 1 and "matches nothing" in problems[0] and not verdicts["alpha"].realized,
+        "a canonical spelling with a defect is one violation and is not realized",
     )
     return ok
 
@@ -430,6 +545,9 @@ _CANONICAL_FORMATTER_SOURCE: Final[str] = (
     "    return ''.join(parts)\n"
 )
 
+_DIVERGENT_FORMATTER_SOURCE: Final[str] = (
+    "def format_field_error_path(loc):\n    return '.'.join(str(s) for s in loc)\n"
+)
 
 #: A self-contained `classify_request_validation` for the self-test; the
 #: `{location_expr}` hole is what decides each entry's location.
@@ -452,117 +570,281 @@ _FIXTURE_CLASSIFIER_SOURCE: Final[str] = (
     "    return Result(tuple(out))\n"
 )
 
+_FIXTURE_BUILDER_SOURCE: Final[str] = (
+    "function buildPath(parentPath: string, property: string): string {\n"
+    "  if (isArrayIndex) { return `${parentPath}[${property}]`; }\n"
+    "  return parentPath === '' ? property : `${parentPath}.${property}`;\n"
+    "}\n"
+    "const path = buildPath(parentPath, error.property);\n"
+)
+_FIXTURE_BUILDER_NO_BRACKET_SOURCE: Final[str] = (
+    "function buildPath(parentPath: string, property: string): string {\n"
+    "  return `${parentPath}.${property}`;\n"
+    "}\n"
+    "const path = buildPath(parentPath, error.property);\n"
+)
+_FIXTURE_TEMPLATE: Final[str] = "templates/request-validation.ts.j2"
+_FIXTURE_TEMPLATE_DECLARATION: Final[TemplateFieldErrorPathConstruction] = (
+    TemplateFieldErrorPathConstruction(
+        template=_FIXTURE_TEMPLATE,
+        anchor=r"function\s+buildPath\(",
+        constructions=(r"\$\{parentPath\}\[\$\{property\}\]", r"\$\{parentPath\}\.\$\{property\}"),
+        call_site=r"buildPath\(parentPath, error\.property\)",
+    )
+)
+
+
+def _import_name(package: str) -> str:
+    return package.replace("-", "_")
+
 
 def _fixture_src(tmp_root: Path, package: str) -> Path:
     """A fixture ``<package>/src/<import_name>`` tree, the shape every
     discovered src dir has."""
-    src = tmp_root / package / "src" / package.replace("-", "_")
+    src = tmp_root / package / "src" / _import_name(package)
     src.mkdir(parents=True)
     return src
 
 
-def _self_test_census(tmp_root: Path) -> bool:
+@contextlib.contextmanager
+def _importable(*src_dirs: Path) -> Iterator[None]:
+    """Make each fixture `<package>/src` importable for the length of a check,
+    then drop the paths and every module imported through them."""
+    roots = [str(src_dir.parent) for src_dir in src_dirs]
+    names = {_import_name(src_dir.parents[1].name) for src_dir in src_dirs}
+    sys.path[:0] = roots
+    importlib.invalidate_caches()
+    try:
+        yield
+    finally:
+        for root in roots:
+            sys.path.remove(root)
+        for loaded in [m for m in sys.modules if m.split(".")[0] in names]:
+            del sys.modules[loaded]
+
+
+def _executed(
+    module_package: str,
+    *,
+    classifier: bool = False,
+    call_site: str = _FIXTURE_CALL_SITE,
+) -> ExecutedFieldErrorPathFormatter:
+    module = _import_name(module_package)
+    return ExecutedFieldErrorPathFormatter(
+        module=f"{module}.field_error_path",
+        function="format_field_error_path",
+        call_site=call_site,
+        located_classifier=(
+            ExecutedLocatedClassifier(f"{module}.request_validation", "classify_request_validation")
+            if classifier
+            else None
+        ),
+    )
+
+
+def _executed_fixture(
+    tmp_root: Path,
+    package: str,
+    *,
+    formatter_source: str = _CANONICAL_FORMATTER_SOURCE,
+    classifier_location_expr: str | None = None,
+    call_source: str | None = _FIXTURE_CALL_SOURCE,
+) -> Path:
+    src = _fixture_src(tmp_root, package)
+    (src / "field_error_path.py").write_text(formatter_source, encoding="utf-8")
+    if classifier_location_expr is not None:
+        (src / "request_validation.py").write_text(
+            _FIXTURE_CLASSIFIER_SOURCE.format(location_expr=classifier_location_expr), encoding="utf-8"
+        )
+    if call_source is not None:
+        (src / "handler.py.j2").write_text(call_source, encoding="utf-8")
+    return src
+
+
+def _template_fixture(tmp_root: Path, package: str, source: str | None) -> Path:
+    src = _fixture_src(tmp_root, package)
+    if source is not None:
+        (src / "templates").mkdir()
+        (src / _FIXTURE_TEMPLATE).write_text(source, encoding="utf-8")
+    return src
+
+
+def _self_test_executed(tmp_root: Path) -> bool:
     ok = True
 
-    py_good = _fixture_src(tmp_root, "python-good")
-    (py_good / "field_error_path.py").write_text(_CANONICAL_FORMATTER_SOURCE, encoding="utf-8")
-    sites = census_sources("python", (py_good,))
+    good = _executed_fixture(tmp_root, "fx-exec-good", classifier_location_expr="loc[0]")
+    with _importable(good):
+        census = census_language(_FIXTURE_LANGUAGE, (good,), _executed("fx-exec-good", classifier=True))
     ok &= _assert(
-        len(sites) == 1 and sites[0].spelled_path == _CANONICAL_PATH,
-        f"a correct python formatter's real execution produces the canonical path (got {sites})",
+        len(census.sites) == 1
+        and census.sites[0].spelled_path == _CANONICAL_PATH
+        and not census.defects,
+        f"a correct formatter, a correct classifier and a call site pass with the canonical path (got {census})",
     )
 
-    py_bad = _fixture_src(tmp_root, "python-bad")
-    (py_bad / "field_error_path.py").write_text(
-        "def format_field_error_path(loc):\n"
-        "    return '.'.join(str(s) for s in loc)\n",
-        encoding="utf-8",
-    )
-    sites = census_sources("python", (py_bad,))
+    bad = _executed_fixture(tmp_root, "fx-exec-bad", formatter_source=_DIVERGENT_FORMATTER_SOURCE)
+    with _importable(bad):
+        census = census_language(_FIXTURE_LANGUAGE, (bad,), _executed("fx-exec-bad"))
     ok &= _assert(
-        len(sites) == 1 and sites[0].spelled_path != _CANONICAL_PATH,
-        f"a divergent python formatter's real execution surfaces its actual wrong output (got {sites})",
+        len(census.sites) == 1 and census.sites[0].spelled_path != _CANONICAL_PATH,
+        f"a divergent formatter's real execution surfaces its actual wrong output (got {census})",
     )
 
-    classified_good = _fixture_src(tmp_root, "python-classifier-good")
-    (classified_good / "field_error_path.py").write_text(_CANONICAL_FORMATTER_SOURCE, encoding="utf-8")
-    (classified_good / "request_validation.py").write_text(
-        _FIXTURE_CLASSIFIER_SOURCE.format(location_expr="loc[0]"), encoding="utf-8"
-    )
-    sites = census_sources("python", (classified_good,))
+    misplacing = _executed_fixture(tmp_root, "fx-exec-misplaced", classifier_location_expr="'body'")
+    with _importable(misplacing):
+        census = census_language(
+            _FIXTURE_LANGUAGE, (misplacing,), _executed("fx-exec-misplaced", classifier=True)
+        )
     ok &= _assert(
-        len(sites) == 1 and sites[0].spelled_path == _CANONICAL_PATH,
-        f"a classifier placing path, query and body entries in their own locations is canonical (got {sites})",
+        any("located entries" in defect for defect in census.defects),
+        f"a classifier reporting every entry at the body location is a defect (got {census})",
     )
 
-    classified_bad = _fixture_src(tmp_root, "python-classifier-bad")
-    (classified_bad / "field_error_path.py").write_text(_CANONICAL_FORMATTER_SOURCE, encoding="utf-8")
-    (classified_bad / "request_validation.py").write_text(
-        _FIXTURE_CLASSIFIER_SOURCE.format(location_expr="'body'"), encoding="utf-8"
-    )
-    sites = census_sources("python", (classified_bad,))
+    uncalled = _executed_fixture(tmp_root, "fx-exec-uncalled", call_source=None)
+    with _importable(uncalled):
+        census = census_language(_FIXTURE_LANGUAGE, (uncalled,), _executed("fx-exec-uncalled"))
     ok &= _assert(
-        len(sites) == 2
-        and any("located entries" in site.spelled_path for site in sites),
-        f"a classifier reporting every entry at the body location surfaces a location divergence (got {sites})",
+        len(census.defects) == 1 and "not on the emission path" in census.defects[0],
+        f"a realization with no call site is a defect (got {census})",
     )
 
-    ts_good = _fixture_src(tmp_root, "typescript-good")
-    (ts_good / "request-validation.ts.j2").write_text(
-        "function joinPath(parentPath: string, property: string): string {\n"
-        "  if (isArrayIndex) { return `${parentPath}[${property}]`; }\n"
-        "  return parentPath === '' ? property : `${parentPath}.${property}`;\n"
-        "}\n",
-        encoding="utf-8",
+    own_file_only = _executed_fixture(
+        tmp_root,
+        "fx-exec-self-call",
+        formatter_source=_CANONICAL_FORMATTER_SOURCE + "\n# render_path(loc)\n",
+        call_source=None,
     )
-    sites = census_sources("typescript", (ts_good,))
+    with _importable(own_file_only):
+        census = census_language(_FIXTURE_LANGUAGE, (own_file_only,), _executed("fx-exec-self-call"))
     ok &= _assert(
-        len(sites) == 1 and sites[0].spelled_path == _CANONICAL_PATH,
-        f"a correct typescript builder censuses as canonical (got {sites})",
+        any("not on the emission path" in defect for defect in census.defects),
+        "a call site spelled only inside the realization's own file does not count as a call",
     )
 
-    ts_bad = _fixture_src(tmp_root, "typescript-bad")
-    (ts_bad / "request-validation.ts.j2").write_text(
-        "function joinPath(parentPath: string, property: string): string {\n"
-        "  return `${parentPath}.${property}`;\n"
-        "}\n",
-        encoding="utf-8",
-    )
-    sites = census_sources("typescript", (ts_bad,))
+    elsewhere = _executed_fixture(tmp_root, "fx-exec-elsewhere")
+    inside = _executed_fixture(tmp_root, "fx-exec-inside")
+    with _importable(elsewhere, inside):
+        census = census_language(_FIXTURE_LANGUAGE, (inside,), _executed("fx-exec-elsewhere"))
     ok &= _assert(
-        len(sites) == 1 and sites[0].spelled_path != _CANONICAL_PATH,
-        f"a builder missing the `[n]`-index construction censuses as divergent (got {sites})",
+        not census.sites and any("outside this language's own src dirs" in d for d in census.defects),
+        f"a formatter module outside the language's src dirs is a violation, never executed (got {census})",
     )
 
-    unknown_empty = _fixture_src(tmp_root, "unknown-language")
-    (unknown_empty / "nothing.py").write_text(
-        "def format_field_error_path(loc):\n    return 'never read'\n", encoding="utf-8",
+    absent = _executed_fixture(tmp_root, "fx-exec-absent")
+    with _importable(absent):
+        census = census_language(
+            _FIXTURE_LANGUAGE,
+            (absent,),
+            ExecutedFieldErrorPathFormatter(
+                module="fx_exec_absent.field_error_path",
+                function="no_such_function",
+                call_site=_FIXTURE_CALL_SITE,
+            ),
+        )
+    ok &= _assert(
+        any("does not exist" in defect for defect in census.defects),
+        f"a declared function the module lacks is a defect (got {census})",
     )
-    sites = census_sources("self_test_unregistered_language", (unknown_empty,))
-    ok &= _assert(sites == (), "a language with no known detector censuses to zero sites")
+    return ok
 
+
+def _self_test_template(tmp_root: Path) -> bool:
+    ok = True
+
+    good = _template_fixture(tmp_root, "fx-tpl-good", _FIXTURE_BUILDER_SOURCE)
+    census = census_language(_FIXTURE_LANGUAGE, (good,), _FIXTURE_TEMPLATE_DECLARATION)
+    ok &= _assert(
+        len(census.sites) == 1 and census.sites[0].spelled_path == _CANONICAL_PATH and not census.defects,
+        f"a correct template builder with a call site censuses as canonical (got {census})",
+    )
+
+    no_bracket = _template_fixture(tmp_root, "fx-tpl-no-bracket", _FIXTURE_BUILDER_NO_BRACKET_SOURCE)
+    census = census_language(_FIXTURE_LANGUAGE, (no_bracket,), _FIXTURE_TEMPLATE_DECLARATION)
+    ok &= _assert(
+        len(census.sites) == 1
+        and census.sites[0].spelled_path != _CANONICAL_PATH
+        and repr(_FIXTURE_TEMPLATE_DECLARATION.constructions[0]) in census.sites[0].spelled_path,
+        f"a builder missing the `[n]`-index construction is divergent and names the missing regex (got {census})",
+    )
+
+    no_anchor = _template_fixture(tmp_root, "fx-tpl-no-anchor", "const x = 1;\n")
+    census = census_language(_FIXTURE_LANGUAGE, (no_anchor,), _FIXTURE_TEMPLATE_DECLARATION)
+    ok &= _assert(
+        not census.sites and any("anchor" in defect for defect in census.defects),
+        f"a template without the declared builder anchor is a defect (got {census})",
+    )
+
+    missing = _template_fixture(tmp_root, "fx-tpl-missing", None)
+    census = census_language(_FIXTURE_LANGUAGE, (missing,), _FIXTURE_TEMPLATE_DECLARATION)
+    ok &= _assert(
+        not census.sites and any("exists under none" in defect for defect in census.defects),
+        f"a declared template that exists nowhere is a defect (got {census})",
+    )
+
+    twin_a = _template_fixture(tmp_root, "fx-tpl-twin-a", _FIXTURE_BUILDER_SOURCE)
+    twin_b = _template_fixture(tmp_root, "fx-tpl-twin-b", _FIXTURE_BUILDER_SOURCE)
+    census = census_language(_FIXTURE_LANGUAGE, (twin_a, twin_b), _FIXTURE_TEMPLATE_DECLARATION)
+    ok &= _assert(
+        not census.sites and any("exists in 2" in defect for defect in census.defects),
+        f"a template path present in two of the language's packages is refused (got {census})",
+    )
+
+    uncalled = _template_fixture(
+        tmp_root, "fx-tpl-uncalled", _FIXTURE_BUILDER_SOURCE.rsplit("const path", 1)[0]
+    )
+    census = census_language(_FIXTURE_LANGUAGE, (uncalled,), _FIXTURE_TEMPLATE_DECLARATION)
+    ok &= _assert(
+        any("not on the emission path" in defect for defect in census.defects),
+        f"a builder nothing calls is a defect (got {census})",
+    )
+
+    for bad_template in ("../escape.j2", "/abs/path.j2", "C:/drive/path.j2", "a\\b.j2", ""):
+        ok &= _assert(
+            _raises_value_error(
+                lambda template=bad_template: TemplateFieldErrorPathConstruction(
+                    template=template,
+                    anchor="a",
+                    constructions=("b",),
+                    call_site="c",
+                )
+            ),
+            f"a template path {bad_template!r} is refused at declaration construction",
+        )
     return ok
 
 
 def _self_test_language_core(tmp_root: Path) -> bool:
     """A fixture language split into a backend and a core: a realization that
     lives only in the core is censused for the language and recorded against
-    the core package; a backend-only census (the pre-split blindness) sees
-    nothing. The language key is whichever registered detector runs the
-    executed-formatter technique, looked up by function, never by name."""
-    language = next(name for name, detector in _CENSUS_DISPATCH.items() if detector is _census_python)
+    the core package; a backend-only census (the pre-split blindness) does not
+    find it."""
+    ok = True
+
     backend = _fixture_src(tmp_root, "datrix-codegen-splitlang")
-    core = _fixture_src(tmp_root, "datrix-codegen-splitlang-core")
+    core = _executed_fixture(tmp_root, "datrix-codegen-splitlang-core")
     (backend / "plugin.py").write_text("NAME = 'splitlang'\n", encoding="utf-8")
-    (core / "field_error_path.py").write_text(_CANONICAL_FORMATTER_SOURCE, encoding="utf-8")
-    split = census_sources(language, (backend, core))
-    backend_only = census_sources(language, (backend,))
-    found = [(site.package, site.spelled_path) for site in split]
-    return _assert(
-        found == [("datrix-codegen-splitlang-core", _CANONICAL_PATH)] and backend_only == (),
-        f"a fixture language split into a backend and a core: the census sees the realization planted in the "
-        f"core (got {found}); a backend-only census does not",
+    declaration = _executed("datrix-codegen-splitlang-core")
+    with _importable(backend, core):
+        split = census_language(_FIXTURE_LANGUAGE, (backend, core), declaration)
+        backend_only = census_language(_FIXTURE_LANGUAGE, (backend,), declaration)
+    found = [(site.package, site.spelled_path) for site in split.sites]
+    ok &= _assert(
+        found == [("datrix-codegen-splitlang-core", _CANONICAL_PATH)]
+        and not split.defects
+        and not backend_only.sites,
+        f"an executed realization planted in the core is found and recorded against it (got {found}); "
+        f"a backend-only census does not find it",
     )
+
+    template_core = _template_fixture(tmp_root, "datrix-codegen-tplsplit-core", _FIXTURE_BUILDER_SOURCE)
+    template_backend = _template_fixture(tmp_root, "datrix-codegen-tplsplit", None)
+    split = census_language(_FIXTURE_LANGUAGE, (template_backend, template_core), _FIXTURE_TEMPLATE_DECLARATION)
+    found = [(site.package, site.spelled_path) for site in split.sites]
+    ok &= _assert(
+        found == [("datrix-codegen-tplsplit-core", _CANONICAL_PATH)] and not split.defects,
+        f"a template realization planted in the core is found and recorded against it (got {found})",
+    )
+    return ok
 
 
 def _self_test_min_languages_refusal() -> bool:
@@ -581,8 +863,9 @@ def _self_test_live_read() -> bool:
     censuses = scan_all_registered_languages()
     realizing = sorted(
         language
-        for language in censuses
-        if any(site.spelled_path == _CANONICAL_PATH for site in censuses[language])
+        for language, census in censuses.items()
+        if census is not None
+        and any(site.spelled_path == _CANONICAL_PATH for site in census.sites)
     )
     return _assert(
         len(realizing) >= 1,
@@ -591,16 +874,17 @@ def _self_test_live_read() -> bool:
 
 
 def self_test() -> bool:
-    """Non-vacuity self-test: a planted realized language passes; a planted
-    divergent spelling fails naming the divergence; a language that realizes
-    nothing fails with no declaration to excuse it; fewer than two registered
-    languages refuses with `EXIT_USAGE`; the live census finds at least one
-    registered language realizing the rule (a scan that sees nothing is
-    broken, not clean)."""
+    """Non-vacuity self-test: a fixture language per technique (good and bad), a
+    module outside the language's src dirs, an uncalled realization, a template
+    path that escapes its package, a language declaring nothing, a realization
+    planted in a language core, fewer than two registered languages, and a live
+    census that finds at least one language realizing the rule (a scan that sees
+    nothing is broken, not clean)."""
     print("Non-vacuity self-test:")
     tmp_root = Path(tempfile.mkdtemp(prefix="field-error-path-gate-"))
     try:
-        ok = _self_test_census(tmp_root)
+        ok = _self_test_executed(tmp_root)
+        ok &= _self_test_template(tmp_root)
         ok &= _self_test_language_core(tmp_root)
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)

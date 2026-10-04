@@ -1158,7 +1158,7 @@ Framework header parity gate: every registered language spells the framework-min
 
 ### `test\web-security-header-parity-gate.ps1`
 
-Web security header parity gate: every registered platform realizing `static_web_hosting` (docker/local's loopback nginx static site, AWS's CloudFront response-headers policy, Azure's Static Web Apps `staticwebapp.config.json`) emits the ONE declared security-header set from datrix-common's one builder (`datrix_codegen_kernel.platform.web_security_headers.build_web_security_headers` — Content-Security-Policy, Strict-Transport-Security, X-Content-Type-Options, Referrer-Policy, Permissions-Policy). None of the three platforms spells a header name literally in its own source — each threads the shared builder's `WebSecurityHeaderSet.as_header_dict()` straight into its own rendering primitive — so this gate DRIVES each platform's real generation composition for one shared fixture (app, web target, environment) rather than censusing source text, then parses the EMITTED artifact structurally (nginx `add_header` directives at server level, the CloudFront response-headers policy's CDK IR, the parsed `staticwebapp.config.json`). **Realization:** every header family the platform's own topology expects (read from `PlatformCapabilityDeclaration.static_web_hosting.origin` — a loopback platform correctly omits Strict-Transport-Security, never a per-platform declared hole) must be realized in the emitted artifact; there is no exemption path for this gate — a platform realizing `static_web_hosting` must realize its full topology-appropriate set, always. **CSP safety:** no emitted Content-Security-Policy value contains `unsafe-inline` or `unsafe-eval`, checked independently of family completeness. Every registered platform serves static web hosting and is censused; a platform whose declaration carries no `static_web_hosting.origin` (or whose folded names disagree on origin) is a defect that fails the run with exit 2, never skipped. Platform set from the installed `datrix.platforms` entry points; the declared header set read from datrix-common — never a table in the script. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+Web security header parity gate: every registered platform realizing `static_web_hosting` emits the ONE declared security-header set from the one builder (`datrix_codegen_kernel.platform.web_security_headers.build_web_security_headers` — Content-Security-Policy, Strict-Transport-Security, X-Content-Type-Options, Referrer-Policy, Permissions-Policy). No platform spells a header name literally in its own source — each threads the shared builder's `WebSecurityHeaderSet.as_header_dict()` straight into its own rendering primitive — so this gate reads each platform's artifact through that platform's own conformance probes (`PlatformPlugin.declared_conformance_probes()`, `PlatformConformanceProbes.realized_web_security_headers(header_set)` in `datrix_codegen_kernel.parity.conformance_probes`): the probe DRIVES the platform's real generation composition for one shared fixture header set rather than the gate censusing source text, then parses the EMITTED artifact structurally (nginx `add_header` directives at server level, the CloudFront response-headers policy's CDK IR, the parsed `staticwebapp.config.json`). The gate names no platform and carries no per-platform table; its census is keyed by registered platform name, so two names sharing one package are each proven, and a registered platform with no probes, or a probe returning no header, fails by name. **Realization:** every header family the platform's own topology expects (read from `PlatformCapabilityDeclaration.static_web_hosting.origin` — a loopback platform correctly omits Strict-Transport-Security, never a per-platform declared hole) must be realized in the emitted artifact; there is no exemption path for this gate — a platform realizing `static_web_hosting` must realize its full topology-appropriate set, always. **CSP safety:** no emitted Content-Security-Policy value contains `unsafe-inline` or `unsafe-eval`, checked independently of family completeness. Every registered platform whose declaration carries `static_web_hosting` is censused; a platform whose static web hosting declares no `origin` is a defect that fails the run with exit 2, never skipped. Platform set from the installed `datrix.platforms` entry points; the declared header set read from datrix-common — never a table in the script. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -1172,9 +1172,9 @@ Web security header parity gate: every registered platform realizing `static_web
 - Realization, per realizing platform and family: every family in that platform's own topology-derived expected set (`_topology_families`, keyed by `static_web_hosting.origin`) is realized in the emitted artifact; a realized family outside the declared vocabulary is also a violation.
 - CSP safety: no censused `Content-Security-Policy` value contains `unsafe-inline` or `unsafe-eval`, regardless of family completeness.
 - Registry: every declared family is realized by at least one registered platform.
-- Non-vacuity self-test (every invocation): two fully realizing planted platforms report no problem; a platform missing an expected family is exactly one problem naming the platform and family; a loopback platform legitimately omitting Strict-Transport-Security is NOT a violation, and its verdict records the topology-narrowed expected set; a realized header outside the declared vocabulary is exactly one problem; a planted `unsafe-inline`/`unsafe-eval` CSP sample is exactly one problem independent of family completeness; a family nobody realizes anywhere is reported as a dead contract; platform-origin resolution is proven directly (one name, two agreeing names, two disagreeing names raising, a name declaring no origin raising); a single-platform set is refused; the **live** scan drives every real registered platform's generation composition, finds every declared family realized somewhere, and passes `evaluate()` with zero violations.
+- Non-vacuity self-test (every invocation): **first**, the gate's own source is scanned with `shared.registered_targets.target_references_in_module` and any import of a target package or target-name literal in a target-identity position fails it; two fully realizing planted platforms report no problem; a platform missing an expected family is exactly one problem naming the platform and family; a loopback platform legitimately omitting Strict-Transport-Security is NOT a violation, and its verdict records the topology-narrowed expected set; a realized header outside the declared vocabulary is exactly one problem; a planted `unsafe-inline`/`unsafe-eval` CSP sample is exactly one problem independent of family completeness; a family nobody realizes anywhere is reported as a dead contract; fixture probes whose platform name is not registered drive the real dispatch (a conformant artifact passes for both topologies, a weakened value fails, an empty result fails, a platform class with no probe member fails with the accessor's message); a single-platform set is refused; the **live** scan reads every real registered platform through its probes, finds every declared family realized somewhere, and passes `evaluate()` with zero violations.
 
-**Exit codes:** 0 = every realizing platform passes both rules (or a successful `-SelfTest`), 1 = a violation was found, 2 = the self-test failed, fewer than two platforms are registered, a platform has no census driver, or a platform declares no / a disagreeing static-hosting origin.
+**Exit codes:** 0 = every realizing platform passes both rules (or a successful `-SelfTest`), 1 = a violation was found, 2 = the self-test failed, fewer than two platforms are registered or realize static web hosting, a platform has no (or incomplete) conformance probes, a probe returned no header, or a platform declares no static-hosting origin.
 
 ---
 
@@ -1202,7 +1202,7 @@ Problem-type parity gate: every registered language answers errors with RFC 7807
 
 ### `test\field-error-path-parity-gate.ps1`
 
-Field-error-path parity gate: every registered language spells a `request-validation` problem body's `errors[].field` with the ONE shape `datrix_common.datrix_model.problem_types.FIELD_ERROR_PATH_RULE` defines (a dot-separated wire-name path relative to the request body root, no leading `body` segment, `[n]` for array elements). Hard zero: every registered language is obligated to realize the rule and no declaration excuses one. Unlike the problem-type/framework-header registries this is not a family table — there is exactly one rule. Realization is a runtime BEHAVIOUR rather than a literal wire string, so there is no single cross-language regex: the gate censuses, across every package implementing each registered language (its backend plus each language core the backend requires), that language's own construction technique — python's real, callable `format_field_error_path` mapping function (found by definition, then EXECUTED against the rule's own canonical worked example so the produced string is real, not guessed), and typescript's recursive `joinPath` builder (found by its two required construction lines — bracket-indexed, dot-joined). Python's `classify_request_validation` is executed too, against a located fixture (a missing path parameter, a wrongly typed query value, an unknown body field): a path or query entry landing in the wrong `location`, `field` or `code` is a divergence recorded at the classifier. A language with no known technique censuses to zero sites. **Realization:** the language's census produces the canonical path for the shared fixture; a language that does not fails naming the language; a found but divergent construction (a literal `body` prefix, or an index not spelled `[n]`) fails naming the found and expected spelling. Language set from the installed `datrix.languages` entry points — never a table in the script. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+Field-error-path parity gate: every registered language spells a `request-validation` problem body's `errors[].field` with the ONE shape `datrix_common.datrix_model.problem_types.FIELD_ERROR_PATH_RULE` defines (a dot-separated wire-name path relative to the request body root, no leading `body` segment, `[n]` for array elements). Hard zero: every registered language is obligated to realize the rule and no declaration excuses one. Unlike the problem-type/framework-header registries this is not a family table — there is exactly one rule. Realization is a runtime BEHAVIOUR rather than a literal wire string, so there is no single cross-language regex: each language declares how it realizes the rule on its own `LanguageCapabilityDeclaration.field_error_path_realization`, and the gate dispatches on the declaration TYPE (a closed set of two techniques in `datrix_common.plugin.language_capability`, never a language name), across every package implementing the language (its backend plus each language core the backend requires). An `ExecutedFieldErrorPathFormatter` names a module and function inside the language's own distribution (a module outside its src dirs is a violation, never executed) that the gate imports and EXECUTES against the rule's own canonical worked example, so the produced string is real, not guessed; its optional `located_classifier` is executed too, against a located fixture (a missing path parameter, a wrongly typed query value, an unknown body field), and a path or query entry landing in the wrong `location`, `field` or `code` is a violation. A `TemplateFieldErrorPathConstruction` names a template (relative to the package's import root, in exactly one of the language's packages), the builder's anchor and every construction regex that must be present (bracket-indexed, dot-joined); an anchor present with a construction missing is a divergence naming the missing regex. Both techniques also prove the declared `call_site` matches in the language's `.j2`/`.py` sources — a realization nothing calls is not on the emission path. **Realization:** the declared realization produces the canonical path for the shared fixture with no defect; a language that declares `None` fails naming the language (no declaration says "does not realize" — a language that does not realize the rule fails until it does); a found but divergent construction (a literal `body` prefix, or an index not spelled `[n]`) fails naming the found and expected spelling. Language set from the installed `datrix.languages` entry points — never a table in the script. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -1304,6 +1304,29 @@ The gate also enforces the examples tree's layout contract, since an example's i
 
 ---
 
+### `test\example-snapshot-gate.ps1`
+
+Committed example-snapshot gate. An example may carry `generated/<language>-<platform>/` snapshots of its own output; nothing else compares them with the generator, so they rot (a tree for a language nobody can generate any more, an import of a framework module that has since moved). Two checks, both derived from the registered entry points and from `importlib`, never from a hand-written list:
+
+- **Snapshot identity.** Every directory directly under any `datrix/examples/**/generated/` is named `<language>-<platform>` with `<language>` a registered `datrix.languages` name and `<platform>` a registered `datrix.platforms` name (parsed by matching a registered language prefix, then the remainder against the platform set, since platform names contain hyphens). For each example and each platform it carries, the snapshot languages equal the registered language set.
+- **Framework references resolve.** Every dotted `datrix_*` reference in every text file of every snapshot and in every `datrix-*/src/**/*.j2` template resolves: the longest prefix `importlib.util.find_spec` finds is imported and the remaining segments resolve by attribute access. A reference rooted at a name the same file binds with `import ... as <name>` (a Dart import prefix) is that file's own binding, not a framework module.
+
+It does not regenerate and diff (a whole-system generation per language per run); refresh a snapshot with `dev\refresh-example-snapshot.ps1`.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\example-snapshot-gate.ps1` | Both checks over the live tree |
+| **Debug** | `.\test\example-snapshot-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\example-snapshot-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the live run |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Self-test (every invocation):** a fixture holding every registered language passes; a planted unregistered language fails naming it; a fixture missing one registered language fails naming it; a planted `datrix_common.migration.live_snapshot_export` fails and `datrix_migration.live_snapshot_export` passes; `datrix_common.utils.text.to_snake_case` passes and a missing attribute fails; a file-local import alias is exempt only in the file that binds it.
+
+**Exit codes:** 0 = clean (or a successful `-SelfTest`), 1 = at least one violation (each names `file:line` and the reference, or the directory, the installed sets and the refresh command), 2 = fewer than two registered languages, a failed self-test, no snapshot on disk, or no template reference found.
+
+---
+
 ### `test\example-secret-seed-gate.ps1`
 
 Example secret-seed gate: every example's deploy test can start its stack. A handle a service
@@ -1333,6 +1356,31 @@ configs are skipped) through `datrix_common.config.unified_loader.load_service_c
 - Non-vacuity self-test (every invocation, no file I/O): a synthetic table with seeded, unseeded, optional and Datrix-owned handles must report exactly the unseeded ones, and an empty table must report nothing.
 
 **Exit codes:** 0 = every handle seeded (or a successful `-SelfTest`), 1 = at least one unseeded handle, 2 = the self-test failed, zero examples or zero service configs exist on disk, or a config fails to parse or resolve.
+
+---
+
+### `test\example-config-load-gate.ps1`
+
+Example config load gate: every declared profile of every example `.dcfg` loads. Every model a
+ConfigDSL document validates into rejects unknown keys, so a key the model does not declare is an
+error at load time rather than a value silently dropped. The gate loads every declared profile of
+every `.dcfg` under `datrix/examples` through the real loaders (`service`, `shared`, `system`,
+`identity`, `app`, `strings`, `extern`; the kind is read from the parsed declaration) and fails on
+any parse, resolution or validation error.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\example-config-load-gate.ps1` | Load every declared profile of every example `.dcfg` |
+| **Debug** | `.\test\example-config-load-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\example-config-load-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real check |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Assertions:**
+- Every profile declared by every `.dcfg` under `datrix/examples` loads without error.
+- Non-vacuity self-test (every invocation): a planted temp `.dcfg` with an unknown nested key is reported with the key named and the value not echoed, and its clean twin loads.
+
+**Exit codes:** 0 = every profile loads (or a successful `-SelfTest`), 1 = at least one profile failed to load, 2 = the self-test failed, zero `.dcfg` files exist on disk, or a file does not parse.
 
 ---
 
@@ -1490,16 +1538,17 @@ target, generates one small fixture project — via the real
 `generate.ps1` runs, `ValidationLevel.FAST` so each language's post-generation toolchain build is
 skipped — see below), never a hand-built test context — whose DSL documents an endpoint, an entity,
 a field, an enum value, a struct field and a function, each with a published (`///`) comment and an
-adjacent source-channel (`//`) comment. Asserts, by parsing the generated artifacts **structurally**
-(Python's real `ast` + `tokenize` — a call-keyword `summary`/`description` string constant, or a
-class/function/async-function docstring via `ast.get_docstring`, the landing site for a construct
-with no decorator surface; a hand-rolled bracket/string-literal-aware lexer for C-family targets such
-as TypeScript that either finds a decorator anchor outside any string/comment span and
-bracket-depth-tracks to its matching close, or reads a `/** ... */` JSDoc doc-comment block — the
-no-decorator-surface landing site, distinguished structurally from a plain `/* ... */` block comment
-by its `/**` opener — never a line-oriented regex over a whole file), that the published text reaches
-that target's declared published surface and the source text reaches its source surface and never
-the published one. The gate is a hard zero: every registered target realizes every
+adjacent source-channel (`//`) comment. Asserts, by reading the generated artifacts through each
+language's own conformance probes (`LanguagePlugin.conformance_probes`,
+`LanguageConformanceProbes.documentation_surfaces`) which parse them **structurally** — a language
+with a native AST uses it (Python: the real `ast` + `tokenize`), a C-family language such as
+TypeScript uses the shared lexer `datrix_codegen_kernel.parity.c_family_source_scan` (decorator
+anchors outside any string/comment span, bracket-depth-tracked to the matching close, plus
+`/** ... */` doc blocks distinguished from plain `/* ... */` block comments by their `/**` opener —
+never a line-oriented regex over a whole file) — that the published text reaches that target's
+declared published surface and the source text reaches its source surface and never the published
+one. The gate names no target and carries no per-target table; a probe that finds no documentation
+surface at all fails the run. The gate is a hard zero: every registered target realizes every
 (construct kind, surface) cell, and an unpopulated cell is a hole that fails the gate naming the
 target, construct kind and surface. There is no exemption mechanism of any kind.
 
@@ -1514,14 +1563,17 @@ This gate is the repo-level cross-target census.
 Derives its target set from `importlib.metadata.entry_points(group="datrix.languages")` at
 runtime — never a hardcoded language-name literal.
 
-**Built-in non-vacuity self-test, every invocation.** Confirms every marker text is actually present
-in the fixture DSL itself, then proves each structural extractor (Python ast/tokenize including
-docstring detection, the C-family decorator-anchor lexer, the C-family `/** ... */` doc-block reader
-— including a negative proof that a plain `/* ... */` block comment is never mistaken for one) finds
-a known-present published/source text in a synthetic snippet it has never seen and never leaks a
-source comment into the published set. A planted unpopulated cell is proven to fail the gate, with
-no input that excuses it. Fails loud
-(exit 2) if fewer than 2 languages are registered.
+**Built-in non-vacuity self-test, every invocation.** First scans the gate's own source with
+`shared.registered_targets.target_references_in_module` (any import of a target package or
+target-name literal in a target-identity position fails it), confirms every marker text is
+actually present in the fixture DSL itself, then drives the gate's real surface reading with
+in-process fixture probes whose language name is not registered (a fully documented fixture has no
+hole; a missing published text is exactly one hole; a source note leaked into the published set is
+exactly one hole; an empty probe result and a plugin with no probe member are each refused). The
+per-language extractors are proven by the owning packages' own tests
+(`datrix-codegen-{python,typescript}/tests/unit/conformance/`, the kernel's
+`tests/unit/parity/test_c_family_source_scan.py`). A planted unpopulated cell is proven to fail the
+gate, with no input that excuses it. Fails loud (exit 2) if fewer than 2 languages are registered.
 
 | Mode | Command | Description |
 |------|---------|--------------|
@@ -1594,7 +1646,10 @@ Cross-language response-body wire-naming conformance gate. Generates the real CQ
 (`datrix/examples/02-features/03-infrastructure-blocks/cqrs/`) once per registered
 `datrix.languages` plugin and proves every emitted response-body schema serializes under ONE
 declared rule -- camelCase wire keys -- by reading each language's OWN generated response classes'
-EFFECTIVE wire names, never the mere presence of a wire-renaming mechanism (a template with no
+EFFECTIVE wire names through that language's conformance probes (`LanguagePlugin.conformance_probes`,
+`LanguageConformanceProbes.response_body_wire_fields` in `datrix_codegen_kernel.parity.conformance_probes`;
+Python reads Pydantic's computed aliases, TypeScript its DTO property names), never the mere presence
+of a wire-renaming mechanism (a template with no
 alias generator but single-word fields, e.g. `problem_details.py.j2`, is not a divergence -- its
 effective wire name is unchanged either way).
 
@@ -1616,14 +1671,24 @@ language with no declaration each fail by name.
 Derives its target language set from `importlib.metadata.entry_points(group="datrix.languages")`
 at runtime -- never a hardcoded language-name literal.
 
-**Built-in non-vacuity self-test, every invocation.** Plants a `useGlobalInterceptors(` hit in a
+The gate names no language and carries no per-language extractor. A language whose probe returns no
+in-population response field for the generated CQRS example fails ("a census that finds nothing
+proves nothing"); schema kinds outside the measured population (dependency responses) are counted
+per distinct file and reported beside the verdict.
+
+**Built-in non-vacuity self-test, every invocation.** First scans the gate's own source with
+`shared.registered_targets.target_references_in_module` (any import of a target package or
+target-name literal in a target-identity position fails it). Plants a `useGlobalInterceptors(` hit in a
 scratch tree and requires the transform census to report it at its coordinates (and to honour an
 exemption, flag a stale one, ignore a clean file and refuse an undeclared language). Proves the comparator flags a genuinely
 divergent field, does not flag a genuinely conformant one, does not flag a single-word field with
-no wire-renaming mechanism (the real `problem_details.py.j2` shape), correctly suppresses a
-divergence covered by a real exemption entry, and reads the EFFECTIVE serialization wire name
-(never an `alias`-only read) against a real Pydantic model whose field carries only
-`Field(serialization_alias=...)`. Fails loud (exit 2) if fewer than 2 languages are registered.
+no wire-renaming mechanism, correctly suppresses a divergence covered by a real exemption entry, and
+drives the real per-language evaluation with in-process fixture probes whose language name is not
+registered (a conformant probe passes, a planted divergence fails, an empty result fails, a
+dependency-only result fails and is counted, an out-of-population divergence is excluded and
+counted, a plugin with no probe member fails with the accessor's message). The Pydantic
+`serialization_alias` precedence is proven in the Python package's own tests
+(`datrix-codegen-python/tests/unit/conformance/`). Fails loud (exit 2) if fewer than 2 languages are registered.
 
 | Mode | Command | Description |
 |------|---------|--------------|
@@ -1635,7 +1700,7 @@ divergence covered by a real exemption entry, and reads the EFFECTIVE serializat
 
 **Exit codes:** 0 = every registered language's response bodies serialize camelCase (or every
 divergence is exempted) and no unreviewed response-body transform exists, 1 = an unexempted
-divergence or transform was found (or a registered language has no implemented extractor), 2 = the
+divergence or transform was found (or a registered language declares no conformance probes), 2 = the
 non-vacuity self-test failed or fewer than 2 languages are registered.
 
 ---
@@ -1655,11 +1720,24 @@ Derives its target language set from `importlib.metadata.entry_points(group="dat
 at runtime, then narrows to enum-emitting languages from each plugin's own registered `"enum"`
 sub-generator domain — never a hardcoded language-name literal.
 
-**Built-in non-vacuity self-test, every invocation.** Feeds the comparator a synthetic
+How a language renders its enum file is that language's own conformance probe
+(`LanguageConformanceProbes.render_enum_classifier`, reached through `LanguagePlugin.conformance_probes`);
+how the classifier definitions are spelled in the rendered source is data on the capability
+declaration (`LanguageCapabilityDeclaration.enum_classifier_idioms`); the exception a miss must raise
+is read from the language's own transpiler profile, never from the probe. The gate names no language.
+A language with no probes, no declared idioms, or a probe that does not render exactly one source
+fails loud.
+
+**Built-in non-vacuity self-test, every invocation.** First scans the gate's own source with
+`shared.registered_targets.target_references_in_module` (any import of a target package or
+target-name literal in a target-identity position fails it). Feeds the comparator a synthetic
 fully-conformant pair (must report zero violations) and a synthetic partially-broken pair (must
 report exactly the broken language), and the verdict over each result passes the first pair and
-fails the second with no exemption input. Fails loud (exit 2) if fewer than 2 enum-emitting
-languages are registered.
+fails the second with no exemption input. Then drives the real render-and-read path with
+in-process fixture probes whose language name is not registered (a conformant render passes; a
+missing classifier, a disclosing message and an undeclared exception each fail; zero or two
+rendered sources, a declaration with no idioms and a plugin with no probe member are each refused).
+Fails loud (exit 2) if fewer than 2 enum-emitting languages are registered.
 
 The gate is a hard zero: every enum-emitting registered language must be fully conformant. A
 language that is not fails the gate naming the missing classifier behaviour, and no exemption of
@@ -2236,11 +2314,37 @@ A self-test failure aborts before any real result is trusted (exit 1).
 
 ---
 
+### `test\python-lint-correctness-gate.ps1`
+
+**The repo's proof that no package carries a pyflakes finding.** Unused imports, undefined names, and test functions silently shadowed by a same-named redefinition (the first definition never runs) are `ruff` rule family `F`. Targets are derived from disk, never listed: every workspace `datrix*` directory holding a `pyproject.toml` contributes its `src/` and `tests/` trees when present, and the `datrix` showcase repo contributes `scripts/`. Each tree is linted with `ruff check --select F --output-format json` run from its package root, so that package's own `per-file-ignores` apply; `--select F` is explicit so no package's rule selection can hide a pyflakes finding. Findings print as `package/path:line:col CODE message`.
+
+**Held at a hard zero with no baseline.** A finding that is genuinely required (an import kept for a documented side effect) is suppressed only by a line-level `# noqa: <code>` carrying the reason on the same line; `RUF100` already reports a stale one. The style families (`UP037`, `I001`, `UP031`, …) are out of scope: they are not correctness defects and would bury the pyflakes signal. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\python-lint-correctness-gate.ps1` | Lint every package tree in the workspace |
+| **Self-test only** | `.\test\python-lint-correctness-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Debug** | `.\test\python-lint-correctness-gate.ps1 -Dbg` | DEBUG logging; print the python invocation before running |
+
+**Parameters:** `-SelfTest`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** A temporary fixture package with one planted F401 and one F821 must report exactly those two; the same package clean must report zero; a fixture `per-file-ignores` for the F401 must suppress it and leave the F821. The live run additionally fails (exit 2) when any discovered package has no scanned tree — a scan that found no trees is broken, not clean.
+
+**Also enforced at the commit seam.** `git\commit-and-push.ps1` runs `ruff check --select F` over the pending `.py` files of every dirty repo before it generates a message or stages anything, and refuses the whole run on a finding. There is no skip switch. This gate is the whole-workspace counterpart.
+
+**Exit codes:** 0 = zero pyflakes findings, 1 = at least one finding or the self-test failed, 2 = usage error or ruff could not run.
+
+---
+
 ### `test\design-task-reference-gate.ps1`
 
 **The repo's proof that no committed artifact cites a design document or a task file.** `design/` and `.tasks/` are gitignored and are developed on more than one machine, so their numbering collides: two different `044-*` documents can exist, and after a clone neither is present. A reference to one from anything committed is a dangling pointer — it resolves to nothing, or to a different artifact elsewhere. The gate scans the committed trees for the SHAPE of such a reference and fails on any hit. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
 
 **Roots are derived from disk, never hand-authored.** Every `datrix*` directory contributes its `src`, `tests`, `docs` and `scripts` subtrees (the `datrix` showcase repo contributes `scripts`, `docs`, `examples` instead — it has no `src`), so a new package is scanned the day it appears. The gitignored orchestration trees themselves (`.tasks/`, `.bugs/`, `design/`) plus build noise are skipped: design and task files referencing **each other** is allowed and expected.
+
+**Item labels are policed too, in every label letter.** Findings, reviews and designs number their own items with a capital letter and digits, in parentheses or before a colon, and a comment carrying one points into a gitignored document. Two shapes, over the same extensions, inside a package's `src`, `tests` and `scripts` and the `datrix` repo's `scripts` — never under `docs` or `examples`, where committed documents number their own items: a parenthesized label (`D`/`G`/`I` with any digit count, every other capital letter with one or two digits, optionally a `/` or `,` list) and a heading label (the same letters followed by a colon, refusing a preceding `.` or word character so `StorageProvider.S3:` is attribute access). One or two digits for the other letters keeps ruff/pylint codes (`F821`, `A002`, `R0801`, `F401/F811/I001`) out. The possessive of a bare task id (`NN-MM's`) is matched in every root; a bare `NN-MM` is not, because dates and line ranges look the same. `LABEL_TOKEN_EXCEPTIONS` in the library module holds exact `(workspace-relative path, token)` pairs with a written reason — today the emitted `P95` percentile chart title in the Azure monitor workbook generator; the token anywhere else is a hit. Hit lines name the shape: `[item label (parenthesized)]`, `[item label (heading)]`, `[task-file id (possessive)]`.
+
+**Also enforced at the commit seam.** `git\commit-and-push.ps1` runs the same scan over the pending files of every dirty repo before it generates a message or stages anything, and refuses the whole run on a hit. There is no skip switch.
 
 **Four reference shapes are matched, over all of `.py .ps1 .json .md .j2 .ts .mts .cts .js .mjs .cjs .cs .java .toml .yaml .yml .dtrx`** (spelled here with `N`/`M` placeholders so this page is not itself a hit): a task-file id (`task-NN-MM`, the prose `task NN-MM`, and the three-digit `task-NN-MMM`, case-insensitively), a design path (`design/NNN-slug`), a design number (`design NNN`, `design-NNN`, `design doc NNN` — the word `doc` is optional), and a phase directory (`.tasks/phase-NN`). Each line is also matched joined to the next with that line's comment leader (`#`, `//`, ` * `, `--`) removed, because a wrapped comment splits a reference across the break (`(design` / `# NNN section …`) and a line-at-a-time match sees neither half; a hit is reported at the line it starts on. A **bare** `Phase NN` is deliberately NOT matched: the committed architecture docs use it as product vocabulary for delivery waves, self-contained text rather than a pointer into a gitignored tree.
 
@@ -2255,7 +2359,7 @@ A self-test failure aborts before any real result is trusted (exit 1).
 
 **Parameters:** `-Roots <dir[,dir...]>` (default: every committed tree), `-SelfTest`
 
-**Self-test runs automatically, every invocation.** One line per reference shape is planted in a temp directory and every one must be flagged; a clean file must produce zero; and a bare `### Phase 01 capabilities` heading must NOT be flagged. A scan that silently matches nothing returns a confident "clean" that will be believed — which is exactly how two holes in this gate let whole phases' worth of references through: matching only the hyphenated `task-NN-MM` form missed the prose `task NN-MM` an agent actually writes, and requiring the literal word `doc` missed the bare `design NNN` entirely.
+**Self-test runs automatically, every invocation.** One line per reference shape is planted in a temp directory and every one must be flagged; a clean file must produce zero; and a bare `### Phase 01 capabilities` heading must NOT be flagged. A second fixture workspace with `src/`, `tests/`, `scripts/` and `docs/` trees plants every label shape (each must hit exactly once) and the near misses (attribute access, lint codes, line ranges, a label under `docs/`, the excepted token in its own file) that must hit zero; the same `P95` in another file must hit, and `scan_paths` (the commit-time entry) must agree with `scan` over the same files. A scan that silently matches nothing returns a confident "clean" that will be believed — which is exactly how two holes in this gate let whole phases' worth of references through: matching only the hyphenated `task-NN-MM` form missed the prose `task NN-MM` an agent actually writes, and requiring the literal word `doc` missed the bare `design NNN` entirely.
 
 **Exit codes:** 0 = no references found (or a successful `-SelfTest`), 1 = at least one reference found or the self-test failed.
 

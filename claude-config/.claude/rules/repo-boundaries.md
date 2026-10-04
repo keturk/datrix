@@ -42,8 +42,7 @@ RDBMS-emitting generator declare it as a runtime dependency.
 `datrix-semantic` holds semantic analysis (`datrix_semantic`: the analyzer, its phase
 pipeline, every domain validator, synthesis, and auth-contract lowering) and depends on
 `datrix-common` alone. `datrix-language`, `datrix-cli` and `datrix-testing` declare it as a
-runtime dependency, as does `datrix-codegen-azure` (its RDBMS pooling generator reads the
-Flexible Server connection-capacity table from the pooling validator).
+runtime dependency.
 
 **The count is not a constant.** This list grows as targets are added — a new language, a
 new platform, or a new frontend target is a new repo. Update the list and the heading in

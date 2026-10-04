@@ -527,7 +527,7 @@ def check_retrofit_converts_only_whole_file_orientation_items_and_nothing_else()
         core, long = src / "core.py", src / "long.py"
         task = _retrofit_task(
             root, "Retrofit fixture",
-            [f"1. `rules.md` -- the rules", f"2. `{core}` -- the module it works with", f"3. `{long}` (lines 10-20)",
+            ["1. `rules.md` -- the rules",f"2. `{core}` -- the module it works with", f"3. `{long}` (lines 10-20)",
              f"4. `{edited}` -- the file it edits", f"5. `{src / 'helper.py'}` -- a helper",
              f"6. `{core}` and `{src / 'helper.py'}` -- two files on one item"],
             body=(f"`{src / 'other.py'}:1` `lonely_function(x)` is cited, and `{src / 'twin_a.py'}:1` `dup_function()` too.\n"),

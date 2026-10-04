@@ -35,7 +35,6 @@ import dataclasses
 import logging
 import sys
 import tomllib
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Final
 
