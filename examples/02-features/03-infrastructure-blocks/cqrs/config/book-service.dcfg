@@ -5,7 +5,6 @@
     operations {
       read       { onFailure = "raise"; }
       write      { onFailure = "raise"; }
-      invalidate { onFailure = "warn"; }
     }
   }
 

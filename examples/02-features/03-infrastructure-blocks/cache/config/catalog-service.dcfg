@@ -9,9 +9,6 @@ config service library.CatalogService {
       write {
         onFailure = "raise";
       }
-      invalidate {
-        onFailure = "warn";
-      }
     }
   }
 

@@ -9,9 +9,6 @@ config service library.PricingService {
       write {
         onFailure = "raise";
       }
-      invalidate {
-        onFailure = "warn";
-      }
     }
   }
 
