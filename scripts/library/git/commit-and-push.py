@@ -68,6 +68,14 @@ from test.polystring_case_roundtrip import (  # noqa: E402
 )
 from test.polystring_case_roundtrip import scan_for_commit as polystring_scan_for_commit  # noqa: E402
 from test.polystring_case_roundtrip import self_test as polystring_self_test  # noqa: E402
+from test.python_lint_correctness import (  # noqa: E402
+    Finding as LintFinding,
+)
+from test.python_lint_correctness import LintGateError  # noqa: E402
+from test.python_lint_correctness import scan_pending as lint_scan_pending  # noqa: E402
+from test.python_lint_correctness import self_test as lint_self_test  # noqa: E402
+from test.design_task_references import scan_paths as design_task_scan_paths  # noqa: E402
+from test.design_task_references import self_test as design_task_self_test  # noqa: E402
 
 TEXT_SNIPPET_EXTENSIONS = {
     ".cfg",
@@ -1306,6 +1314,91 @@ def enforce_polystring_case_roundtrips(dirty_repos: list[Path]) -> None:
     )
 
 
+def enforce_design_task_references(dirty_repos: list[Path]) -> None:
+    """Refuse the whole run if a pending file cites a design doc, a task file or an item label.
+
+    Design documents and task files are gitignored and numbered per machine, so
+    a committed reference to one -- a task id, a design number, or a lettered
+    item label in parentheses or before a colon, in code -- points at nothing
+    after a clone, or at a different artifact. ``git add -A`` is where such a reference
+    becomes part of history, so this runs the reference gate's own scan, with
+    its roots and scopes applied per file, over every dirty repo's pending
+    changes. There is no skip switch: a reference cannot be committed.
+
+    Checked BEFORE a message is generated or anything is staged, and across ALL
+    dirty repos at once. See ``test/design_task_references.py`` for the shapes.
+    """
+    if design_task_self_test() != 0:
+        raise ScriptError(
+            "Design/task reference scanner failed its own non-vacuity self-test, so its "
+            "verdict cannot be trusted and no commit is safe to make."
+        )
+
+    hits: list[tuple[str, int, str, str]] = []
+    for repo_path in dirty_repos:
+        workspace_relative = [f"{repo_path.name}/{path}" for path in pending_files(repo_path)]
+        hits.extend(design_task_scan_paths(workspace_relative, str(repo_path.parent)))
+
+    if not hits:
+        print(f"Design/task references: clean across {len(dirty_repos)} dirty repo(s).")
+        return
+
+    detail = "\n".join(f"  [{label}] {rel}:{lineno}: {line}" for rel, lineno, label, line in hits)
+    raise ScriptError(
+        f"Design/task reference check FAILED: {len(hits)} pending line(s) cite a design "
+        f"document, a task file or an item label. Nothing was committed or pushed. Those "
+        f"files are gitignored and numbered per machine, so the reference dangles after a "
+        f"clone. Describe the WORK, not the ticket.\n" + detail
+    )
+
+
+def enforce_python_lint_correctness(dirty_repos: list[Path]) -> None:
+    """Refuse the whole run if a pending ``.py`` file carries a pyflakes finding.
+
+    Same seam as the checks above: ``git add -A`` is where an unused import, an
+    undefined name, or a test function shadowed by a same-named redefinition (the
+    first definition never runs) becomes part of a framework package. Only each
+    dirty repo's pending ``.py`` files are linted, from that repo's root so its own
+    ``per-file-ignores`` apply -- the per-change form of "lint only the files you
+    edited", enforced rather than remembered. There is no skip switch: a finding
+    that is genuinely required is suppressed on its own line with
+    ``# noqa: <code>`` and the reason.
+
+    Checked BEFORE a message is generated or anything is staged, and across ALL
+    dirty repos at once, so a finding in the last repo cannot leave the first four
+    already pushed. See ``test/python_lint_correctness.py``.
+    """
+    failures = lint_self_test(sys.executable)
+    if failures:
+        raise ScriptError(
+            "Python lint-correctness scanner failed its own non-vacuity self-test, so its "
+            "verdict cannot be trusted and no commit is safe to make: " + "; ".join(failures)
+        )
+
+    findings: list[tuple[Path, LintFinding]] = []
+    for repo_path in dirty_repos:
+        try:
+            found = lint_scan_pending(sys.executable, repo_path, pending_files(repo_path))
+        except LintGateError as exc:
+            raise ScriptError(
+                f"Python lint-correctness check failed in {repo_path.name}: {exc}"
+            ) from exc
+        findings.extend((repo_path, finding) for finding in found)
+
+    if not findings:
+        print(f"Python lint-correctness: clean across {len(dirty_repos)} dirty repo(s).")
+        return
+
+    detail = "\n".join(f"  {repo.name}/{finding.render()}" for repo, finding in findings)
+    raise ScriptError(
+        f"Python lint-correctness check FAILED: {len(findings)} pyflakes finding(s) in pending "
+        f"files. Nothing was committed or pushed. Fix the code (delete the unused import, "
+        f"import the undefined name, rename the shadowing definition); if a finding is "
+        f"genuinely required, suppress it on its own line with `# noqa: <code>` and the "
+        f"reason.\n" + detail
+    )
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1451,6 +1544,10 @@ def main(argv: list[str]) -> int:
         )
     else:
         enforce_polystring_case_roundtrips(dirty_repos)
+
+    enforce_design_task_references(dirty_repos)
+
+    enforce_python_lint_correctness(dirty_repos)
 
     # Backend selection comes after the checks: loading a large local model can take
     # minutes, and must not be paid for a run that commits nothing.

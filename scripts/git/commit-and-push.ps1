@@ -26,6 +26,24 @@ Message source is chosen automatically:
 Force a backend with -MessageSource local|claude. No commit-messages.json is
 written -- generation and commit/push happen in one pass.
 
+Before a message is generated or anything is staged, every dirty repo's pending
+files are also scanned for a reference to a design document, a task file or an
+item label (task-NN-MM, design NNN, a lettered item label in parentheses or
+before a colon, the possessive of a bare task id -- see
+test/design-task-reference-gate.ps1). Those files are gitignored and numbered per
+machine, so a committed reference dangles after a clone. One hit aborts the whole
+run with nothing committed, naming file, line and label. There is NO skip switch:
+a reference cannot be committed.
+
+Likewise, every dirty repo's pending .py files are linted for pyflakes findings
+(ruff check --select F, run from the repo root so its per-file-ignores apply; see
+test/python-lint-correctness-gate.ps1): an unused import, an undefined name, or a
+test function shadowed by a same-named redefinition. The checked-in output under
+examples/**/generated/ is generator output and is not linted here. One finding aborts the whole
+run with nothing committed, naming file, line and code. There is NO skip switch;
+a genuinely required finding is suppressed on its own line with `# noqa: <code>`
+and the reason.
+
 .PARAMETER MessageSource
 auto (default), local, or claude. auto tries every discovered local model and
 falls back to Claude; local tries every discovered local model and errors if none
