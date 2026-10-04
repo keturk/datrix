@@ -874,8 +874,9 @@ Certain declaration types **require** a non-empty implementation body. If you de
 | CQRS query handler | Yes | A query that returns nothing is an error |
 | CQRS projection handler | Yes | A projection handler must explicitly react to the event |
 | Job handler | Yes | A scheduled job with no action is an error |
-| REST endpoint | No | Empty endpoints return default responses (valid) |
-| GraphQL resolver | No | Empty resolvers return null (valid for nullable fields) |
+| REST endpoint | Derived | An empty body is a derived entity operation, a declared no-op, or `BODY003` (see [Empty endpoint bodies](#empty-endpoint-bodies)) |
+| GraphQL query / mutation | Yes | An empty resolver would return nothing for its declared result: `BODY003` |
+| GraphQL subscription | No | A subscription's value may be published from outside its body |
 | Test spec | No | Empty tests are placeholders (acceptable) |
 | Computed field | N/A | Expression-based, not body-based |
 
@@ -895,8 +896,61 @@ Error: Function 'calculateTotal' is declared without a body.
 
 ### Exempt declarations
 
-**REST endpoints** with empty bodies are valid — the framework returns an empty response without executing user logic. **GraphQL resolvers** with empty bodies return `null`, which is valid for nullable fields. **Test specs** with empty bodies are acceptable placeholders.
+**REST endpoints** and **GraphQL operations** are not checked by `BODY001`; `BODY003` governs their empty bodies (below). **Test specs** with empty bodies are acceptable placeholders.
 
 ### Intentional no-ops
 
-If a declaration genuinely needs to do nothing (for example, a CQRS projection handler that intentionally ignores an event), you must provide an explicit legal body with valid behavior — such as a logging statement or metric emission. Empty bodies are never valid for required-body declarations.
+If a declaration genuinely needs to do nothing (for example, a CQRS projection handler that intentionally ignores an event), you must provide an explicit legal body with valid behavior — such as a logging statement or metric emission. Empty bodies are never valid for required-body declarations. (A REST endpoint that returns nothing is the one declared no-op: see below.)
+
+### Empty endpoint bodies
+
+An empty REST endpoint body means one of three things, decided once from the route's declaration and rendered identically by every language target; a body none of them realizes is `BODY003`:
+
+- an **entity operation** on the route's resource entity `E` (the entity its return type names, or the one the endpoint declares), which must be an RDBMS entity of the service;
+- a declared **no-op**: the route returns `Void` (or nothing);
+- an **error**, `BODY003`, generation never starts.
+
+A row matches only when **every declared parameter is consumed**: an empty body never silently ignores a parameter that scopes it. Pagination parameters (`skip`, `limit`) are the generator's and are never declared.
+
+| Meaning | Method | Path parameters | Other declared parameters | Returns |
+|---|---|---|---|---|
+| detail | `GET`, path ends in the key placeholder | exactly one: `E`'s primary key | none | `E` |
+| list | `GET` | none | none | `Array<E>` |
+| list by field | `GET` | exactly one: a non-unique indexed field of `E` (the path may end in its placeholder, `GET /member/:memberId`) | none | `Array<E>` |
+| create | `POST` | none | exactly one body parameter of type `E` | `E` |
+| update | `PUT`, `PATCH`, path ends in the key placeholder | exactly one: `E`'s primary key | exactly one body parameter of type `E` | `E` |
+| delete | `DELETE`, path ends in the key placeholder | exactly one: `E`'s primary key | none | `Void` |
+| no-op | any | any | any | `Void` |
+
+The entity rows are tried first, so a matching `DELETE` deletes rather than doing nothing. A `@crossTenant` endpoint matches no entity row: its reads are unscoped and the tenant-bound entity service has no unscoped mode. A framework-synthesized route (replay, purge, API-key verification) carries a marker and has its body provided by the generator; it is never checked.
+
+```
+Error: rest_api 'OrderAPI' endpoint 'getOrderByNote' (GET /api/v1/orders/by-note/:note) has an
+  empty body that no derivation realizes: path parameter 'note' is not the primary key 'id' of
+  'Order'; an empty body cannot use it. Write the body, or declare the route in a shape an empty
+  body derives: a detail, list, create, update or delete of its resource entity that consumes
+  every declared parameter, or a route declared -> Void for a no-op.
+  Code: BODY003
+```
+
+An empty GraphQL **query** or **mutation** body has no derivation: it is `BODY003` with the message *GraphQL query 'x' in api 'y' has an empty body, so its resolver would return nothing for its declared result.* An empty subscription body is legal.
+
+### Every value-returning body returns
+
+A callable whose declared return type carries a value (anything but `Void`) must end every path in `return <value>` or `throw`; a body that can fall off its end is `BODY002`, and so is a bare `return;` inside one. The rule applies to service, REST-API, WebSocket-API, entity, struct, trait, module and shared-block functions; REST and serverless endpoints; GraphQL queries, mutations and subscriptions; CQRS commands and queries; agent tools and prompts; and a WebSocket message that declares `replies <Event>` (whose empty body is checked too, as are the empty bodies of an agent tool and of a serverless endpoint with a return type). Jobs, subscription and enqueue handlers, projection handlers, lifecycle hooks, `validate` blocks and tests are void by construction.
+
+A statement list terminates when some statement in it terminates:
+
+| Statement | Terminates when |
+|---|---|
+| `return <expr>`, `throw` | always |
+| `return;` | never (and itself `BODY002` in a value-returning body) |
+| `if / else if / else` | an `else` exists and every branch terminates |
+| `switch` | a `default` exists and every case and the default terminate |
+| `try / catch / finally` | the `finally` terminates, or the `try` and every `catch` terminate |
+| `transaction(db) { }`, `tenant(expr) { }` | its body terminates |
+| `while (true)` | its body has no `break` bound to this loop (a `break` inside a nested loop does not count) |
+| any other `while`, `for`, `foreach` | never: the body may run zero times |
+| every other statement | never |
+
+The analysis is intraprocedural: a call to a function that always throws does not terminate its caller.

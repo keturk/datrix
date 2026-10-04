@@ -1588,9 +1588,8 @@ resilience {
       cache {
         availability = "required"; health = "ready";
         operations {
-          read   { onFailure = "fallback"; fallback = "sourceOfTruth"; }
+          read   { onFailure = "raise"; }
           write  { onFailure = "raise"; }
-          delete { onFailure = "warn"; }
         }
       }
     }
@@ -1604,8 +1603,9 @@ resilience {
 Key rules:
 
 - **Declared once, inherited.** One `defaults { service from standardServicePolicy(); }` covers every `service` dependency at once; a per-service block overrides the baseline only where one dependency differs.
-- **Uncovered is an error.** A policy-managed operation (e.g. a rate-limit counter, an auth-session cache write), or a `service` dependency that has inter-service calls, left uncovered at every level fails generation with `RESILIENCE_POLICY_REQUIRED` — nothing is invented to fill the gap.
-- **Degrade only where it is correct.** A cache write may degrade without failing the route only when it is known to run *after* the source-of-truth commit; a rate-limit counter does not fail open by default; authorization/session cache deletion does not silently fail unless stale cache cannot authorize.
+- **Uncovered is an error.** A policy-managed operation (a cache `read` or `write`), or a `service` dependency that has inter-service calls, left uncovered at every level fails generation with `RESILIENCE_POLICY_REQUIRED` — nothing is invented to fill the gap.
+- **The operation vocabulary is closed.** Only a cache's `read` and `write` have a per-operation failure policy; any other `operations` key is rejected with `RESILIENCE_POLICY_INVALID`. Counter increments, lock acquisitions and rate-limit checks have no policy: their failures always propagate, so a limiter never admits a request it could not count, and there is no opt-out flag.
+- **Readiness stays honest.** `availability = "optional"` together with `health = "ready"` is rejected (it would gate readiness on an optional dependency).
 - **Typed calls route through resilient clients.** Every typed inter-service call (see [Calling Another Service's Endpoints](#calling-another-services-endpoints)) goes through a generated per-dependency resilient client driven by this policy. Timeout, circuit breaker, and bulkhead are non-amplifying and stay on; **retry is off by default** and is enabled only when the provider endpoint is marked `idempotent` (an HTTP `GET` is *not* assumed idempotent), bounded by a retry budget and suppressed while the breaker is open.
 
 ### Liveness, Readiness, and Health

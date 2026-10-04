@@ -1924,6 +1924,23 @@ and it had one latent defect.
   - The block narrows scope and never widens it: it can appear only where every read was
     already unscoped. It writes no second audit line; the body's D7 line already recorded the
     unscoped surface.
+- **D13 — Fail-closed tenant coverage is one set on every language.** Every
+  `system-*-no-tenant` / `-outside-loop` / `-non-tenantable` / `-collision` fixture under a
+  package's `tests/fixtures/tenant-query-scoping/` is a negative fixture: a body that touches a
+  Tenantable entity with no tenant source fails generation. Each language's tenancy coverage
+  module loads every one, as a parametrized row asserting the shared `tenant_resolution`
+  message, or as a declared exception.
+  - A fixture a language does not fail on is a named, reasoned exception that is itself
+    asserted (generation succeeds), so the difference stays visible and the test goes red when
+    it closes. Python's one exception is the GraphQL subscription fixture: Python runs a
+    subscription body in the subscribing client's request
+    (`SubscriptionBodyRealization.IN_SUBSCRIBER_REQUEST`) and reads the request tenant, while
+    TypeScript runs it on the published event and rejects it. When no language realizes
+    `IN_SUBSCRIBER_REQUEST`, the enum, the `subscription_realization` parameter of
+    `graphql_operation_tenant_source` and that branch are deleted and the exception becomes a row.
+  - The set comparison lives in code: `datrix_testing.tenant_fixtures.fixture_set_mismatch`
+    compares the negative fixtures on disk with the names a coverage module references, and each
+    language package asserts it is empty.
 
 | # | Invariant | Check |
 |---|---|---|
@@ -1939,6 +1956,7 @@ and it had one latent defect.
 | I10 | Every Tenantable access inside a `tenant(x)` block is scoped to `x` | per-language rendered-surface tests: in-block read filtered, create stamped, tenant-scoped `fn` passed the bound local; top-level read in the same body unscoped; nested block uses the next depth's local |
 | I11 | A `tenant(…)` block outside a `@crossTenant` body, or over a non-reference expression, fails analysis | TEN009 / TEN010 tests in `datrix-common` |
 | I12 | `tenant` stays an identifier outside statement-start position | `datrix-language` statement-transformer test |
+| I13 | Every fail-closed tenant fixture is loaded on every language | per-package tenancy coverage tests (tag `tenancy`): fixture set equals the referenced set; Python's rows each fail with the shared message and its one exception asserts generation succeeds |
 
 **Rejected:**
 

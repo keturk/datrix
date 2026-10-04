@@ -977,9 +977,8 @@ resilience {
         availability = "required";
         health = "ready";
         operations {
-          read   { onFailure = "fallback"; fallback = "sourceOfTruth"; }
+          read   { onFailure = "raise"; }
           write  { onFailure = "raise"; }
-          delete { onFailure = "warn"; }
         }
       }
     }
@@ -1016,33 +1015,36 @@ Non-canonical names are a config error, never silently aliased.
 | `availability` | `required` / `optional` / `degraded` | `None` → inherit baseline |
 | `health` | `live` / `ready` / `degraded` / `ignored` | `None` → inherit baseline (no implicit `ready`) |
 | `readyOnDegraded` | `true` (default) / `false` | `false` makes degraded a readiness blocker |
-| `operations` | Per-operation `onFailure` blocks | Only specified operations overridden |
+| `operations` | Per-operation `onFailure` blocks, keyed by the kind's operation vocabulary (below) | Only specified operations overridden |
 
-After merging, the resolved `availability` and `health` must both be non-`None`. If either is missing, generation fails with `RESILIENCE_POLICY_REQUIRED`.
+After merging, the resolved `availability` and `health` must both be non-`None`. If either is missing, generation fails with `RESILIENCE_POLICY_REQUIRED`. `availability = "optional"` together with `health = "ready"` (after the baseline/override merge) is rejected with `RESILIENCE_POLICY_INVALID`, because it would gate readiness on an optional dependency; use `health = "degraded"` or `"ignored"`, or make the dependency `required`. `model` entries are exempt.
 
 ### Operations Block
 
-Each operation entry specifies failure behavior for one database/cache/service operation:
+Each operation entry specifies failure behavior for one operation a generator realizes. The operation vocabulary is closed and per dependency kind:
+
+| Kind | Operations |
+|---|---|
+| `cache` | `read`, `write` |
+| `rdbms`, `pubsub`, `objectStorage`, `service`, `extern`, `model` | none: dependencies of these kinds have no per-operation failure policy |
 
 ```dcfg
 operations {
-  read   { onFailure = "fallback"; fallback = "sourceOfTruth"; }
+  read   { onFailure = "raise"; }
   write  { onFailure = "degrade"; }
-  delete { onFailure = "raise"; }
-  counterIncrement { onFailure = "deny"; }
 }
 ```
 
-`onFailure` values: `raise` / `deny` / `degrade` / `warn` / `fallback` / `ignore`. The `fallback` field (when `onFailure = "fallback"`) names the fallback source kind (e.g., `"sourceOfTruth"`).
+`onFailure` values: `raise` / `deny` / `degrade` / `warn` / `ignore`. `onFailure = "fallback"` and a `fallback` field are not accepted: a failure never silently substitutes alternate behavior.
+
+An `operations` key outside the kind's vocabulary is rejected with `RESILIENCE_POLICY_INVALID` when the file is loaded, naming the dependency, the offending keys, and the valid keys. Counter increments, lock acquisitions, rate-limit checks and cache invalidation are not policy-managed: their failures always propagate and cannot be declared fail-open, and there is no opt-out flag.
 
 ### Validation Diagnostics
 
 | Diagnostic | Cause |
 |---|---|
-| `RESILIENCE_POLICY_REQUIRED` | `service` dependency with calls has no resolved `availability` or `health` |
-| `RESILIENCE_POLICY_INVALID` | Non-canonical dependency name; unsupported operation for kind |
-| `RESILIENCE_RATE_LIMIT_COUNTER` | Rate-limit counter set to `degrade`/`warn`/`ignore` without `unsafeAllowFailOpen = true` |
-| `RESILIENCE_AUTH_CACHE_DELETE` | Authorization/session cache `delete` set to `warn` without proof stale cache cannot authorize |
+| `RESILIENCE_POLICY_REQUIRED` | `service` dependency with calls has no resolved `availability` or `health`; a policy-managed operation has no resolved decision; non-canonical service name |
+| `RESILIENCE_POLICY_INVALID` | An `operations` key the kind does not consume; `availability = "optional"` with `health = "ready"` |
 
 ### No Grammar Change
 
