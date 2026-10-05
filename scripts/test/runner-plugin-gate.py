@@ -283,6 +283,7 @@ def check_records_hold_exact_facts() -> None:
 
         deselected = workspace.read_record("deselected-main.json")
         assert deselected["deselected"] == _FACTS_SUITE_DESELECTED, deselected
+        assert deselected["deselected_files"] == {"test_suite.py": _FACTS_SUITE_DESELECTED}, deselected
 
         timings = workspace.read_record("timings-main.json")
         calls = {call["nodeid"] for call in timings["calls"]}

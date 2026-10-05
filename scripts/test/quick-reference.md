@@ -771,8 +771,9 @@ does not count a parameter its sibling languages drop.
 
 **Two buckets that fail by shape, one that fails by skeleton groups:**
 - `identical` / `same-behaviour` fail unless every member is a **pre-binding adapter** (a single
-  `return` of a call into `datrix_codegen_common`, recognized by AST shape only — no written
-  exemption list).
+  `return` of a call into the shared codegen layer — `datrix_codegen_common` or
+  `datrix_codegen_kernel`, never a language package or a language core such as
+  `datrix_codegen_typescript_core` — recognized by AST shape only; no written exemption list).
 - `divergent` is judged **without a reference language**: the role's member packages are
   partitioned into **skeleton groups** (packages whose contributed skeleton sets are equal share
   a group); the role passes iff at most one group remains, and otherwise fails with one reason

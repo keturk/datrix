@@ -28,7 +28,9 @@ At ``pytest_sessionfinish`` a session writes, each file atomically, into
     arguments, or environment values.
 ``deselected-<worker>.json``
     How many collected items this session deselected, so the runner can tell
-    whether a later phase has anything to run without collecting again.
+    whether a later phase has anything to run without collecting again, and the
+    same count per test file (``deselected_files``), so workers that disagree
+    on the total can be compared file by file to name where their trees differ.
 ``timings-<worker>.json``
     The call-phase duration of every test and the setup duration of every
     session-, package-, and module-scoped fixture. Test report durations fold
@@ -989,6 +991,7 @@ class _SessionRecorder:
         self._observed: dict[str, set[str]] = {bucket: set() for bucket in _BUCKETS}
         self._faults: list[str] = []
         self._deselected = 0
+        self._deselected_files: dict[str, int] = {}
         self._calls: list[dict[str, object]] = []
         self._fixtures: list[dict[str, object]] = []
         self._workers: set[str] = set()
@@ -1014,6 +1017,9 @@ class _SessionRecorder:
     def pytest_deselected(self, items: Sequence[pytest.Item]) -> None:
         with self._lock:
             self._deselected += len(items)
+            for item in items:
+                test_file = item.nodeid.partition("::")[0]
+                self._deselected_files[test_file] = self._deselected_files.get(test_file, 0) + 1
 
     @pytest.hookimpl(optionalhook=True)
     def pytest_testnodedown(
@@ -1107,6 +1113,7 @@ class _SessionRecorder:
                 records[_record_file(_DESELECTED_KIND, role.worker_id)] = {
                     **header,
                     "deselected": self._deselected,
+                    "deselected_files": dict(sorted(self._deselected_files.items())),
                 }
                 records[_record_file(_TIMINGS_KIND, role.worker_id)] = {
                     **header,

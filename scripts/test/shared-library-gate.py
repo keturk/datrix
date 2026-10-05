@@ -1297,7 +1297,7 @@ def _write_complete_records(workspace: _StampWorkspace, run_dir: Path) -> None:
         _write_record(run_dir, "observed", worker, observed)
     _write_record(run_dir, "workers", "controller", {"workers": list(_STAMP_WORKERS)})
     for worker in (*_STAMP_WORKERS, "main"):
-        _write_record(run_dir, "deselected", worker, {"deselected": 0})
+        _write_record(run_dir, "deselected", worker, {"deselected": 0, "deselected_files": {}})
         _write_record(
             run_dir,
             "timings",
@@ -1481,6 +1481,7 @@ def check_test_runner_crashed_phase_records_selection_without_inputs() -> None:
 # ---------------------------------------------------------------------------
 
 _DECISION_WORKERS = ("gw0", "gw1")
+_DECISION_FILE = "tests/unit/test_planted.py"
 
 
 def _parallel_phase_records(run_dir: Path, deselected: dict[str, int], listed: tuple[str, ...] = _DECISION_WORKERS) -> None:
@@ -1490,7 +1491,8 @@ def _parallel_phase_records(run_dir: Path, deselected: dict[str, int], listed: t
     _write_record(run_dir, "workers", "controller", {"workers": list(listed)})
     _write_record(run_dir, "observed", "controller", _observed())
     for worker, count in deselected.items():
-        _write_record(run_dir, "deselected", worker, {"deselected": count})
+        files = {_DECISION_FILE: count} if count else {}
+        _write_record(run_dir, "deselected", worker, {"deselected": count, "deselected_files": files})
 
 
 def _decide(run_dir: Path, *, user_filter_active: bool = False) -> str | None:
@@ -1524,7 +1526,8 @@ def check_serial_phase_skipped_when_every_worker_deselected_zero() -> None:
             "under a marker or keyword filter the serial phase must keep running"
         )
         decision, errors = _serial_phase_decision_for_run(
-            run_dir, recorded=True, parallel_completed=True, user_filter_active=False
+            run_dir, recorded=True, parallel_completed=True, user_filter_active=False,
+            package_root=Path(tmp), parallel_started=0.0,
         )
         assert decision.skip_reason == SERIAL_SKIPPED_NO_SERIAL_ITEMS and errors == [], (decision, errors)
 
@@ -1552,7 +1555,8 @@ def check_serial_phase_runs_when_evidence_is_missing() -> None:
         _parallel_phase_records(complete, {"gw0": 0, "gw1": 0})
         for recorded, run_dir, completed in ((False, complete, True), (True, None, True), (True, complete, False)):
             decision, errors = _serial_phase_decision_for_run(
-                run_dir, recorded=recorded, parallel_completed=completed, user_filter_active=False
+                run_dir, recorded=recorded, parallel_completed=completed, user_filter_active=False,
+                package_root=root, parallel_started=0.0,
             )
             assert decision.skip_reason is None and errors == [], (recorded, run_dir, completed, decision, errors)
 
@@ -1573,20 +1577,40 @@ def check_serial_phase_disagreeing_or_unreadable_records_are_a_runner_error() ->
             _decide(disagreeing)
         except RunnerDeselectedRecordError as exc:
             assert "disagree" in str(exc), exc
+            assert f"{_DECISION_FILE} (0 on gw0; 3 on gw1)" in str(exc), f"the error must name the differing file: {exc}"
         else:
             raise AssertionError("disagreeing worker counts must raise, never be silently treated as zero")
 
         malformed = root / "test-results-20260924-000006"
         _parallel_phase_records(malformed, {"gw0": 0})
-        _write_record(malformed, "deselected", "gw1", {"deselected": "0"})
+        _write_record(malformed, "deselected", "gw1", {"deselected": "0", "deselected_files": {}})
         unlisted = root / "test-results-20260924-000007"
         _parallel_phase_records(unlisted, {"gw0": 0, "gw1": 0, "main": 0})
         for run_dir, fragment in ((disagreeing, "disagree"), (malformed, "deselected-gw1.json"), (unlisted, "deselected-main.json")):
             decision, errors = _serial_phase_decision_for_run(
-                run_dir, recorded=True, parallel_completed=True, user_filter_active=False
+                run_dir, recorded=True, parallel_completed=True, user_filter_active=False,
+                package_root=root, parallel_started=0.0,
             )
             assert decision.skip_reason is None, f"{run_dir.name}: untrusted records skipped the serial phase"
             assert len(errors) == 1 and fragment in errors[0], (run_dir.name, errors)
+
+        # A disagreement also names the package files modified since the parallel phase started.
+        package = root / "package"
+        (package / "tests").mkdir(parents=True)
+        (package / "tests" / "test_edited_midrun.py").write_text("def test_a():\n    pass\n", encoding="utf-8")
+        (package / ".test_results").mkdir()
+        (package / ".test_results" / "ignored.json").write_text("{}", encoding="utf-8")
+        _, errors = _serial_phase_decision_for_run(
+            disagreeing, recorded=True, parallel_completed=True, user_filter_active=False,
+            package_root=package, parallel_started=0.0,
+        )
+        assert "1 package file(s) changed" in errors[0] and "tests/test_edited_midrun.py" in errors[0], errors
+        assert ".test_results" not in errors[0].split("changed since")[1], errors
+        _, errors = _serial_phase_decision_for_run(
+            disagreeing, recorded=True, parallel_completed=True, user_filter_active=False,
+            package_root=package, parallel_started=time.time() + 3600,
+        )
+        assert "No file in the package changed" in errors[0], errors
 
 
 _SLW_JUNIT_ALL_PASSING = """\

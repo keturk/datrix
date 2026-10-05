@@ -86,7 +86,13 @@ Read the DOCUMENT in full, then clear these gates **by investigation, never by a
    - every migration, rollout, or adoption step, verbatim and numbered
    - every doc the change touches, by owning repo `docs/`
 
-State one line: `SCOPE: {packages} | reaches: {packages} | surface sets: {n} | migration steps: {n}`.
+4. **Sibling-target parity.** When the design is scoped to one target — a language (`datrix.languages`), a platform (docker, AWS, Azure, …), or a frontend target — one Datrix semantics is realized by every target of that kind (architecture cheat sheet, standing rule 2). Enumerate the sibling targets of the same kind **from the registry** (never a literal list) and check each one by reading its code (`find_symbol` / `search` / `outline`, ranged reads):
+   - **Sibling already implements the behaviour properly** → the target you are building must produce the **same observable behaviour**; only rendering differs. Take the sibling's semantics as the specification (inputs accepted, outputs, error cases, security posture, defaults). Where the logic is target-agnostic, hoist it to the shared layer (Step 2 "Shared layer first") instead of writing a second copy; where it is rendering, mirror the sibling's contract in the new target. A divergence you would introduce is a defect in your plan, not a design choice.
+   - **Sibling implements it but wrongly or more weakly** (fails open, drops a declared input, different semantics) → the strongest correct behaviour wins for all targets; fix the sibling when the fix is small, otherwise write a findings file. Never copy a weaker behaviour for symmetry.
+   - **Sibling does not implement it** → not your scope: the design is the boundary. Record it as a counted `capability_gaps` row where the architecture requires one, or a findings file, and carry on. Do not build the feature in siblings.
+   Record per sibling: `{target}: same | diverges-fixed | gap | n/a` with the `path:line` read. The Step 2 ledger then carries a row for each sibling change the verdict requires, and its acceptance line names the sibling parity check (a tagged test that runs the same case through both targets' own code, or a registry-driven conformance probe — never a hardcoded target list).
+
+State one line: `SCOPE: {packages} | reaches: {packages} | surface sets: {n} | migration steps: {n} | siblings: {kind: n checked, n same, n gaps}`.
 
 ---
 
@@ -177,6 +183,7 @@ If the run ended on a blocker, report that instead: the four-part proof and the 
 - **NO skipping the ledger because the design "looks small"** — it is what carries ordering and per-surface coverage that the task graph used to carry.
 - **NO migrating before the guard** — enforcement units precede and gate what they police.
 - **NO covering the easy surface and dropping the rest** — every member of an invariant's surface set has a unit or an acceptance line.
+- **NO implementing a single-target design without reading its sibling targets** (languages, platforms, frontends) — where a sibling already does it properly, the new target matches its behaviour; a per-target difference is a defect.
 - **NO stopping partway because the design is big or context is long** — expand, compact, continue.
 - **NO absorbing before PROVEN** — absorb deletes the one document verify measures against.
 - **NO editing the design document**, including its `Status:` line.
