@@ -173,7 +173,7 @@ never stamped. The plugin writes its records into the run directory:
 
 ```
     observed-<worker>.json      # paths opened/listed/loaded and executables started
-    deselected-<worker>.json    # how many collected items the session deselected
+    deselected-<worker>.json    # how many collected items the session deselected, in total and per test file
     timings-<worker>.json       # call-phase durations and module/package/session fixture setups
     workers-controller.json     # the xdist controller's list of the workers it ran
     timings.json                # the runner's merge of every timings-<worker>.json, each entry tagged "worker"
@@ -198,7 +198,10 @@ with no record, a parallel phase that did not complete, a marker or keyword filt
 narrows collection and is not such a filter), or any worker that deselected items. Workers
 disagreeing on the count, an unreadable record, or a record the controller did not list is a
 runner error: the serial phase still runs, the run exits non-zero, and `index.json` is `FAILED`
-with the reason under `runner_errors`.
+with the reason under `runner_errors`. For disagreeing counts the reason names each test file whose
+per-file deselected count differs and which workers saw which count, and lists the package files
+modified since the parallel phase started: workers that start at different moments collect
+different trees when a test file is added to, removed from or edited in the package mid-run.
 
 The test summary shows:
 - Pass/fail status per project
