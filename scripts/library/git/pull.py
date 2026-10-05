@@ -33,6 +33,7 @@ if str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
 from code_index.sources import discover_repos  # noqa: E402
+from shared.logging_utils import ColorCodes, colorize  # noqa: E402
 from shared.venv import get_datrix_root  # noqa: E402
 
 EXIT_ALL_PULLED = 0
@@ -62,6 +63,11 @@ class PullOutcome(Enum):
 
 
 SUCCESSFUL_OUTCOMES = frozenset({PullOutcome.UPDATED, PullOutcome.UP_TO_DATE})
+
+
+def outcome_color(outcome: PullOutcome) -> str:
+    """Green for a pull that succeeded, red for one that needs attention."""
+    return ColorCodes.GREEN if outcome in SUCCESSFUL_OUTCOMES else ColorCodes.RED
 
 
 class PullError(Exception):
@@ -175,7 +181,7 @@ def pull_repo(repo: Path) -> RepoPull:
         result = classify(repo, before, pull)
     except PullError as exc:
         result = RepoPull(repo.name, PullOutcome.FAILED, detail=str(exc))
-    print(f"{repo.name}: {result.outcome.value}", flush=True)
+    print(colorize(f"{repo.name}: {result.outcome.value}", outcome_color(result.outcome)), flush=True)
     print(flush=True)
     return result
 
@@ -186,13 +192,17 @@ def render_summary(results: list[RepoPull]) -> str:
         group = [result for result in results if result.outcome is outcome]
         if not group:
             continue
-        lines.append(f"{outcome.value} ({len(group)}):")
+        color = outcome_color(outcome)
+        lines.append(colorize(f"{outcome.value} ({len(group)}):", color))
         for result in group:
-            lines.append(f"  {result.name}" + (f"  ({result.detail})" if result.detail else ""))
+            lines.append(colorize(f"  {result.name}", color) + (f"  ({result.detail})" if result.detail else ""))
             lines.extend(f"      {path}" for path in result.paths)
     failed = sum(1 for result in results if result.outcome not in SUCCESSFUL_OUTCOMES)
     lines.append(SUMMARY_RULE)
-    lines.append("All repositories pulled." if not failed else f"{failed} repositories need attention.")
+    if failed:
+        lines.append(colorize(f"{failed} repositories need attention.", ColorCodes.RED))
+    else:
+        lines.append(colorize("All repositories pulled.", ColorCodes.GREEN))
     return "\n".join(lines)
 
 
@@ -204,8 +214,8 @@ def main(argv: list[str]) -> int:
     workspace = get_datrix_root()
     repos = discover_repos(workspace)
     if not repos:
-        print(f"ERROR: no git repositories found directly under {workspace}; expected the datrix-* package "
-              "checkouts there.", file=sys.stderr)
+        print(colorize(f"ERROR: no git repositories found directly under {workspace}; expected the datrix-* "
+                       "package checkouts there.", ColorCodes.RED), file=sys.stderr)
         return EXIT_CANNOT_RUN
     results = [pull_repo(repo) for repo in repos]
     print(render_summary(results))
