@@ -1013,7 +1013,7 @@ facing route, and never reachable from one through a helper call.
 post(UUID orgId) : auth(required, providers: [identity], roles: [SupportAgent]) -> Void {
     let org = db.Organization.findOrFail(orgId);
     tenant(org.id) {
-        applyEmergencyCredit(org.id, Money.of(50, "USD"));
+        applyEmergencyCredit(org.id, Money.of(50));
     }
 }
 ```
