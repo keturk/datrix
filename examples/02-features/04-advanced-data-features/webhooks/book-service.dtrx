@@ -991,7 +991,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
-            price: Money.of(29.99, Currency.USD),
+            price: Money.of(29.99),
             metadata: {},
             tags: []
         });
@@ -1012,7 +1012,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
-            price: Money.of(24.99, Currency.USD),
+            price: Money.of(24.99),
             metadata: {},
             tags: []
         });
@@ -1033,7 +1033,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
-            price: Money.of(39.99, Currency.USD),
+            price: Money.of(39.99),
             metadata: {},
             tags: []
         });
@@ -1047,7 +1047,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchValTitle", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
         assert throws(
-        () => catalog.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, publishDate: Date.now(), categoryId: cat.id, branchId: br.id, price: Money.of(9.99, Currency.USD), metadata: {}, tags: [] }),
+        () => catalog.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, publishDate: Date.now(), categoryId: cat.id, branchId: br.id, price: Money.of(9.99), metadata: {}, tags: [] }),
         ValidationError("Title cannot be empty")
         );
     }
@@ -1058,7 +1058,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchValYear", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
         assert throws(
-        () => catalog.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, publishDate: Date.now(), categoryId: cat.id, branchId: br.id, price: Money.of(9.99, Currency.USD), metadata: {}, tags: [] }),
+        () => catalog.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, publishDate: Date.now(), categoryId: cat.id, branchId: br.id, price: Money.of(9.99), metadata: {}, tags: [] }),
         ValidationError("Publication year cannot be in the future")
         );
     }
@@ -1076,7 +1076,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
-            price: Money.of(34.99, Currency.USD),
+            price: Money.of(34.99),
             metadata: {},
             tags: []
         });
@@ -1097,7 +1097,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
-            price: Money.of(27.99, Currency.USD),
+            price: Money.of(27.99),
             metadata: {},
             tags: []
         });
@@ -1118,7 +1118,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
-            price: Money.of(44.99, Currency.USD),
+            price: Money.of(44.99),
             metadata: {},
             tags: []
         });
@@ -1141,7 +1141,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
-            price: Money.of(32.99, Currency.USD),
+            price: Money.of(32.99),
             metadata: {},
             tags: []
         });
@@ -1164,7 +1164,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
-            price: Money.of(42.99, Currency.USD),
+            price: Money.of(42.99),
             metadata: {},
             tags: []
         });
@@ -1185,7 +1185,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
-            price: Money.of(38.99, Currency.USD),
+            price: Money.of(38.99),
             metadata: {},
             tags: []
         });
@@ -1208,7 +1208,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
-            price: Money.of(29.99, Currency.USD),
+            price: Money.of(29.99),
             metadata: {},
             tags: []
         });
@@ -1231,7 +1231,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
-            price: Money.of(27.99, Currency.USD),
+            price: Money.of(27.99),
             metadata: {},
             tags: []
         });
