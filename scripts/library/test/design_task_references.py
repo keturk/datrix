@@ -176,6 +176,9 @@ ALLOWLIST: dict[str, str] = {
         "usage example for the review runner",
     "datrix/scripts/test/review-library-gate.py":
         "self-test fixtures that synthesize task files in a temp dir",
+    "datrix/scripts/test/skill-assist-gate.py":
+        "self-test fixtures that synthesize task files and a design doc in a temp workspace; "
+        "the assists under test parse task ids and find design-number references",
     "datrix/scripts/library/test/design_task_references.py":
         "this gate's own patterns and self-test fixtures",
     "datrix-common/docs/contributing/agent_skills/execute_tasks.md":
