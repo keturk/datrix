@@ -1690,7 +1690,9 @@ def _platform_token_identifier_hits(
     token matching to -- class/function/method DEFINITIONS, a dataclass
     field or type alias at module/class-body level (annotated or plain
     assignment), and a type reference (isinstance/issubclass argument, base
-    class, parameter/return annotation, annotated-assignment value). Never a
+    class, parameter/return annotation, the value of a ``TypeAlias``
+    annotated assignment -- a string in any other annotated value is data,
+    not a forward reference). Never a
     bare local variable, function parameter, loop variable, or attribute
     READ -- an unscoped scan over an open, runtime-derived vocabulary is
     exactly what produced G2's own 305-false-positive result for the
@@ -1730,7 +1732,7 @@ def _platform_token_identifier_hits(
                     _emit(identifier, lineno)
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             _emit(node.target.id, node.lineno)
-            if node.value is not None:
+            if node.value is not None and _annotation_declares_type_alias(node.annotation):
                 for identifier, lineno in _identifiers_in_type_expression(node.value):
                     _emit(identifier, lineno)
             for identifier, lineno in _identifiers_in_type_expression(node.annotation):
@@ -3849,6 +3851,26 @@ def _identifier_carries_target_name(
     return None
 
 
+_TYPE_ALIAS_ANNOTATION_NAME = "TypeAlias"
+
+
+def _annotation_declares_type_alias(annotation: ast.AST) -> bool:
+    """True when *annotation* is ``TypeAlias`` or a dotted ``<module>.TypeAlias``
+    (``typing.TypeAlias``, ``typing_extensions.TypeAlias``).
+
+    The value of an annotated assignment is a type expression only under this
+    annotation, where a string element really is a forward reference
+    (``X: TypeAlias = "Foo | Bar"``). Under any other annotation the value is
+    data (``EXTS: tuple[str, ...] = ("js", "css")``) and a string in it is not
+    an identifier.
+    """
+    if isinstance(annotation, ast.Name):
+        return annotation.id == _TYPE_ALIAS_ANNOTATION_NAME
+    if isinstance(annotation, ast.Attribute):
+        return annotation.attr == _TYPE_ALIAS_ANNOTATION_NAME
+    return False
+
+
 def _identifiers_in_type_expression(node: ast.AST) -> list[tuple[str, int]]:
     """Every ``(identifier, line_number)`` pair reachable from *node* by
     walking ONLY the syntactic shapes a type expression / isinstance
@@ -4033,7 +4055,7 @@ def scan_file_for_shared_target_names(
                     _emit(identifier, lineno, "type_reference")
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             _emit(node.target.id, node.lineno, "field_or_alias")
-            if node.value is not None:
+            if node.value is not None and _annotation_declares_type_alias(node.annotation):
                 for identifier, lineno in _identifiers_in_type_expression(node.value):
                     _emit(identifier, lineno, "type_reference")
             for identifier, lineno in _identifiers_in_type_expression(node.annotation):
@@ -7882,6 +7904,31 @@ def _self_test_shared_target_name_scanner() -> bool:
             "that name) produces ZERO hits -- attribute_access was dropped as a "
             "declaration kind because a read is not a declaration",
             read_only_hits == [],
+        )
+
+        # Annotated-assignment VALUE scope: a string in the value is a forward
+        # reference only under a TypeAlias annotation; under any other
+        # annotation it is data. Both forms live in one file, so the pair
+        # proves the matcher still fires on the alias (non-vacuity).
+        value_scope_file = scratch_dir / "value_scope.py"
+        value_scope_file.write_text(
+            "import typing\n"
+            "from typing import TypeAlias\n"
+            "EXTENSIONS: tuple[str, ...] = ('python', 'typescript')\n"
+            "NEUTRAL: TypeAlias = 'python'\n"
+            "QUALIFIED: typing.TypeAlias = 'typescript'\n",
+            encoding="utf-8",
+        )
+        value_scope_refs = [
+            (hit.line_number, hit.matched_target)
+            for hit in scan_file_for_shared_target_names(value_scope_file, target_names)
+            if hit.kind == "type_reference"
+        ]
+        ok &= _check(
+            "string VALUES of a non-TypeAlias annotated assignment (line 3) are "
+            "not type references; the same strings under TypeAlias / "
+            "typing.TypeAlias (lines 4, 5) still are",
+            sorted(value_scope_refs) == [(4, "python"), (5, "typescript")],
         )
     finally:
         shutil.rmtree(scratch_dir, ignore_errors=True)
