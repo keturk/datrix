@@ -31,17 +31,17 @@
 # `behaviour-parity-gate.ps1 -Axis platforms -Dbg` under that key.
 
 [languages]
-failing_roles = 148
+failing_roles = 147
 
 [languages.buckets]
-identical = 2
-same_behaviour = 7
-divergent = 139
+identical = 0
+same_behaviour = 0
+divergent = 147
 
 [platforms]
-failing_roles = 28
+failing_roles = 24
 
 [platforms.buckets]
-identical = 1
-same_behaviour = 2
-divergent = 25
+identical = 0
+same_behaviour = 0
+divergent = 24

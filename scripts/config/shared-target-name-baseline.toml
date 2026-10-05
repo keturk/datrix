@@ -31,11 +31,6 @@ count = 1
 reason = "EntityTsEmitSlice (:59, a type reference): the TypeScript entity-emit slice declared in context_models/entity.py and consumed by the TypeScript entity micro-generator and hooks, so it cannot be renamed inside this change without touching those packages. Drives to zero when the slice is renamed target-neutrally or moved into the TypeScript package, together with the context_models/entity.py entry."
 
 [[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/graphql_ts_field.py"
-count = 8
-reason = "GraphqlTsFieldSpec (seven type references) and describe_graphql_field_type_ts (:265): the whole module maps Datrix types to NestJS GraphQL field metadata and is intentionally TypeScript-shaped; it is not moved by this consolidation and its names are consumed by the TypeScript generator and context_models/graphql.py. Drives to zero when the module moves into the TypeScript package or is generalized behind a per-language field-descriptor parameter."
-
-[[baseline]]
 file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/pubsub_connection.py"
 count = 6
 reason = "_build_pubsub_nest_event_rows (:25), build_pubsub_nest_handler_rows (:65) and the PubsubNestEventRow / PubsubNestHandlerRow type references: NestJS-shaped pub/sub row builders whose row types are declared in context_models/pubsub_connection.py and consumed by the TypeScript pub/sub micro-generator, so a rename touches another package. Drives to zero with the context_models/pubsub_connection.py entry when the rows are renamed target-neutrally or move into the TypeScript package."
@@ -44,11 +39,6 @@ reason = "_build_pubsub_nest_event_rows (:25), build_pubsub_nest_handler_rows (:
 file = "datrix-codegen-common/src/datrix_codegen_common/context_models/entity.py"
 count = 2
 reason = "EntityTsEmitSlice (class :57 and its :92 reference): the TypeScript entity-emit slice, consumed by the TypeScript entity micro-generator and hooks, so a rename touches another package. Drives to zero with the algorithms/entity.py entry when the slice is renamed target-neutrally or moved into the TypeScript package."
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/context_models/graphql.py"
-count = 9
-reason = "GraphqlTsFieldSpec (class :18 and three references), the fields ts_type (:21) and ts_field_spec (:36, :53, :95), and name_ts_camel (:106): the context models of the TypeScript-shaped GraphQL field descriptor in algorithms/graphql_ts_field.py, read by the TypeScript generator's templates, so they stay while that module stays. Drives to zero with the algorithms/graphql_ts_field.py entry."
 
 [[baseline]]
 file = "datrix-codegen-common/src/datrix_codegen_common/context_models/pubsub_connection.py"

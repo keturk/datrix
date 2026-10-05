@@ -42,6 +42,11 @@ count = 2
 reason = "config.config_store.compatibility <-> plugin.capability / plugin.capability_resolution: config.system_config.models imports compatibility at module top, and both plugin.capability (via platform_config_contract -> datrix_model.containers -> datrix_model.service_accessors -> config.system_config.models) and plugin.capability_resolution (directly -> config.system_config.models) reach it back."
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/config/datasource/validation.py"
+count = 1
+reason = "config.datasource.validation <-> datrix_model.containers: containers -> config.unified_loader imports this module at module top, so the Application annotation import stays TYPE_CHECKING-only."
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/config/dcfg/group_models.py"
 count = 1
 reason = "config.dcfg.group_models <-> datrix_model.containers: containers -> datrix_model.service_accessors -> config.system_config.models imports group_models at module top, so group_models' Application annotation import stays TYPE_CHECKING-only."
@@ -55,6 +60,11 @@ reason = "config.deployment_validation <-> config.system_config.models / plugin.
 file = "datrix-common/src/datrix_common/config/integrations/provisioning.py"
 count = 3
 reason = "config.integrations.provisioning <-> plugin.capability_resolution: capability_resolution -> plugin.capability -> plugin.capability_cells imports NotificationRealization from provisioning at module top."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/system_config/models.py"
+count = 1
+reason = "config.system_config.models <-> config.system_config.platform_sections: platform_sections imports SystemConfigProfileConfig from models at module top, so the platform-section validator imports declared_section_problems function-locally (the same cycle deployment_validation breaks)."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/base.py"
@@ -144,7 +154,17 @@ reason = "types.registry <-> types.parser: parser imports TypeRegistry at module
 [[baseline]]
 file = "datrix-common/src/datrix_common/utils/engine_helpers.py"
 count = 1
-reason = "utils.engine_helpers <-> datrix_model.containers: containers -> datrix_model.pubsub imports engine_str from engine_helpers at module top, so the Application/Service annotations stay TYPE_CHECKING-only."
+reason = "utils.engine_helpers <-> datrix_model.containers: containers -> datrix_model.pubsub imports engine_str from engine_helpers at module top, so the Application annotation stays TYPE_CHECKING-only."
+
+[[baseline]]
+file = "datrix-migration/src/datrix_migration/foreign_key_naming.py"
+count = 1
+reason = "foreign_key_naming <-> schema_snapshot: schema_snapshot imports record_foreign_key_names from foreign_key_naming at module top, so the SnapshotForeignKey/SnapshotTable annotation imports stay TYPE_CHECKING-only."
+
+[[baseline]]
+file = "datrix-migration/src/datrix_migration/index_naming.py"
+count = 1
+reason = "index_naming <-> schema_snapshot: schema_snapshot imports record_index_names from index_naming at module top, so the SnapshotIndex/SnapshotTable annotation imports stay TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-testing/src/datrix_testing/semantic_baseline.py"
