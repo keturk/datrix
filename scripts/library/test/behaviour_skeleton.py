@@ -141,9 +141,15 @@ _FunctionDefNode = ast.FunctionDef | ast.AsyncFunctionDef
 _ComprehensionNode = ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp
 
 #: A pre-binding adapter's callee must resolve, through the function's own
-#: import table, to a symbol whose fully-qualified name starts with this
-#: prefix: the shared codegen layer every language generator delegates to.
-_SHARED_LAYER_MODULE_PREFIX: Final[str] = "datrix_codegen_common."
+#: import table, to a symbol whose fully-qualified name starts with one of
+#: these prefixes: the shared codegen layer every language generator delegates
+#: to. That layer is the language layer (``datrix_codegen_common``) and the
+#: target-neutral generation kernel (``datrix_codegen_kernel``), which every
+#: generator and the language layer itself declare as a runtime dependency.
+_SHARED_LAYER_MODULE_PREFIXES: Final[tuple[str, ...]] = (
+    "datrix_codegen_common.",
+    "datrix_codegen_kernel.",
+)
 
 #: Skeleton tokens. ``P`` is the placeholder for ANY parameter (the actual
 #: name never appears); ``self`` renders literally so the package's own state
@@ -1047,7 +1053,7 @@ def _is_language_private_annotation(annotation: ast.expr | None, import_table: d
     qualified = _qualified_annotation_name(annotation, import_table)
     if qualified is None:
         return False
-    return not qualified.startswith((_SHARED_LAYER_MODULE_PREFIX, _COMMON_MODULE_PREFIX))
+    return not qualified.startswith((*_SHARED_LAYER_MODULE_PREFIXES, _COMMON_MODULE_PREFIX))
 
 
 def _qualified_annotation_name(node: ast.expr, import_table: dict[str, str]) -> str | None:
@@ -1433,7 +1439,7 @@ def _is_shared_layer_callee(func: ast.expr, import_table: dict[str, str], param_
             qualified = f"{import_table[root]}.{attr}"
         case _:
             return False
-    return qualified.startswith(_SHARED_LAYER_MODULE_PREFIX)
+    return qualified.startswith(_SHARED_LAYER_MODULE_PREFIXES)
 
 
 def _is_pass_through_argument(argument: ast.expr, scope: RenderScope) -> bool:
@@ -1469,7 +1475,7 @@ _BEHAVIOUR_STATEMENT_KINDS: Final[tuple[type[ast.stmt], ...]] = (
 #: prefix carries no behaviour of its own; it delegates to code this gate
 #: compares separately at its own definition site.
 _RENDERING_LEAF_SHARED_PREFIXES: Final[tuple[str, ...]] = (
-    _SHARED_LAYER_MODULE_PREFIX,
+    *_SHARED_LAYER_MODULE_PREFIXES,
     _COMMON_MODULE_PREFIX,
 )
 
@@ -2064,7 +2070,45 @@ def _run_adapter_checks() -> bool:
     )
     ok &= _assert(
         not is_pre_binding_adapter(private_callee),
-        "(6) a callee not resolving to datrix_codegen_common is not an adapter",
+        "(6) a callee not resolving to the shared codegen layer is not an adapter",
+    )
+
+    kernel_callee = _function_source_from_code(
+        """
+        from datrix_codegen_kernel.gendsl.sub_generators import build_sub_generator_specs
+
+        def build_specs(language_id, micro_cls):
+            return build_sub_generator_specs(language_id, migration_micro_cls=micro_cls)
+        """
+    )
+    ok &= _assert(
+        is_pre_binding_adapter(kernel_callee),
+        "(6a) a callee resolving to datrix_codegen_kernel is a shared-layer adapter",
+    )
+    core_callee = _function_source_from_code(
+        """
+        from datrix_codegen_typescript_core.profile import build_profile
+
+        def build_it(language_id):
+            return build_profile(language_id)
+        """
+    )
+    ok &= _assert(
+        not is_pre_binding_adapter(core_callee),
+        "(6b) a callee in a language core package is not a shared-layer adapter",
+    )
+    kernel_param = _function_source_from_code(
+        """
+        from datrix_codegen_kernel.generation.template_generator import TemplateGenerator
+        from datrix_codegen_python.plumbing import PythonOnly
+
+        def build(tg: TemplateGenerator, own: PythonOnly, spec):
+            return spec
+        """
+    )
+    ok &= _assert(
+        behaviour_arity(kernel_param) == 2 and plumbing_parameter_names(kernel_param) == frozenset({"own"}),
+        "(6c) a kernel-typed parameter is shared, a language-package-typed one is plumbing",
     )
     return ok
 
