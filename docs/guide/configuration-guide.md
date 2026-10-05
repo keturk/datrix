@@ -1663,7 +1663,7 @@ production:
 
 | Provider | Platform | Configuration |
 |----------|----------|---------------|
-| `minio` | Self-hosted | Requires `bucket`, `endpoint`. Credentials are never authored: they resolve through the fixed secret handles `minio_access_key` / `minio_secret_key`, and a block with a Datrix-provisioned Garage server delivers its secret key from one `.env` variable to both the server and the service |
+| `minio` | Self-hosted | Requires `bucket`, `endpoint`. Credentials are never authored as values: they resolve through logical secret handles the block names with `accessKeyHandle` / `secretKeyHandle` (defaults `minio_access_key` / `minio_secret_key`; a literal is rejected at parse time, the handles must be distinct) and a Datrix-provisioned Garage server's RPC secret through `rpcSecretHandle` (default `garage_rpc_secret`). A block with a provisioned Garage server delivers its secret key from one `.env` variable (named from the handle) to both the server and the service, and one service's blocks sharing that server must name the same handles |
 | `s3` | AWS | Requires `bucket`, `region`, `accessKey`, `secretKey` |
 | `azure-blob` | Azure | Requires `container`, `connectionString` |
 | `gcs` | Google Cloud | Requires `bucket`, `credentials` |

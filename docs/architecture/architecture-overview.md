@@ -2850,9 +2850,7 @@ semantic cannot import each other. No hoist adds an edge.
 - An API-key provider whose store, name and synthesized verify route are inconsistent fails
   generation instead of resolving to one branch silently, in both languages.
 
-**Out of scope:** the placement of `graphql_ts_field` (it emits TypeScript text from the shared
-layer, needs a neutral descriptor with per-language rendering, and is a reviewed baseline entry in the
-shared-target-name ratchet); the 148 divergent language-axis roles, a program of its own that starts
+**Out of scope:** the 148 divergent language-axis roles, a program of its own that starts
 with the tenant signatures (`QueryTenant`, `QueryTenantSource`, `RowTenantCarrier`, the only
 security-bearing family) and the entity-query chain; duplication in Jinja templates; and registering
 `.dseed` with the language server.
@@ -2962,6 +2960,18 @@ datrix generate --source system.dtrx --output ./generated -L typescript
 > **Note:** The `--hosting` and `--platform` CLI overrides have been removed. Deployment target is configured in ConfigDSL files, not CLI flags. `--language`/`-L` is required and is the sole source for the language target — a `language` key in ConfigDSL is a fail-loud error at generation time.
 
 ---
+
+### Decision 57: Paginated Totals — `Page<T>`, One Envelope, One Pager (Adopted)
+
+**Problem.** A list route returned a bare array, so clients paged blind: no total, a lookahead request per page, and pagination bounds that differed by language (TypeScript was unbounded). "Paginated" also included routes whose bodies never read the pagination pair, and a second, unused pagination vocabulary sat in `foundation.dtrx`.
+
+**Decision.** A route pages exactly when it is a `GET` returning `Page<T>` (`endpoint_is_paginated`), which has exactly one `PageRequest` parameter. `Page<T>` is a builtin type (`PageType`, not a collection kind) with one source, the `.page(request)` query terminal; its wire form is `{items, total, offset, limit}`. The terminal lowers to an items statement and a count statement carrying every predicate of the same authorized, tenant-scoped chain. The bounds (minimum, maximum, default) live once in the shared pagination rows and every language binds the same pair; out-of-range input is refused, never clamped. A resource's derived list and the empty-body, view and nested list derivations are `Page<T>`. The web clients type the envelope; `PagedBinding` issues one request per page and the pager (range caption, numbered window, previous/next) is one algorithm (`datrix_codegen_common.generation.ui_pager`) rendered by Angular and Flutter. Diagnostics `API020`–`API023` and `UI042` police it; `Pagination`, `PaginationResult` and `paginate` are deleted.
+
+### Decision 58: Static Sites — Prerendered Documents, Locales as Paths, One Routing Plan (Adopted)
+
+**Problem.** There was one rendering mode, every platform served the SPA shell (so an unknown parameterized URL never returned 404), the routed-path set had three private copies that all missed workspace routes, Angular never shipped declared image assets and images had no alt text, and ui-core could not run under prerendering.
+
+**Decision.** An app header takes `rendering('client' | 'static')`. A static app is prerendered once per page, content key and locale (default locale at `/…`, others under `/<locale>/…`), reaches nothing beyond its documents (`UI044`), lists only web-building targets (`UI045`) and carries per-page `meta(...)` (`UI047`, `UI048`). Content collections, responsive images (`datrix_codegen_kernel.assets.image_variants`: AVIF/WebP plus the source format, content-addressed, metadata-free), `eager` and `reveal` are available to every app and target. `datrix_common.datrix_model.ui_derivation.routed_paths` is the one routed-path set; `datrix_codegen_kernel.platform.web_route_plan.WebRoutePlan` is the one answer to what a bundle's host serves, redirects (`301`), answers for an unknown path (`404`), caches and types (`WEB_CONTENT_TYPES`), rendered by nginx, CloudFront and Static Web Apps. The site's origin and indexability are build inputs (`site_build_inputs`), never generated source, so one client tree builds for every profile; `indexable` defaults to `false`. Angular realizes a static app with `@angular/ssr` server routes, hydration without event replay (no inline script) and a finalize step in the emitted `scripts/build-app.mjs`. Security posture: no backend reach or runtime config, no inline executable script in any document (the build fails on one), Markdown sanitized on both render paths, content paths contained and bounded, image decompression bounded, indexing fails closed. Details: [frontend-clients](./packs/frontend-clients.md).
 
 ## Next Steps
 
