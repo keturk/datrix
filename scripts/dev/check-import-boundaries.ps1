@@ -126,6 +126,10 @@
  self-aliased import (provider side); a from-M-import-N anywhere that
  reaches through such a facade instead of the module that actually
  defines N, and is not itself a submodule import (consumer side); a
+ module held as an object whose attribute is read as m.attr or
+ getattr(m, "attr") although the module does not define it (module-object
+ side; tests.<module> test-tree modules are providers too, and a name
+ bound only for a genDSL reference is not a provider hit); a
  pyproject.toml entry point naming an attribute its target module does
  not define (entry-point side); or an import whose module resolves to
  nothing on disk at all (unresolved). Every hit is attributed to the

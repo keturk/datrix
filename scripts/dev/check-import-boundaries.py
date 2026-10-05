@@ -153,17 +153,24 @@ Also implements the re-export-facade ratchet: opt-in via
 and `tests/` trees, every `.py` file under this repo's own `datrix/scripts/`
 tree, and every `.py` file under `datrix/claude-config/.claude/hooks/` (if
 any), for a name that has a second, redundant import path on top of its
-real, single home -- a re-export facade -- reporting four shapes, all
+real, single home -- a re-export facade -- reporting five shapes, all
 attributed to the PROVIDING module (the module through which the second
 path runs), never to the file where a consumer statement happens to
 appear: a module whose top-level `from <datrix module> import N` binds a
 name listed in its own `__all__` or imported as `N as N` while the module
 does not itself define N (provider side); any `from M import N` anywhere
 in a scanned file where M is a Datrix module that does not define N and N
-is not itself a submodule of M (consumer side); a `pyproject.toml`
-`[project.entry-points.*]` value naming an attribute its target module
-does not define (entry-point side); and a `from M import N` whose M does
-not resolve to any module on disk at all (unresolved). Relative imports
+is not itself a submodule of M (consumer side); a module held as an object
+(`import M as m`, `from pkg import M`) whose attribute is read as `m.N` or
+`getattr(m, "N")` while M does not define N (module-object side); a
+`pyproject.toml` `[project.entry-points.*]` value naming an attribute its
+target module does not define (entry-point side); and a `from M import N`
+whose M does not resolve to any module on disk at all (unresolved). A
+test-tree module (`tests.<module>`, resolved against the importing file's
+own package) is a provider like any Datrix module, and a name bound only
+for a genDSL `<namespace>.<module>.<name>` reference (read from the
+definitions text, namespace resolved by the kernel registry) is not a
+provider-side hit. Relative imports
 (`from .a import X`, `from . import sub`) are resolved to their absolute
 module from the scanned file's own dotted name, on both the provider and the
 consumer side, and every package's root-level `.py` files (e.g. `conftest.py`)
@@ -218,6 +225,7 @@ import subprocess
 import sys
 import tomllib
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -4940,11 +4948,14 @@ def check_cross_package_vocabulary_ratchet(
 # package's src/ and tests/ trees (discover_packages() -- the same set every
 # other whole-workspace ratchet in this file uses), every .py file under this
 # repo's own datrix/scripts/ tree, and every .py file under
-# datrix/claude-config/.claude/hooks/ (if any), for two shapes of re-export
+# datrix/claude-config/.claude/hooks/ (if any), for the shapes of re-export
 # facade -- a name with a second, redundant import path on top of its real,
-# single home -- both attributed to the PROVIDING module (the module through
+# single home -- all attributed to the PROVIDING module (the module through
 # which the second path runs), never to the file where a consumer statement
-# happens to appear:
+# happens to appear. A providing module is a Datrix module or a test-tree
+# module (``tests.<module>``, anchored at the importing file's own package).
+# Shapes 1 and 2 follow; the module-object, entry-point and unresolved shapes
+# are described below them:
 #
 # 1. Provider side. A module whose top-level `from <datrix module> import N`
 #    binds a name N that is listed in the module's own __all__, or imported
@@ -4957,6 +4968,20 @@ def check_cross_package_vocabulary_ratchet(
 #    only at module top) where M is a Datrix module that does not define N,
 #    and N does not itself resolve to a submodule of M (`from pkg import
 #    submodule` is a normal package traversal, never a facade hit).
+#
+# Module-object shape. A module held as an object (`import a.b as m`,
+# `from a import b`) whose attribute is read as `m.attr` or `getattr(m,
+# "attr")` while the module does not define `attr` -- a module passed whole as
+# a delegation table binds its names at run time, so emptying it by rewriting
+# `from M import N` statements alone breaks there, not at import. Not a hit: a
+# submodule, a module dunder, a name the module imports from a non-Datrix
+# module, `hasattr` / `getattr` with a default (existence probes), and a read
+# inside `pytest.raises(AttributeError)`. Tracked per scope.
+#
+# genDSL-bound names. The kernel resolver looks a `<namespace>.<module>.<name>`
+# genDSL reference up as an attribute of the module the namespace reaches, so a
+# name imported there only to be bound for genDSL is not a provider-side hit;
+# the allowlist is read from the definitions text and fails closed.
 #
 # Every `[project.entry-points.*]` value shaped "module.path:attr" in a
 # discovered package's pyproject.toml is a site too: an attr the module does
@@ -4997,7 +5022,9 @@ class ReexportFacadeHit:
     """
 
     providing_module: str
-    kind: Literal["provider", "consumer", "entry_point", "unresolved"]
+    kind: Literal[
+        "provider", "consumer", "module_attribute", "entry_point", "unresolved"
+    ]
     name: str
     site_file: Path
     site_line: int
@@ -5007,15 +5034,19 @@ class ReexportFacadeHit:
 
 @dataclass(frozen=True)
 class _ResolvedDatrixModule:
-    """A Datrix dotted module path resolved to the real file that defines
+    """A policed dotted module path resolved to the real file that defines
     it -- either an ordinary module (``foo/bar.py``) or a package
-    (``foo/bar/__init__.py``, ``is_package=True``)."""
+    (``foo/bar/__init__.py``, ``is_package=True``). A test-tree directory
+    with no ``__init__.py`` is a namespace package (``is_namespace=True``):
+    ``file_path`` is then the directory itself and it defines no names."""
 
     file_path: Path
     is_package: bool
+    is_namespace: bool = False
 
 
 _DATRIX_MODULE_ROOT_PREFIX = "datrix"
+_TEST_TREE_ROOT = "tests"
 
 
 def _is_datrix_module_path(dotted_module: str) -> bool:
@@ -5048,13 +5079,73 @@ def _resolve_datrix_module(
     return None
 
 
+def _is_policed_module_path(dotted_module: str) -> bool:
+    """True when *dotted_module* is a Datrix module or a test-tree module
+    (``tests.<module>``) -- every module a facade can hide a name behind."""
+    return (
+        _is_datrix_module_path(dotted_module)
+        or dotted_module.split(".", 1)[0] == _TEST_TREE_ROOT
+    )
+
+
+def _owning_package(
+    file_path: Path, packages: dict[str, PackageInfo]
+) -> PackageInfo | None:
+    """The discovered package whose repository directory contains *file_path*."""
+    for package_info in packages.values():
+        try:
+            file_path.relative_to(package_info.root)
+        except ValueError:
+            continue
+        return package_info
+    return None
+
+
+def _resolve_test_tree_module(
+    dotted_module: str, owner: PackageInfo
+) -> _ResolvedDatrixModule | None:
+    """Resolve ``tests.<module>`` against *owner*'s own ``tests/`` tree -- the
+    pytest rootdir anchors ``tests`` per package, so the same dotted name
+    names a different file in every package."""
+    remainder = dotted_module.split(".")[1:]
+    target = (owner.root / _TEST_TREE_ROOT).joinpath(*remainder)
+    if remainder:
+        module_file = target.with_suffix(".py")
+        if module_file.is_file():
+            return _ResolvedDatrixModule(file_path=module_file, is_package=False)
+    package_init = target / "__init__.py"
+    if package_init.is_file():
+        return _ResolvedDatrixModule(file_path=package_init, is_package=True)
+    if target.is_dir():
+        return _ResolvedDatrixModule(
+            file_path=target, is_package=True, is_namespace=True
+        )
+    return None
+
+
+def _resolve_policed_module(
+    dotted_module: str, packages: dict[str, PackageInfo], context_file: Path
+) -> _ResolvedDatrixModule | None:
+    """Resolve a Datrix or test-tree module path. A test-tree path is
+    anchored at the package that owns *context_file* (the importing file);
+    a file outside every package has no ``tests`` root to resolve against."""
+    if dotted_module.split(".", 1)[0] != _TEST_TREE_ROOT:
+        return _resolve_datrix_module(dotted_module, packages)
+    owner = _owning_package(context_file, packages)
+    if owner is None:
+        return None
+    return _resolve_test_tree_module(dotted_module, owner)
+
+
 def _is_submodule_member(resolved: _ResolvedDatrixModule, name: str) -> bool:
     """True when *name* is itself an importable submodule/subpackage of the
     resolved package -- a plain package traversal (`from pkg import
     submodule`), never a facade hit."""
     if not resolved.is_package:
         return False
-    package_dir = resolved.file_path.parent
+    package_dir = (
+        resolved.file_path if resolved.is_namespace else resolved.file_path.parent
+    )
     # Python module names are case-sensitive but a Windows/macOS filesystem
     # is not, so `Crypto` would otherwise "exist" as `crypto.py`. Match the
     # directory listing's own spelling instead of probing the path.
@@ -5067,12 +5158,13 @@ def _is_submodule_member(resolved: _ResolvedDatrixModule, name: str) -> bool:
 def _dotted_module_name_for_file(
     file_path: Path, packages: dict[str, PackageInfo]
 ) -> str | None:
-    """The dotted Datrix module path a ``src/`` file corresponds to, for the
-    provider-side shape's ``-FacadeModule`` filter/display name -- ``None``
-    for a file outside every discovered package's ``src/`` tree (a
-    ``datrix/scripts/*.py`` utility or a ``tests/`` file has no importable
-    module identity of its own, so it is filtered by its relative file path
-    only)."""
+    """The dotted module path a ``src/`` or ``tests/`` file corresponds to,
+    for the provider-side shape's ``-FacadeModule`` filter/display name and
+    for resolving the file's own relative imports -- ``datrix_x.mod`` for a
+    ``src/`` file, ``tests.mod`` for a file in a package's ``tests/`` tree,
+    ``None`` for any other file (a ``datrix/scripts/*.py`` utility or a
+    package root-level ``conftest.py`` has no importable module identity of
+    its own, so it is filtered by its relative file path only)."""
     for package_name, package_info in packages.items():
         try:
             relative = file_path.relative_to(package_info.src_dir)
@@ -5084,7 +5176,27 @@ def _dotted_module_name_for_file(
         elif parts and parts[-1].endswith(".py"):
             parts[-1] = parts[-1][: -len(".py")]
         return ".".join([package_name, *parts]) if parts else package_name
-    return None
+    return _test_tree_module_name(file_path, packages)
+
+
+def _test_tree_module_name(
+    file_path: Path, packages: dict[str, PackageInfo]
+) -> str | None:
+    """``tests.<module>`` for a file under a discovered package's ``tests/``
+    tree, ``None`` for every other file."""
+    owner = _owning_package(file_path, packages)
+    if owner is None:
+        return None
+    try:
+        relative = file_path.relative_to(owner.root / _TEST_TREE_ROOT)
+    except ValueError:
+        return None
+    parts = list(relative.parts)
+    if parts[-1] == "__init__.py":
+        parts = parts[:-1]
+    else:
+        parts[-1] = parts[-1][: -len(".py")]
+    return ".".join([_TEST_TREE_ROOT, *parts])
 
 
 def _absolute_import_module(
@@ -5178,6 +5290,7 @@ class _ModuleFacadeInfo:
     all_names: frozenset[str]
     datrix_imports: dict[str, tuple[str, str, bool]]
     import_lines: dict[str, int]
+    foreign_import_names: frozenset[str] = frozenset()
 
 
 @functools.lru_cache(maxsize=None)
@@ -5200,6 +5313,7 @@ def _analyze_module_file(file_path: Path, own_dotted: str | None) -> _ModuleFaca
     all_names: set[str] = set()
     datrix_imports: dict[str, tuple[str, str, bool]] = {}
     import_lines: dict[str, int] = {}
+    foreign_import_names: set[str] = set()
     for stmt in tree.body:
         source_module = (
             _absolute_import_module(stmt, file_path, own_dotted)
@@ -5209,7 +5323,7 @@ def _analyze_module_file(file_path: Path, own_dotted: str | None) -> _ModuleFaca
         if (
             isinstance(stmt, ast.ImportFrom)
             and source_module is not None
-            and _is_datrix_module_path(source_module)
+            and _is_policed_module_path(source_module)
         ):
             for alias in stmt.names:
                 bound = alias.asname or alias.name
@@ -5219,6 +5333,10 @@ def _analyze_module_file(file_path: Path, own_dotted: str | None) -> _ModuleFaca
                     alias.asname == alias.name,
                 )
                 import_lines[bound] = alias.lineno
+        elif isinstance(stmt, (ast.Import, ast.ImportFrom)):
+            foreign_import_names.update(
+                alias.asname or alias.name.split(".", 1)[0] for alias in stmt.names
+            )
         elif isinstance(stmt, (ast.Assign, ast.AugAssign)):
             targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
             targets_all = any(
@@ -5233,6 +5351,7 @@ def _analyze_module_file(file_path: Path, own_dotted: str | None) -> _ModuleFaca
         all_names=frozenset(all_names),
         datrix_imports=datrix_imports,
         import_lines=import_lines,
+        foreign_import_names=frozenset(foreign_import_names),
     )
 
 
@@ -5240,17 +5359,17 @@ def _resolve_defining_module(
     module_dotted: str,
     name: str,
     packages: dict[str, PackageInfo],
-    _seen: frozenset[str] = frozenset(),
+    context_file: Path,
+    _seen: frozenset[Path] = frozenset(),
 ) -> str | None:
     """Follow *module_dotted*'s own re-export chain for *name* to the module
     that actually defines it, for the ``-ShowFiles`` worklist report only --
-    never used for baseline attribution. Returns ``None`` on a cycle, an
-    unresolved link in the chain, or a dead end (the module neither defines
-    the name nor re-exports it further)."""
-    if module_dotted in _seen:
-        return None
-    resolved = _resolve_datrix_module(module_dotted, packages)
-    if resolved is None:
+    never used for baseline attribution. *context_file* is the file whose
+    import named *module_dotted* (it anchors a ``tests.<module>`` path).
+    Returns ``None`` on a cycle, an unresolved link in the chain, or a dead
+    end (the module neither defines the name nor re-exports it further)."""
+    resolved = _resolve_policed_module(module_dotted, packages, context_file)
+    if resolved is None or resolved.is_namespace or resolved.file_path in _seen:
         return None
     info = _analyze_module_file(resolved.file_path, module_dotted)
     if name in info.defined_names:
@@ -5260,7 +5379,11 @@ def _resolve_defining_module(
         return None
     next_module, next_name, _self_aliased = next_hop
     return _resolve_defining_module(
-        next_module, next_name, packages, _seen | {module_dotted}
+        next_module,
+        next_name,
+        packages,
+        resolved.file_path,
+        _seen | {resolved.file_path},
     )
 
 
@@ -5322,12 +5445,15 @@ def _reexport_facade_provider_hits(
     info: _ModuleFacadeInfo,
     packages: dict[str, PackageInfo],
     monorepo_root: Path,
+    gendsl_bound: frozenset[tuple[Path, str]] = frozenset(),
 ) -> list[ReexportFacadeHit]:
     """The provider-side shape for one already-analyzed file: every bound
-    name it imports from a Datrix module and passes through -- via a
-    self-aliased import or its own ``__all__`` -- without defining it. A
-    bound name that is itself a submodule of the module it is imported from
-    (``from . import sub``) is a package traversal, never a facade."""
+    name it imports from a Datrix or test-tree module and passes through --
+    via a self-aliased import or its own ``__all__`` -- without defining it.
+    A bound name that is itself a submodule of the module it is imported from
+    (``from . import sub``) is a package traversal, never a facade, and a
+    name in *gendsl_bound* (see ``_gendsl_bound_names``) is bound for a
+    genDSL ``<namespace>.<module>.<name>`` reference, not re-exported."""
     hits: list[ReexportFacadeHit] = []
     providing_module = str(py_file.relative_to(monorepo_root)).replace("\\", "/")
     providing_module_dotted = _dotted_module_name_for_file(py_file, packages)
@@ -5338,7 +5464,9 @@ def _reexport_facade_provider_hits(
             continue
         if not (self_aliased or bound_name in info.all_names):
             continue
-        resolved_source = _resolve_datrix_module(source_module, packages)
+        if (py_file, bound_name) in gendsl_bound:
+            continue
+        resolved_source = _resolve_policed_module(source_module, packages, py_file)
         if resolved_source is not None and _is_submodule_member(
             resolved_source, source_name
         ):
@@ -5362,8 +5490,9 @@ def _reexport_facade_consumer_hits(
     """The consumer-side and unresolved-import shapes for one file: every
     ``from M import N`` ANYWHERE in the file (module top or nested -- unlike
     the provider-side shape, this one is not limited to module top), for
-    every M that is a Datrix module. A relative import is resolved to its
-    absolute M from the file's own dotted name first."""
+    every M that is a Datrix module or a test-tree module (``tests.<m>``,
+    resolved against the importing file's own package). A relative import is
+    resolved to its absolute M from the file's own dotted name first."""
     hits: list[ReexportFacadeHit] = []
     tree = _parse_module_source(py_file)
     own_dotted = _dotted_module_name_for_file(py_file, packages)
@@ -5371,14 +5500,22 @@ def _reexport_facade_consumer_hits(
         if not isinstance(node, ast.ImportFrom):
             continue
         node_module = _absolute_import_module(node, py_file, own_dotted)
-        if node_module is None or not _is_datrix_module_path(node_module):
+        if node_module is None or not _is_policed_module_path(node_module):
             continue
-        resolved = _resolve_datrix_module(node_module, packages)
+        if (
+            node_module.split(".", 1)[0] == _TEST_TREE_ROOT
+            and _owning_package(py_file, packages) is None
+        ):
+            continue
+        resolved = _resolve_policed_module(node_module, packages, py_file)
         for alias in node.names:
             if alias.name == "*":
                 continue
             site_line = alias.lineno
-            if resolved is None:
+            if resolved is None or (
+                resolved.is_namespace
+                and not _is_submodule_member(resolved, alias.name)
+            ):
                 hits.append(
                     ReexportFacadeHit(
                         providing_module=node_module,
@@ -5390,6 +5527,8 @@ def _reexport_facade_consumer_hits(
                     )
                 )
                 continue
+            if resolved.is_namespace:
+                continue
             info = _analyze_module_file(resolved.file_path, node_module)
             if alias.name in info.defined_names:
                 continue
@@ -5399,7 +5538,7 @@ def _reexport_facade_consumer_hits(
                 resolved.file_path.relative_to(monorepo_root)
             ).replace("\\", "/")
             defining_module = _resolve_defining_module(
-                node_module, alias.name, packages
+                node_module, alias.name, packages, py_file
             )
             hits.append(
                 ReexportFacadeHit(
@@ -5413,6 +5552,347 @@ def _reexport_facade_consumer_hits(
                 )
             )
     return hits
+
+
+#: ``getattr(m, "name")`` with no default raises when ``name`` is gone, so it
+#: is a hard dependency on the attribute. ``hasattr`` and ``getattr`` with a
+#: default are existence probes -- the tests that assert a name was REMOVED are
+#: written with them -- and are not read as a use.
+_MODULE_ATTRIBUTE_GETTER = "getattr"
+
+
+def _dotted_chain(node: ast.expr) -> str | None:
+    """``a.b.c`` for a ``Name``/``Attribute`` chain, ``None`` for any other
+    expression."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _dotted_chain(node.value)
+        return None if base is None else f"{base}.{node.attr}"
+    return None
+
+
+_COMPREHENSION_NODES = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+_NESTED_SCOPE_NODES = (
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.ClassDef,
+    ast.Lambda,
+    *_COMPREHENSION_NODES,
+)
+
+
+def _scope_roots(scope: ast.AST) -> list[ast.AST]:
+    """The child nodes a scope's own code is made of."""
+    if isinstance(scope, ast.Lambda):
+        return [scope.body]
+    if isinstance(scope, ast.DictComp):
+        return [scope.key, scope.value, *scope.generators]
+    if isinstance(scope, _COMPREHENSION_NODES):
+        return [scope.elt, *scope.generators]
+    return list(getattr(scope, "body"))
+
+
+def _own_scope_nodes(scope: ast.AST) -> list[ast.AST]:
+    """Every node that belongs to *scope* itself: its own code, and each
+    nested scope's node (where that scope's name is bound) but not that
+    scope's interior. A comprehension's first iterable is evaluated in the
+    enclosing scope, so it belongs to the enclosing scope."""
+    nodes: list[ast.AST] = []
+    stack = list(reversed(_scope_roots(scope)))
+    while stack:
+        node = stack.pop()
+        nodes.append(node)
+        if isinstance(node, _COMPREHENSION_NODES):
+            stack.append(node.generators[0].iter)
+        if isinstance(node, _NESTED_SCOPE_NODES):
+            continue
+        stack.extend(reversed(list(ast.iter_child_nodes(node))))
+    return nodes
+
+
+def _scope_rebound_names(scope: ast.AST, own_nodes: list[ast.AST]) -> set[str]:
+    """Every name *scope* binds by something other than an import: a
+    parameter, an assignment/``for``/``with``/comprehension target, a
+    ``def``/``class`` or an ``except ... as`` name."""
+    names: set[str] = set()
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        arguments = scope.args
+        for arg in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs):
+            names.add(arg.arg)
+        for special in (arguments.vararg, arguments.kwarg):
+            if special is not None:
+                names.add(special.arg)
+    for node in own_nodes:
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names.add(node.id)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.ExceptHandler) and node.name is not None:
+            names.add(node.name)
+    return names
+
+
+def _scope_import_aliases(
+    own_nodes: list[ast.AST],
+    py_file: Path,
+    own_dotted: str | None,
+    packages: dict[str, PackageInfo],
+) -> tuple[dict[str, str], set[str]]:
+    """The module objects one scope's imports bind, and every name those
+    imports bind at all. The mapping holds each expression a scope uses to
+    hold a policed MODULE OBJECT -> that module's absolute dotted path:
+    ``import a.b as m`` (``m``), ``import a.b.c`` (``a``, ``a.b`` and
+    ``a.b.c``, each a real module) and ``from a import b`` where ``b`` is a
+    submodule of ``a`` (``b``)."""
+    aliases: dict[str, str] = {}
+    bound: set[str] = set()
+    for node in own_nodes:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                bound.add(alias.asname or alias.name.split(".", 1)[0])
+                if not _is_policed_module_path(alias.name):
+                    continue
+                if alias.asname:
+                    aliases[alias.asname] = alias.name
+                    continue
+                segments = alias.name.split(".")
+                for depth in range(1, len(segments) + 1):
+                    prefix = ".".join(segments[:depth])
+                    aliases[prefix] = prefix
+        elif isinstance(node, ast.ImportFrom):
+            bound.update(
+                alias.asname or alias.name for alias in node.names if alias.name != "*"
+            )
+            node_module = _absolute_import_module(node, py_file, own_dotted)
+            if node_module is None or not _is_policed_module_path(node_module):
+                continue
+            resolved = _resolve_policed_module(node_module, packages, py_file)
+            if resolved is None:
+                continue
+            for alias in node.names:
+                if alias.name != "*" and _is_submodule_member(resolved, alias.name):
+                    aliases[alias.asname or alias.name] = f"{node_module}.{alias.name}"
+    return aliases, bound
+
+
+def _is_attribute_error_raises(item: ast.withitem) -> bool:
+    """True for a ``with pytest.raises(AttributeError, ...)`` item."""
+    call = item.context_expr
+    if not isinstance(call, ast.Call) or not call.args:
+        return False
+    if _dotted_chain(call.func) not in ("raises", "pytest.raises"):
+        return False
+    expected = call.args[0]
+    candidates = expected.elts if isinstance(expected, ast.Tuple) else [expected]
+    return any(_dotted_chain(c) == "AttributeError" for c in candidates)
+
+
+def _absence_asserted_node_ids(tree: ast.Module) -> frozenset[int]:
+    """The ids of every node inside a ``with pytest.raises(AttributeError)``
+    body: a read there asserts that the attribute is GONE, which is the
+    opposite of depending on it."""
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.With, ast.AsyncWith)) and any(
+            _is_attribute_error_raises(item) for item in node.items
+        ):
+            for stmt in node.body:
+                ids.update(id(inner) for inner in ast.walk(stmt))
+    return frozenset(ids)
+
+
+def _scope_attribute_uses(
+    own_nodes: list[ast.AST], aliases: dict[str, str], absence_asserted: frozenset[int]
+) -> set[tuple[str, str, int]]:
+    """Every ``(module dotted path, attribute, line)`` the scope reads off a
+    module object in *aliases*: ``m.attr`` in load position, and
+    ``getattr(m, "attr")`` with a literal name and no default. A read inside
+    a ``pytest.raises(AttributeError)`` body (*absence_asserted*) is skipped."""
+    uses: set[tuple[str, str, int]] = set()
+    for node in own_nodes:
+        if id(node) in absence_asserted:
+            continue
+        if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+            chain = _dotted_chain(node.value)
+            if chain in aliases:
+                uses.add((aliases[chain], node.attr, node.lineno))
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == _MODULE_ATTRIBUTE_GETTER
+            and len(node.args) == 2
+            and not node.keywords
+        ):
+            chain = _dotted_chain(node.args[0])
+            attr_arg = node.args[1]
+            if (
+                chain in aliases
+                and isinstance(attr_arg, ast.Constant)
+                and isinstance(attr_arg.value, str)
+            ):
+                uses.add((aliases[chain], attr_arg.value, node.lineno))
+    return uses
+
+
+def _module_attribute_uses(
+    tree: ast.Module,
+    py_file: Path,
+    own_dotted: str | None,
+    packages: dict[str, PackageInfo],
+) -> list[tuple[str, str, int]]:
+    """Every attribute use of a policed module object in the file, resolved
+    scope by scope: a name is a module object only where an import in that
+    scope (or an enclosing one) binds it and nothing in the scope rebinds it
+    some other way. A name a scope both imports and rebinds, or rebinds
+    where an enclosing scope imports it, is not tracked there -- which
+    binding a use reads is flow-dependent, and guessing would report code
+    that never touches the module."""
+    uses: set[tuple[str, str, int]] = set()
+    absence_asserted = _absence_asserted_node_ids(tree)
+    pending: list[tuple[ast.AST, dict[str, str]]] = [(tree, {})]
+    while pending:
+        scope, inherited = pending.pop()
+        own_nodes = _own_scope_nodes(scope)
+        import_aliases, import_bound = _scope_import_aliases(
+            own_nodes, py_file, own_dotted, packages
+        )
+        rebound = _scope_rebound_names(scope, own_nodes)
+        shadowed = rebound | import_bound
+        aliases = {
+            key: module
+            for key, module in inherited.items()
+            if key.split(".", 1)[0] not in shadowed
+        }
+        aliases.update(
+            (key, module)
+            for key, module in import_aliases.items()
+            if key.split(".", 1)[0] not in rebound
+        )
+        if aliases:
+            uses.update(_scope_attribute_uses(own_nodes, aliases, absence_asserted))
+        pending.extend(
+            (node, aliases) for node in own_nodes if isinstance(node, _NESTED_SCOPE_NODES)
+        )
+    return sorted(uses)
+
+
+def _reexport_facade_module_attribute_hits(
+    py_file: Path, packages: dict[str, PackageInfo], monorepo_root: Path
+) -> list[ReexportFacadeHit]:
+    """The module-object shape for one file: a policed module held as an
+    object (``import a.b as m``, ``from a import b``) whose attribute is read
+    with ``m.attr`` or ``getattr(m, "attr")`` while the module
+    does not itself define ``attr`` (and ``attr`` is not one of its
+    submodules or a module dunder). A module passed whole as a delegation
+    table, or probed by ``getattr``, binds its attributes at run time, so
+    emptying it by rewriting ``from M import N`` statements alone breaks at
+    run time, not at import."""
+    tree = _parse_module_source(py_file)
+    own_dotted = _dotted_module_name_for_file(py_file, packages)
+    hits: list[ReexportFacadeHit] = []
+    for module_dotted, attr, line in _module_attribute_uses(
+        tree, py_file, own_dotted, packages
+    ):
+        if attr.startswith("__") and attr.endswith("__"):
+            continue
+        resolved = _resolve_policed_module(module_dotted, packages, py_file)
+        if resolved is None or resolved.is_namespace:
+            continue
+        info = _analyze_module_file(resolved.file_path, module_dotted)
+        if (
+            attr in info.defined_names
+            or attr in info.foreign_import_names
+            or _is_submodule_member(resolved, attr)
+        ):
+            continue
+        hits.append(
+            ReexportFacadeHit(
+                providing_module=str(
+                    resolved.file_path.relative_to(monorepo_root)
+                ).replace("\\", "/"),
+                kind="module_attribute",
+                name=attr,
+                site_file=py_file,
+                site_line=line,
+                defining_module=_resolve_defining_module(
+                    module_dotted, attr, packages, py_file
+                ),
+                providing_module_dotted=module_dotted,
+            )
+        )
+    return hits
+
+
+#: A genDSL function reference as the definitions text spells it: ``builder
+#: <ref>``, ``call <ref>(...)`` or ``from <ref>`` (the ``context T from`` /
+#: ``appends X from`` forms), where ``<ref>`` is ``<namespace>.<module>.<name>``.
+_GENDSL_REFERENCE_PATTERN = re.compile(
+    r"(?<![\w.])(?:builder|call|from)\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)"
+)
+
+ContextModuleResolver = Callable[[str], str | None]
+
+
+def _registry_context_module_resolver() -> ContextModuleResolver:
+    """Resolve a genDSL ``<namespace>.<module>`` path to its real module path
+    through the kernel's own registry -- the single resolver the genDSL
+    executor uses -- or ``None`` when no registered namespace prefixes it."""
+    from datrix_codegen_kernel.gendsl import target_registry
+    from datrix_common.errors.generation import GenerationError
+
+    def resolve(module_path: str) -> str | None:
+        try:
+            return target_registry.resolve_gendsl_context_module(module_path)
+        except GenerationError:
+            return None
+
+    return resolve
+
+
+def _gendsl_bound_names(
+    files: list[Path],
+    packages: dict[str, PackageInfo],
+    resolve_context_module: ContextModuleResolver,
+) -> frozenset[tuple[Path, str]]:
+    """Every ``(module file, name)`` a genDSL reference in the scanned
+    packages' ``src/`` trees resolves to. The kernel genDSL resolver looks a
+    ``<namespace>.<module>.<name>`` reference up as an ATTRIBUTE of the
+    module the namespace reaches, so a name imported into that module only
+    to be bound for genDSL is not a re-export for Python callers.
+
+    The allowlist is read from the definitions text itself (string constants,
+    f-string literal parts included). A reference the text spells in a way
+    this pattern does not match is simply not exempted, so the scan fails
+    closed: an under-read allowlist reports a hit, never hides one."""
+    src_dirs = [info.src_dir for info in packages.values()]
+    resolved_modules: dict[str, _ResolvedDatrixModule | None] = {}
+    bound: set[tuple[Path, str]] = set()
+    for py_file in files:
+        if not any(src_dir in py_file.parents for src_dir in src_dirs):
+            continue
+        try:
+            tree = _parse_module_source(py_file)
+        except (SyntaxError, OSError, UnicodeDecodeError):
+            # Not skipped for good: ``scan_reexport_facades`` parses every
+            # scanned file next and aborts the run, naming the file.
+            continue
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+                continue
+            for match in _GENDSL_REFERENCE_PATTERN.finditer(node.value):
+                module_path, _, name = match.group(1).rpartition(".")
+                if not module_path:
+                    continue
+                if module_path not in resolved_modules:
+                    actual = resolve_context_module(module_path)
+                    resolved_modules[module_path] = (
+                        None if actual is None else _resolve_datrix_module(actual, packages)
+                    )
+                target = resolved_modules[module_path]
+                if target is not None and not target.is_namespace:
+                    bound.add((target.file_path, name))
+    return frozenset(bound)
 
 
 def _reexport_facade_entry_point_targets(manifest: Path) -> list[tuple[str, str, str]]:
@@ -5447,14 +5927,19 @@ def _reexport_facade_entry_point_line(manifest_lines: list[str], reference: str)
 def scan_reexport_facades(
     packages: dict[str, PackageInfo],
     monorepo_root: Path,
+    context_module_resolver: ContextModuleResolver | None = None,
 ) -> dict[str, list[ReexportFacadeHit]]:
     """Scan every re-export-facade shape -- provider side, consumer side,
-    pyproject.toml entry points, and unresolved imports -- across the whole
-    scan scope, and group every hit by its PROVIDING module.
+    module-object attribute use, pyproject.toml entry points, and unresolved
+    imports -- across the whole scan scope, and group every hit by its
+    PROVIDING module.
 
     Args:
         packages: Package name -> PackageInfo, as returned by discover_packages().
         monorepo_root: Monorepo root for relative path reporting.
+        context_module_resolver: Resolves a genDSL ``<namespace>.<module>``
+            path to its real module path, or ``None`` for an unregistered
+            namespace; defaults to the kernel registry's resolver.
 
     Returns:
         Mapping of providing-module key (see ``ReexportFacadeHit``) -> hits
@@ -5465,7 +5950,13 @@ def scan_reexport_facades(
     def _add(hit: ReexportFacadeHit) -> None:
         results.setdefault(hit.providing_module, []).append(hit)
 
-    for py_file in _reexport_facade_scan_files(packages, monorepo_root):
+    scan_files = _reexport_facade_scan_files(packages, monorepo_root)
+    gendsl_bound = _gendsl_bound_names(
+        scan_files,
+        packages,
+        context_module_resolver or _registry_context_module_resolver(),
+    )
+    for py_file in scan_files:
         try:
             info = _analyze_scanned_file(py_file, packages)
         except SyntaxError as e:
@@ -5486,9 +5977,15 @@ def scan_reexport_facades(
             )
             sys.exit(2)
 
-        for hit in _reexport_facade_provider_hits(py_file, info, packages, monorepo_root):
+        for hit in _reexport_facade_provider_hits(
+            py_file, info, packages, monorepo_root, gendsl_bound
+        ):
             _add(hit)
         for hit in _reexport_facade_consumer_hits(py_file, packages, monorepo_root):
+            _add(hit)
+        for hit in _reexport_facade_module_attribute_hits(
+            py_file, packages, monorepo_root
+        ):
             _add(hit)
 
     for package_name, package_info in sorted(packages.items()):
@@ -7143,14 +7640,18 @@ def _self_test_shared_vocabulary_cli_non_vacuity() -> bool:
             clean_result.returncode == 0,
         )
 
+        from datrix_codegen_kernel.enums import QueryTerminal
+
+        # The redeclaration is built from the live enum, so the mutation
+        # stays a full-vocabulary copy whenever a member is added or removed.
+        query_terminal_literal = frozenset(member.value for member in QueryTerminal)
         module_path.write_text(
-            clean_source
-            + '\n_TERMINAL_METHODS = frozenset({"all", "first", "firstOrFail", "count"})\n',
+            clean_source + f"\n_TERMINAL_METHODS = {query_terminal_literal!r}\n",
             encoding="utf-8",
         )
         failing_result = _self_test_shared_vocabulary_run_cli(tmp_root)
         ok &= _check(
-            f"redeclaring QueryTerminal's four members as bare literals exits 1, got {failing_result.returncode}",
+            f"redeclaring every QueryTerminal member as a bare literal exits 1, got {failing_result.returncode}",
             failing_result.returncode == 1,
         )
         ok &= _check(
@@ -9340,6 +9841,248 @@ def _self_test_reexport_facade_run_cli(
     )
 
 
+def _self_test_reexport_facade_extended_shapes(
+    scratch_dir: Path, fixture_src: Path, packages: dict[str, PackageInfo]
+) -> bool:
+    """Scanner assertions for the three shapes a plain ``from <datrix module>
+    import N`` scan cannot see: test-tree modules (``tests.<module>``) as
+    providers, module objects read by attribute or ``getattr``, and names
+    bound for a genDSL ``<namespace>.<module>.<name>`` reference. Every case
+    runs the real scanner functions over real fixture files, the negative
+    (zero-hit) case beside the positive one."""
+    ok = True
+
+    def _write(relative: str, source: str) -> Path:
+        file_path = scratch_dir / relative
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(source, encoding="utf-8")
+        _analyze_module_file.cache_clear()
+        _parse_module_source.cache_clear()
+        return file_path
+
+    def _consumer(file_path: Path, known: dict[str, PackageInfo]) -> list[ReexportFacadeHit]:
+        return _reexport_facade_consumer_hits(file_path, known, scratch_dir)
+
+    def _attribute(file_path: Path) -> list[ReexportFacadeHit]:
+        return sorted(
+            _reexport_facade_module_attribute_hits(file_path, packages, scratch_dir),
+            key=lambda hit: hit.site_line,
+        )
+
+    (fixture_src / "pkg" / "sub.py").write_text("X = 1\nY = 2\n", encoding="utf-8")
+
+    # Test-tree modules are providers: ``tests.<module>`` resolves against the
+    # importing file's own package.
+    _write("tests/__init__.py", "")
+    helpers = _write(
+        "tests/helpers.py", "from datrix_fixture.pkg.sub import X\n\n__all__ = ['X']\n"
+    )
+    _write("tests/clean_helpers.py", "X = 1\n")
+    provider_hits = _reexport_facade_provider_hits(
+        helpers, _analyze_scanned_file(helpers, packages), packages, scratch_dir
+    )
+    ok &= _check(
+        "a tests/ module re-exporting a Datrix name is exactly one provider hit "
+        "named by its dotted tests.<module> path",
+        len(provider_hits) == 1
+        and provider_hits[0].kind == "provider"
+        and provider_hits[0].providing_module_dotted == "tests.helpers",
+    )
+    test_use = _write("tests/test_use.py", "from tests.helpers import X\n")
+    test_hits = _consumer(test_use, packages)
+    ok &= _check(
+        "from tests.helpers import X is exactly one consumer hit, attributed to "
+        "tests/helpers.py and resolved to the module that defines X",
+        len(test_hits) == 1
+        and test_hits[0].kind == "consumer"
+        and test_hits[0].providing_module == "tests/helpers.py"
+        and test_hits[0].defining_module == "datrix_fixture.pkg.sub",
+    )
+    ok &= _check(
+        "from tests.clean_helpers import X is zero hits when that module defines X",
+        _consumer(_write("tests/test_clean.py", "from tests.clean_helpers import X\n"), packages)
+        == [],
+    )
+    missing_hits = _consumer(
+        _write("tests/test_missing.py", "from tests.nope import X\n"), packages
+    )
+    ok &= _check(
+        "from tests.nope import X is one unresolved hit",
+        len(missing_hits) == 1
+        and missing_hits[0].kind == "unresolved"
+        and missing_hits[0].providing_module == "tests.nope",
+    )
+    relative_init = _write(
+        "tests/relpkg/__init__.py", "from .a import X\n\n__all__ = ['X']\n"
+    )
+    _write("tests/relpkg/a.py", "X = 1\n")
+    relative_provider_hits = _reexport_facade_provider_hits(
+        relative_init, _analyze_scanned_file(relative_init, packages), packages, scratch_dir
+    )
+    ok &= _check(
+        "a relative import inside the tests/ tree resolves: from .a import X + "
+        "__all__ is one provider hit and zero consumer hits",
+        len(relative_provider_hits) == 1 and _consumer(relative_init, packages) == [],
+    )
+    _write("tests/ns/mod.py", "VALUE = 1\n")
+    ok &= _check(
+        "a tests/ directory without __init__.py is a namespace package: importing "
+        "its submodule is zero hits",
+        _consumer(_write("tests/test_ns.py", "from tests.ns import mod\n"), packages) == [],
+    )
+    namespace_hits = _consumer(
+        _write("tests/test_ns_absent.py", "from tests.ns import absent\n"), packages
+    )
+    ok &= _check(
+        "importing a name that is not a submodule of a namespace package is one "
+        "unresolved hit",
+        len(namespace_hits) == 1 and namespace_hits[0].kind == "unresolved",
+    )
+    ok &= _check(
+        "a file outside every package has no tests/ root to resolve against: zero hits",
+        _consumer(test_use, {}) == [],
+    )
+
+    # Module objects: ``m.attr`` and ``getattr(m, "attr")`` read the attribute at
+    # run time, so a facade emptied by rewriting its imports breaks there.
+    module_use = _write(
+        "datrix_fixture/module_use.py",
+        "import datrix_fixture.pkg as m\n"
+        "import datrix_fixture.pkg.sub as s\n"
+        "from datrix_fixture.pkg import sub\n\n"
+        "A = m.X\n"
+        "B = m.sub\n"
+        "C = m.__name__\n"
+        "D = s.X\n"
+        "E = sub.Y\n"
+        "F = sub.Missing\n"
+        "G = getattr(m, 'X')\n"
+        "H = getattr(m, 'X', None)\n"
+        "I = hasattr(m, 'X')\n",
+    )
+    attribute_hits = _attribute(module_use)
+    ok &= _check(
+        "m.attr and getattr(m, 'attr') on a name the module only re-exports, and "
+        "an undefined attribute, are exactly three module_attribute hits",
+        [(hit.name, hit.site_line) for hit in attribute_hits]
+        == [("X", 5), ("Missing", 10), ("X", 11)]
+        and all(hit.kind == "module_attribute" for hit in attribute_hits),
+    )
+    ok &= _check(
+        "a module-attribute hit is attributed to the re-exporting module and "
+        "resolved to the module that defines the name",
+        attribute_hits[0].providing_module == "datrix_fixture/pkg/__init__.py"
+        and attribute_hits[0].defining_module == "datrix_fixture.pkg.sub",
+    )
+    ok &= _check(
+        "a defined name, a submodule, a module dunder, getattr with a default and "
+        "hasattr are all zero module_attribute hits",
+        {hit.site_line for hit in attribute_hits}.isdisjoint({6, 7, 8, 9, 12, 13}),
+    )
+    scoped = _write(
+        "datrix_fixture/module_scope.py",
+        "import datrix_fixture.pkg as m\n\n"
+        "def uses_module():\n"
+        "    return m.X\n\n"
+        "def shadowed(m):\n"
+        "    return m.X\n\n"
+        "def reimported():\n"
+        "    import datrix_fixture.pkg.sub as m\n"
+        "    return m.X\n",
+    )
+    ok &= _check(
+        "module-object tracking is scope-aware: a parameter or a function-local "
+        "import of another module rebinding the name is not a use of the facade",
+        [hit.site_line for hit in _attribute(scoped)] == [4],
+    )
+    absent = _write(
+        "datrix_fixture/module_absent.py",
+        "import pytest\n"
+        "import datrix_fixture.pkg as m\n\n"
+        "def test_gone() -> None:\n"
+        "    with pytest.raises(AttributeError):\n"
+        "        m.X\n"
+        "    with pytest.raises(AttributeError):\n"
+        "        getattr(m, 'X')\n",
+    )
+    ok &= _check(
+        "a read inside pytest.raises(AttributeError) asserts the name is gone: zero hits",
+        _attribute(absent) == [],
+    )
+    _write("datrix_fixture/foreign.py", "import shutil\nVALUE = 1\n")
+    foreign = _write(
+        "datrix_fixture/foreign_use.py",
+        "import datrix_fixture.foreign as f\nA = f.shutil\nB = f.nope\nC = f.VALUE\n",
+    )
+    ok &= _check(
+        "a stdlib module the target imports is not a re-exported Datrix name, while "
+        "an attribute it neither defines nor imports is one hit",
+        [hit.name for hit in _attribute(foreign)] == ["nope"],
+    )
+    tests_module_use = _write(
+        "tests/test_module_use.py",
+        "from tests import helpers\n\nA = helpers.X\nB = getattr(helpers, 'X')\n",
+    )
+    ok &= _check(
+        "a tests/ module held as an object is tracked like a Datrix module: "
+        "helpers.X and getattr(helpers, 'X') are two hits",
+        [hit.site_line for hit in _attribute(tests_module_use)] == [3, 4],
+    )
+
+    # genDSL-bound names: the kernel resolver looks ``<namespace>.<module>.<name>``
+    # up as an attribute of the module the namespace reaches.
+    bound_module = _write(
+        "datrix_fixture/gendsl_mod.py",
+        "from datrix_fixture.pkg.sub import X as X\nfrom datrix_fixture.pkg.sub import Y as Y\n",
+    )
+    definitions = _write(
+        "datrix_fixture/defs.py",
+        "TEXT = 'builder fx.builders.X => call fx.builders.X(item); "
+        "when call other.thing.f(item);'\n",
+    )
+
+    def _resolve_fixture_namespace(module_path: str) -> str | None:
+        return {"fx.builders": "datrix_fixture.gendsl_mod"}.get(module_path)
+
+    bound = _gendsl_bound_names([definitions], packages, _resolve_fixture_namespace)
+    ok &= _check(
+        "the genDSL allowlist holds exactly the (module, name) pairs the definitions "
+        "text references through a registered namespace",
+        bound == frozenset({(bound_module, "X")}),
+    )
+    bound_info = _analyze_scanned_file(bound_module, packages)
+    ok &= _check(
+        "a name bound for a genDSL reference is not a provider hit; an unreferenced "
+        "import in the same module still is",
+        [
+            hit.name
+            for hit in _reexport_facade_provider_hits(
+                bound_module, bound_info, packages, scratch_dir, bound
+            )
+        ]
+        == ["Y"]
+        and [
+            hit.name
+            for hit in _reexport_facade_provider_hits(
+                bound_module, bound_info, packages, scratch_dir
+            )
+        ]
+        == ["X", "Y"],
+    )
+    ok &= _check(
+        "a Python caller importing a genDSL-bound name through that module is still "
+        "a consumer hit",
+        len(
+            _consumer(
+                _write("datrix_fixture/gendsl_caller.py", "from datrix_fixture.gendsl_mod import X\n"),
+                packages,
+            )
+        )
+        == 1,
+    )
+    return ok
+
+
 def _self_test_reexport_facade_scanner() -> bool:
     """Direct scanner assertions for the re-export-facade check's exactly-
     one-hit and zero-hit cases, PLUS a real CLI mutation proof (plant a
@@ -9643,6 +10386,8 @@ def _self_test_reexport_facade_scanner() -> bool:
             "a package's root-level conftest.py is in the re-export-facade scan scope",
             conftest_package_root / "conftest.py" in scoped_files,
         )
+
+        ok &= _self_test_reexport_facade_extended_shapes(scratch_dir, fixture_src, packages)
     finally:
         _analyze_module_file.cache_clear()
         _parse_module_source.cache_clear()
