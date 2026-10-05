@@ -22,6 +22,13 @@ LibCST when a finding needs format-preserving rewrites.
 | `legacy-compatibility-call.yaml` | `legacy_*` / `*_compatibility` calls | warning |
 | `banned-mock-import.yaml` | `from unittest.mock import ...` | error |
 | `banned-simple-namespace.yaml` | `from types import SimpleNamespace` | error |
+| `flattened-entity-iteration.yaml` | in generator sources: `app.all_entities()`, or one comprehension over `app.services.values()` then entities | error |
+
+`flattened-entity-iteration` holds the architecture cheat sheet's Entity Access rule (entities are
+block-scoped; a generator iterates per service, per block). Its `files:` limits it to
+`src/**/generators/` and `src/**/micro_generators/`, where an artifact must keep its owning
+service; validators and app-wide lookups may walk every entity. `guard-code-standards.py` refuses
+the same shapes when an edit adds them.
 
 ## Usage
 

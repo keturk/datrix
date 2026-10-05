@@ -1,0 +1,29 @@
+id: datrix.flattened-entity-iteration
+language: Python
+severity: error
+message: >-
+  Entities are block-scoped. A generator iterates per service and per block
+  (service.rdbms_blocks -> block.entities, or service.all_entities()) so every
+  artifact it emits knows its owning service; the application-wide set
+  (app.all_entities(), or one comprehension over every service's entities)
+  drops that owner. Iterate per service.
+files:
+  - "**/src/**/generators/**/*.py"
+  - "**/src/**/micro_generators/**/*.py"
+rule:
+  any:
+    - pattern: $APP.all_entities()
+    - all:
+        - kind: for_in_clause
+          has:
+            field: right
+            pattern: $APP.services.values()
+        - precedes:
+            stopBy: end
+            kind: for_in_clause
+            has:
+              field: right
+              regex: entities
+constraints:
+  APP:
+    regex: '^(self\.)?_?(app|application)$'
