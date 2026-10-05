@@ -99,6 +99,25 @@ def _load_markers(db_path: Path) -> list[dict[str, object]]:
         conn.close()
 
 
+def dangling_see_refs(markers: list[dict[str, object]]) -> list[tuple[str, str, str]]:
+    """Every ``@see`` whose topic no marker declares, as (from topic, file:line, target).
+
+    Args:
+        markers: Marker dicts as loaded by ``_load_markers``.
+
+    Returns:
+        The dangling references, sorted by location.
+    """
+    declared = {str(m["topic"]) for m in markers}
+    dangling = [
+        (str(m["topic"]), f"{m['file']}:{m['line']}", str(ref))
+        for m in markers
+        for ref in _as_list(m["see_refs"])
+        if str(ref) not in declared
+    ]
+    return sorted(dangling, key=lambda item: item[1])
+
+
 def _as_list(value: object) -> list[object]:
     """Coerce a marker-dict field to a list (empty if absent/wrong type)."""
     return value if isinstance(value, list) else []
@@ -340,6 +359,19 @@ def _build_report(markers: list[dict[str, object]], db_path: Path) -> str:
     # --- Rule matrix (test-rule kind) ---
     lines.extend(_build_rule_matrix(rule_markers))
 
+    # --- Dangling references ---
+    dangling = dangling_see_refs(markers)
+    if dangling:
+        lines.append("## Dangling @see References")
+        lines.append("")
+        lines.append("Each names a topic no marker declares: repoint it, or mark the code it means.")
+        lines.append("")
+        lines.append("| Marker | Location | Names |")
+        lines.append("|--------|----------|-------|")
+        for from_topic, location, target in dangling:
+            lines.append(f"| `{from_topic}` | `{location}` | `{target}` |")
+        lines.append("")
+
     # --- Cross-reference graph ---
     all_refs = [(str(m["topic"]), ref) for m in markers for ref in m["see_refs"]]
 
@@ -418,6 +450,11 @@ def main() -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(report, encoding="utf-8")
     print(f"Report written: {out_path} ({len(markers)} markers)", flush=True)
+    dangling = dangling_see_refs(markers)
+    if dangling:
+        print(f"ERROR: {len(dangling)} @see reference(s) name a topic no marker declares; "
+              f"see 'Dangling @see References' in the report.", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -8,14 +8,8 @@ patterns, system boundaries, invariants and conformance rules. The code index
 is exactly as fresh as the index. Agents query markers through the index's
 ``find_canonical`` (MCP tool, or ``code-index.ps1 -Canonical``).
 
-Marker syntax::
-
-    # @canonical(topic/subtopic): One-line summary
-    # Extended description lines.
-    # @rule: A constraint that must hold, which may wrap
-    # onto the following comment lines
-    # @anti-pattern: What NOT to do
-    # @see: related-topic/subtopic
+The marker syntax is shown on ``parse_markers``: a marker-shaped line in this module
+docstring would itself be read as a marker.
 """
 
 from __future__ import annotations
@@ -66,6 +60,12 @@ _SYMBOL_RE = re.compile(r"^(?:def|class|async\s+def)\s+(\w+)")
 # Tokens whose text is string-literal content. Named, not imported, because the f-string
 # and t-string middle tokens exist only on the Python versions that tokenize them.
 _STRING_TOKEN_NAMES = frozenset({"STRING", "FSTRING_MIDDLE", "TSTRING_MIDDLE"})
+
+# Tokens that carry no statement content: skipped when finding the module docstring.
+_LAYOUT_TOKEN_NAMES = frozenset({"ENCODING", "COMMENT", "NL", "INDENT", "DEDENT"})
+
+# Tokens that end the first statement, confirming a lone leading string is the docstring.
+_STATEMENT_END_TOKEN_NAMES = frozenset({"NEWLINE", "ENDMARKER"})
 
 # Directories to skip during file discovery
 _SKIP_DIRS = frozenset({
@@ -211,25 +211,43 @@ def _detect_symbol(lines: list[str], start: int, total: int) -> tuple[str, str]:
 
 
 def _string_literal_lines(lines: list[str]) -> frozenset[int]:
-    """The 0-based indexes of the lines that lie inside a string literal.
+    """The 0-based indexes of the lines inside a string literal other than the module docstring.
 
-    A marker is a comment; a ``# @canonical(...)`` line inside a docstring or a fixture
-    string is an example, not a marker. A file that stops tokenizing (an unterminated
-    string or bracket) yields the literals found before that point and its remaining
-    lines are read as source, so a file with a syntax error keeps its markers.
+    A marker is a comment or a line of the module docstring (where a module-level marker
+    sits with the prose it summarises). A ``# @canonical(...)`` line in any other string --
+    a function docstring showing the syntax, a test fixture -- is an example, not a
+    marker. A file that stops tokenizing (an unterminated string or bracket) yields the
+    literals found before that point and its remaining lines are read as source, so a
+    file with a syntax error keeps its markers.
 
     Args:
         lines: File content split into lines (no trailing newlines).
 
     Returns:
-        Indexes of every line a string-literal token covers.
+        Indexes of every line such a string-literal token covers.
     """
     covered: set[int] = set()
+    significant = 0
+    first_string: range | None = None  # held back until we know whether it is the docstring
     tokens = tokenize.generate_tokens(io.StringIO("\n".join(lines) + "\n").readline)
     try:
         for token in tokens:
-            if tokenize.tok_name[token.type] in _STRING_TOKEN_NAMES:
-                covered.update(range(token.start[0] - 1, token.end[0]))
+            name = tokenize.tok_name[token.type]
+            if name in _LAYOUT_TOKEN_NAMES:
+                continue
+            significant += 1
+            span = range(token.start[0] - 1, token.end[0])
+            if significant == 1 and name == "STRING":
+                first_string = span
+                continue
+            if first_string is not None and significant == 2 and name in _STATEMENT_END_TOKEN_NAMES:
+                first_string = None  # a lone string statement first in the file: the docstring
+                continue
+            if first_string is not None:
+                covered.update(first_string)  # the first string was part of a longer statement
+                first_string = None
+            if name in _STRING_TOKEN_NAMES:
+                covered.update(span)
     except (tokenize.TokenError, SyntaxError):
         return frozenset(covered)
     return frozenset(covered)
@@ -238,13 +256,22 @@ def _string_literal_lines(lines: list[str]) -> frozenset[int]:
 def parse_markers(lines: list[str], relative_path: str) -> list[Marker]:
     """Parse all markers from the lines of a single file.
 
+    Marker syntax::
+
+        # @canonical(topic/subtopic): One-line summary
+        # Extended description lines.
+        # @rule: A constraint that must hold, which may wrap
+        # onto the following comment lines
+        # @anti-pattern: What NOT to do
+        # @see: related-topic/subtopic
+
     Args:
         lines: File content split into lines (no trailing newlines).
         relative_path: Path relative to datrix root for storage.
 
     Returns:
-        List of Marker objects found in the file, excluding marker-shaped lines inside
-        string literals.
+        List of Marker objects found in the file: in comments and in the module
+        docstring, never in any other string literal.
     """
     if not any(_MARKER_RE.match(line.strip()) for line in lines):
         return []

@@ -394,7 +394,7 @@ Per-domain census of a language's compiled genDSL definitions: file-clause count
 
 ### `dev\evaluate-generated-scan.ps1`
 
-Mechanical core of `/evaluate-generated` (quick mode): parses the system DSL with the real parser pipeline, then writes `project-scan.json` (service inventory with expected/actual dirs, manifest aggregation, language/platform detection, infra existence checklist, docker-compose cross-check, rolled-up `critical_blockers`/`warnings`) plus one `service-{name}.prompt.md` per service into the eval dir.
+Mechanical core of `/evaluate-generated` (quick mode): parses the system DSL with the real parser pipeline, then writes `project-scan.json` (service inventory with expected/actual dirs, manifest aggregation, language/platform detection, infra existence checklist, docker-compose cross-check, rolled-up `critical_blockers`/`warnings`), the quick report `project-evaluation-quick.md` rendered from that JSON (`library/dev/evaluate_reports.py`), plus one `service-{name}.prompt.md` per service into the eval dir.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -406,7 +406,7 @@ Mechanical core of `/evaluate-generated` (quick mode): parses the system DSL wit
 
 ### `dev\evaluate-service-scan.ps1`
 
-Mechanical core of `/evaluate-generated-service`: writes `service-<name>-scan.json` with the service's DSL feature inventory, manifest subset + both-direction filesystem set-diff, directory-name convention check, per-block/per-entity expected-artifact existence table, dead-code candidates, and Dockerfile/migrations/env-var data. Semantic verification (skill Phase 3.5) stays with the model.
+Mechanical core of `/evaluate-generated-service`: writes `service-<name>-scan.json` with the service's DSL feature inventory, manifest subset + both-direction filesystem set-diff, directory-name convention check, per-block/per-entity expected-artifact existence table, dead-code candidates, and Dockerfile/migrations/env-var data, and beside it `service-<name>-mechanical.md`: those facts as the report's tables (`library/dev/evaluate_reports.py`). Semantic verification (skill Phase 3.5) stays with the model.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -509,7 +509,7 @@ Queries never leave the machine. `-Summarize` is the exception, and it only runs
 | `digest_log` | The distinct failures in a test, generation or deploy log: one entry per cause, with its count, the first log line and the source `file:line` it names. A log too large to read whole is cut to the lines around error markers, or to its end when it has none. |
 | `local_models` | Which servers answer, what they hold in memory, and recent usage. |
 
-**What may be read:** files inside the framework repositories (`datrix` and every `datrix-*` git repository at the workspace root) and `.test-output`. Anything else is refused: another repository at the workspace root, `.tmp`, `reports`, `design`, `.git` internals. Paths are resolved before the check, so `..` cannot escape it. An answer is a lead, not a finding. Every citation is checked against the files and lines that were actually sent, and one that does not match is called out under the answer. The agent opens the cited lines with a ranged Read before acting on them.
+**What may be read:** files inside the framework repositories (`datrix` and every `datrix-*` git repository at the workspace root) and `.test-output`. Anything else is refused: another repository at the workspace root, `.tmp`, `reports`, `design`, `.git` internals. (`skill-assist.ps1` is the one script that sends design docs and findings files to a model, through the same customer-term filter; see its entry.) Paths are resolved before the check, so `..` cannot escape it. An answer is a lead, not a finding. Every citation is checked against the files and lines that were actually sent, and one that does not match is called out under the answer. The agent opens the cited lines with a ranged Read before acting on them.
 
 **The harness uses the models without an agent asking.** Two hooks (`claude-config/.claude/hooks/`) call them on an agent's behalf; both are bounded, resident-models-only, and fail open (any failure leaves the tool call exactly as it was):
 
@@ -557,6 +557,24 @@ Queries never leave the machine. `-Summarize` is the exception, and it only runs
 **Parameters:** exactly one of: a question (positional or `-Question`), `-Status`, `-Rebuild`, `-Prune`. Modifiers: `-In`, `-Refresh`, `-NoLearn`, `-Limit` (answers shown, default 3), and the shared local-model flags `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (seconds, default 120).
 
 **Exit codes:** 0 answered; 1 the request could not be carried out (the message says why); 2 no answer (not in the knowledge base and no local model could add one). An answer is a lead, not a finding: open the cited lines before acting on it. Gate: `test\ineedtoknow-gate.ps1`.
+
+### `dev\skill-chain.ps1`
+
+**Runs skills one after another as headless `claude -p` steps, each on its own skill's `model:`/`effort:`.** A skill invoked from inside another skill runs on the caller's model; a typed slash command switches to the skill's own. Each step here is a typed slash command in its own run, with the workspace's hooks, CLAUDE.md and guards. Needs the workspace trusted in `~/.claude.json` (`hasTrustDialogAccepted`), or headless runs ignore `settings.json`'s permissions.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Implement a design (tasks path)** | `.\dev\skill-chain.ps1 -Design "D:\datrix\design\<file>.md"` | operationalize → orchestrate → verify → absorb, with script checks between steps |
+| **Resume after a question** | `.\dev\skill-chain.ps1 -Design "<file>" -StartAt orchestrate -Phase 52` | Start at `orchestrate`, `verify` or `absorb` (needs `-Phase`) |
+| **Any sequence** | `.\dev\skill-chain.ps1 "/fix-codegen-python <index.json>" "/commit-and-push"` | Prompts in order; stops at the first error |
+| **One session throughout** | append `-Resume` | Carry one session through every step instead of a fresh one per step |
+| **Preview** | append `-DryRun` | Print the steps; run none |
+
+Checks between `-Design` steps are scripts: operationalize must create a new phase (`latest-phase.ps1` before/after; otherwise it stopped for a decision and the chain exits 2 with its reply and session id); the phase is closed only when `phase-status.ps1` shows every task completed with no How-Solved red flag and the design's `Status:` reads Implemented (else the orchestrator runs again, up to `-MaxRounds`); absorb runs only after verify replies `Design conformance: PROVEN` (INCOMPLETE runs the orchestrator and verify again). The direct path is `/implement-design-direct` in one session.
+
+**Fresh vs `-Resume`.** A fresh step pays the workspace start-up context (about 26k tokens, mostly served from the prompt cache when the model repeats) plus the mandatory reads, and starts with its context window free. `-Resume` re-reads nothing, but every step starts with all previous steps' transcript: on a model change that whole transcript is written to the cache again at the new model's price, and an orchestrator that starts with a full window reaches compaction sooner. The `-Design` steps hand over through files (tasks, reports), so fresh is the default.
+
+**Parameters:** `-Design` | the prompts as positional arguments; `-StartAt`, `-Phase`, `-KeepSource` (with `-Design`); `-Resume`; `-PermissionMode auto|acceptEdits|dontAsk|bypassPermissions` (default `auto`; the guards run in every mode); `-MaxBudgetUsd` (per step, list price); `-MaxRounds` (default 3); `-DryRun`. Logs: `D:\datrix\.tmp\skill-chain\<timestamp>\` (each step's JSON result and stderr). **Exit codes:** 0 done; 1 a step ended in error or a check failed; 2 a step stopped for a decision only Jon can make.
 
 ### `dev\skill-assist.ps1`
 
@@ -613,6 +631,8 @@ Refreshes the code index (which rewrites the logic map database if markers chang
 | **Custom output** | `.\dev\logic-map-report.ps1 -Output docs\logic-map.md` | Custom output path |
 
 **Parameters:** `-Output` (positional 0)
+
+**Exit codes:** 0 = report written and every `@see` names a declared topic; 1 = the index could not be refreshed, or the report lists dangling `@see` references (section "Dangling @see References").
 
 ### `dev\generate-test-rules.ps1`
 

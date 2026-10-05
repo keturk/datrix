@@ -93,13 +93,14 @@ if (-not (Test-Path $pythonScript)) {
 }
 
 function Get-AstGrepCommand {
+    # ast-grep first: current releases print a deprecation warning for the sg alias on every run.
     $commands = @()
-    $commands += Get-Command sg.cmd -ErrorAction SilentlyContinue
     $commands += Get-Command ast-grep.cmd -ErrorAction SilentlyContinue
-    $commands += Get-Command sg.exe -ErrorAction SilentlyContinue
     $commands += Get-Command ast-grep.exe -ErrorAction SilentlyContinue
-    $commands += Get-Command sg -ErrorAction SilentlyContinue | Where-Object { $_.CommandType -eq "Application" }
     $commands += Get-Command ast-grep -ErrorAction SilentlyContinue | Where-Object { $_.CommandType -eq "Application" }
+    $commands += Get-Command sg.cmd -ErrorAction SilentlyContinue
+    $commands += Get-Command sg.exe -ErrorAction SilentlyContinue
+    $commands += Get-Command sg -ErrorAction SilentlyContinue | Where-Object { $_.CommandType -eq "Application" }
     return $commands | Where-Object { $null -ne $_ } | Select-Object -First 1
 }
 

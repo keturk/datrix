@@ -173,14 +173,15 @@ def _ast_grep_bin() -> str:
     configured = os.environ.get("AST_GREP_BIN")
     if configured:
         return configured
+    # `ast-grep` first: current releases print a deprecation warning for the `sg` alias on every run.
     command_names = (
-        "sg.cmd",
         "ast-grep.cmd",
-        "sg.exe",
         "ast-grep.exe",
-        "sg",
         "ast-grep",
-    ) if sys.platform == "win32" else ("sg", "ast-grep")
+        "sg.cmd",
+        "sg.exe",
+        "sg",
+    ) if sys.platform == "win32" else ("ast-grep", "sg")
     found = next((path for name in command_names if (path := shutil.which(name))), None)
     if found:
         return found
