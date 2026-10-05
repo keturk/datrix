@@ -29,6 +29,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -197,6 +198,20 @@ def _run_serial(why: str) -> SerialPhaseDecision:
  return SerialPhaseDecision(skip_reason=None, why=why)
 
 
+def _disagreeing_files(evidence: DeselectedEvidence) -> str:
+ """The test files whose deselected count differs between workers, and which workers saw which count."""
+ paths = sorted({path for per_file in evidence.files.values() for path in per_file})
+ differing: list[str] = []
+ for path in paths:
+  by_count: dict[int, list[str]] = {}
+  for worker, per_file in sorted(evidence.files.items()):
+   by_count.setdefault(per_file.get(path, 0), []).append(worker)
+  if len(by_count) > 1:
+   seen = "; ".join(f"{count} on {', '.join(workers)}" for count, workers in sorted(by_count.items()))
+   differing.append(f"{path} ({seen})")
+ return "Files whose deselected count differs: " + (", ".join(differing) if differing else "none (the per-file counts agree)") + "."
+
+
 def decide_serial_phase(
  evidence: DeselectedEvidence, *, parallel_completed: bool, user_filter_active: bool
 ) -> SerialPhaseDecision:
@@ -238,9 +253,11 @@ def decide_serial_phase(
   raise RunnerDeselectedRecordError(
    f"The parallel phase's workers disagree on how many items they deselected: "
    f"{dict(sorted(evidence.counts.items()))}. Every worker collects the identical tree, so "
-   f"the counts must be equal; this is a runner defect and is never read as zero. The "
-   f"serial phase runs anyway and this run is failed. Re-run the package; if it recurs, "
-   f"inspect the deselected-<worker>.json records in the run directory."
+   f"the counts must be equal; this is never read as zero. The serial phase runs anyway and "
+   f"this run is failed. {_disagreeing_files(evidence)} Those are the files the workers "
+   f"collected differently: check whether a file or the data its parametrization reads "
+   f"changed while the workers were starting (another run or an editor on the same "
+   f"package), then re-run."
   )
  if user_filter_active:
   return _run_serial(
@@ -255,17 +272,52 @@ def decide_serial_phase(
  return _run_serial(f"every parallel worker deselected {count} serial-marked item(s)")
 
 
+#: Directories whose files never belong to the suite's collected tree.
+_UNTRACKED_TREE_DIRS = frozenset({"__pycache__", ".test_results", ".pytest_cache", "node_modules", ".git", ".venv"})
+#: How many modified files an error lists before it counts the rest.
+_MODIFIED_FILES_LISTED = 10
+
+
+def modified_since(package_root: Path, since: float) -> list[str]:
+ """Package files (relative, POSIX) whose mtime is at or after *since* (epoch seconds), sorted."""
+ found: list[str] = []
+ for current, dirs, files in os.walk(package_root):
+  dirs[:] = [name for name in dirs if name not in _UNTRACKED_TREE_DIRS]
+  for name in files:
+   path = Path(current) / name
+   if path.stat().st_mtime >= since:
+    found.append(path.relative_to(package_root).as_posix())
+ return sorted(found)
+
+
+def _modified_during_phase_note(package_root: Path, since: float) -> str:
+ """The sentence naming what changed in the package since the parallel phase started."""
+ changed = modified_since(package_root, since)
+ if not changed:
+  return "No file in the package changed since the parallel phase started."
+ shown = ", ".join(changed[:_MODIFIED_FILES_LISTED])
+ more = f" (+{len(changed) - _MODIFIED_FILES_LISTED} more)" if len(changed) > _MODIFIED_FILES_LISTED else ""
+ return (
+  f"{len(changed)} package file(s) changed since the parallel phase started, so workers "
+  f"that started at different moments collected different trees: {shown}{more}."
+ )
+
+
 def _serial_phase_decision_for_run(
  run_dir: Path | None,
  *,
  recorded: bool,
  parallel_completed: bool,
  user_filter_active: bool,
+ package_root: Path,
+ parallel_started: float,
 ) -> tuple[SerialPhaseDecision, list[str]]:
  """The serial-phase decision for a run, and the runner errors it met.
 
  Unreadable or disagreeing records are a runner error: the serial phase
- runs, and the error is returned so the caller fails the run with it.
+ runs, and the error is returned so the caller fails the run with it. A
+ disagreement also names the package files modified since the parallel
+ phase started, the usual cause of workers collecting different trees.
  """
  try:
   evidence = (
@@ -276,7 +328,10 @@ def _serial_phase_decision_for_run(
   decision = decide_serial_phase(
    evidence, parallel_completed=parallel_completed, user_filter_active=user_filter_active
   )
- except (RunnerDeselectedRecordError, SuiteStampError) as exc:
+ except RunnerDeselectedRecordError as exc:
+  message = f"{exc} {_modified_during_phase_note(package_root, parallel_started)}"
+  return _run_serial(f"the deselected records cannot be trusted: {message}"), [message]
+ except SuiteStampError as exc:
   return _run_serial(f"the deselected records cannot be trusted: {exc}"), [str(exc)]
  return decision, []
 
@@ -823,6 +878,7 @@ class TestRunner:
      tags=tags,
     )
 
+    parallel_started = time.time()
     try:
      process = subprocess.Popen(
       test_args_parallel,
@@ -858,6 +914,8 @@ class TestRunner:
      recorded=record_parallel_phase,
      parallel_completed="Parallel" not in incomplete_phases,
      user_filter_active=bool(marker_expr or keyword_expr or tags),
+     package_root=self.config.project_root,
+     parallel_started=parallel_started,
     )
     for error in decision_errors:
      logger.write_error(f"Runner error: {error}")

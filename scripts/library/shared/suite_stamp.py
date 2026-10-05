@@ -38,7 +38,7 @@ import logging
 import os
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
 
@@ -80,6 +80,7 @@ _RECORD_SCHEMA_KEY = "schema"
 _RECORD_WORKER_KEY = "worker"
 _WORKERS_KEY = "workers"
 _DESELECTED_KEY = "deselected"
+_DESELECTED_FILES_KEY = "deselected_files"
 
 _INPUTS_COMPONENTS = "components"
 _COMPONENT_TREES = "trees"
@@ -371,10 +372,28 @@ class DeselectedEvidence:
     NOT complete evidence -- the controller left no worker list, or a worker it
     listed wrote no deselected record (it crashed, or refused records it could
     not trust) -- and is None only when ``counts`` covers every listed worker.
+    ``files`` maps each worker to its deselected count per test file, which is
+    what names the file whose collection differs when ``counts`` disagree.
     """
 
     counts: Mapping[str, int]
     absent: str | None
+    files: Mapping[str, Mapping[str, int]] = field(default_factory=dict)
+
+
+def _deselected_files(run_dir: Path, session: str) -> dict[str, int]:
+    """*session*'s per-file deselected counts, read from its validated record."""
+    record = _read_record(run_dir, _DESELECTED_KIND, session)
+    value = _record_field(record, _DESELECTED_FILES_KEY, _DESELECTED_KIND, session, run_dir)
+    if not isinstance(value, dict) or any(
+        not isinstance(count, int) or isinstance(count, bool) or count < 1 for count in value.values()
+    ):
+        raise SuiteStampError(
+            f"{_record_name(_DESELECTED_KIND, session)} in {run_dir} records {_DESELECTED_FILES_KEY}={value!r}; "
+            f"expected an object mapping each test file to a positive count of its deselected items. "
+            f"The runner plugin always writes one, so the record is malformed; re-run the suite."
+        )
+    return {str(path): count for path, count in value.items()}
 
 
 def _deselected_count(run_dir: Path, session: str) -> int:
@@ -440,7 +459,11 @@ def read_distributed_deselected(run_dir: Path) -> DeselectedEvidence:
                 f"listed wrote no deselected count (it crashed, or refused records it could not trust)"
             ),
         )
-    return DeselectedEvidence(counts={worker: _deselected_count(run_dir, worker) for worker in workers}, absent=None)
+    return DeselectedEvidence(
+        counts={worker: _deselected_count(run_dir, worker) for worker in workers},
+        absent=None,
+        files={worker: _deselected_files(run_dir, worker) for worker in workers},
+    )
 
 
 def _plugin_environment(run_dir: Path, cone: Sequence[str], workspace: Path) -> dict[str, str]:
