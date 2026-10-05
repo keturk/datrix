@@ -10,25 +10,21 @@
  classifies each language's generated paths by domain role (via each
  language's own derived DomainDeclaration.structural_pattern) and asserts
  the set of roles with >= 1 matching file is identical across those
- languages. A missing role is a failure. Exactly two skips exist, and
- neither reads a declaration's absence: the language emits the domain only
- on demand (declared once on its LanguageCapabilityDeclaration), or the
- domain's own structural_pattern matches zero files across that language's
- entire generated footprint (held to a reviewed record in
- scripts/config/corpus-vacuity-records.json). A reviewed per-example
- exemption (scripts/config/artifact-role-exemptions.json, absent when there
- is none) additionally excuses a role the language realizes elsewhere; the
- loader refuses an entry for a domain the language realizes by no
- structural_pattern. A language that realizes a domain by no pattern is
- never excused here: the gap is tracked once, as a capability_gaps row on its
- own capability declaration, and counted by capability-gap-ledger-gate.ps1.
+ languages. A missing role is a failure. Exactly one skip exists, and it
+ reads no declaration and no committed exemption: the domain's own
+ structural_pattern matches zero files across that language's entire
+ generated footprint (held to a reviewed record in
+ scripts/config/corpus-vacuity-records.json). A language that emits a domain
+ under a narrower DSL trigger than another language is reported, and so is a
+ language that realizes a domain by no pattern: that gap is tracked once, as
+ a capability_gaps row on its own capability declaration, and counted by
+ capability-gap-ledger-gate.ps1.
 
  The same comparison then runs across PROVIDERS for a fixed language: for
  every (language, example, runtime) generated under >= 2 providers, the set
  of roles each provider's tree carries must be identical. A role present
  under one provider and absent under another is reported as
- ARTIFACT-ROLE CROSS-PROVIDER DRIFT. The same two skips apply; the
- per-example exemption file does not (it has no provider coordinate). Below
+ ARTIFACT-ROLE CROSS-PROVIDER DRIFT. The same corpus-vacuity skip applies. Below
  two providers there is nothing to compare, so a corpus generated under one
  provider yields no provider-axis comparison -- the self-test is what proves
  the axis live.

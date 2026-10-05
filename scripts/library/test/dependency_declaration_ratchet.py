@@ -62,7 +62,14 @@ Two structural detection passes, neither a text regex over raw source:
    observed matching under the old approach) -- none of that is a
    dependency-set decision.
 
-Built-in non-vacuity self-test, every invocation: a synthetic two-language
+A literal passed straight to a ``DependencyQualifier(...)`` call is never
+counted in either position: it is a qualifier value (an engine or vendor on
+one axis) selecting rows of the declared table, not a package decision, even
+when it shares a package's spelling.
+
+Built-in non-vacuity self-test, every invocation: this module names no
+registered target (``shared.registered_targets.self_test_gate_names_no_target``);
+a synthetic two-language
 package tree proves the scan finds exactly its planted out-of-table sites and
 that moving a planted site into a synthetic ``dependency_tables.py`` drops the
 count by exactly one; a synthetic Jinja template proves the template pass is
@@ -74,9 +81,10 @@ into a backend and a core proves a decision site in the core is found against
 the backend's catalog and missed by a backend-only scan; a live-tree check
 proves every registered language's real catalog contains every package its
 real declared table names and that a real declared name planted into a
-decision site is reported against it, and that the scan no longer reports
-three described, currently-real sites the earlier, over-broad matcher wrongly
-counted (``_KNOWN_EXCLUDED_FALSE_POSITIVES``).
+decision site is reported against it; a qualifier value is not counted while
+a bare literal of the same name is; and, for every registered language, every
+reported site is a catalog literal the earlier, over-broad matcher also finds,
+while at least one real catalog literal it finds is excluded.
 Refuses to run (exit 2) with fewer than two registered languages.
 
 Usage:
@@ -117,6 +125,7 @@ from shared.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
     WORKSPACE_ROOT,
     discover_target_package_src_dirs,
+    self_test_gate_names_no_target,
 )
 
 logger = logging.getLogger(__name__)
@@ -156,6 +165,11 @@ EXIT_USAGE: Final[int] = 2
 #: tables rather than from a pinned coordinate that a migration invalidates.
 _DECLARED_ROW_PACKAGE_KEYWORD: Final[str] = "package"
 
+#: The typed predicate (`datrix_codegen_common.generation.dependency_dsl
+#: .DependencyQualifier`) a generator narrows a declared-table lookup with; a
+#: literal passed to it is a qualifier value, never a package decision.
+_QUALIFIER_CALL_NAME: Final[str] = "DependencyQualifier"
+
 #: Whole snake_case tokens (an identifier split on `_`, never a substring
 #: search) that mark a function or module-level constant as a dependency-SET
 #: decision site. Empirically derived by investigating every real
@@ -193,22 +207,6 @@ _DEPENDENCY_DECISION_NAME_TOKENS: Final[frozenset[str]] = frozenset(
     }
 )
 
-#: Described, currently-real sites the EARLIER (pre-narrowing) matcher wrongly
-#: counted as dependency-set decisions: a cache-ENGINE identifier set and two
-#: import-deduplication MODULE-name constants that happen to share a spelling
-#: with a registered package name, none of them inside a function/constant
-#: whose name matches `_DEPENDENCY_DECISION_NAME_TOKENS`. The self-test
-#: proves the live scan no longer reports any of these -- the direct,
-#: load-bearing proof the narrowing actually narrows, alongside
-#: `_live_catalog_matches_real_declarations` proving it still finds a real
-#: declared package planted into a decision site.
-#: `(language, relative_src_path, line_number, literal)`.
-_KNOWN_EXCLUDED_FALSE_POSITIVES: Final[tuple[tuple[str, str, int, str], ...]] = (
-    ("python", "generators/_field_type_helpers.py", 26, "redis"),
-    ("python", "generators/_import_deduplication.py", 17, "sqlalchemy"),
-    ("python", "generators/_import_deduplication.py", 18, "geoalchemy2"),
-)
-
 #: Self-test-only synthetic identifiers, chosen to be unmistakably not one of
 #: the real registered languages or catalog packages -- proving the scan is
 #: driven entirely by its injected package tree, never a hardcoded literal.
@@ -220,24 +218,6 @@ _SELF_TEST_LANGUAGE_TMPL: Final[str] = "self_test_dep_lang_tmpl"
 _SELF_TEST_TEMPLATE_PACKAGE: Final[str] = "self-test-dep-template-package"
 _SELF_TEST_LANGUAGE_CORE: Final[str] = "self_test_dep_lang_split"
 _SELF_TEST_CORE_PACKAGE: Final[str] = "self-test-dep-core-package"
-
-#: `.j2`-suffixed files that are not actually Jinja template source -- a
-#: reviewed, coordinate-pinned exemption from the Jinja parse pass, never a
-#: silent catch-all for any file that happens to fail to parse (every other
-#: unparseable `.j2` file still fails the scan loud, per this module's own
-#: "a genuine syntax error is a scan error, not a skip" contract).
-#: `("python", "service/_xml_helpers.py.j2")`: verbatim static Python (an
-#: f-string containing literal `{{`/`}}` brace pairs, e.g.
-#: `f"{{{soap_ns}}}Body"`), never passed through the Jinja engine anywhere in
-#: production -- it is absent from every language generator's template-name
-#: table, and its own test suite parses it with `ast.parse`, never Jinja.
-#: `(language, relative_path_under_templates_dir)`.
-_KNOWN_NON_JINJA_TEMPLATES: Final[frozenset[tuple[str, str]]] = frozenset(
-    {
-        ("python", "service/_xml_helpers.py.j2"),
-    }
-)
-
 
 @dataclass(frozen=True)
 class OutOfTableSite:
@@ -398,6 +378,33 @@ def _dependency_decision_module_constant_spans(tree: ast.Module) -> list[_LineSp
     return spans
 
 
+def _qualifier_argument_constants(tree: ast.Module) -> set[int]:
+    """``id()`` of every string constant passed straight to a
+    ``DependencyQualifier(...)`` call.
+
+    Such a literal names a qualifier VALUE (an engine or vendor on one axis)
+    that selects rows of the declared table -- the declaration-only path
+    itself -- so it decides no package even when the engine shares its
+    spelling with one (the ``redis`` engine and the ``redis`` package).
+    """
+    found: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            name = func.id
+        elif isinstance(func, ast.Attribute):
+            name = func.attr
+        else:
+            continue
+        if name != _QUALIFIER_CALL_NAME:
+            continue
+        arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+        found.update(id(argument) for argument in arguments if isinstance(argument, ast.Constant))
+    return found
+
+
 def _scan_python_source(
     src_dir: Path, language: str, package_names: frozenset[str]
 ) -> list[OutOfTableSite]:
@@ -448,11 +455,13 @@ def _scan_python_source(
             continue
 
         resolved = py_file.resolve()
+        qualifier_values = _qualifier_argument_constants(tree)
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.Constant)
                 and isinstance(node.value, str)
                 and node.value in package_names
+                and id(node) not in qualifier_values
                 and any(span.contains(node.lineno) for span in spans)
             ):
                 found.add((resolved, node.lineno, node.value))
@@ -554,15 +563,6 @@ def _scan_jinja_templates(
     env = jinja2.Environment()
     found: set[tuple[Path, int, str]] = set()
     for j2_file in sorted(templates_dir.rglob("*.j2")):
-        relative_path = j2_file.relative_to(templates_dir).as_posix()
-        if (language, relative_path) in _KNOWN_NON_JINJA_TEMPLATES:
-            logger.debug(
-                "skipping known non-Jinja template language=%s file=%s "
-                "(static legacy content, never Jinja-rendered)",
-                language,
-                relative_path,
-            )
-            continue
         source = j2_file.read_text(encoding="utf-8-sig")
         try:
             template_ast = env.parse(source, filename=str(j2_file))
@@ -849,37 +849,89 @@ def _live_catalog_matches_real_declarations(tmp_root: Path) -> bool:
     return languages_proven >= _MIN_LANGUAGES_FOR_COMPARISON
 
 
-def _live_scan_excludes_known_false_positives() -> bool:
-    """Prove the matcher no longer reports any `_KNOWN_EXCLUDED_FALSE_POSITIVES`
-    site in the REAL tree -- the direct, load-bearing proof the narrowing
-    actually narrows, not merely that it still finds a real positive."""
+def _catalog_literal_sites(src_dir: Path, package_names: frozenset[str]) -> set[tuple[Path, int, str]]:
+    """The EARLIER, over-broad matcher: every string constant anywhere in a
+    `.py` file under *src_dir* (outside the declared table) equal to a catalog
+    package name, decision site or not."""
+    found: set[tuple[Path, int, str]] = set()
+    for py_file in sorted(src_dir.rglob("*.py")):
+        if _is_declared_table_file(py_file, src_dir):
+            continue
+        tree = ast.parse(py_file.read_text(encoding="utf-8-sig"), filename=str(py_file))
+        resolved = py_file.resolve()
+        found.update(
+            (resolved, node.lineno, node.value)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in package_names
+        )
+    return found
+
+
+def _live_scan_narrows_real_tree() -> bool:
+    """Prove the narrowing actually narrows on the REAL tree, without pinning a
+    language or a coordinate: for every registered language, every site the
+    Python pass reports is also a catalog literal the over-broad matcher finds,
+    and the over-broad matcher finds at least one real catalog literal the
+    Python pass excludes (an engine identifier, an import-module constant, a
+    qualifier value). A narrowing that excluded nothing, or a scan reporting a
+    site no catalog literal backs, fails here."""
     target_src_dirs = discover_target_package_src_dirs(
         AXIS_LANGUAGES, registered_language_names(), WORKSPACE_ROOT
     )
-    scanned_by_language: dict[str, list[OutOfTableSite]] = {}
-    for language, relative_path, line_number, literal in _KNOWN_EXCLUDED_FALSE_POSITIVES:
-        src_roots = target_src_dirs.get(language)
-        if src_roots is None:
+    for language, src_roots in sorted(target_src_dirs.items()):
+        universe = frozenset[str]().union(*(_catalog_package_names(root, language) for root in src_roots))
+        broad: set[tuple[Path, int, str]] = set()
+        narrowed: set[tuple[Path, int, str]] = set()
+        for root in src_roots:
+            broad |= _catalog_literal_sites(root, universe)
+            narrowed.update(
+                (site.file_path, site.line_number, site.package_name)
+                for site in _scan_python_source(root, language, universe)
+            )
+        excluded = len(broad - narrowed)
+        logger.debug(
+            "live narrowing language=%s broad=%d reported=%d excluded=%d", language, len(broad), len(narrowed), excluded
+        )
+        if not narrowed <= broad or excluded == 0:
             return False
-        candidates = [root / relative_path for root in src_roots if (root / relative_path).is_file()]
-        if len(candidates) != 1:
-            return False
-        if language not in scanned_by_language:
-            scanned_by_language[language] = scan_language(language, src_roots)
-        expected_path = candidates[0].resolve()
-        if any(
-            site.file_path == expected_path
-            and site.line_number == line_number
-            and site.package_name == literal
-            for site in scanned_by_language[language]
-        ):
-            return False
-    return True
+    return bool(target_src_dirs)
+
+
+def _self_test_qualifier_value_excluded(tmp_root: Path) -> bool:
+    """Inside one decision-named function, a catalog name passed to
+    `DependencyQualifier(...)` (an engine qualifier sharing the package's
+    spelling) is not counted, while a bare literal of the same name is."""
+    language_dir = tmp_root / "lang_qualifier"
+    language_dir.mkdir(parents=True, exist_ok=True)
+    (language_dir / _DEFAULTS_YAML_NAME).write_text(
+        f"dependencies:\n  {_SELF_TEST_LANGUAGE_A}:\n    {_SELF_TEST_PACKAGE_A}: '>=1.0.0'\n",
+        encoding="utf-8",
+    )
+    (language_dir / "qualified.py").write_text(
+        "def _collect_cache_deps(catalog):\n"
+        "    rows = lookup(\n"
+        f'        "cache", {_QUALIFIER_CALL_NAME}(axis="engine", value="{_SELF_TEST_PACKAGE_A}"),\n'
+        "    )\n"
+        f'    return rows + ["{_SELF_TEST_PACKAGE_A}"]\n',
+        encoding="utf-8",
+    )
+    sites = scan_language(_SELF_TEST_LANGUAGE_A, (language_dir,))
+    return [site.line_number for site in sites] == [5]
+
+
+def _self_test_names_no_target() -> bool:
+    """This gate enumerates languages from registration and must name none."""
+    failures = self_test_gate_names_no_target(__file__)
+    for line in failures:
+        print(f"  FAIL: {line}")
+    return _assert(not failures, "this gate names no registered target (imports and name literals)")
 
 
 def self_test() -> bool:
     """Non-vacuity self-test, run as step 1 of every invocation.
 
+    0. Assert this module names no registered target
+       (`shared.registered_targets.self_test_gate_names_no_target`).
     1. Build a synthetic two-language package tree under
        `tempfile.TemporaryDirectory`, each with a real `defaults.yaml` and one
        `src/` literal outside any `dependency_tables.py`; assert the scan
@@ -902,14 +954,17 @@ def self_test() -> bool:
     7. Assert the LIVE catalogs contain every package the live declared tables
        name, and that a real declared name planted into a decision site is
        reported against the live universe.
-    8. Assert the LIVE scan no longer reports any `_KNOWN_EXCLUDED_FALSE_POSITIVES`.
-    9. Assert the minimum-language guard refuses a single-language set with
+    8. Assert a catalog name passed to `DependencyQualifier(...)` is not
+       counted while a bare literal of the same name in the same function is.
+    9. Assert, for every registered LIVE language, every reported site is a
+       catalog literal and at least one real catalog literal is excluded.
+    10. Assert the minimum-language guard refuses a single-language set with
        `SystemExit(EXIT_USAGE)`, never a silent pass.
 
     Returns:
         True if every assertion holds.
     """
-    ok = True
+    ok = _self_test_names_no_target()
     tmp_root = Path(tempfile.mkdtemp(prefix="dependency-declaration-ratchet-selftest-"))
     try:
         lang_a_dir = tmp_root / "lang_a"
@@ -967,10 +1022,15 @@ def self_test() -> bool:
         )
 
         ok &= _assert(
-            _live_scan_excludes_known_false_positives(),
-            f"live scan (real tree) no longer reports any of "
-            f"{len(_KNOWN_EXCLUDED_FALSE_POSITIVES)} known-excluded false "
-            "positive(s) the earlier, over-broad matcher wrongly counted",
+            _self_test_qualifier_value_excluded(tmp_root),
+            "a catalog name passed to DependencyQualifier(...) is a qualifier value and is not counted; "
+            "a bare literal of the same name in the same function is",
+        )
+
+        ok &= _assert(
+            _live_scan_narrows_real_tree(),
+            "live scan (real tree): for every registered language each reported site is a catalog literal "
+            "and at least one real catalog literal outside any decision site is excluded",
         )
 
         try:

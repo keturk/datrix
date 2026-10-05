@@ -35,13 +35,15 @@ templates count too, because a harness that reads the environment is still
 emitted into the generated project -- a ``reviewed_exemptions`` language
 lists them as exemptions with that reason.
 
-Runs a built-in non-vacuity self-test on every invocation: a synthetic
-template tree with one planted read and one clean file, the comparator
+Runs a built-in non-vacuity self-test on every invocation: this module names
+no registered target (``shared.registered_targets.self_test_gate_names_no_target``),
+a synthetic template tree with one planted read and one clean file, the comparator
 against both entry kinds (missing exemption, stale exemption, count over and
 under the pin, the same census passing under one kind and failing under the
 other, no entry), the entry-kind validation, the baseline writer (lowers a
 pin, refuses to raise one, carries exemptions through), and a live-tree proof
-that the census sees a known real read.
+that the census finds at least one read the committed baseline lists as a
+reviewed exemption.
 
 Repo-level validation script (per the datrix showcase boundary -- no pytest
 suite lives in datrix).
@@ -81,6 +83,7 @@ from shared.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
     WORKSPACE_ROOT,
     discover_target_package_src_dirs,
+    self_test_gate_names_no_target,
 )
 
 logger = logging.getLogger(__name__)
@@ -122,15 +125,6 @@ _BASELINE_COMMENT: Final[tuple[str, ...]] = (
     "never upward. A language with no entry is held to reviewed_exemptions with an",
     "empty list.",
 )
-
-#: A described, currently-real environment read the live census must find:
-#: ``(language, template path relative to the package's src/<import root>/)``.
-#: Python's JWKS validator resolves ``allowedAudienceRefs`` through the
-#: environment and is a reviewed exemption in the baseline. If that read is
-#: ever removed, re-pin this constant to a still-live exemption in the same
-#: change -- the self-test asserts the census finds a real read, never the
-#: literal path in isolation.
-_KNOWN_LIVE_READ: Final[tuple[str, str]] = ("python", "templates/api/identity.py.j2")
 
 _SELF_TEST_LANGUAGE: Final[str] = "self_test_zero_env_lang"
 _SELF_TEST_IDIOM: Final[str] = r"\bSELF_TEST_ENV\.read\b"
@@ -700,23 +694,55 @@ def _self_test_baseline_writer(tmp_root: Path, census: LanguageCensus) -> bool:
     return ok
 
 
-def _self_test_live_read() -> bool:
-    language, relative_template = _KNOWN_LIVE_READ
+def _listed_exemptions(baseline: Mapping[str, Mapping[str, object]]) -> dict[str, frozenset[str]]:
+    """Registered language -> the templates its committed baseline entry lists
+    as reviewed exemptions, for every language that lists at least one."""
     language_names = registered_language_names()
-    src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, language_names, WORKSPACE_ROOT)
-    language_src_dirs = src_dirs.get(language)
-    declaration = _declaration_for(language) if language_src_dirs is not None else None
-    if language_src_dirs is None or declaration is None:
-        return _assert(False, f"live tree registers {language} with stated idioms")
-    census = census_language(language, language_src_dirs, declaration.compiled_idioms())
+    listed: dict[str, frozenset[str]] = {}
+    for language, entry in sorted(baseline.items()):
+        if language not in language_names or entry_kind(language, entry) != ENTRY_KIND_EXEMPTIONS:
+            continue
+        templates = frozenset(exemption.template for exemption in parse_exemptions(language, entry))
+        if templates:
+            listed[language] = templates
+    return listed
+
+
+def _self_test_live_read() -> bool:
+    """The live census (real tree) finds at least one read the committed
+    baseline lists as a reviewed exemption -- a census that sees none of them is
+    broken, not clean. The reads come from the baseline, never a language or
+    path pinned in this module."""
+    try:
+        listed = _listed_exemptions(load_baseline())
+    except ValueError as exc:
+        return _assert(False, f"committed baseline is well formed ({exc})")
+    if not listed:
+        return _assert(False, "committed baseline lists a reviewed exemption for a registered language")
+    src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, frozenset(listed), WORKSPACE_ROOT)
+    found: list[str] = []
+    for language, templates in sorted(listed.items()):
+        declaration = _declaration_for(language)
+        if declaration is None:
+            return _assert(False, f"live tree registers {language} with stated idioms")
+        census = census_language(language, src_dirs[language], declaration.compiled_idioms())
+        found.extend(f"{language}:{template}" for template in sorted(census.reads & templates))
     return _assert(
-        relative_template in census.reads,
-        f"live census (real tree) finds the known read {language}:{relative_template}",
+        bool(found),
+        f"live census (real tree) finds {len(found)} read(s) the committed baseline lists as reviewed exemptions",
     )
 
 
+def _self_test_names_no_target() -> bool:
+    """This gate enumerates languages from registration and must name none."""
+    failures = self_test_gate_names_no_target(__file__)
+    for line in failures:
+        print(f"  FAIL: {line}")
+    return _assert(not failures, "this gate names no registered target (imports and name literals)")
+
+
 def self_test() -> bool:
-    ok = True
+    ok = _self_test_names_no_target()
     tmp_root = Path(tempfile.mkdtemp(prefix="zero-environment-runtime-selftest-"))
     try:
         census_ok, census = _self_test_census(tmp_root)

@@ -12,18 +12,21 @@
  classes' EFFECTIVE wire names (never the mere presence of a wire-renaming
  mechanism) against the camelCase form of the declared field name.
 
- A language target that cannot support a given response surface declares it
- unsupported with a reason via the typed exemption file at
- datrix/scripts/config/body-wire-naming-exemptions.json (coordinates +
- reason).
+ No language and no response surface can be set aside: every in-population
+ field that diverges fails the gate. (A dependency-response model decodes an
+ upstream service's wire, so that schema kind is outside the population for
+ every language alike, and the files it excludes are counted.)
 
  A second census covers a transform applied AFTER serialization, which the
  comparison above cannot see: each registered language declares the regular
  expressions that spell a response-body transform in its framework
  (LanguageCapabilityDeclaration.response_body_transform_idioms), the gate
  greps the same generated tree for them, and every hit must be a typed
- `transform_exemptions` entry in the exemption file. An unexempted hit, a
- stale exemption and a language with no declaration each fail by name.
+ `transform_exemptions` entry in
+ datrix/scripts/config/body-wire-naming-exemptions.json (language, path
+ suffix, matched text, reason). An unreviewed hit, a stale entry and a
+ language with no declaration each fail by name, and the file is refused if
+ it carries any key other than _comment and transform_exemptions.
 
  Derives its target language set from
  `importlib.metadata.entry_points(group="datrix.languages")` at runtime --
@@ -32,13 +35,11 @@
 
  Runs a built-in non-vacuity self-test on every invocation, before trusting
  any real comparison: a synthetic conformant field (must report zero
- divergence), a synthetic forced-divergent field with no exemption (must
- report it), a synthetic forced-divergent field COVERED by an exemption
- (must NOT report it), a single-word-field case matching a real
- no-alias-generator template's shape (must NOT report it), and a real
- Pydantic model whose field carries only `Field(serialization_alias=...)`
- (must read the serialization alias, never the raw attribute name). Fails
- loud (exit 2) if fewer than 2 languages are registered.
+ divergence), a synthetic forced-divergent field (must report it), a
+ single-word-field case matching a real no-alias-generator template's shape
+ (must NOT report it), the transform census over a planted tree, and a
+ review file carrying a per-schema-kind `exemptions` list (must be refused).
+ Fails loud (exit 2) if fewer than 2 languages are registered.
 
  Repo-level validation script (per the datrix showcase boundary -- no
  pytest suite lives in datrix).

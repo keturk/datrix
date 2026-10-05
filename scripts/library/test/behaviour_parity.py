@@ -120,15 +120,12 @@ The resolved domain orders the reconciliation worklist and serves the
 ``--scope`` report filter; it never changes a role's verdict, and an
 ``undomained`` role fails and is counted exactly like a domained one.
 
-Declared set-aside (the only one)
----------------------------------
-A member package is set aside in the divergence check when the role's domain
-is a key of its ``LanguageCapabilityDeclaration.on_demand_domains``: the
-language emits that domain's artifacts only when the DSL invokes a triggering
-construct, which says WHEN a language emits something, never that it does
-not realize it. The set-aside is keyed by the role's domain, so renaming a
-function never touches it, and an ``undomained`` role admits none. No
-classification file exists (invariant I11).
+No set-aside
+------------
+No member package is ever set aside in the divergence check: a role is judged
+by its members' skeleton groups alone, whatever any package declares. No
+declaration is an input to a verdict, and no classification file exists
+(invariant I11).
 
 Report filters
 --------------
@@ -226,7 +223,6 @@ from datrix_common.plugin import registry as registry_module  # noqa: E402
 from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
 from datrix_common.plugin.client_capability import ClientTargetCapabilityDeclaration  # noqa: E402
 from datrix_common.plugin.descriptor import PluginDescriptor  # noqa: E402
-from datrix_common.plugin.language_capability import LanguageCapabilityDeclaration  # noqa: E402
 from datrix_common.plugin.registry import GENERATOR_GROUP, PluginRegistry  # noqa: E402
 from datrix_codegen_kernel.platform.realization_dsl import (  # noqa: E402
     RealizationCell,
@@ -490,31 +486,6 @@ def _name_tokens_for_language_axis_member(name: str) -> frozenset[str]:
         return declaration_for_language(name).name_tokens
     except PluginNotFoundError:
         return _client_target_capability_declaration(name).name_tokens
-
-
-def _capability_declaration_for_language_axis_member(
-    name: str,
-) -> LanguageCapabilityDeclaration | ClientTargetCapabilityDeclaration:
-    """One language-axis member's own declared capability object.
-
-    A ``datrix.languages`` plugin's ``LanguageCapabilityDeclaration``, tried
-    first -- falling back to a ``datrix.generators`` client-target plugin's
-    ``ClientTargetCapabilityDeclaration`` when no language plugin is
-    registered under *name*, exactly the same fallback
-    ``_name_tokens_for_language_axis_member`` already applies for name
-    tokens. Only ``LanguageCapabilityDeclaration`` carries
-    ``on_demand_domains``: a client target has no per-service domain
-    sub-generator matching a shared backend domain, so it declares none.
-
-    Raises:
-        PluginNotFoundError: If *name* resolves to neither a registered
-            language plugin nor a registered client-target generator plugin
-            with a capability declaration.
-    """
-    try:
-        return declaration_for_language(name)
-    except PluginNotFoundError:
-        return _client_target_capability_declaration(name)
 
 
 def tokens_for(axis: str, label: str) -> frozenset[str]:
@@ -1913,103 +1884,6 @@ def resolve_domain(role: RoleVerdict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Declared set-aside
-# ---------------------------------------------------------------------------
-
-#: A client-target-only member (Angular/Flutter) declares no on-demand domain.
-_NO_ON_DEMAND_DOMAINS: Final[Mapping[str, str]] = MappingProxyType({})
-
-
-@dataclass(frozen=True)
-class ExemptionSurfaces:
-    """The one declared surface a member package may still be set aside on --
-    its ``on_demand_domains`` -- keyed by member package label, read ONCE by
-    the caller and passed in -- never fetched inside the divergence check --
-    so the self-test injects synthetic tables exactly as the role-grouping
-    self-test injects synthetic tokens.
-
-    A capability a target does not realize is never a surface: no domain
-    stance, builtin-group stance or ``capability_gaps`` row is read here.
-    """
-
-    on_demand_by_language: Mapping[str, Mapping[str, str]]
-
-    @classmethod
-    def none(cls) -> ExemptionSurfaces:
-        """No language declares anything: no member package is set aside."""
-        return cls(MappingProxyType({}))
-
-
-def is_domain_on_demand(domain: str, language: str, surfaces: ExemptionSurfaces) -> bool:
-    """True iff *language* declares *domain* a key of its ``on_demand_domains``.
-
-    Domain-keyed, so it applies only to a role resolved to a shared domain:
-    an ``UNDOMAINED`` role admits no set-aside, whatever a language declares.
-
-    Args:
-        domain: ``resolve_domain(role)``.
-        language: The member package label.
-        surfaces: The declared surface, read once by the caller.
-
-    Returns:
-        Whether *language* is set aside for a role of *domain*.
-    """
-    if domain == UNDOMAINED:
-        return False
-    return language in surfaces.on_demand_by_language and domain in surfaces.on_demand_by_language[language]
-
-
-def _merge_declared(mappings: Iterable[Mapping[str, str]], label: str) -> Mapping[str, str]:
-    """One ``on_demand_domains`` table for one package label: the registered
-    names folded into *label* (``registered_targets.fold_names_by_src_dirs``)
-    each carry a declaration, and a key two of them declare differently is
-    ambiguous -- refused, never resolved by order."""
-    merged: dict[str, str] = {}
-    for mapping in mappings:
-        for key, value in mapping.items():
-            if key in merged and merged[key] != value:
-                raise ValueError(
-                    f"behaviour_parity:the registered names folded into package label {label!r} declare "
-                    f"conflicting on_demand_domains for {key!r}; one package must carry one declaration per key."
-                )
-            merged[key] = value
-    return MappingProxyType(merged)
-
-
-def live_exemption_surfaces(target_src_dirs: Mapping[str, tuple[Path, ...]]) -> ExemptionSurfaces:
-    """Read ``on_demand_domains`` for every language package label from the
-    live registry through ``declaration_for_language`` (a client-target-only
-    member contributes none).
-
-    Args:
-        target_src_dirs: ``{label: (src dir, ...)}`` for every compared
-            language.
-
-    Returns:
-        The surface, keyed by label.
-
-    Raises:
-        ValueError: A folded label declares conflicting values.
-    """
-    on_demand: dict[str, Mapping[str, str]] = {}
-    for label in target_src_dirs:
-        declarations = [
-            _capability_declaration_for_language_axis_member(name) for name in label.split(_LABEL_JOIN_SEPARATOR)
-        ]
-        on_demand[label] = _merge_declared(
-            [
-                declaration.on_demand_domains
-                if isinstance(declaration, LanguageCapabilityDeclaration)
-                else _NO_ON_DEMAND_DOMAINS
-                for declaration in declarations
-            ],
-            label,
-        )
-        logger.info("on-demand domains for %s: %d", label, len(on_demand[label]))
-    return ExemptionSurfaces(MappingProxyType(on_demand))
-
-
-# ---------------------------------------------------------------------------
 # Report filters
 # ---------------------------------------------------------------------------
 
@@ -2197,38 +2071,29 @@ def _duplicate_skeleton_reasons(verdict: RoleVerdict) -> tuple[str, ...]:
     )
 
 
-def _divergence_reasons(verdict: RoleVerdict, domain: str, surfaces: ExemptionSurfaces) -> tuple[str, ...]:
-    """``divergent``: partition the member packages into skeleton groups,
-    set aside every package that declares the role's domain on-demand -- the
-    one declared surface -- and pass iff at most one group remains. Otherwise
-    one reason names every remaining group -- the gate cannot know which group
-    carries the correct behaviour, so it names all of them. A role whose
-    every member declares the domain on-demand has no group left and passes.
-    No capability declaration, builtin-group stance or ``capability_gaps`` row
-    is read: a capability a target does not realize leaves its role failing.
+def _divergence_reasons(verdict: RoleVerdict) -> tuple[str, ...]:
+    """``divergent``: partition the member packages into skeleton groups and
+    pass iff at most one group exists. Otherwise one reason names every group
+    -- the gate cannot know which group carries the correct behaviour, so it
+    names all of them. No package is set aside: no capability declaration,
+    builtin-group stance, ``capability_gaps`` row or emission-trigger
+    declaration is read, so a capability a target does not realize, or
+    realizes under a different trigger, leaves its role failing.
     """
-    packages = sorted({member.package for member in verdict.members})
-    on_demand = frozenset(package for package in packages if is_domain_on_demand(domain, package, surfaces))
-    remaining = [group - on_demand for group in skeleton_groups(verdict) if group - on_demand]
-    if len(remaining) <= 1:
+    groups = skeleton_groups(verdict)
+    if len(groups) <= 1:
         return ()
-    groups_text = " vs ".join(_group_text(group) for group in remaining)
-    on_demand_text = (
-        f"no member declares domain {domain!r} on-demand"
-        if not on_demand
-        else f"only {_group_text(on_demand)} declare(s) domain {domain!r} on-demand"
-    )
-    return (f"members split into {len(remaining)} skeleton groups: {groups_text}; {on_demand_text}",)
+    groups_text = " vs ".join(_group_text(group) for group in groups)
+    return (f"members split into {len(groups)} skeleton groups: {groups_text}",)
 
 
-def evaluate_role(verdict: RoleVerdict, *, surfaces: ExemptionSurfaces) -> RoleEvaluation:
+def evaluate_role(verdict: RoleVerdict) -> RoleEvaluation:
     """Resolve *verdict*'s domain and compute its failure reasons -- for EVERY
     role, whatever its domain (``undomained`` included) or bucket, so every
     failing role is counted.
 
     Args:
         verdict: A classified role.
-        surfaces: The declared on-demand surface.
 
     Returns:
         The evaluation, its verdict carrying the resolved domain.
@@ -2238,7 +2103,7 @@ def evaluate_role(verdict: RoleVerdict, *, surfaces: ExemptionSurfaces) -> RoleE
     """
     domain = resolve_domain(verdict)
     if verdict.verdict == _VERDICT_DIVERGENT:
-        reasons = _divergence_reasons(verdict, domain, surfaces)
+        reasons = _divergence_reasons(verdict)
     else:
         reasons = _duplicate_skeleton_reasons(verdict)
     return RoleEvaluation(
@@ -2248,9 +2113,9 @@ def evaluate_role(verdict: RoleVerdict, *, surfaces: ExemptionSurfaces) -> RoleE
     )
 
 
-def evaluate_roles(verdicts: Sequence[RoleVerdict], *, surfaces: ExemptionSurfaces) -> list[RoleEvaluation]:
+def evaluate_roles(verdicts: Sequence[RoleVerdict]) -> list[RoleEvaluation]:
     """``evaluate_role`` over every verdict, order preserved."""
-    return [evaluate_role(verdict, surfaces=surfaces) for verdict in verdicts]
+    return [evaluate_role(verdict) for verdict in verdicts]
 
 
 def axis_gates(axis: str, *, report_only: bool) -> bool:
@@ -2622,7 +2487,6 @@ _SELF_TEST_MODULE: Final[str] = "mod.py"
 #: A path root for synthetic members whose path only feeds the domain
 #: ladder's step 3 (never read from disk).
 _SELF_TEST_TREE: Final[Path] = Path("self-test-tree")
-_SELF_TEST_REASON: Final[str] = "self-test synthetic reason -- never a real capability gap"
 _SELF_TEST_UNKNOWN_SCOPE_ID: Final[str] = "bogus"
 _SELF_TEST_UNKNOWN_BUCKET_ID: Final[str] = "not-a-verdict"
 #: The self-test's three-package divergent tree: two packages agreeing on
@@ -3081,33 +2945,15 @@ def _self_test_case_domain_step_three() -> bool:
     )
 
 
-def _self_test_case_on_demand_surface() -> bool:
-    """(m) The on-demand set-aside: an on-demand entry for the ROLE'S domain
-    sets the member package aside; an entry for another domain, none at all,
-    and an entry keyed ``undomained`` on an ``undomained`` role do not."""
-    domain, other = _two_universe_ids()
-    beta = _SELF_TEST_BETA
-    on_demand_here = ExemptionSurfaces(on_demand_by_language={beta: {domain: _SELF_TEST_REASON}})
-    on_demand_elsewhere = ExemptionSurfaces(on_demand_by_language={beta: {other: _SELF_TEST_REASON}})
-    undomained_keyed = ExemptionSurfaces(on_demand_by_language={beta: {UNDOMAINED: _SELF_TEST_REASON}})
-    return (
-        not is_domain_on_demand(domain, beta, ExemptionSurfaces.none())
-        and is_domain_on_demand(domain, beta, on_demand_here)
-        and not is_domain_on_demand(domain, _SELF_TEST_ALPHA, on_demand_here)
-        and not is_domain_on_demand(domain, beta, on_demand_elsewhere)
-        and not is_domain_on_demand(UNDOMAINED, beta, undomained_keyed)
-    )
-
-
 def _self_test_case_declared_hole_still_fails() -> bool:
     """(n) NEGATIVE: a divergent role whose package used to be set aside as a
-    declared hole STILL FAILS. Two plants, both shapes the retired set-aside
+    declared hole STILL FAILS. Two plants, both shapes a retired set-aside
     excused -- a role in a real domain whose beta member would have been
-    declared ``unsupported`` for that domain, and a role whose beta member is
-    an ``@emit_adapter``-marked function over a builtin group that would have
-    been declared ``unsupported``. Neither declaration has an input left to
-    carry it (the surfaces type holds the on-demand table alone), so each role
-    is judged by its skeleton groups alone and fails naming both groups."""
+    declared ``unsupported`` (or emitted on demand) for that domain, and a role
+    whose beta member is an ``@emit_adapter``-marked function over a builtin
+    group that would have been declared ``unsupported``. ``evaluate_role``
+    takes the role alone -- no declaration has an input left to carry it --
+    so each role is judged by its skeleton groups and fails naming both."""
     domain, _ = _two_universe_ids()
 
     def domain_path(package: str) -> Path:
@@ -3127,11 +2973,10 @@ def _self_test_case_declared_hole_still_fails() -> bool:
             _marked_adapter_member(_SELF_TEST_BETA, _SELF_TEST_TREE / _SELF_TEST_BETA / _SELF_TEST_MODULE),
         ],
     )
-    surfaces = ExemptionSurfaces.none()
-    domained = evaluate_role(in_domain, surfaces=surfaces)
-    undomained = evaluate_role(marked_adapter, surfaces=surfaces)
+    domained = evaluate_role(in_domain)
+    undomained = evaluate_role(marked_adapter)
     return (
-        {field.name for field in dataclasses.fields(ExemptionSurfaces)} == {"on_demand_by_language"}
+        list(inspect.signature(evaluate_role).parameters) == ["verdict"]
         and domained.domain == domain
         and domained.fails
         and undomained.domain == UNDOMAINED
@@ -3153,6 +2998,7 @@ _REMOVED_DECLARATION_NAMES: Final[frozenset[str]] = frozenset(
         "stance_table_by_language",
         "capability_gaps",
         "CapabilityGap",
+        "on_demand_domains",
     }
 )
 
@@ -3175,15 +3021,16 @@ def _declaration_names_referenced(source: str) -> list[str]:
 def _self_test_case_no_declaration_reader() -> bool:
     """(o) This module reads no declaration to excuse a divergent role: its
     own AST imports, names and reads none of the retired declaration types or
-    fields. NON-VACUITY: the same matcher finds each one planted in a
-    synthetic source, whether imported, named or read as an attribute."""
+    fields (the emission-trigger table included). NON-VACUITY: the same
+    matcher finds each one planted in a synthetic source, whether imported,
+    named or read as an attribute."""
     planted = (
         "from datrix_codegen_kernel.parity.domain_declaration import DomainDeclaration\n"
         "def read(declaration):\n"
-        "    return stance_table_by_language, declaration.capability_gaps\n"
+        "    return stance_table_by_language, declaration.capability_gaps, declaration.on_demand_domains\n"
     )
     return _declaration_names_referenced(planted) == sorted(
-        {"DomainDeclaration", "stance_table_by_language", "capability_gaps"}
+        {"DomainDeclaration", "stance_table_by_language", "capability_gaps", "on_demand_domains"}
     ) and not _declaration_names_referenced(Path(__file__).read_text(encoding="utf-8"))
 
 
@@ -3194,7 +3041,7 @@ def _self_test_case_report_filters() -> bool:
     refused naming the problem."""
     domain, other = _two_universe_ids()
     universe = frozenset(SHARED_CONTEXT_TYPES)
-    evaluations = evaluate_roles(_divergent_tree_verdicts(domain), surfaces=ExemptionSurfaces.none())
+    evaluations = evaluate_roles(_divergent_tree_verdicts(domain))
     only = evaluations[0]
     admits = {
         "unfiltered": ReportFilter.unfiltered().admits(only),
@@ -3256,7 +3103,7 @@ def _refuses(
 def _divergent_tree_verdicts(domain: str) -> list[RoleVerdict]:
     """The synthetic three-package divergent tree under a real universe
     domain's owning-module shape: alpha and beta agree, gamma adds a
-    fail-closed raise. Cases (q1)-(q3) and (r) all judge this one role."""
+    fail-closed raise. Cases (q1) and (r) both judge this one role."""
     with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-divergent-") as tmp:
         root = Path(tmp)
         for label, source in (
@@ -3269,18 +3116,18 @@ def _divergent_tree_verdicts(domain: str) -> list[RoleVerdict]:
 
 
 def _self_test_case_skeleton_groups_fail_naming_every_group() -> bool:
-    """(q1) A divergent role whose members split into two skeleton groups,
-    no package declaring the domain on-demand, FAILS with one reason
-    naming BOTH groups -- there is no reference language, so the gate cannot
-    single out one side as lagging. Reordering the packages (so the group
-    holding the raise comes first alphabetically) names the same groups."""
+    """(q1) A divergent role whose members split into two skeleton groups
+    FAILS with one reason naming BOTH groups -- there is no reference
+    language, so the gate cannot single out one side as lagging. Reordering
+    the packages (so the group holding the raise comes first alphabetically)
+    names the same groups."""
     domain, _ = _two_universe_ids()
     verdicts = _divergent_tree_verdicts(domain)
     role = _name_roles(verdicts, _SELF_TEST_DIVERGENT_ROLE)
     if not _single_role_with_verdict(role, _VERDICT_DIVERGENT):
         return False
     groups = skeleton_groups(role[0])
-    evaluation = evaluate_role(role[0], surfaces=ExemptionSurfaces.none())
+    evaluation = evaluate_role(role[0])
     agreeing_group = _group_text((_SELF_TEST_ALPHA, _SELF_TEST_BETA))
     raising_group = _group_text((_SELF_TEST_GAMMA,))
     reason = evaluation.failure_reasons[0] if evaluation.failure_reasons else ""
@@ -3291,54 +3138,6 @@ def _self_test_case_skeleton_groups_fail_naming_every_group() -> bool:
         and "2 skeleton groups" in reason
         and agreeing_group in reason
         and raising_group in reason
-        and f"no member declares domain {domain!r} on-demand" in reason
-    )
-
-
-def _self_test_case_on_demand_package_set_aside() -> bool:
-    """(q2) The same role PASSES when the package in the odd group declares
-    the role's domain on-demand: one group remains. A declaration on a
-    package in the OTHER group does not rescue it -- two groups still remain
-    (one of them smaller) -- and the reason names the declaring package as the
-    only one set aside."""
-    domain, _ = _two_universe_ids()
-    role = _name_roles(_divergent_tree_verdicts(domain), _SELF_TEST_DIVERGENT_ROLE)[0]
-    odd_declares = evaluate_role(
-        role, surfaces=ExemptionSurfaces(on_demand_by_language={_SELF_TEST_GAMMA: {domain: _SELF_TEST_REASON}})
-    )
-    other_declares = evaluate_role(
-        role, surfaces=ExemptionSurfaces(on_demand_by_language={_SELF_TEST_ALPHA: {domain: _SELF_TEST_REASON}})
-    )
-    other_reason = other_declares.failure_reasons[0] if other_declares.failure_reasons else ""
-    return (
-        not odd_declares.fails
-        and other_declares.fails
-        and _group_text((_SELF_TEST_BETA,)) in other_reason
-        and _group_text((_SELF_TEST_GAMMA,)) in other_reason
-        and f"only {_group_text((_SELF_TEST_ALPHA,))} declare(s)" in other_reason
-    )
-
-
-def _self_test_case_every_member_on_demand() -> bool:
-    """(q3) A divergent role every member of which declares the domain
-    on-demand passes -- no group is left -- and is still reported: the
-    evaluation exists, carries its domain, and prints a PASS line naming the
-    role."""
-    domain, _ = _two_universe_ids()
-    verdicts = _divergent_tree_verdicts(domain)
-    everyone = ExemptionSurfaces(
-        on_demand_by_language={
-            label: {domain: _SELF_TEST_REASON} for label in (_SELF_TEST_ALPHA, _SELF_TEST_BETA, _SELF_TEST_GAMMA)
-        }
-    )
-    evaluations = evaluate_roles(verdicts, surfaces=everyone)
-    lines = _recorded_gate_lines(evaluations)
-    return (
-        len(evaluations) == 1
-        and not evaluations[0].fails
-        and evaluations[0].domain == domain
-        and failing_role_count(evaluations) == 0
-        and any(line.startswith("PASS ") and f"role={_SELF_TEST_DIVERGENT_ROLE}" in line for line in lines)
     )
 
 
@@ -3350,7 +3149,7 @@ def _self_test_case_bucket_labels() -> bool:
     expected = frozenset({"identical", "same-behaviour", "divergent"})
     domain, _ = _two_universe_ids()
     verdicts = _divergent_tree_verdicts(domain)
-    lines = _recorded_gate_lines(evaluate_roles(verdicts, surfaces=ExemptionSurfaces.none()))
+    lines = _recorded_gate_lines(evaluate_roles(verdicts))
     summary = next((line for line in lines if line.startswith("BEHAVIOUR-PARITY REPORT:")), "")
     return (
         _VALID_BUCKET_IDS == expected
@@ -3369,7 +3168,7 @@ def _baseline_pinning(failing_roles: int) -> Mapping[str, AxisBaseline]:
 
 def _self_test_case_gate_outcome() -> bool:
     """(r) End to end on a synthetic three-package tree: a divergent role in a
-    real universe domain with no on-demand declaration FAILs (the FAIL line
+    real universe domain FAILs (the FAIL line
     names the role and every group) and is counted; a baseline pinning exactly
     that count exits 0; the identical non-adapter role fails while an
     adapter-exempt one passes; and both axes gate unless the run is
@@ -3378,7 +3177,7 @@ def _self_test_case_gate_outcome() -> bool:
     verdicts = _divergent_tree_verdicts(domain)
     if not _single_role_with_verdict(_name_roles(verdicts, _SELF_TEST_DIVERGENT_ROLE), _VERDICT_DIVERGENT):
         return False
-    evaluations = evaluate_roles(verdicts, surfaces=ExemptionSurfaces.none())
+    evaluations = evaluate_roles(verdicts)
     lines = _recorded_gate_lines(evaluations)
     at_pin = population_problems(AXIS_LANGUAGES, evaluations, _baseline_pinning(1))
     return (
@@ -3420,7 +3219,7 @@ def _duplicate_buckets_gate_correctly() -> bool:
         _write_module(root / _SELF_TEST_ALPHA, body)
         _write_module(root / _SELF_TEST_BETA, body)
         verdicts = _scan(root, (_SELF_TEST_ALPHA, _SELF_TEST_BETA))
-    evaluations = evaluate_roles(verdicts, surfaces=ExemptionSurfaces.none())
+    evaluations = evaluate_roles(verdicts)
     by_label = {role_label(evaluation.verdict.role_key): evaluation for evaluation in evaluations}
     return (
         not by_label["build_adapter_thing"].fails
@@ -3452,8 +3251,8 @@ def _self_test_case_undomained_role_counted() -> bool:
     domained one: alone it is one failing role, beside a domained failing
     role it makes two, and a pin that omits it fails the gate."""
     domain, _ = _two_universe_ids()
-    undomained = evaluate_roles(_undomained_tree_verdicts(), surfaces=ExemptionSurfaces.none())
-    domained = evaluate_roles(_divergent_tree_verdicts(domain), surfaces=ExemptionSurfaces.none())
+    undomained = evaluate_roles(_undomained_tree_verdicts())
+    domained = evaluate_roles(_divergent_tree_verdicts(domain))
     both = [*undomained, *domained]
     omitted = population_problems(AXIS_LANGUAGES, undomained, _baseline_pinning(0))
     counted = population_problems(AXIS_LANGUAGES, undomained, _baseline_pinning(1))
@@ -3478,7 +3277,7 @@ def _self_test_case_population_ratchet_both_directions() -> bool:
     count exits 0; an axis with no baseline section raises naming the pinned
     axes; a live split that does not sum to the live count is refused; and a
     stale bucket split is a note that never moves the verdict."""
-    evaluations = evaluate_roles(_undomained_tree_verdicts(), surfaces=ExemptionSurfaces.none())
+    evaluations = evaluate_roles(_undomained_tree_verdicts())
     live = failing_role_count(evaluations)
     split = {"identical": 0, "same_behaviour": 0, "divergent": live}
     pinned = _baseline_pinning(live)
@@ -3599,7 +3398,7 @@ def _self_test_case_filters_never_move_the_verdict() -> bool:
     unfiltered run's."""
     domain, other = _two_universe_ids()
     universe = frozenset(SHARED_CONTEXT_TYPES)
-    evaluations = evaluate_roles(_divergent_tree_verdicts(domain), surfaces=ExemptionSurfaces.none())
+    evaluations = evaluate_roles(_divergent_tree_verdicts(domain))
     baseline = _baseline_pinning(1)
     unfiltered = _recorded_gate_lines(evaluations)
     filtered_out = _recorded_gate_lines(evaluations, build_report_filter((other,), None, universe))
@@ -4423,8 +4222,8 @@ def _self_test_case_live_coordinate_floor() -> bool:
 def run_self_test() -> bool:
     """Prove the gate's non-vacuity: each synthetic role lands in exactly its
     bucket, the refusal path refuses, a broken member fails closed, every
-    ladder step and the on-demand set-aside both fire and decline on
-    synthetic input, no declared hole excuses a divergent role, an
+    ladder step fires and declines on synthetic input, no declared hole
+    excuses a divergent role, an
     undomained failing role is counted, the ratchet fails in both directions
     and the baseline loader refuses an unknown key, and the report filters
     never move the verdict.
@@ -4474,20 +4273,15 @@ def run_self_test() -> bool:
         "(l) ladder step 3: four owning-module shapes agreeing resolve; disagreement or a non-universe id is undomained",
     )
     ok &= _assert(
-        _self_test_case_on_demand_surface(),
-        "(m) on-demand set-aside: an on-demand entry for the role's domain sets the package aside; another "
-        "domain, none, or an undomained role do not",
-    )
-    ok &= _assert(
         _self_test_case_declared_hole_still_fails(),
-        "(n) NEG: a divergent role whose package would have been declared unsupported for its domain, and one "
-        "whose member is an @emit_adapter over a builtin group that would have been declared unsupported, STILL "
-        "FAIL naming both groups -- no declaration is an input any more",
+        "(n) NEG: a divergent role whose package would have been declared unsupported (or on-demand) for its "
+        "domain, and one whose member is an @emit_adapter over a builtin group that would have been declared "
+        "unsupported, STILL FAIL naming both groups -- evaluate_role takes the role alone",
     )
     ok &= _assert(
         _self_test_case_no_declaration_reader(),
         "(o) no declaration reader: this module's own AST imports, names and reads no domain stance, builtin-group "
-        "stance or capability-gap row; the matcher finds each one planted in a synthetic source",
+        "stance, capability-gap row or on-demand table; the matcher finds each one planted in a synthetic source",
     )
     ok &= _assert(
         _self_test_case_report_filters(),
@@ -4496,17 +4290,8 @@ def run_self_test() -> bool:
     )
     ok &= _assert(
         _self_test_case_skeleton_groups_fail_naming_every_group(),
-        "(q1) a divergent role split into two skeleton groups with no declaration FAILs with one reason naming "
-        "both groups -- no reference language, no lagging side",
-    )
-    ok &= _assert(
-        _self_test_case_on_demand_package_set_aside(),
-        "(q2) the same role passes when the odd group's package declares the domain on-demand; a declaration in "
-        "the other group leaves two groups and is named as the only one set aside",
-    )
-    ok &= _assert(
-        _self_test_case_every_member_on_demand(),
-        "(q3) a role every member of which declares the domain on-demand passes and is still reported",
+        "(q1) a divergent role split into two skeleton groups FAILs with one reason naming both groups -- no "
+        "reference language, no lagging side",
     )
     ok &= _assert(
         _self_test_case_bucket_labels(),
@@ -4649,8 +4434,8 @@ def run_self_test() -> bool:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Behaviour-parity gate: role grouping, behaviour-skeleton classification, domain resolution, "
-            "the on-demand set-aside and the pinned, two-directional failing-role ratchet."
+            "Behaviour-parity gate: role grouping, behaviour-skeleton classification, domain resolution "
+            "and the pinned, two-directional failing-role ratchet."
         )
     )
     parser.add_argument("--self-test", action="store_true", help="Run only the non-vacuity self-test.")
@@ -4741,8 +4526,7 @@ def _run_scan(args: argparse.Namespace) -> int:
         "behaviour-parity gate: packages=%s baseline=%s", sorted(target_src_dirs), BEHAVIOUR_PARITY_BASELINE_PATH.name
     )
     scan = discover_role_scan(axis, target_src_dirs, WORKSPACE_ROOT)
-    surfaces = live_exemption_surfaces(target_src_dirs) if axis == AXIS_LANGUAGES else ExemptionSurfaces.none()
-    evaluations = evaluate_roles(scan.verdicts, surfaces=surfaces)
+    evaluations = evaluate_roles(scan.verdicts)
     render_gate_report(evaluations, WORKSPACE_ROOT, report_filter=report_filter, debug=args.debug)
     if args.fingerprint:
         _run_fingerprint_pass(scan, WORKSPACE_ROOT)

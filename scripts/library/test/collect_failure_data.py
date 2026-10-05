@@ -12,7 +12,9 @@ the cap is cut with a pointer to its ``log_file``, which holds it whole. Each of
 the first ``--llm-hint-limit`` families then gets an advisory hint from a local
 model (``shared.local_llm``) that is given the traceback, the message and the
 source around the traceback's in-workspace frames -- the code an agent would
-otherwise open first. A hint is a hypothesis to verify, never a verdict.
+otherwise open first. Every prompt line carrying a registered customer term is
+withheld before it is sent, and without the term corpus no hint is requested at all.
+A hint is a hypothesis to verify, never a verdict.
 
 Supports all three
 structured index schemas: the package schema (structured_log_writer), the
@@ -56,6 +58,7 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
+from dev.customer_domain_isolation import TermCorpus  # noqa: E402
 from shared.local_llm import (  # noqa: E402
     ADVISORY_UNAVAILABLE_SOURCE,
     ChatRequest,
@@ -64,6 +67,11 @@ from shared.local_llm import (  # noqa: E402
     LocalLlmUnavailable,
     add_local_llm_arguments,
     local_llm_settings,
+)
+from shared.local_reading import (  # noqa: E402
+    ReadScopeError,
+    load_workspace_term_corpus,
+    withhold_customer_lines,
 )
 from shared.package_suites import (  # noqa: E402
     NODE_MANIFEST_NAME,
@@ -101,7 +109,8 @@ _LLM_HINT_WORKERS = 4
 _LLM_HINT_MAX_TOKENS = 300
 _LLM_HINT_TEMPERATURE = 0.1
 _LLM_HINT_TIMEOUT_MS = 120000
-_HINT_SKIPPED_SOURCE = "skipped"
+# The hint source of a family past the hint limit: no model was asked.
+HINT_SKIPPED_SOURCE = "skipped"
 
 # Source given to the hint model per family: this many in-workspace traceback
 # frames (deepest first), each with this many lines either side of the frame.
@@ -232,7 +241,7 @@ def _load_index(index_path: Path) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_run_dir_from_path(raw_path: str) -> Path:
+def resolve_run_dir_from_path(raw_path: str) -> Path:
     """Resolve a positional PATH (run dir or index.json) to the run directory."""
     path = Path(raw_path).resolve()
     if path.is_dir():
@@ -643,7 +652,7 @@ def _group_families(clusters: list[dict[str, object]]) -> list[_Family]:
                 head_representative=_representative_of(cluster),
                 cluster_ids=[],
                 test_count=0,
-                hint={"source": _HINT_SKIPPED_SOURCE, "text": "not requested"},
+                hint={"source": HINT_SKIPPED_SOURCE, "text": "not requested"},
             )
         family = families[key]
         cluster["family_id"] = family.family_id
@@ -718,12 +727,16 @@ def _hint_prompt(family: _Family, ctx: _RunContext) -> str:
     ])
 
 
-def _hint_for(family: _Family, ctx: _RunContext, pool: LocalLlmPool) -> dict[str, str]:
-    """One family's hint, or a hint saying no local server could answer."""
+def _hint_for(family: _Family, ctx: _RunContext, pool: LocalLlmPool, corpus: TermCorpus) -> dict[str, str]:
+    """One family's hint, or a hint saying no local server could answer.
+
+    Every prompt line carrying a registered customer term is withheld before it is sent.
+    """
+    lines, _withheld = withhold_customer_lines(_hint_prompt(family, ctx), corpus)
     try:
         reply = pool.chat(ChatRequest(
             system=_HINT_SYSTEM_PROMPT,
-            user=_hint_prompt(family, ctx),
+            user="\n".join(lines),
             temperature=_LLM_HINT_TEMPERATURE,
             max_tokens=_LLM_HINT_MAX_TOKENS,
         ))
@@ -737,19 +750,27 @@ def _attach_hints(
     ctx: _RunContext,
     settings: LocalLlmSettings | None,
     limit: int,
+    report: Callable[[str], None] | None = None,
 ) -> str:
     """Give the first ``limit`` families an advisory hint; return a one-line status.
 
     ``settings`` None means hints were switched off. Families past the limit, and
     any family no local server could answer for, carry a hint whose ``source`` says
-    why it has no model text -- a missing hint is never silent.
+    why it has no model text -- a missing hint is never silent. ``report`` receives
+    the pool's server-discovery lines; None prints them to stderr.
     """
     if settings is None or limit == 0 or not families:
         return "hints: off"
     wanted = families[:limit]
-    pool = LocalLlmPool(settings)
+    try:
+        corpus = load_workspace_term_corpus(ctx.workspace)
+    except ReadScopeError as exc:
+        for family in wanted:
+            family.hint = {"source": ADVISORY_UNAVAILABLE_SOURCE, "text": str(exc)}
+        return "hints: withheld (no customer-term corpus to filter the prompts)"
+    pool = LocalLlmPool(settings) if report is None else LocalLlmPool(settings, report=report)
     with ThreadPoolExecutor(max_workers=_LLM_HINT_WORKERS) as executor:
-        hints = list(executor.map(lambda family: _hint_for(family, ctx, pool), wanted))
+        hints = list(executor.map(lambda family: _hint_for(family, ctx, pool, corpus), wanted))
     for family, hint in zip(wanted, hints):
         family.hint = hint
     answered = sorted({hint["source"] for hint in hints if hint["source"] != ADVISORY_UNAVAILABLE_SOURCE})
@@ -1149,17 +1170,34 @@ def _check_hints_without_a_server() -> list[str]:
     settings = LocalLlmSettings(machines=("127.0.0.1",), reachable_timeout_ms=1000,
                                 ollama_port=closed, openai_ports=(closed,))
     families = _group_families([_self_test_cluster(n, "failure", f"p{n}", "tail") for n in (1, 2)])
-    ctx = _RunContext(run_dir=Path("."), workspace=Path("."), project="p", max_log_lines=1)
+    # The real workspace: its customer-term corpus lets the hint reach the (absent) server.
+    ctx = _RunContext(run_dir=Path("."), workspace=get_datrix_root(), project="p", max_log_lines=1)
     status = _attach_hints(families, ctx, settings, limit=1)
     problems: list[str] = []
     if "unavailable" not in status:
         problems.append(f"status must say hints were unavailable, got {status!r}")
     if families[0].hint["source"] != ADVISORY_UNAVAILABLE_SOURCE or "--local-machine" not in families[0].hint["text"]:
         problems.append(f"the requested family's hint must say why it is missing: {families[0].hint}")
-    if families[1].hint["source"] != _HINT_SKIPPED_SOURCE:
+    if families[1].hint["source"] != HINT_SKIPPED_SOURCE:
         problems.append(f"a family past the limit must be marked skipped: {families[1].hint}")
     if _attach_hints(families, ctx, None, limit=5) != "hints: off":
         problems.append("hints switched off must report 'hints: off'")
+    return problems
+
+
+def _check_no_corpus_means_no_hint_request() -> list[str]:
+    import tempfile
+
+    families = _group_families([_self_test_cluster(1, "failure", "p1", "tail")])
+    with tempfile.TemporaryDirectory(prefix="failure-data-") as temp:
+        ctx = _RunContext(run_dir=Path(temp), workspace=Path(temp), project="p", max_log_lines=1)
+        # Every machine is unreachable on purpose: a request would show as a server error, not a corpus one.
+        status = _attach_hints(families, ctx, LocalLlmSettings(machines=("127.0.0.1",), openai_ports=()), limit=1)
+    problems: list[str] = []
+    if not status.startswith("hints: withheld"):
+        problems.append(f"status must say the hints were withheld, got {status!r}")
+    if "customer-term corpus" not in families[0].hint["text"]:
+        problems.append(f"the hint must say the corpus is missing: {families[0].hint}")
     return problems
 
 
@@ -1169,6 +1207,7 @@ _SELF_TEST_BUNDLE_CHECKS: tuple[tuple[str, Callable[[], list[str]]], ...] = (
     ("clusters sharing a pattern form one family with one tail", _check_families),
     ("hint frames are in-workspace, non-vendored, with marked excerpts", _check_frame_paths),
     ("hints say why they are missing when no server answers", _check_hints_without_a_server),
+    ("no customer-term corpus: no hint prompt is sent", _check_no_corpus_means_no_hint_request),
 )
 
 
@@ -1315,24 +1354,33 @@ def _configure_logging(debug: bool) -> None:
     )
 
 
-def _run(args: argparse.Namespace) -> int:
-    if args.self_test:
-        return _run_self_test()
-    if bool(args.path) == bool(args.project):
-        raise UsageError(
-            "Provide exactly one input: either a positional PATH (run directory or "
-            "index.json) or --project <name>."
-        )
-    workspace = get_datrix_root()
-    if args.project:
-        run_dir = _resolve_run_dir_from_project(workspace, args.project)
-    else:
-        run_dir = _resolve_run_dir_from_path(args.path)
-    if args.max_log_lines < 1:
-        raise UsageError(
-            f"--max-log-lines must be a positive integer, got {args.max_log_lines}."
-        )
+@dataclass(frozen=True)
+class FailureData:
+    """A written failure-data.json: where it is, what it holds, and its one-line summary."""
 
+    path: Path
+    payload: dict[str, object]
+    summary: str
+
+
+def write_failure_data(
+    run_dir: Path,
+    workspace: Path,
+    *,
+    settings: LocalLlmSettings | None,
+    max_log_lines: int = _DEFAULT_MAX_LOG_LINES,
+    hint_limit: int = _DEFAULT_LLM_HINT_LIMIT,
+    report: Callable[[str], None] | None = None,
+) -> FailureData:
+    """Build the failure bundle for ``run_dir``, write it as failure-data.json, and return it.
+
+    ``settings`` None writes no model hints; otherwise the first ``hint_limit``
+    families get one (see ``_attach_hints``, which also says what ``report`` receives).
+    """
+    if max_log_lines < 1:
+        raise UsageError(
+            f"--max-log-lines must be a positive integer, got {max_log_lines}."
+        )
     index_path = run_dir / _INDEX_JSON_NAME
     index = _load_index(index_path)
     where = str(index_path)
@@ -1357,12 +1405,11 @@ def _run(args: argparse.Namespace) -> int:
         run_dir=run_dir,
         workspace=workspace,
         project=project,
-        max_log_lines=args.max_log_lines,
+        max_log_lines=max_log_lines,
     )
     clusters = _build_clusters(ctx, index)
     families = _group_families(clusters)
-    settings = None if args.no_llm_hints else local_llm_settings(args)
-    hint_status = _attach_hints(families, ctx, settings, args.llm_hint_limit)
+    hint_status = _attach_hints(families, ctx, settings, hint_limit, report)
 
     payload: dict[str, object] = {
         "schema_version": _SCHEMA_VERSION,
@@ -1373,7 +1420,7 @@ def _run(args: argparse.Namespace) -> int:
         "counts": counts,
         "total_clusters": len(clusters),
         "warnings_section_present": _warnings_section_present(run_dir),
-        "max_log_lines": args.max_log_lines,
+        "max_log_lines": max_log_lines,
         "total_families": len(families),
         "families": [family.to_json() for family in families],
         "clusters": clusters,
@@ -1384,12 +1431,35 @@ def _run(args: argparse.Namespace) -> int:
     output_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
-
-    print(
+    summary = (
         f"{error_count} errors, {failed_count} failures in {len(clusters)} clusters "
         f"({len(families)} families; {hint_status})"
     )
-    print(f"Details: {output_path}")
+    return FailureData(path=output_path, payload=payload, summary=summary)
+
+
+def _run(args: argparse.Namespace) -> int:
+    if args.self_test:
+        return _run_self_test()
+    if bool(args.path) == bool(args.project):
+        raise UsageError(
+            "Provide exactly one input: either a positional PATH (run directory or "
+            "index.json) or --project <name>."
+        )
+    workspace = get_datrix_root()
+    if args.project:
+        run_dir = _resolve_run_dir_from_project(workspace, args.project)
+    else:
+        run_dir = resolve_run_dir_from_path(args.path)
+    data =write_failure_data(
+        run_dir,
+        workspace,
+        max_log_lines=args.max_log_lines,
+        settings=None if args.no_llm_hints else local_llm_settings(args),
+        hint_limit=args.llm_hint_limit,
+    )
+    print(data.summary)
+    print(f"Details: {data.path}")
     return _EXIT_OK
 
 

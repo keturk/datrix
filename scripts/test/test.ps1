@@ -74,6 +74,13 @@
  only for those whose most recent run has failed or errored. Projects with no
  previous test results are skipped.
 
+.PARAMETER NoDigest
+ Print no failure digest. By default, after the summary, every failed package with a
+ saved run gets a short digest (library/test/run_digest.py): its failure groups with
+ location and re-run command, what changed since the previous run with the same test
+ selection, and a resident local model's reading of each group. The digest is also
+ written to digest.txt in the run directory. Model text is a lead to confirm.
+
 .PARAMETER Dbg
  Enable debug logging (DEBUG level instead of INFO).
 
@@ -156,6 +163,8 @@ param(
  [string]$Tag,
  [switch]$ListTags,
 
+ [switch]$NoDigest,
+
  [Parameter()]
  [switch]$Dbg
 )
@@ -168,6 +177,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # Get library directory path
 $libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\library"
 $testProjectScript = Join-Path $libraryDir "test\test_project.py"
+$runDigestScript = Join-Path $libraryDir "test\run_digest.py"
 
 # Import common modules
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
@@ -672,6 +682,7 @@ try {
  xpassed = $testCounts.xpassed
  warnings = $testCounts.warnings
  logPath = $projectLogPath
+ indexPath = $projectIndexPath
  }
 
  # Append AI prompt to project log file if there are failures, errors, or warnings
@@ -757,6 +768,29 @@ Peruse $absoluteProjectLogPath and fix $($promptParts -join ', ').
 
  Write-Host ""
  Write-Host "Total: $totalProjects | Passed: $passed | Failed: $failed" -ForegroundColor Cyan
+
+ # Failure digest: one short block per failed package whose run was saved. The digest
+ # never changes this script's exit code -- the tests decide that -- but a digest that
+ # could not be written says so instead of vanishing.
+ if (-not $NoDigest) {
+ foreach ($project in ($results.Keys | Sort-Object)) {
+  $result = $results[$project]
+  if ($result.success) { continue }
+  Write-Host ""
+  if (-not $result.indexPath) {
+  Write-Host "No failure digest for ${project}: the run saved no index.json." -ForegroundColor Yellow
+  continue
+  }
+  $ErrorActionPreference_Saved = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  & python $runDigestScript $result.indexPath 2>&1 | Write-Host
+  $digestExit = $LASTEXITCODE
+  $ErrorActionPreference = $ErrorActionPreference_Saved
+  if ($digestExit -ne 0) {
+  Write-Host "No failure digest for $project (run_digest.py exit code: $digestExit)." -ForegroundColor Yellow
+  }
+ }
+ }
 
  # Exit with appropriate code
  if ($failed -gt 0) {

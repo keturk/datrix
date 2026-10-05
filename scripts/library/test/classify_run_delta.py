@@ -27,6 +27,7 @@ import io
 import json
 import logging
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -309,10 +310,20 @@ def _resolve_inputs(args: argparse.Namespace) -> tuple[str, str]:
     return str(args.previous), str(args.current)
 
 
-def _run(args: argparse.Namespace) -> int:
-    previous_raw, current_raw = _resolve_inputs(args)
-    prev_dir = _resolve_run_dir(previous_raw, "previous")
-    cur_dir = _resolve_run_dir(current_raw, "current")
+@dataclass(frozen=True)
+class RunDelta:
+    """A written run-delta.json: where it is, what it holds, and its verdict."""
+
+    path: Path
+    payload: dict[str, object]
+    verdict: str
+    fixed: int
+    still_failing: int
+    new: int
+
+
+def classify_delta(prev_dir: Path, cur_dir: Path) -> RunDelta:
+    """Compare two run directories of one project, write run-delta.json into ``cur_dir``, return it."""
     prev_index = _load_index(prev_dir)
     cur_index = _load_index(cur_dir)
     prev_where = str(prev_dir / _INDEX_JSON_NAME)
@@ -371,13 +382,27 @@ def _run(args: argparse.Namespace) -> int:
     output_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
-
-    print(
-        f"VERDICT: {verdict} - fixed {len(now_passing)}, "
-        f"still-failing {len(still_failing)}, new {len(new_failures)}"
+    return RunDelta(
+        path=output_path,
+        payload=payload,
+        verdict=verdict,
+        fixed=len(now_passing),
+        still_failing=len(still_failing),
+        new=len(new_failures),
     )
-    print(f"Details: {output_path}")
-    return _EXIT_SUCCESS if verdict == _VERDICT_SUCCESS else _EXIT_NOT_SUCCESS
+
+
+def _run(args: argparse.Namespace) -> int:
+    previous_raw, current_raw = _resolve_inputs(args)
+    delta = classify_delta(
+        _resolve_run_dir(previous_raw, "previous"), _resolve_run_dir(current_raw, "current")
+    )
+    print(
+        f"VERDICT: {delta.verdict} - fixed {delta.fixed}, "
+        f"still-failing {delta.still_failing}, new {delta.new}"
+    )
+    print(f"Details: {delta.path}")
+    return _EXIT_SUCCESS if delta.verdict == _VERDICT_SUCCESS else _EXIT_NOT_SUCCESS
 
 
 def main() -> int:

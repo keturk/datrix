@@ -17,9 +17,11 @@ each registered language declares a `LanguageConformanceProbes`
 field with the JSON key the artifact actually emits. Reading Pydantic's
 computed aliases needs Pydantic, reading a TypeScript DTO needs its declaration
 convention -- neither can live in a shared script without naming a language.
-This gate holds the comparison, the population rule and the exemptions, and
-NEVER names a language; its self-test proves that first
-(`shared.registered_targets.target_references_in_module`).
+This gate holds the comparison and the population rule, and NEVER names a
+language; its self-test proves that first
+(`shared.registered_targets.target_references_in_module`). No language and no
+schema kind can be set aside: every in-population field that diverges fails,
+and the review file refuses any entry shape but a reviewed transform hit.
 
 The comparison is over EFFECTIVE wire names, never the mere presence of a
 wire-renaming mechanism: a response class with no alias generator whose
@@ -54,7 +56,7 @@ import re
 import shutil
 import sys
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -79,6 +81,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (  # noqa: E402
     EnumClassifierRender,
     LanguageConformanceProbes,
     ResponseBodyWireField,
+    RouteWireContract,
     conformance_probes_of_language_plugin,
     language_conformance_probes,
 )
@@ -140,9 +143,7 @@ class ResponseField:
         language: `datrix.languages` entry-point name that emitted this field.
         schema_kind: Coarse schema family ("entity_response", "cqrs_view_response",
             "problem_details", "dependency_response", or "response_schema" for
-            anything this language's probe did not specifically classify)
-            -- an exemption covers a whole divergent schema_kind, not one
-            field at a time.
+            anything this language's probe did not specifically classify).
         template: The language's own template source that produced this
             schema kind, when it can be attributed unambiguously; "" when
             the probe cannot name one specific template for this
@@ -173,9 +174,10 @@ class ResponseField:
 #: target's rule against someone else's wire and report a violation that is
 #: not one.
 #:
-#: This is a scope boundary, not an exemption -- an exemption says "a
-#: divergence we tolerate", and this is "not a member of the population".
-#: It is still never silent: the gate COUNTS the files it excludes per kind
+#: This is a population rule applied to every language alike, never a
+#: divergence one language is excused from: a dependency response is "not a
+#: member of the population" for every target. It is still never silent:
+#: the gate COUNTS the files it excludes per kind
 #: and reports that census beside its verdict, so an exclusion that starts
 #: swallowing an unexpected number of files is visible rather than invisible.
 _OUT_OF_SCOPE_SCHEMA_KINDS: Final[frozenset[str]] = frozenset({"dependency_response"})
@@ -246,46 +248,6 @@ def measured_population(
 
 
 # ---------------------------------------------------------------------------
-# Exemption file
-# ---------------------------------------------------------------------------
-
-
-def load_exemptions() -> dict[tuple[str, str], str]:
-    """Load and validate `body-wire-naming-exemptions.json`.
-
-    Returns:
-        `{(language, schema_kind): reason}`.
-
-    Raises:
-        ValueError: If the file is missing, malformed, or an entry has an
-            empty reason.
-    """
-    if not EXEMPTIONS_PATH.exists():
-        raise ValueError(
-            f"Missing exemption file {EXEMPTIONS_PATH}. It pins the "
-            f"catalogued body wire-naming divergences. Restore it from "
-            f"git; the gate never creates it."
-        )
-    data = json.loads(EXEMPTIONS_PATH.read_text(encoding="utf-8"))
-    entries = data.get("exemptions")
-    if not isinstance(entries, list):
-        raise ValueError(
-            f"Malformed exemption file {EXEMPTIONS_PATH}: expected an "
-            f"object with 'exemptions' (array of "
-            f"{{language, schema_kind, template, reason}})."
-        )
-    exemptions: dict[tuple[str, str], str] = {}
-    for entry in entries:
-        for key in ("language", "schema_kind", "template", "reason"):
-            if not isinstance(entry.get(key), str) or not entry[key].strip():
-                raise ValueError(
-                    f"Exemption entry {entry!r} is missing a non-empty {key!r}."
-                )
-        exemptions[(entry["language"], entry["schema_kind"])] = entry["reason"]
-    return exemptions
-
-
-# ---------------------------------------------------------------------------
 # Response-body transform census
 # ---------------------------------------------------------------------------
 
@@ -344,27 +306,64 @@ class TransformExemption:
         )
 
 
+#: The only top-level keys the review file may carry. A field divergence has
+#: no review shape at all -- no language and no schema kind can be set aside --
+#: so any other key (a returning per-language or per-schema-kind exemption list
+#: above all) is refused, never ignored.
+_REVIEW_FILE_KEYS: Final[frozenset[str]] = frozenset({"_comment", "transform_exemptions"})
+
+
 def load_transform_exemptions() -> tuple[TransformExemption, ...]:
-    """Load and validate the ``transform_exemptions`` of `body-wire-naming-exemptions.json`.
+    """Load and validate `body-wire-naming-exemptions.json`.
 
     Raises:
-        ValueError: If the file or its ``transform_exemptions`` array is missing
-            or malformed, or an entry lacks a non-empty field.
+        ValueError: If the file is missing or malformed (see
+            :func:`parse_transform_exemptions`).
     """
     if not EXEMPTIONS_PATH.exists():
         raise ValueError(
             f"Missing exemption file {EXEMPTIONS_PATH}. It pins the reviewed "
             f"response-body transform hits. Restore it from git; the gate never creates it."
         )
-    data = json.loads(EXEMPTIONS_PATH.read_text(encoding="utf-8"))
+    data: object = json.loads(EXEMPTIONS_PATH.read_text(encoding="utf-8"))
+    return parse_transform_exemptions(data, EXEMPTIONS_PATH)
+
+
+def parse_transform_exemptions(data: object, source: Path) -> tuple[TransformExemption, ...]:
+    """Validate the parsed review file *data* read from *source*.
+
+    Raises:
+        ValueError: If *data* is not an object, carries a key outside
+            ``_comment``/``transform_exemptions``, its ``transform_exemptions``
+            array is missing or malformed, or an entry lacks a non-empty field.
+    """
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Malformed exemption file {source}: expected an object with "
+            f"'transform_exemptions' (array of {{language, path_suffix, matched_text, reason}})."
+        )
+    unknown = sorted(set(data) - _REVIEW_FILE_KEYS)
+    if unknown:
+        raise ValueError(
+            f"Exemption file {source} carries unrecognized key(s) {unknown}; valid keys are "
+            f"{sorted(_REVIEW_FILE_KEYS)}. A response-body field that diverges from the "
+            f"declared camelCase rule is a defect in that language's template and always fails "
+            f"this gate -- no language or schema kind can be set aside. Fix: delete the key and "
+            f"fix the template."
+        )
     entries = data.get("transform_exemptions")
     if not isinstance(entries, list):
         raise ValueError(
-            f"Malformed exemption file {EXEMPTIONS_PATH}: expected 'transform_exemptions' "
+            f"Malformed exemption file {source}: expected 'transform_exemptions' "
             f"(array of {{language, path_suffix, matched_text, reason}})."
         )
     exemptions: list[TransformExemption] = []
     for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"Malformed exemption file {source}: transform exemption entry {entry!r} is not "
+                f"an object. Expected {{language, path_suffix, matched_text, reason}}."
+            )
         for key in ("language", "path_suffix", "matched_text", "reason"):
             if not isinstance(entry.get(key), str) or not entry[key].strip():
                 raise ValueError(
@@ -464,6 +463,9 @@ class _FixtureProbes:
     def response_body_wire_fields(self, generated_root: Path) -> tuple[ResponseBodyWireField, ...]:
         return self._fields
 
+    def route_wire_contracts(self, generated_root: Path) -> tuple[RouteWireContract, ...]:
+        return ()
+
     def documentation_surfaces(self, generated_root: Path, files: Sequence[Path]) -> DocumentationSurfaces:
         return DocumentationSurfaces(frozenset(), frozenset())
 
@@ -489,9 +491,9 @@ def _fixture_field(
 
 def run_self_test() -> list[str]:
     """Prove this gate names no target, the comparator detects a forced mismatch,
-    respects a real exemption, does not flag a single-word-field false positive,
-    and drives its real dispatch with fixture probes -- before any real
-    comparison is trusted.
+    does not flag a single-word-field false positive, drives its real dispatch
+    with fixture probes, and refuses a review file that would set a schema kind
+    aside -- before any real comparison is trusted.
 
     Returns:
         A list of failure descriptions -- empty means the comparator is sound.
@@ -547,6 +549,7 @@ def run_self_test() -> list[str]:
 
     problems.extend(_run_probe_dispatch_self_test())
     problems.extend(_run_transform_census_self_test())
+    problems.extend(_run_review_file_shape_self_test())
     problems.extend(_run_insufficient_target_refusal_self_test())
     return problems
 
@@ -555,16 +558,15 @@ def _run_probe_dispatch_self_test() -> list[str]:
     """Drive the gate's real per-language evaluation with fixture probes.
 
     The fixture language's name is not a registered one: a conformant probe
-    passes, a planted divergence fails, an exemption suppresses a divergence, an
-    empty result fails, a dependency-only result fails (and is counted), an
-    out-of-population divergence is excluded and counted, and a plugin with no
-    probe member fails with the accessor's message.
+    passes, a planted divergence fails, an empty result fails, a
+    dependency-only result fails (and is counted), an out-of-population
+    divergence is excluded and counted, and a plugin with no probe member
+    fails with the accessor's message.
     """
     problems: list[str] = []
-    no_exemptions: dict[tuple[str, str], str] = {}
 
-    def evaluate(fields: Sequence[ResponseBodyWireField], exemptions: Mapping[tuple[str, str], str] = no_exemptions):
-        return evaluate_probe_fields(_SELF_TEST_LANGUAGE, _FixtureProbes(fields), Path("."), exemptions)
+    def evaluate(fields: Sequence[ResponseBodyWireField]) -> tuple[bool, Counter[str]]:
+        return evaluate_probe_fields(_SELF_TEST_LANGUAGE, _FixtureProbes(fields), Path("."))
 
     ok, _ = evaluate([_fixture_field("entity_response", "order_id", "orderId")])
     if not ok:
@@ -573,13 +575,6 @@ def _run_probe_dispatch_self_test() -> list[str]:
     ok, _ = evaluate([_fixture_field("entity_response", "order_id", "order_id")])
     if ok:
         problems.append("self-test: a fixture probe emitting 'order_id' for order_id was not reported.")
-
-    ok, _ = evaluate(
-        [_fixture_field("entity_response", "order_id", "order_id")],
-        {(_SELF_TEST_LANGUAGE, "entity_response"): "self-test exemption"},
-    )
-    if not ok:
-        problems.append("self-test: a divergence covered by an exemption was still reported.")
 
     ok, _ = evaluate([])
     if ok:
@@ -681,6 +676,50 @@ def _run_transform_census_self_test() -> list[str]:
             "self-test: a language with no capability declaration was not refused -- the "
             "census would silently count nothing for it."
         )
+    return problems
+
+
+def _run_review_file_shape_self_test() -> list[str]:
+    """Prove the review file accepts only reviewed transform hits.
+
+    A file carrying a per-language, per-schema-kind ``exemptions`` list -- the
+    shape that once let a language stop being measured on a whole response
+    surface -- is refused naming the key, while the real shape parses.
+    """
+    problems: list[str] = []
+    source = Path("self-test-body-wire-review.json")
+    reviewed = {
+        "language": _SELF_TEST_LANGUAGE,
+        "path_suffix": "src/main.ts",
+        "matched_text": _SELF_TEST_INTERCEPTOR_MATCH,
+        "reason": "self-test review",
+    }
+    set_aside = {
+        "language": _SELF_TEST_LANGUAGE,
+        "schema_kind": _SELF_TEST_SCHEMA_KIND,
+        "template": "",
+        "reason": "self-test set-aside",
+    }
+    parsed = parse_transform_exemptions({"_comment": [], "transform_exemptions": [reviewed]}, source)
+    if [entry.path_suffix for entry in parsed] != ["src/main.ts"]:
+        problems.append(f"self-test: a well-formed review file did not parse to its one entry (got {parsed!r}).")
+    try:
+        parse_transform_exemptions({"transform_exemptions": [], "exemptions": [set_aside]}, source)
+    except ValueError as exc:
+        if "'exemptions'" not in str(exc):
+            problems.append(f"self-test: the refusal of a set-aside list did not name the key ({exc}).")
+    else:
+        problems.append(
+            "self-test: a review file carrying a per-schema-kind 'exemptions' list was accepted -- "
+            "a language could stop being measured on a whole response surface."
+        )
+    try:
+        parse_transform_exemptions({"transform_exemptions": ["src/main.ts"]}, source)
+    except ValueError as exc:
+        if "is not an object" not in str(exc):
+            problems.append(f"self-test: the refusal of a non-object entry did not say so ({exc}).")
+    else:
+        problems.append("self-test: a review file carrying a non-object transform entry was accepted.")
     return problems
 
 
@@ -802,14 +841,13 @@ def evaluate_probe_fields(
     language: str,
     probes: LanguageConformanceProbes,
     output_dir: Path,
-    exemptions: Mapping[tuple[str, str], str],
 ) -> tuple[bool, Counter[str]]:
     """Read *language*'s response fields through *probes* and compare them with the declared rule.
 
     Returns:
         `(conformant, excluded_by_scope)` -- `conformant` is False when the probe
-        finds no in-population field or any field diverges without an exemption;
-        `excluded_by_scope` counts the files excluded per out-of-population kind.
+        finds no in-population field or any field diverges; `excluded_by_scope`
+        counts the files excluded per out-of-population kind.
     """
     measured, excluded = measured_population(language, probes.response_body_wire_fields(output_dir))
     if not measured:
@@ -825,8 +863,6 @@ def evaluate_probe_fields(
     for field in measured:
         if is_wire_name_conformant(field):
             continue
-        if (field.language, field.schema_kind) in exemptions:
-            continue
         ok = False
         logger.error(
             "BODY WIRE-NAMING VIOLATION: language %r schema_kind %r "
@@ -834,26 +870,25 @@ def evaluate_probe_fields(
             "(camelCase, per the declared response-body wire-naming rule). "
             "File: %s. Fix: apply the language's own wire-naming mechanism "
             "(an alias generator, a JsonPropertyName override, or the "
-            "equivalent), or add a reviewed entry to %s.",
+            "equivalent) in that template.",
             field.language, field.schema_kind,
             field.template or "<unclassified>", field.field_name,
             field.effective_wire_name, body_wire_name(field.field_name),
-            field.file_path, EXEMPTIONS_PATH,
+            field.file_path,
         )
     return ok, excluded
 
 
 def _check_language(
     language: str,
-    exemptions: Mapping[tuple[str, str], str],
     transform_exemptions: Sequence[TransformExemption],
 ) -> tuple[bool, Counter[str]]:
     """Run the real checks for one language over one generated example.
 
     Returns:
         `(conformant, excluded_by_scope)` -- `conformant` is False if the
-        language declares no probes, emits at least one unexempted divergence,
-        or fails the response-transform census; `excluded_by_scope` tallies the
+        language declares no probes, emits at least one divergence, or fails
+        the response-transform census; `excluded_by_scope` tallies the
         files its probe returned for kinds outside the measured population.
     """
     output_dir = _generate_example_for_language(language)
@@ -863,7 +898,7 @@ def _check_language(
     except PluginValidationError as exc:
         logger.error("BODY WIRE-NAMING VIOLATION: %s", exc)
         return False, Counter()
-    fields_ok, excluded = evaluate_probe_fields(language, probes, output_dir, exemptions)
+    fields_ok, excluded = evaluate_probe_fields(language, probes, output_dir)
     return transforms_ok and fields_ok, excluded
 
 
@@ -884,8 +919,8 @@ def check_body_wire_naming_conformance(languages: Sequence[str] | None = None) -
             to catch, and it fails loudly instead of quietly passing.
 
     Returns:
-        Exit code (0 = conformant, 1 = at least one unexempted divergence
-        or a language with no conformance probes, 2 = fewer than
+        Exit code (0 = conformant, 1 = at least one divergence, an unreviewed
+        transform hit, or a language with no conformance probes, 2 = fewer than
         `_MIN_LANGUAGES_FOR_COMPARISON` languages registered).
     """
     languages = sorted(registered_language_names() if languages is None else languages)
@@ -898,13 +933,12 @@ def check_body_wire_naming_conformance(languages: Sequence[str] | None = None) -
         return 2
 
     shutil.rmtree(_GATE_OUTPUT_ROOT, ignore_errors=True)
-    exemptions = load_exemptions()
     transform_exemptions = load_transform_exemptions()
 
     ok = True
     total_excluded: Counter[str] = Counter()
     for language in languages:
-        language_ok, excluded = _check_language(language, exemptions, transform_exemptions)
+        language_ok, excluded = _check_language(language, transform_exemptions)
         ok = ok and language_ok
         total_excluded.update(excluded)
 
@@ -916,8 +950,8 @@ def check_body_wire_naming_conformance(languages: Sequence[str] | None = None) -
 
     if ok:
         logger.info(
-            "Body wire-naming conformance holds across %d languages (%s); every "
-            "divergence is exempted and no unreviewed response-body transform exists.",
+            "Body wire-naming conformance holds across %d languages (%s); no "
+            "response-body field diverges and no unreviewed response-body transform exists.",
             len(languages), languages,
         )
         return 0
@@ -934,8 +968,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Prove every registered datrix.languages plugin serializes "
-            "response-body fields under ONE declared camelCase rule, or "
-            "declares the surface exempted."
+            "response-body fields under ONE declared camelCase rule."
         ),
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")

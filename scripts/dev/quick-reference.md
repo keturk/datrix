@@ -509,13 +509,13 @@ Queries never leave the machine. `-Summarize` is the exception, and it only runs
 | `digest_log` | The distinct failures in a test, generation or deploy log: one entry per cause, with its count, the first log line and the source `file:line` it names. A log too large to read whole is cut to the lines around error markers, or to its end when it has none. |
 | `local_models` | Which servers answer, what they hold in memory, and recent usage. |
 
-**What may be read:** files inside the framework repositories (`datrix` and every `datrix-*` git repository at the workspace root) and `.test-output`. Anything else is refused: another repository at the workspace root, `.tmp`, `reports`, `design`, `.git` internals. (`skill-assist.ps1` is the one script that sends design docs and findings files to a model, through the same customer-term filter; see its entry.) Paths are resolved before the check, so `..` cannot escape it. An answer is a lead, not a finding. Every citation is checked against the files and lines that were actually sent, and one that does not match is called out under the answer. The agent opens the cited lines with a ranged Read before acting on them.
+**What may be read:** files inside the framework repositories (`datrix` and every `datrix-*` git repository at the workspace root) and `.test-output`. Anything else is refused: another repository at the workspace root, `.tmp`, `reports`, `design`, `.git` internals. (`skill\skill-assist.ps1` is the one script that sends design docs and findings files to a model, through the same customer-term filter; see `skill/quick-reference.md`.) Paths are resolved before the check, so `..` cannot escape it. An answer is a lead, not a finding. Every citation is checked against the files and lines that were actually sent, and one that does not match is called out under the answer. The agent opens the cited lines with a ranged Read before acting on them.
 
 **The harness uses the models without an agent asking.** Two hooks (`claude-config/.claude/hooks/`) call them on an agent's behalf; both are bounded, resident-models-only, and fail open (any failure leaves the tool call exactly as it was):
 
 | Hook | When | What the agent gets | Usage caller |
 |------|------|---------------------|--------------|
-| `digest-red-test-run.py` (PostToolUse) | a `test.ps1` / `test-single.ps1` run's console output reports a package that is not `[PASSED]` | A local model's list of the distinct failures in the run's `full.log` (up to 2 runs per call), with a pointer to the run's `failure-data.json` | `hook:red-test-digest` |
+| `digest-red-test-run.py` (PostToolUse) | a `test.ps1` / `test-single.ps1` run's console output reports a package that is not `[PASSED]` | A local model's list of the distinct failures in the run's `full.log` (up to 2 runs per call), with a pointer to the run's `failure-data.json`. A run whose folder holds `digest.txt` is skipped: `test.ps1` already printed its failure digest in the same output | `hook:red-test-digest` |
 | `redirect-large-read.py` (PreToolUse on `Read`) | the **first** whole read (no `offset`/`limit`), by one agent, of a `.py` file of 14,000 bytes or more in a framework repo, or of a `.log` of 20,000 bytes or more under `.test-output`/`.test_results` | The read is refused with the file's code-index outline (definitions with line ranges, plus the module summary a local model wrote) or, for a log, the model's digest. Repeating the same Read goes through: the notice is shown once per file per agent. Ranged reads, small files, files outside the framework repos or the index, and any failure are never refused | `hook:large-read-digest` |
 
 | `inject-task-orientation.py` (PostToolUse on `Read`) | an agent reads a task file (`.tasks/phase-NN/task-NN-TT-*.md`) that carries an `## Orientation` block | The block answered into the agent's context: `symbol` / `refs` / `outline` / `canonical` entries as exact code-index answers, `explain` entries as a local model's cited reading (marked a lead), and an entry that no longer resolves called out as a stale premise. Once per task per agent; a task with no block, or a ranged read of the middle of a task, gets nothing. Task format and the validator: `tasks/quick-reference.md`, `validate-task.ps1` | `hook:task-orientation` |
@@ -557,45 +557,6 @@ Queries never leave the machine. `-Summarize` is the exception, and it only runs
 **Parameters:** exactly one of: a question (positional or `-Question`), `-Status`, `-Rebuild`, `-Prune`. Modifiers: `-In`, `-Refresh`, `-NoLearn`, `-Limit` (answers shown, default 3), and the shared local-model flags `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (seconds, default 120).
 
 **Exit codes:** 0 answered; 1 the request could not be carried out (the message says why); 2 no answer (not in the knowledge base and no local model could add one). An answer is a lead, not a finding: open the cited lines before acting on it. Gate: `test\ineedtoknow-gate.ps1`.
-
-### `dev\skill-chain.ps1`
-
-**Runs skills one after another as headless `claude -p` steps, each on its own skill's `model:`/`effort:`.** A skill invoked from inside another skill runs on the caller's model; a typed slash command switches to the skill's own. Each step here is a typed slash command in its own run, with the workspace's hooks, CLAUDE.md and guards. Needs the workspace trusted in `~/.claude.json` (`hasTrustDialogAccepted`), or headless runs ignore `settings.json`'s permissions.
-
-| Mode | Command | Description |
-|------|---------|-------------|
-| **Implement a design (tasks path)** | `.\dev\skill-chain.ps1 -Design "D:\datrix\design\<file>.md"` | operationalize → orchestrate → verify → absorb, with script checks between steps |
-| **Resume after a question** | `.\dev\skill-chain.ps1 -Design "<file>" -StartAt orchestrate -Phase 52` | Start at `orchestrate`, `verify` or `absorb` (needs `-Phase`) |
-| **Any sequence** | `.\dev\skill-chain.ps1 "/fix-codegen-python <index.json>" "/commit-and-push"` | Prompts in order; stops at the first error |
-| **One session throughout** | append `-Resume` | Carry one session through every step instead of a fresh one per step |
-| **Preview** | append `-DryRun` | Print the steps; run none |
-
-Checks between `-Design` steps are scripts: operationalize must create a new phase (`latest-phase.ps1` before/after; otherwise it stopped for a decision and the chain exits 2 with its reply and session id); the phase is closed only when `phase-status.ps1` shows every task completed with no How-Solved red flag and the design's `Status:` reads Implemented (else the orchestrator runs again, up to `-MaxRounds`); absorb runs only after verify replies `Design conformance: PROVEN` (INCOMPLETE runs the orchestrator and verify again). The direct path is `/implement-design-direct` in one session.
-
-**Fresh vs `-Resume`.** A fresh step pays the workspace start-up context (about 26k tokens, mostly served from the prompt cache when the model repeats) plus the mandatory reads, and starts with its context window free. `-Resume` re-reads nothing, but every step starts with all previous steps' transcript: on a model change that whole transcript is written to the cache again at the new model's price, and an orchestrator that starts with a full window reaches compaction sooner. The `-Design` steps hand over through files (tasks, reports), so fresh is the default.
-
-**Parameters:** `-Design` | the prompts as positional arguments; `-StartAt`, `-Phase`, `-KeepSource` (with `-Design`); `-Resume`; `-PermissionMode auto|acceptEdits|dontAsk|bypassPermissions` (default `auto`; the guards run in every mode); `-MaxBudgetUsd` (per step, list price); `-MaxRounds` (default 3); `-DryRun`. Logs: `D:\datrix\.tmp\skill-chain\<timestamp>\` (each step's JSON result and stderr). **Exit codes:** 0 done; 1 a step ended in error or a check failed; 2 a step stopped for a decision only Jon can make.
-
-### `dev\skill-assist.ps1`
-
-**The mechanical phases of agent skills, done by a script or a local model instead of a Claude model.** Each command writes its output to `d:\datrix\.tmp\assist\` and prints the path with a one-line summary. Exact checks are exact; whatever a local model writes is checked against its inputs (citations and quotes against what it was sent, set comparisons against the source) and is marked as a lead. The skill keeps every verdict. Wrapper over `library/dev/skill_assist.py`; the logic is in `library/assist/`.
-
-| Command | Skill phase it serves | What it produces |
-|---------|-----------------------|------------------|
-| `context-digest --phase N` | `/task-orchestrator` shared-context pre-read | Per package of the phase: the directories its tasks touch, each module with its first docstring line (or the index's summary), files a task names marked, files not yet created marked. From the code index; no model. Fits 400 lines |
-| `readiness --phase N [--no-model]` | `/task-orchestrator` 1e readiness audit (dimensions 3, 4, 6) | Exact: dependency edges the graph lacks (a not-yet-existing file read or co-created without an order) and `## Codebase Context` dotted names the index cannot resolve. Lead: for each task whose edit sites all exist, a local model's SATISFIED / NOT SATISFIED / UNCLEAR on its acceptance property, citations checked. `validate-task.ps1` stays the citation and orientation check |
-| `findings-index [--dir D]` | `/consolidate-findings` Phases 1–3 | Every findings file split into atomic findings (seam, packages, defect, citations) in one table sorted by seam; per file, citations no finding carries and citations the model invented |
-| `findings-check --delete F... [--dir D]` | `/consolidate-findings` Phase 5 | Exact: every `path:line` and backticked path of the files to delete appears in a remaining file; every `**Related:**` pointer resolves; no mojibake; no raw file left un-superseded |
-| `checklist --design PATH` | `/verify-implementation` Phase 1 | The design's requirements (id, sentence, surfaces, cited lines) drafted by a local model; an item whose quote is not at its lines is flagged; every requirement-bearing line (a decision id or must/never/always/shall/required/forbidden/fail closed/fail loud) that no item covers is listed |
-| `absorb-transfer --design PATH --target T...` | `/absorb-design` Phase 3 | Per design section: PRESENT / PARTIAL / MISSING in the target docs (framework repos), with checked citations |
-| `absorb-references --design PATH [--also P...]` | `/absorb-design` Phase 4 | Exact: every line in the framework repos (and the extra paths) naming the design's file name, stem, title or number in a design-reference form. `.tasks` is not searched |
-| `bug-resolution --report R --repo P... [--file F...] ...` | `/fix-bug-report` Phase 3 | The Resolution section: the Changes Made table from `git diff HEAD` plus untracked files (a framework file's row is a model's one-line summary of its diff; any other repo's row is the diff's shape and hunk functions, and nothing of it is sent to a model) and the facts passed (`--status`, `--fix-type`, `--exhibiting`, `--reached`, `--verification "profile|regenerated|artifact|result"`, or `--reason` + `--notes` when unresolved). A draft by default; `--append` appends it, refusing a report that already has one |
-
-**What is sent to a model.** `checklist`, `absorb-transfer` and `findings-index` send design docs and findings files, which the MCP tools refuse; `readiness` and `absorb-transfer` read framework-repo files through the MCP tools' own scope. Every line is checked against the customer-term corpus first and withheld when it carries a registered term; without the corpus nothing is sent. `bug-resolution` sends a diff only for a framework repository, and never one that carries a term.
-
-**Parameters:** the command, then its own python-style arguments; for the model commands the shared local-model flags `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (seconds, default 300).
-
-**Exit codes:** 0 done; 1 the request could not be carried out; 2 the check found something to act on (`findings-check` FAIL, `absorb-transfer` partial/missing, `absorb-references` found lines); 3 no local model answered — do that phase yourself, as the skill did before the assist. Gate: `test\skill-assist-gate.ps1`.
 
 ### `dev\code-scan.ps1`
 

@@ -28,50 +28,40 @@ For every (example, runtime, provider) generated in >= 2 languages:
      naming differs by design across languages; the ROLE set is the
      contract, not the literal path shape).
   3. The set of roles with >= 1 matching path must be IDENTICAL across the
-     example's generated languages, EXCLUDING two kinds of non-drift:
-       a. any domain the "missing" language declares emitted on demand on
-          its `LanguageCapabilityDeclaration.on_demand_domains` -- it emits
-          the domain only when the DSL invokes a triggering construct while
-          another language emits baseline scaffolding regardless; a
-          language-level fact, declared once with its trigger; and
-       b. any domain the "missing" language realizes by a structural_pattern
-          that nonetheless matches ZERO files across that language's ENTIRE
-          generated footprint (every example, not just the one being
-          compared) -- an EMPIRICAL corpus-wide fact derived from the same
-          manifests this gate already reads (never DSL source): the domain's
-          triggering construct simply never occurs anywhere in the corpus
-          for this language, so a single-example "missing" verdict against
-          it carries no information either. That skip is silent no longer:
-          every corpus-vacuous (language, domain) must carry a typed record
-          in corpus-vacuity-records.json saying WHY nothing exercises it, and
-          the gate fails both on an unrecorded pair and on a record whose
-          pair is no longer vacuous (see check_corpus_vacuity_records). A
-          generator no reference example reaches has no end-to-end signal at
-          all -- silence about which of those generators CANNOT be reached
-          and which merely ARE NOT is the state this file's records end.
-     Nothing else excuses a missing role. A language that realizes a domain
-     by NO structural_pattern has no declaration to read an absence from: the
-     capability gap is recorded once, as a `capability_gaps` row on the
-     language's own capability declaration and counted by the capability-gap
-     ledger gate, and this gate reports the missing role as a failure
-     regardless of whether such a row exists. A difference over a domain the
-     language realizes by a pattern AND realizes somewhere else in its own
-     generated footprint (this specific example's tree just has no matching
-     file, while another language's does) may carry an entry in
-     artifact-role-exemptions.json (coordinates + reason) --
-     `load_exemptions` refuses an entry naming a domain its language realizes
-     by no structural_pattern, or one it emits on demand, since an exemption
-     is an example-specific hole, never a language-level absence.
+     example's generated languages, EXCLUDING one kind of non-drift: any
+     domain the "missing" language realizes by a structural_pattern that
+     nonetheless matches ZERO files across that language's ENTIRE generated
+     footprint (every example, not just the one being compared) -- an
+     EMPIRICAL corpus-wide fact derived from the same manifests this gate
+     already reads (never DSL source, never a declaration): the domain's
+     triggering construct simply never occurs anywhere in the corpus for this
+     language, so a single-example "missing" verdict against it carries no
+     information. That skip is silent no longer: every corpus-vacuous
+     (language, domain) must carry a typed record in
+     corpus-vacuity-records.json saying WHY nothing exercises it, and the
+     gate fails both on an unrecorded pair and on a record whose pair is no
+     longer vacuous (see check_corpus_vacuity_records). A generator no
+     reference example reaches has no end-to-end signal at all -- silence
+     about which of those generators CANNOT be reached and which merely ARE
+     NOT is the state this file's records end.
+     Nothing else excuses a missing role: no declaration and no committed
+     per-example file sets a language aside. A language that emits a domain
+     under a different DSL trigger than another language (only for some
+     construct, where the other emits it for more) diverges in what the same
+     source produces, and the gate reports it. A language that realizes a
+     domain by NO structural_pattern has no declaration to read an absence
+     from: the capability gap is recorded once, as a `capability_gaps` row on
+     the language's own capability declaration and counted by the
+     capability-gap ledger gate, and this gate reports the missing role as a
+     failure regardless of whether such a row exists.
 
   4. The same role-set comparison runs ACROSS PROVIDERS for a fixed language:
      for every (language, example, runtime) generated under >= 2 providers,
      the set of roles each provider's tree carries must be identical -- a role
      present under one provider and absent under another is a failure on
-     its own line (`ARTIFACT-ROLE CROSS-PROVIDER DRIFT`). The same two
-     skips apply; the per-example exemption file never does (it carries no
-     provider coordinate, so honoring it would silence every provider of the
-     language). Below two providers there is nothing to compare, so the
-     provider axis is a no-op over a single-provider corpus -- its
+     its own line (`ARTIFACT-ROLE CROSS-PROVIDER DRIFT`). The same corpus
+     vacuity skip applies. Below two providers there is nothing to compare,
+     so the provider axis is a no-op over a single-provider corpus -- its
      self-test is what proves it live.
 
 This gate pins PRESENCE across languages and providers. Whether the CONTENT of a generated
@@ -84,7 +74,7 @@ Built-in non-vacuity self-test, every invocation, one ``[OK]`` line per case:
 proves compare_role_sets detects a forced mismatch and does not false-positive
 a matching pair, proves classify_paths correctly buckets a synthetic manifest
 against synthetic declarations (including the unclassified bucket), proves a
-missing role is a failure unless one of the two skips excuses it, and proves
+missing role is a failure unless the corpus vacuity skip excuses it, and proves
 the provider axis detects a planted role present under one provider and absent
 under another while reporting nothing for identical sets or a single provider.
 Refuses to pass vacuously: zero (example, runtime, provider) groups generated
@@ -150,7 +140,6 @@ MANIFESTS_RELPATH: Path = Path(".datrix") / "manifests"
 KNOWN_NON_GENERATING_PATH: Path = (
     DATRIX_DIR / "scripts" / "config" / "parity-known-nongenerating.json"
 )
-EXEMPTIONS_PATH: Path = DATRIX_DIR / "scripts" / "config" / "artifact-role-exemptions.json"
 CORPUS_VACUITY_RECORDS_PATH: Path = (
     DATRIX_DIR / "scripts" / "config" / "corpus-vacuity-records.json"
 )
@@ -200,16 +189,6 @@ VACUITY_UNEXERCISED: Final[str] = "unexercised"
 _VACUITY_STATUSES: Final[frozenset[str]] = frozenset(
     {VACUITY_UNREACHABLE, VACUITY_CLOUD_ONLY, VACUITY_UNEXERCISED}
 )
-
-
-@dataclass(frozen=True)
-class ExemptionEntry:
-    """One reviewed hole in artifact-role-exemptions.json."""
-
-    example: str
-    domain: str
-    language: str
-    reason: str
 
 
 @dataclass(frozen=True)
@@ -717,180 +696,8 @@ def compare_role_sets(
 
 
 # ---------------------------------------------------------------------------
-# Exemptions
+# The one skip: corpus vacuity
 # ---------------------------------------------------------------------------
-
-
-def load_exemptions() -> list[ExemptionEntry]:
-    """Load and validate artifact-role-exemptions.json.
-
-    An absent file means no per-example exemptions -- the normal state, since
-    a language that emits a domain only on demand declares that once on its
-    capability declaration (``LanguageCapabilityDeclaration.on_demand_domains``)
-    and the file exists only for a genuinely example-specific hole.
-
-    Raises:
-        ValueError: If the file is malformed, has an empty field on any
-            entry, or if any entry names a ``(domain, language)`` pair that
-            language realizes by NO structural pattern (excusing a
-            language-level absence per example would re-create a declared hole;
-            the gap is tracked once on the language's own capability
-            declaration and this gate reports the missing role as a failure) or
-            emits on demand (already explained once at the language level; a
-            per-example exemption for the same fact is a stale duplicate that
-            must be deleted, not kept).
-    """
-    if not EXEMPTIONS_PATH.exists():
-        return []
-    data = json.loads(EXEMPTIONS_PATH.read_text(encoding="utf-8"))
-    raw_entries = data.get("exemptions")
-    if not isinstance(raw_entries, list):
-        raise ValueError(
-            f"Malformed {EXEMPTIONS_PATH}: expected an object with "
-            f"'exemptions' (array of {{example, domain, language, reason}})."
-        )
-    entries: list[ExemptionEntry] = []
-    for i, raw in enumerate(raw_entries):
-        if not isinstance(raw, dict):
-            raise ValueError(f"exemptions[{i}] is not an object: {raw!r}")
-        example = raw.get("example")
-        domain = raw.get("domain")
-        language = raw.get("language")
-        reason = raw.get("reason")
-        if (
-            not isinstance(example, str) or not example.strip()
-            or not isinstance(domain, str) or not domain.strip()
-            or not isinstance(language, str) or not language.strip()
-            or not isinstance(reason, str) or not reason.strip()
-        ):
-            raise ValueError(
-                f"exemptions[{i}] must have non-empty string 'example', 'domain', "
-                f"'language', and 'reason' fields; got {raw!r}."
-            )
-        entries.append(ExemptionEntry(example, domain, language, reason))
-    _reject_exemptions_for_unrealized_domains(entries)
-    return entries
-
-
-def _realizes_by_pattern(declaration: DomainDeclaration | None) -> bool:
-    """Whether *declaration* says its language realizes the domain.
-
-    Presence-based: a language realizes a domain exactly when its declaration
-    carries a structural_pattern. No declaration, or one with no pattern, means
-    the language realizes the domain by no structural pattern -- the gate reads
-    that as "no role", never as an excuse.
-    """
-    return declaration is not None and bool(declaration.structural_pattern)
-
-
-def _assert_exemptions_name_realized_domains(
-    entries: list[ExemptionEntry],
-    declarations: Mapping[str, Mapping[str, DomainDeclaration]],
-    on_demand: Mapping[str, Mapping[str, str]],
-) -> None:
-    """Same rule as `_reject_exemptions_for_unrealized_domains`, but taking
-    already-resolved declarations instead of deriving them -- lets the
-    self-test exercise the rejection rule against synthetic data without a
-    real language plugin.
-
-    An exemption is legitimate only for a domain the language realizes by a
-    structural pattern whose tree for that one example happens to carry no
-    matching file.
-
-    Args:
-        entries: Exemption entries to check.
-        declarations: `language -> (domain_id -> DomainDeclaration)`.
-        on_demand: `language -> (domain_id -> reason)` from each language's
-            capability declaration.
-
-    Raises:
-        ValueError: If any entry names a domain its language realizes by no
-            structural pattern, or emits on demand -- naming the entry's
-            coordinates so the fix (delete the exemption) is unambiguous.
-    """
-    for entry in entries:
-        declaration = declarations.get(entry.language, {}).get(entry.domain)
-        if not _realizes_by_pattern(declaration):
-            raise ValueError(
-                f"artifact-role-exemptions.json entry (example="
-                f"{entry.example!r}, domain={entry.domain!r}, language="
-                f"{entry.language!r}) names a domain {entry.language!r} "
-                f"realizes by no structural pattern. A per-example exemption "
-                f"excuses a hole in a domain the language realizes elsewhere; "
-                f"it cannot excuse a language-level absence. That gap is "
-                f"tracked once, as a capability_gaps row on the language's own "
-                f"capability declaration, and counted by the capability-gap "
-                f"ledger gate; this gate reports the missing role as a failure "
-                f"whether or not such a row exists. Delete this exemption."
-            )
-        on_demand_reason = on_demand.get(entry.language, {}).get(entry.domain)
-        if on_demand_reason is not None:
-            raise ValueError(
-                f"artifact-role-exemptions.json entry (example="
-                f"{entry.example!r}, domain={entry.domain!r}, language="
-                f"{entry.language!r}) duplicates a language-level fact: "
-                f"{entry.language!r} declares {entry.domain!r} emitted on "
-                f"demand ({on_demand_reason!r}). Delete this exemption -- the "
-                f"language's capability declaration already explains it."
-            )
-
-
-def language_on_demand_domains(language: str) -> Mapping[str, str]:
-    """``{domain_id: reason}`` *language* declares as emitted on demand only.
-
-    Read from the plugin's ``LanguageCapabilityDeclaration.on_demand_domains``
-    -- a language-level fact declared once, so the gate never needs one
-    per-example exemption per reference example for it. Every declared id is
-    checked against the shared domain universe, so a typo cannot silently
-    declare nothing.
-
-    Raises:
-        ValueError: If a declared domain id is not a shared universe domain.
-    """
-    from datrix_codegen_common.parity.domain_registry import SHARED_CONTEXT_TYPES
-    from datrix_common.plugin.capability_resolution import declaration_for_language
-
-    on_demand = declaration_for_language(language).on_demand_domains
-    unknown = sorted(set(on_demand) - set(SHARED_CONTEXT_TYPES))
-    if unknown:
-        raise ValueError(
-            f"{language!r} declares on_demand_domains {unknown}, which are not "
-            f"shared universe domain ids. Valid ids: {sorted(SHARED_CONTEXT_TYPES)}. "
-            f"Fix: correct the id on the language's LanguageCapabilityDeclaration."
-        )
-    return on_demand
-
-
-def _reject_exemptions_for_unrealized_domains(entries: list[ExemptionEntry]) -> None:
-    """Fail loud on an exemption entry that cannot be a per-example hole.
-
-    Derives each entry's language's declarations fresh via
-    `language_domain_declarations` and reads its on-demand domains (grouped
-    by language so each resolves once, not once per entry), then delegates
-    the actual rejection rule to `_assert_exemptions_name_realized_domains`,
-    so the rule itself has exactly one implementation.
-
-    Args:
-        entries: Exemption entries to check.
-
-    Raises:
-        ValueError: If any entry names a domain its language realizes by no
-            structural pattern, or emits on demand.
-    """
-    languages = sorted({entry.language for entry in entries})
-    declarations = {language: language_domain_declarations(language) for language in languages}
-    on_demand = {language: language_on_demand_domains(language) for language in languages}
-    _assert_exemptions_name_realized_domains(entries, declarations, on_demand)
-
-
-def _is_exempt(
-    exemptions: Sequence[ExemptionEntry], example: str, domain: str, language: str
-) -> bool:
-    """Whether (example, domain, language) has a reviewed exemption entry."""
-    return any(
-        e.example == example and e.domain == domain and e.language == language
-        for e in exemptions
-    )
 
 
 def _domain_ever_matches(pattern: str, all_paths: Iterable[str]) -> bool:
@@ -943,46 +750,34 @@ def unexcused_missing_domains(
     missing: Iterable[str],
     *,
     language: str,
-    example: str,
     declarations: Mapping[str, DomainDeclaration],
-    on_demand: Mapping[str, str],
     footprint: Mapping[str, Sequence[str]],
-    exemptions: Sequence[ExemptionEntry],
 ) -> list[str]:
     """The domain ids in *missing* that nothing excuses, sorted.
 
-    Exactly two skips exist, and neither reads a declaration's absence: the
-    language emits the domain only on demand (declared once on its capability
-    declaration), or the domain's own structural pattern matches zero files
-    across the language's whole generated footprint (held to a reviewed
-    record). A reviewed per-example exemption additionally excuses a domain the
-    language realizes elsewhere. A domain the language realizes by NO
-    structural pattern is never excused: its role is missing, and that fails
-    here.
+    Exactly one skip exists, and it reads no declaration and no committed
+    exemption: the domain's own structural pattern matches zero files across
+    the language's whole generated footprint (held to a reviewed record). A
+    language that emits a domain only for some DSL construct while another
+    language emits it for more is NOT excused -- the same source produces a
+    different artifact set, and that is the drift this gate exists to report.
+    A domain the language realizes by NO structural pattern is never excused
+    either: its role is missing, and that fails here.
 
     Args:
         missing: Domain ids absent from *language*'s role set for one tree.
         language: The language whose tree is missing them.
-        example: The kebab example id the exemptions are keyed by.
         declarations: *language*'s own `domain_id -> DomainDeclaration`.
-        on_demand: *language*'s `domain_id -> reason` on-demand domains.
         footprint: ``{language: every generated path}`` (:func:`corpus_footprint`).
-        exemptions: Reviewed per-example exemptions; the provider axis passes
-            none, because the exemption file has no provider coordinate.
 
     Returns:
         The sorted domain ids that remain failures.
     """
-    unexcused: list[str] = []
-    for domain_id in sorted(missing):
-        if domain_id in on_demand:
-            continue
-        if _is_corpus_vacuous_for_language(language, domain_id, declarations, footprint):
-            continue
-        if _is_exempt(exemptions, example, domain_id, language):
-            continue
-        unexcused.append(domain_id)
-    return unexcused
+    return [
+        domain_id
+        for domain_id in sorted(missing)
+        if not _is_corpus_vacuous_for_language(language, domain_id, declarations, footprint)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -1091,16 +886,13 @@ def cross_provider_drifts(
     example: str,
     runtime: str,
     declarations: Mapping[str, DomainDeclaration],
-    on_demand: Mapping[str, str],
     footprint: Mapping[str, Sequence[str]],
 ) -> list[CrossProviderDrift]:
     """Every role-set difference across the providers of one (language, example,
     runtime) that nothing excuses.
 
-    Each provider's gap set runs through `unexcused_missing_domains` with NO
-    exemptions: the per-example exemption file is keyed
-    ``(example, domain, language)`` with no provider coordinate, so honoring it
-    here would silence every provider of that language. A provider-specific
+    Each provider's gap set runs through `unexcused_missing_domains`, the
+    same corpus-vacuity skip the language axis applies. A provider-specific
     hole is a failure until it is fixed.
 
     Returns:
@@ -1116,11 +908,8 @@ def cross_provider_drifts(
         for domain_id in unexcused_missing_domains(
             gap,
             language=language,
-            example=example_id(example),
             declarations=declarations,
-            on_demand=on_demand,
             footprint=footprint,
-            exemptions=(),
         ):
             present_under = tuple(
                 sorted(name for name, roles in per_provider.items() if domain_id in roles)
@@ -1143,7 +932,6 @@ def provider_axis_drifts(
     trees: Sequence[GeneratedTree],
     *,
     declarations_by_language: Mapping[str, Mapping[str, DomainDeclaration]],
-    on_demand_by_language: Mapping[str, Mapping[str, str]],
     footprint: Mapping[str, Sequence[str]],
 ) -> list[CrossProviderDrift]:
     """The provider axis over every (language, example, runtime) the corpus
@@ -1162,7 +950,6 @@ def provider_axis_drifts(
                 example=example,
                 runtime=runtime,
                 declarations=declarations_by_language[language],
-                on_demand=on_demand_by_language[language],
                 footprint=footprint,
             )
         )
@@ -1364,7 +1151,6 @@ def check_corpus_vacuity_records(footprint: Mapping[str, Sequence[str]]) -> bool
 
 _SELF_TEST_DOMAIN_SHALLOW: Final[str] = "self_test_order_shallow"
 _SELF_TEST_DOMAIN_DEEP: Final[str] = "self_test_order_deep"
-_SELF_TEST_EXAMPLE_ID: Final[str] = "self-test-example"
 _SELF_TEST_ORDERS_PATTERN: Final[str] = "*/orders/*.txt"
 _SELF_TEST_SHIPMENTS_PATTERN: Final[str] = "*/shipments/*.txt"
 _SELF_TEST_NEVER_PATTERN: Final[str] = "*/never_matches_anything/*.txt"
@@ -1373,13 +1159,6 @@ _SELF_TEST_NEVER_PATTERN: Final[str] = "*/never_matches_anything/*.txt"
 _SELF_TEST_FOOTPRINT: Final[Mapping[str, Sequence[str]]] = {
     _SELF_TEST_LANGUAGE_A: ("svc/orders/order.txt", "svc/unrelated/readme.md"),
 }
-_SELF_TEST_ON_DEMAND: Final[Mapping[str, str]] = {
-    _SELF_TEST_DOMAIN_FORCED_GAP: "self-test: emitted on demand only",
-}
-#: The stance vocabulary the exemption guard's rejection must never use: both
-#: stance words share the stem ``supported``, plus the retired phrase for a
-#: per-language absence a declaration used to excuse.
-_RETIRED_STANCE_WORDS: Final[tuple[str, ...]] = ("supported", "declared absence")
 _SELF_TEST_PROVIDER_ONE: Final[str] = "self_test_provider_one"
 _SELF_TEST_PROVIDER_TWO: Final[str] = "self_test_provider_two"
 _SELF_TEST_RUNTIME: Final[str] = "rt"
@@ -1423,7 +1202,7 @@ def _value_error_message(call: Callable[[], object]) -> str | None:
 
 
 def run_self_test() -> list[str]:
-    """Prove the comparators, classifier, excuse rules and exemption guard are
+    """Prove the comparators, classifier and the one excuse rule are
     non-vacuous before any real comparison is trusted.
 
     Logs one ``[OK]`` (or ``[FAIL]``) line per case.
@@ -1436,7 +1215,6 @@ def run_self_test() -> list[str]:
     _self_test_classification(ledger)
     _self_test_unexcused_missing_domains(ledger)
     _self_test_language_axis(ledger)
-    _self_test_exemption_guard(ledger)
     _self_test_vacuity_predicate(ledger)
     ledger.absorb("generated-corpus discovery reader", _self_test_corpus_discovery())
     _self_test_provider_axis(ledger)
@@ -1533,25 +1311,19 @@ def _self_test_classification(ledger: _SelfTestLedger) -> None:
 def _self_test_unexcused(
     declarations: Mapping[str, DomainDeclaration],
     *,
-    on_demand: Mapping[str, str],
-    exemptions: Sequence[ExemptionEntry],
     missing: Iterable[str] = (_SELF_TEST_DOMAIN_FORCED_GAP,),
 ) -> list[str]:
     """`unexcused_missing_domains` over the self-test's one language and footprint."""
     return unexcused_missing_domains(
         missing,
         language=_SELF_TEST_LANGUAGE_A,
-        example=_SELF_TEST_EXAMPLE_ID,
         declarations=declarations,
-        on_demand=on_demand,
         footprint=_SELF_TEST_FOOTPRINT,
-        exemptions=exemptions,
     )
 
 
 def _self_test_unexcused_missing_domains(ledger: _SelfTestLedger) -> None:
-    """A missing role is a failure unless one of the two remaining skips (or a
-    reviewed exemption on a patterned domain) excuses it."""
+    """A missing role is a failure unless the corpus vacuity skip excuses it."""
     forced = _SELF_TEST_DOMAIN_FORCED_GAP
     realized: DomainDeclarations = {
         forced: _patterned(forced, _SELF_TEST_ORDERS_PATTERN),
@@ -1559,50 +1331,25 @@ def _self_test_unexcused_missing_domains(ledger: _SelfTestLedger) -> None:
     zero_match: DomainDeclarations = {
         forced: _patterned(forced, _SELF_TEST_NEVER_PATTERN),
     }
-    exemption = ExemptionEntry(
-        example=_SELF_TEST_EXAMPLE_ID,
-        domain=forced,
-        language=_SELF_TEST_LANGUAGE_A,
-        reason="self-test: reviewed per-example hole",
-    )
-    other_example_exemption = ExemptionEntry(
-        example="self-test-other-example",
-        domain=forced,
-        language=_SELF_TEST_LANGUAGE_A,
-        reason="self-test: reviewed hole for a different example",
-    )
-    no_declaration = _self_test_unexcused({}, on_demand={}, exemptions=())
+    no_declaration = _self_test_unexcused({})
     ledger.expect(
         "a missing role is a failure for a language holding no declaration for the domain",
         no_declaration == [forced],
         f"expected [{forced!r}] (the absence of a declaration excuses nothing), got {no_declaration}",
     )
-    nothing_excuses = _self_test_unexcused(realized, on_demand={}, exemptions=())
+    nothing_excuses = _self_test_unexcused(realized)
     ledger.expect(
-        "a missing role in a realized domain nothing excuses is a failure",
+        "a missing role in a domain the language realizes, and emits elsewhere in its footprint, is a failure",
         nothing_excuses == [forced],
-        f"expected [{forced!r}], got {nothing_excuses}",
+        f"expected [{forced!r}] (no declaration or per-example file can excuse it), got {nothing_excuses}",
     )
-    on_demand_excused = _self_test_unexcused(realized, on_demand=_SELF_TEST_ON_DEMAND, exemptions=())
-    ledger.expect(
-        "on-demand membership excuses a missing role",
-        on_demand_excused == [],
-        f"a domain the language emits on demand was still reported: {on_demand_excused}",
-    )
-    vacuous_excused = _self_test_unexcused(zero_match, on_demand={}, exemptions=())
+    vacuous_excused = _self_test_unexcused(zero_match)
     ledger.expect(
         "a pattern matching zero files in the footprint excuses a missing role",
         vacuous_excused == [],
         f"a corpus-vacuous domain was still reported: {vacuous_excused}",
     )
-    exempt = _self_test_unexcused(realized, on_demand={}, exemptions=[exemption])
-    other_example = _self_test_unexcused(realized, on_demand={}, exemptions=[other_example_exemption])
-    ledger.expect(
-        "a reviewed exemption excuses a missing role in a domain the language realizes by a pattern",
-        exempt == [] and other_example == [forced],
-        f"matching exemption left {exempt}; an exemption for another example left {other_example}",
-    )
-    ordered = _self_test_unexcused({}, on_demand={}, exemptions=(), missing={"b_domain", "a_domain"})
+    ordered = _self_test_unexcused({}, missing={"b_domain", "a_domain"})
     ledger.expect(
         "unexcused_missing_domains returns the surviving ids sorted",
         ordered == ["a_domain", "b_domain"],
@@ -1613,7 +1360,7 @@ def _self_test_unexcused_missing_domains(ledger: _SelfTestLedger) -> None:
 def _self_test_language_axis(ledger: _SelfTestLedger) -> None:
     """The language-axis wiring: a role one language emits and another lacks is
     a failure even when the lacking language holds no declaration for the
-    domain (the former declared-absence case), and the two skips still apply."""
+    domain (the former declared-absence case), and identical sets pass."""
     shared = _SELF_TEST_DOMAIN_SHARED
     forced = _SELF_TEST_DOMAIN_FORCED_GAP
     language_a = _SELF_TEST_LANGUAGE_A
@@ -1625,112 +1372,26 @@ def _self_test_language_axis(ledger: _SelfTestLedger) -> None:
         },
         language_b: {shared: _patterned(shared, _SELF_TEST_ORDERS_PATTERN)},
     }
-    no_on_demand: dict[str, Mapping[str, str]] = {language_a: {}, language_b: {}}
 
-    def gaps(
-        roles: Mapping[str, frozenset[str]], on_demand: Mapping[str, Mapping[str, str]]
-    ) -> dict[str, list[str]]:
+    def gaps(roles: Mapping[str, frozenset[str]]) -> dict[str, list[str]]:
         return language_axis_gaps(
             roles,
-            example=_SELF_TEST_EXAMPLE_ID,
             declarations_by_language=declarations_by_language,
-            on_demand_by_language=on_demand,
             footprint=_SELF_TEST_FOOTPRINT,
-            exemptions=(),
         )
 
     planted = {language_a: frozenset({shared, forced}), language_b: frozenset({shared})}
-    planted_gaps = gaps(planted, no_on_demand)
+    planted_gaps = gaps(planted)
     ledger.expect(
         "the language axis fails a role absent from a language that holds no declaration for it",
         planted_gaps == {language_b: [forced]},
         f"expected {{{language_b!r}: [{forced!r}]}}, got {planted_gaps}",
     )
-    identical_gaps = gaps(
-        {language_a: frozenset({shared}), language_b: frozenset({shared})}, no_on_demand
-    )
+    identical_gaps = gaps({language_a: frozenset({shared}), language_b: frozenset({shared})})
     ledger.expect(
         "the language axis reports nothing for identical role sets",
         identical_gaps == {},
         f"got {identical_gaps}",
-    )
-    on_demand_gaps = gaps(planted, {language_a: {}, language_b: _SELF_TEST_ON_DEMAND})
-    ledger.expect(
-        "the language axis excuses a role the lacking language emits on demand",
-        on_demand_gaps == {},
-        f"got {on_demand_gaps}",
-    )
-
-
-def _self_test_exemption_guard(ledger: _SelfTestLedger) -> None:
-    """The exemption loader's guard accepts an entry only for a domain the
-    language realizes by a pattern and does not emit on demand."""
-    entry = ExemptionEntry(
-        example=_SELF_TEST_EXAMPLE_ID,
-        domain=_SELF_TEST_DOMAIN_SHARED,
-        language=_SELF_TEST_LANGUAGE_A,
-        reason="self-test: reviewed per-example hole",
-    )
-    realized = {
-        _SELF_TEST_LANGUAGE_A: {
-            _SELF_TEST_DOMAIN_SHARED: _patterned(
-                _SELF_TEST_DOMAIN_SHARED, _SELF_TEST_ORDERS_PATTERN
-            ),
-        },
-    }
-    other_domain_only = {
-        _SELF_TEST_LANGUAGE_A: {
-            _SELF_TEST_DOMAIN_FORCED_GAP: _patterned(
-                _SELF_TEST_DOMAIN_FORCED_GAP, _SELF_TEST_SHIPMENTS_PATTERN
-            ),
-        },
-    }
-    no_declaration = _value_error_message(
-        lambda: _assert_exemptions_name_realized_domains([entry], declarations={}, on_demand={})
-    )
-    no_domain_row = _value_error_message(
-        lambda: _assert_exemptions_name_realized_domains(
-            [entry], declarations=other_domain_only, on_demand={}
-        )
-    )
-    ledger.expect(
-        "the exemption guard rejects an entry for a domain the language realizes by no structural pattern",
-        no_declaration is not None and no_domain_row is not None,
-        f"accepted an entry naming an unrealized domain (language with no declarations: "
-        f"{no_declaration!r}; language with declarations for other domains: {no_domain_row!r})",
-    )
-    message = no_declaration or ""
-    ledger.expect(
-        "the rejection names the entry, points at the capability declaration, and uses neither "
-        "the retired stance wording nor a quoted reason",
-        all(
-            part in message
-            for part in (_SELF_TEST_EXAMPLE_ID, _SELF_TEST_DOMAIN_SHARED, _SELF_TEST_LANGUAGE_A, "capability_gaps")
-        )
-        and not any(word in message for word in (*_RETIRED_STANCE_WORDS, entry.reason)),
-        f"unexpected rejection message: {message!r}",
-    )
-    on_demand_duplicate = _value_error_message(
-        lambda: _assert_exemptions_name_realized_domains(
-            [entry],
-            declarations=realized,
-            on_demand={
-                _SELF_TEST_LANGUAGE_A: {_SELF_TEST_DOMAIN_SHARED: "self-test: emitted on demand only"},
-            },
-        )
-    )
-    ledger.expect(
-        "the exemption guard still rejects an on-demand duplicate",
-        on_demand_duplicate is not None and "on demand" in on_demand_duplicate,
-        f"expected the on-demand rejection, got {on_demand_duplicate!r}",
-    )
-    accepted = _value_error_message(
-        lambda: _assert_exemptions_name_realized_domains([entry], declarations=realized, on_demand={})
-    )
-    ledger.expect(
-        "the exemption guard accepts an entry for a realized domain nothing declares away",
-        accepted is None,
-        f"rejected a legitimate per-example exemption: {accepted!r}",
     )
 
 
@@ -1924,8 +1585,8 @@ def _self_test_provider_axis(ledger: _SelfTestLedger) -> None:
     language, example and runtime; a planted role present under one provider
     and absent under another is reported against exactly the provider lacking
     it, on a line naming both providers; identical role sets and a single
-    provider report nothing; and the two remaining skips excuse a role on the
-    provider axis exactly as on the language axis.
+    provider report nothing; and the one skip, corpus vacuity, excuses a role
+    on the provider axis exactly as on the language axis.
     """
     example = registered_example_relpaths()[0]
     other_example = registered_example_relpaths()[-1]
@@ -1959,13 +1620,10 @@ def _expect_provider_axis(
     }
     footprint = corpus_footprint(trees)
 
-    def axis_drifts(
-        on_demand: Mapping[str, str], axis_footprint: Mapping[str, Sequence[str]]
-    ) -> list[CrossProviderDrift]:
+    def axis_drifts(axis_footprint: Mapping[str, Sequence[str]]) -> list[CrossProviderDrift]:
         return provider_axis_drifts(
             trees,
             declarations_by_language={language: declarations},
-            on_demand_by_language={language: on_demand},
             footprint=axis_footprint,
         )
 
@@ -1991,7 +1649,7 @@ def _expect_provider_axis(
         gaps == {provider_two: frozenset({forced})},
         f"got {gaps}",
     )
-    drifts = axis_drifts({}, footprint)
+    drifts = axis_drifts(footprint)
     line = drifts[0].report_line() if len(drifts) == 1 else ""
     ledger.expect(
         "the provider-axis report line names the language, the role, the provider missing it "
@@ -2018,7 +1676,6 @@ def _expect_provider_axis(
         example=other_example,
         runtime=runtime,
         declarations=declarations,
-        on_demand={},
         footprint=footprint,
     )
     ledger.expect(
@@ -2026,13 +1683,7 @@ def _expect_provider_axis(
         cross_provider_role_gaps({provider_one: identical}) == {} and single_provider == [],
         f"a group generated under one provider produced {single_provider}",
     )
-    on_demand_drifts = axis_drifts(_SELF_TEST_ON_DEMAND, footprint)
-    ledger.expect(
-        "a role the language emits on demand is not reported on the provider axis",
-        on_demand_drifts == [],
-        f"got {on_demand_drifts}",
-    )
-    vacuous_drifts = axis_drifts({}, {language: ()})
+    vacuous_drifts = axis_drifts({language: ()})
     ledger.expect(
         "a role whose pattern matches nothing in the language's footprint is not reported on the "
         "provider axis",
@@ -2193,11 +1844,8 @@ def load_complete_corpus(generated_root: Path) -> list[GeneratedTree]:
 def language_axis_gaps(
     per_language_roles: Mapping[str, frozenset[str]],
     *,
-    example: str,
     declarations_by_language: Mapping[str, Mapping[str, DomainDeclaration]],
-    on_demand_by_language: Mapping[str, Mapping[str, str]],
     footprint: Mapping[str, Sequence[str]],
-    exemptions: Sequence[ExemptionEntry],
 ) -> dict[str, list[str]]:
     """``{language: roles missing from it that nothing excuses}`` for one
     (example, runtime, provider) group, only for languages with a non-empty
@@ -2205,26 +1853,20 @@ def language_axis_gaps(
 
     Compares every language's role set against the union of all, then runs each
     language's missing roles through `unexcused_missing_domains` -- the same
-    excuse rules the provider axis applies.
+    excuse rule the provider axis applies.
 
     Args:
         per_language_roles: ``{language: role_set}`` for the group.
-        example: The example's posix path relative to ``EXAMPLES_ROOT``.
         declarations_by_language: Each language's own derived declarations.
-        on_demand_by_language: Each language's on-demand domains.
         footprint: ``{language: every generated path}`` (:func:`corpus_footprint`).
-        exemptions: Reviewed per-example exemptions.
     """
     gaps: dict[str, list[str]] = {}
     for language, missing in sorted(compare_role_sets(per_language_roles).items()):
         unexcused = unexcused_missing_domains(
             missing,
             language=language,
-            example=example_id(example),
             declarations=declarations_by_language[language],
-            on_demand=on_demand_by_language[language],
             footprint=footprint,
-            exemptions=exemptions,
         )
         if unexcused:
             gaps[language] = unexcused
@@ -2238,16 +1880,14 @@ def _language_axis_group_ok(
     language_trees: Mapping[str, GeneratedTree],
     *,
     declarations_by_language: Mapping[str, DomainDeclarations],
-    on_demand_by_language: Mapping[str, Mapping[str, str]],
     footprint: Mapping[str, Sequence[str]],
-    exemptions: Sequence[ExemptionEntry],
 ) -> bool:
     """Compare one (example, runtime, provider) group's role sets across its
     languages, logging every un-excused missing role as drift.
 
     Returns:
-        True when every language's role set matches the union modulo the two
-        skips and the reviewed exemptions.
+        True when every language's role set matches the union modulo the
+        corpus vacuity skip.
     """
     per_language_roles: dict[str, frozenset[str]] = {}
     for language, tree in sorted(language_trees.items()):
@@ -2261,11 +1901,8 @@ def _language_axis_group_ok(
             )
     gaps = language_axis_gaps(
         per_language_roles,
-        example=example,
         declarations_by_language=declarations_by_language,
-        on_demand_by_language=on_demand_by_language,
         footprint=footprint,
-        exemptions=exemptions,
     )
     for language, domain_ids in gaps.items():
         for domain_id in domain_ids:
@@ -2292,33 +1929,30 @@ def check_artifact_role_parity(generated_root: Path) -> int:
     >= 2 providers.
 
     A role missing from one language's tree (or one provider's) is a failure.
-    Exactly two kinds of "missing" are never drift, and neither reads a
-    declaration's absence:
-      - the language emits the domain only on demand
-        (``LanguageCapabilityDeclaration.on_demand_domains``), declared once on
-        its capability declaration; or
-      - the language realizes the domain by a structural_pattern that matches
-        zero files anywhere across that language's ENTIRE generated footprint
-        (see `_is_corpus_vacuous_for_language`) -- an empirical, corpus-wide
-        fact (the triggering construct never occurs in the corpus for this
-        language) rather than something particular to this example.
+    Exactly one kind of "missing" is never drift, and it reads no declaration
+    and no committed exemption: the language realizes the domain by a
+    structural_pattern that matches zero files anywhere across that language's
+    ENTIRE generated footprint (see `_is_corpus_vacuous_for_language`) -- an
+    empirical, corpus-wide fact (the triggering construct never occurs in the
+    corpus for this language) rather than something particular to this
+    example.
 
-    The second kind is skipped but never silent: `check_corpus_vacuity_records`
+    That kind is skipped but never silent: `check_corpus_vacuity_records`
     holds every corpus-vacuous `(language, domain)` to a reviewed record
     stating WHY nothing exercises it, and refuses both an unrecorded pair and
-    a record whose pair is no longer vacuous. A language that realizes a domain
-    by no structural_pattern is not excused: the gap is tracked once on its own
-    capability declaration and counted by the capability-gap ledger gate, and
-    this gate reports the missing role regardless. A reviewed per-example
-    exemption additionally excuses a language-axis role the language realizes
-    elsewhere; it never applies on the provider axis.
+    a record whose pair is no longer vacuous. A language that emits a domain
+    under a narrower DSL trigger than another language is not excused, and
+    neither is a language that realizes a domain by no structural_pattern: the
+    latter's gap is tracked once on its own capability declaration and counted
+    by the capability-gap ledger gate, and this gate reports the missing role
+    regardless.
 
     Args:
         generated_root: The ``generate.ps1`` output base to read.
 
     Returns:
-        Exit code (0 = every group's role sets agree modulo exemptions and
-        recorded corpus-vacuous domains, on both the language and the provider
+        Exit code (0 = every group's role sets agree modulo recorded
+        corpus-vacuous domains, on both the language and the provider
         axis; 1 = an un-excused role difference was found on either axis, or a
         corpus-vacuous domain has no reviewed record (or a record has no
         corpus-vacuous domain); 2 = the corpus is incomplete for some language,
@@ -2336,11 +1970,10 @@ def check_artifact_role_parity(generated_root: Path) -> int:
         )
         return EXIT_USAGE
 
-    exemptions = load_exemptions()
     provider_keys = provider_comparison_keys(trees)
     logger.info(
-        "artifact_role_parity_start trees=%d groups=%d provider_groups=%d exemptions=%d",
-        len(trees), len(groups), len(provider_keys), len(exemptions),
+        "artifact_role_parity_start trees=%d groups=%d provider_groups=%d",
+        len(trees), len(groups), len(provider_keys),
     )
 
     footprint = corpus_footprint(trees)
@@ -2349,23 +1982,17 @@ def check_artifact_role_parity(generated_root: Path) -> int:
     declarations_by_language = {
         language: language_domain_declarations(language) for language in corpus_languages
     }
-    on_demand_by_language = {
-        language: language_on_demand_domains(language) for language in corpus_languages
-    }
     group_results = [
         _language_axis_group_ok(
             example, runtime, provider, language_trees,
             declarations_by_language=declarations_by_language,
-            on_demand_by_language=on_demand_by_language,
             footprint=footprint,
-            exemptions=exemptions,
         )
         for (example, runtime, provider), language_trees in groups.items()
     ]
     provider_drifts = provider_axis_drifts(
         trees,
         declarations_by_language=declarations_by_language,
-        on_demand_by_language=on_demand_by_language,
         footprint=footprint,
     )
     for drift in provider_drifts:
@@ -2375,8 +2002,8 @@ def check_artifact_role_parity(generated_root: Path) -> int:
         logger.info(
             "ARTIFACT-ROLE GATE PASSED: %d group(s) generated in >= 2 languages and %d "
             "(language, example, runtime) group(s) generated under >= 2 providers, role "
-            "sets identical modulo %d reviewed exemption(s).",
-            len(groups), len(provider_keys), len(exemptions),
+            "sets identical modulo recorded corpus-vacuous domains.",
+            len(groups), len(provider_keys),
         )
         return EXIT_OK
     return EXIT_FAIL

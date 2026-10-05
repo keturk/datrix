@@ -73,6 +73,7 @@ from shared.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
     WORKSPACE_ROOT,
     discover_target_package_src_dirs,
+    self_test_gate_names_no_target,
 )
 
 logger = logging.getLogger(__name__)
@@ -873,17 +874,27 @@ def _self_test_live_read() -> bool:
     )
 
 
+def _self_test_names_no_target() -> bool:
+    """This gate enumerates languages from registration and must name none."""
+    failures = self_test_gate_names_no_target(__file__)
+    for line in failures:
+        print(f"  FAIL: {line}")
+    return _assert(not failures, "this gate names no registered target (imports and name literals)")
+
+
 def self_test() -> bool:
-    """Non-vacuity self-test: a fixture language per technique (good and bad), a
-    module outside the language's src dirs, an uncalled realization, a template
-    path that escapes its package, a language declaring nothing, a realization
+    """Non-vacuity self-test: this module names no registered target, a fixture
+    language per technique (good and bad), a module outside the language's src
+    dirs, an uncalled realization, a template path that escapes its package, a
+    language declaring nothing, a realization
     planted in a language core, fewer than two registered languages, and a live
     census that finds at least one language realizing the rule (a scan that sees
     nothing is broken, not clean)."""
     print("Non-vacuity self-test:")
+    ok = _self_test_names_no_target()
     tmp_root = Path(tempfile.mkdtemp(prefix="field-error-path-gate-"))
     try:
-        ok = _self_test_executed(tmp_root)
+        ok &= _self_test_executed(tmp_root)
         ok &= _self_test_template(tmp_root)
         ok &= _self_test_language_core(tmp_root)
     finally:

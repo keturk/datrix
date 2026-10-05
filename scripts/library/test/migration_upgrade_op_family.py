@@ -28,19 +28,32 @@ shared parser's own behaviour (input -> ``SnapshotIndex``) is a different
 question and stays where it belongs, as a unit test in
 ``datrix-codegen-common``, which owns the function.
 
-**Target packages are resolved through the registry.** The languages this
-family spans are named -- they are a fact about which targets carry this
-family, not a claim about which targets exist -- but their packages are
-resolved through the installed ``datrix.languages`` entry points, so a named
-language that is not installed fails loud by name instead of letting its part
-of the check pass vacuously.
+**The gate names no target.** Every registered ``datrix.languages`` package
+is scanned -- its backend and each language core it requires -- resolved
+through the registry, never a list in this module. Which languages carry the
+family and how many call sites each one's own paths need are reviewed facts
+held per registered language in
+``scripts/config/migration-upgrade-op-family-baseline.json``:
+
+* ``carries_divergent_family`` -- the language must define each of the six
+  exactly once; a language NOT recorded as a carrier that defines any of them
+  fails until it is recorded, so a new carrier is reviewed, never silently
+  exempt. A baseline that records no carrier at all fails as vacuous.
+* ``shared_parser_call_sites`` -- the exact count of resolved calls of the
+  shared parser. A language with no entry is held to zero calls and no
+  family, so adding a language needs no edit while it uses neither.
+
+An entry naming a language that is not registered is stale and fails. The
+self-test first proves this module names no registered target
+(``shared.registered_targets.self_test_gate_names_no_target``).
 
 Structural resolution only, never a text match: call sites are found by reading
 each module's import bindings and matching resolved callees, so an aliased
 import is followed and a same-suffix private wrapper is not miscounted. Both
 false-positive shapes have bitten this chain before, so both are proven every
 run by the built-in non-vacuity self-test, along with the two directions that
-prove the resolver can find a call at all.
+prove the resolver can find a call at all, and the baseline comparison against
+fixture languages in both directions.
 
 Repo-level validation script (per the datrix showcase boundary -- no pytest
 suite lives in datrix).
@@ -56,12 +69,13 @@ from __future__ import annotations
 
 import argparse
 import ast
-import importlib
+import json
 import logging
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
@@ -69,14 +83,30 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from datrix_common.plugin.registry import LANGUAGES_GROUP, entry_points  # noqa: E402
-from shared.registered_targets import registered_language_names  # noqa: E402
+from shared.registered_targets import (  # noqa: E402
+    AXIS_LANGUAGES,
+    WORKSPACE_ROOT,
+    discover_target_package_src_dirs,
+    registered_language_names,
+    self_test_gate_names_no_target,
+)
 
 logger = logging.getLogger(__name__)
 
 EXIT_OK: Final[int] = 0
 EXIT_FAIL: Final[int] = 1
 EXIT_USAGE: Final[int] = 2
+
+_HERE = Path(__file__).resolve()
+DATRIX_DIR: Final[Path] = _HERE.parents[3]
+BASELINE_PATH: Final[Path] = (
+    DATRIX_DIR / "scripts" / "config" / "migration-upgrade-op-family-baseline.json"
+)
+
+_LANGUAGES_KEY: Final[str] = "languages"
+_CARRIES_FAMILY_KEY: Final[str] = "carries_divergent_family"
+_CALL_SITES_KEY: Final[str] = "shared_parser_call_sites"
+_ENTRY_KEYS: Final[frozenset[str]] = frozenset({_CARRIES_FAMILY_KEY, _CALL_SITES_KEY})
 
 #: The six upgrade-op builders the census read in full and found genuinely
 #: target-specific. Each must keep exactly one definition per target.
@@ -96,73 +126,95 @@ SHARED_SYMBOL: Final[str] = "parse_index_added_detail"
 #: The pre-hoist private name, which must not survive in any target.
 RETIRED_PRIVATE_SYMBOL: Final[str] = "_index_from_index_added_detail"
 
-#: The registered languages whose migration generators carry this family, and
-#: the exact number of resolved call sites each has for the shared parser.
-#: python has two INDEX_ADDED detail call paths (the render path and the chain
-#: audit). A count, not a ">= 1": a path silently losing its call is the
-#: regression this pins.
-SHARED_PARSER_CALL_SITES: Final[dict[str, int]] = {"python": 2}
-
-
 class GateConfigurationError(RuntimeError):
-    """The packages this gate reads could not be resolved."""
+    """The packages or the baseline this gate reads could not be resolved."""
 
 
-def _language_module_roots() -> dict[str, str]:
-    """Registered language name -> its plugin's top-level module root.
+@dataclass(frozen=True)
+class FamilyEntry:
+    """One registered language's reviewed facts about this family.
 
-    Read from each entry point's DECLARED module rather than by loading the
-    plugin: this gate only needs to know which package the code lives in.
+    Attributes:
+        carries_divergent_family: The language defines each divergent symbol
+            exactly once.
+        shared_parser_call_sites: The exact number of resolved calls of the
+            shared parser its own paths make.
     """
-    return {ep.name: ep.module.split(".")[0] for ep in entry_points(group=LANGUAGES_GROUP)}
+
+    carries_divergent_family: bool
+    shared_parser_call_sites: int
 
 
-def language_source_root(language: str) -> Path:
-    """The top-level source directory of *language*'s codegen package.
+#: What a registered language with no baseline entry is held to: it carries no
+#: family and never calls the shared parser.
+NO_ENTRY: Final[FamilyEntry] = FamilyEntry(carries_divergent_family=False, shared_parser_call_sites=0)
 
-    Args:
-        language: A registered ``datrix.languages`` entry-point name.
 
-    Returns:
-        The absolute directory holding that package's modules.
+def _parse_entry(language: str, raw: object, source: Path) -> FamilyEntry:
+    """Validate one baseline entry; a malformed one is a configuration error."""
+    if not isinstance(raw, dict) or set(raw) != _ENTRY_KEYS:
+        raise GateConfigurationError(
+            f"{source}: entry for {language!r} must be an object with exactly the keys "
+            f"{sorted(_ENTRY_KEYS)}, got {raw!r}. Fix: correct the entry."
+        )
+    carries = raw[_CARRIES_FAMILY_KEY]
+    call_sites = raw[_CALL_SITES_KEY]
+    if not isinstance(carries, bool):
+        raise GateConfigurationError(
+            f"{source}: {language!r}.{_CARRIES_FAMILY_KEY} must be true or false, got {carries!r}."
+        )
+    if isinstance(call_sites, bool) or not isinstance(call_sites, int) or call_sites < 0:
+        raise GateConfigurationError(
+            f"{source}: {language!r}.{_CALL_SITES_KEY} must be a non-negative integer, "
+            f"got {call_sites!r}."
+        )
+    return FamilyEntry(carries_divergent_family=carries, shared_parser_call_sites=call_sites)
+
+
+def load_baseline(path: Path) -> dict[str, FamilyEntry]:
+    """Read the per-language reviewed facts from *path*.
 
     Raises:
-        GateConfigurationError: If the language is not registered, has no
-            resolvable module root, or cannot be imported. Never a silent skip:
-            an absent half of a two-target comparison would pass vacuously.
+        GateConfigurationError: The file is missing, is not JSON, or an entry is
+            malformed. Never a silent default: a missing baseline would hold
+            every language to no family and no calls and fail for the wrong reason.
     """
-    registered = registered_language_names()
-    if language not in registered:
+    if not path.is_file():
         raise GateConfigurationError(
-            f"Language {language!r} is not registered; installed languages are "
-            f"{sorted(registered)}. This gate compares the migration upgrade-op family "
-            f"across {sorted(SHARED_PARSER_CALL_SITES)}, so a missing one cannot be "
-            f"skipped. Fix: install the datrix-codegen-{language} package into "
-            f"D:\\datrix\\.venv, or remove it from SHARED_PARSER_CALL_SITES if the "
-            f"target is gone."
-        )
-    module_roots = _language_module_roots()
-    import_name = module_roots.get(language)
-    if import_name is None:
-        raise GateConfigurationError(
-            f"Registered language {language!r} declares no entry-point module in the "
-            f"'{LANGUAGES_GROUP}' group; got {sorted(module_roots)}. Fix: repair that "
-            f"package's entry-point declaration."
+            f"Baseline {path} does not exist. Expected a JSON object with a "
+            f"'{_LANGUAGES_KEY}' mapping of registered language -> "
+            f"{{{_CARRIES_FAMILY_KEY!r}: bool, {_CALL_SITES_KEY!r}: int}}. Fix: restore the file."
         )
     try:
-        module = importlib.import_module(import_name)
-    except ImportError as exc:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise GateConfigurationError(f"Baseline {path} is not valid JSON: {exc}.") from exc
+    languages = raw.get(_LANGUAGES_KEY) if isinstance(raw, dict) else None
+    if not isinstance(languages, dict):
         raise GateConfigurationError(
-            f"Cannot import {import_name!r} to locate {language}'s source tree: {exc}. "
-            f"Fix: install the datrix packages in editable mode into D:\\datrix\\.venv."
-        ) from exc
-    module_file = getattr(module, "__file__", None)
-    if module_file is None:
-        raise GateConfigurationError(
-            f"Package {import_name!r} has no __file__, so its source tree cannot be "
-            f"located. Expected a regular package with an __init__.py."
+            f"Baseline {path} must be an object whose '{_LANGUAGES_KEY}' key is a mapping of "
+            f"registered language -> entry; got {raw!r}."
         )
-    return Path(module_file).resolve().parent
+    return {language: _parse_entry(language, entry, path) for language, entry in languages.items()}
+
+
+def language_source_roots() -> dict[str, tuple[Path, ...]]:
+    """Every registered language -> the ``src/<import_name>`` directory of every
+    package implementing it (its backend, then each language core it requires).
+
+    Raises:
+        GateConfigurationError: A registered language resolves to no on-disk
+            package. Never a silent skip: an unscanned language would pass vacuously.
+    """
+    try:
+        return discover_target_package_src_dirs(
+            AXIS_LANGUAGES, registered_language_names(), WORKSPACE_ROOT
+        )
+    except ValueError as exc:
+        raise GateConfigurationError(
+            f"Cannot resolve the registered languages' source trees: {exc}. Fix: install the "
+            f"datrix packages in editable mode into D:\\datrix\\.venv."
+        ) from exc
 
 
 def _local_bindings(tree: ast.Module, module: str, symbol: str) -> tuple[set[str], set[str]]:
@@ -258,45 +310,99 @@ def definitions_of(root: Path, symbol: str) -> list[tuple[Path, int]]:
     return found
 
 
-def check_both_private_copies_survive(roots: dict[str, Path]) -> list[str]:
-    """Each divergent symbol keeps exactly one definition per target."""
+def _definitions_under(roots: tuple[Path, ...], symbol: str) -> list[tuple[Path, int]]:
+    """Every ``def <symbol>`` under any of one language's package roots."""
+    return [hit for root in roots for hit in definitions_of(root, symbol)]
+
+
+def _call_sites_under(roots: tuple[Path, ...]) -> list[tuple[Path, int]]:
+    """Every resolved shared-parser call under any of one language's package roots."""
+    return [hit for root in roots for hit in call_sites(root)]
+
+
+def _format_hits(hits: list[tuple[Path, int]]) -> list[str]:
+    return [f"{path}:{line}" for path, line in hits]
+
+
+def stale_entry_problems(baseline: Mapping[str, FamilyEntry], registered: frozenset[str]) -> list[str]:
+    """One problem per baseline entry naming a language that is not registered."""
+    return [
+        f"Baseline entry {language!r} names a language that is not registered (registered: "
+        f"{sorted(registered)}). Fix: remove the stale entry from {BASELINE_PATH.name}."
+        for language in sorted(set(baseline) - registered)
+    ]
+
+
+def check_divergent_family(
+    roots: Mapping[str, tuple[Path, ...]], baseline: Mapping[str, FamilyEntry]
+) -> list[str]:
+    """Each recorded carrier defines every divergent symbol exactly once, and a
+    language not recorded as a carrier defines none of them."""
+    carriers = sorted(
+        language for language in roots if baseline.get(language, NO_ENTRY).carries_divergent_family
+    )
+    if not carriers:
+        return [
+            f"No registered language is recorded as carrying the upgrade-op family in "
+            f"{BASELINE_PATH.name} (scanned: {sorted(roots)}), so the survival check would pass "
+            f"vacuously. Fix: record the carrier, or retire this check if the family is gone."
+        ]
     problems: list[str] = []
-    for symbol in DIVERGENT_SYMBOLS:
-        per_language = {
-            language: definitions_of(root, symbol) for language, root in sorted(roots.items())
-        }
-        total = sum(len(hits) for hits in per_language.values())
-        if total != len(roots):
-            problems.append(
-                f"{symbol} is genuinely target-specific, not hoisted, so each of {sorted(roots)} must "
-                f"still define it exactly once -- found "
-                f"{ {language: [f'{path}:{line}' for path, line in hits] for language, hits in per_language.items()} }."
-            )
+    for language, language_roots in sorted(roots.items()):
+        carries = language in carriers
+        for symbol in DIVERGENT_SYMBOLS:
+            hits = _definitions_under(language_roots, symbol)
+            if carries and len(hits) != 1:
+                problems.append(
+                    f"{language} carries the upgrade-op family, and {symbol} is genuinely "
+                    f"target-specific, not hoisted, so it must define it exactly once -- found "
+                    f"{_format_hits(hits)}. Deleting one deletes the target's real behaviour."
+                )
+            elif not carries and hits:
+                problems.append(
+                    f"{language} defines {symbol} at {_format_hits(hits)} but is not recorded as "
+                    f"carrying the upgrade-op family. Fix: set {_CARRIES_FAMILY_KEY} for "
+                    f"{language!r} in {BASELINE_PATH.name} once the whole family is in place."
+                )
     return problems
 
 
-def check_shared_parser_reachability(roots: dict[str, Path]) -> list[str]:
-    """Each target calls the shared parser the exact number of times its own
-    paths need, and none redefines the parse."""
+def check_shared_parser_reachability(
+    roots: Mapping[str, tuple[Path, ...]], baseline: Mapping[str, FamilyEntry]
+) -> list[str]:
+    """Each language calls the shared parser exactly the recorded number of
+    times its own paths need, and none redefines the parse."""
     problems: list[str] = []
-    for language, root in sorted(roots.items()):
-        expected = SHARED_PARSER_CALL_SITES[language]
-        hits = call_sites(root)
+    for language, language_roots in sorted(roots.items()):
+        expected = baseline.get(language, NO_ENTRY).shared_parser_call_sites
+        hits = _call_sites_under(language_roots)
         if len(hits) != expected:
             problems.append(
                 f"{language} has {len(hits)} resolved call site(s) of {SHARED_SYMBOL}, "
-                f"expected {expected}. Resolved: "
-                f"{[f'{path}:{line}' for path, line in hits]}. A path that stopped calling "
-                f"the shared parser has re-grown a private copy of it."
+                f"expected {expected} ({_CALL_SITES_KEY} in {BASELINE_PATH.name}). Resolved: "
+                f"{_format_hits(hits)}. Fewer means a path stopped calling the shared parser and "
+                f"re-grew a private copy; more means a new path, so review it and record the "
+                f"new count in the same change."
             )
         for symbol in (SHARED_SYMBOL, RETIRED_PRIVATE_SYMBOL):
-            redefinitions = definitions_of(root, symbol)
+            redefinitions = _definitions_under(language_roots, symbol)
             if redefinitions:
                 problems.append(
-                    f"{language} redefines {symbol!r} at "
-                    f"{[f'{path}:{line}' for path, line in redefinitions]}; the parse has "
-                    f"one home, {SHARED_MODULE}."
+                    f"{language} redefines {symbol!r} at {_format_hits(redefinitions)}; the "
+                    f"parse has one home, {SHARED_MODULE}."
                 )
+    return problems
+
+
+def evaluate(
+    roots: Mapping[str, tuple[Path, ...]],
+    baseline: Mapping[str, FamilyEntry],
+    registered: frozenset[str],
+) -> list[str]:
+    """Every violation of this family across *roots* against *baseline*."""
+    problems = stale_entry_problems(baseline, registered)
+    problems.extend(check_divergent_family(roots, baseline))
+    problems.extend(check_shared_parser_reachability(roots, baseline))
     return problems
 
 
@@ -392,6 +498,110 @@ def _check_definition_scan_finds_a_planted_definition(tmp_path: Path) -> list[st
     return problems
 
 
+_FIXTURE_CARRIER: Final[str] = "self_test_family_carrier"
+_FIXTURE_CALLER: Final[str] = "self_test_family_caller"
+_FIXTURE_THIRD: Final[str] = "self_test_family_third"
+_FIXTURE_CARRIER_CALLS: Final[int] = 2
+
+
+def _write_family_fixture(tmp_path: Path, *, omit_symbol: str | None = None) -> dict[str, tuple[Path, ...]]:
+    """Two fixture languages: a carrier defining the family (minus *omit_symbol*)
+    and calling the shared parser twice, and a non-carrier calling it once."""
+    carrier = tmp_path / _FIXTURE_CARRIER
+    caller = tmp_path / _FIXTURE_CALLER
+    definitions = "".join(
+        f"def {symbol}(change, context):\n    return change\n"
+        for symbol in DIVERGENT_SYMBOLS
+        if symbol != omit_symbol
+    )
+    _write(carrier / "builders.py", definitions)
+    _write(
+        carrier / "render.py",
+        f"from {SHARED_MODULE} import {SHARED_SYMBOL}\n"
+        f"def render(d):\n    return {SHARED_SYMBOL}(d)\n"
+        f"def audit(d):\n    return {SHARED_SYMBOL}(d)\n",
+    )
+    _write(
+        caller / "adapter.py",
+        f"import {SHARED_MODULE} as _mod\ndef index_of(d):\n    return _mod.{SHARED_SYMBOL}(d)\n",
+    )
+    return {_FIXTURE_CARRIER: (carrier,), _FIXTURE_CALLER: (caller,)}
+
+
+def _fixture_baseline(*, carrier_calls: int = _FIXTURE_CARRIER_CALLS) -> dict[str, FamilyEntry]:
+    return {
+        _FIXTURE_CARRIER: FamilyEntry(carries_divergent_family=True, shared_parser_call_sites=carrier_calls),
+        _FIXTURE_CALLER: FamilyEntry(carries_divergent_family=False, shared_parser_call_sites=1),
+    }
+
+
+def _fixture_registered() -> frozenset[str]:
+    return frozenset({_FIXTURE_CARRIER, _FIXTURE_CALLER})
+
+
+def _check_baseline_comparison_accepts_a_matching_tree(tmp_path: Path) -> list[str]:
+    """A tree that matches its baseline exactly reports nothing."""
+    problems = evaluate(_write_family_fixture(tmp_path), _fixture_baseline(), _fixture_registered())
+    return [f"a matching fixture tree reported problems: {problems}"] if problems else []
+
+
+def _check_baseline_comparison_rejects_each_divergence(tmp_path: Path) -> list[str]:
+    """Each way a tree can diverge from its baseline is exactly one reported
+    problem: a wrong count, a missing family member, an unrecorded carrier, a
+    stale entry, and a baseline recording no carrier at all."""
+    registered = _fixture_registered()
+    roots = _write_family_fixture(tmp_path / "full")
+    partial_roots = _write_family_fixture(tmp_path / "partial", omit_symbol=DIVERGENT_SYMBOLS[-1])
+    # A second language carrying the same family with no baseline entry.
+    unrecorded_roots = {**roots, _FIXTURE_THIRD: roots[_FIXTURE_CARRIER]}
+    unrecorded_registered = registered | {_FIXTURE_THIRD}
+    no_carrier = {
+        _FIXTURE_CALLER: _fixture_baseline()[_FIXTURE_CALLER],
+        _FIXTURE_CARRIER: FamilyEntry(carries_divergent_family=False, shared_parser_call_sites=2),
+    }
+    stale = {**_fixture_baseline(), _FIXTURE_THIRD: NO_ENTRY}
+    cases: tuple[tuple[str, list[str], int], ...] = (
+        ("a call count one below the record", evaluate(roots, _fixture_baseline(carrier_calls=3), registered), 1),
+        ("a carrier missing one family member", evaluate(partial_roots, _fixture_baseline(), registered), 1),
+        # Unrecorded: six definitions with no carrier record, and two calls against zero.
+        (
+            "a carrier with no baseline entry",
+            evaluate(unrecorded_roots, _fixture_baseline(), unrecorded_registered),
+            len(DIVERGENT_SYMBOLS) + 1,
+        ),
+        ("an entry naming an unregistered language", evaluate(roots, stale, registered), 1),
+        # No carrier recorded: the vacuity refusal alone.
+        ("a baseline recording no carrier", check_divergent_family(roots, no_carrier), 1),
+    )
+    return [
+        f"{label}: expected {expected} problem(s), got {len(found)}: {found}"
+        for label, found, expected in cases
+        if len(found) != expected
+    ]
+
+
+def _check_baseline_loader_refuses_a_malformed_entry(tmp_path: Path) -> list[str]:
+    """A count spelled as a boolean, a missing key, and a valid file each load as expected."""
+    problems: list[str] = []
+    malformed = (
+        {_FIXTURE_CARRIER: {_CARRIES_FAMILY_KEY: True, _CALL_SITES_KEY: True}},
+        {_FIXTURE_CARRIER: {_CARRIES_FAMILY_KEY: True}},
+    )
+    for index, languages in enumerate(malformed):
+        path = tmp_path / f"malformed{index}.json"
+        _write(path, json.dumps({_LANGUAGES_KEY: languages}))
+        try:
+            load_baseline(path)
+        except GateConfigurationError:
+            continue
+        problems.append(f"load_baseline accepted a malformed entry: {languages}")
+    valid = tmp_path / "valid.json"
+    _write(valid, json.dumps({_LANGUAGES_KEY: {_FIXTURE_CARRIER: {_CARRIES_FAMILY_KEY: True, _CALL_SITES_KEY: 2}}}))
+    if load_baseline(valid) != {_FIXTURE_CARRIER: _fixture_baseline()[_FIXTURE_CARRIER]}:
+        problems.append("load_baseline misread a valid entry")
+    return problems
+
+
 #: Every self-test check, in the order they run.
 _SELF_TEST_CHECKS: Final[tuple[tuple[str, Callable[[Path], list[str]]], ...]] = (
     ("resolver finds a planted direct call", _check_resolver_finds_a_planted_call),
@@ -403,17 +613,23 @@ _SELF_TEST_CHECKS: Final[tuple[tuple[str, Callable[[Path], list[str]]], ...]] = 
     ),
     ("resolver ignores a bare-name mention", _check_resolver_ignores_a_bare_name_mention),
     ("definition scan finds a planted def and invents none", _check_definition_scan_finds_a_planted_definition),
+    ("baseline comparison accepts a matching tree", _check_baseline_comparison_accepts_a_matching_tree),
+    ("baseline comparison rejects each divergence", _check_baseline_comparison_rejects_each_divergence),
+    ("baseline loader refuses a malformed entry", _check_baseline_loader_refuses_a_malformed_entry),
 )
 
 
 def run_self_test() -> list[str]:
-    """Prove the call-site and definition resolvers are non-vacuous in both
-    directions before any real comparison is trusted.
+    """Prove this gate names no registered target, and that the call-site and
+    definition resolvers and the baseline comparison are non-vacuous in both
+    directions, before any real comparison is trusted.
 
     Returns:
         Problem descriptions; empty means the gate is sound.
     """
-    problems: list[str] = []
+    problems: list[str] = [
+        f"gate names no registered target: {line}" for line in self_test_gate_names_no_target(__file__)
+    ]
     tmp_root = Path(tempfile.mkdtemp(prefix="migration-upgrade-op-family-selftest-"))
     try:
         for index, (label, check) in enumerate(_SELF_TEST_CHECKS):
@@ -441,26 +657,28 @@ def check_migration_upgrade_op_family() -> int:
     Returns:
         Exit code: 0 = every check holds, 1 = at least one violation.
     """
-    roots = {
-        language: language_source_root(language) for language in sorted(SHARED_PARSER_CALL_SITES)
-    }
+    roots = language_source_roots()
+    baseline = load_baseline(BASELINE_PATH)
     logger.info("scanned_targets targets=%s", sorted(roots))
 
-    problems: list[str] = []
-    problems.extend(check_both_private_copies_survive(roots))
-    problems.extend(check_shared_parser_reachability(roots))
-
+    problems = evaluate(roots, baseline, registered_language_names())
     if problems:
         for problem in problems:
             logger.error("MIGRATION UPGRADE-OP FAMILY: %s", problem)
         return EXIT_FAIL
+    carriers = sorted(
+        language for language in roots if baseline.get(language, NO_ENTRY).carries_divergent_family
+    )
+    call_counts = {
+        language: baseline.get(language, NO_ENTRY).shared_parser_call_sites for language in sorted(roots)
+    }
     logger.info(
         "MIGRATION UPGRADE-OP FAMILY GATE PASSED: %d target-specific symbol(s) still defined "
-        "once per target across %s, %s has one home with %s call site(s).",
+        "once per carrier across %s, %s has one home with %s call site(s).",
         len(DIVERGENT_SYMBOLS),
-        sorted(roots),
+        carriers,
         SHARED_SYMBOL,
-        SHARED_PARSER_CALL_SITES,
+        call_counts,
     )
     return EXIT_OK
 
@@ -489,8 +707,8 @@ def main(argv: list[str] | None = None) -> int:
 
     Returns:
         Process exit code: 0 = gate passed (or a successful ``--self-test``),
-        1 = at least one violation, 2 = self-test failure or an unresolvable
-        target package.
+        1 = at least one violation, 2 = self-test failure, an unresolvable
+        target package, or a missing/malformed baseline.
     """
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     logging.basicConfig(

@@ -69,6 +69,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (  # noqa: E402
     EnumClassifierRender,
     LanguageConformanceProbes,
     ResponseBodyWireField,
+    RouteWireContract,
     conformance_probes_of_language_plugin,
     language_conformance_probes,
 )
@@ -444,6 +445,9 @@ class _FixtureEnumProbes:
         self._sources = sources
 
     def response_body_wire_fields(self, generated_root: Path) -> tuple[ResponseBodyWireField, ...]:
+        return ()
+
+    def route_wire_contracts(self, generated_root: Path) -> tuple[RouteWireContract, ...]:
         return ()
 
     def documentation_surfaces(self, generated_root: Path, files: Sequence[Path]) -> DocumentationSurfaces:

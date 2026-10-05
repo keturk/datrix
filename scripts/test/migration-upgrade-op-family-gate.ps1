@@ -25,10 +25,12 @@
  this chain before, and both are proven every run by the built-in six-check
  non-vacuity self-test.
 
- The languages are named (a fact about which targets carry this family, not a
- claim about which targets exist) but their packages resolve through the
- installed datrix.languages entry points, so a named language that is not
- installed fails loud instead of letting its part pass vacuously.
+ The gate names no target: every registered datrix.languages package (its
+ backend and each language core) is scanned, and which languages carry the
+ family and how many shared-parser calls each one's paths make are reviewed
+ facts in scripts/config/migration-upgrade-op-family-baseline.json. A language
+ with no entry is held to no family and zero calls; a stale entry, an
+ unrecorded carrier, and a baseline recording no carrier all fail.
 
  Repo-level validation script (per the datrix showcase boundary -- no pytest
  suite lives in datrix, and a unit test importing several generator packages to
