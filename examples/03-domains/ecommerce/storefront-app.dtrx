@@ -85,7 +85,7 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
                     }
                 }
                 sidebar : collapsible, at(lg) {
-                    brand(Msg.appName) { image(logo); }
+                    brand(Msg.appName) { image(logo, Msg.logoAlt); }
                     nav;
                 }
                 slot;

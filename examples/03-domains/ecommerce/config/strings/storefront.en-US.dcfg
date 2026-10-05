@@ -24,6 +24,7 @@ config strings ecommerce.Storefront locale "en-US" {
     home            = "Home";
     customerRequest = "Cancelled by customer";
     appName          = "Acme Shop";
+    logoAlt          = "Acme Shop logo";
     organizationName = "Acme Retail";
     notifications    = "Notifications";
     markAllRead      = "Mark all as read";

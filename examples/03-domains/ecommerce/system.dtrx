@@ -8,6 +8,7 @@ include 'notification-service.dtrx';
 include 'ui.dtrx';
 include 'storefront-app.dtrx';
 include 'admin-app.dtrx';
+include 'site-app.dtrx';
 
 system ecommerce('config/system.dcfg') : version('1.0.0') {
 }

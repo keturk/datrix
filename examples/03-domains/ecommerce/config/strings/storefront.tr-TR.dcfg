@@ -24,6 +24,7 @@ config strings ecommerce.Storefront locale "tr-TR" {
     home            = "Ana sayfa";
     customerRequest = "Müşteri tarafından iptal edildi";
     appName          = "Acme Mağaza";
+    logoAlt          = "Acme Mağaza logosu";
     organizationName = "Acme Perakende";
     notifications    = "Bildirimler";
     markAllRead      = "Tümünü okundu say";

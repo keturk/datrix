@@ -1,0 +1,86 @@
+/// The public marketing site: prerendered to one HTML document per page and language, so it
+/// is fast, crawlable and needs no backend. Two languages, a content collection of articles
+/// (one document per article), per-page metadata for search and link previews, responsive
+/// images, and reveal-on-scroll cards.
+app ecommerce.Site('config/site-app.dcfg') : version('1.0.0'), rendering('static') {
+    assets {
+        image logo = 'assets/logo.svg';
+        image hero = 'assets/hero.svg';
+    }
+
+    // Articles are authored as files, one per key and language:
+    //   content/articles/<key>.<locale>.md  (TOML front matter between `+++` lines, then Markdown).
+    content Article : files('content/articles/{key}.{locale}.md'), orderBy(published, desc) {
+        String title;
+        Date published;
+        String summary;
+        image cover;
+    }
+
+    layout Frame : default {
+        nav {
+            link Home;
+            link About;
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.siteName) { image(logo, Msg.logoAlt); }
+                    spacer;
+                    nav;
+                }
+                slot;
+            }
+        }
+    }
+
+    // An old address that moved: answered with a permanent redirect by every host.
+    redirect '/company' -> About;
+
+    @path('/')
+    page Home() : meta(description: Msg.homeDescription, image: hero) {
+        view {
+            image(hero, Msg.heroAlt) : eager;
+            heading(Msg.homeHeading);
+            text(Msg.homeTagline);
+            foreach (article in Article.entries()) {
+                card : reveal {
+                    image(article.cover, Msg.coverAlt);
+                    heading(article.title);
+                    text(article.summary);
+                    link(Msg.readMore, ArticleDetail, key: article.key);
+                }
+            }
+        }
+    }
+
+    @path('/about')
+    page About() : meta(description: Msg.aboutDescription) {
+        view {
+            heading(Msg.aboutHeading);
+            card : reveal {
+                text(Msg.aboutBody);
+            }
+        }
+    }
+
+    @path('/articles/:key')
+    page ArticleDetail(String key) : from(Article), meta(description: Msg.articleDescription) {
+        view {
+            foreach (article in Article.entries()) {
+                when (article.key == key) {
+                    image(article.cover, Msg.coverAlt);
+                    heading(article.title);
+                    markdown(article.body);
+                }
+            }
+        }
+    }
+
+    page Missing() : fallback {
+        view {
+            heading(Msg.notFoundHeading);
+            text(Msg.notFoundBody);
+        }
+    }
+}

@@ -1,0 +1,24 @@
+config strings ecommerce.Site locale "en-US" {
+  messages {
+    siteName          = "Acme Shop";
+    logoAlt           = "Acme Shop logo";
+    heroAlt           = "A teal banner with the Acme Shop headline";
+    coverAlt          = "Article illustration";
+    homeHeading       = "Everything for your home, delivered";
+    homeTagline       = "Fresh arrivals, honest prices and tracking from checkout to your door.";
+    homeDescription   = "Acme Shop: a catalog of everyday goods with live stock, simple checkout and order tracking.";
+    readMore          = "Read the article";
+    aboutHeading      = "About Acme Shop";
+    aboutBody         = "Acme Shop is a small retailer with a big catalog. We describe the store once and everything else follows from it.";
+    aboutDescription  = "Who we are and how Acme Shop is built.";
+    articleDescription = "News and guides from Acme Shop.";
+    notFoundHeading   = "Page not found";
+    notFoundBody      = "The page you were looking for does not exist or has moved.";
+  }
+  labels {
+    page.Home          = "Home";
+    page.About         = "About";
+    page.ArticleDetail = "Article";
+    page.Missing       = "Not found";
+  }
+}

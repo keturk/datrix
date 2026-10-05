@@ -57,14 +57,16 @@ shipping, and order notifications — six services, one `system.dtrx`.
 
 ## Apps
 
-Two frontend apps are written in the same `.dtrx` language as the services and generated in
-the same run, under the generated project's `clients/<target>/`. Both import the shared
-[`ui.dtrx`](ui.dtrx) module (the `Brand` theme, the `Panel` and `StatusBadge` components).
+Three frontend apps are written in the same `.dtrx` language as the services and generated in
+the same run, under the generated project's `clients/<target>/`. The Storefront and Admin
+import the shared [`ui.dtrx`](ui.dtrx) module (the `Brand` theme, the `Panel` and `StatusBadge`
+components); the public Site is self-contained.
 
 | App | Audience | Targets | Pages | Config |
 |-----|----------|---------|-------|--------|
 | [Storefront](storefront-app.dtrx) | Customers | web (Angular), mobile (Flutter) | `/`, `/products`, `/products/:id`, `/cart`, `/orders`, `/orders/new`, `/orders/:id`; `/shop` redirects to `/products` | [`config/storefront-app.dcfg`](config/storefront-app.dcfg) |
 | [Admin](admin-app.dtrx) | Staff | web (Angular) | `/products` (list, detail and edit of the product catalog) | [`config/admin-app.dcfg`](config/admin-app.dcfg) |
+| [Site](site-app.dtrx) | The public | web (Angular), prerendered | `/`, `/about`, `/articles/:key` (one document per article), each also under `/tr-TR/` | [`config/site-app.dcfg`](config/site-app.dcfg) |
 
 - **Derived, not restated.** Neither app declares a route table, a login, a guard or a form
   field list: routes come from `@path`, each page's guard and the hosted login from the auth
@@ -81,6 +83,17 @@ the same run, under the generated project's `clients/<target>/`. Both import the
   sign the Storefront's mobile release with handles the operator supplies.
 - **Tests.** The Storefront's three `test(...)` blocks generate one Vitest spec on Angular and
   one widget test on Flutter each.
+- **A prerendered public site.** [`site-app.dtrx`](site-app.dtrx) declares
+  `rendering('static')`: the build writes one HTML document per page and per language (English
+  at `/…`, Turkish at `/tr-TR/…`), so the site is fast, crawlable and needs no backend. It shows
+  a `content` collection of [articles](content/articles) authored as Markdown with front matter
+  (one document per article through `from(Article)`), per-page `meta(...)` for search results and
+  link previews, responsive images with alt text (`hero` is `: eager`, the article covers are
+  drawn from their own variants) and `: reveal` cards. A redirect (`/company` → `/about`) is
+  answered `301` by every host, and unknown paths get a real `404` page. Loopback profiles are
+  never indexed (`web { indexable }` defaults to `false`); the deployed profiles name
+  `www.library.example.com` and say the site may be indexed, so the build writes `sitemap.xml`
+  with every language alternate.
 
 ## Wire-Contract Routes
 
