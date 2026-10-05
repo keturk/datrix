@@ -20,6 +20,8 @@ Category quick-reference files:
   datrix/scripts/metrics/quick-reference.md
   datrix/scripts/visualize/quick-reference.md
   datrix/scripts/tasks/quick-reference.md
+  datrix/scripts/review/quick-reference.md
+  datrix/scripts/skill/quick-reference.md
 
 Exit codes:
   0 — allow (outputs JSON with permissionDecision)
@@ -40,6 +42,8 @@ _CATEGORY_MAP = {
     "metrics": "metrics/quick-reference.md",
     "visualize": "visualize/quick-reference.md",
     "tasks": "tasks/quick-reference.md",
+    "review": "review/quick-reference.md",
+    "skill": "skill/quick-reference.md",
 }
 
 _SCRIPTS_BASE = "d:/datrix/datrix/scripts/"

@@ -1,6 +1,6 @@
 # Decision Escalation Protocol (shared) — used by /execute-tasks and /execute-tasks-parallel
 
-When execution reaches a genuine design or architectural decision — multiple valid approaches, root cause unclear after investigation, or ambiguous fix scope — escalate to an Opus 4.8 (extra-high effort) agent **before** marking a task failed.
+When execution reaches a genuine design or architectural decision — multiple valid approaches, root cause unclear after investigation, or ambiguous fix scope — escalate to an Opus agent **before** marking a task failed.
 
 **Escalation is not an exit — it is how you KEEP GOING.** Under the execution contract (`execution-contract.md`), returning BLOCKED on a *technical* ambiguity **without having escalated first** is an invalid report. Escalate, get the decision, implement it. The work continues.
 
@@ -55,7 +55,6 @@ Spawn a subagent via the Agent tool (only the orchestrating session does this �
 ```
 subagent_type: "general-purpose"
 model: "opus"
-effort: "xhigh"
 description: "Opus decision: {brief problem description}"
 ```
 

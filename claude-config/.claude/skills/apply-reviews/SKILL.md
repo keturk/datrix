@@ -1,6 +1,6 @@
 ---
 model: claude-sonnet-5-5
-effort: medium
+effort: high
 ---
 
 # Apply Reviews Skill

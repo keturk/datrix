@@ -12,7 +12,9 @@ data the run saved (``failure-data.json`` via ``collect-failure-data.ps1``).
 The digest is a lead, never a finding: it cites log lines, and the agent confirms them.
 
 Bounded and fail-open. It never runs on a green run, a run whose log is outside the read
-scope, or more than ``MAX_RUNS`` runs per call; the model requests are capped by
+scope, a run whose folder holds ``test.ps1``'s own failure digest (``RUN_DIGEST_NAME`` --
+the console output already carries it), or more than ``MAX_RUNS`` runs per call; the model
+requests are capped by
 ``_local_digest``; and any failure -- no model server, an
 unreadable log, an import error -- leaves the tool result exactly as it was. Every request is
 recorded in the local-model usage log as ``hook:red-test-digest``.
@@ -41,6 +43,11 @@ _DETAILS_LINE: Final = re.compile(r"^\s*Details:\s+(?P<index>.+?[\\/]index\.json
 _GREEN: Final = "PASSED"
 _LOG_NAME: Final = "full.log"
 _FAILURE_DATA_NAME: Final = "failure-data.json"
+# test.ps1 prints run_digest.py's digest under its summary and saves it under this name in
+# the run folder: a run that has one already carries its digest in the console output, so
+# the hook asks no model for it again. Kept in step with run_digest.DIGEST_FILENAME by the
+# hook's test, which imports both.
+RUN_DIGEST_NAME: Final = "digest.txt"
 
 MAX_RUNS: Final = 2
 CALLER: Final = "hook:red-test-digest"
@@ -75,7 +82,8 @@ def red_runs(console: str) -> list[tuple[str, Path]]:
 def context_for(console: str, workspace: Path, settings: "LocalLlmSettings") -> str:
     """The additionalContext for a ``test.ps1`` console output; empty when no run is red or digestible."""
     sections: list[str] = []
-    for package, run in red_runs(console)[:MAX_RUNS]:
+    undigested = [(package, run) for package, run in red_runs(console) if not (run / RUN_DIGEST_NAME).is_file()]
+    for package, run in undigested[:MAX_RUNS]:
         text = digest_of(run / _LOG_NAME, workspace, settings, "digest-red-test-run")
         if not text:
             continue

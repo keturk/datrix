@@ -1,7 +1,7 @@
 ---
 description: Implement a design document end to end - operationalize and orchestrate tasks when the design is large, implement directly when it is small, then verify against the design and absorb it into the docs
-model: claude-sonnet-5-5
-effort: medium
+model: claude-opus-5-5
+effort: high
 disable-model-invocation: true
 ---
 
@@ -52,6 +52,10 @@ FIX: false             # verify-implementation reports only, changes no code
 | MODE | No | `tasks` or `direct`. Overrides the Step 1 decision. `direct` on a design that meets a task criterion below is refused: say which criterion and use `tasks` |
 | KEEP SOURCE | No | Passed to `/absorb-design` |
 | FIX | No | Passed to `/verify-implementation` (default: fix what is wrong) |
+
+## Run it from the CLI
+
+Typed here, the whole run is on this skill's model: a skill invoked through the Skill tool runs on the caller's model, not its own. Two scripts run each step in its own headless session on its own skill's model, with the checks between steps done by the script: `datrix/scripts/skill/implement-design.ps1 -Design <path>` (the tasks path: operationalize, orchestrate, verify, absorb) and `datrix/scripts/skill/implement-design-direct.ps1 -Design <path>` (the direct path). The scripts do not make the Step 1 decision: Jon picks the path by picking the script.
 
 ## Prereqs — read first
 

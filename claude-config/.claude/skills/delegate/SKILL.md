@@ -1,6 +1,6 @@
 ---
 description: Delegate tasks to background agents with two-stage review and model selection
-model: claude-haiku-4-5-20251001
+model: claude-sonnet-5-5
 effort: medium
 disable-model-invocation: true
 ---

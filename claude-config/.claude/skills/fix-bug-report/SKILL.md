@@ -1,7 +1,7 @@
 ---
 description: Analyze bug reports from any product and any of its deployment profiles, classify as app-definition or generator-level, fix root causes product-neutrally without breaking other products or sibling profiles, and update reports with resolution
-model: claude-sonnet-5-5
-effort: medium
+model: claude-opus-5-5
+effort: high
 ---
 
 # Fix Bug Report
@@ -370,7 +370,7 @@ For each bug report that was fixed:
 1. **Append a Resolution section** to the end of the bug report file. The script builds it — the Changes Made table from the repositories' diffs, the rest from the facts you pass — so you write only what you verified:
 
    ```bash
-   powershell -File "d:/datrix/datrix/scripts/dev/skill-assist.ps1" bug-resolution --report "{bug report}" --repo "{repo}" ["{repo}" ...] [--file <repo-relative files of this bug's fix>] --fix-type "Generator/Template" --exhibiting <profiles> --reached <profiles> --verification "<profile>|<regenerated: yes/no -- why not>|<artifact checked>|<result>" ...
+   powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" bug-resolution --report "{bug report}" --repo "{repo}" ["{repo}" ...] [--file <repo-relative files of this bug's fix>] --fix-type "Generator/Template" --exhibiting <profiles> --reached <profiles> --verification "<profile>|<regenerated: yes/no -- why not>|<artifact checked>|<result>" ...
    ```
 
    It writes a draft to `d:\datrix\.tmp\assist\resolution-{report-stem}.md`; read it, then run the same command with `--append` to add it (it refuses a report that already has a Resolution). A framework file's row is a local model's one-line summary of its diff; a product repository's row is the diff's shape and functions, and nothing of it is sent to a model. Pass `--file` when the repositories carry changes for other bugs. For a bug that could NOT be fixed, pass `--status Unresolved --reason "..." --notes "..."` instead of the fix facts. The section it writes has exactly the layout below:

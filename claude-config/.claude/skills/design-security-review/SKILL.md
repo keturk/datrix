@@ -1,7 +1,7 @@
 ---
 name: design-security-review
-model: claude-sonnet-5-5
-effort: medium
+model: claude-opus-5-5
+effort: high
 description: >-
   Threat-model a DESIGN DOCUMENT and produce a security review report. Use when
   the user wants a security review, threat model, or risk assessment of a design

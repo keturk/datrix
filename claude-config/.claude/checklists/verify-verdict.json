@@ -1,0 +1,13 @@
+{
+  "name": "verify-verdict",
+  "_comment": "/verify-implementation's report ends with a machine-read verdict line: skill-chain scripts gate /absorb-design on it, and a verdict written only as prose ('implemented as specified') stalls the chain.",
+  "applies_to": { "skill_matches": "^verify-implementation$" },
+  "items": [
+    {
+      "id": "verdict-line",
+      "type": "reply_has",
+      "pattern": "Design conformance:\\W*(PROVEN|INCOMPLETE)",
+      "fix": "/verify-implementation's report must carry its verdict as the line `Design conformance: PROVEN` or `Design conformance: INCOMPLETE` (the skill's report template). Scripts read that line to decide whether to absorb the design. Send the report again with the line."
+    }
+  ]
+}

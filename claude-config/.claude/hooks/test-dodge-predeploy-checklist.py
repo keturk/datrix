@@ -392,6 +392,42 @@ for index, (label, messages, want) in enumerate(live_cases):
     )
     check(f"live-config/{label}", code, want)
 
+# The harness passes the final reply as `last_assistant_message`, and the transcript may not
+# hold it yet when Stop fires: the hook judges the passed reply, not the transcript's older text.
+for label, passed, want in (
+    ("passed reply wins over a stale transcript", "Jon, the seam is at compose.py:88.", ALLOW),
+    ("a passed reply is still judged", "The seam is at compose.py:88.", BLOCK),
+):
+    reset_checklist_state()
+    code, _ = run(
+        "checklist.py",
+        {
+            "session_id": SID,
+            "transcript_path": transcript([("text", "Checking the seam next.")], "race.jsonl"),
+            "last_assistant_message": passed,
+        },
+    )
+    check(f"checklist/{label}", code, want)
+
+# verify-verdict.json: a /verify-implementation turn must end on its machine-read verdict line,
+# because the skill-chain scripts gate absorbing the design on it.
+for label, reply, want in (
+    ("verify verdict written only as prose", "Jon, the design is implemented as specified.", BLOCK),
+    ("verify with its verdict line", "Jon, all 4 requirements hold.\n\nDesign conformance: PROVEN", ALLOW),
+    ("verify with an INCOMPLETE verdict", "Jon, R3 is missing.\n\nDesign conformance: INCOMPLETE", ALLOW),
+):
+    reset_checklist_state()
+    run("record-active-skill.py", {"session_id": SID, "prompt": "/verify-implementation\nDESIGN: d.md"})
+    code, _ = run("checklist.py", {"session_id": SID, "transcript_path": transcript([("text", reply)], "verdict.jsonl")})
+    check(f"checklist/{label}", code, want)
+run("record-active-skill.py", {"session_id": SID, "prompt": "now something else"})
+reset_checklist_state()
+check(
+    "checklist/verdict line not required outside /verify-implementation",
+    run("checklist.py", {"session_id": SID, "transcript_path": transcript([("text", "Jon, done.")], "noverdict.jsonl")})[0],
+    ALLOW,
+)
+
 # The block cap counts refusals of one turn: a clean stop resets it, so refusals spread over a long
 # session never switch the checklist off for the rest of it.
 reset_checklist_state()

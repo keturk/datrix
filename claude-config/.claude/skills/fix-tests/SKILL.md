@@ -1,6 +1,6 @@
 ---
 model: claude-sonnet-5-5
-effort: medium
+effort: high
 ---
 
 # Fix Test Failures Skill
@@ -67,7 +67,7 @@ After reading the failures:
 
 ### Phase 1: Triage (scripted)
 
-1. **Collect the failure data with the script** (read `datrix/scripts/test/quick-reference.md` first; a pre-tool hook enforces this). Given a RUN directory, pass it; given only a package (e.g. after COMMAND mode ran `test.ps1`), pass `-Project` to auto-locate the newest run:
+1. **Reuse what the run already produced.** `test.ps1` writes `digest.txt` and `failure-data.json` into every failed run's directory (unless it ran with `-NoDigest`). If `digest.txt` is there, read it first — the whole run in a dozen lines, with a local model's reading of which groups share a cause (a hypothesis). If `failure-data.json` is there, go straight to step 2: running the collector again only repeats its model calls. **Only when `failure-data.json` is absent, collect it with the script** (read `datrix/scripts/test/quick-reference.md` first; a pre-tool hook enforces this). Given a RUN directory, pass it; given only a package (e.g. after COMMAND mode ran `test.ps1`), pass `-Project` to auto-locate the newest run:
    ```bash
    powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" "{run-dir}"        # or:
    powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" -Project {package}

@@ -40,7 +40,9 @@ assert spec is not None and spec.loader is not None
 hook = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hook)
 sys.path.insert(0, hook.LIBRARY_DIR)
+from dev.customer_domain_isolation import corpus_path  # noqa: E402
 from shared.local_llm import LocalLlmSettings  # noqa: E402
+from test.run_digest import DIGEST_FILENAME  # noqa: E402
 
 ANSWER = "1. AssertionError: boom, 2 times, first at datrix-alpha/.test_results/test-results-1/full.log:4"
 
@@ -121,6 +123,10 @@ with tempfile.TemporaryDirectory(prefix="digest-hook-") as temp:
     workspace = Path(temp)
     for repo in ("datrix", "datrix-alpha", "acme-shop"):
         (workspace / repo / ".git").mkdir(parents=True)
+    # Nothing reaches a local model without the customer-term corpus; an empty one is a legitimate checkout.
+    corpus = corpus_path(workspace / "datrix")
+    corpus.parent.mkdir(parents=True)
+    corpus.write_text(json.dumps({"algorithm": "sha256", "min_token_length": 5, "terms": []}), encoding="utf-8")
     usage = workspace / "usage.jsonl"
     server = ModelServer()
     settings = settings_for(server.port, usage)
@@ -150,6 +156,17 @@ with tempfile.TemporaryDirectory(prefix="digest-hook-") as temp:
     check("every request is in the usage log under the hook's name", set(callers), {"hook:red-test-digest"})
 
     print("== SILENT: every way the hook must add nothing ==")
+    check("the hook's digest file name is the one test.ps1's digest writes", hook.RUN_DIGEST_NAME, DIGEST_FILENAME)
+    digested = make_run(workspace, "datrix-alpha", "5")
+    (digested / DIGEST_FILENAME).write_text("Failure digest: datrix-alpha FAILED\n", encoding="utf-8")
+    before = server.chats
+    check("a red run test.ps1 already digested",
+          hook.context_for(console(("FAILED", "datrix-alpha", digested)), workspace, settings), "")
+    check("which reached no model", server.chats, before)
+    mixed = hook.context_for(console(("FAILED", "datrix-alpha", digested), ("FAILED", "datrix-alpha", red)),
+                             workspace, settings)
+    check("a digested run does not use up the cap: the undigested one is still digested",
+          (mixed.count("Local-model digest of"), str(red / "full.log") in mixed), (1, True))
     before = server.chats
     check("a green run", hook.context_for(console(("PASSED", "datrix-alpha", green)), workspace, settings), "")
     check("a red run whose log is outside the read scope",

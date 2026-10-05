@@ -1,7 +1,7 @@
 ---
 description: Review generated code against Datrix quality standards and submission checklist
 model: claude-sonnet-5-5
-effort: medium
+effort: high
 disable-model-invocation: true
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: source-security-review
-model: claude-sonnet-5-5
-effort: medium
+model: claude-opus-5-5
+effort: high
 description: >-
   Security-review the SOURCE CODE under a given folder and produce a vulnerability
   report. Use when the user wants a security review, audit, or threat assessment of

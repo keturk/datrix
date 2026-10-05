@@ -1,7 +1,7 @@
 ---
 description: Diagnose and fix datrix-language test failures, errors, and warnings from structured test results
-model: claude-sonnet-5-5
-effort: medium
+model: claude-opus-5-5
+effort: high
 ---
 
 # Fix Language

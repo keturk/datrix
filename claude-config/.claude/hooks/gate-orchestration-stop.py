@@ -81,7 +81,7 @@ from _report_language import (
     DODGE_REMEDY,
     carries_proof,
     find_dodge,
-    last_assistant_text,
+    stop_reply,
     strip_quoted,
 )
 
@@ -267,7 +267,7 @@ def main() -> None:
     session_id = data.get("session_id") or ""
     path = _state_path(session_id)
     state = _load_state(path)
-    text = last_assistant_text(data.get("transcript_path", ""))
+    text = stop_reply(data)
 
     if state.get("status") != "running":
         # Not an armed `/task-orchestrator` run — this also covers Jon's stop and an

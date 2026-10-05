@@ -211,6 +211,8 @@ try:
     print("== scratch space stays writable while blocked ==")
     start("startup")
     check("workspace .tmp -> allow", edit(SCRATCH)[0], ALLOW)
+    # inject-agent-plan.py demands the session plan file as the FIRST action, before any read.
+    check("session plan file -> allow", edit("d:/datrix/.agent_output/plan-test.md")[0], ALLOW)
 
     print("== reading the docs clears the block ==")
     read_doc(ARCH)

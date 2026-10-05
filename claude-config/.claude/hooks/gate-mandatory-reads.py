@@ -73,8 +73,11 @@ _REQUIRED_DOCS: Final = (
     ),
 )
 
-# Mirrors CLAUDE.md § Temporary File Policy — scratch space stays reachable.
+# Mirrors CLAUDE.md § Temporary File Policy — scratch space stays reachable. `.agent_output/`
+# holds the session plan file, which inject-agent-plan.py requires as the session's FIRST
+# action, before any doc could have been read; gating it made the two hooks contradict.
 _EXEMPT_PREFIXES: Final = (
+    "d:/datrix/.agent_output/",
     "d:/datrix/.scripts/",
     "d:/datrix/.test-output/",
     "d:/datrix/.tmp/",

@@ -1,5 +1,5 @@
 ---
-model: claude-sonnet-5-5
+model: claude-opus-5-5
 effort: medium
 description: Tidy the findings inbox at d:\datrix\reports\finding in place — group related findings into themes (one seam, subsystem or defect class), write each theme as one numbered consolidated-NNN-<slug>.md file holding every defect of that theme as its own section, and delete the superseded sources. Keeps no archive and no register; the folder itself is the result. Use when Jon asks to "consolidate findings", "merge the findings", "clean up reports/finding", or runs /consolidate-findings.
 ---
@@ -47,7 +47,7 @@ If there are no raw files, say so in one line and stop.
 First have a local model draft the atomic-finding index:
 
 ```bash
-powershell -File "d:/datrix/datrix/scripts/dev/skill-assist.ps1" findings-index
+powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" findings-index
 ```
 
 `d:\datrix\.tmp\assist\findings-index.md` lists every atomic finding of every file (raw and
@@ -193,7 +193,7 @@ after deleting; a pointer to a deleted file is a defect in the consolidation.
 Before deleting anything, run the exact check over the files you are about to delete:
 
 ```bash
-powershell -File "d:/datrix/datrix/scripts/dev/skill-assist.ps1" findings-check --delete <file> <file> ...
+powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" findings-check --delete <file> <file> ...
 ```
 
 It passes (exit 0) only when every `path:line` citation and every backticked file path of each file

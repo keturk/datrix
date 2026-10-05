@@ -1,7 +1,5 @@
 ---
 description: Phased fix execution discipline — Understand, Fix, Verify with runaway detection
-model: claude-sonnet-5-5
-effort: medium
 disable-model-invocation: true
 ---
 

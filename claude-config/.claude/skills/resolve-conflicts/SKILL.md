@@ -1,6 +1,6 @@
 ---
 model: claude-sonnet-5-5
-effort: medium
+effort: high
 description: Pull one or more Datrix repos over uncommitted local work — shelve only the files the pull would overwrite, pull, reapply, and merge any overlap by hand. Unlocks path-limited stash, index-only reset, and --ours/--theirs for this invocation only.
 argument-hint: "[repo ...]  (default: every repo whose pull is blocked)"
 disable-model-invocation: true

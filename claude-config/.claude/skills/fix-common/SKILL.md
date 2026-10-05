@@ -1,7 +1,7 @@
 ---
 description: Diagnose and fix datrix-common test failures, errors, and warnings from structured test results
-model: claude-sonnet-5-5
-effort: medium
+model: claude-opus-5-5
+effort: high
 ---
 
 # Fix Common

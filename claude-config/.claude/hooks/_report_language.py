@@ -437,6 +437,19 @@ def last_user_text(transcript_path: str) -> str:
     return ""
 
 
+def stop_reply(data: dict[str, object]) -> str:
+    """The reply a Stop or SubagentStop hook judges.
+
+    The harness passes it as `last_assistant_message`. The transcript is only the
+    fallback: when the hook fires, the final message may not be written to it yet, and
+    reading it then judges the text before the reply instead of the reply itself.
+    """
+    message = data.get("last_assistant_message")
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    return last_assistant_text(str(data.get("transcript_path", "")))
+
+
 def last_assistant_text(transcript_path: str) -> str:
     """Concatenated text of the final assistant message in a transcript."""
     try:

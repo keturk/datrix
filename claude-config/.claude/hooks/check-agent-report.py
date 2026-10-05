@@ -50,7 +50,7 @@ from _report_language import (
     find_dodge,
     find_expedient,
     find_security_downgrade,
-    last_assistant_text,
+    stop_reply,
 )
 
 
@@ -69,7 +69,7 @@ def main() -> None:
     if data.get("stop_hook_active"):
         sys.exit(0)
 
-    text = last_assistant_text(data.get("transcript_path", ""))
+    text = stop_reply(data)
     if not text:
         sys.exit(0)
 

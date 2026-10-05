@@ -60,7 +60,8 @@ Each project (`datrix-*`) is its own independent git repository — commits and 
 - `full.log` — complete pytest output; contains the **warnings summary** section and collection/configuration errors
 - `failures/NNN-....txt`, `errors/NNN-....txt` — per-item detail with full traceback and captured stdout/stderr
 - `summary.txt`, `junit-*.xml` — rarely needed
-- `failure-data.json`, `warnings.json`, `run-delta.json` — derived analyses written by the scripts below (present only after you run them)
+- `digest.txt`, `failure-data.json`, `run-delta.json` — written by `test.ps1` itself for every failed run: the short failure digest it printed under its summary (groups `E1..`/`F1..`, the change since the last run with the same selection, a local model's hint per group and one reading across groups), the full cluster bundle behind it, and the comparison (only when an earlier comparable run exists). Absent when the run was made with `-NoDigest` or by another runner
+- `warnings.json` — written by `extract-warnings.ps1` (present only after you run it)
 
 ### Extraction Scripts (use these — do not hand-parse)
 
@@ -114,7 +115,7 @@ Never run a whole-package suite, in the fix loop or after it — verify each fix
 
 ### Step 1: Parse Test Results (scripted)
 
-1. Run `collect-failure-data.ps1` on the provided path and read the resulting `failure-data.json` — it contains counts, `families` (clusters sharing one normalized pattern, errors first), every cluster with its representative and a ready `test_command`. Do NOT read `index.json`'s failure arrays or the `failures/` files directly for triage.
+1. **Reuse what the run already produced.** If the run directory holds `digest.txt`, read it first: it is the whole run in a dozen lines, and its `Model reading` line is a hypothesis about which groups share a cause. If it holds `failure-data.json`, read that and do NOT run `collect-failure-data.ps1` — `test.ps1` already ran it on this same `index.json`, and running it again only repeats the model calls. Run `collect-failure-data.ps1` on the provided path only when `failure-data.json` is absent. Either way `failure-data.json` holds counts, `families` (clusters sharing one normalized pattern, errors first; the digest's `E1`/`F1` labels number these families in order within each kind), every cluster with its representative and a ready `test_command`. Do NOT read `index.json`'s failure arrays or the `failures/` files directly for triage.
 2. Triage from its `counts`: `error` > 0 → errors exist (fix first); `failed` > 0 → failures.
 3. **Work per family, not per cluster.** A family is one assertion or error raised from several tests, so it is one root cause until the evidence says otherwise. Only the family's first cluster carries `traceback_tail`; the others say `traceback_tail_in_cluster: {id}` and keep their own `log_file`. Read a representative's full `log_file` only when the tail is insufficient — never read every file in `failures/`. An `error_message` ending in `[message cut: ...]` is whole in that entry's `log_file`.
 4. **A family's `hint` is a hypothesis, not a finding.** When `hint.source` names a model, a local model read the traceback and the source around its frames and proposed a defect site and cause. Use it to decide what to open first, then confirm it against the code yourself before any edit — never edit on a hint alone, and never quote it as a root cause. `source: "unavailable"` (no local server answered) or `"skipped"` (past the hint limit) means work from the traceback as usual.

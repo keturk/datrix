@@ -1,7 +1,7 @@
 ---
 description: Absorb a design document into existing docs across all repos, replace all references, and delete the source
 model: claude-sonnet-5-5
-effort: medium
+effort: high
 ---
 
 # Absorb Design Document
@@ -161,7 +161,7 @@ Total: {N} files modified, {M} files created
 
 1. Have a local model check each section of the design against the docs you wrote to:
    ```bash
-   powershell -File "d:/datrix/datrix/scripts/dev/skill-assist.ps1" absorb-transfer --design "{document path}" --target <each target file from Phase 2>
+   powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" absorb-transfer --design "{document path}" --target <each target file from Phase 2>
    ```
    `d:\datrix\.tmp\assist\transfer-{stem}.md` gives each section PRESENT / PARTIAL / MISSING with the target lines that carry it (citations checked against what the model was sent). Exit 2 means at least one section is partial or missing; exit 3, no local model answered (check every unit by hand).
 2. Read the PARTIAL and MISSING sections against the targets yourself and settle each; spot-check PRESENT ones by opening their cited lines
@@ -194,7 +194,7 @@ WAIT for user decision.
 
 1. **Search for all references** to the source document with the script:
    ```bash
-   powershell -File "d:/datrix/datrix/scripts/dev/skill-assist.ps1" absorb-references --design "{document path}"
+   powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" absorb-references --design "{document path}"
    ```
    It lists every line in the package repos that names the document's file name, stem, title, or number in a design-reference form ("design NNN", "design/NNN", "design doc NNN"), across `.md`, `.py`, `.ts`, `.js`, `.json`, `.yaml`, `.toml`, `.ps1`, `.j2`, `.dtrx` and similar files. Task folders (`.tasks`) are not searched. Exit 0 = no reference; exit 2 = the listed lines need handling.
 2. **Replace or remove each reference:**

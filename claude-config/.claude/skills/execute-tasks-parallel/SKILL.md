@@ -1,7 +1,7 @@
 ---
 description: Execute multiple tasks in parallel — evaluate all tasks for blockers, then delegate each to a separate agent
 model: claude-sonnet-5-5
-effort: medium
+effort: high
 disable-model-invocation: true
 delegation-strategy:
   phases:
@@ -314,7 +314,7 @@ Implementation results from all agents + task metadata from pre_check.
 
 #### Step 2: Attribute Failures to Tasks
 
-For each RED run, run `collect-failure-data.ps1` on its printed run folder — its clusters give the failing test files, erroring modules, and representative tracebacks. Then per cluster:
+For each RED run, read its printed run folder's `failure-data.json` (`test.ps1` wrote it; run `collect-failure-data.ps1` on the folder only when it is absent) — its clusters give the failing test files, erroring modules, and representative tracebacks. Then per cluster:
 
 1. Take the failing test file path and error message from the cluster representative
 2. Cross-reference against each task's files_created and files_modified
@@ -346,7 +346,7 @@ For each NEW failure (not already known from agent targeted tests):
 | 2       | task-40-04 | Updated validate_all → validate method call | FAIL — new error |
 
 **Stop conditions:**
-- **Two attempts on DISTINCT hypotheses fail** (or the first failure already exposes a genuine design ambiguity) → invoke the **Decision Escalation Protocol** (Opus 4.8 extra-high-effort analyst with full context: task spec, both attempts, exact failures); implement its recommendation; if still failing → mark that task FAILED. Do not escalate a single mechanical miss; do not grind past two failed hypotheses.
+- **Two attempts on DISTINCT hypotheses fail** (or the first failure already exposes a genuine design ambiguity) → invoke the **Decision Escalation Protocol** (Opus analyst with full context: task spec, both attempts, exact failures); implement its recommendation; if still failing → mark that task FAILED. Do not escalate a single mechanical miss; do not grind past two failed hypotheses.
 - A fix introduces additional failures → undo your own edit manually (NO git reverts), then invoke the **Decision Escalation Protocol** before continuing
 - Fix reveals cascading issues in unrelated subsystems → invoke the **Decision Escalation Protocol** to determine correct fix scope; if the analysis concludes the run should stop, that conclusion goes to **Fable** (rung 3) — only a Fable **F** routes to the user
 
@@ -417,7 +417,7 @@ Two entry doors converge on it:
 
 ## Decision Escalation Protocol (rungs 1–2)
 
-Read and follow `d:\datrix\.claude\skills\_shared\decision-escalation-protocol.md` — it defines how you investigate and decide (technical ambiguity, failed first fix with unclear root cause, cascading failures) vs. not (obvious fixes → fix directly), the exact Opus 4.8 xhigh agent parameters + prompt, and the implement-exactly-what-Opus-recommended rule. **Escalation is not an exit — it is how you keep going.** Missing dependencies/files/prereqs and unclear root causes are **work**, not blockers.
+Read and follow `d:\datrix\.claude\skills\_shared\decision-escalation-protocol.md` — it defines how you investigate and decide (technical ambiguity, failed first fix with unclear root cause, cascading failures) vs. not (obvious fixes → fix directly), the exact Opus agent parameters + prompt, and the implement-exactly-what-Opus-recommended rule. **Escalation is not an exit — it is how you keep going.** Missing dependencies/files/prereqs and unclear root causes are **work**, not blockers.
 
 **If the Opus analysis does not settle it, you go to rung 3 (Fable) — not to the user.** Opus can recommend "ask the user"; it cannot route you there. Only Fable's **F** can.
 

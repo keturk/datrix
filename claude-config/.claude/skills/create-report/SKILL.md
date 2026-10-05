@@ -1,7 +1,7 @@
 ---
 description: Produce an evidence-grounded analysis report on a user-supplied target (a package, design doc, feature, subsystem, or path) under d:\datrix\reports. Reads the mandatory Datrix orientation docs first, then analyzes the target with zero assumptions — every claim cited to a file and line read directly. Use when the user asks to "create a report", "write a report", "analyze X and report", or wants a documented, citable investigation of how some part of Datrix works.
-model: claude-sonnet-5-5
-effort: medium
+model: claude-opus-5-5
+effort: high
 ---
 
 # Create Report

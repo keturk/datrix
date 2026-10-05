@@ -1,6 +1,6 @@
 ---
-model: claude-sonnet-5-5
-effort: medium
+model: claude-opus-5-5
+effort: high
 ---
 
 # Troubleshoot Generated Code Skill

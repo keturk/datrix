@@ -1,7 +1,7 @@
 ---
 description: Execute implementation tasks from task files — read, implement, verify, mark complete
 model: claude-sonnet-5-5
-effort: medium
+effort: high
 disable-model-invocation: true
 delegation-strategy:
   phases:
@@ -163,7 +163,7 @@ Process tasks one at a time in dependency order. For each task:
 - Ambiguities: NONE / {list of questions}
 
 **If ambiguities exist — climb the ladder (`_shared/decision-adjudication-protocol.md`); the user is its LAST rung, not its first:**
-- **Technical or design ambiguity** (conflicting patterns, multiple valid architectural approaches, a task premise that is false against the code) → **rung 1–2:** read the design docs, the architecture docs, and the code; most ambiguities dissolve. If the analysis is heavy, invoke the **Decision Escalation Protocol** (Opus 4.8 extra-high-effort agent) and proceed to Step 2 using its recommendation. **If that still does not settle it → rung 3: Fable** (`model: "fable"`, `effort: "high"`, Door B). Execute its decision. Never take a design ambiguity to the user.
+- **Technical or design ambiguity** (conflicting patterns, multiple valid architectural approaches, a task premise that is false against the code) → **rung 1–2:** read the design docs, the architecture docs, and the code; most ambiguities dissolve. If the analysis is heavy, invoke the **Decision Escalation Protocol** (Opus agent) and proceed to Step 2 using its recommendation. **If that still does not settle it → rung 3: Fable** (`model: "fable"`, `effort: "high"`, Door B). Execute its decision. Never take a design ambiguity to the user.
 - **Spec gap / missing input** → first try to derive it from the design docs and the code. If you cannot, that is a **rung-3 decision → Fable**, not an automatic user question.
 - **Only the protocol's §7 closed list goes straight to the user** — a credential/account that exists nowhere in the repo · an irreversible outward-facing action needing authorization · a genuine product/business call · a user-set prohibition to be lifted. For those: STOP, ask **with your recommendation**, and WAIT for answers before proceeding to Step 2.
 
@@ -297,7 +297,7 @@ On abort, report what was completed, what failed, and what cannot proceed.
 <!-- PHASE: verify -->
 ## Phase 3: Verification
 
-For each task (in parallel, up to 5 tasks concurrently), run targeted tests and fix all failures. If the first fix attempt fails, escalate immediately to Opus 4.8 at extra-high effort (Decision Escalation Protocol).
+For each task (in parallel, up to 5 tasks concurrently), run targeted tests and fix all failures. If the first fix attempt fails, escalate immediately to Opus at high effort (Decision Escalation Protocol).
 
 **Assumes all tests were passing before implementation started.**
 
@@ -349,7 +349,7 @@ For tasks that modified code:
 1. **Read the canonical results from the run's `index.json`** (never a console transcript):
    - `result`, `counts.passed`, `counts.failed`, `counts.error`, `counts.skipped`
    - GREEN means `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — a pytest error counts as red exactly like a failure
-   - **When RED**, get the failing/erroring detail scripted — pass the collector the **printed** run folder (never `-Project`, which grabs the newest folder on disk):
+   - **When RED**, read the printed run folder's `failure-data.json` (written by `test.ps1` for every failed run, with the short `digest.txt` it printed). Only when it is absent, get the detail scripted — pass the collector the **printed** run folder (never `-Project`, which grabs the newest folder on disk):
      ```
      powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" "{printed-run-folder}"
      ```
@@ -385,7 +385,7 @@ If any test failures exist:
 
 4. **Outcomes:**
    - **A fix attempt passes** → verification PASSED
-   - **Two fix attempts on DISTINCT hypotheses have failed** (or the first failure already exposes a genuine design ambiguity) → invoke the **Decision Escalation Protocol** (Opus 4.8 extra-high-effort analyst with full context: task spec, both attempts, exact failures); implement its recommendation; if still failing → verification FAILED (proceed to Step 4). Do not escalate after a single mechanical miss — a second hypothesis grounded in the error text costs less than an Opus dispatch; do not grind past two failed hypotheses without escalating either.
+   - **Two fix attempts on DISTINCT hypotheses have failed** (or the first failure already exposes a genuine design ambiguity) → invoke the **Decision Escalation Protocol** (Opus analyst with full context: task spec, both attempts, exact failures); implement its recommendation; if still failing → verification FAILED (proceed to Step 4). Do not escalate after a single mechanical miss — a second hypothesis grounded in the error text costs less than an Opus dispatch; do not grind past two failed hypotheses without escalating either.
    - **If a fix introduces additional failures** → undo your own edit manually (NO git reverts), then invoke the **Decision Escalation Protocol** before any further attempt
 
 #### Step 4: Verification Failed (if Opus-assisted attempt also fails)
@@ -606,7 +606,7 @@ Verification results from all tasks:
    Do NOT stop and ask the user to run anything. The quality-gate task's own listed re-run was suppressed in Phase 3; this is the one run. Read each run's `index.json` (the runner prints its path). GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors are red, exactly like failures.
 
 3. **Attribute failures (if any):**
-   - For each RED run, run `collect-failure-data.ps1` on its printed run folder — the clusters give the failing test files and erroring modules
+   - For each RED run, read its printed run folder's `failure-data.json` (`test.ps1` wrote it; run `collect-failure-data.ps1` on the folder only when it is absent) — the clusters give the failing test files and erroring modules
    - Cross-reference each cluster's files against each task's `## Targeted Tests` section
    - Report which task likely introduced the failure
 
@@ -701,7 +701,7 @@ Two entry doors converge on it:
 
 ## Decision Escalation Protocol (rungs 1–2)
 
-Read and follow `d:\datrix\.claude\skills\_shared\decision-escalation-protocol.md` — it defines how you investigate and decide (technical design ambiguity in Step 1, failed first fix with unclear root cause, systemic/cascading failures, architectural conflicts) vs. not (obvious fixes → fix directly), the exact Opus 4.8 xhigh agent parameters + prompt, and the implement-exactly-what-Opus-recommended rule. **Escalation is not an exit — it is how you keep going.** Missing dependencies/files/prereqs and unclear root causes are **work**, not blockers: implement, create, keep reading.
+Read and follow `d:\datrix\.claude\skills\_shared\decision-escalation-protocol.md` — it defines how you investigate and decide (technical design ambiguity in Step 1, failed first fix with unclear root cause, systemic/cascading failures, architectural conflicts) vs. not (obvious fixes → fix directly), the exact Opus agent parameters + prompt, and the implement-exactly-what-Opus-recommended rule. **Escalation is not an exit — it is how you keep going.** Missing dependencies/files/prereqs and unclear root causes are **work**, not blockers: implement, create, keep reading.
 
 **If the Opus analysis does not settle it, you go to rung 3 (Fable) — not to the user.** Opus can recommend "ask the user"; it cannot route you there. Only Fable's **F** can.
 

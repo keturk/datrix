@@ -1,7 +1,7 @@
 ---
 description: Implement a design document directly, with no task generation and no orchestrator - build it in this session from the design itself, then verify against the design and absorb it into the docs
-model: claude-sonnet-5-5
-effort: medium
+model: claude-opus-5-5
+effort: high
 disable-model-invocation: true
 ---
 
@@ -51,6 +51,13 @@ FIX: false             # verify-implementation reports only, changes no code
 | DOCUMENT | Yes | Path to the design document |
 | KEEP SOURCE | No | Passed to `/absorb-design` |
 | FIX | No | Passed to `/verify-implementation` (default: fix what is wrong) |
+| LEDGER | No | The ledger path to use in Step 2 (default: `D:\datrix\.tmp\implement-direct-{slug}.md`). If it already exists, it is the work so far: read it and the DOCUMENT, and continue at the first unchecked unit |
+| STOP AFTER | No | `implement`: end the run after Step 3 with the reply `IMPLEMENTED: <ledger path>`, and do not verify or absorb |
+| GAPS | No | A file holding a `/verify-implementation` report that ended INCOMPLETE. Add a ledger unit for each finding it did not fix, with its acceptance check, and implement those units |
+
+## Run it from the CLI
+
+Typed here, the whole run is on this skill's model: `/verify-implementation` and `/absorb-design` invoked through the Skill tool run on the caller's model, not their own. `datrix/scripts/skill/implement-design-direct.ps1 -Design <path>` runs the same chain with each step in its own headless session on its own skill's model: this skill with `STOP AFTER: implement`, then verify, then absorb, with the checks between them done by the script.
 
 ## Prereqs — read first
 
@@ -62,7 +69,7 @@ FIX: false             # verify-implementation reports only, changes no code
 
 ## Run discipline
 
-- **One run, no hand-backs.** Finishing the code is not a stopping point; verify starts in the same turn. The run ends at the absorb summary, at a valid B1–B4 blocker, or when Jon says stop.
+- **One run, no hand-backs.** Finishing the code is not a stopping point; verify starts in the same turn. The run ends at the absorb summary, at a valid B1–B4 blocker, or when Jon says stop. The one exception is `STOP AFTER: implement`, where the caller runs verify and absorb itself: the run ends when every ledger unit is ticked.
 - **Size never changes the path.** A design spanning several packages or languages is still done here. Discovering the job is bigger than it looked is grounds to **expand and continue**, never to stop or to hand the remainder to task files. Do not create a phase, a `.tasks\` folder, or a task file; "file a task" is not an exit in this skill.
 - **Context compaction is not an exit.** What survives compaction is the code on disk and the ledger (Step 2). Re-read the ledger and the DOCUMENT after a compaction and continue at the first unchecked step.
 - **The only legitimate waits:** an unresolved design question or unchosen explicit alternative (Step 1), a design that specifies a less secure option than one plainly available (execution-contract §13.7), and `/absorb-design`'s "no clear target" / "content missed" prompts. Ask in one line with your recommendation and keep working everything that does not depend on the answer.
@@ -98,7 +105,7 @@ State one line: `SCOPE: {packages} | reaches: {packages} | surface sets: {n} | m
 
 ## Step 2: Work plan — the ledger replaces the task graph
 
-Write the ledger with `Write` to `D:\datrix\.tmp\implement-direct-{slug}.md` (a scratch folder; never inside a package repo). It is your task graph, your dependency order, and your survival kit across compaction. It is **not** a task file and not committed.
+Write the ledger with `Write` to LEDGER, or to `D:\datrix\.tmp\implement-direct-{slug}.md` when none was given (a scratch folder; never inside a package repo). It is your task graph, your dependency order, and your survival kit across compaction. It is **not** a task file and not committed.
 
 One row per unit of work; each row carries:
 
@@ -142,7 +149,9 @@ Generation checks follow the one-example, one-language rule: regenerate only the
 
 **A defect you find on a surface you touched is yours:** fix it. A design-sized one gets a findings file under `d:\datrix\reports\finding\` (brief: what, `file:line`, evidence, impact) and the run carries on; a small one is fixed in place.
 
-After the last unit, run the ledger's **negative sweep**: for every "X replaces Y" in the design, prove Y is gone everywhere on the surface (structured search, with a matcher proven non-vacuous), pasted as command + output. Then record the list of files changed.
+After the last unit, run the ledger's **negative sweep**: for every "X replaces Y" in the design, prove Y is gone everywhere on the surface (structured search, with a matcher proven non-vacuous), pasted as command + output. Then write the files changed into the ledger under a `## Files changed` heading, one path per line, keeping the paths already listed there by earlier runs.
+
+With `STOP AFTER: implement`, end here with the reply `IMPLEMENTED: <ledger path>`.
 
 ---
 

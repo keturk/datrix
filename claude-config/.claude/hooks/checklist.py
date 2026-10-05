@@ -72,7 +72,7 @@ import sys
 import time
 from typing import Any, Final
 
-from _report_language import last_assistant_text
+from _report_language import stop_reply
 
 _REPO_ROOT: Final = "d:/datrix"
 _STATE_DIR: Final = os.path.join(_REPO_ROOT, ".claude", "hooks", ".state")
@@ -286,7 +286,7 @@ def main() -> None:
         if isinstance(item, dict)
     )
     transcript_path = data.get("transcript_path", "")
-    reply = last_assistant_text(transcript_path) if needs_transcript else ""
+    reply = stop_reply(data) if needs_transcript else ""
     commands = _session_commands(transcript_path) if needs_transcript else ""
 
     failures: list[str] = []

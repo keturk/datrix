@@ -119,8 +119,8 @@ from _report_language import (  # noqa: E402
     find_expedient,
     find_handover_section,
     find_security_downgrade,
-    last_assistant_text,
     last_user_text,
+    stop_reply,
     user_asked_to_pause_or_report,
 )
 
@@ -192,7 +192,7 @@ def main() -> None:
     transcript = data.get("transcript_path", "")
     state = _state_path(str(data.get("session_id", "")))
 
-    text = last_assistant_text(transcript)
+    text = stop_reply(data)
     if not text:
         sys.exit(0)
 
