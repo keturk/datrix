@@ -194,6 +194,10 @@
           {
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/record-active-skill.py\""
+          },
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/inject-agent-plan.py\""
           }
         ]
       }
@@ -215,6 +219,11 @@
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/gate-stop-exhaustion.py\"",
             "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/gate-agent-plan-stop.py\"",
+            "timeout": 30
           }
         ]
       }
