@@ -12,10 +12,10 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         }
         provider platform config('config/identity/platform.dcfg') {
         }
-        // App-issued API keys for programmatic access; each key's scopes map to roles
+        // App-issued API keys for programmatic access. A key's scopes grant a role only
+        // through a `group "<scope>" as <role>` mapping, and a mapping is declared only
+        // for a role some auth contract gates on (IDN009), so none is declared here.
         provider customerKeys config('config/identity/customer-keys.dcfg') {
-            group "orders:read" as orderReader;
-            group "orders:write" as orderWriter;
         }
     }
 
