@@ -11,6 +11,7 @@ library/
 ├── metrics/ # Code metrics: Radon, Vulture, Ruff, duplicate-code, Bandit
 ├── review/ # Task-file review tooling (Tier 1/2 reviewer + apply-reviews prep)
 ├── shared/ # Shared utilities
+├── skill/ # Skill assists: the mechanical phases of agent skills (wrapper: skill/skill-assist.ps1)
 ├── tasks/ # Task-file management and phase analysis
 └── test/ # Test utilities
 ```
@@ -104,6 +105,7 @@ Test execution utilities.
 | `collect_failure_data.py` | `test/collect-failure-data.ps1` | Failure bundle (`failure-data.json`) from a structured run dir: clusters grouped into families with one traceback tail each, capped messages, advisory local-model hints; supports package, generated-unit, and deploy index schemas |
 | `extract_warnings.py` | `test/extract-warnings.ps1` | Deduplicated pytest warnings (`warnings.json`) parsed from a run's `full.log` |
 | `classify_run_delta.py` | `test/classify-run-delta.ps1` | SUCCESS/PARTIAL/NO_CHANGE/REGRESSION verdict (`run-delta.json`) between two runs of one package |
+| `run_digest.py` | `test/test.ps1` (after the summary, per failed package) | Short failure digest (`digest.txt`): the failure families with location and re-run command, the change since the last run with the same selection, and resident local-model hints plus one cross-group reading; `--self-test` checks it against a temp workspace and a loopback model server |
 | `gate_verdict.py` | `test/gate-verdict.ps1` | GREEN/RED aggregate verdict over packages' newest runs (fail-loud on missing/in-progress results) |
 
 ## tasks/

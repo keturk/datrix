@@ -211,4 +211,5 @@ All scripts use a shared virtual environment at `D:\datrix\.venv`. The `common/v
 - [metrics/quick-reference.md](metrics/quick-reference.md) - Code quality and metrics
 - [visualize/quick-reference.md](visualize/quick-reference.md) - Visualization and documentation
 - [tasks/quick-reference.md](tasks/quick-reference.md) - Task management
+- [skill/quick-reference.md](skill/quick-reference.md) - Headless skill chains and skill assists
 - Individual folder READMEs for detailed documentation
