@@ -455,7 +455,7 @@ D:\datrix\eval\{YYYY-MM-DD-HHMMSS}-{service-name}\evaluated\
 
 #### 5c: Report Template
 
-Load `references/report-template.md` (relative to this skill) when writing the report.
+Load `references/report-template.md` (relative to this skill) when writing the report. The service scan already wrote the mechanical sections as `service-<name>-mechanical.md` beside its JSON (manifest subset, every expected-artifact check with its matches, dead-code candidates, suspect dependencies, Dockerfile and migration facts, environment variables referenced): carry those tables into the report's Manifest Summary, Service Files Verification, Dead / Unnecessary Code and Deployment Readiness sections instead of re-deriving them, and spend your writing on the judgment sections — Semantic Correctness Issues, the How to Fix sections, and which candidates are real.
 
 ---
 

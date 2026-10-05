@@ -366,16 +366,22 @@ check(
 # that happens to contain the words "tests pass".
 
 live_cases = [
-    ("ran tests then reported pass", [("cmd", "test.ps1 datrix-common -Specific a.py"), ("text", "All tests pass.")], ALLOW),
+    ("ran tests then reported pass", [("cmd", "test.ps1 datrix-common -Specific a.py"), ("text", "Jon, all tests pass.")], ALLOW),
     # A tag-only verification session: a `-Tag` run is real test evidence, so a session
     # whose only test run selected by feature tag must not false-trip the claim check.
-    ("ran only a tag run then reported pass", [("cmd", 'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common datrix-cli -Tag config-resolution'), ("text", "All tests pass.")], ALLOW),
-    ("ran a hook test file then reported pass", [("cmd", "python .claude/hooks/test-stop-gates.py"), ("text", "All checks pass.")], ALLOW),
-    ("ordinary reply with no claim", [("text", "Changed the seam at compose.py:88.")], ALLOW),
-    ("the word test used innocently", [("text", "I updated the test guidelines doc.")], ALLOW),
-    ("deploy word without a deploy claim", [("text", "The deployment docs were updated.")], ALLOW),
-    ("claims passing tests that never ran", [("text", "All tests pass.")], BLOCK),
-    ("claims a deployment that never ran", [("text", "The service is live and the deployment succeeded.")], BLOCK),
+    ("ran only a tag run then reported pass", [("cmd", 'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common datrix-cli -Tag config-resolution'), ("text", "Jon, all tests pass.")], ALLOW),
+    ("ran a hook test file then reported pass", [("cmd", "python .claude/hooks/test-stop-gates.py"), ("text", "Jon, all checks pass.")], ALLOW),
+    ("ordinary reply with no claim", [("text", "Jon, I changed the seam at compose.py:88.")], ALLOW),
+    ("the word test used innocently", [("text", "Jon, I updated the test guidelines doc.")], ALLOW),
+    ("deploy word without a deploy claim", [("text", "Jon, the deployment docs were updated.")], ALLOW),
+    ("claims passing tests that never ran", [("text", "Jon, all tests pass.")], BLOCK),
+    ("claims a deployment that never ran", [("text", "Jon, the service is live and the deployment succeeded.")], BLOCK),
+    # reply-style.json: CLAUDE.md's first line and its Output Style.
+    ("a reply that never addresses Jon", [("text", "Changed the seam at compose.py:88.")], BLOCK),
+    ("a reply opening with a pleasantry", [("text", "Great question, Jon. The seam is at compose.py:88.")], BLOCK),
+    ("a reply closing with an offer", [("text", "Jon, the seam is at compose.py:88. Let me know if you need more.")], BLOCK),
+    ("Jon later in the reply is enough", [("text", "The seam is at compose.py:88, Jon.")], ALLOW),
+    ("'Let me' mid-reply is not a preamble", [("text", "Jon, the fix is in. Let me note the cost: 3 runs.")], ALLOW),
 ]
 
 for index, (label, messages, want) in enumerate(live_cases):
@@ -385,6 +391,18 @@ for index, (label, messages, want) in enumerate(live_cases):
         {"session_id": SID, "transcript_path": transcript(messages, f"live{index}.jsonl")},
     )
     check(f"live-config/{label}", code, want)
+
+# The block cap counts refusals of one turn: a clean stop resets it, so refusals spread over a long
+# session never switch the checklist off for the rest of it.
+reset_checklist_state()
+with open(os.path.join(STATE, f"checklist-{SID}.json"), "w", encoding="utf-8") as f:
+    json.dump({"blocks": 6}, f)
+run("checklist.py", {"session_id": SID, "transcript_path": transcript([("text", "Jon, done.")], "cap1.jsonl")})
+check(
+    "checklist/a clean stop resets the block cap",
+    run("checklist.py", {"session_id": SID, "transcript_path": transcript([("text", "Done.")], "cap2.jsonl")})[0],
+    BLOCK,
+)
 
 # ------------------------------------------------------------------ skill record
 

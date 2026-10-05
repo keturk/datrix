@@ -159,8 +159,12 @@ Total: {N} files modified, {M} files created
 
 **Goal:** Confirm nothing was lost.
 
-1. Re-read the original design document
-2. For each knowledge unit in the transfer plan, confirm it exists in the target
+1. Have a local model check each section of the design against the docs you wrote to:
+   ```bash
+   powershell -File "d:/datrix/datrix/scripts/dev/skill-assist.ps1" absorb-transfer --design "{document path}" --target <each target file from Phase 2>
+   ```
+   `d:\datrix\.tmp\assist\transfer-{stem}.md` gives each section PRESENT / PARTIAL / MISSING with the target lines that carry it (citations checked against what the model was sent). Exit 2 means at least one section is partial or missing; exit 3, no local model answered (check every unit by hand).
+2. Read the PARTIAL and MISSING sections against the targets yourself and settle each; spot-check PRESENT ones by opening their cited lines
 3. Check for any content in the design document NOT covered by the plan:
    - Footnotes, appendices, inline notes
    - Diagrams or ASCII art
@@ -188,17 +192,18 @@ WAIT for user decision.
 
 **Goal:** Remove every reference to the design document across the repo and delete it.
 
-1. **Search for all references** to the source document across the entire `d:\datrix` tree:
-   - File paths (exact and relative variants, forward- and back-slash)
-   - Document title / ID (e.g. `ARCH-16`, the filename stem)
-   - Grep all `.md`, `.py`, `.ts`, `.json`, `.yaml`, `.toml` files
+1. **Search for all references** to the source document with the script:
+   ```bash
+   powershell -File "d:/datrix/datrix/scripts/dev/skill-assist.ps1" absorb-references --design "{document path}"
+   ```
+   It lists every line in the package repos that names the document's file name, stem, title, or number in a design-reference form ("design NNN", "design/NNN", "design doc NNN"), across `.md`, `.py`, `.ts`, `.js`, `.json`, `.yaml`, `.toml`, `.ps1`, `.j2`, `.dtrx` and similar files. Task folders (`.tasks`) are not searched. Exit 0 = no reference; exit 2 = the listed lines need handling.
 2. **Replace or remove each reference:**
    - If a reference points readers to the design doc for details → replace with a pointer to the target doc(s) where the content now lives
    - If a reference is a backlog/index entry → remove the line entirely
    - If a reference is in CLAUDE.md or MEMORY.md → update or remove as appropriate
 3. **If KEEP SOURCE is true** → preserve the source document and skip deletion
 4. **Otherwise (default)** → delete the source design document
-5. **Verify** — re-grep for the document path and ID to confirm zero remaining references
+5. **Verify** — run `absorb-references` again **before** step 4 deletes the source (it reads the document for its title): it must exit 0 (zero remaining references)
 
 **End-of-phase output:**
 

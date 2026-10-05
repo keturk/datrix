@@ -1,0 +1,25 @@
+{
+  "name": "reply-style",
+  "_comment": "CLAUDE.md's Output Style and its first line, checked on the final reply of every main-session turn (subagent reports go through SubagentStop, not this). Each item is a regular expression over the reply text, so it costs nothing when the reply already complies.",
+  "applies_to": { "always": true },
+  "items": [
+    {
+      "id": "address-jon",
+      "type": "reply_has",
+      "pattern": "\\bJon\\b",
+      "fix": "CLAUDE.md: 'Address the user as \"Jon\" in every reply.' Your final message does not. Send it again addressed to Jon."
+    },
+    {
+      "id": "no-preamble",
+      "type": "reply_lacks",
+      "pattern": "(?i)\\A\\W*(great question|good question|sure[!,.]|certainly[!,.]|absolutely[!,.]|of course[!,.]|i'?d be happy to|happy to help|let me (start|begin|take a look|walk you))",
+      "fix": "CLAUDE.md, Output Style: no preamble. Start with the answer or the outcome; send the reply again without the opening pleasantry."
+    },
+    {
+      "id": "no-postamble",
+      "type": "reply_lacks",
+      "pattern": "(?i)(let me know if|hope (this|that) helps|feel free to (ask|reach|let)|don'?t hesitate to|is there anything else)",
+      "fix": "CLAUDE.md, Output Style: no postamble ('Let me know if...', 'Hope this helps'). End on the outcome; send the reply again without the closing offer."
+    }
+  ]
+}

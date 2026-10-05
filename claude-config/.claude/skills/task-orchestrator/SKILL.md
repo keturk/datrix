@@ -13,7 +13,7 @@ Fully automated multi-wave task orchestrator. Accepts a set of tasks (individual
 You run on Opus 4.8 at extra-high effort because this skill performs the **highest-stakes judgment in the repo** — the design-conformance gate, the BLOCKED-is-terminal calls, the wave/enforcement ordering, and the completion decisions that a lower-scrutiny orchestrator has gotten wrong before. That capability is for deciding, not for doing. You are the orchestrator and decision-maker; **execution goes to subagents on cheaper models.**
 
 - **You (Opus) own — never delegated:** the dependency DAG and wave plan, the design-conformance contract (Step 1d), the **readiness-audit adjudication** (Step 1e — which findings are real, what task closes each gap, how dependencies rewire) and the conformance gates (3g, 3i Step A2), BLOCKED/completion decisions, failure attribution and fix-scope decisions, escalation judgment, integration across tasks, and the pass/fail verdict on every gate.
-- **You delegate DOWN — always:** implementing tasks (already delegated, 3b), gathering the readiness audit's evidence and writing the task files it adds (1e), building the shared-context digest, running targeted tests and conformance checks, **and implementing fixes in the fix loops (3e / 3i Step A) — do NOT edit code inline on Opus.** You decide the fix (root cause, scope, exact change); a subagent types it.
+- **You delegate DOWN — always:** implementing tasks (already delegated, 3b), gathering the readiness audit's evidence beyond what `skill-assist.ps1 readiness` gives and writing the task files it adds (1e), running targeted tests and conformance checks, **and implementing fixes in the fix loops (3e / 3i Step A) — do NOT edit code inline on Opus.** You decide the fix (root cause, scope, exact change); a subagent types it.
 
 Two resources are scarce and both are yours to protect: **Opus tokens** (never spend them on typing a fix a Sonnet agent can apply from your spec) and **your context window** (it must survive a whole multi-phase run — delegate the token-heavy reading/editing so your context holds the conformance state, not file contents).
 
@@ -179,7 +179,7 @@ This is not a cost concession, it is the more accurate ordering: the audit's who
 **The audit is the run's largest pre-execution cost and it sits on the critical path — bound it.** An unattended run that spends its whole window auditing and dispatches zero implementation agents has failed completely, and no amount of audit quality redeems that. Hard limits:
 
 - **One dispatch round.** Fan out the audit agents once, in parallel, and adjudicate what comes back. A second round is licensed only by a finding that *changes which surfaces need auditing* — never by "let me be thorough."
-- **Cap the fan-out at 6 agents** (light mode: 1–2). More packages than that → give one agent several packages, not one agent each.
+- **Cap the fan-out at 6 agents** (light mode: none — the scripted evidence in step 0 covers it). More packages than that → give one agent several packages, not one agent each.
 - **Sonnet, never Opus, for evidence gathering.** The verdicts are yours; the reading is not.
 - **If the audit is still running when its round returns nothing actionable, it is over.** Emit the report and plan waves.
 
@@ -189,7 +189,7 @@ The audit is a gate on *correctness of the task set*, not a research project. It
 
 The audit's cost must match what could have drifted. Read `dependencies.md`'s `provenance` stamp (see `dependencies-format.md`):
 
-- **Light mode** when ALL hold: the stamp exists; `generated_by` is `/generate-tasks` or `/operationalize-design`; `generated_at` is within **24 hours**; `validated` covers the design-conformance checks (16a design-reference/acceptance-property, 16b enforcement-ordering, 16c invariant-surface, migration-coverage, dual-path); and you know of no code change on the affected surfaces since generation. In light mode, **skip re-deriving what the generator just proved** (dimensions 1, 2, 5 — coverage gaps, enforcement ordering, under-specification) and audit only the drift dimensions: **3 stale premise, 4 already-satisfied, 6 missing dependency edge** — one sonnet agent for the whole set is usually enough. Still do 1d (the design contract itself is needed by 3g/A2 regardless).
+- **Light mode** when ALL hold: the stamp exists; `generated_by` is `/generate-tasks` or `/operationalize-design`; `generated_at` is within **24 hours**; `validated` covers the design-conformance checks (16a design-reference/acceptance-property, 16b enforcement-ordering, 16c invariant-surface, migration-coverage, dual-path); and you know of no code change on the affected surfaces since generation. In light mode, **skip re-deriving what the generator just proved** (dimensions 1, 2, 5 — coverage gaps, enforcement ordering, under-specification) and audit only the drift dimensions: **3 stale premise, 4 already-satisfied, 6 missing dependency edge** — the scripted readiness evidence (Procedure step 0) covers them, with no agent. Still do 1d (the design contract itself is needed by 3g/A2 regardless).
 - **Full mode** otherwise: no stamp, a stale stamp (>24h), a `validated` list missing the conformance checks, a legacy-format file, known intervening code changes, or a set that has already been partially executed. Run all seven dimensions as below.
 - Dimension 7 (unresolvable premise) applies in both modes — a design/code contradiction is never skipped.
 
@@ -197,7 +197,12 @@ State the chosen mode and its justification in the Audit Report line.
 
 ##### Procedure
 
-1. **Delegate the evidence gathering, keep the verdicts.** Dispatch **sonnet** audit subagents in parallel (`run_in_background: true`, one per package in the task set, plus one for the design-contract coverage sweep; in light mode, one agent covering dimensions 3/4/6 for the whole set). Each gets: the design doc path + the 1d `design_contract` (invariants and their full surface sets), the task files it owns, and the shared-context digest. Each returns **findings with evidence only** — for every claim, the file:line it read or the command + output it ran. Instruct them explicitly: *report a gap only if you verified it against the code on disk; a suspicion with no evidence is not a finding.* They do not author tasks and they do not edit code.
+0. **Run the scripted evidence first — it is free of Claude tokens and exact where it says so:**
+   ```bash
+   powershell -File "d:/datrix/datrix/scripts/dev/skill-assist.ps1" readiness --phase {NN}
+   ```
+   `d:\datrix\.tmp\assist\phase-{NN}-readiness.md` holds, for dimension **6**, every dependency edge the graph lacks (exact: a not-yet-existing file one task reads or co-creates before the task that creates it, with no path between them); for dimension **3**, every dotted name a task's `## Codebase Context` gives that the code index cannot resolve and no task creates (exact; `validate-task.ps1` covers citations and orientation); for dimension **4**, a local model's SATISFIED / NOT SATISFIED / UNCLEAR on each task whose edit sites all exist (a lead, citations checked — prove any SATISFIED with its acceptance check before acting). **In light mode this file replaces the audit agent**: dimensions 3, 4 and 6 are covered; dispatch nothing unless a finding needs reading the script could not do. Exit 3 means no local model answered: the exact sections are still written; judge dimension 4 yourself.
+1. **Delegate the remaining evidence gathering, keep the verdicts.** In full mode, dispatch **sonnet** audit subagents for what the script does not cover (dimensions 1, 2, 5 and 7) in parallel (`run_in_background: true`, one per package in the task set, plus one for the design-contract coverage sweep). Each gets: the design doc path + the 1d `design_contract` (invariants and their full surface sets), the task files it owns, the step-0 readiness file, and the shared-context digest (`skill-assist.ps1 context-digest --phase {NN}`; build it now if Step 3 has not yet). Each returns **findings with evidence only** — for every claim, the file:line it read or the command + output it ran. Instruct them explicitly: *report a gap only if you verified it against the code on disk; a suspicion with no evidence is not a finding.* They do not author tasks and they do not edit code.
 2. **Adjudicate each finding yourself (Opus).** Discard evidence-free claims. For each surviving finding, decide its class (1–7 above) and its remedy. A finding that would *reduce* scope (already-satisfied) needs the same standard of proof as one that adds scope — run its acceptance check yourself before acting on it.
 3. **Author the missing tasks.** For each real coverage / enforcement / under-specification gap, write a new task file:
    - Location: the **owning package's** `.tasks\phase-{NN}\` directory (the package whose surface the invariant lives on — apply the generality-preserving rule: the most language/platform-agnostic layer that can own it). **`{NN}` is the phase you are running — never a new one.** You may not create a `.tasks\phase-NN\` directory that does not already exist; creating a phase is a planning act reserved to Jon and the planning skills he invokes by name (`/generate-tasks`, `/operationalize-design`). A task you add here joins this phase's completion bar and must be finished before the phase is declared done.
@@ -371,14 +376,15 @@ Execute each wave sequentially. Within each wave, tasks run concurrently against
 
 ### Shared Context Pre-Read (once per run, before the wave loop)
 
-Agents otherwise each re-read the same architecture docs on startup, burning duplicate tokens and latency across a wide wave. Build a compact **shared context digest** (≤ ~400 lines) **once** at the start of Step 3, to inject verbatim into every implementation-agent prompt. **Delegate the build** — dispatch a single **haiku** agent to read the sources below and return the digest; this is mechanical reading, not judgment, so it does not belong on Opus's context. You keep the returned digest as `shared_context` and pass the package-relevant slice to each implementation agent. Sources:
+Agents otherwise each map the code around their task on startup, burning duplicate tokens and latency across a wide wave. Build the **shared context digest** **once** at the start of Step 3 with a script — no agent:
 
-- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
-- [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
-- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) — the core rules and the read-when pack index (read the packs the run's surfaces need, e.g. prohibited-patterns; not all of them)
-- The `.project-structure.md` for each package that has a task in this run (read per-package, key into the digest by package name)
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/skill-assist.ps1" context-digest --phase {NN}
+```
 
-The digest is **reference context, not a substitute for the task file** — agents still read their own task file and the specific code they touch. Store it as `shared_context` and pass the package-relevant slice in each agent prompt (see 3b). Build it once; reuse for every wave and every phase in the run.
+It writes `d:\datrix\.tmp\assist\phase-{NN}-context.md` (≤ 400 lines) from the code index: per package of the phase, the directories its tasks touch and every module in them with what it is for, the files a task names marked, and the files the phase will create marked as not existing yet. The core docs are not in it: every agent reads those itself (`gate-mandatory-reads.py` blocks its first edit until it has). Keep the file as `shared_context` and pass each agent its package's `## Package:` section (see 3b).
+
+The digest is **reference context, not a substitute for the task file** — agents still read their own task file and the specific code they touch. Build it once per phase (a later phase's tasks touch other directories: run it again for that phase at its boundary).
 
 ### State Tracking
 
@@ -460,7 +466,7 @@ Rules for a batched dispatch:
 
 **Agent prompt template:**
 
-Read `d:\datrix\datrix\claude-config\.claude\agent-templates\task-implementation-agent.md` and substitute `{task_path}` with the actual task file path. Prepend the package-relevant slice of `shared_context` (the pre-read digest from Step 3) to the prompt under a `## Shared Architecture Context (pre-read — do not re-fetch)` heading, so the agent skips redundant doc reads. The template contains:
+Read `d:\datrix\datrix\claude-config\.claude\agent-templates\task-implementation-agent.md` and substitute `{task_path}` with the actual task file path. Prepend the task's package section of `shared_context` (the `## Package: {package}` block of the digest from Step 3) to the prompt under a `## Code Around Your Task (from the code index — do not re-map it)` heading, so the agent skips mapping the directories it works in. The template contains:
 - Standard workflow (UNDERSTAND → IMPLEMENT → SELF-CHECK → RUN TARGETED TESTS → RETURN RESULTS)
 - Anti-patterns to avoid
 - Self-check protocol (anti-stub check, test quality check, self-contradiction check)

@@ -86,7 +86,7 @@ It parses the DSL with the **real parser pipeline** (never regex), and writes in
 - `project-scan.json` — the service inventory with expected/actual directories (Phases 1+2c), manifest aggregation (2b), language/platform detection (2a), the infra existence checklist + docker-compose cross-check (3a–3d), and the rolled-up `critical_blockers` / `warnings` (4a/4b)
 - one `service-{name}.prompt.md` per service (Phase 6), filled from the template
 
-Your job on Phases 1–4 is to **read `project-scan.json`, spot-check anything surprising against the tree, and exercise judgment on the findings** — not to re-derive the data. The phase descriptions below document what the scan computes (and remain the fallback if the script itself fails — a parse/config failure exits 2 with the analyzer's diagnostics; that usually IS the finding: report it as a critical blocker). Phase 5 (the narrative report) stays yours.
+Your job on Phases 1–4 is to **read `project-scan.json`, spot-check anything surprising against the tree, and exercise judgment on the findings** — not to re-derive the data. The phase descriptions below document what the scan computes (and remain the fallback if the script itself fails — a parse/config failure exits 2 with the analyzer's diagnostics; that usually IS the finding: report it as a critical blocker). The scan also writes the Phase 5 quick report; reviewing and correcting it stays yours.
 
 ---
 
@@ -257,21 +257,11 @@ Flag if ANY of these are true:
 
 ---
 
-### Phase 5: Generate Project-Level Quick Report
+### Phase 5: Review the Project-Level Quick Report *(written by the scan)*
 
-**Goal:** Write a quick project overview report.
+**Goal:** A quick project overview report that is right.
 
-#### 5a: Report Filename
-
-```
-{EVAL_DIR}/project-evaluation-quick.md
-```
-
-Where `{EVAL_DIR}` is the timestamped evaluation directory created in Phase 0.
-
-#### 5b: Report Template
-
-Load `references/quick-report-template.md` (relative to this skill) when writing the report.
+The scan already wrote `{EVAL_DIR}/project-evaluation-quick.md` from `project-scan.json` — every section of `references/quick-report-template.md` is a fact the scan computed (inventory, detected features, manifests, infrastructure checks, blockers, warnings, prompt files). Do not rewrite it. Read it against your Phase 1–4 spot-checks and edit only where your judgment adds to it: a blocker or warning the scan could not see, an explanation of why a blocker blocks, or a correction where a spot-check contradicted the scan (say what you checked).
 
 ---
 

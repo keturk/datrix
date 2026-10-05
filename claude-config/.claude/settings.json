@@ -91,6 +91,10 @@
           },
           {
             "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/guard-committed-content.py\""
+          },
+          {
+            "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/gate-mandatory-reads.py\""
           }
         ]

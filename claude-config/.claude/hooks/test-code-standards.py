@@ -8,7 +8,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 
 HOOK = os.path.join(r"d:\datrix\.claude\hooks", "guard-code-standards.py")
 fails = []
@@ -76,7 +75,8 @@ with Repo() as repo:
     check("conftest counts as test code", write(os.path.join(repo.root, "src", "conftest.py"),
                                                "from unittest.mock import Mock\n"), BLOCK)
     check("real objects in a test stay allowed", edit(test, "assert 1 == 1", "assert [1, 2] == [1, 2]"), ALLOW)
-    check("pytest tmp_path/monkeypatch stay allowed", edit(test, "def test_a():", "def test_a(tmp_path, monkeypatch):"), ALLOW)
+    check("pytest tmp_path/monkeypatch stay allowed",
+          edit(test, "def test_a():", "def test_a(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):"), ALLOW)
     src = repo.file("src/pkg/mod.py", "X = 1\n")
     check("the same import in SOURCE is not this rule", edit(src, "X = 1", "from types import SimpleNamespace\nX = 1"), ALLOW)
 
@@ -98,6 +98,67 @@ with Repo() as repo:
           edit(mod, "    return 1", "    return ('TODO', 'FIXME')"), ALLOW)
     check("a docstring naming TODO stays allowed", edit(mod, "def f():", 'def f():\n    """Rejects a TODO marker."""'), ALLOW)
     check("an ordinary comment stays allowed", edit(mod, "    return 1", "    # explains why\n    return 1"), ALLOW)
+
+    print("== type hints ==")
+    typed = repo.file("src/pkg/typed.py", "def f(x: int) -> int:\n    return x\n")
+    check("a new function with no return annotation",
+          edit(typed, "def f(", "def g(y: int):\n    return y\n\n\ndef f("), BLOCK)
+    check("a new parameter with no annotation", edit(typed, "def f(x: int)", "def f(x: int, y)"), BLOCK)
+    check("self and cls need none", edit(typed, "def f(x: int) -> int:\n    return x\n",
+                                         "class C:\n    def m(self, x: int) -> int:\n        return x\n\n"
+                                         "    @classmethod\n    def k(cls) -> None:\n        return None\n"), ALLOW)
+    check("*args/**kwargs need annotations too", edit(typed, "def f(x: int)", "def f(x: int, *rest)"), BLOCK)
+
+    print("== Any ==")
+    check("Any in a parameter", edit(typed, "def f(x: int)", "def f(x: Any)"), BLOCK)
+    check("Any inside a generic return type", edit(typed, "-> int:", "-> dict[str, Any]:"), BLOCK)
+    check("Any in an annotated assignment", edit(typed, "def f(", "X: list[Any] = []\n\n\ndef f("), BLOCK)
+    check("typing.Any spelled with the module", edit(typed, "def f(x: int)", "def f(x: typing.Any)"), BLOCK)
+    check("a mode='before' model validator may take Any",
+          edit(typed, "def f(", "class M:\n    @model_validator(mode=\"before\")\n    @classmethod\n"
+                                 "    def pre(cls, data: Any) -> Any:\n        return data\n\n\ndef f("), ALLOW)
+    check("a mode='after' validator may not",
+          edit(typed, "def f(", "class M:\n    @model_validator(mode=\"after\")\n"
+                                 "    def post(self, data: Any) -> Any:\n        return data\n\n\ndef f("), BLOCK)
+    check("the word Any in a string or a name stays allowed",
+          edit(typed, "    return x", "    AnyThing = 'Any'\n    return x"), ALLOW)
+
+    print("== %-style logging ==")
+    check("an f-string message", edit(typed, "    return x", "    LOG.info(f\"x={x}\")\n    return x"), BLOCK)
+    check("a .format() message", edit(typed, "    return x", "    logger.warning(\"x={}\".format(x))\n    return x"), BLOCK)
+    check("a % expression", edit(typed, "    return x", "    self.logger.error(\"x=%s\" % x)\n    return x"), BLOCK)
+    check("LOG.log with an f-string message", edit(typed, "    return x", "    LOG.log(10, f\"x={x}\")\n    return x"), BLOCK)
+    check("%-style with arguments stays allowed", edit(typed, "    return x", "    LOG.info(\"x=%s\", x)\n    return x"), ALLOW)
+    check("an f-string to a non-logger stays allowed", edit(typed, "    return x", "    print(f\"x={x}\")\n    return x"), ALLOW)
+
+    print("== silent .get(key, None) ==")
+    check(".get(key, None)", edit(typed, "    return x", "    y = d.get(\"k\", None)\n    return x"), BLOCK)
+    check(".get(key) and .get(key, default) stay allowed",
+          edit(typed, "    return x", "    y = d.get(\"k\")\n    z = d.get(\"k\", 0)\n    return x"), ALLOW)
+
+    print("== cognitive complexity ==")
+    nested = "".join(f"{'    ' * (depth + 1)}if x > {depth}:\n" for depth in range(7)) + f"{'    ' * 8}return 1\n"
+    check("a new function over 15", edit(typed, "def f(", f"def deep(x: int) -> int:\n{nested}    return 0\n\n\ndef f("), BLOCK)
+    legacy_deep = repo.file("src/pkg/deep.py", f"def deep(x: int) -> int:\n{nested}    return 0\n")
+    check("an edit inside a function already over 15", edit(legacy_deep, "    return 0", "    return 2"), ALLOW)
+
+    print("== flattened entities (generators only) ==")
+    gen = repo.file("src/pkg/generators/emit.py", "def emit(app: App) -> list[str]:\n    return []\n")
+    check("app.all_entities() in a generator",
+          edit(gen, "    return []", "    return [str(e) for e in app.all_entities()]"), BLOCK)
+    check("self.application.all_entities() in a generator",
+          edit(gen, "    return []", "    return [str(e) for e in self.application.all_entities()]"), BLOCK)
+    check("one comprehension over every service's entities",
+          edit(gen, "    return []", "    return [str(e) for s in app.services.values() "
+                                      "for b in s.rdbms_blocks.values() for e in b.entities.values()]"), BLOCK)
+    check("service.all_entities() stays allowed",
+          edit(gen, "    return []", "    return [str(e) for s in app.services.values() for e in [s]]"), ALLOW)
+    check("per-service loops stay allowed",
+          edit(gen, "    return []", "    out = []\n    for s in app.services.values():\n"
+                                      "        out += [str(e) for e in s.all_entities()]\n    return out"), ALLOW)
+    validator = repo.file("src/pkg/validators/check.py", "def check(app: App) -> int:\n    return 0\n")
+    check("app.all_entities() outside a generator stays allowed",
+          edit(validator, "    return 0", "    return len(list(app.all_entities()))"), ALLOW)
 
     print("== only the delta is judged ==")
     legacy = repo.file("src/pkg/legacy.py",

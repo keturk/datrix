@@ -1,20 +1,20 @@
-"""settings.json's hook registrations must match CLAUDE.md's enforcement table.
+"""settings.json's hook registrations must match the enforcement table in rules/harness-guards.md.
 
 THE FAILURE MODE: a hook registered in settings.json whose .py file is absent is still
 valid JSON. Claude Code reports nothing, the guard simply never runs, and the surface it
 policed is silently unguarded from then on. The inverse is just as quiet -- a guard added
-to settings.json but never written into CLAUDE.md's table blocks work that agents were
+to settings.json but never written into the guards table blocks work that agents were
 never told was blocked, and they burn a turn discovering it by being refused.
 
 This is a producer/consumer seam like any other: settings.json decides which hooks fire on
-which event, CLAUDE.md's "Enforced by the Harness" table tells every agent what fires. The
+which event, the "Enforced by the Harness" table (rules/harness-guards.md) tells agents what fires. The
 two sets were never compared, and they had already drifted -- guard-repo-temp-dirs.py runs
 on Bash|PowerShell as well as on edits, and the table listed only the edit registration.
 
 Three set comparisons, each in both directions:
   1. referenced-in-settings.json  vs  present-on-disk
   2. present-on-disk              vs  registered-anywhere
-  3. (event, blocking hook) pairs vs  the CLAUDE.md table's pairs
+  3. (event, blocking hook) pairs vs  the guards table's pairs
 
 "Blocking" is derived from each hook's own source -- a hook blocks iff it can exit 2 --
 so a new guard is classified by what it does, never by a list somebody has to remember to
@@ -34,7 +34,8 @@ import sys
 HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
 CLAUDE_DIR = os.path.dirname(HOOKS_DIR)
 SETTINGS_JSON = os.path.join(CLAUDE_DIR, "settings.json")
-CLAUDE_MD = os.path.join(CLAUDE_DIR, "CLAUDE.md")
+# The table lives in a read-when doc, not in CLAUDE.md, so it is not paid for on every turn.
+GUARDS_DOC = os.path.join(CLAUDE_DIR, "rules", "harness-guards.md")
 
 TABLE_HEADING = "## Enforced by the Harness"
 BLOCK_EXIT_RE = re.compile(r"sys\.exit\(2\)")
@@ -85,7 +86,7 @@ def registered_pairs(settings: dict) -> set[tuple[str, str]]:
     """{(event-with-matcher, hook filename)} exactly as settings.json registers them.
 
     `PreToolUse` + matcher `Bash|PowerShell` -> `PreToolUse(Bash|PowerShell)`; an event
-    with no matcher (Stop, SessionStart) keeps its bare name, matching how CLAUDE.md's
+    with no matcher (Stop, SessionStart) keeps its bare name, matching how the guards
     table spells it.
     """
     pairs: set[tuple[str, str]] = set()
@@ -105,7 +106,7 @@ def registered_pairs(settings: dict) -> set[tuple[str, str]]:
 
 
 def documented_pairs(claude_md: str) -> set[tuple[str, str]]:
-    """{(event, hook filename)} claimed by CLAUDE.md's enforcement table.
+    """{(event, hook filename)} claimed by the enforcement table in rules/harness-guards.md.
 
     The table escapes the matcher's pipe for markdown (`Bash\\|PowerShell`); unescape it
     so both sides of the comparison spell the event the same way. One cell may name
@@ -113,7 +114,7 @@ def documented_pairs(claude_md: str) -> set[tuple[str, str]]:
     """
     start = claude_md.find(TABLE_HEADING)
     if start < 0:
-        die(f"CLAUDE.md has no '{TABLE_HEADING}' section to compare against")
+        die(f"{GUARDS_DOC} has no '{TABLE_HEADING}' section to compare against")
     end = claude_md.find("\n## ", start + len(TABLE_HEADING))
     section = claude_md[start : end if end > 0 else len(claude_md)]
 
@@ -143,7 +144,7 @@ except json.JSONDecodeError as exc:
 
 on_disk = owned_hook_files()
 registered = registered_pairs(parsed_settings)
-documented = documented_pairs(read_text(CLAUDE_MD))
+documented = documented_pairs(read_text(GUARDS_DOC))
 
 referenced = {hook for _, hook in registered}
 blocking = blocking_hooks(on_disk)
@@ -151,7 +152,7 @@ non_blocking = on_disk - blocking
 
 print("== the inputs are non-vacuous (this check is able to fail) ==")
 check("settings.json registers at least one hook", bool(registered), True)
-check("CLAUDE.md's table declares at least one hook", bool(documented), True)
+check("the guards table declares at least one hook", bool(documented), True)
 check("some hook on disk can refuse", bool(blocking), True)
 check("some hook on disk cannot refuse (the classifier discriminates)",
       bool(non_blocking), True)

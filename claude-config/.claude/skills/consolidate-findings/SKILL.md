@@ -42,15 +42,30 @@ Every `*.md` file directly in `d:\datrix\reports\finding\`. List them with
 
 If there are no raw files, say so in one line and stop.
 
-## Phase 1 — Read everything
+## Phase 1 — Index, then read everything
 
-Read every file **in full** with `Read`. Do not skim, grep for headings, or sample — an umbrella
-file can hold twenty defects under one title, and a heading scan finds one. The files are small;
-read them yourself and do not dispatch subagents.
+First have a local model draft the atomic-finding index:
+
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/skill-assist.ps1" findings-index
+```
+
+`d:\datrix\.tmp\assist\findings-index.md` lists every atomic finding of every file (raw and
+consolidated) as `seam | packages | defect | source | citations`, sorted by seam, and under
+"Check these files yourself" each file whose citations the model left unassigned or invented. It is
+a draft: Phase 2 and the Phase 3 index start from it instead of from nothing. Exit 3 means no local
+model answered: build the index by hand as below.
+
+Then read every file **in full** with `Read`. Do not skim, grep for headings, or sample — an umbrella
+file can hold twenty defects under one title, and a heading scan finds one; the sections you write
+carry each source's own evidence and wording, so you need the text. The files are small; read them
+yourself and do not dispatch subagents.
 
 ## Phase 2 — Extract atomic findings
 
-Turn each file into one or more **atomic findings**: one defect, one root cause. For each, note:
+Correct the drafted index against what you read: split or merge where the model got the root cause
+wrong, and give every citation listed as unassigned a home. Each atomic finding is one defect, one
+root cause. For each, note:
 title (one line, the defect — not the symptom list), what is wrong and the evidence, every
 `file:line` cited (verbatim), the impact, a direction only if the source gave one, severity only if
 the source gave one, and the file name(s) it came from.
@@ -175,18 +190,27 @@ after deleting; a pointer to a deleted file is a defect in the consolidation.
 
 ## Phase 5 — Prove nothing was lost
 
-Before deleting anything, for **every file you are about to delete** list the defects you counted in
-it and, for each, the remaining file and section number that now states it. Every defect must map to
-a section of a remaining file, and every `file:line` the deleted file cited must appear in that
-section. Do this by re-reading the
-files you wrote, not from memory.
+Before deleting anything, run the exact check over the files you are about to delete:
 
-Any defect or citation without a home is a defect in your consolidation: fix the remaining file,
-then re-check.
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/skill-assist.ps1" findings-check --delete <file> <file> ...
+```
+
+It passes (exit 0) only when every `path:line` citation and every backticked file path of each file
+to delete appears in a file that remains, every `**Related:**` pointer in a remaining file names a
+consolidated file that remains, no remaining file carries mojibake, and no raw file is left that is
+neither superseded nor in the delete list. Exit 2 lists what fails: fix the remaining files, then run
+it again.
+
+The script cannot tell whether a *defect* landed, only its citations. So, for **every file you are
+about to delete**, also list the defects you counted in it (the index rows of that source) and, for
+each, the remaining file and section number that now states it. Do this by re-reading the files you
+wrote, not from memory. A defect without a home is a defect in your consolidation: fix the remaining
+file, then re-check.
 
 ## Phase 6 — Delete the superseded sources
 
-Only after Phase 5 passes, delete each superseded file (grouped-away sources and split umbrellas)
+Only after Phase 5 passes (the script's exit 0 and every defect mapped), delete each superseded file (grouped-away sources and split umbrellas)
 with `Remove-Item`. Do not copy, move or rename them anywhere, and do not create an `archive`
 folder or any other file recording what was deleted.
 

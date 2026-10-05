@@ -302,11 +302,16 @@ def main() -> None:
             fix = str(item.get("fix", "")).strip()
             failures.append(f"  [{config.get('name', '?')}/{label}] {fix or 'unsatisfied'}")
 
-    if not failures:
-        sys.exit(0)
-
     state_path = _state_path(session_id)
     state = _read_json(state_path)
+    if not failures:
+        # The cap counts refusals of one turn: a turn that ends cleanly starts the count again, so
+        # refusals spread over a long session never switch the checklist off for the rest of it.
+        if state.get("blocks"):
+            state["blocks"] = 0
+            _write_json(state_path, state)
+        sys.exit(0)
+
     blocks = int(state.get("blocks", 0) or 0)
     if blocks >= _MAX_BLOCKS:
         sys.exit(0)

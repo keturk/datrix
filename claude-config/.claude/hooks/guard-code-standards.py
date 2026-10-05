@@ -1,7 +1,7 @@
 """PreToolUse hook (Write|Edit): the mechanical Code Standards, enforced on NEW code only.
 
 CLAUDE.md, Code Standards, lists rules a parser can decide. Prose in context is paid on every turn
-and ignored under pressure; a block is paid only when it fires. Three are enforced here:
+and ignored under pressure; a block is paid only when it fires. These are enforced here:
 
   * MOCKS AND FAKES IN TESTS. "Testing: real objects only, no `unittest.mock` /
     `SimpleNamespace` / fakes." In a test file: an import of `unittest.mock`, `mock` or
@@ -12,6 +12,22 @@ and ignored under pressure; a block is paid only when it fires. Three are enforc
     which this does not match and which says what it ignores.
   * TODO COMMENTS. "No placeholders / TODOs." A `# TODO` / `FIXME` / `XXX` / `HACK` comment token
     (comment tokens only, so a string or a pattern list naming the word is never a hit).
+  * MISSING TYPE HINTS. "Type hints on all fns." A function with no return annotation, or a
+    parameter other than `self` / `cls` with no annotation.
+  * `Any`. "No `Any` (exception: Pydantic `@model_validator(mode="before")` data param)." `Any` in a
+    function's annotations or in an annotated assignment; a `mode="before"` model validator is exempt.
+  * PRE-FORMATTED LOG MESSAGES. "Logging: %-style." A logger call (`LOG`/`log`/`logger`/`_logger`/
+    `logging` and `self.` forms) whose message is an f-string, a `.format()` call, a `%` expression
+    or a `+` concatenation instead of a format string with arguments.
+  * SILENT FALLBACKS. "No silent fallbacks (`dict.get(key, None)`)." A `.get(key, None)` call.
+  * FLATTENED ENTITIES. The cheat sheet's Entity Access rule, in generator sources only
+    (`src/**/generators/`, `src/**/micro_generators/`): `app.all_entities()` (any `app`/`application`
+    receiver), or one comprehension that iterates `app.services.values()` and then entities. The same
+    shape is the ast-grep rule `flattened-entity-iteration` for audits.
+  * COGNITIVE COMPLEXITY. "Cognitive complexity <= 15." A function whose cognitive complexity
+    (the `cognitive_complexity` package, as `metrics/complexity.ps1` measures it) is above 15. Judged
+    by function: a function already over the limit never blocks an edit; one the edit takes over it
+    does. Skipped when the package is not importable.
 
 HOW IT DECIDES -- A DELTA, NEVER A SCAN. The file as it would exist after the edit is parsed and so
 is the file as it exists now; a violation is reported only when the edit ADDS one (a multiset
@@ -32,7 +48,6 @@ import ast
 import collections
 import io
 import json
-import os
 import re
 import sys
 import tokenize
@@ -46,8 +61,18 @@ _EXEMPT_SEGMENTS: Final = (
 _MOCK_MODULES: Final = frozenset({"unittest.mock", "mock", "pytest_mock"})
 _TODO_RE: Final = re.compile(r"\b(TODO|FIXME|XXX|HACK)\b")
 _MAX_SHOWN: Final = 6
+_MAX_COGNITIVE: Final = 15
+_SELF_NAMES: Final = frozenset({"self", "cls", "mcs"})
+_LOGGER_NAMES: Final = frozenset({"LOG", "log", "logger", "LOGGER", "_logger", "_log", "_LOG", "logging"})
+_LOG_METHODS: Final = frozenset({"debug", "info", "warning", "warn", "error", "exception", "critical"})
+_SHOWN_CALL_CHARS: Final = 90
+_APP_RECEIVER_RE: Final = re.compile(r"^(self\.)?_?(app|application)$")
+_SERVICES_ITER_RE: Final = re.compile(r"^(self\.)?_?(app|application)\.services\.values\(\)$")
+# Generator sources, where an entity's owning service must survive iteration.
+_GENERATOR_PATH_RE: Final = re.compile(r"/src/.*/(micro_)?generators/")
 
 Violation = tuple[str, str]
+FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
 
 
 def _normalize(path: str) -> str:
@@ -109,11 +134,166 @@ def _todo_violations(text: str) -> list[Violation]:
     return found
 
 
-def _violations(text: str, is_test: bool) -> collections.Counter[Violation] | None:
+def _functions(tree: ast.AST) -> list[tuple[str, FunctionNode]]:
+    """Every function with its qualified name (``Outer.method``, ``outer.inner``), in source order."""
+    found: list[tuple[str, FunctionNode]] = []
+
+    def visit(node: ast.AST, prefix: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                found.append((f"{prefix}{child.name}", child))
+                visit(child, f"{prefix}{child.name}.")
+            elif isinstance(child, ast.ClassDef):
+                visit(child, f"{prefix}{child.name}.")
+            else:
+                visit(child, prefix)
+
+    visit(tree, "")
+    return found
+
+
+def _params(node: FunctionNode) -> list[ast.arg]:
+    args = node.args
+    extra = [arg for arg in (args.vararg, args.kwarg) if arg is not None]
+    return [*args.posonlyargs, *args.args, *args.kwonlyargs, *extra]
+
+
+def _annotation_violations(functions: list[tuple[str, FunctionNode]]) -> list[Violation]:
+    found: list[Violation] = []
+    for name, node in functions:
+        if node.returns is None:
+            found.append(("type-hints", f"def {name}(...) has no return annotation"))
+        found += [("type-hints", f"def {name}: parameter `{arg.arg}` has no annotation")
+                  for arg in _params(node) if arg.annotation is None and arg.arg not in _SELF_NAMES]
+    return found
+
+
+def _mentions_any(annotation: ast.expr) -> bool:
+    for node in ast.walk(annotation):
+        if isinstance(node, ast.Name) and node.id == "Any":
+            return True
+        if isinstance(node, ast.Attribute) and node.attr == "Any":
+            return True
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and re.search(r"\bAny\b", node.value):
+            return True
+    return False
+
+
+def _is_before_validator(node: FunctionNode) -> bool:
+    """A Pydantic ``@model_validator(mode="before")``: the one place `Any` is allowed."""
+    for decorator in node.decorator_list:
+        if not isinstance(decorator, ast.Call):
+            continue
+        callee = decorator.func
+        named = (isinstance(callee, ast.Name) and callee.id == "model_validator") or (
+            isinstance(callee, ast.Attribute) and callee.attr == "model_validator")
+        if named and any(kw.arg == "mode" and isinstance(kw.value, ast.Constant) and kw.value.value == "before"
+                         for kw in decorator.keywords):
+            return True
+    return False
+
+
+def _any_violations(tree: ast.AST, functions: list[tuple[str, FunctionNode]]) -> list[Violation]:
+    found: list[Violation] = []
+    for name, node in functions:
+        if _is_before_validator(node):
+            continue
+        annotations = [arg.annotation for arg in _params(node)] + [node.returns]
+        found += [("any", f"def {name}: {ast.unparse(annotation)}")
+                  for annotation in annotations if annotation is not None and _mentions_any(annotation)]
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AnnAssign) and _mentions_any(node.annotation):
+            found.append(("any", f"{ast.unparse(node.target)}: {ast.unparse(node.annotation)}"))
+    return found
+
+
+def _receiver_name(node: ast.expr) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return ""
+
+
+def _preformatted(message: ast.expr) -> bool:
+    """A message built before the call: an f-string, a ``%``/``+`` expression, or ``.format()``."""
+    if isinstance(message, ast.JoinedStr):
+        return True
+    if isinstance(message, ast.BinOp) and isinstance(message.op, (ast.Mod, ast.Add)):
+        return True
+    return isinstance(message, ast.Call) and isinstance(message.func, ast.Attribute) and message.func.attr == "format"
+
+
+def _log_violations(tree: ast.AST) -> list[Violation]:
+    found: list[Violation] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        method = node.func.attr
+        if (method not in _LOG_METHODS and method != "log") or _receiver_name(node.func.value) not in _LOGGER_NAMES:
+            continue
+        index = 1 if method == "log" else 0
+        if len(node.args) > index and _preformatted(node.args[index]):
+            found.append(("log-format", ast.unparse(node)[:_SHOWN_CALL_CHARS]))
+    return found
+
+
+def _get_none_violations(tree: ast.AST) -> list[Violation]:
+    return [("get-none", ast.unparse(node)[:_SHOWN_CALL_CHARS]) for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get"
+            and len(node.args) == 2 and not node.keywords
+            and isinstance(node.args[1], ast.Constant) and node.args[1].value is None]
+
+
+def _app_receiver(node: ast.expr) -> bool:
+    return bool(_APP_RECEIVER_RE.match(ast.unparse(node)))
+
+
+def _flattened_entity_violations(tree: ast.AST) -> list[Violation]:
+    """In a generator: the application's flattened entity set, or one comprehension over every
+    service's entities (the cheat sheet's Entity Access rule; also the ast-grep rule
+    ``flattened-entity-iteration``)."""
+    found: list[Violation] = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "all_entities" and _app_receiver(node.func.value)):
+            found.append(("flattened-entities", ast.unparse(node)[:_SHOWN_CALL_CHARS]))
+        elif isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+            iters = [ast.unparse(generator.iter) for generator in node.generators]
+            over_services = [i for i, text in enumerate(iters) if _SERVICES_ITER_RE.match(text)]
+            if over_services and any("entities" in text for text in iters[over_services[0] + 1:]):
+                found.append(("flattened-entities", ast.unparse(node)[:_SHOWN_CALL_CHARS]))
+    return found
+
+
+def _complexity_violations(functions: list[tuple[str, FunctionNode]]) -> list[Violation]:
+    """Functions over the cognitive-complexity limit, keyed by name only so a function already over
+    it is not "added" again by an edit that changes its score."""
+    try:
+        from cognitive_complexity.api import get_cognitive_complexity
+    except ImportError:
+        return []
+    found: list[Violation] = []
+    for name, node in functions:
+        try:
+            score = get_cognitive_complexity(node)
+        except (RecursionError, ValueError, TypeError, AttributeError):
+            continue  # the scorer cannot read this construct; the metrics script reports it
+        if score > _MAX_COGNITIVE:
+            found.append(("complexity", f"def {name} is above {_MAX_COGNITIVE}"))
+    return found
+
+
+def _violations(text: str, is_test: bool, is_generator: bool = False) -> collections.Counter[Violation] | None:
     """The violations in ``text``, or None when it cannot be parsed (so the caller cannot judge)."""
     try:
         tree = ast.parse(text)
+        functions = _functions(tree)
         found = _silent_except_violations(tree) + _todo_violations(text)
+        found += _annotation_violations(functions) + _any_violations(tree, functions)
+        found += _log_violations(tree) + _get_none_violations(tree) + _complexity_violations(functions)
+        if is_generator:
+            found += _flattened_entity_violations(tree)
         if is_test:
             found += _mock_violations(tree)
     except (SyntaxError, ValueError, tokenize.TokenError, IndentationError):
@@ -154,6 +334,38 @@ _REMEDY: Final = {
         "findings file under `d:\\datrix\\reports\\finding\\`, execution-contract-reporting.md section 5A) "
         "and leave the code without the comment."
     ),
+    "type-hints": (
+        "CLAUDE.md, Code Standards: 'Type hints on all fns.' Annotate every parameter (except `self`/`cls`) "
+        "and the return type, `-> None` included. The tests of the code you changed are the type gate; "
+        "no type-checker runs."
+    ),
+    "any": (
+        "CLAUDE.md, Code Standards: 'No `Any`' (the one exception is the data parameter of a Pydantic "
+        "`@model_validator(mode=\"before\")`). Name the real type: a union, a Protocol, a TypedDict, "
+        "`object` plus a narrowing `isinstance`, or a generic parameter."
+    ),
+    "log-format": (
+        "CLAUDE.md, Code Standards: 'Logging: `logging.getLogger(__name__)`, %-style.' Pass a format string "
+        "and its arguments, e.g. `LOG.info(\"Wrote %s (%d files)\", path, count)`, never an f-string, "
+        "`.format()`, `%` or `+`: the message is built only when the record is emitted, and handlers see "
+        "the arguments."
+    ),
+    "get-none": (
+        "CLAUDE.md, Anti-patterns: 'No silent fallbacks (`dict.get(key, None)`).' Decide what a missing key "
+        "means: index it (`d[key]`) when it must exist, or check `if key not in d:` and raise an error that "
+        "says what was expected and what was found."
+    ),
+    "flattened-entities": (
+        "Architecture cheat sheet, Entity Access: 'Entities are block-scoped. Always iterate per-service, "
+        "per-block; never flatten across services.' A generator walks `for service in app.services.values()` "
+        "-> `service.rdbms_blocks` -> `block.entities` (or `service.all_entities()`), so every artifact it "
+        "emits keeps its owning service."
+    ),
+    "complexity": (
+        "CLAUDE.md, Code Standards: 'Cognitive complexity <=15; max 3 nesting; early returns.' Split the "
+        "function: guard clauses and early returns for the edge cases, and a named helper per branch or "
+        "loop body. Only a function this edit takes over the limit is refused."
+    ),
 }
 
 
@@ -179,8 +391,9 @@ def main() -> None:
         sys.exit(0)
 
     is_test = _is_test_file(path)
-    after_found = _violations(after, is_test)
-    before_found = collections.Counter() if before is None else _violations(before, is_test)
+    is_generator = not is_test and bool(_GENERATOR_PATH_RE.search(path))
+    after_found = _violations(after, is_test, is_generator)
+    before_found = collections.Counter() if before is None else _violations(before, is_test, is_generator)
     if after_found is None or before_found is None:
         sys.exit(0)
 

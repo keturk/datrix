@@ -80,7 +80,12 @@ If verification reveals the implementation is wrong across 3+ unrelated subsyste
 
 **Goal:** Turn the design + tasks into a concrete, checkable list of what MUST be true in the code.
 
-1. Read the DESIGN in full. Extract every **design invariant / decision / requirement** as a numbered checklist item, keyed by its `D#`/`G#`/numbered-decision id where the design uses one. For each, note the **set of surfaces** it applies to (which languages, providers, packages, files) — this is what invariant-surface coverage checks against.
+1. Draft the checklist with a local model, then read the DESIGN in full and correct it:
+   ```bash
+   powershell -File "d:/datrix/datrix/scripts/dev/skill-assist.ps1" checklist --design "{DESIGN}"
+   ```
+   `d:\datrix\.tmp\assist\checklist-{design-stem}.md` lists every requirement the model found (decision id, one sentence, surfaces, the design lines that state it), flags each item whose quoted phrase is not at the lines it cites, and lists every requirement-bearing line of the design (a decision id, or must / never / always / shall / required / forbidden / fail closed / fail loud) that no item covers. Exit 3 means no local model answered: build the checklist by hand.
+   The checklist is yours, not the model's: every **design invariant / decision / requirement** is a numbered checklist item, keyed by its `D#`/`G#`/numbered-decision id where the design uses one, with the **set of surfaces** it applies to (which languages, providers, packages, files) — this is what invariant-surface coverage checks against. Resolve every flagged item and every uncovered line (add the item, or decide it states no requirement) before Phase 2.
 2. Resolve the task set and pull its metadata with the phase-status script (read `datrix/scripts/tasks/quick-reference.md` first; a pre-tool hook enforces this):
    ```bash
    powershell -File "d:/datrix/datrix/scripts/tasks/phase-status.ps1" {NN}
