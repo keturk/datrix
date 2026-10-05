@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Repo-level gate for the skill assists (library/assist/, dev/skill_assist.py, dev/evaluate_reports.py).
+"""Repo-level gate for the skill assists (library/skill/, including skill_assist.py, and library/dev/evaluate_reports.py).
 
 Every check builds a real workspace in a temporary directory -- git repositories, task files under
 .tasks/phase-NN, a findings folder, a design folder -- and talks to a real OpenAI-compatible HTTP server
 on loopback whose answers depend on the prompt it receives. Nothing here contacts the network's model
 servers, and every request is recorded in a temporary usage log, never the machine's own.
 
-Run through test/skill-assist-gate.ps1.
+Run through skill/skill-assist-gate.ps1.
 """
 
 from __future__ import annotations
@@ -29,20 +29,20 @@ _LIBRARY_DIR = _SCRIPT_DIR.parent / "library"
 if str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from assist.absorb import VERDICT_MISSING, VERDICT_PRESENT, find_references, transfer_check  # noqa: E402
-from assist.bug_resolution import (  # noqa: E402
+from skill.absorb import VERDICT_MISSING, VERDICT_PRESENT, find_references, transfer_check  # noqa: E402
+from skill.bug_resolution import (  # noqa: E402
     STATUS_RESOLVED,
     ResolutionFacts,
     VerificationRow,
     append_resolution,
     build_resolution,
 )
-from assist.checklist import draft_checklist  # noqa: E402
-from assist.common import EXIT_NO_MODEL, AssistError, ContentFilter  # noqa: E402
-from assist.context_digest import build_digest  # noqa: E402
-from assist.findings import check_consolidation, extract_file  # noqa: E402
-from assist.phase_tasks import phase_tasks  # noqa: E402
-from assist.readiness import VERDICT_SATISFIED, missing_edges, satisfied_leads, unresolved_modules  # noqa: E402
+from skill.checklist import draft_checklist  # noqa: E402
+from skill.common import EXIT_NO_MODEL, AssistError, ContentFilter  # noqa: E402
+from skill.context_digest import build_digest  # noqa: E402
+from skill.findings import check_consolidation, extract_file  # noqa: E402
+from skill.phase_tasks import phase_tasks  # noqa: E402
+from skill.readiness import VERDICT_SATISFIED, missing_edges, satisfied_leads, unresolved_modules  # noqa: E402
 from dev.customer_domain_isolation import hash_term  # noqa: E402
 from dev.evaluate_reports import render_project_quick_report, render_service_mechanical  # noqa: E402
 from shared.local_llm import LocalLlmPool, LocalLlmSettings  # noqa: E402
@@ -57,7 +57,7 @@ _RESET = "\033[0m"
 _LOOPBACK = "127.0.0.1"
 # TEST-NET-1 (RFC 5737): never routed, so no model server can answer there.
 _UNROUTABLE = "192.0.2.1"
-_CLI = _LIBRARY_DIR / "dev" / "skill_assist.py"
+_CLI = _LIBRARY_DIR / "skill" / "skill_assist.py"
 _PHASE = 7
 _GATE_TERM = "zzgateterm"
 _REPOS = ("datrix", "datrix-alpha")

@@ -24,7 +24,7 @@ from pathlib import Path
 from shared.local_llm import LocalLlmPool
 from shared.local_reading import MAX_CHUNK_CHARS
 
-from assist.common import (
+from skill.common import (
     FENCE,
     ContentFilter,
     MarkdownSection,

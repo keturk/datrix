@@ -20,8 +20,8 @@ from code_index.queries import QueryError, outline
 from code_index.session import open_session
 from tasks.task_metadata import format_phase
 
-from assist.common import workspace_label
-from assist.phase_tasks import PhaseTask, edit_sites, review_sites
+from skill.common import workspace_label
+from skill.phase_tasks import PhaseTask, edit_sites, review_sites
 
 LOG = logging.getLogger(__name__)
 

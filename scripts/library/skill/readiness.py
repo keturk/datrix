@@ -28,8 +28,8 @@ from code_index.session import open_session
 from shared.local_llm import LocalLlmPool
 from shared.local_reading import ReadScope, ReadScopeError, ask_local, read_section
 
-from assist.common import markdown_sections, parallel, workspace_label
-from assist.phase_tasks import PhaseTask, edit_sites, review_sites
+from skill.common import markdown_sections, parallel, workspace_label
+from skill.phase_tasks import PhaseTask, edit_sites, review_sites
 
 LOG = logging.getLogger(__name__)
 

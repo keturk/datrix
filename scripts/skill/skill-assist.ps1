@@ -21,8 +21,8 @@
       bug-resolution     --report R --repo P.. ...  the Resolution section for a fixed bug report
 
     Lines carrying a registered customer term are withheld before anything is sent to a model, and
-    without the term corpus nothing is sent. Python lives in library\dev\skill_assist.py and
-    library\assist\.
+    without the term corpus nothing is sent. Python lives in library\skill\ (the command line is
+    skill_assist.py).
 
     Exit codes:
       0 = done
@@ -72,7 +72,7 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptsDir = Split-Path -Parent $scriptDir
-$cliScript = Join-Path $scriptsDir "library\dev\skill_assist.py"
+$cliScript = Join-Path $scriptsDir "library\skill\skill_assist.py"
 $commonDir = Join-Path $scriptsDir "common"
 . (Join-Path $commonDir "venv.ps1")
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force

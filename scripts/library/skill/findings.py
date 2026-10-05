@@ -23,7 +23,7 @@ from pathlib import Path
 
 from shared.local_llm import LocalLlmPool
 
-from assist.common import (
+from skill.common import (
     ContentFilter,
     ask_json,
     citations_in,

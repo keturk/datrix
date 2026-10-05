@@ -7,7 +7,7 @@ from pathlib import Path
 
 from tasks.task_metadata import TaskMetadata, discover_phase_task_files, format_phase, parse_task_file
 
-from assist.common import AssistError
+from skill.common import AssistError
 
 ELLIPSES = ("...", "…")
 

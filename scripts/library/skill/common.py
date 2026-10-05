@@ -24,9 +24,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 
-from dev.customer_domain_isolation import CorpusError, TermCorpus, corpus_path, load_term_corpus, scan_text
+from dev.customer_domain_isolation import TermCorpus, scan_text
 from shared.local_llm import ChatRequest, LocalLlmPool
-from shared.local_reading import CITATION, MAX_LINE_CHARS, SHOWCASE_REPO, WITHHELD_LINE, Section
+from shared.local_reading import (
+    CITATION,
+    ReadScopeError,
+    Section,
+    filtered_section,
+    load_workspace_term_corpus,
+)
 
 LOG = logging.getLogger(__name__)
 
@@ -86,20 +92,13 @@ class ContentFilter:
 
     def __init__(self, workspace: Path) -> None:
         try:
-            self._corpus: TermCorpus = load_term_corpus(corpus_path(workspace / SHOWCASE_REPO))
-        except CorpusError as exc:
-            raise AssistError(
-                f"Nothing is sent to a local model without the customer-term corpus to filter it: {exc}") from exc
+            self._corpus: TermCorpus = load_workspace_term_corpus(workspace)
+        except ReadScopeError as exc:
+            raise AssistError(str(exc)) from exc
 
     def section(self, label: str, text: str) -> Section:
         """``text`` with every line numbered, and each line carrying a registered term withheld."""
-        withheld = {number for number, _excerpt in scan_text(text, self._corpus)}
-        lines = tuple(
-            f"{number}| {WITHHELD_LINE if number in withheld else line[:MAX_LINE_CHARS]}"
-            for number, line in enumerate(text.splitlines(), start=1))
-        note = (f"{label}: {len(withheld)} line(s) withheld from the model because they carry a registered "
-                f"customer term." if withheld else "")
-        return Section(label, lines, note)
+        return filtered_section(label, text, self._corpus)
 
     def carries_term(self, text: str) -> bool:
         """True when any line of ``text`` carries a registered customer term."""

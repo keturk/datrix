@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Skill assists: the mechanical phases of agent skills, done by scripts and local models
-(wrapped by dev/skill-assist.ps1). Each command writes its output under <workspace>/.tmp/assist/ and
+(wrapped by scripts/skill/skill-assist.ps1). Each command writes its output under <workspace>/.tmp/assist/ and
 prints the path with a one-line summary.
 
 Commands:
@@ -31,14 +31,14 @@ _library_dir = Path(__file__).resolve().parent.parent
 if str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
-from assist.absorb import (  # noqa: E402
+from skill.absorb import (  # noqa: E402
     VERDICT_PRESENT,
     find_references,
     render_references,
     render_transfer,
     transfer_check,
 )
-from assist.bug_resolution import (  # noqa: E402
+from skill.bug_resolution import (  # noqa: E402
     STATUS_RESOLVED,
     STATUS_UNRESOLVED,
     ResolutionFacts,
@@ -46,9 +46,9 @@ from assist.bug_resolution import (  # noqa: E402
     build_resolution,
     parse_verification,
 )
-from assist.checklist import draft_checklist  # noqa: E402
-from assist.checklist import render as render_checklist  # noqa: E402
-from assist.common import (  # noqa: E402
+from skill.checklist import draft_checklist  # noqa: E402
+from skill.checklist import render as render_checklist  # noqa: E402
+from skill.common import (  # noqa: E402
     EXIT_CHECK_FAILED,
     EXIT_FAILED,
     EXIT_NO_MODEL,
@@ -58,17 +58,17 @@ from assist.common import (  # noqa: E402
     workspace_label,
     write_output,
 )
-from assist.context_digest import build_digest  # noqa: E402
-from assist.findings import build_index, check_consolidation, render_check, render_index  # noqa: E402
-from assist.phase_tasks import phase_tasks  # noqa: E402
-from assist.readiness import (  # noqa: E402
+from skill.context_digest import build_digest  # noqa: E402
+from skill.findings import build_index, check_consolidation, render_check, render_index  # noqa: E402
+from skill.phase_tasks import phase_tasks  # noqa: E402
+from skill.readiness import (  # noqa: E402
     VERDICT_SATISFIED,
     ReadinessEvidence,
     missing_edges,
     satisfied_leads,
     unresolved_modules,
 )
-from assist.readiness import render as render_readiness  # noqa: E402
+from skill.readiness import render as render_readiness  # noqa: E402
 from code_index.queries import QueryError  # noqa: E402
 from shared.local_llm import (  # noqa: E402
     LocalLlmPool,
