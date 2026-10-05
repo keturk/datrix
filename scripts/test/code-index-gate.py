@@ -81,6 +81,7 @@ from dev.code_scan import (  # noqa: E402
 )
 from dev.generate_test_rules import Proposal, drop_unknown_see_refs, seed_topics_from_index  # noqa: E402
 from dev.logic_map import parse_markers  # noqa: E402
+from dev.logic_map_report import dangling_see_refs  # noqa: E402
 from metrics.dead_code_report import Finding  # noqa: E402
 from shared.local_llm import LocalLlmPool, LocalLlmSettings  # noqa: E402
 from code_index.background import (  # noqa: E402
@@ -283,16 +284,30 @@ def check_wrapped_rule_lines_belong_to_the_rule() -> None:
     assert described.description == "A description line." and described.rules == ["R1"], described
 
 
-def check_marker_shaped_lines_inside_strings_are_not_markers() -> None:
+def check_markers_come_from_comments_and_the_module_docstring_only() -> None:
     source = (
-        '"""Module docstring.\n\n    # @canonical(doc/example): Shown as syntax, not declared\n"""\n'
+        '"""Module docstring.\n\n# @canonical(module/doc): Declared in the module docstring\n"""\n'
         f"FIXTURE = '''{_TEXT_PY}'''\n"
         'TEMPLATE = f"""\n# @pattern(fstring/example): {FIXTURE}\n"""\n'
+        "def shown() -> None:\n"
+        '    """Syntax:\n\n    # @boundary(function/doc): Shown, not declared\n    """\n'
         "# @invariant(real/marker): Declared in a comment\n"
         "X = 1\n"
     )
     topics = [m.topic for m in parse_markers(source.splitlines(), "strings.py")]
-    assert topics == ["real/marker"], f"a marker-shaped line inside a string literal was extracted: {topics}"
+    assert topics == ["module/doc", "real/marker"], f"markers read from the wrong places: {topics}"
+    not_a_docstring = '"""Leading string """ + SUFFIX\n# @pattern(after/expr): Real\n"""\n# @pattern(in/string): No\n"""\n'
+    topics = [m.topic for m in parse_markers(not_a_docstring.splitlines(), "expr.py")]
+    assert topics == ["after/expr"], f"a leading string that is not the docstring was trusted: {topics}"
+
+
+def check_logic_map_report_names_every_dangling_see_ref() -> None:
+    markers: list[dict[str, object]] = [
+        {"topic": "text/to-words", "file": "a.py", "line": 3, "see_refs": ["text/splitting", "text/gone"]},
+        {"topic": "text/splitting", "file": "b.py", "line": 9, "see_refs": ["text/to-words"]},
+    ]
+    dangling = dangling_see_refs(markers)
+    assert dangling == [("text/to-words", "a.py:3", "text/gone")], dangling
 
 
 def check_generate_test_rules_drops_see_refs_to_unknown_topics() -> None:
@@ -1019,7 +1034,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_extract_records_symbols_imports_and_references,
     check_extract_keeps_markers_of_a_file_with_a_syntax_error,
     check_wrapped_rule_lines_belong_to_the_rule,
-    check_marker_shaped_lines_inside_strings_are_not_markers,
+    check_markers_come_from_comments_and_the_module_docstring_only,
     check_module_names_follow_the_configured_roots,
     check_refresh_indexes_only_what_git_sees_minus_excludes,
     check_refresh_parses_only_changed_content,
@@ -1031,6 +1046,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_canonical_matches_topic_segments_and_hides_test_rules,
     check_generate_test_rules_seeds_topics_from_the_index,
     check_generate_test_rules_drops_see_refs_to_unknown_topics,
+    check_logic_map_report_names_every_dangling_see_ref,
     check_summaries_are_stored_by_content_hash_and_searchable,
     check_summarize_lock_is_exclusive_and_breaks_when_stale,
     check_summarize_lock_of_a_dead_process_is_taken_over_at_once,
