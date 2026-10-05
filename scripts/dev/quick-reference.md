@@ -558,6 +558,27 @@ Queries never leave the machine. `-Summarize` is the exception, and it only runs
 
 **Exit codes:** 0 answered; 1 the request could not be carried out (the message says why); 2 no answer (not in the knowledge base and no local model could add one). An answer is a lead, not a finding: open the cited lines before acting on it. Gate: `test\ineedtoknow-gate.ps1`.
 
+### `dev\skill-assist.ps1`
+
+**The mechanical phases of agent skills, done by a script or a local model instead of a Claude model.** Each command writes its output to `d:\datrix\.tmp\assist\` and prints the path with a one-line summary. Exact checks are exact; whatever a local model writes is checked against its inputs (citations and quotes against what it was sent, set comparisons against the source) and is marked as a lead. The skill keeps every verdict. Wrapper over `library/dev/skill_assist.py`; the logic is in `library/assist/`.
+
+| Command | Skill phase it serves | What it produces |
+|---------|-----------------------|------------------|
+| `context-digest --phase N` | `/task-orchestrator` shared-context pre-read | Per package of the phase: the directories its tasks touch, each module with its first docstring line (or the index's summary), files a task names marked, files not yet created marked. From the code index; no model. Fits 400 lines |
+| `readiness --phase N [--no-model]` | `/task-orchestrator` 1e readiness audit (dimensions 3, 4, 6) | Exact: dependency edges the graph lacks (a not-yet-existing file read or co-created without an order) and `## Codebase Context` dotted names the index cannot resolve. Lead: for each task whose edit sites all exist, a local model's SATISFIED / NOT SATISFIED / UNCLEAR on its acceptance property, citations checked. `validate-task.ps1` stays the citation and orientation check |
+| `findings-index [--dir D]` | `/consolidate-findings` Phases 1–3 | Every findings file split into atomic findings (seam, packages, defect, citations) in one table sorted by seam; per file, citations no finding carries and citations the model invented |
+| `findings-check --delete F... [--dir D]` | `/consolidate-findings` Phase 5 | Exact: every `path:line` and backticked path of the files to delete appears in a remaining file; every `**Related:**` pointer resolves; no mojibake; no raw file left un-superseded |
+| `checklist --design PATH` | `/verify-implementation` Phase 1 | The design's requirements (id, sentence, surfaces, cited lines) drafted by a local model; an item whose quote is not at its lines is flagged; every requirement-bearing line (a decision id or must/never/always/shall/required/forbidden/fail closed/fail loud) that no item covers is listed |
+| `absorb-transfer --design PATH --target T...` | `/absorb-design` Phase 3 | Per design section: PRESENT / PARTIAL / MISSING in the target docs (framework repos), with checked citations |
+| `absorb-references --design PATH [--also P...]` | `/absorb-design` Phase 4 | Exact: every line in the framework repos (and the extra paths) naming the design's file name, stem, title or number in a design-reference form. `.tasks` is not searched |
+| `bug-resolution --report R --repo P... [--file F...] ...` | `/fix-bug-report` Phase 3 | The Resolution section: the Changes Made table from `git diff HEAD` plus untracked files (a framework file's row is a model's one-line summary of its diff; any other repo's row is the diff's shape and hunk functions, and nothing of it is sent to a model) and the facts passed (`--status`, `--fix-type`, `--exhibiting`, `--reached`, `--verification "profile|regenerated|artifact|result"`, or `--reason` + `--notes` when unresolved). A draft by default; `--append` appends it, refusing a report that already has one |
+
+**What is sent to a model.** `checklist`, `absorb-transfer` and `findings-index` send design docs and findings files, which the MCP tools refuse; `readiness` and `absorb-transfer` read framework-repo files through the MCP tools' own scope. Every line is checked against the customer-term corpus first and withheld when it carries a registered term; without the corpus nothing is sent. `bug-resolution` sends a diff only for a framework repository, and never one that carries a term.
+
+**Parameters:** the command, then its own python-style arguments; for the model commands the shared local-model flags `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (seconds, default 300).
+
+**Exit codes:** 0 done; 1 the request could not be carried out; 2 the check found something to act on (`findings-check` FAIL, `absorb-transfer` partial/missing, `absorb-references` found lines); 3 no local model answered — do that phase yourself, as the skill did before the assist. Gate: `test\skill-assist-gate.ps1`.
+
 ### `dev\code-scan.ps1`
 
 **On-demand code-health scan: one ranked digest instead of four scanners' raw output.** By default it scans only the packages whose content changed since their last scan. It tracks this with the code index's file hashes, in `d:\datrix\.code-index\scan-state.json`; the first run covers everything. It runs on this machine and changes nothing but the report and the scan state. Every finding is written, by section and then by package, to `d:\datrix\reports\code-scan\code-scan-<timestamp>.md`, headed by a per-package count table. The console gets one progress line per stage, then one line with the totals and the report's path, so a reader opens just the sections it needs.

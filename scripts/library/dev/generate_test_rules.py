@@ -52,7 +52,7 @@ _library_dir = Path(__file__).resolve().parent.parent
 if _library_dir.exists() and str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
-from code_index.queries import TEST_RULE_KIND, marker_topics  # noqa: E402
+from code_index.queries import TEST_RULE_KIND, all_marker_topics, marker_topics  # noqa: E402
 from code_index.session import open_session  # noqa: E402
 from code_index.sources import CodeIndexError  # noqa: E402
 from shared.local_llm import (  # noqa: E402
@@ -152,7 +152,8 @@ can be compared across targets in a matrix. You must decide, per test:
 
 6. differs (optional): brief note on how this likely differs for other targets.
 
-7. see (optional): related topic slugs.
+7. see (optional): related topic slugs. Name ONLY a listed topic or one you are proposing; \
+   any other slug is discarded.
 
 Rules: Output ONLY the JSON object. Keep strings short. Use NEUTRAL domain terms only \
 (Product/Order/Customer/Warehouse) — never customer/project domain words. Do not restate code.\
@@ -587,8 +588,16 @@ def apply_topic_map(proposals: list[Proposal], mapping: dict[str, str]) -> int:
 # Topic seeding
 # ---------------------------------------------------------------------------
 
-def seed_topics_from_index(datrix_root: Path) -> set[str]:
-    """The topics of every test-rule marker in source, read from the freshly refreshed code index.
+@dataclass(frozen=True)
+class TopicSeed:
+    """The marker topics already in source, read from the code index."""
+
+    test_rules: frozenset[str]  # existing @test-rule topics: the consolidation anchors
+    every: frozenset[str]       # topics of every marker kind: what an @see may name
+
+
+def seed_topics_from_index(datrix_root: Path) -> TopicSeed:
+    """The marker topics in source, read from the freshly refreshed code index.
 
     Raises CodeIndexError when the index cannot be refreshed: consolidating against a
     missing vocabulary would silently mint duplicate topics.
@@ -596,9 +605,28 @@ def seed_topics_from_index(datrix_root: Path) -> set[str]:
     session = open_session(datrix_root)
     try:
         LOG.info(session.refresh().line())
-        return marker_topics(session.conn, TEST_RULE_KIND)
+        return TopicSeed(
+            test_rules=frozenset(marker_topics(session.conn, TEST_RULE_KIND)),
+            every=frozenset(all_marker_topics(session.conn)),
+        )
     finally:
         session.close()
+
+
+def drop_unknown_see_refs(proposals: list[Proposal], existing_topics: frozenset[str]) -> int:
+    """Remove every ``see`` slug that names no topic, so no ``@see`` is written dangling.
+
+    A ref may name a topic already in source or one this run proposes. The model invents
+    plausible-looking slugs; an ``@see`` to a topic nobody declares points a reader nowhere.
+    Returns the number of refs removed.
+    """
+    known = existing_topics | {p.topic for p in proposals if p.applicable and p.topic}
+    dropped = 0
+    for p in proposals:
+        kept = [ref for ref in p.see if ref in known]
+        dropped += len(p.see) - len(kept)
+        p.see = kept
+    return dropped
 
 
 # ---------------------------------------------------------------------------
@@ -797,7 +825,9 @@ def propose_package(
 # Apply phase
 # ---------------------------------------------------------------------------
 
-def apply_package(pkg: str, datrix_root: Path, model: str, filters: list[Path]) -> tuple[int, int]:
+def apply_package(
+    pkg: str, datrix_root: Path, model: str, filters: list[Path], known_topics: frozenset[str]
+) -> tuple[int, int]:
     """Insert reviewed applicable markers into the package's test files.
 
     Args:
@@ -805,6 +835,7 @@ def apply_package(pkg: str, datrix_root: Path, model: str, filters: list[Path]) 
         datrix_root: Workspace root.
         model: Model whose proposal set to apply (selects the per-model dir).
         filters: --path filters; when non-empty, only proposals under them are applied.
+        known_topics: Topics an ``@see`` may name; a ref to any other is not written.
 
     Returns:
         (inserted, skipped) counts.
@@ -816,6 +847,9 @@ def apply_package(pkg: str, datrix_root: Path, model: str, filters: list[Path]) 
     if not proposals:
         LOG.info("[%s] no applicable proposals at %s", pkg, out_json)
         return (0, 0)
+    dropped = drop_unknown_see_refs(proposals, known_topics)
+    if dropped:
+        LOG.info("[%s] dropped %d @see ref(s) naming no existing or applied topic", pkg, dropped)
 
     by_file: dict[str, list[Proposal]] = {}
     for p in proposals:
@@ -1039,7 +1073,11 @@ def main() -> int:
     if cfg.review:
         return _run_review(pairs, datrix_root, cfg)
     if cfg.apply:
-        return _run_apply(pairs, datrix_root, cfg.model, cfg.filters)
+        try:
+            return _run_apply(pairs, datrix_root, cfg.model, cfg.filters)
+        except CodeIndexError as exc:
+            LOG.error("Stopped: the code index could not supply the existing marker topics: %s", exc)
+            return 1
     cfg.pool = LocalLlmPool(local_llm_settings(cfg, models=(cfg.model,)))
     try:
         return _run_propose(pairs, datrix_root, cfg)
@@ -1053,40 +1091,28 @@ def main() -> int:
 
 def _run_propose(pairs: list[tuple[str, Path]], datrix_root: Path, cfg: argparse.Namespace) -> int:
     """Propose phase across all resolved packages, then consolidate topics."""
-    anchors = seed_topics_from_index(datrix_root)
-    vocab = _Vocabulary(set() if cfg.no_seed else anchors)
+    seed = seed_topics_from_index(datrix_root)
+    vocab = _Vocabulary(set() if cfg.no_seed else set(seed.test_rules))
     per_pkg: list[tuple[str, list[Proposal]]] = []
     for pkg, tests_dir in pairs:
         per_pkg.append((pkg, propose_package(pkg, tests_dir, datrix_root, vocab, cfg)))
 
     out_dir = _output_dir(datrix_root, cfg.model)
+    all_props = [p for _, rs in per_pkg for p in rs]
     if not cfg.no_consolidate:
-        _consolidate_and_rewrite(per_pkg, out_dir, anchors, cfg)
+        mapping = consolidate_topics(all_props, set(seed.test_rules), cfg)
+        changed = apply_topic_map(all_props, mapping)  # also kebab-normalizes when mapping is empty
+        LOG.info("Consolidation: %d merge rule(s), %d topic(s) rewritten", len(mapping), changed)
+    dropped = drop_unknown_see_refs(all_props, seed.every)
+    LOG.info("Dropped %d @see ref(s) naming no existing or proposed topic", dropped)
+    for pkg, rs in per_pkg:
+        _write_proposals(out_dir / f"{pkg}.json", rs)
+        _write_preview(out_dir / f"{pkg}.md", pkg, rs, cfg)
 
     total_applicable = sum(1 for _, rs in per_pkg for p in rs if p.applicable)
     LOG.info("\n[OK] Proposals written under %s (%d applicable). Review, then re-run with --apply.",
              out_dir, total_applicable)
     return 0
-
-
-def _consolidate_and_rewrite(
-    per_pkg: list[tuple[str, list[Proposal]]],
-    out_dir: Path,
-    anchors: set[str],
-    cfg: argparse.Namespace,
-) -> None:
-    """Run the topic-consolidation pass over the whole run and re-write proposals.
-
-    ``anchors`` are the existing test-rule topics, used as canonical names even under
-    --no-seed.
-    """
-    all_props = [p for _, rs in per_pkg for p in rs]
-    mapping = consolidate_topics(all_props, anchors, cfg)
-    changed = apply_topic_map(all_props, mapping)  # also kebab-normalizes when mapping is empty
-    LOG.info("Consolidation: %d merge rule(s), %d topic(s) rewritten", len(mapping), changed)
-    for pkg, rs in per_pkg:
-        _write_proposals(out_dir / f"{pkg}.json", rs)
-        _write_preview(out_dir / f"{pkg}.md", pkg, rs, cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -1163,10 +1189,22 @@ def _run_review(pairs: list[tuple[str, Path]], datrix_root: Path, cfg: argparse.
 
 
 def _run_apply(pairs: list[tuple[str, Path]], datrix_root: Path, model: str, filters: list[Path]) -> int:
-    """Apply phase across all resolved packages."""
+    """Apply phase across all resolved packages.
+
+    The topics an ``@see`` may name are re-read from the index here, not trusted from the
+    proposal files: those are hand-reviewed and may predate a topic rename in source.
+    """
+    out_dir = _output_dir(datrix_root, model)
+    applied_topics = {
+        p.topic
+        for pkg, _tests_dir in pairs
+        for p in _load_proposals(out_dir / f"{pkg}.json")
+        if p.applicable and not p.error and p.topic
+    }
+    known_topics = seed_topics_from_index(datrix_root).every | applied_topics
     total_ins = total_skip = 0
     for pkg, _tests_dir in pairs:
-        ins, skp = apply_package(pkg, datrix_root, model, filters)
+        ins, skp = apply_package(pkg, datrix_root, model, filters, known_topics)
         total_ins += ins
         total_skip += skp
     LOG.info("\n[OK] Inserted %d marker(s); skipped %d. The code index picks them up on its next "

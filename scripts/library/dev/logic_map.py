@@ -20,8 +20,10 @@ Marker syntax::
 
 from __future__ import annotations
 
+import io
 import re
 import sqlite3
+import tokenize
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -60,6 +62,10 @@ _CONTINUATION_RE = re.compile(r"^#\s?(.*)$")
 
 # Matches a def or class line immediately following the marker block
 _SYMBOL_RE = re.compile(r"^(?:def|class|async\s+def)\s+(\w+)")
+
+# Tokens whose text is string-literal content. Named, not imported, because the f-string
+# and t-string middle tokens exist only on the Python versions that tokenize them.
+_STRING_TOKEN_NAMES = frozenset({"STRING", "FSTRING_MIDDLE", "TSTRING_MIDDLE"})
 
 # Directories to skip during file discovery
 _SKIP_DIRS = frozenset({
@@ -204,6 +210,31 @@ def _detect_symbol(lines: list[str], start: int, total: int) -> tuple[str, str]:
     return "", ""
 
 
+def _string_literal_lines(lines: list[str]) -> frozenset[int]:
+    """The 0-based indexes of the lines that lie inside a string literal.
+
+    A marker is a comment; a ``# @canonical(...)`` line inside a docstring or a fixture
+    string is an example, not a marker. A file that stops tokenizing (an unterminated
+    string or bracket) yields the literals found before that point and its remaining
+    lines are read as source, so a file with a syntax error keeps its markers.
+
+    Args:
+        lines: File content split into lines (no trailing newlines).
+
+    Returns:
+        Indexes of every line a string-literal token covers.
+    """
+    covered: set[int] = set()
+    tokens = tokenize.generate_tokens(io.StringIO("\n".join(lines) + "\n").readline)
+    try:
+        for token in tokens:
+            if tokenize.tok_name[token.type] in _STRING_TOKEN_NAMES:
+                covered.update(range(token.start[0] - 1, token.end[0]))
+    except (tokenize.TokenError, SyntaxError):
+        return frozenset(covered)
+    return frozenset(covered)
+
+
 def parse_markers(lines: list[str], relative_path: str) -> list[Marker]:
     """Parse all markers from the lines of a single file.
 
@@ -212,14 +243,18 @@ def parse_markers(lines: list[str], relative_path: str) -> list[Marker]:
         relative_path: Path relative to datrix root for storage.
 
     Returns:
-        List of Marker objects found in the file.
+        List of Marker objects found in the file, excluding marker-shaped lines inside
+        string literals.
     """
+    if not any(_MARKER_RE.match(line.strip()) for line in lines):
+        return []
+    in_string = _string_literal_lines(lines)
     markers: list[Marker] = []
     i = 0
     total = len(lines)
 
     while i < total:
-        m = _MARKER_RE.match(lines[i].strip())
+        m = None if i in in_string else _MARKER_RE.match(lines[i].strip())
         if not m:
             i += 1
             continue

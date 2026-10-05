@@ -60,6 +60,7 @@ from datrix_common.paths import ServicePaths  # noqa: E402
 from datrix_semantic.analyzer import SemanticAnalyzer  # noqa: E402
 from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser  # noqa: E402
 from datrix_language.registration import register_all  # noqa: E402
+from dev.evaluate_reports import QUICK_REPORT_FILENAME, render_project_quick_report  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -762,6 +763,8 @@ def run_project_scan(source: Path, generated_root: Path, eval_dir: Path, profile
         "prompt_files": prompt_files,
     }
     write_json_file(scan_path, payload)
+    report_path = eval_dir / QUICK_REPORT_FILENAME
+    report_path.write_text(render_project_quick_report(payload), encoding="utf-8")
 
     print(
         f"{len(records)} services: {len(existing_dirs)} generated, "
@@ -770,6 +773,7 @@ def run_project_scan(source: Path, generated_root: Path, eval_dir: Path, profile
     )
     print(f"Prompts: {len(prompt_files)} file(s) in {eval_dir}")
     print(f"Details: {scan_path}")
+    print(f"Quick report: {report_path}")
     return EXIT_OK
 
 

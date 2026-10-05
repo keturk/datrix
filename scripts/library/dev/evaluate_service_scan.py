@@ -74,6 +74,7 @@ from dev.evaluate_generated_scan import (  # noqa: E402
     parse_application,
     write_json_file,
 )
+from dev.evaluate_reports import SERVICE_MECHANICAL_TEMPLATE, render_service_mechanical  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -825,8 +826,10 @@ def run_service_scan(
         "migrations": summarize_migrations(fs_index),
     }
     write_json_file(output_path, payload)
+    mechanical_path = output_path.parent / SERVICE_MECHANICAL_TEMPLATE.format(name=paths.kebab_resource)
+    mechanical_path.write_text(render_service_mechanical(payload), encoding="utf-8")
 
-    convention = "OK" if actual_dir_name == paths.service_dir else f"MISMATCH (expected {paths.service_dir})"
+    convention ="OK" if actual_dir_name == paths.service_dir else f"MISMATCH (expected {paths.service_dir})"
     manifest_total = sum(int(str(row["service_file_count"])) for row in manifest_rows)
     print(
         f"{paths.qualified_name}: dir {convention}; manifest files {manifest_total} "
@@ -837,6 +840,7 @@ def run_service_scan(
         f"orphans: {len(orphans)}; suspect deps: {len(suspect_deps)}; env vars: {len(env_vars)}"
     )
     print(f"Details: {output_path}")
+    print(f"Mechanical findings: {mechanical_path}")
     return EXIT_OK
 
 
