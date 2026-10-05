@@ -46,11 +46,6 @@ count = 4
 reason = "PubsubNestEventRow (class :11, reference :36) and PubsubNestHandlerRow (class :21, reference :37): NestJS-shaped pub/sub row types consumed by the TypeScript pub/sub micro-generator, so a rename touches another package. Drives to zero with the algorithms/pubsub_connection.py entry."
 
 [[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/context_models/replay_operator_body_facts.py"
-count = 1
-reason = "'_ts' (:486) is not an identifier: it is the string value '_ts' (timestamp field-name suffix) inside the _TIMESTAMP_FIELD_SUFFIXES tuple, which the scanner walks as a type expression because the assignment is annotated. It carries no language and cannot be renamed. Drives to zero when the scanner stops treating the string values of a non-alias annotated assignment as forward references."
-
-[[baseline]]
 file = "datrix-codegen-common/src/datrix_codegen_common/generation/node_package_managers.py"
 count = 1
 reason = "NPM_UNATTENDED_FLAGS (:159): the npm package manager's unattended-install flag set, a Node-ecosystem tool fact in a module that models Node package managers and is consumed by the Angular client target's hooks, so a rename touches another package. Drives to zero when the flag set is keyed by package-manager name inside a per-manager table instead of a module constant."
@@ -69,8 +64,3 @@ reason = "sqlalchemy_column_expr (:84) and mikro_orm_column_spec (:85): CQRS vie
 file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/deploy_entrypoint.py"
 count = 2
 reason = "DEPLOY_PY_NAME (:60, 'deploy.py') and DEPLOY_APP_PY_NAME (:75, 'deploy-app.py'): the 'py' segment is the file extension of the generated deployment script, which is Python by design on every platform; the names are shared by the docker, azure and aws platform packages and their tests, so a rename touches other packages. Drives to zero if the deployment script's file names are ever declared per platform instead of as shared constants."
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/web_security_headers.py"
-count = 1
-reason = "'js' (:62) is not an identifier: it is the string value 'js' (a content-hashed asset file extension) inside the WEB_HASHED_ASSET_EXTENSIONS tuple, which the scanner walks as a type expression because the assignment is annotated. It carries no language and cannot be renamed. Drives to zero when the scanner stops treating the string values of a non-alias annotated assignment as forward references."
