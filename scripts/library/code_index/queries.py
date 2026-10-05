@@ -491,6 +491,11 @@ def marker_topics(conn: sqlite3.Connection, kind: str) -> set[str]:
     return {str(r[0]) for r in conn.execute("SELECT DISTINCT topic FROM markers WHERE kind = ?", (kind,))}
 
 
+def all_marker_topics(conn: sqlite3.Connection) -> set[str]:
+    """Every topic the index holds a marker of any kind for: the targets an ``@see`` may name."""
+    return {str(r[0]) for r in conn.execute("SELECT DISTINCT topic FROM markers")}
+
+
 @dataclass(frozen=True)
 class StatusResult:
     last_refresh: str
