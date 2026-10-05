@@ -37,6 +37,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from dev.customer_domain_isolation import CorpusError, TermCorpus, corpus_path, load_term_corpus, scan_text
+
 from shared.framework_repos import framework_repos
 from shared.local_llm import ChatRequest, LocalLlmPool
 
@@ -101,6 +102,30 @@ class ReadScopeError(ValueError):
     """A request names something these tools may not read, or too much to read in one call."""
 
 
+def load_workspace_term_corpus(workspace: Path) -> TermCorpus:
+    """The registered customer terms text is checked against before a local model is sent it.
+
+    Raises ReadScopeError when the corpus is missing or malformed: nothing may be sent then.
+    """
+    try:
+        return load_term_corpus(corpus_path(workspace / SHOWCASE_REPO))
+    except CorpusError as exc:
+        raise ReadScopeError(
+            f"Nothing is sent to a local model without the customer-term corpus to filter it: {exc}"
+        ) from exc
+
+
+def withhold_customer_lines(text: str, corpus: TermCorpus) -> tuple[list[str], int]:
+    """``text``'s lines, each one carrying a registered customer term replaced by WITHHELD_LINE.
+
+    Returns the lines and how many were withheld; line positions are kept, so citations stay valid.
+    """
+    withheld = {number for number, _excerpt in scan_text(text, corpus)}
+    lines = [WITHHELD_LINE if number in withheld else line
+             for number, line in enumerate(text.splitlines(), start=1)]
+    return lines, len(withheld)
+
+
 @dataclass(frozen=True)
 class Section:
     """One file's text with its lines numbered, ready to be sent."""
@@ -140,12 +165,7 @@ class ReadScope:
     def term_corpus(self) -> TermCorpus:
         """The registered customer terms every line is checked against before it is sent."""
         if self._term_corpus is None:
-            try:
-                self._term_corpus = load_term_corpus(corpus_path(self.workspace / SHOWCASE_REPO))
-            except CorpusError as exc:
-                raise ReadScopeError(
-                    f"Nothing is sent to a local model without the customer-term corpus to filter it: {exc}"
-                ) from exc
+            self._term_corpus = load_workspace_term_corpus(self.workspace)
         return self._term_corpus
 
     def _allowed(self, path: Path) -> bool:
@@ -197,14 +217,16 @@ def read_section(scope: ReadScope, path: Path) -> Section:
     data = path.read_bytes()
     if b"\0" in data[:8192]:
         raise ReadScopeError(f"'{scope.label(path)}' is a binary file; only text can be read.")
-    text = data.decode("utf-8-sig", errors="replace")
-    withheld = {number for number, _excerpt in scan_text(text, scope.term_corpus())}
-    lines = tuple(
-        f"{number}| {WITHHELD_LINE if number in withheld else line[:MAX_LINE_CHARS]}"
-        for number, line in enumerate(text.splitlines(), start=1))
-    note = (f"{scope.label(path)}: {len(withheld)} line(s) withheld from the model because they carry a "
-            f"registered customer term." if withheld else "")
-    return Section(scope.label(path), lines, note)
+    return filtered_section(scope.label(path), data.decode("utf-8-sig", errors="replace"), scope.term_corpus())
+
+
+def filtered_section(label: str, text: str, corpus: TermCorpus) -> Section:
+    """``text`` with every line numbered, and each line carrying a registered customer term withheld."""
+    kept, withheld = withhold_customer_lines(text, corpus)
+    lines = tuple(f"{number}| {line[:MAX_LINE_CHARS]}" for number, line in enumerate(kept, start=1))
+    note = (f"{label}: {withheld} line(s) withheld from the model because they carry a registered "
+            f"customer term." if withheld else "")
+    return Section(label, lines, note)
 
 
 def _chars(lines: tuple[str, ...]) -> int:
