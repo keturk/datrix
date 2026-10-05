@@ -239,10 +239,6 @@ file = "datrix-codegen-python/src/datrix_codegen_python/generators/api/_endpoint
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/api/_gateway_exclude_paths.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/cross_cutting/observability_generator.py"
 count = 1
 reason = "HEALTH_PROBE_PATHS maps each probe kind (live / ready / health) the health template reads to the route THIS language's runtime spec declares to every platform (LIVENESS_PROBE_PATH / READINESS_PROBE_PATH / HEALTH_REPORT_PATH in its own runtime_spec). A language declares its own probe routes on its own spec; the key set coincides with TypeScript's because both templates interpolate the same three probe kinds."

@@ -1,12 +1,9 @@
 {
   "_comment": [
-    "Every (language, schema_kind) whose response-body fields do NOT currently serialize under",
-    "the declared camelCase rule, catalogued so the body-wire-naming-conformance-gate can run",
-    "green while the underlying divergence is fixed on its own schedule.",
-    "",
-    "This is a DELIBERATELY MAINTAINED SCOPE BOUNDARY, not an auto-heal: every entry is a real,",
-    "reviewed divergence in a language's response-schema template, catalogued here until its owning",
-    "fix removes both the divergence and this entry IN THE SAME CHANGE.",
+    "Reviewed response-body transform hits for the body-wire-naming-conformance-gate. Nothing",
+    "here sets a language or a response surface aside: a response-body field that does not",
+    "serialize under the declared camelCase rule always fails the gate, and the gate refuses any",
+    "key in this file other than _comment and transform_exemptions.",
     "",
     "transform_exemptions: every place a language's generated tree spells one of its declared",
     "response_body_transform_idioms (a framework-level transform applied to every outgoing",
@@ -14,7 +11,6 @@
     "the exact matched text, and why the hit leaves every response body untouched. An entry that",
     "matches nothing is stale and fails the gate."
   ],
-  "exemptions": [],
   "transform_exemptions": [
     {
       "language": "typescript",

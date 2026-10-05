@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "Migration upgrade-op family, per registered datrix.languages package; hand-authored and reviewed.",
+    "carries_divergent_family: the language defines each of the six _build_upgrade_op_for_* builders exactly once.",
+    "shared_parser_call_sites: the exact number of resolved calls of parse_index_added_detail its own paths make.",
+    "A registered language with no entry is held to no family and zero calls; an entry naming an unregistered language is stale and fails."
+  ],
+  "languages": {
+    "python": {
+      "carries_divergent_family": true,
+      "shared_parser_call_sites": 3
+    },
+    "typescript": {
+      "carries_divergent_family": false,
+      "shared_parser_call_sites": 1
+    }
+  }
+}
