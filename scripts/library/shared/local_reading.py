@@ -278,7 +278,8 @@ def chunk_sections(sections: list[Section], max_chars: int = MAX_CHUNK_CHARS) ->
     return chunks
 
 
-_CITATION = re.compile(r"([\w.\-/]+\.[A-Za-z0-9]+):(\d+)(?:-(\d+))?")
+# A ``path:line`` or ``path:first-last`` citation: group 1 the path, 2 the first line, 3 the last.
+CITATION = re.compile(r"([\w.\-/]+\.[A-Za-z0-9]+):(\d+)(?:-(\d+))?")
 
 
 def unmatched_citations(text: str, sections: list[Section], *, only_sent_files: bool) -> list[str]:
@@ -292,7 +293,7 @@ def unmatched_citations(text: str, sections: list[Section], *, only_sent_files: 
         numbers = sent.setdefault(section.label, set())
         numbers.update(int(line.split("|", 1)[0]) for line in section.lines)
     unmatched: list[str] = []
-    for match in _CITATION.finditer(text):
+    for match in CITATION.finditer(text):
         path, first, last = match.group(1), int(match.group(2)), int(match.group(3) or match.group(2))
         if path not in sent:
             if not only_sent_files:

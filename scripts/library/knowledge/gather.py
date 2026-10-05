@@ -22,6 +22,7 @@ from knowledge.seed import in_scope
 from knowledge.store import KIND_CURATED, KnowledgeBase, LearnedEntry, file_sha256
 from shared.local_llm import LocalLlmPool
 from shared.local_reading import (
+    CITATION,
     MAX_LINE_CHARS,
     NOTHING_RELEVANT,
     ReadScope,
@@ -41,7 +42,6 @@ NO_ANSWER_MARKERS = ("Nothing in these files answers the question.", NOTHING_REL
 BRIEF_INSTRUCTION = (
     "Answer in at most 8 short lines. Cite path:line for every claim, using only the files given. "
     "If the files do not answer it, say exactly: NOTHING RELEVANT.")
-_CITATION = re.compile(r"([\w.\-/]+\.[A-Za-z0-9]+):(\d+)(?:-(\d+))?")
 
 
 @dataclass(frozen=True)
@@ -88,7 +88,7 @@ def leads_for(kb: KnowledgeBase, question: str) -> tuple[str, ...]:
 
 def _cited_sources(scope: ReadScope, text: str) -> dict[str, str]:
     sources: dict[str, str] = {}
-    for match in _CITATION.finditer(text):
+    for match in CITATION.finditer(text):
         label = match.group(1)
         path = (scope.workspace / label).resolve()
         if path.is_file() and in_scope(scope, path):
@@ -128,7 +128,7 @@ def _problems(text: str, sections: list[Section]) -> list[str]:
     if len(text) > MAX_ANSWER_CHARS:
         return [f"the answer is {len(text):,} characters; a stored answer is at most {MAX_ANSWER_CHARS:,}"]
     problems: list[str] = []
-    if not _CITATION.search(text):
+    if not CITATION.search(text):
         problems.append("it cites no path:line, so nothing in it can be checked")
     wrong = unmatched_citations(text, sections, only_sent_files=False)
     if wrong:
