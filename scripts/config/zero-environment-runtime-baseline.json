@@ -84,8 +84,89 @@
       ]
     },
     "typescript": {
-      "kind": "pinned_count",
-      "pinned_count": 59
+      "kind": "reviewed_exemptions",
+      "exemptions": [
+        {
+          "template": "templates/config/settings.ts.j2",
+          "reason": "The one module that reads a deploy-time application setting: deployTimeSetting/optionalSetting read the process environment for the names the emitted files declare, and fail loud (a missing required one throws naming it)."
+        },
+        {
+          "template": "templates/serverless/container_http_app.ts.j2",
+          "reason": "The container-platform serverless HTTP entrypoint binds the port the compose runtime injects as PORT; fails loud when absent."
+        },
+        {
+          "template": "templates/api/deploy_tests.ts.j2",
+          "reason": "Emits the deploy-test harness, not service runtime."
+        },
+        {
+          "template": "templates/api/graphql/test_graphql_schema.spec.ts.j2",
+          "reason": "Emits a generated test, not service runtime."
+        },
+        {
+          "template": "templates/api/test_api_decorators.spec.ts.j2",
+          "reason": "Emits a generated test, not service runtime."
+        },
+        {
+          "template": "templates/api/test_controller.spec.ts.j2",
+          "reason": "Emits a generated test, not service runtime."
+        },
+        {
+          "template": "templates/api/test_controller_auth.spec.ts.j2",
+          "reason": "Emits a generated test, not service runtime."
+        },
+        {
+          "template": "templates/api/test_controller_custom.spec.ts.j2",
+          "reason": "Emits a generated test, not service runtime."
+        },
+        {
+          "template": "templates/api/test_controller_integration.spec.ts.j2",
+          "reason": "Emits a generated test, not service runtime."
+        },
+        {
+          "template": "templates/api/test_controller_internal.spec.ts.j2",
+          "reason": "Emits a generated test, not service runtime."
+        },
+        {
+          "template": "templates/api/test_service_integration.spec.ts.j2",
+          "reason": "Emits a generated test, not service runtime."
+        },
+        {
+          "template": "templates/deployment/ttl_readiness.spec.ts.j2",
+          "reason": "Emits a generated deployment test, not service runtime."
+        },
+        {
+          "template": "templates/entity/test_integration_setup.ts.j2",
+          "reason": "Emits the generated integration-test setup, not service runtime."
+        },
+        {
+          "template": "templates/project/_deploy-test-docker-lifecycle.js.j2",
+          "reason": "Emits the deploy-test harness, not service runtime."
+        },
+        {
+          "template": "templates/project/_deploy-test-main.js.j2",
+          "reason": "Emits the deploy-test harness, not service runtime."
+        },
+        {
+          "template": "templates/project/_deploy-test-reporting.js.j2",
+          "reason": "Emits the deploy-test harness, not service runtime."
+        },
+        {
+          "template": "templates/project/_deploy-test-test-phases.js.j2",
+          "reason": "Emits the deploy-test harness, not service runtime."
+        },
+        {
+          "template": "templates/project/_deploy-test-workspace.js.j2",
+          "reason": "Emits the deploy-test harness, not service runtime."
+        },
+        {
+          "template": "templates/project/unit-tests.js.j2",
+          "reason": "Emits generated unit tests, not service runtime."
+        },
+        {
+          "template": "templates/testing/spec_test_setup.ts.j2",
+          "reason": "Emits the generated test-suite setup, not service runtime."
+        }
+      ]
     }
   }
 }
