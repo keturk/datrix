@@ -1,7 +1,4 @@
 
-from datrix.foundation import MAX_PAGE_SIZE;
-from social.common import paginate;
-
 service social.NotificationService('config/notification-service.dcfg') : version('1.0.0'), description('notification delivery and management service') {
     discovery {
         UserService { loadBalance: roundRobin, healthyOnly: true }
@@ -21,12 +18,6 @@ service social.NotificationService('config/notification-service.dcfg') : version
         Public : value('public'),
         Private : value('private'),
         FollowersOnly : value('followers_only')
-    }
-
-    struct PaginatedNotifications {
-        Array<notificationDb.Notification> data;
-        JSON pagination;
-        Int unreadCount;
     }
 
     struct MarkReadRequest {
@@ -284,9 +275,8 @@ service social.NotificationService('config/notification-service.dcfg') : version
     rest_api NotificationAPI : basePath('/api/v1/notifications'), rdbms(notificationDb) {
 
         // Get notifications for the authenticated user
-        get(Int page = 1, Int perPage = 20, Boolean? unreadOnly) : auth(required, providers: [identity]) -> PaginatedNotifications {
+        get(PageRequest page, Boolean? unreadOnly) : auth(required, providers: [identity]) -> Page<notificationDb.Notification> {
             let UUID userId = Auth.user().id;
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
             let JSON query = notificationDb.Notification.where(userId: userId);
 
@@ -294,23 +284,16 @@ service social.NotificationService('config/notification-service.dcfg') : version
                 query = query.where(read: false);
             }
 
-            let Int total = query.count();
-            let Int unreadCount = notificationDb.Notification
-            .where(userId: userId)
+            return query.orderBy(createdAt: desc).page(page);
+        }
+
+        // How many of the authenticated user's notifications are unread
+        @path('/unread/count')
+        get() : auth(required, providers: [identity]) -> Int {
+            return notificationDb.Notification
+            .where(userId: Auth.user().id)
             .where(read: false)
             .count();
-
-            let Array<Notification> notifications = query
-            .orderBy(createdAt: desc)
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
-
-            return {
-                data: notifications,
-                pagination: paginate(total, page, cappedPerPage),
-                unreadCount: unreadCount
-            };
         }
 
         // Get a single notification

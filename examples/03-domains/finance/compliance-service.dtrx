@@ -58,11 +58,6 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
         Int criticalAlerts;
     }
 
-    struct PaginatedAlerts {
-        Array<complianceDb.ComplianceAlert> data;
-        JSON pagination;
-    }
-
     rdbms complianceDb {
         alert queryDuration(p95) over(5m) > 300ms @severity(warning);
 
@@ -337,9 +332,9 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
     rest_api ComplianceAPI : basePath('/api/v1/compliance'), rdbms(complianceDb) {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
 
-        // List alerts with filtering and pagination
+        // List alerts with filtering, a page at a time
         @path('/alerts')
-        get(Int page = 1, Int perPage = 20, AlertSeverity? severity, AlertStatus? status, UUID? accountId) : auth(required, providers: [identity], roles: [admin]) -> PaginatedAlerts {
+        get(PageRequest page, AlertSeverity? severity, AlertStatus? status, UUID? accountId) : auth(required, providers: [identity], roles: [admin]) -> Page<complianceDb.ComplianceAlert> {
             let JSON query = complianceDb.ComplianceAlert.all();
 
             if (severity != null) {
@@ -354,25 +349,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
                 query = query.where(accountId: accountId);
             }
 
-            let Int total = query.count();
-            let Array<ComplianceAlert> alerts = query
-            .orderBy(detectedAt: desc)
-            .offset((page - 1) * perPage)
-            .limit(perPage)
-            .all();
-
-            return {
-                data: alerts,
-                pagination: {
-                    currentPage: page,
-                    perPage: perPage,
-                    totalItems: total,
-                    totalPages: Math.ceil(total / perPage),
-                    hasNextPage: page < Math.ceil(total / perPage),
-                    hasPrevPage: page > 1
-                }
-
-            };
+            return query.orderBy(detectedAt: desc).page(page);
         }
 
         // Get a specific alert

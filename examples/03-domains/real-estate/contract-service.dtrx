@@ -46,11 +46,6 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
         String reason;
     }
 
-    struct PaginatedContracts {
-        Array<contractDb.Contract> data;
-        JSON pagination;
-    }
-
     rdbms contractDb {
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
 
@@ -267,8 +262,8 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
     rest_api ContractAPI : basePath('/api/v1/contracts'), rdbms(contractDb) {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
 
-        // List contracts with pagination
-        get(Int page = 1, Int perPage = 20, ContractStatus? status, ContractType? contractType) : auth(required, providers: [identity]) -> PaginatedContracts {
+        // List contracts, a page at a time
+        get(PageRequest page, ContractStatus? status, ContractType? contractType) : auth(required, providers: [identity]) -> Page<contractDb.Contract> {
             let JSON query = contractDb.Contract.all();
 
             if (status != null) {
@@ -279,25 +274,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
                 query = query.where(contractType: contractType);
             }
 
-            let Int total = query.count();
-            let Array<Contract> contracts = query
-            .orderBy(createdAt: desc)
-            .offset((page - 1) * perPage)
-            .limit(perPage)
-            .all();
-
-            return {
-                data: contracts,
-                pagination: {
-                    currentPage: page,
-                    perPage: perPage,
-                    totalItems: total,
-                    totalPages: Math.ceil(total / perPage),
-                    hasNextPage: page < Math.ceil(total / perPage),
-                    hasPrevPage: page > 1
-                }
-
-            };
+            return query.orderBy(createdAt: desc).page(page);
         }
 
         // Get a single contract

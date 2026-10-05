@@ -1,6 +1,4 @@
 
-from datrix.foundation import MAX_PAGE_SIZE;
-
 service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), description('student profile and account management service') {
     discovery { }
 
@@ -18,11 +16,6 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
         Graduated : value('graduated'),
         Suspended : value('suspended'),
         Withdrawn : value('withdrawn')
-    }
-
-    struct PaginatedStudents {
-        Array<studentDb.Student> data;
-        JSON pagination;
     }
 
     struct CreateStudentRequest {
@@ -153,34 +146,11 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
 
         // Search students
         @path('/search')
-        get(String query, Int page = 1, Int perPage = 20) : auth(public) -> PaginatedStudents {
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            let Array<Student> students = studentDb.Student
+        get(String query, PageRequest page) : auth(public) -> Page<studentDb.Student> {
+            return studentDb.Student
             .fulltext(query)
             .where(status: StudentStatus.Active)
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
-
-            let Int total = studentDb.Student
-            .fulltext(query)
-            .where(status: StudentStatus.Active)
-            .count();
-
-            let Int totalPages = Math.ceil(total / cappedPerPage);
-
-            return {
-                data: students,
-                pagination: {
-                    currentPage: page,
-                    perPage: cappedPerPage,
-                    totalItems: total,
-                    totalPages: totalPages,
-                    hasNextPage: page < totalPages,
-                    hasPrevPage: page > 1
-                }
-
-            };
+            .page(page);
         }
 
         // Get current student profile

@@ -1,5 +1,4 @@
 
-from datrix.foundation import MAX_PAGE_SIZE;
 from taskapp.common import Priority, MAX_TITLE_LENGTH;
 
 service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), description('task tracking and workflow management service') {
@@ -22,11 +21,6 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
         Improvement : value('improvement'),
         Documentation : value('documentation'),
         Chore : value('chore')
-    }
-
-    struct PaginatedTasks {
-        Array<taskDb.Task> data;
-        JSON pagination;
     }
 
     struct CreateTaskRequest {
@@ -363,9 +357,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
     rest_api TaskAPI : basePath('/api/v1/tasks'), rdbms(taskDb) {
 
         // List tasks with filtering
-        get(UUID? projectId, UUID? assigneeId, TaskStatus? status, Priority? priority, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> PaginatedTasks {
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-
+        get(UUID? projectId, UUID? assigneeId, TaskStatus? status, Priority? priority, PageRequest page) : auth(required, providers: [identity]) -> Page<taskDb.Task> {
             let JSON query = taskDb.Task;
 
             if (projectId != null) {
@@ -384,27 +376,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
                 query = query.where(priority: priority);
             }
 
-            let Int total = query.count();
-            let Array<Task> tasks = query
-            .orderBy(createdAt: desc)
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
-
-            let Int totalPages = Math.ceil(total / cappedPerPage);
-
-            return {
-                data: tasks,
-                pagination: {
-                    currentPage: page,
-                    perPage: cappedPerPage,
-                    totalItems: total,
-                    totalPages: totalPages,
-                    hasNextPage: page < totalPages,
-                    hasPrevPage: page > 1
-                }
-
-            };
+            return query.orderBy(createdAt: desc).page(page);
         }
 
         // Get a single task
@@ -527,14 +499,11 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Get comments on a task
         @path('/:id/comments')
-        get(UUID id, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> Array<taskDb.TaskComment> {
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+        get(UUID id, PageRequest page) : auth(required, providers: [identity]) -> Page<taskDb.TaskComment> {
             return taskDb.TaskComment
             .where(taskId: id)
             .orderBy(createdAt: asc)
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
+            .page(page);
         }
 
         // Add a comment to a task
@@ -557,35 +526,14 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Search tasks by title or description
         @path('/search')
-        get(String query, UUID? projectId, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> PaginatedTasks {
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-
+        get(String query, UUID? projectId, PageRequest page) : auth(required, providers: [identity]) -> Page<taskDb.Task> {
             let JSON taskQuery = taskDb.Task.fulltext(query);
 
             if (projectId != null) {
                 taskQuery = taskQuery.where(projectId: projectId);
             }
 
-            let Array<Task> tasks = taskQuery
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
-
-            let Int total = taskQuery.count();
-            let Int totalPages = Math.ceil(total / cappedPerPage);
-
-            return {
-                data: tasks,
-                pagination: {
-                    currentPage: page,
-                    perPage: cappedPerPage,
-                    totalItems: total,
-                    totalPages: totalPages,
-                    hasNextPage: page < totalPages,
-                    hasPrevPage: page > 1
-                }
-
-            };
+            return taskQuery.page(page);
         }
 
         // Get task statistics for a project
@@ -616,9 +564,8 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Get my assigned tasks
         @path('/my-tasks')
-        get(TaskStatus? status, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> PaginatedTasks {
+        get(TaskStatus? status, PageRequest page) : auth(required, providers: [identity]) -> Page<taskDb.Task> {
             let UUID userId = Auth.user().id;
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
             let JSON query = taskDb.Task.where(assigneeId: userId);
 
@@ -626,28 +573,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
                 query = query.where(status: status);
             }
 
-            let Int total = query.count();
-            let Array<Task> tasks = query
-            .orderBy(priority: desc)
-            .orderBy(dueDate: asc)
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
-
-            let Int totalPages = Math.ceil(total / cappedPerPage);
-
-            return {
-                data: tasks,
-                pagination: {
-                    currentPage: page,
-                    perPage: cappedPerPage,
-                    totalItems: total,
-                    totalPages: totalPages,
-                    hasNextPage: page < totalPages,
-                    hasPrevPage: page > 1
-                }
-
-            };
+            return query.orderBy(priority: desc).orderBy(dueDate: asc).page(page);
         }
 
         // Delete a task

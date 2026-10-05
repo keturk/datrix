@@ -20,13 +20,6 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
     struct SearchRestaurantRequest {
         String? query;
         String? cuisineType;
-        Int page = 1;
-        Int perPage = 20;
-    }
-
-    struct PaginatedRestaurants {
-        Array<restaurantDb.Restaurant> data;
-        JSON pagination;
     }
 
     struct SubmitReviewRequest {
@@ -219,13 +212,11 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
         resource restaurantDb.Restaurant : auth(required, providers: [identity], roles: [admin]), only(create, update, delete);
 
         @path('/search')
-        get(String query, Int? limit, Int? offset) : auth(public) -> Array<restaurantDb.Restaurant> {
+        get(String query, PageRequest page) : auth(public) -> Page<restaurantDb.Restaurant> {
             return restaurantDb.Restaurant
             .fulltext(query)
             .where(status: RestaurantStatus.Active)
-            .limit(limit ?? 20)
-            .offset(offset ?? 0)
-            .all();
+            .page(page);
         }
 
         @path('/by-cuisine/:cuisineType')

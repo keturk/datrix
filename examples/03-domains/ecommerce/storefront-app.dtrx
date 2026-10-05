@@ -170,7 +170,7 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
     }
 
     // Login required: `get orders(...)` requires an identity-provider login.
-    // The response struct has exactly one Array member, so the table's rows are derived.
+    // The route returns a Page<Order>, so the table pages through it and its rows are the page's items.
     @path('/orders')
     page OrderList() {
         view { table(Orders); }

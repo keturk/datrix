@@ -62,7 +62,9 @@ config strings ecommerce.Storefront locale "tr-TR" {
     framework.yes          = "Evet";
     framework.no           = "Hayır";
     framework.noMatches    = "Bu filtrelerle eşleşen sonuç yok";
-    framework.showingRange = "{from}–{to} arası gösteriliyor";
+    framework.showingRangeOfTotal = "{total} sonuçtan {from}–{to} arası gösteriliyor";
+    framework.pagination = "Sayfalama";
+    framework.pageNumber = "Sayfa {number}";
     framework.back = "Geri";
     framework.optional = "(isteğe bağlı)";
     framework.notProvided = "Belirtilmedi";

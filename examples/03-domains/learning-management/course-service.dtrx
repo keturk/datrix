@@ -1,6 +1,4 @@
 
-from datrix.foundation import MAX_PAGE_SIZE;
-
 service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), description('course catalog and content management service') {
     discovery {
         StudentService { loadBalance: roundRobin, healthyOnly: true }
@@ -23,11 +21,6 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
         Video : value('video'),
         Quiz : value('quiz'),
         Assignment : value('assignment')
-    }
-
-    struct PaginatedCourses {
-        Array<courseDb.Course> data;
-        JSON pagination;
     }
 
     struct CreateCourseRequest {
@@ -367,36 +360,14 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
     rest_api CourseAPI : basePath('/api/v1/courses'), rdbms(courseDb) {
 
         // List published courses
-        get(DifficultyLevel? difficulty, Int page = 1, Int perPage = 20) : auth(public) -> PaginatedCourses {
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-
+        get(DifficultyLevel? difficulty, PageRequest page) : auth(public) -> Page<courseDb.Course> {
             let JSON query = courseDb.Course.where(status: CourseStatus.Published);
 
             if (difficulty != null) {
                 query = query.where(difficulty: difficulty);
             }
 
-            let Int total = query.count();
-            let Array<Course> courses = query
-            .orderBy(createdAt: desc)
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
-
-            let Int totalPages = Math.ceil(total / cappedPerPage);
-
-            return {
-                data: courses,
-                pagination: {
-                    currentPage: page,
-                    perPage: cappedPerPage,
-                    totalItems: total,
-                    totalPages: totalPages,
-                    hasNextPage: page < totalPages,
-                    hasPrevPage: page > 1
-                }
-
-            };
+            return query.orderBy(createdAt: desc).page(page);
         }
 
         // Get a single course with modules and lessons
@@ -483,9 +454,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Search courses
         @path('/search')
-        get(String query, DifficultyLevel? difficulty, Int page = 1, Int perPage = 20) : auth(public) -> PaginatedCourses {
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-
+        get(String query, DifficultyLevel? difficulty, PageRequest page) : auth(public) -> Page<courseDb.Course> {
             let JSON courseQuery = courseDb.Course
             .fulltext(query)
             .where(status: CourseStatus.Published);
@@ -494,26 +463,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
                 courseQuery = courseQuery.where(difficulty: difficulty);
             }
 
-            let Array<Course> courses = courseQuery
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
-
-            let Int total = courseQuery.count();
-            let Int totalPages = Math.ceil(total / cappedPerPage);
-
-            return {
-                data: courses,
-                pagination: {
-                    currentPage: page,
-                    perPage: cappedPerPage,
-                    totalItems: total,
-                    totalPages: totalPages,
-                    hasNextPage: page < totalPages,
-                    hasPrevPage: page > 1
-                }
-
-            };
+            return courseQuery.page(page);
         }
 
         // Add a module to a course
@@ -625,14 +575,11 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Get course ratings
         @path('/:id/ratings')
-        get(UUID id, Int page = 1, Int perPage = 20) : auth(public) -> Array<courseDb.CourseRating> {
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+        get(UUID id, PageRequest page) : auth(public) -> Page<courseDb.CourseRating> {
             return courseDb.CourseRating
             .where(courseId: id)
             .orderBy(createdAt: desc)
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
+            .page(page);
         }
 
         // Internal endpoint for other services

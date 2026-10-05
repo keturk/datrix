@@ -26,11 +26,6 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
         Telehealth
     }
 
-    struct AppointmentSearchResult {
-        Array<appointmentDb.Appointment> appointments;
-        JSON pagination;
-    }
-
     struct AppointmentSlot {
         DateTime startTime;
         DateTime endTime;
@@ -466,7 +461,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
     rest_api AppointmentAPI : basePath('/api/v1/appointments'), rdbms(appointmentDb) {
 
         // List with multiple optional filters
-        get(UUID? patientId, UUID? providerId, AppointmentStatus? status, DateTime? startDate, DateTime? endDate, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> AppointmentSearchResult {
+        get(UUID? patientId, UUID? providerId, AppointmentStatus? status, DateTime? startDate, DateTime? endDate, PageRequest page) : auth(required, providers: [identity]) -> Page<appointmentDb.Appointment> {
             let JSON query = appointmentDb.Appointment.query();
 
             if (patientId != null) {
@@ -491,23 +486,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
                 query = query.where(scheduledAt: lte(endDate));
             }
 
-            let Int total = query.count();
-            let Array<Appointment> appointments = query
-            .orderBy(scheduledAt: asc)
-            .offset((page - 1) * perPage)
-            .limit(Math.min(perPage, 50))
-            .all();
-
-            return {
-                appointments: appointments,
-                pagination: {
-                    page: page,
-                    perPage: perPage,
-                    total: total,
-                    totalPages: Math.ceil(total / perPage)
-                }
-
-            };
+            return query.orderBy(scheduledAt: asc).page(page);
         }
 
         @path('/:id')

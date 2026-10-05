@@ -1,6 +1,6 @@
 
 // Shared module - defines reusable types across all task management services
-// BaseEntity, MAX_PAGE_SIZE, and DEFAULT_PAGE_SIZE are provided by the Datrix standard library.
+// BaseEntity is provided by the Datrix standard library.
 module taskapp.common {
 
     // Priority levels shared across services

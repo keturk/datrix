@@ -1,7 +1,7 @@
 
 // Shared module - defines reusable types and functions across all healthcare services
-// BaseEntity, Address, ContactInfo, EmergencyContact, Pagination, PaginationResult,
-// paginate(), MAX_PAGE_SIZE, and DEFAULT_PAGE_SIZE are provided by the Datrix standard library.
+// BaseEntity, Address, ContactInfo, EmergencyContact, MAX_PAGE_SIZE and DEFAULT_PAGE_SIZE
+// are provided by the Datrix standard library.
 module healthcare.common {
 
     // Extends stdlib BaseEntity with audit tracking fields for compliance

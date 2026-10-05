@@ -1,7 +1,6 @@
 
 // Shared module - defines reusable types across all social platform services
-// BaseEntity, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, Pagination, PaginationResult, and
-// the foundation paginate(total, Pagination) helper are provided by the Datrix standard library.
+// BaseEntity, MAX_PAGE_SIZE and DEFAULT_PAGE_SIZE are provided by the Datrix standard library.
 module social.common {
 
     // Extends stdlib BaseEntity with audit tracking fields
@@ -19,18 +18,5 @@ module social.common {
 
     const MAX_BIO_LENGTH = 500;
     const MAX_POST_LENGTH = 5000;
-
-    // Pagination helper (JSON shape for social feeds; distinct from stdlib PaginationResult)
-    fn paginate(Int total, Int page, Int perPage) -> JSON {
-        let Int totalPages = Math.ceil(total / perPage);
-        return {
-            currentPage: page,
-            perPage: perPage,
-            totalItems: total,
-            totalPages: totalPages,
-            hasNextPage: page < totalPages,
-            hasPrevPage: page > 1
-        };
-    }
 
 }

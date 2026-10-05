@@ -50,11 +50,6 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
         OrderStatus status;
     }
 
-    struct PaginatedOrders {
-        Array<orderDb.Order> data;
-        JSON pagination;
-    }
-
     rdbms orderDb {
 
         entity Order extends BaseEntity : audit {
@@ -256,7 +251,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
 
     rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(orderDb) {
 
-        get(Int page = 1, Int perPage = 20, OrderStatus? status) : auth(required, providers: [identity]) -> PaginatedOrders {
+        get(PageRequest page, OrderStatus? status) : auth(required, providers: [identity]) -> Page<orderDb.Order> {
             let UUID customerId = Auth.user().id;
             let JSON query = orderDb.Order.where(customerId: customerId);
 
@@ -264,25 +259,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
                 query = query.where(status: status);
             }
 
-            let Int total = query.count();
-            let Array<Order> orders = query
-            .orderBy(createdAt: desc)
-            .offset((page - 1) * perPage)
-            .limit(perPage)
-            .all();
-
-            return {
-                data: orders,
-                pagination: {
-                    currentPage: page,
-                    perPage: perPage,
-                    totalItems: total,
-                    totalPages: Math.ceil(total / perPage),
-                    hasNextPage: page < Math.ceil(total / perPage),
-                    hasPrevPage: page > 1
-                }
-
-            };
+            return query.orderBy(createdAt: desc).page(page);
         }
 
         @path('/:id')

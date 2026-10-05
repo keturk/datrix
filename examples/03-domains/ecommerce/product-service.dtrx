@@ -312,13 +312,11 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
 
         // Full-text search endpoint
         @path('/search')
-        get(String query, Int? limit, Int? offset) : auth(public) -> Array<productDb.Product> {
+        get(String query, PageRequest page) : auth(public) -> Page<productDb.Product> {
             return productDb.Product
             .fulltext(query)
             .where(status: ProductStatus.Active)
-            .limit(limit ?? 20)
-            .offset(offset ?? 0)
-            .all();
+            .page(page);
         }
 
         @path('/category/:categoryId')

@@ -1,6 +1,4 @@
 
-from datrix.foundation import MAX_PAGE_SIZE;
-
 service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0'), description('project and team management service') {
     discovery {
         UserService { loadBalance: roundRobin, healthyOnly: true }
@@ -19,11 +17,6 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
         Admin : value('admin'),
         Contributor : value('contributor'),
         Viewer : value('viewer')
-    }
-
-    struct PaginatedProjects {
-        Array<projectDb.Project> data;
-        JSON pagination;
     }
 
     struct CreateProjectRequest {
@@ -197,9 +190,8 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
     rest_api ProjectAPI : basePath('/api/v1/projects'), rdbms(projectDb) {
 
         // List projects for the current user
-        get(Int page = 1, Int perPage = 20, ProjectStatus? status) : auth(required, providers: [identity]) -> PaginatedProjects {
+        get(PageRequest page, ProjectStatus? status) : auth(required, providers: [identity]) -> Page<projectDb.Project> {
             let UUID userId = Auth.user().id;
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
             // Find projects where the user is a member
             let Array<ProjectMember> memberships = projectDb.ProjectMember
@@ -214,27 +206,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
                 query = query.where(status: status);
             }
 
-            let Int total = query.count();
-            let Array<Project> projects = query
-            .orderBy(updatedAt: desc)
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
-
-            let Int totalPages = Math.ceil(total / cappedPerPage);
-
-            return {
-                data: projects,
-                pagination: {
-                    currentPage: page,
-                    perPage: cappedPerPage,
-                    totalItems: total,
-                    totalPages: totalPages,
-                    hasNextPage: page < totalPages,
-                    hasPrevPage: page > 1
-                }
-
-            };
+            return query.orderBy(updatedAt: desc).page(page);
         }
 
         // Get a single project
@@ -369,29 +341,8 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
         // Search projects
         @path('/search')
-        get(String query, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> PaginatedProjects {
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            let Array<Project> projects = projectDb.Project
-            .fulltext(query)
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
-
-            let Int total = projectDb.Project.fulltext(query).count();
-            let Int totalPages = Math.ceil(total / cappedPerPage);
-
-            return {
-                data: projects,
-                pagination: {
-                    currentPage: page,
-                    perPage: cappedPerPage,
-                    totalItems: total,
-                    totalPages: totalPages,
-                    hasNextPage: page < totalPages,
-                    hasPrevPage: page > 1
-                }
-
-            };
+        get(String query, PageRequest page) : auth(required, providers: [identity]) -> Page<projectDb.Project> {
+            return projectDb.Project.fulltext(query).page(page);
         }
 
         // Internal endpoint for other services

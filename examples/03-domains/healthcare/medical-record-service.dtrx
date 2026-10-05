@@ -41,11 +41,6 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         OnHold
     }
 
-    struct RecordSearchResult {
-        Array<medicalRecordDb.MedicalRecord> records;
-        JSON pagination;
-    }
-
     struct PatientHistory {
         Array<medicalRecordDb.MedicalRecord> records;
         Array<medicalRecordDb.Prescription> activePrescriptions;
@@ -633,7 +628,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 
-        get(UUID patientId, RecordType? type, DateTime? startDate, DateTime? endDate, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> RecordSearchResult {
+        get(UUID patientId, RecordType? type, DateTime? startDate, DateTime? endDate, PageRequest page) : auth(required, providers: [identity]) -> Page<medicalRecordDb.MedicalRecord> {
             let JSON query = medicalRecordDb.MedicalRecord.where(patientId: patientId);
 
             if (type != null) {
@@ -651,30 +646,15 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
             // 'whereNot(...)' excludes records matching the condition
             query = query.whereNot(status: RecordStatus.Voided);
 
-            let Int total = query.count();
-            let Array<MedicalRecord> records = query
-            .orderBy(recordDate: desc)
-            .offset((page - 1) * perPage)
-            .limit(Math.min(perPage, 50))
-            .all();
-
             Log.info("Records accessed", {
                 patientId: patientId,
-                resultCount: records.length(),
+                offset: page.offset,
+                limit: page.limit,
                 action: "record.list",
                 userId: Auth.userId()
             });
 
-            return {
-                records: records,
-                pagination: {
-                    page: page,
-                    perPage: perPage,
-                    total: total,
-                    totalPages: Math.ceil(total / perPage)
-                }
-
-            };
+            return query.orderBy(recordDate: desc).page(page);
         }
 
         @path('/:id')

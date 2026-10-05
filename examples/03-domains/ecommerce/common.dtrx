@@ -1,7 +1,7 @@
 
 // Shared module - defines reusable types, traits, structs, and functions
-// BaseEntity, Address, Pagination, PaginationResult, paginate(), MAX_PAGE_SIZE,
-// and DEFAULT_PAGE_SIZE are provided by the Datrix standard library.
+// BaseEntity, Address, MAX_PAGE_SIZE and DEFAULT_PAGE_SIZE are provided by the Datrix
+// standard library.
 module ecommerce.common {
 
     // Extends stdlib BaseEntity with audit tracking fields

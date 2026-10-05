@@ -1,6 +1,5 @@
 
-from datrix.foundation import MAX_PAGE_SIZE;
-from social.common import ContentStatus, paginate;
+from social.common import ContentStatus;
 
 service social.UserService('config/user-service.dcfg') : version('1.0.0'), description('user management and social graph service') {
     discovery { }
@@ -17,11 +16,6 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
         Active : value('active'),
         Suspended : value('suspended'),
         Deactivated : value('deactivated')
-    }
-
-    struct PaginatedUsers {
-        Array<userDb.User> data;
-        JSON pagination;
     }
 
     struct FollowRequest {
@@ -263,24 +257,11 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
         // Search users by username or display name
         @path('/search')
-        get(String query, Int page = 1, Int perPage = 20) : auth(public) -> PaginatedUsers {
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            let Array<User> users = userDb.User
+        get(String query, PageRequest page) : auth(public) -> Page<userDb.User> {
+            return userDb.User
             .fulltext(query)
             .where(status: UserStatus.Active)
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
-
-            let Int total = userDb.User
-            .fulltext(query)
-            .where(status: UserStatus.Active)
-            .count();
-
-            return {
-                data: users,
-                pagination: paginate(total, page, cappedPerPage)
-            };
+            .page(page);
         }
 
         // Follow a user
@@ -357,44 +338,22 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
             dispatch UserUnfollowed(followerId, id);
         }
 
-        // Get followers of a user
+        // Get the follow edges pointing at a user (each carries the follower's id), a page at a time
         @path('/:id/followers')
-        get(UUID id, Int page = 1, Int perPage = 20) : auth(public) -> PaginatedUsers {
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            let Array<Follow> follows = userDb.Follow
+        get(UUID id, PageRequest page) : auth(public) -> Page<userDb.Follow> {
+            return userDb.Follow
             .where(followeeId: id)
             .orderBy(followedAt: desc)
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
-
-            let Array<User> users = follows.map(f => userDb.User.findOrFail(f.followerId));
-            let Int total = userDb.Follow.where(followeeId: id).count();
-
-            return {
-                data: users,
-                pagination: paginate(total, page, cappedPerPage)
-            };
+            .page(page);
         }
 
-        // Get users that a user is following
+        // Get the follow edges leaving a user (each carries the followee's id), a page at a time
         @path('/:id/following')
-        get(UUID id, Int page = 1, Int perPage = 20) : auth(public) -> PaginatedUsers {
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            let Array<Follow> follows = userDb.Follow
+        get(UUID id, PageRequest page) : auth(public) -> Page<userDb.Follow> {
+            return userDb.Follow
             .where(followerId: id)
             .orderBy(followedAt: desc)
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
-
-            let Array<User> users = follows.map(f => userDb.User.findOrFail(f.followeeId));
-            let Int total = userDb.Follow.where(followerId: id).count();
-
-            return {
-                data: users,
-                pagination: paginate(total, page, cappedPerPage)
-            };
+            .page(page);
         }
 
         // Internal endpoint for other services

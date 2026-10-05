@@ -37,11 +37,6 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
         UUID payrollRunId;
     }
 
-    struct PaginatedPayrollRuns {
-        Array<payrollDb.PayrollRun> data;
-        JSON pagination;
-    }
-
     struct PayrollSummary {
         UUID payrollRunId;
         PayPeriod payPeriod;
@@ -212,9 +207,9 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
     rest_api PayrollAPI : basePath('/api/v1/payroll'), rdbms(payrollDb) {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
 
-        // List payroll runs with pagination
+        // List payroll runs, a page at a time
         @path('/runs')
-        get(Int page = 1, Int perPage = 20, PayrollStatus? status, PayPeriod? payPeriod) : auth(required, providers: [identity], roles: [admin]) -> PaginatedPayrollRuns {
+        get(PageRequest page, PayrollStatus? status, PayPeriod? payPeriod) : auth(required, providers: [identity], roles: [admin]) -> Page<payrollDb.PayrollRun> {
             let JSON query = payrollDb.PayrollRun.all();
 
             if (status != null) {
@@ -225,25 +220,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
                 query = query.where(payPeriod: payPeriod);
             }
 
-            let Int total = query.count();
-            let Array<PayrollRun> runs = query
-            .orderBy(periodStart: desc)
-            .offset((page - 1) * perPage)
-            .limit(perPage)
-            .all();
-
-            return {
-                data: runs,
-                pagination: {
-                    currentPage: page,
-                    perPage: perPage,
-                    totalItems: total,
-                    totalPages: Math.ceil(total / perPage),
-                    hasNextPage: page < Math.ceil(total / perPage),
-                    hasPrevPage: page > 1
-                }
-
-            };
+            return query.orderBy(periodStart: desc).page(page);
         }
 
         // Get a single payroll run

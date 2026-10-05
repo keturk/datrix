@@ -55,11 +55,6 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
         AccountStatus status;
     }
 
-    struct PaginatedAccounts {
-        Array<accountDb.Account> data;
-        JSON pagination;
-    }
-
     rdbms accountDb {
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
         alert connectionPool(utilization) over(1m) > 80% @severity(critical);
@@ -233,33 +228,12 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
         resource accountDb.Customer : auth(public), only(list, get);
         resource accountDb.Customer : auth(required, providers: [identity], roles: [admin]), only(create, update);
 
-        // List accounts with pagination
-        get(Int page = 1, Int perPage = 20, AccountStatus? status) : auth(required, providers: [identity]) -> PaginatedAccounts {
-            let JSON query = accountDb.Account.all();
-
+        // List accounts, a page at a time
+        get(PageRequest page, AccountStatus? status) : auth(required, providers: [identity]) -> Page<accountDb.Account> {
             if (status != null) {
-                query = accountDb.Account.where(status: status);
+                return accountDb.Account.where(status: status).orderBy(createdAt: desc).page(page);
             }
-
-            let Int total = query.count();
-            let Array<Account> accounts = query
-            .orderBy(createdAt: desc)
-            .offset((page - 1) * perPage)
-            .limit(perPage)
-            .all();
-
-            return {
-                data: accounts,
-                pagination: {
-                    currentPage: page,
-                    perPage: perPage,
-                    totalItems: total,
-                    totalPages: Math.ceil(total / perPage),
-                    hasNextPage: page < Math.ceil(total / perPage),
-                    hasPrevPage: page > 1
-                }
-
-            };
+            return accountDb.Account.orderBy(createdAt: desc).page(page);
         }
 
         @path('/:id')

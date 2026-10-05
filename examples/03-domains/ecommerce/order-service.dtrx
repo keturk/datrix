@@ -1,5 +1,4 @@
 
-from datrix.foundation import MAX_PAGE_SIZE;
 from ecommerce.common import Currency, OrderLineInput, generateOrderNumber;
 
 service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), description('order management service') {
@@ -23,11 +22,6 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         Delivered,
         Cancelled,
         Refunded
-    }
-
-    struct PaginatedOrders {
-        Array<orderDb.Order> data;
-        JSON pagination;
     }
 
     struct CreateOrderRequest {
@@ -346,7 +340,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 
         // Paginated list endpoint with optional filtering
-        get orders(Int page = 1, Int perPage = 20, OrderStatus? status) : auth(required, providers: [identity, customerKeys]) -> PaginatedOrders {
+        get orders(PageRequest page, OrderStatus? status) : auth(required, providers: [identity, customerKeys]) -> Page<orderDb.Order> {
             let UUID customerId = Auth.user().id;
 
             let JSON query = orderDb.Order.where(customerId: customerId);
@@ -355,26 +349,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
                 query = query.where(status: status);
             }
 
-            let Int total = query.count();
-            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            let Array<Order> orders = query
-            .orderBy(createdAt: desc)
-            .offset((page - 1) * cappedPerPage)
-            .limit(cappedPerPage)
-            .all();
-
-            return {
-                data: orders,
-                pagination: {
-                    currentPage: page,
-                    perPage: cappedPerPage,
-                    totalItems: total,
-                    totalPages: Math.ceil(total / cappedPerPage),
-                    hasNextPage: page < Math.ceil(total / cappedPerPage),
-                    hasPrevPage: page > 1
-                }
-
-            };
+            return query.orderBy(createdAt: desc).page(page);
         }
 
         @path('/:id')
