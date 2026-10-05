@@ -117,7 +117,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             }
 
             fn calculateTotals() {
-                let Money itemsTotal = Money.of(0, Currency.USD);
+                let Money itemsTotal = Money.of(0);
                 foreach item in items {
                     itemsTotal = itemsTotal.add(item.total);
                 }
@@ -127,12 +127,12 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
                 tax = subtotal.multiply(0.08);
 
                 if (subtotal.amount >= 50.00) {
-                    shippingCost = Money.of(0, Currency.USD);
+                    shippingCost = Money.of(0);
                 } else {
-                    shippingCost = Money.of(5.99, Currency.USD);
+                    shippingCost = Money.of(5.99);
                 }
 
-                discount = Money.of(0, Currency.USD);
+                discount = Money.of(0);
             }
 
         }
@@ -406,10 +406,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
                 billingAddress: request.billingAddress ?? request.shippingAddress,
                 status: OrderStatus.Pending,
                 inventoryReservationId: reservationId,
-                subtotal: Money.of(0, Currency.USD),
-                tax: Money.of(0, Currency.USD),
-                shippingCost: Money.of(0, Currency.USD),
-                discount: Money.of(0, Currency.USD)
+                subtotal: Money.of(0),
+                tax: Money.of(0),
+                shippingCost: Money.of(0),
+                discount: Money.of(0)
             });
 
             foreach item in request.items {
@@ -515,10 +515,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-001",
-            subtotal: Money.of(100.00, Currency.USD),
-            tax: Money.of(10.00, Currency.USD),
-            shippingCost: Money.of(5.00, Currency.USD),
-            discount: Money.of(0.00, Currency.USD),
+            subtotal: Money.of(100.00),
+            tax: Money.of(10.00),
+            shippingCost: Money.of(5.00),
+            discount: Money.of(0.00),
             shippingAddress: { street: "123 Main St", city: "Springfield", state: "IL", zipCode: "62701", country: "US" },
             billingAddress: { street: "123 Main St", city: "Springfield", state: "IL", zipCode: "62701", country: "US" },
             inventoryReservationId: uuid()
@@ -534,10 +534,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-002",
-            subtotal: Money.of(50.00, Currency.USD),
-            tax: Money.of(5.00, Currency.USD),
-            shippingCost: Money.of(5.00, Currency.USD),
-            discount: Money.of(0.00, Currency.USD),
+            subtotal: Money.of(50.00),
+            tax: Money.of(5.00),
+            shippingCost: Money.of(5.00),
+            discount: Money.of(0.00),
             shippingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zipCode: "62565", country: "US" },
             billingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zipCode: "62565", country: "US" },
             inventoryReservationId: uuid()
@@ -553,10 +553,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-003",
-            subtotal: Money.of(200.00, Currency.USD),
-            tax: Money.of(20.00, Currency.USD),
-            shippingCost: Money.of(10.00, Currency.USD),
-            discount: Money.of(0.00, Currency.USD),
+            subtotal: Money.of(200.00),
+            tax: Money.of(20.00),
+            shippingCost: Money.of(10.00),
+            discount: Money.of(0.00),
             shippingAddress: { street: "789 Elm St", city: "Capital City", state: "IL", zipCode: "62702", country: "US" },
             billingAddress: { street: "789 Elm St", city: "Capital City", state: "IL", zipCode: "62702", country: "US" },
             inventoryReservationId: uuid()
@@ -570,10 +570,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-004",
-            subtotal: Money.of(75.00, Currency.USD),
-            tax: Money.of(7.50, Currency.USD),
-            shippingCost: Money.of(5.00, Currency.USD),
-            discount: Money.of(0.00, Currency.USD),
+            subtotal: Money.of(75.00),
+            tax: Money.of(7.50),
+            shippingCost: Money.of(5.00),
+            discount: Money.of(0.00),
             shippingAddress: { street: "321 Pine Rd", city: "Ogdenville", state: "IL", zipCode: "62703", country: "US" },
             billingAddress: { street: "321 Pine Rd", city: "Ogdenville", state: "IL", zipCode: "62703", country: "US" },
             inventoryReservationId: uuid(),
@@ -586,7 +586,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             productId: uuid(),
             productName: "Test Product",
             quantity: 1,
-            unitPrice: Money.of(10.00, Currency.USD)
+            unitPrice: Money.of(10.00)
         });
         order.status = OrderStatus.Cancelled;
         order.save();
@@ -597,10 +597,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-005",
-            subtotal: Money.of(150.00, Currency.USD),
-            tax: Money.of(12.00, Currency.USD),
-            shippingCost: Money.of(0.00, Currency.USD),
-            discount: Money.of(0.00, Currency.USD),
+            subtotal: Money.of(150.00),
+            tax: Money.of(12.00),
+            shippingCost: Money.of(0.00),
+            discount: Money.of(0.00),
             status: OrderStatus.Delivered,
             shippingAddress: { street: "500 Maple Dr", city: "Lakewood", state: "CO", zipCode: "80226", country: "US" },
             billingAddress: { street: "500 Maple Dr", city: "Lakewood", state: "CO", zipCode: "80226", country: "US" },
@@ -614,10 +614,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-006",
-            subtotal: Money.of(80.00, Currency.USD),
-            tax: Money.of(6.40, Currency.USD),
-            shippingCost: Money.of(5.99, Currency.USD),
-            discount: Money.of(0.00, Currency.USD),
+            subtotal: Money.of(80.00),
+            tax: Money.of(6.40),
+            shippingCost: Money.of(5.99),
+            discount: Money.of(0.00),
             status: OrderStatus.Pending,
             shippingAddress: { street: "601 Birch Ln", city: "Aurora", state: "CO", zipCode: "80010", country: "US" },
             billingAddress: { street: "601 Birch Ln", city: "Aurora", state: "CO", zipCode: "80010", country: "US" },
@@ -631,10 +631,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-007",
-            subtotal: Money.of(250.00, Currency.USD),
-            tax: Money.of(20.00, Currency.USD),
-            shippingCost: Money.of(0.00, Currency.USD),
-            discount: Money.of(0.00, Currency.USD),
+            subtotal: Money.of(250.00),
+            tax: Money.of(20.00),
+            shippingCost: Money.of(0.00),
+            discount: Money.of(0.00),
             shippingAddress: { street: "702 Cedar Ct", city: "Boulder", state: "CO", zipCode: "80301", country: "US" },
             billingAddress: { street: "702 Cedar Ct", city: "Boulder", state: "CO", zipCode: "80301", country: "US" },
             inventoryReservationId: uuid()
@@ -647,10 +647,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-008",
-            subtotal: Money.of(60.00, Currency.USD),
-            tax: Money.of(4.80, Currency.USD),
-            shippingCost: Money.of(5.99, Currency.USD),
-            discount: Money.of(0.00, Currency.USD),
+            subtotal: Money.of(60.00),
+            tax: Money.of(4.80),
+            shippingCost: Money.of(5.99),
+            discount: Money.of(0.00),
             shippingAddress: { street: "803 Spruce Way", city: "Denver", state: "CO", zipCode: "80202", country: "US" },
             billingAddress: { street: "803 Spruce Way", city: "Denver", state: "CO", zipCode: "80202", country: "US" },
             inventoryReservationId: uuid()
@@ -661,7 +661,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             productId: uuid(),
             productName: "Status Change Product",
             quantity: 2,
-            unitPrice: Money.of(30.00, Currency.USD)
+            unitPrice: Money.of(30.00)
         });
         order.status = OrderStatus.Processing;
         order.save();
@@ -672,10 +672,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-009",
-            subtotal: Money.of(120.00, Currency.USD),
-            tax: Money.of(9.60, Currency.USD),
-            shippingCost: Money.of(0.00, Currency.USD),
-            discount: Money.of(0.00, Currency.USD),
+            subtotal: Money.of(120.00),
+            tax: Money.of(9.60),
+            shippingCost: Money.of(0.00),
+            discount: Money.of(0.00),
             shippingAddress: { street: "904 Aspen Blvd", city: "Fort Collins", state: "CO", zipCode: "80521", country: "US" },
             billingAddress: { street: "904 Aspen Blvd", city: "Fort Collins", state: "CO", zipCode: "80521", country: "US" },
             inventoryReservationId: uuid(),
@@ -687,7 +687,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             productId: uuid(),
             productName: "Confirmed Product",
             quantity: 3,
-            unitPrice: Money.of(40.00, Currency.USD)
+            unitPrice: Money.of(40.00)
         });
         order.status = OrderStatus.Confirmed;
         order.save();
@@ -698,10 +698,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-010",
-            subtotal: Money.of(500.00, Currency.USD),
-            tax: Money.of(40.00, Currency.USD),
-            shippingCost: Money.of(0.00, Currency.USD),
-            discount: Money.of(0.00, Currency.USD),
+            subtotal: Money.of(500.00),
+            tax: Money.of(40.00),
+            shippingCost: Money.of(0.00),
+            discount: Money.of(0.00),
             shippingAddress: { street: "1005 Walnut St", city: "Pueblo", state: "CO", zipCode: "81001", country: "US" },
             billingAddress: { street: "1005 Walnut St", city: "Pueblo", state: "CO", zipCode: "81001", country: "US" },
             inventoryReservationId: uuid()
@@ -713,7 +713,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
                 productId: uuid(),
                 productName: #"Excess Item {i}",
                 quantity: 1,
-                unitPrice: Money.of(9.99, Currency.USD)
+                unitPrice: Money.of(9.99)
             });
         }
 

@@ -481,7 +481,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
             .where(action: "created")
             .all();
 
-            let Money largeTxTotal = Money.of(0, Currency.USD);
+            let Money largeTxTotal = Money.of(0);
             let Int largeTxCount = 0;
             foreach audit in largeTxAudits {
                 if (audit.changes.amount.amount >= LARGE_TRANSACTION_THRESHOLD) {

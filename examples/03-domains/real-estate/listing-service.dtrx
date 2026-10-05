@@ -93,7 +93,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
             // Computed fields
             Boolean isAvailable := status == ListingStatus.Active;
-            Money pricePerSqFt := Money.of(price.amount / squareFeet, "USD");
+            Money pricePerSqFt := Money.of(price.amount / squareFeet);
 
             hasMany ListingImage as images : cascade(delete);
             hasMany ListingFeature as features : cascade(delete);
@@ -454,7 +454,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             listingRef: "LST-TEST-001",
             propertyType: PropertyType.House,
             status: ListingStatus.Active,
-            price: Money.of(350000, "USD"),
+            price: Money.of(350000),
             bedrooms: 4,
             bathrooms: 3,
             squareFeet: 2500,
@@ -474,7 +474,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             listingRef: "LST-TEST-002",
             propertyType: PropertyType.Condo,
             status: ListingStatus.Active,
-            price: Money.of(200000, "USD"),
+            price: Money.of(200000),
             bedrooms: 2,
             bathrooms: 1,
             squareFeet: 1000,
@@ -494,7 +494,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             description: "Test listing",
             listingRef: "LST-TEST-003",
             propertyType: PropertyType.House,
-            price: Money.of(100000, "USD"),
+            price: Money.of(100000),
             bedrooms: 2,
             bathrooms: 1,
             squareFeet: 1000,
@@ -514,7 +514,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             description: "Test listing with negative bedrooms",
             listingRef: "LST-TEST-004",
             propertyType: PropertyType.Apartment,
-            price: Money.of(150000, "USD"),
+            price: Money.of(150000),
             bedrooms: -1,
             bathrooms: 1,
             squareFeet: 800,
@@ -534,7 +534,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             listingRef: "LST-TEST-005",
             propertyType: PropertyType.Townhouse,
             status: ListingStatus.Draft,
-            price: Money.of(280000, "USD"),
+            price: Money.of(280000),
             bedrooms: 3,
             bathrooms: 2,
             squareFeet: 1800,
@@ -554,7 +554,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             listingRef: "LST-TEST-006",
             propertyType: PropertyType.House,
             status: ListingStatus.Active,
-            price: Money.of(400000, "USD"),
+            price: Money.of(400000),
             bedrooms: 5,
             bathrooms: 3,
             squareFeet: 3000,
@@ -577,7 +577,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             listingRef: "LST-TEST-007",
             propertyType: PropertyType.House,
             status: ListingStatus.Sold,
-            price: Money.of(500000, "USD"),
+            price: Money.of(500000),
             bedrooms: 3,
             bathrooms: 2,
             squareFeet: 2000,
@@ -597,7 +597,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             description: "Invalid square footage",
             listingRef: "LST-TEST-008",
             propertyType: PropertyType.Condo,
-            price: Money.of(100000, "USD"),
+            price: Money.of(100000),
             bedrooms: 1,
             bathrooms: 1,
             squareFeet: 0,
@@ -617,7 +617,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             description: "Invalid bathrooms count",
             listingRef: "LST-TEST-009",
             propertyType: PropertyType.Apartment,
-            price: Money.of(120000, "USD"),
+            price: Money.of(120000),
             bedrooms: 2,
             bathrooms: -1,
             squareFeet: 900,
@@ -637,7 +637,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             listingRef: "LST-TEST-010",
             propertyType: PropertyType.House,
             status: ListingStatus.Draft,
-            price: Money.of(300000, "USD"),
+            price: Money.of(300000),
             bedrooms: 3,
             bathrooms: 2,
             squareFeet: 1600,
@@ -660,7 +660,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             listingRef: "LST-TEST-011",
             propertyType: PropertyType.Townhouse,
             status: ListingStatus.Active,
-            price: Money.of(275000, "USD"),
+            price: Money.of(275000),
             bedrooms: 2,
             bathrooms: 2,
             squareFeet: 1400,
@@ -683,7 +683,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             listingRef: "LST-TEST-012",
             propertyType: PropertyType.House,
             status: ListingStatus.Sold,
-            price: Money.of(450000, "USD"),
+            price: Money.of(450000),
             bedrooms: 4,
             bathrooms: 3,
             squareFeet: 2800,
@@ -706,7 +706,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             listingRef: "LST-TEST-013",
             propertyType: PropertyType.House,
             status: ListingStatus.Draft,
-            price: Money.of(320000, "USD"),
+            price: Money.of(320000),
             bedrooms: 3,
             bathrooms: 2,
             squareFeet: 1900,
@@ -728,7 +728,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             listingRef: "LST-TEST-014",
             propertyType: PropertyType.Condo,
             status: ListingStatus.Active,
-            price: Money.of(200000, "USD"),
+            price: Money.of(200000),
             bedrooms: 2,
             bathrooms: 1,
             squareFeet: 1100,
@@ -738,9 +738,9 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             zipCode: "78708"
         });
         listing.save();
-        listing.price = Money.of(210000, "USD");
+        listing.price = Money.of(210000);
         listing.save();
-        assert emitted(ListingPriceChanged(listing.id, listing.listingRef, Money.of(200000, "USD"), Money.of(210000, "USD")));
+        assert emitted(ListingPriceChanged(listing.id, listing.listingRef, Money.of(200000), Money.of(210000)));
     }
 
     test("validation rejects empty image URL") {

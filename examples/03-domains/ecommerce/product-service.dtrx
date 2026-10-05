@@ -547,7 +547,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         let productDb.Product product = productDb.Product.create({
             name: "SpecTestProduct",
             description: "Test product for spec",
-            price: Money.of(29.99, Currency.USD),
+            price: Money.of(29.99),
             status: ProductStatus.Active,
             slug: "spec-test-product",
             categoryId: category.id,
@@ -575,7 +575,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         let productDb.Product product = productDb.Product.create({
             name: "SpecInventoryProduct",
             description: "Test product for inventory spec",
-            price: Money.of(19.99, Currency.USD),
+            price: Money.of(19.99),
             status: ProductStatus.Active,
             slug: "spec-inventory-product",
             categoryId: category.id,
@@ -597,7 +597,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         let productDb.Product product = productDb.Product.create({
             name: "SpecDraftProduct",
             description: "Draft product for publish spec",
-            price: Money.of(39.99, Currency.USD),
+            price: Money.of(39.99),
             status: ProductStatus.Draft,
             slug: "spec-draft-product",
             categoryId: category.id,
@@ -618,7 +618,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         let productDb.Product product = productDb.Product.create({
             name: "SpecActiveProduct",
             description: "Active product for discontinue spec",
-            price: Money.of(59.99, Currency.USD),
+            price: Money.of(59.99),
             status: ProductStatus.Active,
             slug: "spec-active-product",
             categoryId: category.id,

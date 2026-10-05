@@ -273,7 +273,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         let MenuItem item = menuDb.MenuItem.create({
             menuCategoryId: category.id,
             name: "Test Burger",
-            price: Money.of(12.99, "USD"),
+            price: Money.of(12.99),
             availability: ItemAvailability.Available
         });
         item.save();
@@ -291,7 +291,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         () => menuDb.MenuItem.create({
             menuCategoryId: category.id,
             name: "Bad Price Item",
-            price: Money.of(-5.00, "USD")
+            price: Money.of(-5.00)
         }),
         ValidationError("Price must be positive")
         );
@@ -307,7 +307,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         let MenuItem item = menuDb.MenuItem.create({
             menuCategoryId: category.id,
             name: "Event Test Pizza",
-            price: Money.of(15.99, "USD")
+            price: Money.of(15.99)
         });
         item.save();
         assert emitted(MenuItemAdded(item.id, item.name, item.price, item.menuCategoryId));
@@ -323,7 +323,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         let menuDb.MenuItem item = menuDb.MenuItem.create({
             menuCategoryId: category.id,
             name: "Fresh Garden Salad",
-            price: Money.of(9.50, "USD"),
+            price: Money.of(9.50),
             availability: ItemAvailability.Available
         });
         item.save();
@@ -341,7 +341,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         () => menuDb.MenuItem.create({
             menuCategoryId: category.id,
             name: "",
-            price: Money.of(8.00, "USD")
+            price: Money.of(8.00)
         }),
         ValidationError("Item name cannot be empty")
         );
@@ -358,7 +358,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         () => menuDb.MenuItem.create({
             menuCategoryId: category.id,
             name: "Zero Price Soup",
-            price: Money.of(0, "USD")
+            price: Money.of(0)
         }),
         ValidationError("Price must be positive")
         );
@@ -374,10 +374,10 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         let menuDb.MenuItem item = menuDb.MenuItem.create({
             menuCategoryId: category.id,
             name: "Truffle Fries",
-            price: Money.of(11.75, "USD")
+            price: Money.of(11.75)
         });
         item.save();
-        assert emitted(MenuItemAdded(item.id, "Truffle Fries", Money.of(11.75, "USD"), category.id));
+        assert emitted(MenuItemAdded(item.id, "Truffle Fries", Money.of(11.75), category.id));
     }
 
     test("afterUpdate emits MenuItemAvailabilityChanged when availability changes") {
@@ -390,7 +390,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         let menuDb.MenuItem item = menuDb.MenuItem.create({
             menuCategoryId: category.id,
             name: "Seasonal Risotto",
-            price: Money.of(18.00, "USD"),
+            price: Money.of(18.00),
             availability: ItemAvailability.Available
         });
         item.save();
@@ -409,13 +409,13 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         let menuDb.MenuItem item = menuDb.MenuItem.create({
             menuCategoryId: category.id,
             name: "Classic Margherita",
-            price: Money.of(14.00, "USD")
+            price: Money.of(14.00)
         });
         item.save();
         let Money oldPrice = item.price;
-        item.price = Money.of(16.50, "USD");
+        item.price = Money.of(16.50);
         item.save();
-        assert emitted(MenuItemPriceChanged(item.id, "Classic Margherita", Money.of(14.00, "USD"), Money.of(16.50, "USD")));
+        assert emitted(MenuItemPriceChanged(item.id, "Classic Margherita", Money.of(14.00), Money.of(16.50)));
     }
 
 }

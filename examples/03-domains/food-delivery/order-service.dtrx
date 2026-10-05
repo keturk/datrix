@@ -106,16 +106,16 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             }
 
             fn calculateTotals() {
-                let Money itemsTotal = Money.of(0, "USD");
+                let Money itemsTotal = Money.of(0);
                 foreach item in items {
                     itemsTotal = itemsTotal.add(item.subtotal);
                 }
 
                 subtotal = itemsTotal;
                 tax = subtotal.multiply(0.08);
-                deliveryFee = Money.of(DEFAULT_DELIVERY_FEE, "USD");
+                deliveryFee = Money.of(DEFAULT_DELIVERY_FEE);
 
-                let Money tipAmount = tip ?? Money.of(0, "USD");
+                let Money tipAmount = tip ?? Money.of(0);
                 total = subtotal.add(tax).add(deliveryFee).add(tipAmount);
             }
 
@@ -303,10 +303,10 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
                 tip: request.tip,
                 status: OrderStatus.Placed,
                 paymentStatus: PaymentStatus.Pending,
-                subtotal: Money.of(0, "USD"),
-                tax: Money.of(0, "USD"),
-                deliveryFee: Money.of(DEFAULT_DELIVERY_FEE, "USD"),
-                total: Money.of(0, "USD"),
+                subtotal: Money.of(0),
+                tax: Money.of(0),
+                deliveryFee: Money.of(DEFAULT_DELIVERY_FEE),
+                total: Money.of(0),
                 estimatedDelivery: DateTime.now().addMinutes(45)
             });
 
@@ -417,10 +417,10 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             customerId: uuid(),
             restaurantId: uuid(),
             orderNumber: "FD-TEST-001",
-            subtotal: Money.of(25.00, "USD"),
-            tax: Money.of(2.00, "USD"),
-            deliveryFee: Money.of(4.99, "USD"),
-            total: Money.of(31.99, "USD"),
+            subtotal: Money.of(25.00),
+            tax: Money.of(2.00),
+            deliveryFee: Money.of(4.99),
+            total: Money.of(31.99),
             deliveryAddress: { street: "123 Main St", city: "Springfield", state: "IL", zipCode: "62701" }
         });
         order.save();
@@ -433,10 +433,10 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             restaurantId: uuid(),
             orderNumber: "FD-TEST-002",
             status: OrderStatus.Preparing,
-            subtotal: Money.of(30.00, "USD"),
-            tax: Money.of(2.40, "USD"),
-            deliveryFee: Money.of(4.99, "USD"),
-            total: Money.of(37.39, "USD"),
+            subtotal: Money.of(30.00),
+            tax: Money.of(2.40),
+            deliveryFee: Money.of(4.99),
+            total: Money.of(37.39),
             deliveryAddress: { street: "456 Oak Ave", city: "Springfield", state: "IL", zipCode: "62702" }
         });
         order.save();
@@ -448,10 +448,10 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             customerId: uuid(),
             restaurantId: uuid(),
             orderNumber: "FD-TEST-003",
-            subtotal: Money.of(50.00, "USD"),
-            tax: Money.of(4.00, "USD"),
-            deliveryFee: Money.of(4.99, "USD"),
-            total: Money.of(58.99, "USD"),
+            subtotal: Money.of(50.00),
+            tax: Money.of(4.00),
+            deliveryFee: Money.of(4.99),
+            total: Money.of(58.99),
             deliveryAddress: { street: "789 Elm St", city: "Springfield", state: "IL", zipCode: "62703" }
         });
         order.save();
@@ -464,10 +464,10 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             customerId: uuid(),
             restaurantId: uuid(),
             orderNumber: "FD-TEST-004",
-            subtotal: Money.of(0, "USD"),
-            tax: Money.of(0, "USD"),
-            deliveryFee: Money.of(4.99, "USD"),
-            total: Money.of(4.99, "USD"),
+            subtotal: Money.of(0),
+            tax: Money.of(0),
+            deliveryFee: Money.of(4.99),
+            total: Money.of(4.99),
             deliveryAddress: { street: "321 Pine Rd", city: "Springfield", state: "IL", zipCode: "62704" }
         }),
         ValidationError("Order must have at least one item")
@@ -480,10 +480,10 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             restaurantId: uuid(),
             orderNumber: "FD-TEST-005",
             status: OrderStatus.Delivered,
-            subtotal: Money.of(40.00, "USD"),
-            tax: Money.of(3.20, "USD"),
-            deliveryFee: Money.of(4.99, "USD"),
-            total: Money.of(48.19, "USD"),
+            subtotal: Money.of(40.00),
+            tax: Money.of(3.20),
+            deliveryFee: Money.of(4.99),
+            total: Money.of(48.19),
             deliveryAddress: { street: "600 Birch Ln", city: "Springfield", state: "IL", zipCode: "62705" }
         });
         order.save();
@@ -496,10 +496,10 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             restaurantId: uuid(),
             orderNumber: "FD-TEST-006",
             paymentStatus: PaymentStatus.Charged,
-            subtotal: Money.of(22.00, "USD"),
-            tax: Money.of(1.76, "USD"),
-            deliveryFee: Money.of(4.99, "USD"),
-            total: Money.of(28.75, "USD"),
+            subtotal: Money.of(22.00),
+            tax: Money.of(1.76),
+            deliveryFee: Money.of(4.99),
+            total: Money.of(28.75),
             deliveryAddress: { street: "700 Walnut St", city: "Springfield", state: "IL", zipCode: "62706" }
         });
         order.save();
@@ -511,10 +511,10 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             customerId: uuid(),
             restaurantId: uuid(),
             orderNumber: "FD-TEST-007",
-            subtotal: Money.of(35.00, "USD"),
-            tax: Money.of(2.80, "USD"),
-            deliveryFee: Money.of(4.99, "USD"),
-            total: Money.of(42.79, "USD"),
+            subtotal: Money.of(35.00),
+            tax: Money.of(2.80),
+            deliveryFee: Money.of(4.99),
+            total: Money.of(42.79),
             deliveryAddress: { street: "800 Cedar Ave", city: "Springfield", state: "IL", zipCode: "62707" }
         });
         order.save();
@@ -527,10 +527,10 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             restaurantId: uuid(),
             orderNumber: "FD-TEST-008",
             status: OrderStatus.Placed,
-            subtotal: Money.of(28.00, "USD"),
-            tax: Money.of(2.24, "USD"),
-            deliveryFee: Money.of(4.99, "USD"),
-            total: Money.of(35.23, "USD"),
+            subtotal: Money.of(28.00),
+            tax: Money.of(2.24),
+            deliveryFee: Money.of(4.99),
+            total: Money.of(35.23),
             deliveryAddress: { street: "900 Spruce Dr", city: "Springfield", state: "IL", zipCode: "62708" }
         });
         order.save();
@@ -539,8 +539,8 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             menuItemId: uuid(),
             name: "Test Item",
             quantity: 1,
-            unitPrice: Money.of(28.00, "USD"),
-            subtotal: Money.of(28.00, "USD")
+            unitPrice: Money.of(28.00),
+            subtotal: Money.of(28.00)
         });
         order.status = OrderStatus.Preparing;
         order.save();
@@ -553,10 +553,10 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             restaurantId: uuid(),
             orderNumber: "FD-TEST-009",
             status: OrderStatus.Placed,
-            subtotal: Money.of(45.00, "USD"),
-            tax: Money.of(3.60, "USD"),
-            deliveryFee: Money.of(4.99, "USD"),
-            total: Money.of(53.59, "USD"),
+            subtotal: Money.of(45.00),
+            tax: Money.of(3.60),
+            deliveryFee: Money.of(4.99),
+            total: Money.of(53.59),
             deliveryAddress: { street: "1000 Ash Blvd", city: "Springfield", state: "IL", zipCode: "62709" }
         });
         order.save();
@@ -565,8 +565,8 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             menuItemId: uuid(),
             name: "Test Item",
             quantity: 1,
-            unitPrice: Money.of(45.00, "USD"),
-            subtotal: Money.of(45.00, "USD")
+            unitPrice: Money.of(45.00),
+            subtotal: Money.of(45.00)
         });
         order.status = OrderStatus.Confirmed;
         order.save();
@@ -579,10 +579,10 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             restaurantId: uuid(),
             orderNumber: "FD-TEST-010",
             status: OrderStatus.Placed,
-            subtotal: Money.of(18.00, "USD"),
-            tax: Money.of(1.44, "USD"),
-            deliveryFee: Money.of(4.99, "USD"),
-            total: Money.of(24.43, "USD"),
+            subtotal: Money.of(18.00),
+            tax: Money.of(1.44),
+            deliveryFee: Money.of(4.99),
+            total: Money.of(24.43),
             deliveryAddress: { street: "1100 Poplar Way", city: "Springfield", state: "IL", zipCode: "62710" }
         });
         order.save();
@@ -591,8 +591,8 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             menuItemId: uuid(),
             name: "Test Item",
             quantity: 1,
-            unitPrice: Money.of(18.00, "USD"),
-            subtotal: Money.of(18.00, "USD")
+            unitPrice: Money.of(18.00),
+            subtotal: Money.of(18.00)
         });
         order.status = OrderStatus.Cancelled;
         order.save();

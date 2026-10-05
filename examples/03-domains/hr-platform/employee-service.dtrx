@@ -504,7 +504,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.FullTime,
             department: Department.Engineering,
             hireDate: DateTime.parse("2020-06-15"),
-            salary: Money.of(85000, "USD")
+            salary: Money.of(85000)
         });
         emp.save();
         assert emp.fullName == "John Doe";
@@ -523,7 +523,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.PartTime,
             department: Department.Marketing,
             hireDate: DateTime.parse("2021-03-01"),
-            salary: Money.of(55000, "USD")
+            salary: Money.of(55000)
         });
         emp.save();
         assert emp.isActive == true;
@@ -542,7 +542,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.FullTime,
             department: Department.Finance,
             hireDate: DateTime.parse("2022-01-01"),
-            salary: Money.of(0, "USD")
+            salary: Money.of(0)
         }),
         ValidationError("Salary must be positive")
         );
@@ -561,7 +561,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.FullTime,
             department: Department.Operations,
             hireDate: DateTime.parse("2023-01-15"),
-            salary: Money.of(72000, "USD")
+            salary: Money.of(72000)
         });
         emp.save();
         assert emitted(EmployeeHired(emp.id, emp.employeeNumber, "Bob", "Builder", "bob.builder@test.com", Department.Operations, EmploymentType.FullTime));
@@ -580,7 +580,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.Contract,
             department: Department.Sales,
             hireDate: DateTime.parse("2022-06-01"),
-            salary: Money.of(60000, "USD")
+            salary: Money.of(60000)
         });
         emp.save();
         emp.terminate("Contract ended");
@@ -601,7 +601,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.FullTime,
             department: Department.HR,
             hireDate: DateTime.parse("2019-09-01"),
-            salary: Money.of(95000, "USD")
+            salary: Money.of(95000)
         });
         emp.save();
         assert throws(
@@ -623,7 +623,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.FullTime,
             department: Department.Engineering,
             hireDate: DateTime.parse("2021-02-15"),
-            salary: Money.of(92000, "USD")
+            salary: Money.of(92000)
         });
         emp.save();
         emp.terminate("Position eliminated");
@@ -643,7 +643,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.FullTime,
             department: Department.Operations,
             hireDate: DateTime.parse("2020-08-01"),
-            salary: Money.of(88000, "USD")
+            salary: Money.of(88000)
         });
         emp.save();
         emp.suspend("Pending investigation");
@@ -663,7 +663,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.FullTime,
             department: Department.Engineering,
             hireDate: DateTime.parse("2022-04-01"),
-            salary: Money.of(78000, "USD")
+            salary: Money.of(78000)
         });
         emp.save();
         emp.reinstate();
@@ -683,7 +683,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.FullTime,
             department: Department.Sales,
             hireDate: DateTime.parse("2019-11-15"),
-            salary: Money.of(82000, "USD")
+            salary: Money.of(82000)
         });
         emp.save();
         emp.startLeave();
@@ -703,7 +703,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.FullTime,
             department: Department.Marketing,
             hireDate: DateTime.parse("2018-07-01"),
-            salary: Money.of(105000, "USD")
+            salary: Money.of(105000)
         });
         emp.save();
         emp.department = Department.Sales;
@@ -724,12 +724,12 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.FullTime,
             department: Department.HR,
             hireDate: DateTime.parse("2020-03-15"),
-            salary: Money.of(75000, "USD")
+            salary: Money.of(75000)
         });
         emp.save();
-        emp.salary = Money.of(82000, "USD");
+        emp.salary = Money.of(82000);
         emp.save();
-        assert emitted(EmployeeSalaryChanged(emp.id, emp.employeeNumber, Money.of(75000, "USD"), Money.of(82000, "USD")));
+        assert emitted(EmployeeSalaryChanged(emp.id, emp.employeeNumber, Money.of(75000), Money.of(82000)));
     }
 
     test("validation rejects empty first name") {
@@ -745,7 +745,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.FullTime,
             department: Department.Finance,
             hireDate: DateTime.parse("2023-01-10"),
-            salary: Money.of(65000, "USD")
+            salary: Money.of(65000)
         }),
         ValidationError("First name cannot be empty")
         );
@@ -764,7 +764,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             employmentType: EmploymentType.PartTime,
             department: Department.Marketing,
             hireDate: DateTime.parse("2099-12-31"),
-            salary: Money.of(55000, "USD")
+            salary: Money.of(55000)
         }),
         ValidationError("Hire date cannot be in the future")
         );

@@ -430,7 +430,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         @path('/batch')
         post(CreateBatchRequest request) : auth(required, providers: [identity]) -> BatchResponse {
             let String batchRef = generateReference("BAT");
-            let Money totalAmount = Money.of(0, Currency.USD);
+            let Money totalAmount = Money.of(0);
 
             foreach item in request.transactions {
                 totalAmount = totalAmount.add(item.amount);
@@ -498,8 +498,8 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
             .where(status: TransactionStatus.Completed)
             .all();
 
-            let Money deposits = Money.of(0, Currency.USD);
-            let Money withdrawals = Money.of(0, Currency.USD);
+            let Money deposits = Money.of(0);
+            let Money withdrawals = Money.of(0);
 
             foreach tx in transactions {
                 if (tx.type == TransactionType.Deposit || (tx.type == TransactionType.Transfer && tx.counterpartyAccountId != null)) {
@@ -549,8 +549,8 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
             .where(completedAt: lt(today.endOfDay()))
             .all();
 
-            let Money totalDebits = Money.of(0, Currency.USD);
-            let Money totalCredits = Money.of(0, Currency.USD);
+            let Money totalDebits = Money.of(0);
+            let Money totalCredits = Money.of(0);
 
             foreach tx in dayTransactions {
                 if (tx.type == TransactionType.Withdrawal || tx.type == TransactionType.Payment) {
@@ -586,7 +586,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         () => txDb.Transaction.create({
             accountId: uuid(),
             type: TransactionType.Deposit,
-            amount: Money.of(0, Currency.USD),
+            amount: Money.of(0),
             currency: Currency.USD,
             reference: "TXN-TEST-001"
         }),
@@ -599,7 +599,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         () => txDb.Transaction.create({
             accountId: uuid(),
             type: TransactionType.Transfer,
-            amount: Money.of(100, Currency.USD),
+            amount: Money.of(100),
             currency: Currency.USD,
             reference: "TXN-TEST-002"
         }),
@@ -611,7 +611,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         let Transaction tx = txDb.Transaction.create({
             accountId: uuid(),
             type: TransactionType.Deposit,
-            amount: Money.of(500, Currency.USD),
+            amount: Money.of(500),
             currency: Currency.USD,
             reference: "TXN-TEST-003",
             description: "Test deposit"
@@ -624,7 +624,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         let Transaction tx = txDb.Transaction.create({
             accountId: uuid(),
             type: TransactionType.Deposit,
-            amount: Money.of(200, Currency.USD),
+            amount: Money.of(200),
             currency: Currency.USD,
             reference: "TXN-TEST-004"
         });
@@ -639,7 +639,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         let TransactionBatch batch = txDb.TransactionBatch.create({
             batchId: "BAT-TEST-001",
             status: BatchStatus.Processing,
-            totalAmount: Money.of(1000, Currency.USD),
+            totalAmount: Money.of(1000),
             currency: Currency.USD,
             transactionCount: 5,
             submittedBy: uuid()
@@ -656,7 +656,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
             accountId: uuid(),
             type: TransactionType.Deposit,
             status: TransactionStatus.Pending,
-            amount: Money.of(750, Currency.USD),
+            amount: Money.of(750),
             currency: Currency.USD,
             reference: "TXN-TEST-005",
             description: "Test pending deposit"
@@ -670,7 +670,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
             accountId: uuid(),
             type: TransactionType.Payment,
             status: TransactionStatus.Pending,
-            amount: Money.of(300, Currency.USD),
+            amount: Money.of(300),
             currency: Currency.USD,
             reference: "TXN-TEST-006",
             description: "Test payment completion"
@@ -686,7 +686,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
             accountId: uuid(),
             type: TransactionType.Withdrawal,
             status: TransactionStatus.Pending,
-            amount: Money.of(150, Currency.USD),
+            amount: Money.of(150),
             currency: Currency.USD,
             reference: "TXN-TEST-007",
             description: "Test withdrawal failure"
@@ -702,7 +702,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
             accountId: uuid(),
             type: TransactionType.Deposit,
             status: TransactionStatus.Pending,
-            amount: Money.of(1200, Currency.USD),
+            amount: Money.of(1200),
             currency: Currency.USD,
             reference: "TXN-TEST-008",
             description: "Test deposit reversal"
@@ -718,7 +718,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         () => txDb.Transaction.create({
             accountId: uuid(),
             type: TransactionType.Deposit,
-            amount: Money.of(100, Currency.USD),
+            amount: Money.of(100),
             currency: Currency.USD,
             reference: ""
         }),
@@ -731,7 +731,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
             accountId: uuid(),
             type: TransactionType.Deposit,
             status: TransactionStatus.Pending,
-            amount: Money.of(900, Currency.USD),
+            amount: Money.of(900),
             currency: Currency.USD,
             reference: "TXN-TEST-009",
             description: "Test status change event"

@@ -254,7 +254,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
                 customerId: request.customerId,
                 type: request.type,
                 status: AccountStatus.PendingApproval,
-                balance: Money.of(0, request.currency),
+                balance: Money.of(0),
                 currency: request.currency,
                 openedAt: DateTime.now()
             });
@@ -354,7 +354,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
             customerId: cust.id,
             type: AccountType.Checking,
             status: AccountStatus.Active,
-            balance: Money.of(1000, Currency.USD),
+            balance: Money.of(1000),
             currency: Currency.USD
         });
         acct.save();
@@ -377,7 +377,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
             customerId: cust.id,
             type: AccountType.Savings,
             status: AccountStatus.Active,
-            balance: Money.of(-100, Currency.USD),
+            balance: Money.of(-100),
             currency: Currency.USD
         }),
         ValidationError("Savings account balance cannot be negative")
@@ -399,7 +399,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
             customerId: cust.id,
             type: AccountType.Checking,
             status: AccountStatus.PendingApproval,
-            balance: Money.of(0, Currency.USD),
+            balance: Money.of(0),
             currency: Currency.USD
         });
         acct.save();
@@ -421,7 +421,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
             customerId: cust.id,
             type: AccountType.Savings,
             status: AccountStatus.Active,
-            balance: Money.of(5000, Currency.USD),
+            balance: Money.of(5000),
             currency: Currency.USD
         });
         acct.save();
@@ -445,7 +445,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
             customerId: cust.id,
             type: AccountType.Checking,
             status: AccountStatus.Frozen,
-            balance: Money.of(2500, Currency.USD),
+            balance: Money.of(2500),
             currency: Currency.USD
         });
         acct.save();
@@ -467,7 +467,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
             customerId: cust.id,
             type: AccountType.Checking,
             status: AccountStatus.PendingApproval,
-            balance: Money.of(0, Currency.USD),
+            balance: Money.of(0),
             currency: Currency.USD
         });
         acct.save();
@@ -490,7 +490,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
             customerId: cust.id,
             type: AccountType.Savings,
             status: AccountStatus.Active,
-            balance: Money.of(3000, Currency.USD),
+            balance: Money.of(3000),
             currency: Currency.USD
         });
         acct.save();
@@ -513,7 +513,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
             customerId: cust.id,
             type: AccountType.Checking,
             status: AccountStatus.Frozen,
-            balance: Money.of(1500, Currency.USD),
+            balance: Money.of(1500),
             currency: Currency.USD
         });
         acct.save();
@@ -536,7 +536,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
             customerId: cust.id,
             type: AccountType.Checking,
             status: AccountStatus.Active,
-            balance: Money.of(500, Currency.USD),
+            balance: Money.of(500),
             currency: Currency.USD
         });
         acct.save();

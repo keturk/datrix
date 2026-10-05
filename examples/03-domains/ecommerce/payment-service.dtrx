@@ -222,7 +222,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
             }
 
             // Calculate total already refunded to prevent over-refunding
-            let Money totalRefunded = Money.of(0, Currency.USD);
+            let Money totalRefunded = Money.of(0);
             foreach refund in payment.refunds {
                 if (refund.isSuccessful) {
                     totalRefunded = totalRefunded.add(refund.amount);
@@ -359,7 +359,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
         let paymentDb.Payment payment = paymentDb.Payment.create({
             orderId: uuid(),
             customerId: uuid(),
-            amount: Money.of(99.99, Currency.USD),
+            amount: Money.of(99.99),
             method: PaymentMethod.CreditCard,
             transactionId: "TXN-SPEC-001",
             status: PaymentStatus.Completed
@@ -372,7 +372,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
         let paymentDb.Payment payment = paymentDb.Payment.create({
             orderId: uuid(),
             customerId: uuid(),
-            amount: Money.of(49.99, Currency.USD),
+            amount: Money.of(49.99),
             method: PaymentMethod.PayPal,
             transactionId: "TXN-SPEC-002",
             status: PaymentStatus.Completed
@@ -385,7 +385,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
         let paymentDb.Payment payment = paymentDb.Payment.create({
             orderId: uuid(),
             customerId: uuid(),
-            amount: Money.of(175.50, Currency.USD),
+            amount: Money.of(175.50),
             method: PaymentMethod.CreditCard,
             transactionId: "TXN-SPEC-003",
             status: PaymentStatus.Processing
@@ -400,7 +400,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
         let paymentDb.Payment payment = paymentDb.Payment.create({
             orderId: uuid(),
             customerId: uuid(),
-            amount: Money.of(220.00, Currency.USD),
+            amount: Money.of(220.00),
             method: PaymentMethod.DebitCard,
             transactionId: "TXN-SPEC-004",
             status: PaymentStatus.Processing,
@@ -416,7 +416,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
         let paymentDb.Payment payment = paymentDb.Payment.create({
             orderId: uuid(),
             customerId: uuid(),
-            amount: Money.of(89.99, Currency.USD),
+            amount: Money.of(89.99),
             method: PaymentMethod.PayPal,
             transactionId: "TXN-SPEC-005",
             status: PaymentStatus.Completed
