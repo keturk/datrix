@@ -74,16 +74,13 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             return bookDb.Book.where(status: status).count();
         }
 
-        // '.limit()' and '.offset()' enable pagination
+        // '.page(request)' pages a chain: one window of rows plus the total the whole chain selects
         @path('/books/paginated')
-        get(Int page, Int pageSize) : auth(public) ->Array<bookDb.Book> {
-            let Int offset = (page - 1) * pageSize;
+        get(PageRequest page) : auth(public) ->Page<bookDb.Book> {
             return bookDb.Book
             .where(status: BookStatus.Available)
             .orderBy(createdAt: desc)
-            .limit(pageSize)
-            .offset(offset)
-            .all();
+            .page(page);
         }
 
         // Chained query: multiple .where() clauses combine as AND conditions

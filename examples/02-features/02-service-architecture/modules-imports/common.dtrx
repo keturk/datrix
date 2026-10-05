@@ -2,7 +2,7 @@
 // 'module' defines a shared namespace for reusable types, traits, constants, and functions
 // Modules are not services - they contain no infrastructure blocks (rdbms, pubsub, etc.)
 // Other files import from modules using 'from ... import ...'
-// BaseEntity, Pagination, PaginationResult, paginate(), Auditable, SoftDeletable,
+// BaseEntity, Auditable, SoftDeletable,
 // GeoLocation (datrix.geo), and PriceRange (datrix.billing) are provided by the Datrix standard library.
 module library.common {
 

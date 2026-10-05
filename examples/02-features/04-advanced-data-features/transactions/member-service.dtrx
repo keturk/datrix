@@ -30,12 +30,6 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
         MembershipType membershipType;
     }
 
-    // MemberSearchResult wraps query results with pagination metadata
-    struct MemberSearchResult {
-        Array<memberDb.Member> members;
-        JSON pagination;
-    }
-
     rdbms memberDb {
 
         entity Member extends BaseEntity {
@@ -74,7 +68,7 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
 
         // Advanced search endpoint combining fulltext, filtering, and pagination
         @path('/search')
-        get(String? search, MembershipType? type, Int page = 1, Int perPage = 20) : auth(required, providers: [member]) -> MemberSearchResult {
+        get(String? search, MembershipType? type, PageRequest page) : auth(required, providers: [member]) -> Page<memberDb.Member> {
             // '.query()' starts a chainable query builder
             let JSON query = memberDb.Member.query();
 
@@ -87,26 +81,12 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
                 query = query.where(membershipType: type);
             }
 
-            // '.count()' returns the number of matching records
-            let Int total = query.count();
-            // Chained query: .orderBy() sorts, .offset() skips, .limit() restricts result count
-            let Array<Member> members = query
+            // '.page(request)' ends the chain with one window of rows plus the total number of
+            // rows the whole chain selects; the request carries the window's offset and limit
+            return query
             .orderBy(lastName: asc)
             .orderBy(firstName: asc)
-            .offset((page - 1) * perPage)
-            .limit(Math.min(perPage, 50))
-            .all();
-
-            return {
-                members: members,
-                pagination: {
-                    page: page,
-                    perPage: perPage,
-                    total: total,
-                    totalPages: Math.ceil(total / perPage)
-                }
-
-            };
+            .page(page);
         }
 
         @path('/by-membership/:membershipNumber')

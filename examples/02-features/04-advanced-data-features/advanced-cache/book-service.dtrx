@@ -611,13 +611,11 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         @retry(maxAttempts: 3)
         @path('/books/search')
         // '.fulltext(query)' performs natural-language search across fulltext-indexed fields
-        get(String query, Int? limit, Int? offset) : auth(public) -> Array<catalog.Book> {
+        get(String query, PageRequest page) : auth(public) -> Page<catalog.Book> {
             return catalog.Book
             .fulltext(query)
             .where(status: BookStatus.Available)
-            .limit(limit ?? 20)
-            .offset(offset ?? 0)
-            .all();
+            .page(page);
         }
 
         // Endpoint that delegates to the API-level helper function

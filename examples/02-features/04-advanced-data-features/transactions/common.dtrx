@@ -1,7 +1,7 @@
 
 // Modules group shared definitions (entities, traits, structs, constants, functions)
 // that can be imported by multiple services
-// BaseEntity, Pagination, PaginationResult, paginate(), GeoLocation (datrix.geo),
+// BaseEntity, GeoLocation (datrix.geo),
 // and PriceRange (datrix.billing) are provided by the Datrix standard library.
 module library.common {
 
