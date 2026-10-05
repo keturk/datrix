@@ -79,7 +79,7 @@ from dev.code_scan import (  # noqa: E402
     select_packages,
     write_state,
 )
-from dev.generate_test_rules import seed_topics_from_index  # noqa: E402
+from dev.generate_test_rules import Proposal, drop_unknown_see_refs, seed_topics_from_index  # noqa: E402
 from dev.logic_map import parse_markers  # noqa: E402
 from metrics.dead_code_report import Finding  # noqa: E402
 from shared.local_llm import LocalLlmPool, LocalLlmSettings  # noqa: E402
@@ -283,6 +283,31 @@ def check_wrapped_rule_lines_belong_to_the_rule() -> None:
     assert described.description == "A description line." and described.rules == ["R1"], described
 
 
+def check_marker_shaped_lines_inside_strings_are_not_markers() -> None:
+    source = (
+        '"""Module docstring.\n\n    # @canonical(doc/example): Shown as syntax, not declared\n"""\n'
+        f"FIXTURE = '''{_TEXT_PY}'''\n"
+        'TEMPLATE = f"""\n# @pattern(fstring/example): {FIXTURE}\n"""\n'
+        "# @invariant(real/marker): Declared in a comment\n"
+        "X = 1\n"
+    )
+    topics = [m.topic for m in parse_markers(source.splitlines(), "strings.py")]
+    assert topics == ["real/marker"], f"a marker-shaped line inside a string literal was extracted: {topics}"
+
+
+def check_generate_test_rules_drops_see_refs_to_unknown_topics() -> None:
+    def proposal(topic: str, see: list[str]) -> Proposal:
+        return Proposal(file="tests/test_x.py", qualname=topic, name=topic, def_line=1, col=0,
+                        applicable=True, topic=topic, see=see)
+
+    first = proposal("text/splitting", ["text/to-words", "text/invented", "text/joining"])
+    second = proposal("text/joining", ["text/splitting"])
+    dropped = drop_unknown_see_refs([first, second], frozenset({"text/to-words"}))
+    assert dropped == 1, dropped
+    assert first.see == ["text/to-words", "text/joining"], first.see
+    assert second.see == ["text/splitting"], second.see
+
+
 def check_module_names_follow_the_configured_roots() -> None:
     cases = {
         "alpha/src/alpha_pkg/text.py": "alpha_pkg.text",
@@ -429,8 +454,9 @@ def check_canonical_matches_topic_segments_and_hides_test_rules() -> None:
 
 def check_generate_test_rules_seeds_topics_from_the_index() -> None:
     with _workspace() as session:
-        topics = seed_topics_from_index(session.workspace)
-        assert topics == {"text/splitting"}, topics
+        seed = seed_topics_from_index(session.workspace)
+        assert seed.test_rules == {"text/splitting"}, seed.test_rules
+        assert seed.every == {"text/splitting", "text/to-words", "fixture/broken-file"}, seed.every
 
 
 # ===========================================================================
@@ -993,6 +1019,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_extract_records_symbols_imports_and_references,
     check_extract_keeps_markers_of_a_file_with_a_syntax_error,
     check_wrapped_rule_lines_belong_to_the_rule,
+    check_marker_shaped_lines_inside_strings_are_not_markers,
     check_module_names_follow_the_configured_roots,
     check_refresh_indexes_only_what_git_sees_minus_excludes,
     check_refresh_parses_only_changed_content,
@@ -1003,6 +1030,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_search_matches_identifier_words_and_docstrings,
     check_canonical_matches_topic_segments_and_hides_test_rules,
     check_generate_test_rules_seeds_topics_from_the_index,
+    check_generate_test_rules_drops_see_refs_to_unknown_topics,
     check_summaries_are_stored_by_content_hash_and_searchable,
     check_summarize_lock_is_exclusive_and_breaks_when_stale,
     check_summarize_lock_of_a_dead_process_is_taken_over_at_once,
