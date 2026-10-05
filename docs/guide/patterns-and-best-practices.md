@@ -346,34 +346,29 @@ rest_api ProductAPI : basePath('/api/v1') {
 
 ### Pattern: Pagination
 
-**Problem:** Large result sets need pagination.
+**Problem:** Large result sets need pagination, and a client that shows page numbers needs the total.
 
-**Solution:** Use page/limit parameters (auto-generated for resources).
+**Solution:** Return `Page<T>` and end the chain with `.page(request)`. The route takes one `PageRequest`
+(its `offset` and `limit`, always counted in rows); the generated route binds it from the backend's own
+query pair and bounds the size at `MAX_PAGE_SIZE`.
 
 ```dtrx
 @path('/orders')
-get listOrders(
-    Integer? page = 1,
-    Integer? limit = 20,
-    OrderStatus? status
-) -> PaginatedResponse<Order> {
-    let query = db.Order.filter(status == status);
+get listOrders(PageRequest page, OrderStatus? status) -> Page<db.Order> {
+    let JSON query = db.Order.where(customerId: Auth.user().id);
 
-    let total = query.count();
-    let offset = (page - 1) * limit;
-    let orders = query.skip(offset).limit(limit);
+    if (status != null) {
+        query = query.where(status: status);
+    }
 
-    return PaginatedResponse {
-        data: orders,
-        total: total,
-        page: page,
-        limit: limit,
-        pages: Math.ceil(total / limit)
-    };
+    return query.orderBy(createdAt: desc).page(page);
 }
 ```
 
-**Note:** Resource endpoints automatically support pagination via `?page=1&limit=20`.
+The response is `{ items, total, offset, limit }`: `total` counts the same chain the items are cut
+from, and `offset`/`limit` are the window the server applied.
+
+**Note:** Resource list endpoints are `Page<T>` routes too, so they page with no code.
 
 ---
 

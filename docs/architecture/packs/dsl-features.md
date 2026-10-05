@@ -33,6 +33,18 @@ An entity whose rows record a unit of work declares a `work { }` block (entity *
 
 Syntax and diagnostics: [datrix-syntax-reference.md — Work Contracts](../../../../datrix-language/docs/reference/datrix-syntax-reference.md#work-contracts-work--).
 
+## Paginated Responses: `Page<T>`, `PageRequest`, `.page(...)`
+
+A route pages exactly when it is a `GET` returning **`Page<T>`** (`endpoint_is_paginated` in `datrix_common.datrix_model.api`), takes one **`PageRequest`** (a builtin value struct: `Int offset`, `Int limit`, always counted in rows) and ends its chain with the **`.page(request)`** query terminal. A `Page<T>` serializes as `{items, total, offset, limit}` (`PAGE_MEMBERS` in `datrix_common.datrix_model.pagination`, read by every serializer, decoder and template); `offset`/`limit` are the window the server applied.
+
+- **Not a collection.** `PageType` is deliberately not a `CollectionKind`: a page is not iterable rows, so it cannot flow through the sites that treat a `CollectionType` as rows. Every resolver implements `TypeVisitor.visit_page`; a target without one cannot instantiate.
+- **One terminal, one count.** `.page` lowers once, in `datrix_codegen_common.algorithms.entity_query_chain.transpile_page_terminal`; each language supplies syntax only. The count runs over the same chain with order, offset and limit removed, so it carries every `where`/`whereIn`/`fulltext`/tenant predicate the items carry and can never see a row the items could not (Python `page_query`, TypeScript `getResultAndCount`).
+- **One bound.** The offset/limit pair is bound from `pagination_query_param_rows`, which carries `minimum`/`maximum`/`default` from `datrix.foundation` (`MAX_PAGE_SIZE`, `DEFAULT_PAGE_SIZE`); out-of-range input is refused, never clamped. A backend whose declared position is a page index converts at its handler boundary (`PageRequestBinding`).
+- **Derived lists page too.** The resource `list` operation, the empty-body `LIST`/`LIST_BY_FIELD` derivations, view lists and nested relationship lists all produce `Page<E>`; an empty-body list declared `Array<E>` is `API023`.
+- **Clients.** A service-to-service call sends its `PageRequest` in the callee's declared pair (`EndpointContract.page_window`) and decodes the envelope; a browser/mobile client types the response `Page<T>`, and its `PagedBinding` loads one page per request and numbers pages from `total` (see [frontend-clients](./frontend-clients.md)).
+
+Diagnostics `API020`–`API023`, `UI042`; syntax: [datrix-syntax-reference.md — Windows and pages](../../../../datrix-language/docs/reference/datrix-syntax-reference.md#windows-and-pages).
+
 ## Extern Services
 
 Contract-only declarations for external libraries/tools Datrix does not generate; consumed via `uses`.

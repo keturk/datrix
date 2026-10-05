@@ -910,13 +910,13 @@ An empty REST endpoint body means one of three things, decided once from the rou
 - a declared **no-op**: the route returns `Void` (or nothing);
 - an **error**, `BODY003`, generation never starts.
 
-A row matches only when **every declared parameter is consumed**: an empty body never silently ignores a parameter that scopes it. Pagination parameters (`skip`, `limit`) are the generator's and are never declared.
+A row matches only when **every declared parameter is consumed**: an empty body never silently ignores a parameter that scopes it. A list row declares its one `PageRequest` parameter and returns `Page<E>`; the backend's offset/limit query pair is the generator's and is never declared. A derived list always pages, so an empty-body list returning `Array<E>` is `API023`.
 
 | Meaning | Method | Path parameters | Other declared parameters | Returns |
 |---|---|---|---|---|
 | detail | `GET`, path ends in the key placeholder | exactly one: `E`'s primary key | none | `E` |
-| list | `GET` | none | none | `Array<E>` |
-| list by field | `GET` | exactly one: a non-unique indexed field of `E` (the path may end in its placeholder, `GET /member/:memberId`) | none | `Array<E>` |
+| list | `GET` | none | exactly one `PageRequest` | `Page<E>` |
+| list by field | `GET` | exactly one: a non-unique indexed field of `E` (the path may end in its placeholder, `GET /member/:memberId`) | exactly one `PageRequest` | `Page<E>` |
 | create | `POST` | none | exactly one body parameter of type `E` | `E` |
 | update | `PUT`, `PATCH`, path ends in the key placeholder | exactly one: `E`'s primary key | exactly one body parameter of type `E` | `E` |
 | delete | `DELETE`, path ends in the key placeholder | exactly one: `E`'s primary key | none | `Void` |

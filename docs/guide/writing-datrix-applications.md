@@ -796,10 +796,12 @@ The call requires a matching `uses ProductService;` / discovery dependency. Argu
 
 Generated list endpoints support:
 
-**Pagination:**
+**Pagination** (a route returning `Page<T>`; the query pair is the backend's own, shown here for a row-offset backend):
 ```
-GET /orders?page=1&limit=20
+GET /orders?skip=0&limit=20
 ```
+The answer is the envelope `{ "items": [...], "total": 340, "offset": 0, "limit": 20 }`. A size above
+`MAX_PAGE_SIZE` or a negative position is refused with a request-validation problem.
 
 **Filtering (if field has `: filterable`):**
 ```

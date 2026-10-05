@@ -126,7 +126,7 @@ The capture mechanism integrates with each language's existing event infrastruct
 | Language | Mechanism |
 |----------|-----------|
 | **Python** | Producer spy replaces the real producer singleton. The spy implements the same typed interface but appends events to an internal list instead of publishing to a broker. |
-| **TypeScript** | Wildcard listener on `EventEmitter2` captures all emitted events into a list. |
+| **TypeScript** | A generated `EventSpy` records each dispatched event (name and payload) into a list; a `dispatch` in a spec-test body records into it instead of publishing. |
 
 The spy is reset before each test — every test starts with an empty event list.
 
