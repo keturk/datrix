@@ -253,13 +253,22 @@ def _line_hit(line: str, next_line: str, rel: str = "") -> str | None:
 
 def _file_hits(path: str, rel: str) -> list[tuple[int, str, str]]:
     """(lineno, label, line) for every reference in the file at *path*."""
-    if rel in ALLOWLIST:
-        return []
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
-            lines = handle.read().splitlines()
+            text = handle.read()
     except OSError:
         return []
+    return text_hits(text, rel)
+
+
+def text_hits(text: str, rel: str) -> list[tuple[int, str, str]]:
+    """(lineno, label, line) for every reference in *text*, judged as the file *rel* would be.
+
+    The edit-time entry: a hook judges content before it is written, so it cannot hand over a path.
+    """
+    if rel in ALLOWLIST:
+        return []
+    lines = text.splitlines()
     hits: list[tuple[int, str, str]] = []
     for lineno, line in enumerate(lines, 1):
         next_line = lines[lineno] if lineno < len(lines) else ""
@@ -304,7 +313,7 @@ def scan(roots: list[str], workspace: str = WORKSPACE_ROOT) -> list[tuple[str, i
     return hits
 
 
-def _in_scanned_tree(rel: str) -> bool:
+def in_scanned_tree(rel: str) -> bool:
     """True when workspace-relative *rel* is a file :func:`scan` would visit under ``default_roots``."""
     parts = rel.split("/")
     if len(parts) < 3 or not parts[0].startswith(SHOWCASE_REPO):
@@ -323,7 +332,7 @@ def scan_paths(rel_paths: list[str], workspace: str = WORKSPACE_ROOT) -> list[tu
     hits: list[tuple[str, int, str, str]] = []
     for rel in rel_paths:
         rel = rel.replace("\\", "/")
-        if not _in_scanned_tree(rel):
+        if not in_scanned_tree(rel):
             continue
         path = os.path.join(workspace, rel)
         if not os.path.isfile(path):
