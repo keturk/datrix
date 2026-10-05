@@ -21,6 +21,9 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from shared.local_llm import LocalLlmPool
+from shared.local_reading import MAX_CHUNK_CHARS
+
 from assist.common import (
     FENCE,
     ContentFilter,
@@ -34,8 +37,6 @@ from assist.common import (
     string_list,
     workspace_label,
 )
-from shared.local_llm import LocalLlmPool
-from shared.local_reading import MAX_CHUNK_CHARS
 
 LOG = logging.getLogger(__name__)
 

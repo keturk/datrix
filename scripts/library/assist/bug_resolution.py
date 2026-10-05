@@ -20,9 +20,10 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from assist.common import AssistError, ContentFilter, parallel, read_text, workspace_label
 from shared.framework_repos import framework_repos
 from shared.local_llm import ChatRequest, LocalLlmPool, LocalLlmUnavailable
+
+from assist.common import AssistError, ContentFilter, parallel, read_text, workspace_label
 
 LOG = logging.getLogger(__name__)
 

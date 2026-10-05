@@ -21,10 +21,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from assist.common import ContentFilter, markdown_sections, parallel, read_text, workspace_label
 from shared.framework_repos import framework_repos
 from shared.local_llm import LocalLlmPool
 from shared.local_reading import ReadScope, ask_local, read_section
+
+from assist.common import ContentFilter, markdown_sections, parallel, read_text, workspace_label
 
 LOG = logging.getLogger(__name__)
 

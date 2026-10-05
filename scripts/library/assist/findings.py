@@ -21,8 +21,11 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from shared.local_llm import LocalLlmPool
+
 from assist.common import (
     ContentFilter,
+    ask_json,
     citations_in,
     object_list,
     parallel,
@@ -30,9 +33,7 @@ from assist.common import (
     section_body,
     string_list,
     workspace_label,
-    ask_json,
 )
-from shared.local_llm import LocalLlmPool
 
 LOG = logging.getLogger(__name__)
 

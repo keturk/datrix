@@ -23,12 +23,13 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from assist.common import markdown_sections, parallel, workspace_label
-from assist.phase_tasks import PhaseTask, edit_sites, review_sites
 from code_index.queries import QueryError, find_symbol, outline
 from code_index.session import open_session
 from shared.local_llm import LocalLlmPool
 from shared.local_reading import ReadScope, ReadScopeError, ask_local, read_section
+
+from assist.common import markdown_sections, parallel, workspace_label
+from assist.phase_tasks import PhaseTask, edit_sites, review_sites
 
 LOG = logging.getLogger(__name__)
 
