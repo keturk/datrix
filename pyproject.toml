@@ -37,6 +37,9 @@ target-version = "py311"
 # are not this repo's code to restyle. See
 # datrix-common/docs/contributing/agent_skills/available-skills.md.
 exclude = ["claude-config/.claude/skills"]
+# Where scripts import from: the shared package root (datrix_scripts) and each folder's lib/,
+# which is its entry scripts' sys.path[0]. Both are first-party to the import sorter.
+src = ["scripts/common/lib", "scripts/*/lib", "scripts/gates/*/lib"]
 
 # Deliberately narrower than the datrix-* packages' ["E","F","I","N","W","UP",
 # "TID251"]: this tree is repo-level tooling, not shipped generator source, so

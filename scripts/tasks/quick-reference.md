@@ -166,3 +166,27 @@ Validates task files **against the tree as it is now**, deterministically and wi
 | **Orientation required** | `.\tasks\validate-task.ps1 -Phase 62 -RequireOrientation` | A task with no `## Orientation` is an error (for tasks written to the new template) |
 
 **Parameters:** `-Task <file>[,<file>...]`, `-Phase <NN>`, `-Strict`, `-RequireOrientation`, `-BaseDir`. **Exit codes:** 0 = no errors (and, with `-Strict`, no warnings), 1 = errors, 2 = usage error.
+
+---
+
+## `tasks\task-orientation-gate.ps1`
+
+Behaviour checks for task orientation and citation validation (`common/lib/datrix_scripts/task_orientation.py`, `tasks/lib/task_citations.py`, `tasks/lib/validate_task.py`, wrapped by `tasks\validate-task.ps1`). Each check builds a real workspace in a temporary directory (framework repositories with real Python, task files under `.tasks/phase-NN`) and runs the real code index over it; explanations are answered by a real model server on loopback, never the network's. The checks cover:
+
+- the `## Orientation` block read by the one task parser (`parse_task_file`), and prose lines that exclude code fences
+- every malformed entry rejected with what to write instead; every question that asks where something is defined or who calls it rejected (a local model invents those answers; `symbol` / `refs` answer them exactly)
+- the resolver: facts exact from the index, a stale entry called out as a stale premise, an explanation marked as a lead, no model server leaving the facts intact
+- the citation checker: missing file / line past the end / backwards range are errors; an abbreviated path, a relative path or bare file name that several repositories carry, and a file another task of the phase creates are not errors; a name written beside a citation that is nowhere near its lines is a warning; names elsewhere in the sentence, language names and code fences are ignored
+- the validator end to end (`--phase`, `--require-orientation`) and its exit codes
+
+It is a repo-level validation **script**, not a pytest suite.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\tasks\task-orientation-gate.ps1` | Run every check |
+| **One area** | `.\tasks\task-orientation-gate.ps1 -Only check_citations` | Checks whose name starts with the prefix |
+| **Harness self-test** | `.\tasks\task-orientation-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
+
+**Parameters:** `-Only`, `-HarnessSelfTest`, `-Dbg`
+
+**Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.

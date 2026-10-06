@@ -108,7 +108,7 @@ Generates SQL DDL (PostgreSQL, MySQL). Seed DML (PostgreSQL `ON CONFLICT ... DO 
 
 Neither declares `datrix-codegen-common`: the import-boundary scanner forbids them every `datrix_codegen_common` import in `src/`.
 
-Every edge is held equal to the import set by `datrix/scripts/test/manifest-import-parity-gate.ps1`.
+Every edge is held equal to the import set by `datrix/scripts/gates/parity/manifest-import-parity-gate.ps1`.
 
 ---
 
@@ -429,7 +429,7 @@ If you find yourself editing a package list to make a new language visible, that
 
 Only genuinely curated, human-authored content needs a deliberate edit:
 
-1. **`ARCHITECTURE_DOC_FILES`** in `datrix/scripts/test/check-docs-conformance.py` — add the new package's `docs/architecture.md`. This tuple is a literal by design (a curated doc set, never a glob), so it is the one registry that does not self-update. Update the doc's own stated file count at the same time.
+1. **`ARCHITECTURE_DOC_FILES`** in `datrix/scripts/gates/repo-hygiene/lib/check_docs_conformance.py` — add the new package's `docs/architecture.md`. This tuple is a literal by design (a curated doc set, never a glob), so it is the one registry that does not self-update. Update the doc's own stated file count at the same time.
 2. **Package catalogs and counts** — this file (the count in [Repository Architecture](#repository-architecture) and the catalog above), [architecture-cheat-sheet.md](../architecture-cheat-sheet.md) (`## Packages (N)` and its table), and [architecture-overview.md](../architecture-overview.md) (the dependency graph and the install list).
 3. **[import-boundaries.md](../../../../datrix-common/docs/architecture/import-boundaries.md)** — confirm the new package is covered by the general "language generators must not cross-import siblings" rule. That rule is stated once, over the whole class, precisely so it does not need an O(N²) row per language pair.
 4. **The `datrix.languages` entry-point group** in [datrix-common-api.md](../../../../datrix-common/docs/datrix-common-api.md) — list the new plugin.

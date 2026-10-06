@@ -11,7 +11,7 @@
 | If you are… | Read |
 |---|---|
 | Adding/changing a language, platform or frontend target; plugin entry points; capability declarations; identity/flavor/runtime validation; a package dependency edge or import boundary; a domain extension | [target-plugins](./packs/target-plugins.md) |
-| Seeing two targets behave differently; touching `capability_gaps`, a parity gate, a portable config field, telemetry/diagnostics; a `datrix/scripts/test/*-gate.ps1` is red | [parity-and-obligation](./packs/parity-and-obligation.md) |
+| Seeing two targets behave differently; touching `capability_gaps`, a parity gate, a portable config field, telemetry/diagnostics; a `datrix/scripts/gates/*/*-gate.ps1` is red | [parity-and-obligation](./packs/parity-and-obligation.md) |
 | Moving, hoisting or deduplicating code; a duplicate-body / shared-vocabulary / manifest-import gate is red; deciding which package owns a module | [shared-layer-and-one-fact](./packs/shared-layer-and-one-fact.md) |
 | Touching `auth(...)`, identity providers, guards, tenancy, `@crossTenant`, `@produces`, API keys, revocation | [auth](./packs/auth.md) |
 | Touching Angular/Flutter or any client target, the client/UI contract, the `app` container, `UI0xx` diagnostics | [frontend-clients](./packs/frontend-clients.md) |
@@ -47,7 +47,7 @@ Eighteen core packages plus optional **datrix-extensions**. Dependencies point d
 
 Full per-package dependency detail and the layering invariants: [target-plugins](./packs/target-plugins.md). Repo tooling keys off what is on disk (a `pyproject.toml`/`src/` joins venv install and scans; a test suite joins `test.ps1`), so nothing is re-listed by hand. Repo boundaries and placement: `.claude/rules/repo-boundaries.md`.
 
-- **Not a package:** the **datrix** showcase repo (`D:\datrix\datrix`) holds docs/examples/scripts only — **no test suite**, no product or cross-package tests; repo-level validation is scripts under `datrix/scripts/test/`.
+- **Not a package:** the **datrix** showcase repo (`D:\datrix\datrix`) holds docs/examples/scripts only — **no test suite**, no product or cross-package tests; repo-level validation is scripts under `datrix/scripts/gates/` (and the test-tooling gates under `datrix/scripts/test/`).
 - **datrix-vscode** is TypeScript, not installable; its Node suite runs under `test.ps1` ([language-server](./packs/language-server.md)).
 
 ## Entity Access (CRITICAL)
@@ -76,7 +76,7 @@ Each is held by an executable gate; the pack and decision named give the check.
 6. **Zero-environment runtime; credentials fail closed;** a missing value is never defaulted ([runtime-and-deploy](./packs/runtime-and-deploy.md)).
 7. **Every seam gets a set comparison in code** (producer vs consumer), landed as a validator or test.
 8. **One import path per symbol;** no upward imports ([target-plugins](./packs/target-plugins.md)).
-9. **Connection-bearing surfaces walk the realized or connected block set.** What a service connects to (cache clients, settings, connection keys, network reach, access grants) is derived from `realized_cache_blocks(service)` (its own blocks plus the shared ones it consumes through `uses`), never from the service's own block alone; every platform proves it supplied each key the connection surface declares (`require_cache_keys_supplied`). Held by `datrix/scripts/test/shared-cache-realization-gate.ps1`.
+9. **Connection-bearing surfaces walk the realized or connected block set.** What a service connects to (cache clients, settings, connection keys, network reach, access grants) is derived from `realized_cache_blocks(service)` (its own blocks plus the shared ones it consumes through `uses`), never from the service's own block alone; every platform proves it supplied each key the connection surface declares (`require_cache_keys_supplied`). Held by `datrix/scripts/gates/realization/shared-cache-realization-gate.ps1`.
 
 10. **One async-hosting decision.** Whether a service's consumers, queue workers and jobs run in its web app (`hosting = "inProcess"`) or in dedicated runtimes is answered once, by the kernel's `resolve_service_async_hosting`, and every platform and language realizes the answer from the kernel `InProcessHostingPlan`; a target never carries its own "supports in-process" flag. A host that suspends idle processes is refused, never silently degraded.
 

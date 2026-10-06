@@ -1,5 +1,5 @@
 # Validate task files against the tree as it is now: the ## Orientation block resolves, and every
-# path:line citation still points at what it says (see library/tasks/validate_task.py).
+# path:line citation still points at what it says (see tasks/lib/validate_task.py).
 # Usage: .\scripts\tasks\validate-task.ps1 [-Task <file>[,<file>...]] [-Phase <NN>] [-Strict] [-RequireOrientation] [-BaseDir <dir>]
 
 [CmdletBinding()]
@@ -14,8 +14,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\library"
-$PythonScript = Join-Path $libraryDir "tasks\validate_task.py"
+$PythonScript = Join-Path $ScriptDir "lib\validate_task.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force

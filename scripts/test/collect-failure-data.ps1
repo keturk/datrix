@@ -4,14 +4,14 @@
  Collect per-cluster failure data from a structured test-results run.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs collect_failure_data.py.
+ Activates the Datrix virtual environment and runs datrix_scripts.collect_failure_data.
  Resolves the representative entry of every error/failure cluster in the
  run's index.json, embeds the tail of its detail log and a ready-to-run
  single-test command, and writes failure-data.json into the run directory.
  Clusters sharing one pattern are grouped into families (one traceback tail
  each), long error messages are cut with a pointer to their log_file, and the
  first -LlmHintLimit families get an advisory hint from a local model server
- (library/shared/local_llm.py). A hint is a hypothesis to verify, never a verdict.
+ (common/lib/datrix_scripts/local_llm.py). A hint is a hypothesis to verify, never a verdict.
 
 .PARAMETER NoLlmHints
  Write no local-model hints (families and message caps still apply).
@@ -21,7 +21,7 @@
 
 .PARAMETER LocalMachines
  Machines to search for model servers, in preference order. Omit to search the
- default list in library/shared/local_llm.py.
+ default list in common/lib/datrix_scripts/local_llm.py.
 
 .PARAMETER LlmModel
  Models to use for hints, best first. Omit to use any model already in memory.
@@ -85,12 +85,11 @@ $ErrorActionPreference = "Stop"
 # Get the directory where this script is located
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# Get library directory path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\library"
-$PythonScript = Join-Path $libraryDir "test\collect_failure_data.py"
-
 # Import common modules
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
+# Shared with the red-run digest, so it lives in the shared scripts package and runs as a module.
+$PythonModule = "datrix_scripts.collect_failure_data"
+$PythonScript = Join-Path $commonDir "lib\datrix_scripts\collect_failure_data.py"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
@@ -116,7 +115,7 @@ try {
   exit 1
  }
 
- $pythonArgs = @($PythonScript)
+ $pythonArgs = @("-m", $PythonModule)
  if ($SelfTest) {
   $pythonArgs += "--self-test"
  } else {

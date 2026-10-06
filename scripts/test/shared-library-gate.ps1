@@ -1,15 +1,13 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Repo-level gate absorbing the shared-library test coverage orphaned by the
- datrix showcase repo's no-pytest-suite boundary.
+ Repo-level gate for the shared scripts package and the scripts-tree layout.
 
 .DESCRIPTION
- Runs shared-library-gate.py, which re-expresses every distinct behavior class
- from the 8 orphaned pytest files under scripts/library/shared/tests/ as plain
- Python checks (no pytest, no mocks, real tempfile.TemporaryDirectory()
- fixtures). See the .py file's module docstring for the full list of modules
- covered.
+ Runs lib\shared_library_gate.py, which checks the shared scripts package
+ (common/lib/datrix_scripts) and the scripts tree layout as plain Python checks
+ (no pytest, no mocks, real tempfile.TemporaryDirectory() fixtures). See the .py
+ file's module docstring for the full list of modules covered.
 
  Exit codes:
    0 = every check passed
@@ -52,14 +50,14 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "shared-library-gate.py"
+$pythonScript = Join-Path $scriptDir "lib\shared_library_gate.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
 if (-not (Test-Path $pythonScript)) {
-    Write-Error "Error: shared-library-gate.py not found at: $pythonScript"
+    Write-Error "Error: shared_library_gate.py not found at: $pythonScript"
     exit 2
 }
 

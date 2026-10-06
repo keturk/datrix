@@ -1,6 +1,6 @@
 # Give tasks written before the ## Orientation block existed one, deterministically (no writer, no model):
 # review-list Python files the task does not edit become exact `outline:` entries, unique cited functions
-# become `symbol:` entries (see library/tasks/retrofit_orientation.py). Dry run unless -Apply.
+# become `symbol:` entries (see tasks/lib/retrofit_orientation.py). Dry run unless -Apply.
 # Usage: .\scripts\tasks\retrofit-orientation.ps1 [-Task <file>[,<file>...]] [-Phase <NN>] [-Apply] [-BaseDir <dir>]
 
 [CmdletBinding()]
@@ -14,8 +14,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\library"
-$PythonScript = Join-Path $libraryDir "tasks\retrofit_orientation.py"
+$PythonScript = Join-Path $ScriptDir "lib\retrofit_orientation.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force

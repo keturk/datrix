@@ -4,7 +4,7 @@
     First-pass review of pending changes in every Datrix repo, before commit-and-push.
 
 .DESCRIPTION
-    Wraps scripts\library\git\pre_review.py. Reviews only the lines pending changes ADD to
+    Wraps scripts\git\lib\pre_review.py. Reviews only the lines pending changes ADD to
     Python files, across every workspace repository with uncommitted changes.
 
     Definite findings, read from each file's syntax tree and reported only on added lines:
@@ -56,7 +56,7 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptsDir = Split-Path -Parent $scriptDir
-$pythonScript = Join-Path $scriptsDir "library\git\pre_review.py"
+$pythonScript = Join-Path $scriptDir "lib\pre_review.py"
 $commonDir = Join-Path $scriptsDir "common"
 . (Join-Path $commonDir "venv.ps1")
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force

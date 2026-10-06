@@ -220,7 +220,7 @@ determines its example id, its parity-baseline key, and the path registered in
   above it is a leftover of an example that no longer exists; nothing on disk can
   parse it.
 
-`scripts/test/example-registry-gate.ps1` enforces all three, alongside the rule
+`scripts/gates/repo-hygiene/example-registry-gate.ps1` enforces all three, alongside the rule
 that every example is registered in at least one `test-projects.json` test set.
 
 An example may additionally carry a **`generated/<language>-<platform>/`** snapshot of
@@ -231,9 +231,9 @@ example; it is copied verbatim from a `datrix generate` run minus build output, 
 run's `.datrix/` state, and the per-service `secrets/` directories the generated
 `.gitignore` already excludes. Regenerating is still the supported workflow.
 
-`scripts/dev/refresh-example-snapshot.ps1 -Source <system.dtrx> -Language <name>` regenerates
+`scripts/generation/refresh-example-snapshot.ps1 -Source <system.dtrx> -Language <name>` regenerates
 one snapshot in one registered language and replaces its directory with exactly what a commit
-keeps (the exclusions are asked of git, not restated). `scripts/test/example-snapshot-gate.ps1`
+keeps (the exclusions are asked of git, not restated). `scripts/gates/repo-hygiene/example-snapshot-gate.ps1`
 holds the snapshots to the registered targets: every directory is `<language>-<platform>` over
 registered `datrix.languages` and `datrix.platforms` names, each example carries one snapshot
 per registered language for every platform it carries, and every dotted `datrix_*` reference in

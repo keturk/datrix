@@ -1,6 +1,6 @@
 # Skill Scripts Quick Reference
 
-Scripts that exist for the agent skills under `.claude/skills/`: running skills as headless steps on their own models, and the mechanical skill phases done by a script or a local model. Python lives in `library/skill/`.
+Scripts that exist for the agent skills under `.claude/skills/`: running skills as headless steps on their own models, and the mechanical skill phases done by a script or a local model. Python lives in `skill/lib/`.
 
 ## Headless skill chains: `skill\implement-design.ps1`, `skill\implement-design-direct.ps1`, `skill\skill-chain.ps1`
 
@@ -30,7 +30,7 @@ The design scripts check the result between steps themselves; no model decides i
 
 ## `skill\skill-assist.ps1`
 
-**The mechanical phases of agent skills, done by a script or a local model instead of a Claude model.** Each command writes its output to `d:\datrix\.tmp\assist\` and prints the path with a one-line summary. Exact checks are exact; whatever a local model writes is checked against its inputs (citations and quotes against what it was sent, set comparisons against the source) and is marked as a lead. The skill keeps every verdict. Wrapper over `library/skill/skill_assist.py`; the logic is in `library/skill/`.
+**The mechanical phases of agent skills, done by a script or a local model instead of a Claude model.** Each command writes its output to `d:\datrix\.tmp\assist\` and prints the path with a one-line summary. Exact checks are exact; whatever a local model writes is checked against its inputs (citations and quotes against what it was sent, set comparisons against the source) and is marked as a lead. The skill keeps every verdict. Wrapper over `skill/lib/skill_assist.py`; the logic is in `skill/lib/`.
 
 | Command | Skill phase it serves | What it produces |
 |---------|-----------------------|------------------|
@@ -51,7 +51,7 @@ The design scripts check the result between steps themselves; no model decides i
 
 ## `skill\skill-assist-gate.ps1`
 
-**The gate for the skill assists:** every `library/skill/` module and the `skill-assist.ps1` command line, checked against real files and a stand-in local model server, with no network model. Run it after changing anything under `library/skill/`.
+**The gate for the skill assists:** every `skill/lib/` module and the `skill-assist.ps1` command line, checked against real files and a stand-in local model server, with no network model. Run it after changing anything under `skill/lib/`.
 
 | Mode | Command |
 |------|---------|

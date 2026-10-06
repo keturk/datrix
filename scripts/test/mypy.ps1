@@ -1,23 +1,23 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Run mypy for Datrix projects using mypy.py.
+ Run mypy for Datrix projects using lib\mypy_check.py.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs mypy.py for one or more
+ Activates the Datrix virtual environment and runs lib\mypy_check.py for one or more
  projects. Accepts the same parameters as test.ps1 for command-line symmetry.
 
  A human-only tool: no skill, hook, orchestrator, or other script invokes it
  (its only caller is affected-gate.ps1's opt-in -Mypy switch), and the agent
  contract forbids agents to run any standalone type-checker. That is enforced,
- not advisory -- guard-forbidden-commands.py refuses this script, library/mypy.py,
+ not advisory -- guard-forbidden-commands.py refuses this script, test/lib/mypy_check.py,
  the mypy/dmypy/pyright binaries, the `python -m mypy` form and
  `affected-gate.ps1 -Mypy` from any agent tool call. A person running it in his
  own terminal is not a tool call and is unaffected. The package test suites are
  the declared gate for type correctness; this wrapper exists so a person can
  type-check on demand.
 
- mypy.py passes an explicit --cache-dir under D:\datrix\.tmp\mypy-cache so the
+ mypy_check.py passes an explicit --cache-dir under D:\datrix\.tmp\mypy-cache so the
  incremental cache never lands inside a package repository: mypy writes
  .mypy_cache into its working directory, and one sweep at the default once left
  ~51,400 cache files across 15 git repos and failed the ignored-source gate.
@@ -29,7 +29,7 @@
  Run mypy for all Datrix projects that have pyproject.toml.
 
 .PARAMETER Coverage
- Accepted for parity with test.ps1; ignored by mypy.py.
+ Accepted for parity with test.ps1; ignored by mypy_check.py.
 
 .PARAMETER VerboseOutput
  Enable verbose mypy output.
@@ -41,25 +41,25 @@
  Accepted for parity with test.ps1; dependency installation is handled by this wrapper.
 
 .PARAMETER Unit
- Accepted for parity with test.ps1; ignored by mypy.py.
+ Accepted for parity with test.ps1; ignored by mypy_check.py.
 
 .PARAMETER Integration
- Accepted for parity with test.ps1; ignored by mypy.py.
+ Accepted for parity with test.ps1; ignored by mypy_check.py.
 
 .PARAMETER E2E
- Accepted for parity with test.ps1; ignored by mypy.py.
+ Accepted for parity with test.ps1; ignored by mypy_check.py.
 
 .PARAMETER Fast
- Accepted for parity with test.ps1; ignored by mypy.py.
+ Accepted for parity with test.ps1; ignored by mypy_check.py.
 
 .PARAMETER Slow
- Accepted for parity with test.ps1; ignored by mypy.py.
+ Accepted for parity with test.ps1; ignored by mypy_check.py.
 
 .PARAMETER Specific
  Run mypy against a specific file, directory, or comma-separated targets.
 
 .PARAMETER Keyword
- Accepted for parity with test.ps1; ignored by mypy.py.
+ Accepted for parity with test.ps1; ignored by mypy_check.py.
 
 .PARAMETER Dbg
  Enable debug logging.
@@ -93,8 +93,7 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptsDir = Split-Path -Parent $scriptDir
-$libraryDir = Join-Path $scriptsDir "library"
-$mypyScript = Join-Path $libraryDir "mypy.py"
+$mypyScript = Join-Path $scriptDir "lib\mypy_check.py"
 
 $commonDir = Join-Path $scriptsDir "common"
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
@@ -103,7 +102,7 @@ Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 $datrixWorkspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
 
 if (-not (Test-Path $mypyScript)) {
- Write-Error "Error: mypy.py not found at: $mypyScript"
+ Write-Error "Error: mypy_check.py not found at: $mypyScript"
  exit 1
 }
 

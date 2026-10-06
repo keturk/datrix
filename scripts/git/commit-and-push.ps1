@@ -4,7 +4,7 @@
 Generate commit messages for every dirty Datrix repo and commit+push them.
 
 .DESCRIPTION
-Single entry point that wraps scripts\library\git\commit-and-push.py. The Python
+Single entry point that wraps scripts\git\lib\commit_and_push.py. The Python
 implementation splits each dirty Datrix repository's changes into themed change
 sets, generates one commit message per set, commits each set separately, and
 pushes each repo once.
@@ -30,14 +30,14 @@ Before a message is generated or anything is staged, every dirty repo's pending
 files are also scanned for a reference to a design document, a task file or an
 item label (task-NN-MM, design NNN, a lettered item label in parentheses or
 before a colon, the possessive of a bare task id -- see
-test/design-task-reference-gate.ps1). Those files are gitignored and numbered per
+gates/repo-hygiene/design-task-reference-gate.ps1). Those files are gitignored and numbered per
 machine, so a committed reference dangles after a clone. One hit aborts the whole
 run with nothing committed, naming file, line and label. There is NO skip switch:
 a reference cannot be committed.
 
 Likewise, every dirty repo's pending .py files are linted for pyflakes findings
 (ruff check --select F, run from the repo root so its per-file-ignores apply; see
-test/python-lint-correctness-gate.ps1): an unused import, an undefined name, or a
+gates/repo-hygiene/python-lint-correctness-gate.ps1): an unused import, an undefined name, or a
 test function shadowed by a same-named redefinition. The checked-in output under
 examples/**/generated/ is generator output and is not linted here. One finding aborts the whole
 run with nothing committed, naming file, line and code. There is NO skip switch;
@@ -51,7 +51,7 @@ can answer.
 
 .PARAMETER LocalMachines
 Machines (host name or IP address) to search for model servers, in preference
-order. Omit to search the default list in library/shared/local_llm.py (--help
+order. Omit to search the default list in common/lib/datrix_scripts/local_llm.py (--help
 shows it): the Dell T5820 and T7920 (RTX 3090) and the ASUS GX10.
 
 .PARAMETER LocalTimeoutMs
@@ -113,7 +113,7 @@ Every dirty repo's pending .py files are parsed, and any call to a
 datrix_common.utils.text case function whose argument is str()-wrapped,
 str()-bound in the same scope, a nested case call, or an extract_simple_name()
 call aborts the whole run with nothing committed (see
-test/polystring-case-roundtrip-gate.ps1). A name the generator re-cases is a
+gates/repo-hygiene/polystring-case-roundtrip-gate.ps1). A name the generator re-cases is a
 PolyString that already carries .snake/.pascal/...; the round trip discards
 the variants and hides that the value was a name, and it reached more than a
 thousand sites while the only check was an on-demand Semgrep warning. Pass
@@ -180,12 +180,17 @@ $ErrorActionPreference = 'Stop'
 
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $datrixRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
-$pythonScript = Join-Path $datrixRoot 'scripts\library\git\commit-and-push.py'
+$pythonScript = Join-Path $scriptDir 'lib\commit_and_push.py'
 
 if (-not (Test-Path -LiteralPath $pythonScript)) {
     Write-Error "Python implementation not found at: $pythonScript"
     exit 1
 }
+
+# The commit path imports the shared scripts package (the isolation, ignored-source,
+# lint and design-reference scanners); put it on PYTHONPATH for the child.
+. (Join-Path $scriptDir '..\common\venv.ps1')
+Set-DatrixPythonPath
 
 $workspaceRoot = Split-Path -Parent $datrixRoot
 $venvPython = Join-Path $workspaceRoot '.venv\Scripts\python.exe'
@@ -203,7 +208,7 @@ $pyArgs = @(
     '--max-commits-per-repo', $MaxCommitsPerRepo
 )
 
-# The default machine list lives only in library/shared/local_llm.py; it is overridden
+# The default machine list lives only in common/lib/datrix_scripts/local_llm.py; it is overridden
 # only when -LocalMachines is passed.
 foreach ($localMachine in $LocalMachines) {
     $pyArgs += @('--local-machine', $localMachine)

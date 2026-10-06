@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
- Repo-level gate for the skill assists (skill-assist-gate.py).
+ Repo-level gate for the skill assists (lib\skill_assist_gate.py).
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs skill-assist-gate.py, which builds real workspaces
+ Activates the Datrix virtual environment and runs lib\skill_assist_gate.py, which builds real workspaces
  in temporary directories (git repositories, task files under .tasks/phase-NN, a findings folder, a
  design folder) and checks, over the real code index and a real model server on loopback: the
  shared-context digest (touched directories, module descriptions, not-yet-created files), the
@@ -47,14 +47,14 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "skill-assist-gate.py"
+$pythonScript = Join-Path $scriptDir "lib\skill_assist_gate.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
 if (-not (Test-Path $pythonScript)) {
-    Write-Host "Error: skill-assist-gate.py not found at: $pythonScript" -ForegroundColor Red
+    Write-Host "Error: skill_assist_gate.py not found at: $pythonScript" -ForegroundColor Red
     exit 2
 }
 

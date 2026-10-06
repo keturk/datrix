@@ -4,7 +4,7 @@
  Run full-package tests, batch generation, and complete workflow (orchestrated).
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs unit_tests.py, which executes:
+ Activates the Datrix virtual environment and runs lib\run_tests.py, which executes:
  1. test.ps1 -All
  2. For each target language: generate.ps1 -All -L <lang>
  3. If generate succeeded for that language: run-complete.ps1 -All -Skip1 -Skip2 -L <lang>
@@ -35,8 +35,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\library"
-$runTestsScript = Join-Path $libraryDir "test\run_tests.py"
+$runTestsScript = Join-Path $scriptDir "lib\run_tests.py"
 
 # DatrixScriptCommon is imported BEFORE DatrixPaths: the former nested-imports
 # DatrixPaths with -Force, which would strip a prior top-level DatrixPaths import
@@ -49,7 +48,7 @@ Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 $datrixRoot = Get-DatrixRoot
 
 if (-not (Test-Path $runTestsScript)) {
- Write-Error "unit_tests.py not found at: $runTestsScript"
+ Write-Error "run_tests.py not found at: $runTestsScript"
  exit 1
 }
 

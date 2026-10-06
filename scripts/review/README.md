@@ -20,10 +20,10 @@ The Task Review System catches routine task-generation defects before execution:
 ```
 Claude Code → Generate Tasks → task-NN-TT-{slug}.md
 
-                  ↓ review.py --phase NN
+                  ↓ review.ps1 --phase NN
 
         Tier 1: Local Model Reviewer
-        first server library/shared/local_llm.py finds
+        first server datrix_scripts.local_llm finds
         (Ollama, vLLM or llama-server; fails over to the next)
         Per-task scope (32K context)
 
@@ -57,7 +57,7 @@ Claude Code → Generate Tasks → task-NN-TT-{slug}.md
 ### Review a single task
 
 ```bash
-python scripts/library/review/review.py --task d:/datrix/datrix-common/.tasks/phase-43/task-43-01-foo.md
+powershell -File scripts/review/review.ps1 --task d:/datrix/datrix-common/.tasks/phase-43/task-43-01-foo.md
 ```
 
 Output: `task-43-01-foo.review.local.json`
@@ -65,7 +65,7 @@ Output: `task-43-01-foo.review.local.json`
 ### Review an entire phase (Tier 1 only, default)
 
 ```bash
-python scripts/library/review/review.py --phase 43
+powershell -File scripts/review/review.ps1 --phase 43
 ```
 
 Output: `*.review.local.json` for each task in phase 43.
@@ -73,7 +73,7 @@ Output: `*.review.local.json` for each task in phase 43.
 ### Review with manual Tier 2 escalation
 
 ```bash
-python scripts/library/review/review.py --phase 43 --codex
+powershell -File scripts/review/review.ps1 --phase 43 --codex
 ```
 
 Runs Tier 1, then unconditionally runs Tier 2 (Codex CLI).
@@ -81,7 +81,7 @@ Runs Tier 1, then unconditionally runs Tier 2 (Codex CLI).
 ### Review with threshold escalation
 
 ```bash
-python scripts/library/review/review.py --phase 43 --codex-on-threshold
+powershell -File scripts/review/review.ps1 --phase 43 --codex-on-threshold
 ```
 
 Tier 2 runs if:
@@ -91,7 +91,7 @@ Tier 2 runs if:
 ### Review with phase-gate escalation (recommended)
 
 ```bash
-python scripts/library/review/review.py --phase 43 --codex-phase-gate
+powershell -File scripts/review/review.ps1 --phase 43 --codex-phase-gate
 ```
 
 Tier 1 runs per task. After all Tier 1 fixes applied and verified, Tier 2 runs as final quality gate.
@@ -99,7 +99,7 @@ Tier 1 runs per task. After all Tier 1 fixes applied and verified, Tier 2 runs a
 ### Re-review after applying fixes (manual verification)
 
 ```bash
-python scripts/library/review/review.py --phase 43 --verify
+powershell -File scripts/review/review.ps1 --phase 43 --verify
 ```
 
 Only re-reviews tasks with `.review.applied.json` markers. Writes `*.review.local.verified.json`.
@@ -107,10 +107,10 @@ Only re-reviews tasks with `.review.applied.json` markers. Writes `*.review.loca
 ### Choose where Tier 1 runs
 
 ```bash
-python scripts/library/review/review.py --phase 43 --local-machine 10.94.0.102 --local-model qwen3-coder:30b
+powershell -File scripts/review/review.ps1 --phase 43 --local-machine 10.94.0.102 --local-model qwen3-coder:30b
 ```
 
-Tier 1 searches the machines in `library/shared/local_llm.py` by default and uses any model already in memory. `--local-machine` and `--local-model` (each repeatable, in preference order) narrow the search; `--local-timeout-ms` sets the per-request timeout (default 180000). Each task gets up to three attempts: an answer that does not parse is asked for again, and a server that fails is dropped for the rest of the run while the next one answers.
+Tier 1 searches the machines in `common/lib/datrix_scripts/local_llm.py` by default and uses any model already in memory. `--local-machine` and `--local-model` (each repeatable, in preference order) narrow the search; `--local-timeout-ms` sets the per-request timeout (default 180000). Each task gets up to three attempts: an answer that does not parse is asked for again, and a server that fails is dropped for the rest of the run while the next one answers.
 
 ## Configuration
 
@@ -144,13 +144,13 @@ canonical_modules_cache = "d:\\datrix\\.review\\.canonical-modules-cache.json"
 /generate-tasks design-doc.md
 
 # Review locally (Tier 1 only)
-python scripts/library/review/review.py --phase 43
+powershell -File scripts/review/review.ps1 --phase 43
 
 # Apply fixes (in Claude Code)
 "Apply reviews to phase 43"
 
 # Verify fixes cleared
-python scripts/library/review/review.py --phase 43 --verify
+powershell -File scripts/review/review.ps1 --phase 43 --verify
 
 # Execute tasks
 /execute-tasks --phase 43
@@ -160,7 +160,7 @@ python scripts/library/review/review.py --phase 43 --verify
 
 ```bash
 # Review with Codex phase-gate
-python scripts/library/review/review.py --phase 43 --codex-phase-gate
+powershell -File scripts/review/review.ps1 --phase 43 --codex-phase-gate
 
 # Tier 1 runs per task
 # Apply Tier 1 fixes: "Apply reviews to phase 43"
@@ -257,17 +257,20 @@ A successful review system demonstrates:
 **Tooling:**
 ```
 scripts/review/
-  review.py                    # Orchestrator
+  review.ps1                   # Wrapper: venv, scripts PYTHONPATH, passes every argument through
   config.toml                  # Configuration
+  apply-reviews-prep.ps1       # /apply-reviews worklist
+  review-library-gate.ps1      # Behaviour checks for lib/
   prompts/
     local-reviewer.md          # Tier 1 prompt
-scripts/library/review/
-  review.py                    # Main orchestrator logic
-  review_schema.py             # JSON schema dataclasses
-  canonical_modules.py         # Module scanning + caching
-  escalation.py                # Tier 1 → Tier 2 decision logic
-  tier2_codex.py               # Codex CLI integration
-  tests/                       # Unit + integration tests
+  lib/
+    review.py                  # Orchestrator
+    review_schema.py           # JSON schema dataclasses
+    canonical_modules.py       # Module scanning + caching
+    escalation.py              # Tier 1 → Tier 2 decision logic
+    tier2_codex.py             # Codex CLI integration
+    apply_reviews_prep.py      # Worklist builder
+    review_library_gate.py     # The gate's checks
 ```
 
 **Review artifacts (per task):**

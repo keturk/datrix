@@ -39,13 +39,18 @@ Read the category-specific file for the script you need:
 
 | Category | File | Scripts |
 |----------|------|---------|
-| **Testing** | [test/quick-reference.md](test/quick-reference.md) | test.ps1, run-complete.ps1, dual-target.ps1, test-single.ps1, mypy.ps1, compare-tests.ps1, cleanup.ps1, status-*.ps1, collect-failure-data.ps1, extract-warnings.ps1, classify-run-delta.ps1, gate-verdict.ps1, affected-set.ps1, affected-gate.ps1, type-mapping-completeness.ps1, artifact-role-parity-gate.ps1, generated-suite-parity-gate.ps1, typescript-whole-system-gate.ps1, ingress-migration-conformance-gate.ps1, check-generated-file-ratchet.ps1, check-docs-conformance.ps1, check-observability-native-only.ps1, test-specific-selection-gate.ps1, run-log-exclusivity-gate.ps1, supported-domain-parity-gate.ps1, gendsl-corpus-resolution-gate.ps1, review-library-gate.ps1, test-tooling-parsing-gate.ps1, shared-library-gate.ps1, toolchain-free-suites-gate.ps1, slow-test-ratchet-gate.ps1, customer-domain-isolation-gate.ps1, ignored-source-gate.ps1, polystring-case-roundtrip-gate.ps1, python-lint-correctness-gate.ps1, design-task-reference-gate.ps1, shared-builder-reachability-gate.ps1, migration-upgrade-op-family-gate.ps1, model-realization-parity-gate.ps1, instruction-surface-gate.ps1, example-config-load-gate.ps1, shared-cache-realization-gate.ps1, shared-rdbms-realization-gate.ps1, route-wire-contract-parity-gate.ps1 |
-| **Development** | [dev/quick-reference.md](dev/quick-reference.md) | generate.ps1, syntax-checker.ps1, config-linter.ps1, compile.ps1, libcst.ps1, semgrep.ps1, ast-grep.ps1, audit.ps1, check-docs.ps1, generate-doc-fragments.ps1, cleanup-temps.ps1, conformance-gate.ps1, gendsl-census.ps1, evaluate-generated-scan.ps1, evaluate-service-scan.ps1, ... |
-| **Git** | [git/quick-reference.md](git/quick-reference.md) | status.ps1, pull.ps1, commit-and-push.ps1 (refuses to commit customer domain language — see `test/customer-domain-isolation-gate.ps1` — a tree where a `.gitignore` rule shadows a source file — see `test/ignored-source-gate.ps1` — a `to_*_case(str(name))` round trip — see `test/polystring-case-roundtrip-gate.ps1` — a pyflakes finding in a pending `.py` file — see `test/python-lint-correctness-gate.ps1` — or a design-doc, task-file or item-label reference — see `test/design-task-reference-gate.ps1`) |
-| **Metrics** | [metrics/quick-reference.md](metrics/quick-reference.md) | complexity.ps1, ruff.ps1, bandit.ps1, vulture.ps1, coverage.ps1, test-gen.ps1, duplicate.ps1, loc.ps1, ... |
+| **Testing** | [test/quick-reference.md](test/quick-reference.md) | test.ps1, run-complete.ps1, dual-target.ps1, test-single.ps1, mypy.ps1, compare-tests.ps1, cleanup.ps1, status-*.ps1, collect-failure-data.ps1, extract-warnings.ps1, classify-run-delta.ps1, gate-verdict.ps1, affected-set.ps1, affected-gate.ps1, and the test-tooling gates: shared-library-gate.ps1 (also the scripts-tree layout), runner-plugin-gate.ps1, test-tooling-parsing-gate.ps1, test-specific-selection-gate.ps1, run-log-exclusivity-gate.ps1, toolchain-free-suites-gate.ps1 |
+| **Gates** | [gates/README.md](gates/README.md) | One quick-reference per family: [parity](gates/parity/quick-reference.md) (type-mapping-completeness, supported-domain, behaviour, shared-home-body, observability-axis, manifest-import, third-party-dependency, framework-header, web-security-header, problem-type, field-error-path, artifact-role, generated-suite, block-realization, builtin-claims, body-wire-naming, route-wire-contract, enum-classifier), [realization](gates/realization/quick-reference.md) (conformance-gate, standing-conformance, typescript-whole-system, generation-determinism, ingress-migration, shared-builder-reachability, zero-environment-runtime, model-realization, pooled/shared-cache, shared-rdbms, documentation-realization, gendsl-corpus-resolution), [ratchet](gates/ratchet/quick-reference.md) (check-generated-file-ratchet, dependency-declaration, migration-upgrade-op-family, capability-gap-ledger, slow-test), [repo-hygiene](gates/repo-hygiene/quick-reference.md) (customer-domain-isolation, design-task-reference, ignored-source, polystring-case-roundtrip, python-lint-correctness, import-name-existence, check-docs-conformance, instruction-surface, cross-package-fixture-reads, enum-value-literals, handler-name-dedup, observability-native-only, emitted-escape-integrity, app-probe-path-literal, example-registry/snapshot/secret-seed/config-load) |
+| **Development** | [dev/quick-reference.md](dev/quick-reference.md) | generate.ps1, generate-doc-fragments.ps1, check-docs.ps1, code-index.ps1, logic-map-report.ps1, local-llm.ps1, ineedtoknow.ps1, code-scan.ps1, generate-test-rules.ps1, and their gates (code-index-gate.ps1, local-llm-gate.ps1, ineedtoknow-gate.ps1) |
+| **Generation** | [generation/quick-reference.md](generation/quick-reference.md) | rebuild-parser.ps1, refresh-example-snapshot.ps1, refresh-seed-datasets.ps1, status-generation.ps1, triage-failures.ps1, compare-generated.ps1, evaluate-generated-scan.ps1, evaluate-service-scan.ps1, evaluate-services.ps1, delete-generated.ps1 |
+| **Scan** | [scan/quick-reference.md](scan/quick-reference.md) | syntax-checker.ps1, config-linter.ps1, datrix-linter.ps1, datrix-format.ps1, libcst.ps1, semgrep.ps1, ast-grep.ps1, check-debug-artifacts.ps1, check-python-bytecode.ps1, extra-parens.ps1, ruff-checker.ps1, check-import-boundaries.ps1, compile.ps1, compile-any-path.ps1, audit.ps1, gendsl-census.ps1 |
+| **Workspace** | [workspace/quick-reference.md](workspace/quick-reference.md) | projects.ps1, project-structure.ps1, datrix-count.ps1, file-count.ps1, cleanup-temps.ps1, empty-folders.ps1 |
+| **Codemods** | [codemods/README.md](codemods/README.md) | run-codemod.ps1 |
+| **Git** | [git/quick-reference.md](git/quick-reference.md) | status.ps1, pull.ps1, pre-review.ps1, pre-review-gate.ps1, commit-and-push.ps1 (refuses to commit customer domain language — see `gates/repo-hygiene/customer-domain-isolation-gate.ps1` — a tree where a `.gitignore` rule shadows a source file — see `gates/repo-hygiene/ignored-source-gate.ps1` — a `to_*_case(str(name))` round trip — see `gates/repo-hygiene/polystring-case-roundtrip-gate.ps1` — a pyflakes finding in a pending `.py` file — see `gates/repo-hygiene/python-lint-correctness-gate.ps1` — or a design-doc, task-file or item-label reference — see `gates/repo-hygiene/design-task-reference-gate.ps1`) |
+| **Metrics** | [metrics/quick-reference.md](metrics/quick-reference.md) | complexity.ps1, ruff.ps1, bandit.ps1, vulture.ps1, coverage.ps1, test-gen.ps1, duplicate.ps1, loc.ps1, find-constants.ps1, ... |
 | **Visualization** | [visualize/quick-reference.md](visualize/quick-reference.md) | visualize.ps1, openapi-gen.ps1, schema-diff.ps1, schema-snapshot.ps1, all-reports.ps1, status-docs.ps1 |
-| **Tasks** | [tasks/quick-reference.md](tasks/quick-reference.md) | todo.ps1, complete.ps1, completed.ps1, cleanup.ps1, latest-phase.ps1, phase-status.ps1, plan-waves.ps1, plan-waves-multi.ps1, validate-dependencies.ps1 |
-| **Review** | [review/quick-reference.md](review/quick-reference.md) | review.py (Tier 1 + Tier 2 task file reviewer), apply-reviews-prep.ps1 |
+| **Tasks** | [tasks/quick-reference.md](tasks/quick-reference.md) | todo.ps1, complete.ps1, completed.ps1, cleanup.ps1, latest-phase.ps1, phase-status.ps1, plan-waves.ps1, plan-waves-multi.ps1, validate-dependencies.ps1, validate-task.ps1, task-orientation-gate.ps1 |
+| **Review** | [review/quick-reference.md](review/quick-reference.md) | review.ps1 (Tier 1 + Tier 2 task file reviewer), apply-reviews-prep.ps1, review-library-gate.ps1 |
 | **Skills** | [skill/quick-reference.md](skill/quick-reference.md) | implement-design.ps1, implement-design-direct.ps1, skill-chain.ps1, skill-assist.ps1, skill-assist-gate.ps1 |
 
 **Agents never run a whole test suite.** They run `test.ps1 <pkg> -Specific "…"` (files) and `test.ps1 <pkgs> -Tag <tags>` (feature tags), and list tags with `-ListTags`. Every whole-suite form — a bare package, `-All`, `-Rerun`, a tier switch, `affected-gate.ps1` — is Jon's alone and refused by `guard-full-suite-runs.py`.
@@ -133,18 +138,18 @@ Most scripts support:
 | Semgrep rules | `scripts/config/semgrep-rules/` |
 | ast-grep rules | `scripts/config/ast-grep-rules/` |
 | Metrics scripts | `scripts/metrics/` |
-| Anti-pattern scanners | `scripts/dev/libcst.ps1`, `scripts/dev/semgrep.ps1`, `scripts/dev/ast-grep.ps1` |
-| ConfigDSL lint/format | `scripts/dev/config-linter.ps1` |
+| Anti-pattern scanners | `scripts/scan/libcst.ps1`, `scripts/scan/semgrep.ps1`, `scripts/scan/ast-grep.ps1` |
+| ConfigDSL lint/format | `scripts/scan/config-linter.ps1` |
 | Code index (per machine) | `d:\datrix\.code-index\` — built and refreshed by `scripts/dev/code-index.ps1` (set up each machine once with `-Setup`) |
 | Local model servers (per machine) | `scripts/dev/local-llm.ps1` — `-Setup` puts the agents' local-model MCP tools in `d:\datrix\.mcp.json` and approves them, once per machine; `-Status`/`-Usage` show what answers and what used it (`d:\datrix\.local-llm\usage.jsonl`) |
 | Knowledge base (per machine) | `scripts/dev/ineedtoknow.ps1 "<question>"` — brief answer from the docs and earlier learned answers, or a local-model read of the closest docs that is kept only when its citations hold; database `d:\datrix\.knowledge\knowledge.db`, committed text copy of learned answers `datrix\docs\knowledge\learned\` |
 | Logic map database | `d:\datrix\.logic-map\markers.db` — rewritten by the code index whenever markers change |
 | Logic map scripts | `scripts/dev/code-index.ps1 -Canonical`, `scripts/dev/logic-map-report.ps1` |
-| Python implementations | `scripts/library/` |
+| Python implementations | `scripts/<folder>/lib/` (`scripts/gates/<family>/lib/`) beside the wrapper that runs them; shared modules in `scripts/common/lib/datrix_scripts/` |
 | Cleanup utilities | `scripts/common/CleanupUtils.psm1` |
 | Shared helpers | `scripts/common/DatrixScriptCommon.psm1` |
 | Run-log naming/claiming | `scripts/common/DatrixRunLog.psm1` |
-| Skill scripts | `scripts/skill/` — headless skill chains (each step a `claude -p` run on its skill's own model) and the skill assists; Python in `scripts/library/skill/` |
+| Skill scripts | `scripts/skill/` — headless skill chains (each step a `claude -p` run on its skill's own model) and the skill assists; Python in `scripts/skill/lib/` |
 
 ---
 
@@ -169,7 +174,7 @@ Most scripts support:
 ### Generate Single + Validate
 ```powershell
 .\dev\generate.ps1 examples/02-features/01-core-data-modeling/rest-api/system.dtrx -L python
-.\dev\compile-any-path.ps1 .\.generated\python\docker\02-features\01-core-data-modeling\rest-api\library_book_service\src
+.\scan\compile-any-path.ps1 .\.generated\python\docker\02-features\01-core-data-modeling\rest-api\library_book_service\src
 ```
 
 ### Code Review Prep
@@ -179,17 +184,17 @@ Most scripts support:
 .\metrics\ruff.ps1 -All
 .\metrics\bandit.ps1 -All
 .\metrics\duplicate.ps1 -All
-.\dev\libcst.ps1 -All
-.\dev\semgrep.ps1 -All
-.\dev\ast-grep.ps1 -All
+.\scan\libcst.ps1 -All
+.\scan\semgrep.ps1 -All
+.\scan\ast-grep.ps1 -All
 ```
 
 ### Full Cleanup
 ```powershell
-.\dev\cleanup-temps.ps1 -Force
+.\workspace\cleanup-temps.ps1 -Force
 .\test\cleanup.ps1 -Force
 .\metrics\cleanup-ruff.ps1 -Force
-.\dev\delete-generated.ps1
+.\generation\delete-generated.ps1
 ```
 
 ### Documentation Checks
@@ -200,7 +205,7 @@ Most scripts support:
 
 ### Check Generation Status
 ```powershell
-.\dev\status-generation.ps1
+.\generation\status-generation.ps1
 .\test\status-tests.ps1
 .\test\status-deploy-tests.ps1
 ```

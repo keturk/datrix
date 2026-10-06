@@ -1,13 +1,12 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Repo-level gate absorbing 2 orphaned test/tests/*.py pytest files (test-tooling-parsing-gate.py).
+ Repo-level gate for the test tooling's result parsing (lib\test_tooling_parsing_gate.py).
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs test-tooling-parsing-gate.py, which
- re-expresses the distinct behavioral classes of 2 orphaned pytest files under
- scripts/library/test/tests/ (test_compare_tests.py, test_status_tests_index.py) as a
- plain-Python check harness against test/compare_tests.py and test/status_tests.py.
+ Activates the Datrix virtual environment and runs lib\test_tooling_parsing_gate.py, a
+ plain-Python check harness (no pytest) over the result parsing of test/lib/compare_tests.py,
+ the shared datrix_scripts.status_tests, and run_complete's summary-line parsing.
 
  Exit codes:
    0 = every check passed
@@ -42,14 +41,14 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "test-tooling-parsing-gate.py"
+$pythonScript = Join-Path $scriptDir "lib\test_tooling_parsing_gate.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
 if (-not (Test-Path $pythonScript)) {
-    Write-Error "Error: test-tooling-parsing-gate.py not found at: $pythonScript"
+    Write-Error "Error: test_tooling_parsing_gate.py not found at: $pythonScript"
     exit 2
 }
 

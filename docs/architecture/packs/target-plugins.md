@@ -19,7 +19,7 @@ Open-world targets, derived conformance: [Decision 15](../architecture-overview.
 | I7 | Import-boundary allowlist empty | `import-boundary-allowlist.toml` has zero entries |
 | I8 | An identity provider type's rules (issuer, JWKS, audience, operator prerequisites) have exactly one owner — the package that integrates the provider — and no shared layer holds one; the shared identity tree is held at a hard zero (no baseline) | `check-import-boundaries.ps1 -CheckTargetLiterals` (the owned provider types are derived from the installed platform declarations; kinds `target_name_literal` and `identity_provider_member`); `datrix-common/tests/integration/identity/test_provider_type_ownership.py` (every realized type resolves to one owner); `identity_provider_type_rules` fails loud on an unowned or doubly-owned type |
 
-(The check commands are `powershell -File "d:/datrix/datrix/scripts/dev/check-import-boundaries.ps1" <flag>`.)
+(The check commands are `powershell -File "d:/datrix/datrix/scripts/scan/check-import-boundaries.ps1" <flag>`.)
 
 ## Open-World Identity, Flavors, Runtimes
 

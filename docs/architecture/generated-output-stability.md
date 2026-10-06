@@ -34,8 +34,8 @@ Every remaining check has a verdict that does not require knowing the author's i
 | Property | Where it is decided |
 |---|---|
 | Generated output compiles and its own tests pass | `generate.ps1` at `STANDARD` (compile pass per language), `run-complete.ps1` (generated project's unit + spec tests) |
-| Generation is deterministic — same code, N runs, one outcome | `datrix/scripts/test/generation-determinism-gate.ps1 -Language <name>` |
-| Every language emits the same set of domain roles for the same example | `datrix/scripts/test/artifact-role-parity-gate.ps1`, read from the **live** generated corpus (below) |
+| Generation is deterministic — same code, N runs, one outcome | `datrix/scripts/gates/realization/generation-determinism-gate.ps1 -Language <name>` |
+| Every language emits the same set of domain roles for the same example | `datrix/scripts/gates/parity/artifact-role-parity-gate.ps1`, read from the **live** generated corpus (below) |
 | Every language realizes every structural domain or carries a counted gap row for it, and realizes what it declares | `supported-domain-parity-gate.ps1`; the testkit's domain self-consistency gate inside each language package (declaration ↔ registration ↔ fixture output) |
 | A specific generator decision is preserved or ported | A test beside that code in the owning package, asserting the rendered output for a fixture |
 
@@ -85,6 +85,6 @@ byte-identical":
   one the author was working in. A shared helper consumed by a package the author never ran is
   exactly how a "neutral" refactor ships a change.
 
-`datrix/scripts/dev/compare-generated.ps1` compares `.generated` against `.generated_saved` at
+`datrix/scripts/generation/compare-generated.ps1` compares `.generated` against `.generated_saved` at
 feature level — presence of known content patterns, not a byte-level diff. It is a development
 aid, not a proof of anything.

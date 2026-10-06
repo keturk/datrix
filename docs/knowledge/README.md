@@ -4,7 +4,7 @@
 
 - **One markdown file per answer**, named by the hash of its question, so two machines learning different things never conflict.
 - **Each file records the content hash of every file its answer cites.** A machine imports a file only while those files still hash the same there; an answer never outlives the code or docs it described. A stale file stays here until the question is learned again (which overwrites it) or `ineedtoknow.ps1 -Prune` deletes it.
-- **Curated knowledge has no copy here.** It is cut from the docs themselves (see `CURATED_PATTERNS` in `scripts/library/knowledge/seed.py`), so the docs are its source.
+- **Curated knowledge has no copy here.** It is cut from the docs themselves (see `CURATED_PATTERNS` in `scripts/common/lib/datrix_scripts/knowledge/seed.py`), so the docs are its source.
 - **Nothing here is written by hand.** A file whose id is not the hash of its question is rejected. To correct an answer, ask again with `-Refresh`.
 - **After a pull**, the next `ineedtoknow.ps1` call imports new files; `-Rebuild` recreates the database from scratch.
 

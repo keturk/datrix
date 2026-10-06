@@ -40,7 +40,7 @@ datrix-language: has changes
 
 ## pull.ps1
 
-Pulls latest changes from remote for all repositories. A thin PowerShell wrapper delegates to `scripts/library/git/pull.py`.
+Pulls latest changes from remote for all repositories. A thin PowerShell wrapper delegates to `scripts/git/lib/pull.py`.
 
 ```powershell
 .\pull.ps1
@@ -74,7 +74,7 @@ Exit code 0 when every repo is updated or up to date, 1 when any conflicted, was
 
 **The single way to commit and push across all Datrix repos.**
 
-For every repository with uncommitted changes, it splits the changes into themed change sets, generates one commit message per set, commits each set separately, and pushes the repo once — in one pass, with no intermediate `commit-messages.json` file. A thin PowerShell wrapper delegates to `scripts/library/git/commit-and-push.py`, which holds the logic (change survey and grouping, message generation, and git commit/push).
+For every repository with uncommitted changes, it splits the changes into themed change sets, generates one commit message per set, commits each set separately, and pushes the repo once — in one pass, with no intermediate `commit-messages.json` file. A thin PowerShell wrapper delegates to `scripts/git/lib/commit_and_push.py`, which holds the logic (change survey and grouping, message generation, and git commit/push).
 
 ```powershell
 # Auto: first local model that answers, else Claude Code CLI; commit + push
@@ -100,8 +100,8 @@ For every repository with uncommitted changes, it splits the changes into themed
 
 1. Finds the dirty repos and runs the pre-commit checks (customer-domain isolation, ignored source, PolyString case round-trips) across all of them before anything is generated or staged.
 2. **Message source:**
-   - Searches each local machine (`-LocalMachines`) for model servers — Ollama on port 11434, OpenAI-compatible servers (vLLM, llama-server) on 8000, 8080 and 8081 — all endpoints in parallel. Nothing about a machine's servers or models is configured: what answers, and what it serves, is discovered on every run. The search, readiness and failover live in `library/shared/local_llm.py`, which every local-model script in `scripts/` shares.
-   - Candidates, best first: every model already in memory on any machine (an OpenAI-compatible server's models, models Ollama has loaded), in machine order; then models Ollama would have to load (`OLLAMA_LOAD_PREFERENCE` in `library/shared/local_llm.py`, if installed). No Ollama load is offered on a machine where an OpenAI-compatible server answered — that server holds the GPU memory the load would need.
+   - Searches each local machine (`-LocalMachines`) for model servers — Ollama on port 11434, OpenAI-compatible servers (vLLM, llama-server) on 8000, 8080 and 8081 — all endpoints in parallel. Nothing about a machine's servers or models is configured: what answers, and what it serves, is discovered on every run. The search, readiness and failover live in `common/lib/datrix_scripts/local_llm.py`, which every local-model script in `scripts/` shares.
+   - Candidates, best first: every model already in memory on any machine (an OpenAI-compatible server's models, models Ollama has loaded), in machine order; then models Ollama would have to load (`OLLAMA_LOAD_PREFERENCE` in `common/lib/datrix_scripts/local_llm.py`, if installed). No Ollama load is offered on a machine where an OpenAI-compatible server answered — that server holds the GPU memory the load would need.
    - The first candidate is readied before any change set: an Ollama model is loaded under `-LocalLoadTimeoutMs`, so a multi-minute cold load is not charged to a generate call; an OpenAI-compatible server must answer a one-token completion within `-LocalTimeoutMs`, because such a server keeps listing its model after its engine has died.
    - A candidate that fails to ready or generate (an exhausted GPU, a dead engine) is dropped for the rest of the run and the next one takes over.
    - If nothing was found, or every candidate has failed → the Claude Code CLI generates the messages. It runs as a pure text call: no tools, `--safe-mode` (no workspace CLAUDE.md, hooks or skills), and its own system prompt. With `-MessageSource local` the run errors instead.
@@ -113,7 +113,7 @@ For every repository with uncommitted changes, it splits the changes into themed
 
 ### Prerequisites
 
-- **Local path:** at least one searched machine must run a model server that answers. The default machines, in order, are listed by `python scripts/library/git/commit-and-push.py --help`: the Dell T5820 and T7920 (RTX 3090) and the ASUS GX10.
+- **Local path:** at least one searched machine must run a model server that answers. The default machines, in order, are `DEFAULT_LOCAL_MACHINES` in `common/lib/datrix_scripts/local_llm.py`: the Dell T5820 and T7920 (RTX 3090) and the ASUS GX10.
 - **Claude fallback:** the Claude Code CLI must be installed and available in PATH:
 
   ```bash

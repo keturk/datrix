@@ -61,9 +61,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\library"
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-$pythonScript = Join-Path $libraryDir "visualize\openapi_gen.py"
+$pythonScript = Join-Path $scriptDir "lib\openapi_gen.py"
 
 . (Join-Path $commonDir "venv.ps1")
 

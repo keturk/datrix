@@ -1,6 +1,6 @@
 [tier1]
-# Tier 1 runs on whichever local model server shared/local_llm.py discovers; narrow
-# the search with review.py --local-machine / --local-model, not here.
+# Tier 1 runs on whichever local model server datrix_scripts.local_llm discovers; narrow
+# the search with review.ps1 --local-machine / --local-model, not here.
 context_window = 32768   # sent to Ollama as num_ctx; its default window truncates a task prompt
 
 [tier2]

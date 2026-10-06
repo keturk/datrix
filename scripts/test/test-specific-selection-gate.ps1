@@ -76,14 +76,14 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "test-specific-selection-gate.py"
+$pythonScript = Join-Path $scriptDir "lib\test_specific_selection_gate.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
 if (-not (Test-Path $pythonScript)) {
-    Write-Error "Error: test-specific-selection-gate.py not found at: $pythonScript"
+    Write-Error "Error: test_specific_selection_gate.py not found at: $pythonScript"
     exit 2
 }
 

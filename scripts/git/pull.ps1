@@ -4,7 +4,7 @@
     Pull every Datrix repository, then summarize which pulled and which did not.
 
 .DESCRIPTION
-    Wraps scripts\library\git\pull.py. Pulls each git repository directly under the
+    Wraps scripts\git\lib\pull.py. Pulls each git repository directly under the
     workspace root in turn, printing git's output under its name, then prints one summary
     grouping every repository by outcome:
       Updated                    new commits pulled (old..new, commit count)
@@ -30,7 +30,7 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptsDir = Split-Path -Parent $scriptDir
-$pythonScript = Join-Path $scriptsDir "library\git\pull.py"
+$pythonScript = Join-Path $scriptDir "lib\pull.py"
 $commonDir = Join-Path $scriptsDir "common"
 . (Join-Path $commonDir "venv.ps1")
 

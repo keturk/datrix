@@ -1,10 +1,10 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Run tests for Datrix projects using test_project.py.
+ Run tests for Datrix projects using datrix_scripts.test_project.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs test_project.py
+ Activates the datrix virtual environment and runs datrix_scripts.test_project
  for one or more projects. Ensures virtual environment is deactivated even
  if the script is interrupted (Ctrl-C).
 
@@ -76,7 +76,7 @@
 
 .PARAMETER NoDigest
  Print no failure digest. By default, after the summary, every failed package with a
- saved run gets a short digest (library/test/run_digest.py): its failure groups with
+ saved run gets a short digest (common/lib/datrix_scripts/run_digest.py): its failure groups with
  location and re-run command, what changed since the previous run with the same test
  selection, and a resident local model's reading of each group. The digest is also
  written to digest.txt in the run directory. Model text is a lead to confirm.
@@ -174,13 +174,13 @@ $ErrorActionPreference = "Stop"
 
 # Script directory
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-# Get library directory path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\library"
-$testProjectScript = Join-Path $libraryDir "test\test_project.py"
-$runDigestScript = Join-Path $libraryDir "test\run_digest.py"
-
 # Import common modules
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
+# The runner and the digest are shared with the suite gates and the red-run hook, so they live
+# in the shared scripts package and run as modules.
+$testProjectScript = Join-Path $commonDir "lib\datrix_scripts\test_project.py"
+$testProjectInvocation = @("-m", "datrix_scripts.test_project")
+$runDigestInvocation = @("-m", "datrix_scripts.run_digest")
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
@@ -444,7 +444,7 @@ try {
   Write-Host "=== $project ===" -ForegroundColor Cyan
   $ErrorActionPreference_Saved = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
-  $listArgs = @($testProjectScript, "--list-tags")
+  $listArgs = $testProjectInvocation + @("--list-tags")
   if ($Specific) { $listArgs += @("--specific", $Specific) }
   & python @listArgs $project 2>&1 | Write-Host
   $projectExit = $LASTEXITCODE
@@ -606,7 +606,7 @@ try {
  Write-Host ""
 
  # Build arguments for this project
- $projectArgs = @($testProjectScript) + $baseArgs + @($project)
+ $projectArgs = $testProjectInvocation + $baseArgs + @($project)
 
  # Run test_project.py - use Tee-Object with temp file to display in real-time and capture
  $tempFile = [System.IO.Path]::GetTempFileName()
@@ -783,7 +783,7 @@ Peruse $absoluteProjectLogPath and fix $($promptParts -join ', ').
   }
   $ErrorActionPreference_Saved = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
-  & python $runDigestScript $result.indexPath 2>&1 | Write-Host
+  & python @runDigestInvocation $result.indexPath 2>&1 | Write-Host
   $digestExit = $LASTEXITCODE
   $ErrorActionPreference = $ErrorActionPreference_Saved
   if ($digestExit -ne 0) {

@@ -19,9 +19,7 @@ $ErrorActionPreference = "Stop"
 # Get the directory where this script is located
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# Get library directory path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\library"
-$PythonScript = Join-Path $libraryDir "tasks\plan_waves_multi.py"
+$PythonScript = Join-Path $ScriptDir "lib\plan_waves_multi.py"
 
 # Import shared venv helpers
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"

@@ -1,4 +1,4 @@
-# PowerShell wrapper for status_tests.py
+# PowerShell wrapper for datrix_scripts.status_tests
 # This script runs the Python test status checker
 
 [CmdletBinding()]
@@ -11,13 +11,12 @@ $ErrorActionPreference = "Stop"
 # Get the directory where this script is located
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# Get library directory path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\library"
-# Path to the Python script
-$PythonScript = Join-Path $libraryDir "test\status_tests.py"
-
 # Import common modules
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
+# Shared with the test runner and the tooling gates, so it lives in the shared scripts package
+# and runs as a module.
+$PythonModule = "datrix_scripts.status_tests"
+$PythonScript = Join-Path $commonDir "lib\datrix_scripts\status_tests.py"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
@@ -49,7 +48,7 @@ try {
  }
 
  # Build arguments for Python script
- $pythonArgs = @($PythonScript)
+ $pythonArgs = @("-m", $PythonModule)
  if ($Dbg) {
  $pythonArgs += "--debug"
  }

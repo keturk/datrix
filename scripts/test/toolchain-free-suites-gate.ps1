@@ -80,8 +80,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\library"
-$runnerScript = Join-Path $libraryDir "test\toolchain_free_suites.py"
+$runnerScript = Join-Path $scriptDir "lib\toolchain_free_suites.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force

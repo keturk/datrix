@@ -86,9 +86,7 @@ $ErrorActionPreference = "Stop"
 
 # Script directory
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-# Get library directory path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\library"
-$pythonScript = Join-Path $libraryDir "test\test_single.py"
+$pythonScript = Join-Path $scriptDir "lib\test_single.py"
 
 # Import common modules
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"

@@ -821,7 +821,7 @@ Key fields:
 
 #### Transient Error Patterns
 
-Python deploy tests classify failures as `"transient"` (infrastructure/environment issues) or `"logic"` (actual bugs) at runtime. TypeScript failures are classified during post-processing. The transient patterns are defined in `datrix/scripts/library/shared/deploy_test_log_writer.py` as `TRANSIENT_ERROR_PATTERNS` and include:
+Python deploy tests classify failures as `"transient"` (infrastructure/environment issues) or `"logic"` (actual bugs) at runtime. TypeScript failures are classified during post-processing. The transient patterns are defined in `datrix/scripts/common/lib/datrix_scripts/deploy_test_log_writer.py` as `TRANSIENT_ERROR_PATTERNS` and include:
 
 - Connection-related: `ConnectionResetError`, `ConnectionDoesNotExistError`, `connection was closed in the middle of operation`
 - Network/DNS: `getaddrinfo failed`, `Name or service not known`, `Temporary failure in name resolution`

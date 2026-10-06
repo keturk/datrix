@@ -58,10 +58,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\library"
-$PythonScript = Join-Path $libraryDir "test\affected_set.py"
-
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
+# Shared with the suite stamp and the affected gate, so it lives in the shared scripts package
+# and runs as a module.
+$PythonModule = "datrix_scripts.affected_set"
+$PythonScript = Join-Path $commonDir "lib\datrix_scripts\affected_set.py"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
@@ -86,7 +87,7 @@ try {
         exit 2
     }
 
-    $pythonArgs = @($PythonScript)
+    $pythonArgs = @("-m", $PythonModule)
     foreach ($project in $Projects) {
         if ($project) { $pythonArgs += @("--projects", $project) }
     }

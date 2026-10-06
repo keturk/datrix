@@ -4,7 +4,7 @@
  Classify the delta between two structured test-results runs.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs classify_run_delta.py.
+ Activates the Datrix virtual environment and runs datrix_scripts.classify_run_delta.
  Compares the failing sets and cluster patterns of a previous and a current
  run of the same project, writes run-delta.json into the CURRENT run
  directory, and reports a verdict (SUCCESS / PARTIAL / NO_CHANGE /
@@ -44,12 +44,11 @@ $ErrorActionPreference = "Stop"
 # Get the directory where this script is located
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# Get library directory path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\library"
-$PythonScript = Join-Path $libraryDir "test\classify_run_delta.py"
-
 # Import common modules
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
+# Shared with the red-run digest, so it lives in the shared scripts package and runs as a module.
+$PythonModule = "datrix_scripts.classify_run_delta"
+$PythonScript = Join-Path $commonDir "lib\datrix_scripts\classify_run_delta.py"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
@@ -74,7 +73,7 @@ try {
   exit 1
  }
 
- $pythonArgs = @($PythonScript)
+ $pythonArgs = @("-m", $PythonModule)
  if ($Previous) { $pythonArgs += @("--previous", $Previous) }
  if ($Current) { $pythonArgs += @("--current", $Current) }
  if ($Dbg) { $pythonArgs += "--debug" }

@@ -82,7 +82,7 @@
 
 .PARAMETER LocalMachines
  Machines to search for local model servers, in preference order. Omit to search the
- default list in library/shared/local_llm.py.
+ default list in common/lib/datrix_scripts/local_llm.py.
 
 .PARAMETER LlmModel
  Models to use for advisory summary, best first. Omit to use any model already in memory.
@@ -233,9 +233,7 @@ $Platform = $Platform.Split('/')[0]
 # Script setup
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-# Get library directory path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\library"
-$runCompleteScript = Join-Path $libraryDir "test\run_complete.py"
+$runCompleteScript = Join-Path $scriptDir "lib\run_complete.py"
 
 # Import common modules. DatrixScriptCommon is imported BEFORE DatrixPaths: the
 # former nested-imports DatrixPaths with -Force, which would strip a prior
