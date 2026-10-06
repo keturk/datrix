@@ -38,7 +38,7 @@
 
 .PARAMETER LocalMachines
     Machines to search for local model servers, in preference order. Omit to search the
-    default list in library/shared/local_llm.py.
+    default list in common/lib/datrix_scripts/local_llm.py.
 
 .PARAMETER LlmModel
     Models to use for advisory suggestions, best first. Omit to use any model already in memory.
@@ -104,8 +104,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\library"
-$pythonScript = Join-Path $libraryDir "dev\check_docs.py"
+$pythonScript = Join-Path $scriptDir "lib\check_docs.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 . (Join-Path $commonDir "venv.ps1")

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Repo-level gate for the code index (``scripts/library/code_index``) and its entry points.
+"""Repo-level gate for the code index (``datrix_scripts.code_index``) and its entry points.
 
-The datrix showcase repo hosts no pytest suite, so the index's behaviour is held here as
-plain checks, in the shape of ``shared-library-gate.py``: each ``check_*`` builds a real
-workspace of git repositories in a fresh temporary directory, runs the real index over
-it, and raises ``AssertionError`` naming what differed. No mocks: model-server checks
+Run through ``dev/code-index-gate.ps1``. The datrix showcase repo hosts no pytest suite, so the
+index's behaviour is held here as plain checks, in the shape of ``shared_library_gate.py``: each
+``check_*`` builds a real workspace of git repositories in a fresh temporary directory, runs the
+real index over it, and raises ``AssertionError`` naming what differed. No mocks: model-server checks
 talk to a real HTTP server on loopback, and the MCP checks drive the real server, both
 in-process and as a subprocess speaking over its standard streams.
 
@@ -35,37 +35,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-_LIBRARY_DIR = _SCRIPT_DIR.parent / "library"
-if str(_LIBRARY_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIBRARY_DIR))
-
-from code_index.extract import (  # noqa: E402
-    REF_ATTR_CALL,
-    REF_CALL,
-    SYMBOL_ATTRIBUTE,
-    SYMBOL_CLASS,
-    SYMBOL_FUNCTION,
-    SYMBOL_METHOD,
-    SYMBOL_VARIABLE,
-    extract_file,
-)
-from code_index.queries import (  # noqa: E402
-    REF_IMPORT,
-    find_canonical,
-    find_references,
-    find_symbol,
-    outline,
-    search,
-    topic_matches,
-)
-from code_index.session import IndexSession  # noqa: E402
-from code_index.sources import LOGIC_MAP_DB, CodeIndexConfig, index_dir, module_name  # noqa: E402
-from code_index.store import open_index  # noqa: E402
-from code_index.summaries import MIN_SUMMARY_LINES, summarize  # noqa: E402
-from code_index.usage import usage_report  # noqa: E402
-from dev.code_index_mcp import TOOLS, CodeIndexServer, serve  # noqa: E402
-from dev.code_scan import (  # noqa: E402
+from code_index_mcp import TOOLS, CodeIndexServer, serve
+from code_scan import (
     VERDICT_DEAD,
     VERDICT_REFUTED,
     VERDICT_TEST_ONLY,
@@ -79,19 +50,44 @@ from dev.code_scan import (  # noqa: E402
     select_packages,
     write_state,
 )
-from dev.generate_test_rules import Proposal, drop_unknown_see_refs, seed_topics_from_index  # noqa: E402
-from dev.logic_map import parse_markers  # noqa: E402
-from dev.logic_map_report import dangling_see_refs  # noqa: E402
-from metrics.dead_code_report import Finding  # noqa: E402
-from shared.local_llm import LocalLlmPool, LocalLlmSettings  # noqa: E402
-from code_index.background import (  # noqa: E402
+from datrix_scripts.capped_log import rotated_path
+from datrix_scripts.code_index.background import (
     LOCK_STALE_SECONDS,
     SummarizeBusy,
     start_background_summaries,
     summarize_lock,
 )
-from shared.capped_log import rotated_path  # noqa: E402
-from shared.local_llm_usage import USAGE_LOG_VARIABLE  # noqa: E402
+from datrix_scripts.code_index.extract import (
+    REF_ATTR_CALL,
+    REF_CALL,
+    SYMBOL_ATTRIBUTE,
+    SYMBOL_CLASS,
+    SYMBOL_FUNCTION,
+    SYMBOL_METHOD,
+    SYMBOL_VARIABLE,
+    extract_file,
+)
+from datrix_scripts.code_index.queries import (
+    REF_IMPORT,
+    find_canonical,
+    find_references,
+    find_symbol,
+    outline,
+    search,
+    topic_matches,
+)
+from datrix_scripts.code_index.session import IndexSession
+from datrix_scripts.code_index.sources import LOGIC_MAP_DB, CodeIndexConfig, index_dir, module_name
+from datrix_scripts.code_index.store import open_index
+from datrix_scripts.code_index.summaries import MIN_SUMMARY_LINES, summarize
+from datrix_scripts.code_index.usage import usage_report
+from datrix_scripts.dead_code_report import Finding
+from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
+from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
+from datrix_scripts.logic_map import parse_markers
+from datrix_scripts.paths import PACKAGE_DIR, PYTHONPATH_ROOT, SHOWCASE_DIR, WORKSPACE_DIR, script_env
+from generate_test_rules import Proposal, drop_unknown_see_refs, seed_topics_from_index
+from logic_map_report import dangling_see_refs
 
 CheckFunc = Callable[[], None]
 
@@ -102,8 +98,8 @@ _RESET = "\033[0m"
 _LOOPBACK = "127.0.0.1"
 _GIT_IDENTITY = ("-c", "user.name=code-index-gate", "-c", "user.email=gate@example.invalid",
                  "-c", "commit.gpgsign=false")
-_MCP_SCRIPT = _LIBRARY_DIR / "dev" / "code_index_mcp.py"
-_USAGE_HOOK = _SCRIPT_DIR.parent.parent / "claude-config" / ".claude" / "hooks" / "record-search-usage.py"
+_MCP_SCRIPT = Path(__file__).resolve().parent / "code_index_mcp.py"
+_USAGE_HOOK = SHOWCASE_DIR / "claude-config" / ".claude" / "hooks" / "record-search-usage.py"
 _REGISTRATION_MODULE = "_mcp_registration.py"
 _HOOK_LOG_MODULE = "_hook_log.py"
 _PROJECT_DIR_VARIABLE = "CLAUDE_PROJECT_DIR"
@@ -695,7 +691,7 @@ def check_mcp_server_stdout_carries_only_protocol() -> None:
     ]
     stdin = "".join(json.dumps(r) + "\n" for r in requests).encode("utf-8")
     result = subprocess.run([sys.executable, str(_MCP_SCRIPT)], input=stdin, capture_output=True, timeout=60,
-                            check=False)
+                            check=False, env=script_env())
     assert result.returncode == 0, f"server exited {result.returncode}: {result.stderr.decode(errors='replace')}"
     lines = result.stdout.decode("utf-8").splitlines()
     parsed = [json.loads(line) for line in lines]
@@ -704,7 +700,7 @@ def check_mcp_server_stdout_carries_only_protocol() -> None:
 
 
 # ===========================================================================
-# code scan (dev/code_scan.py): what it adds on top of the scanners
+# code scan (dev/lib/code_scan.py): what it adds on top of the scanners
 # ===========================================================================
 
 _SCAN_EXTRA = {
@@ -834,9 +830,9 @@ def _hook_sandbox(registered_directory: str | None,
     user profile whose Claude Code config registers ``servers`` for ``registered_directory`` only
     (for no directory when None).
 
-    The hook finds its workspace and the scripts library from its own real path, so the copy logs
-    into the temp workspace and loads the copied library; the real workspace, the real user config
-    and the ``datrix`` repository are never touched.
+    The hook finds its workspace and the shared scripts package from its own real path, so the copy
+    logs into the temp workspace and loads the copied package; the real workspace, the real user
+    config and the ``datrix`` repository are never touched.
     """
     with TemporaryDirectory() as temp:
         workspace = Path(temp) / "workspace"
@@ -844,9 +840,8 @@ def _hook_sandbox(registered_directory: str | None,
         hooks.mkdir(parents=True)
         for name in (_USAGE_HOOK.name, _REGISTRATION_MODULE, _HOOK_LOG_MODULE):
             shutil.copyfile(_USAGE_HOOK.parent / name, hooks / name)
-        library = workspace / "datrix" / "scripts" / "library"
-        for package in ("code_index", "shared"):
-            shutil.copytree(_LIBRARY_DIR / package, library / package, ignore=shutil.ignore_patterns("__pycache__"))
+        package_copy = workspace / PYTHONPATH_ROOT.relative_to(WORKSPACE_DIR) / PACKAGE_DIR.name
+        shutil.copytree(PACKAGE_DIR, package_copy, ignore=shutil.ignore_patterns("__pycache__"))
         profile = Path(temp) / "profile"
         profile.mkdir()
         server = {"type": "stdio", "command": sys.executable, "args": [str(_MCP_SCRIPT)]}

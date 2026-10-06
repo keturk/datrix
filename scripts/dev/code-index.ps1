@@ -73,7 +73,7 @@
 
 .PARAMETER LocalMachines
     With -Summarize: machines to search for model servers, in preference order. Omit to search the
-    default list in library/shared/local_llm.py.
+    default list in common/lib/datrix_scripts/local_llm.py.
 
 .PARAMETER LlmModel
     With -Summarize: models to use, best first. Omit to use any model already in memory.
@@ -132,9 +132,8 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptsDir = Split-Path -Parent $scriptDir
-$libraryDir = Join-Path $scriptsDir "library"
-$cliScript = Join-Path $libraryDir "dev\code_index_cli.py"
-$mcpScript = Join-Path $libraryDir "dev\code_index_mcp.py"
+$cliScript = Join-Path $scriptDir "lib\code_index_cli.py"
+$mcpScript = Join-Path $scriptDir "lib\code_index_mcp.py"
 $commonDir = Join-Path $scriptsDir "common"
 . (Join-Path $commonDir "venv.ps1")
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
@@ -194,7 +193,7 @@ try {
             exit $LASTEXITCODE
         }
         Install-DatrixProjectMcpServer -Name $McpServerName -PythonExe $pythonExe -ServerScript $mcpScript `
-            -Workspace (Split-Path -Parent (Split-Path -Parent $scriptsDir)) -SetupCommand "code-index.ps1 -Setup"
+            -PythonPath (Get-DatrixScriptsPythonPath) -Workspace (Split-Path -Parent (Split-Path -Parent $scriptsDir)) -SetupCommand "code-index.ps1 -Setup"
         exit 0
     }
 

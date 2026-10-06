@@ -7,8 +7,8 @@ human review. The report includes all markers grouped by topic, with rules,
 anti-patterns, and cross-references.
 
 Usage:
-    python scripts/library/dev/logic_map_report.py
-    python scripts/library/dev/logic_map_report.py --output docs/logic-map.md
+    python scripts/dev/lib/logic_map_report.py   (PYTHONPATH=scripts/common/lib)
+    python scripts/dev/lib/logic_map_report.py --output docs/logic-map.md
 
     Or use the PowerShell wrapper:
         .\\scripts\\dev\\logic-map-report.ps1
@@ -30,13 +30,9 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-_library_dir = Path(__file__).resolve().parent.parent
-if _library_dir.exists() and str(_library_dir) not in sys.path:
-    sys.path.insert(0, str(_library_dir))
-
-from code_index.session import open_session  # noqa: E402
-from code_index.sources import LOGIC_MAP_DB, CodeIndexError  # noqa: E402
-from shared.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.code_index.session import open_session  # noqa: E402
+from datrix_scripts.code_index.sources import LOGIC_MAP_DB, CodeIndexError  # noqa: E402
+from datrix_scripts.venv import get_datrix_root  # noqa: E402
 
 # Kind display order and labels
 _KIND_ORDER = ["canonical", "boundary", "pattern", "invariant", "test-rule"]

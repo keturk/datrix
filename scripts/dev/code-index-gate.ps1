@@ -1,16 +1,14 @@
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Repo-level gate for ineedtoknow (ineedtoknow-gate.py).
+ Repo-level gate for the code index and its entry points (lib\code_index_gate.py).
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs ineedtoknow-gate.py, which builds real
- workspaces in temporary directories (framework repositories plus a customer-style repository) with
- real SQLite files and a real model server on loopback, and checks: markdown chunking keeps the
- document's own line numbers, doc sync adds/updates/removes and never reads a customer repository,
- lookup answers only what a chunk covers, learned answers round-trip through their committed text
- files and a second machine converges from them, an answer expires when a cited file changes, and
- a gathered answer is stored only when every citation and quote is in what the model was sent.
- Nothing contacts the network's model servers and nothing touches the machine's own knowledge base.
+ Activates the Datrix virtual environment and runs lib\code_index_gate.py, which builds real
+ workspaces of git repositories in temporary directories and checks the code index over them:
+ extraction, incremental refresh, git visibility and excludes, import-resolved references,
+ the logic-map rewrite, search, canonical lookup, model summaries (against a real loopback
+ model server), and the MCP server over its standard streams.
 
  Exit codes:
    0 = every check passed
@@ -18,7 +16,7 @@
    2 = usage error
 
 .PARAMETER Only
- Run only the checks whose function name starts with this prefix (e.g. check_gather).
+ Run only the checks whose function name starts with this prefix (e.g. check_mcp).
 
 .PARAMETER HarnessSelfTest
  Run one intentionally-failing dummy check and confirm it is reported [FAIL] (proves the harness
@@ -28,10 +26,10 @@
  Print the python invocation before running.
 
 .EXAMPLE
- .\ineedtoknow-gate.ps1
+ .\code-index-gate.ps1
 
 .EXAMPLE
- .\ineedtoknow-gate.ps1 -Only check_gather
+ .\code-index-gate.ps1 -Only check_references
 #>
 
 [CmdletBinding()]
@@ -44,14 +42,14 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "ineedtoknow-gate.py"
+$pythonScript = Join-Path $scriptDir "lib\code_index_gate.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
 if (-not (Test-Path $pythonScript)) {
-    Write-Host "Error: ineedtoknow-gate.py not found at: $pythonScript" -ForegroundColor Red
+    Write-Host "Error: lib\code_index_gate.py not found at: $pythonScript" -ForegroundColor Red
     exit 2
 }
 

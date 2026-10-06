@@ -505,8 +505,7 @@ $("=" * 80)
  Write-TeeHost "" -LogFilePath $logFilePath
  
  # Determine which mode to use
- $libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\library"
- $pythonScript = Join-Path $libraryDir "dev\generate.py"
+ $pythonScript = Join-Path $scriptDir "lib\generate.py"
  
  # Check if Python script exists
  if (-not (Test-Path $pythonScript)) {

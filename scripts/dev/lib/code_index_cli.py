@@ -21,13 +21,14 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
-_library_dir = Path(__file__).resolve().parent.parent
-if str(_library_dir) not in sys.path:
-    sys.path.insert(0, str(_library_dir))
-
-from code_index.queries import (  # noqa: E402
+from datrix_scripts.code_index.background import (
+    LOG_NAME,
+    SummarizeBusy,
+    start_background_summaries,
+    summarize_lock,
+)
+from datrix_scripts.code_index.queries import (
     DEFAULT_CANONICAL_LIMIT,
     DEFAULT_REFERENCE_FILE_LIMIT,
     DEFAULT_SEARCH_LIMIT,
@@ -41,17 +42,16 @@ from code_index.queries import (  # noqa: E402
     search,
     status,
 )
-from code_index.background import LOG_NAME, SummarizeBusy, start_background_summaries, summarize_lock  # noqa: E402
-from code_index.session import IndexSession, open_session  # noqa: E402
-from code_index.sources import CodeIndexError, index_dir  # noqa: E402
-from code_index.summaries import (  # noqa: E402
+from datrix_scripts.code_index.session import IndexSession, open_session
+from datrix_scripts.code_index.sources import CodeIndexError, index_dir
+from datrix_scripts.code_index.summaries import (
     DEFAULT_SUMMARY_LIMIT,
     DEFAULT_SUMMARY_WORKERS,
     summarizable,
     summarize,
 )
-from code_index.usage import usage_report  # noqa: E402
-from shared.local_llm import (  # noqa: E402
+from datrix_scripts.code_index.usage import usage_report
+from datrix_scripts.local_llm import (
     LocalLlmPool,
     LocalLlmUnavailable,
     add_local_llm_arguments,

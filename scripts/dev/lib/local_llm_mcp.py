@@ -2,10 +2,11 @@
 """The local model servers as an MCP server over standard input/output, for Claude Code.
 
 Registered per machine with ``local-llm.ps1 -Setup``; Claude Code then starts it for each
-session. Its tools hand reading work to the local model servers (``shared.local_llm``): an
-agent names files or a log and gets back a short answer citing ``path:line``, instead of
-reading the text into its own context. What may be sent is fenced by
-``shared.local_reading.ReadScope`` (framework repositories and test output only).
+session (with ``PYTHONPATH`` set to ``scripts/common/lib``). Its tools hand reading work to the
+local model servers (``datrix_scripts.local_llm``): an agent names files or a log and gets back
+a short answer citing ``path:line``, instead of reading the text into its own context. What may
+be sent is fenced by ``datrix_scripts.local_reading.ReadScope`` (framework repositories and test
+output only).
 
 Unlike the code index, these tools DO contact other machines: the model servers on the local
 network. Standard input/output stays the only channel to Claude Code; no socket is opened.
@@ -18,21 +19,16 @@ import logging
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from pathlib import Path
 
-_library_dir = Path(__file__).resolve().parent.parent
-if str(_library_dir) not in sys.path:
-    sys.path.insert(0, str(_library_dir))
-
-from shared.local_llm import (  # noqa: E402
+from datrix_scripts.local_llm import (
     LocalLlmPool,
     LocalLlmSettings,
     LocalLlmUnavailable,
     discover_candidates,
 )
-from shared.local_llm_usage import usage_report  # noqa: E402
-from shared.local_reading import ReadScope, ReadScopeError, ask_files, digest_log  # noqa: E402
-from shared.mcp_stdio import (  # noqa: E402
+from datrix_scripts.local_llm_usage import usage_report
+from datrix_scripts.local_reading import ReadScope, ReadScopeError, ask_files, digest_log
+from datrix_scripts.mcp_stdio import (
     JsonObject,
     McpServer,
     ServerInfo,
@@ -44,7 +40,7 @@ from shared.mcp_stdio import (  # noqa: E402
     serve,
     text_list,
 )
-from shared.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.venv import get_datrix_root
 
 LOG = logging.getLogger(__name__)
 

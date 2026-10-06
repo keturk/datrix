@@ -14,7 +14,7 @@
     Runs are resumable: already-annotated functions and already-proposed functions are
     skipped, so you can build the map incrementally.
 
-    Activates the Datrix virtual environment and runs generate_test_rules.py.
+    Activates the Datrix virtual environment and runs lib\generate_test_rules.py.
 
 .PARAMETER Projects
     One or more package names (e.g. datrix-codegen-python). Positional.
@@ -31,7 +31,7 @@
 
 .PARAMETER LocalMachines
     Machines to search for a server running -Model, in preference order. Omit to search
-    the default list in library/shared/local_llm.py.
+    the default list in common/lib/datrix_scripts/local_llm.py.
 
 .PARAMETER Parallel
     Concurrent LLM calls (default: 4).
@@ -103,8 +103,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptsDir = Split-Path -Parent $scriptDir
 $commonDir = Join-Path $scriptsDir "common"
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$libraryDir = Join-Path $scriptsDir "library"
-$pythonScript = Join-Path $libraryDir "dev\generate_test_rules.py"
+$pythonScript = Join-Path $scriptDir "lib\generate_test_rules.py"
 
 . (Join-Path $commonDir "venv.ps1")
 

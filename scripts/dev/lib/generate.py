@@ -3,7 +3,7 @@ r"""
 Generate all example projects.
 
 Usage:
-    python scripts/library/dev/generate.py --language python [--runtime docker-compose]
+    python scripts/dev/lib/generate.py --language python [--runtime docker-compose]   (PYTHONPATH=scripts/common/lib)
     [--output-base .generated] [--test-set all] [--profile test]
 
     --language is forwarded to `datrix generate --language` -- it is the real
@@ -35,27 +35,21 @@ if sys.platform == "win32":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-# Add library directory to sys.path to import from shared
-# library/dev -> library (where shared/ is located)
-library_dir = Path(__file__).parent.parent
-if library_dir.exists() and str(library_dir) not in sys.path:
-    sys.path.insert(0, str(library_dir))
-
-from shared.logging_utils import (  # noqa: E402
+from datrix_scripts.logging_utils import (  # noqa: E402
     ColorCodes,
     LogConfig,
     TeeLogger,
     colorize,
     strip_ansi,
 )
-from shared.registered_targets import registered_language_names  # noqa: E402
-from shared.test_projects import (  # noqa: E402
+from datrix_scripts.registered_targets import registered_language_names  # noqa: E402
+from datrix_scripts.test_projects import (  # noqa: E402
     build_output_path,
     get_default_output_path,
     get_test_projects,
     resolve_provider,
 )
-from shared.venv import get_datrix_root, get_venv_python  # noqa: E402
+from datrix_scripts.venv import get_datrix_root, get_venv_python  # noqa: E402
 
 # Add datrix-common to path so we can use DATRIX_FILE_EXTENSION
 _datrix_root = get_datrix_root()

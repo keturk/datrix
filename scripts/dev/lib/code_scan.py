@@ -4,13 +4,13 @@
 Scans the packages whose content changed since the last scan (``--package`` or ``--all``
 override that) with the existing scanners, and writes one report:
 
-  - dead code: two-pass Vulture (``metrics.dead_code_report``), every finding checked
+  - dead code: two-pass Vulture (``datrix_scripts.dead_code_report``), every finding checked
     against the code index, which sees the whole workspace. Vulture run over one
     package reports a symbol only other packages use as unused; the index refutes it.
     What survives is "never used anywhere" or "used only by tests".
-  - complexity: functions over the cyclomatic or cognitive limit (``metrics.complexity``).
-  - duplicates: Pylint R0801 groups (``metrics.duplicate``), largest first.
-  - docs drift: the docs lint checks (``dev.check_docs``) over each package's docs/.
+  - complexity: functions over the cyclomatic or cognitive limit (``datrix_scripts.complexity``).
+  - duplicates: Pylint R0801 groups (``datrix_scripts.duplicate``), largest first.
+  - docs drift: the docs lint checks (``check_docs``, beside this file) over each package's docs/.
 
 Everything runs on this machine; nothing is changed but the report and the scan state.
 The report -- every finding, by section, then by package, in rank order -- goes to
@@ -39,24 +39,19 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-_library_dir = Path(__file__).resolve().parent.parent
-if str(_library_dir) not in sys.path:
-    sys.path.insert(0, str(_library_dir))
-
-from code_index.queries import find_references  # noqa: E402
-from code_index.session import IndexSession, open_session  # noqa: E402
-from code_index.sources import CodeIndexError, discover_repos, index_dir  # noqa: E402
-from metrics.complexity import (  # noqa: E402
+from check_docs import DOCS_DIR_CHECKS, LintResult
+from datrix_scripts.code_index.queries import find_references
+from datrix_scripts.code_index.session import IndexSession, open_session
+from datrix_scripts.code_index.sources import CodeIndexError, discover_repos, index_dir
+from datrix_scripts.complexity import (
     DEFAULT_IGNORE_DIRS,
     DEFAULT_MAX_COMPLEXITY,
     get_cognitive_complexity,
     run_check,
     run_check_cognitive,
 )
-from metrics.dead_code_report import DeadCodeError, Finding, collect_dead_code  # noqa: E402
-from metrics.duplicate import DuplicateScanError, parse_duplicate_groups, run_pylint_duplicates  # noqa: E402
-
-from dev.check_docs import DOCS_DIR_CHECKS, LintResult  # noqa: E402
+from datrix_scripts.dead_code_report import DeadCodeError, Finding, collect_dead_code
+from datrix_scripts.duplicate import DuplicateScanError, parse_duplicate_groups, run_pylint_duplicates
 
 EXIT_OK = 0
 EXIT_CANNOT_RUN = 1

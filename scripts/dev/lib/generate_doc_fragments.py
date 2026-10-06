@@ -45,13 +45,8 @@ def _sigint_handler(_signum: int, _frame: object) -> None:
 
 signal.signal(signal.SIGINT, _sigint_handler)
 
-# ── sys.path setup ──
-library_dir = Path(__file__).resolve().parent.parent
-if library_dir.exists() and str(library_dir) not in sys.path:
-    sys.path.insert(0, str(library_dir))
-
-from shared.logging_utils import ColorCodes, colorize  # noqa: E402
-from shared.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.logging_utils import ColorCodes, colorize  # noqa: E402
+from datrix_scripts.venv import get_datrix_root  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

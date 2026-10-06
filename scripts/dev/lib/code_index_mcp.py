@@ -3,10 +3,11 @@
 
 Registered per machine with ``code-index.ps1 -Setup``; Claude Code then starts it
 for each session. It speaks newline-delimited JSON-RPC 2.0 on stdin/stdout
-(``shared.mcp_stdio``) and opens no socket, so it has no network surface. Every tool call
-refreshes the index first (only changed files are parsed) and never contacts another machine
-itself; when the refresh changed files, it starts a detached background run that summarizes
-the changed modules on the local model servers (``code_index.background``).
+(``datrix_scripts.mcp_stdio``) and opens no socket, so it has no network surface. Every tool
+call refreshes the index first (only changed files are parsed) and never contacts another
+machine itself; when the refresh changed files, it starts a detached background run that
+summarizes the changed modules on the local model servers (``datrix_scripts.code_index.background``).
+The registration sets ``PYTHONPATH`` to ``scripts/common/lib`` so the shared package resolves.
 
 Standard library only, on purpose: it must start on every development machine from the
 shared venv without an extra dependency to install and keep in step.
@@ -17,13 +18,9 @@ from __future__ import annotations
 import logging
 import sys
 from collections.abc import Callable
-from pathlib import Path
 
-_library_dir = Path(__file__).resolve().parent.parent
-if str(_library_dir) not in sys.path:
-    sys.path.insert(0, str(_library_dir))
-
-from code_index.queries import (  # noqa: E402
+from datrix_scripts.code_index.background import Launcher, launch_detached, start_background_summaries
+from datrix_scripts.code_index.queries import (
     DEFAULT_CANONICAL_LIMIT,
     DEFAULT_REFERENCE_FILE_LIMIT,
     DEFAULT_SEARCH_LIMIT,
@@ -37,11 +34,10 @@ from code_index.queries import (  # noqa: E402
     search,
     status,
 )
-from code_index.background import Launcher, launch_detached, start_background_summaries  # noqa: E402
-from code_index.session import IndexSession, open_session  # noqa: E402
-from code_index.sources import CodeIndexError  # noqa: E402
-from code_index.summaries import summarizable  # noqa: E402
-from shared.mcp_stdio import (  # noqa: E402
+from datrix_scripts.code_index.session import IndexSession, open_session
+from datrix_scripts.code_index.sources import CodeIndexError
+from datrix_scripts.code_index.summaries import summarizable
+from datrix_scripts.mcp_stdio import (
     JsonObject,
     McpServer,
     ServerInfo,

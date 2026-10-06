@@ -4,7 +4,7 @@
     On-demand code-health scan: one ranked digest of dead code, complexity, duplicates and docs drift.
 
 .DESCRIPTION
-    Wraps scripts\library\dev\code_scan.py. By default scans only the packages whose content changed
+    Wraps scripts\dev\lib\code_scan.py. By default scans only the packages whose content changed
     since their last scan (tracked with the code index's file hashes in .code-index\scan-state.json);
     -Package or -All override that. Runs on this machine; changes nothing but the digest and the scan
     state.
@@ -63,7 +63,7 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptsDir = Split-Path -Parent $scriptDir
-$pythonScript = Join-Path $scriptsDir "library\dev\code_scan.py"
+$pythonScript = Join-Path $scriptDir "lib\code_scan.py"
 $commonDir = Join-Path $scriptsDir "common"
 . (Join-Path $commonDir "venv.ps1")
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force

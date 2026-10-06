@@ -53,8 +53,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptsDir = Split-Path -Parent $scriptDir
 $commonDir = Join-Path $scriptsDir "common"
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$libraryDir = Join-Path $scriptsDir "library"
-$pythonScript = Join-Path $libraryDir "dev\generate_doc_fragments.py"
+$pythonScript = Join-Path $scriptDir "lib\generate_doc_fragments.py"
 
 . (Join-Path $commonDir "venv.ps1")
 

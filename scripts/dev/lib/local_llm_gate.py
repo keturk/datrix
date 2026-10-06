@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repo-level gate for the local-model reading tools (shared/local_reading.py, dev/local_llm_mcp.py).
+"""Repo-level gate for the local-model reading tools (datrix_scripts.local_reading, dev/lib/local_llm_mcp.py).
 
 Every check builds a real workspace in a temporary directory -- framework repositories, a
 customer-style repository beside them, .tmp and .test-output -- and talks to a real
@@ -7,7 +7,7 @@ OpenAI-compatible HTTP server on loopback whose answers depend on the prompt it 
 Nothing here contacts the network's model servers, and every request is recorded in a
 temporary usage log, never the machine's own.
 
-Run through test/local-llm-gate.ps1.
+Run through dev/local-llm-gate.ps1.
 """
 
 from __future__ import annotations
@@ -26,16 +26,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-_LIBRARY_DIR = _SCRIPT_DIR.parent / "library"
-if str(_LIBRARY_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIBRARY_DIR))
-
-from dev.local_llm_mcp import LocalLlmServer, LocalReader  # noqa: E402
-from dev.customer_domain_isolation import hash_term  # noqa: E402
-from shared.local_llm import LocalLlmPool, LocalLlmSettings  # noqa: E402
-from shared.local_llm_usage import USAGE_LOG_VARIABLE  # noqa: E402
-from shared.local_reading import (  # noqa: E402
+from datrix_scripts.customer_domain_isolation import hash_term
+from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
+from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
+from datrix_scripts.local_reading import (
     MAP_SYSTEM,
     MAX_FILES,
     NOTHING_RELEVANT,
@@ -48,7 +42,9 @@ from shared.local_reading import (  # noqa: E402
     digest_log,
     reduce_log,
 )
-from shared.mcp_stdio import serve  # noqa: E402
+from datrix_scripts.mcp_stdio import serve
+from datrix_scripts.paths import script_env
+from local_llm_mcp import LocalLlmServer, LocalReader
 
 CheckFunc = Callable[[], None]
 
@@ -57,7 +53,7 @@ _RED = "\033[91m"
 _RESET = "\033[0m"
 
 _LOOPBACK = "127.0.0.1"
-_MCP_SCRIPT = _LIBRARY_DIR / "dev" / "local_llm_mcp.py"
+_MCP_SCRIPT = Path(__file__).resolve().parent / "local_llm_mcp.py"
 
 _A_PY = "def alpha():\n    return 1\n\n\ndef beta():\n    return 2\n"
 # A registered customer term for the fixture workspace: a made-up word no real stack uses.
@@ -424,7 +420,7 @@ def check_mcp_server_stdout_carries_only_protocol() -> None:
     messages = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
                 {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
     with TemporaryDirectory(prefix="local-llm-gate-") as temp:
-        env = {**os.environ, USAGE_LOG_VARIABLE: str(Path(temp) / "usage.jsonl")}
+        env = {**script_env(), USAGE_LOG_VARIABLE: str(Path(temp) / "usage.jsonl")}
         result = subprocess.run([sys.executable, str(_MCP_SCRIPT)], capture_output=True, timeout=60, check=False,
                                 input=b"".join(json.dumps(m).encode("utf-8") + b"\n" for m in messages), env=env)
     lines = result.stdout.decode("utf-8").splitlines()

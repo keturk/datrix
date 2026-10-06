@@ -2,7 +2,7 @@
 """Generate ``@test-rule`` conformance annotations for test functions via a local LLM.
 
 Walks each package's ``tests/`` tree, finds un-annotated test functions, and asks a
-local model (the ``--model`` one, on whichever machine ``shared.local_llm`` finds it
+local model (the ``--model`` one, on whichever machine ``datrix_scripts.local_llm`` finds it
 serving) to decide whether the test encodes a cross-target *conformance rule* and, if
 so, to emit a structured marker (topic / dimensions / behavior / differs / see). Results are written as reviewable proposals; a second ``--apply``
 run inserts the reviewed markers above the test functions.
@@ -48,23 +48,18 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-_library_dir = Path(__file__).resolve().parent.parent
-if _library_dir.exists() and str(_library_dir) not in sys.path:
-    sys.path.insert(0, str(_library_dir))
-
-from code_index.queries import TEST_RULE_KIND, all_marker_topics, marker_topics  # noqa: E402
-from code_index.session import open_session  # noqa: E402
-from code_index.sources import CodeIndexError  # noqa: E402
-from shared.local_llm import (  # noqa: E402
+from datrix_scripts.code_index.queries import TEST_RULE_KIND, all_marker_topics, marker_topics  # noqa: E402
+from datrix_scripts.code_index.session import open_session  # noqa: E402
+from datrix_scripts.code_index.sources import CodeIndexError  # noqa: E402
+from datrix_scripts.local_llm import (  # noqa: E402
     ChatRequest,
     LocalLlmPool,
     LocalLlmUnavailable,
     add_local_llm_arguments,
     local_llm_settings,
 )
-from shared.venv import get_datrix_root  # noqa: E402
-
-from dev.logic_map import iter_python_files, resolve_scan_paths  # noqa: E402
+from datrix_scripts.logic_map import iter_python_files, resolve_scan_paths  # noqa: E402
+from datrix_scripts.venv import get_datrix_root  # noqa: E402
 
 LOG = logging.getLogger("generate_test_rules")
 
@@ -365,7 +360,7 @@ def already_annotated(lines: list[str], def_line: int) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# LLM client (shared.local_llm)
+# LLM client (datrix_scripts.local_llm)
 # ---------------------------------------------------------------------------
 
 def _extract_json_object(content: str) -> dict[str, object]:

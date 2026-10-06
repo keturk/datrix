@@ -10,14 +10,9 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
-_library_dir = Path(__file__).resolve().parent.parent
-if str(_library_dir) not in sys.path:
-    sys.path.insert(0, str(_library_dir))
-
-from dev.local_llm_mcp import DEFAULT_USAGE_DAYS, mcp_settings, models_status  # noqa: E402
-from shared.local_llm_usage import usage_report  # noqa: E402
+from datrix_scripts.local_llm_usage import usage_report
+from local_llm_mcp import DEFAULT_USAGE_DAYS, mcp_settings, models_status
 
 DEFAULT_REPORT_DAYS = 7
 

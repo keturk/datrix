@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Repo-level gate for ineedtoknow (library/knowledge/*, dev/ineedtoknow_cli.py).
+"""Repo-level gate for ineedtoknow (datrix_scripts.knowledge, dev/lib/ineedtoknow_cli.py).
 
 Every check builds a real workspace in a temporary directory (framework repositories plus a
 customer-style repository beside them), uses real SQLite files, and talks to a real
 OpenAI-compatible HTTP server on loopback whose answers depend on the prompt it receives. Nothing
 here contacts the network's model servers, and nothing touches the machine's own knowledge base.
 
-Run through test/ineedtoknow-gate.ps1.
+Run through dev/ineedtoknow-gate.ps1.
 """
 
 from __future__ import annotations
@@ -24,13 +24,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-_LIBRARY_DIR = _SCRIPT_DIR.parent / "library"
-if str(_LIBRARY_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIBRARY_DIR))
-
-from knowledge.gather import Gathered, gather  # noqa: E402
-from knowledge.learned_files import (  # noqa: E402
+from datrix_scripts.knowledge.gather import Gathered, gather
+from datrix_scripts.knowledge.learned_files import (
     entry_key,
     learned_dir,
     parse_entry,
@@ -38,11 +33,12 @@ from knowledge.learned_files import (  # noqa: E402
     render_entry,
     sync_learned,
 )
-from knowledge.lookup import lookup  # noqa: E402
-from knowledge.seed import chunk_markdown, sync_curated  # noqa: E402
-from knowledge.store import KIND_CURATED, KIND_LEARNED, KnowledgeBase, KnowledgeError, LearnedEntry  # noqa: E402
-from shared.local_llm import LocalLlmPool, LocalLlmSettings, LocalLlmUnavailable  # noqa: E402
-from shared.local_reading import ReadScope  # noqa: E402
+from datrix_scripts.knowledge.lookup import lookup
+from datrix_scripts.knowledge.seed import chunk_markdown, sync_curated
+from datrix_scripts.knowledge.store import KIND_CURATED, KIND_LEARNED, KnowledgeBase, KnowledgeError, LearnedEntry
+from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings, LocalLlmUnavailable
+from datrix_scripts.local_reading import ReadScope
+from datrix_scripts.paths import script_env
 
 CheckFunc = Callable[[], None]
 
@@ -50,7 +46,7 @@ _GREEN = "\033[92m"
 _RED = "\033[91m"
 _RESET = "\033[0m"
 _LOOPBACK = "127.0.0.1"
-_CLI = _LIBRARY_DIR / "dev" / "ineedtoknow_cli.py"
+_CLI = Path(__file__).resolve().parent / "ineedtoknow_cli.py"
 
 _TENANCY_DOC = """# Tenancy Pack
 
@@ -418,7 +414,7 @@ def check_gather_reports_a_missing_model_server() -> None:
 
 def check_cli_help_runs_and_names_its_actions() -> None:
     result = subprocess.run([sys.executable, str(_CLI), "--help"], capture_output=True, text=True, timeout=60,
-                            check=False)
+                            check=False, env=script_env())
     assert result.returncode == 0, result.stderr
     for flag in ("--status", "--rebuild", "--prune", "--refresh", "--no-learn", "--in"):
         assert flag in result.stdout, f"{flag} missing from --help"

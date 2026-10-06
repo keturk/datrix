@@ -1,14 +1,16 @@
 <#
 .SYNOPSIS
- Repo-level gate for the local-model reading tools (local-llm-gate.py).
+ Repo-level gate for ineedtoknow (lib\ineedtoknow_gate.py).
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs local-llm-gate.py, which builds real workspaces
- in temporary directories (framework repositories, a customer-style repository beside them, .tmp
- and .test-output) and checks the reading layer and the MCP server against a real model server on
- loopback: what may be read and what is refused, chunking with original line numbers, log
- reduction, single-request and map-then-merge answers, citation checking, the usage log, and the
- MCP protocol. Nothing contacts the network's model servers.
+ Activates the Datrix virtual environment and runs lib\ineedtoknow_gate.py, which builds real
+ workspaces in temporary directories (framework repositories plus a customer-style repository) with
+ real SQLite files and a real model server on loopback, and checks: markdown chunking keeps the
+ document's own line numbers, doc sync adds/updates/removes and never reads a customer repository,
+ lookup answers only what a chunk covers, learned answers round-trip through their committed text
+ files and a second machine converges from them, an answer expires when a cited file changes, and
+ a gathered answer is stored only when every citation and quote is in what the model was sent.
+ Nothing contacts the network's model servers and nothing touches the machine's own knowledge base.
 
  Exit codes:
    0 = every check passed
@@ -16,7 +18,7 @@
    2 = usage error
 
 .PARAMETER Only
- Run only the checks whose function name starts with this prefix (e.g. check_mcp).
+ Run only the checks whose function name starts with this prefix (e.g. check_gather).
 
 .PARAMETER HarnessSelfTest
  Run one intentionally-failing dummy check and confirm it is reported [FAIL] (proves the harness
@@ -26,10 +28,10 @@
  Print the python invocation before running.
 
 .EXAMPLE
- .\local-llm-gate.ps1
+ .\ineedtoknow-gate.ps1
 
 .EXAMPLE
- .\local-llm-gate.ps1 -Only check_scope
+ .\ineedtoknow-gate.ps1 -Only check_gather
 #>
 
 [CmdletBinding()]
@@ -42,14 +44,14 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "local-llm-gate.py"
+$pythonScript = Join-Path $scriptDir "lib\ineedtoknow_gate.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
 if (-not (Test-Path $pythonScript)) {
-    Write-Host "Error: local-llm-gate.py not found at: $pythonScript" -ForegroundColor Red
+    Write-Host "Error: lib\ineedtoknow_gate.py not found at: $pythonScript" -ForegroundColor Red
     exit 2
 }
 

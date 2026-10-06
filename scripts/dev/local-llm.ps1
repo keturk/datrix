@@ -5,8 +5,8 @@
 
 .DESCRIPTION
     The local model servers on the network (Ollama, vLLM, llama-server; searched by
-    library/shared/local_llm.py) answer for every local-model script, the stop-gate judge, and
-    the agents' MCP tools ask_files, digest_log and local_models (library/dev/local_llm_mcp.py).
+    common/lib/datrix_scripts/local_llm.py) answer for every local-model script, the stop-gate
+    judge, and the agents' MCP tools ask_files, digest_log and local_models (dev/lib/local_llm_mcp.py).
     Every request any of them sends is recorded, by size only, in
     <workspace>\.local-llm\usage.jsonl on the machine that sent it.
 
@@ -54,9 +54,8 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptsDir = Split-Path -Parent $scriptDir
-$libraryDir = Join-Path $scriptsDir "library"
-$cliScript = Join-Path $libraryDir "dev\local_llm_cli.py"
-$mcpScript = Join-Path $libraryDir "dev\local_llm_mcp.py"
+$cliScript = Join-Path $scriptDir "lib\local_llm_cli.py"
+$mcpScript = Join-Path $scriptDir "lib\local_llm_mcp.py"
 $commonDir = Join-Path $scriptsDir "common"
 . (Join-Path $commonDir "venv.ps1")
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
@@ -106,7 +105,7 @@ try {
 
     if ($Setup) {
         Install-DatrixProjectMcpServer -Name $McpServerName -PythonExe $pythonExe -ServerScript $mcpScript `
-            -Workspace (Split-Path -Parent (Split-Path -Parent $scriptsDir)) -SetupCommand "local-llm.ps1 -Setup"
+            -PythonPath (Get-DatrixScriptsPythonPath) -Workspace (Split-Path -Parent (Split-Path -Parent $scriptsDir)) -SetupCommand "local-llm.ps1 -Setup"
         exit 0
     }
 

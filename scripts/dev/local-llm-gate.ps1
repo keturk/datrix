@@ -1,14 +1,14 @@
-#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Repo-level gate for the code index and its entry points (code-index-gate.py).
+ Repo-level gate for the local-model reading tools (lib\local_llm_gate.py).
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs code-index-gate.py, which builds real
- workspaces of git repositories in temporary directories and checks the code index over them:
- extraction, incremental refresh, git visibility and excludes, import-resolved references,
- the logic-map rewrite, search, canonical lookup, model summaries (against a real loopback
- model server), and the MCP server over its standard streams.
+ Activates the Datrix virtual environment and runs lib\local_llm_gate.py, which builds real workspaces
+ in temporary directories (framework repositories, a customer-style repository beside them, .tmp
+ and .test-output) and checks the reading layer and the MCP server against a real model server on
+ loopback: what may be read and what is refused, chunking with original line numbers, log
+ reduction, single-request and map-then-merge answers, citation checking, the usage log, and the
+ MCP protocol. Nothing contacts the network's model servers.
 
  Exit codes:
    0 = every check passed
@@ -26,10 +26,10 @@
  Print the python invocation before running.
 
 .EXAMPLE
- .\code-index-gate.ps1
+ .\local-llm-gate.ps1
 
 .EXAMPLE
- .\code-index-gate.ps1 -Only check_references
+ .\local-llm-gate.ps1 -Only check_scope
 #>
 
 [CmdletBinding()]
@@ -42,14 +42,14 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "code-index-gate.py"
+$pythonScript = Join-Path $scriptDir "lib\local_llm_gate.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
 if (-not (Test-Path $pythonScript)) {
-    Write-Host "Error: code-index-gate.py not found at: $pythonScript" -ForegroundColor Red
+    Write-Host "Error: lib\local_llm_gate.py not found at: $pythonScript" -ForegroundColor Red
     exit 2
 }
 

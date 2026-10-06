@@ -19,14 +19,9 @@ import io
 import logging
 import sys
 from dataclasses import replace
-from pathlib import Path
 
-_library_dir = Path(__file__).resolve().parent.parent
-if str(_library_dir) not in sys.path:
-    sys.path.insert(0, str(_library_dir))
-
-from knowledge.gather import Gathered, gather, leads_for  # noqa: E402
-from knowledge.learned_files import (  # noqa: E402
+from datrix_scripts.knowledge.gather import Gathered, gather, leads_for
+from datrix_scripts.knowledge.learned_files import (
     LEARNED_DIR_RELATIVE,
     learned_dir,
     prune_stale,
@@ -34,17 +29,23 @@ from knowledge.learned_files import (  # noqa: E402
     stale_sources,
     sync_learned,
 )
-from knowledge.lookup import DEFAULT_ANSWERS, lookup, render  # noqa: E402
-from knowledge.seed import sync_curated  # noqa: E402
-from knowledge.store import KIND_CURATED, KIND_LEARNED, KnowledgeBase, KnowledgeError, knowledge_db_path  # noqa: E402
-from shared.local_llm import (  # noqa: E402
+from datrix_scripts.knowledge.lookup import DEFAULT_ANSWERS, lookup, render
+from datrix_scripts.knowledge.seed import sync_curated
+from datrix_scripts.knowledge.store import (
+    KIND_CURATED,
+    KIND_LEARNED,
+    KnowledgeBase,
+    KnowledgeError,
+    knowledge_db_path,
+)
+from datrix_scripts.local_llm import (
     LocalLlmPool,
     LocalLlmUnavailable,
     add_local_llm_arguments,
     local_llm_settings,
 )
-from shared.local_reading import ReadScope, ReadScopeError  # noqa: E402
-from shared.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.local_reading import ReadScope, ReadScopeError
+from datrix_scripts.venv import get_datrix_root
 
 EXIT_ANSWERED = 0
 EXIT_USAGE = 1
