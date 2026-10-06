@@ -266,9 +266,10 @@ _MODULE_FORM_RE = re.compile(
     r"(?<![\w.-])-m\s+(" + "|".join(sorted(_TYPE_CHECKERS)) + r")\b", re.IGNORECASE
 )
 
-# The repo's own type-check entry points. Bounded on the left so `check_mypy.py`
-# and `run-mypy.ps1` are not read as these files.
-_WRAPPER_RE = re.compile(r"(?<![\w.-])mypy\.(?:ps1|py)\b", re.IGNORECASE)
+# The repo's own type-check entry points: the `test/mypy.ps1` wrapper and the
+# `test/lib/mypy_check.py` it runs. Bounded on the left so `check_mypy.py` and
+# `run-mypy.ps1` are not read as these files.
+_WRAPPER_RE = re.compile(r"(?<![\w.-])(?:mypy\.ps1|mypy(?:_check)?\.py)\b", re.IGNORECASE)
 
 # affected-gate.ps1 only type-checks when its opt-in switch is passed.
 _AFFECTED_GATE_RE = re.compile(r"(?<![\w.-])affected-gate\.ps1\b", re.IGNORECASE)
@@ -392,7 +393,7 @@ def _check_type_checker(command: str) -> None:
 
         if _WRAPPER_RE.search(script):
             _block(
-                "BLOCKED: `mypy.ps1` / `mypy.py` runs a standalone type-checker.",
+                "BLOCKED: `mypy.ps1` / `mypy_check.py` runs a standalone type-checker.",
                 _TYPE_CHECKER_TAIL,
             )
 

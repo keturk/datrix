@@ -156,16 +156,16 @@ _LOG_READ_KIND: Final = "log_read"
 _LOG_SUFFIXES: Final = (".log",)
 # Where test, generation and deploy runs write their output: anything read whole from here is a log.
 _LOG_DIRS: Final = (".test-output", ".test_results")
-_LIBRARY_DIR: Final = os.path.join(_WORKSPACE, "datrix", "scripts", "library")
+_SCRIPTS_LIB_DIR: Final = os.path.join(_WORKSPACE, "datrix", "scripts", "common", "lib")
 _CODE_INDEX_SCRIPT: Final = os.path.join(_WORKSPACE, "datrix", "scripts", "dev", "code-index.ps1").replace("\\", "/")
 
 
 def _identifier_pattern() -> re.Pattern[str] | None:
     """The usage report's definition of an identifier grep, so hint and report agree."""
-    if _LIBRARY_DIR not in sys.path:
-        sys.path.insert(0, _LIBRARY_DIR)
+    if _SCRIPTS_LIB_DIR not in sys.path:
+        sys.path.insert(0, _SCRIPTS_LIB_DIR)
     try:
-        from code_index.usage import IDENTIFIER_GREP_PATTERN
+        from datrix_scripts.code_index.usage import IDENTIFIER_GREP_PATTERN
     except ImportError:
         return None
     return IDENTIFIER_GREP_PATTERN

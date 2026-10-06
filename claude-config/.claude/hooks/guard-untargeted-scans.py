@@ -6,7 +6,7 @@ On 2026-09-20, after a builtin had been added and proven -- targeted tests green
 all three touched packages, every language plugin loading, the builtin-claims parity
 gate and the customer-domain isolation gate passing -- the agent ran
 
-    powershell -File scripts/dev/semgrep.ps1 datrix-codegen-python datrix-common datrix-codegen-common
+    powershell -File scripts/scan/semgrep.ps1 datrix-codegen-python datrix-common datrix-codegen-common
 
 because "run the relevant static scan / repo gate" is rung 4 of the static-analysis
 ladder. It could not name a rule the scan might trip, a failure it was chasing, or a

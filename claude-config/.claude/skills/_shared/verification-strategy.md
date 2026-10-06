@@ -13,7 +13,7 @@ documents from prescribing one.
 
 Type-checking is not part of verification: never run `mypy` or any standalone type-checker
 (`guard-forbidden-commands.py` refuses the binaries, `python -m mypy`, `test\mypy.ps1`,
-`library/mypy.py` and the `-Mypy` switch of `affected-gate.ps1`).
+`test/lib/mypy_check.py` and the `-Mypy` switch of `affected-gate.ps1`).
 
 This file is git-tracked in the `datrix` repository via the `d:\datrix\.claude` ->
 `d:\datrix\datrix\claude-config\.claude` symlink, so an edit through either path modifies
@@ -114,8 +114,8 @@ never selects tests.
 
 ## Repo gates (cheap static nets)
 
-Static scans (`dev/semgrep.ps1`, `dev/libcst.ps1`, `dev/check-import-boundaries.ps1`,
-`dev/check-debug-artifacts.ps1`, `dev/check-docs.ps1`) and the repo-level gates run no
+Static scans (`scan/semgrep.ps1`, `scan/libcst.ps1`, `scan/check-import-boundaries.ps1`,
+`scan/check-debug-artifacts.ps1`, `dev/check-docs.ps1`) and the repo-level gates run no
 package test suite. Run the ones whose surface you touched, for a question you can name
 (execution contract §12.5 holds the surface→check table); whole-package anti-pattern scans
 need a `-Rule` or a stated question (`guard-untargeted-scans.py`).
@@ -136,8 +136,9 @@ need a `-Rule` or a stated question (`guard-untargeted-scans.py`).
   `behaviour-parity-baseline.toml`: more failing roles than the pin fails, and so do fewer
   unless the pin is lowered in the same change. Run it when a language codegen package,
   codegen-common, or common changed.
-- Other gates only when their surface was touched: `shared-library-gate` /
-  `test-tooling-parsing-gate` / `review-library-gate` (datrix/scripts/library),
+- Other gates only when their surface was touched: `shared-library-gate` (the shared
+  scripts package and the scripts-tree layout) / `runner-plugin-gate` /
+  `test-tooling-parsing-gate` / `review-library-gate` (the scripts' own Python),
   `instruction-surface-gate` (agent-facing documents), `check-docs-conformance`
   (architecture docs), `check-generated-file-ratchet` (GeneratedFile call sites),
   `type-mapping-completeness` (type registry/mappings), `supported-domain-parity-gate`

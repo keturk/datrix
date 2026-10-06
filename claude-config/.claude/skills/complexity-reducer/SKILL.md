@@ -38,7 +38,7 @@ Where `{package-name}` is the package specified in the invocation (e.g., `datrix
 
 If the file is missing or stale, regenerate it:
 ```bash
-powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
+powershell -File "d:/datrix/datrix/scripts/workspace/project-structure.ps1" {package-name}
 ```
 
 ## Workflow

@@ -66,12 +66,12 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
         "-All is legitimate on test.ps1",
     ),
     (
-        'powershell -File "d:/datrix/datrix/scripts/dev/compile.ps1" -All',
+        'powershell -File "d:/datrix/datrix/scripts/scan/compile.ps1" -All',
         False,
         "-All is legitimate on compile.ps1",
     ),
     (
-        'powershell -File "d:/datrix/datrix/scripts/dev/libcst.ps1" -All',
+        'powershell -File "d:/datrix/datrix/scripts/scan/libcst.ps1" -All',
         False,
         "-All is legitimate on libcst.ps1",
     ),

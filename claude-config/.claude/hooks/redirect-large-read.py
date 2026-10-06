@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Final
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _hook_log import LIBRARY_DIR, WORKSPACE, append_record  # noqa: E402
+from _hook_log import WORKSPACE, add_scripts_lib_to_path, append_record  # noqa: E402
 from _local_digest import default_settings, digest_of  # noqa: E402
 from _mcp_registration import (  # noqa: E402
     CODE_INDEX_SERVER,
@@ -48,10 +48,10 @@ from _mcp_registration import (  # noqa: E402
 )
 
 if TYPE_CHECKING:
-    from shared.local_llm import LocalLlmSettings
+    from datrix_scripts.local_llm import LocalLlmSettings
 
 CALLER: Final = "hook:large-read-digest"
-# Must match code_index.usage.CATEGORY_READ_REDIRECT / CATEGORY_READ_REDIRECT_REPEAT, which the report reads.
+# Must match datrix_scripts.code_index.usage.CATEGORY_READ_REDIRECT / CATEGORY_READ_REDIRECT_REPEAT, which the report reads.
 REDIRECT_CATEGORY: Final = "read_redirect"
 REPEAT_CATEGORY: Final = "read_redirect_repeat"
 # On-disk size at which a whole read is redirected. A read adds a line number to every line,
@@ -102,11 +102,10 @@ def _mark_told(state: str, path: Path) -> None:
 
 def _outline_text(workspace: Path, relative: str) -> str:
     """The file's outline from the code index, refreshed first; empty when the index has no such file."""
-    if LIBRARY_DIR not in sys.path:
-        sys.path.insert(0, LIBRARY_DIR)
-    from code_index.queries import QueryError, outline
-    from code_index.session import open_session
-    from code_index.sources import CodeIndexError
+    add_scripts_lib_to_path()
+    from datrix_scripts.code_index.queries import QueryError, outline
+    from datrix_scripts.code_index.session import open_session
+    from datrix_scripts.code_index.sources import CodeIndexError
 
     try:
         session = open_session(workspace)
@@ -169,9 +168,8 @@ def decide(payload: dict[str, object], workspace: Path, settings: "LocalLlmSetti
     raw = str(tool_input.get("file_path", ""))
     if not raw:
         return ""
-    if LIBRARY_DIR not in sys.path:
-        sys.path.insert(0, LIBRARY_DIR)
-    from shared.local_reading import ReadScope, ReadScopeError
+    add_scripts_lib_to_path()
+    from datrix_scripts.local_reading import ReadScope, ReadScopeError
 
     scope = ReadScope(workspace)
     try:
@@ -218,9 +216,8 @@ def main() -> None:
     if not isinstance(payload, dict):
         sys.exit(0)
     try:
-        if LIBRARY_DIR not in sys.path:
-            sys.path.insert(0, LIBRARY_DIR)
-        from shared.venv import get_datrix_root
+        add_scripts_lib_to_path()
+        from datrix_scripts.venv import get_datrix_root
 
         message = decide(payload, get_datrix_root(), default_settings(CALLER),
                          on_repeat=lambda: _record(payload, REPEAT_CATEGORY, 0))

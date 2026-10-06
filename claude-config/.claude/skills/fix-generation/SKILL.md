@@ -130,10 +130,10 @@ rule 4), not part of verifying your fix.
 `triage-failures.ps1` parses the generate log and groups failures by likely root cause into a Markdown report:
 
 ```bash
-powershell -File "d:/datrix/datrix/scripts/dev/triage-failures.ps1" "{log-path}" -Format generate -LlmSummary -OutputFile "D:\datrix\.test-output\generation-triage.md"
+powershell -File "d:/datrix/datrix/scripts/generation/triage-failures.ps1" "{log-path}" -Format generate -LlmSummary -OutputFile "D:\datrix\.test-output\generation-triage.md"
 ```
 
-The report ends with a **Local LLM Advisory Triage** section written by a local model server (searched by `library/shared/local_llm.py`; it says "unavailable" when none answered). It proposes a probable cause and first file per group — a hypothesis for what to open first, never a classification or root cause: Step 3's classification and Step 4's root cause come from the code you read.
+The report ends with a **Local LLM Advisory Triage** section written by a local model server (searched by `scripts/common/lib/datrix_scripts/local_llm.py`; it says "unavailable" when none answered). It proposes a probable cause and first file per group — a hypothesis for what to open first, never a classification or root cause: Step 3's classification and Step 4's root cause come from the code you read.
 
 The triage report — not the raw log — is your working input. Never read a whole multi-project log into context; read only the block of the **one example you are currently working** (Step 1).
 
@@ -141,7 +141,7 @@ The triage report — not the raw log — is your working input. Never read a wh
 
 `status-generation.ps1` reports which projects succeeded/failed from the latest log (no parameters):
 ```bash
-powershell -File "d:/datrix/datrix/scripts/dev/status-generation.ps1"
+powershell -File "d:/datrix/datrix/scripts/generation/status-generation.ps1"
 ```
 
 ---
@@ -242,7 +242,7 @@ Take the next `Failed` example from the **original** log and return to Step 2. R
 
 Once the queue is empty, run the debug-artifact check on each package you modified:
 ```bash
-powershell -File "d:/datrix/datrix/scripts/dev/check-debug-artifacts.ps1" {package-name}
+powershell -File "d:/datrix/datrix/scripts/scan/check-debug-artifacts.ps1" {package-name}
 ```
 
 ### Step 8: Report

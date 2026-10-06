@@ -78,7 +78,7 @@ For complete documentation index with "When to use" guidance, see [doc_index.md]
 - [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → full design principles
 
 ### Project Structure
-Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/workspace/project-structure.ps1" {package-name}`.
 
 ## Delegation Constraints
 

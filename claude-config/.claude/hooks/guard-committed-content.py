@@ -1,8 +1,8 @@
 """PreToolUse hook (Write|Edit): refuse an edit that writes a design/task reference or a customer term
 into a file a package repository commits.
 
-Both rules already have a gate and a commit-time scan (`test/design-task-reference-gate.ps1`,
-`test/customer-domain-isolation-gate.ps1`, `git/commit-and-push.ps1`). Those fire after the work is
+Both rules already have a gate and a commit-time scan (`gates/repo-hygiene/design-task-reference-gate.ps1`,
+`gates/repo-hygiene/customer-domain-isolation-gate.ps1`, `git/commit-and-push.ps1`). Those fire after the work is
 done -- a whole commit run aborts on one hit, and the agent that wrote it is long gone. This fires
 on the edit that adds it, with the same detectors:
 
@@ -35,7 +35,7 @@ from typing import Final
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _hook_log import LIBRARY_DIR, WORKSPACE  # noqa: E402
+from _hook_log import WORKSPACE, add_scripts_lib_to_path  # noqa: E402
 
 _GIT_TIMEOUT_S: Final = 10
 _CORPUS_OVERRIDE: Final = "DATRIX_TERM_CORPUS"
@@ -53,11 +53,6 @@ _TERM_REMEDY: Final = (
 )
 
 Hit = tuple[str, str]
-
-
-def _library() -> None:
-    if LIBRARY_DIR not in sys.path:
-        sys.path.insert(0, LIBRARY_DIR)
 
 
 def _relative(path: str) -> str | None:
@@ -104,8 +99,8 @@ def _after_text(tool: str, tool_input: dict[str, object], before: str | None) ->
 
 
 def design_hits(text: str, rel: str) -> collections.Counter[Hit]:
-    _library()
-    from test.design_task_references import in_scanned_tree, text_hits
+    add_scripts_lib_to_path()
+    from datrix_scripts.design_task_references import in_scanned_tree, text_hits
 
     if not in_scanned_tree(rel):
         return collections.Counter()
@@ -113,8 +108,8 @@ def design_hits(text: str, rel: str) -> collections.Counter[Hit]:
 
 
 def term_hits(text: str) -> collections.Counter[Hit]:
-    _library()
-    from dev.customer_domain_isolation import corpus_path, load_term_corpus, scan_text
+    add_scripts_lib_to_path()
+    from datrix_scripts.customer_domain_isolation import corpus_path, load_term_corpus, scan_text
 
     # The override lets the hook's test plant a term of its own; hook subprocesses inherit Claude
     # Code's environment, not a shell the agent can export into, so it is no escape hatch.

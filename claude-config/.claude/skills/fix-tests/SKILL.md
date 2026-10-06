@@ -51,7 +51,7 @@ tests/test_baz.py::test_qux - AttributeError: 'NoneType' has no attribute 'name'
 Read first: CLAUDE.md, MEMORY.md.
 
 ### Project Structure
-Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/workspace/project-structure.ps1" {package-name}`.
 
 ## Scope Check
 
@@ -86,7 +86,7 @@ After reading the failures:
    ```
 4. **Legacy fallback (any of: no `index.json`, `"result": "INCOMPLETE"`, or an unrecognized `schema_version` — `collect-failure-data.ps1` fails loud in these cases):** the run has no usable structured data — triage `full.log` with the triage script instead of reading it:
    ```bash
-   powershell -File "d:/datrix/datrix/scripts/dev/triage-failures.ps1" "{run-dir}/full.log" -Format pytest -OutputFile "D:\datrix\.test-output\fix-tests-triage.md"
+   powershell -File "d:/datrix/datrix/scripts/generation/triage-failures.ps1" "{run-dir}/full.log" -Format pytest -OutputFile "D:\datrix\.test-output\fix-tests-triage.md"
    ```
    Read the triage report; Grep `full.log` only for representative detail it lacks. This same fallback applies throughout the rest of this workflow wherever structured data would otherwise be used.
 5. Prioritize: error families first (import/collection errors block other tests), then failure families by `test_count` descending. (`failure-data.json` already lists error families and clusters first.)

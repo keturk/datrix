@@ -43,7 +43,7 @@ MAX ITERATIONS: 5
 Read first: CLAUDE.md, MEMORY.md. Also read `FILES TO READ FIRST` (if provided) and `generate.ps1` (if not already familiar).
 
 ### Project Structure
-Read `d:\datrix\{PACKAGE}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {PACKAGE}`.
+Read `d:\datrix\{PACKAGE}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/workspace/project-structure.ps1" {PACKAGE}`.
 
 ## Configuration
 
@@ -168,7 +168,7 @@ Once tests pass:
 
 2. Run debug artifact check:
    ```
-   powershell -File "d:/datrix/datrix/scripts/dev/check-debug-artifacts.ps1" {PACKAGE}
+   powershell -File "d:/datrix/datrix/scripts/scan/check-debug-artifacts.ps1" {PACKAGE}
    ```
 
 3. To judge each package's outcome against the pre-fix state, compare run directories of the same selection with the delta script instead of eyeballing counts (read `datrix/scripts/test/quick-reference.md` first; a pre-tool hook enforces this):

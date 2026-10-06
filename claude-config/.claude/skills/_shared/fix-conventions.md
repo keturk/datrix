@@ -16,7 +16,7 @@ Full index with "When to use" guidance: `d:\datrix\datrix\docs\doc_index.md`.
 
 ### Project Structure
 
-Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/workspace/project-structure.ps1" {package-name}`.
 
 > **Governed by `.claude/skills/_shared/execution-contract.md`.** Default outcome: *the problem is fixed*. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof.
 

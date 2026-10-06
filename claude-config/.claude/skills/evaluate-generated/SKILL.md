@@ -67,7 +67,7 @@ For complete documentation index with "When to use" guidance, see [doc_index.md]
 - **Don't know where something is documented?** `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` — a brief answer with the file and line range to open (a lead: open the lines before acting).
 
 ### Project Structure
-Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/workspace/project-structure.ps1" {package-name}`.
 
 ## Inputs
 
@@ -79,7 +79,7 @@ Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `p
 **Phases 1–4 and 6 are computed by one script** (read `datrix/scripts/dev/quick-reference.md` before invoking; a pre-tool hook enforces this). After Phase 0 creates the evaluation directory, run:
 
 ```bash
-powershell -File "d:/datrix/datrix/scripts/dev/evaluate-generated-scan.ps1" -Source "{SOURCE}" -Generated "{GENERATED}" -EvalDir "{EVAL_DIR}"
+powershell -File "d:/datrix/datrix/scripts/generation/evaluate-generated-scan.ps1" -Source "{SOURCE}" -Generated "{GENERATED}" -EvalDir "{EVAL_DIR}"
 ```
 
 It parses the DSL with the **real parser pipeline** (never regex), and writes into `{EVAL_DIR}`:
@@ -398,6 +398,6 @@ This skill is FAST and LIGHTWEIGHT. It creates the evaluation structure and dele
 
 ```bash
 # Parse system.dtrx to see structure
-powershell -File "d:/datrix/datrix/scripts/dev/syntax-checker.ps1" "{system.dtrx}"
+powershell -File "d:/datrix/datrix/scripts/scan/syntax-checker.ps1" "{system.dtrx}"
 ```
 

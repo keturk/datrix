@@ -59,7 +59,7 @@ Optional:
 Full index: `d:\datrix\datrix\docs\doc_index.md`. Mandatory before starting (two short cores): `d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md` and `d:\datrix\datrix\docs\architecture\architecture-cheat-sheet.md` (map + knowledge-pack index; open the pack for the surface you evaluate). `architecture-overview.md` / `design-principles.md` are on demand, for the *why* behind a numbered decision. Don't know where something is documented? `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` gives a brief answer with the file and line range to open.
 
 ### Project Structure
-Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/workspace/project-structure.ps1" {package-name}`.
 
 ## Workflow -- Phased with Confidence Checks
 
@@ -79,7 +79,7 @@ If PROMPT_FILE is provided:
 **Phases 1–3 (except 3.5) and the mechanical half of Phase 4 are computed by one script** (read `datrix/scripts/dev/quick-reference.md` before invoking; a pre-tool hook enforces this):
 
 ```bash
-powershell -File "d:/datrix/datrix/scripts/dev/evaluate-service-scan.ps1" -Source "{system.dtrx}" -Service "{ServiceName}" -Generated "{service dir}" -ProjectGenerated "{generated project root}"
+powershell -File "d:/datrix/datrix/scripts/generation/evaluate-service-scan.ps1" -Source "{system.dtrx}" -Service "{ServiceName}" -Generated "{service dir}" -ProjectGenerated "{generated project root}"
 ```
 
 (`-Service` is needed only for multi-service sources; omit `-Output` to default under `D:\datrix\.tmp\eval\`, or point it into the EVAL_DIR.) It parses the DSL with the **real parser pipeline** and writes `service-*-scan.json` containing: the full DSL feature inventory (Phase 1), the manifest subset + both-direction set-diff vs the filesystem (2b/3e), the directory-name convention check (3a), the per-block/per-entity expected-artifact **existence** table (3b/3c — existence only), dead-code candidates (3f), and Dockerfile/migrations/env-var data (Phase 4's mechanical half).
@@ -612,8 +612,8 @@ Load `references/expected-structure.md` (relative to this skill) for the expecte
 
 ```bash
 # Parse a .dtrx file to see its structure (syntax check only)
-powershell -File "d:/datrix/datrix/scripts/dev/syntax-checker.ps1" "{service.dtrx}"
+powershell -File "d:/datrix/datrix/scripts/scan/syntax-checker.ps1" "{service.dtrx}"
 
 # Check generated code compilation (Python syntax + imports)
-powershell -File "d:/datrix/datrix/scripts/dev/compile-any-path.ps1" "{generated_service_dir}/src"
+powershell -File "d:/datrix/datrix/scripts/scan/compile-any-path.ps1" "{generated_service_dir}/src"
 ```

@@ -41,8 +41,9 @@ spec = importlib.util.spec_from_file_location("redirect_large_read", os.path.joi
 assert spec is not None and spec.loader is not None
 hook = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hook)
-sys.path.insert(0, hook.LIBRARY_DIR)
-from shared.local_llm import LocalLlmSettings  # noqa: E402
+hook.add_scripts_lib_to_path()
+from datrix_scripts.customer_domain_isolation import corpus_path  # noqa: E402
+from datrix_scripts.local_llm import LocalLlmSettings  # noqa: E402
 
 ANSWER = "1. AssertionError: boom, 3 times, first at .test-output/run/big.log:4"
 
@@ -148,6 +149,8 @@ try:
         log_text = "".join(f"step {n} ok\n" for n in range(3000)) + "E   AssertionError: boom\n" * 3
         big_log = write(workspace / ".test-output/run/big.log", log_text)
         small_log = write(workspace / ".test-output/run/small.log", "all fine\n")
+        # Nothing reaches a local model without the customer-term corpus; an empty one filters nothing.
+        write(corpus_path(workspace / "datrix"), json.dumps({"algorithm": "sha256", "terms": []}))
         server = ModelServer()
         settings = settings_for(server.port, workspace / "usage.jsonl")
 

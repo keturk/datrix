@@ -4,14 +4,14 @@ Two enforcement points consume it and must agree:
 
 * ``guard-repo-temp-dirs.py`` (PreToolUse hook) refuses to CREATE such a directory
   inside a repo.
-* ``datrix/scripts/library/test/ignored_source.py`` (the ignored-source gate, also
-  the pre-stage check in ``git/commit-and-push.py``) recognizes one that already
+* ``datrix/scripts/common/lib/datrix_scripts/ignored_source.py`` (the ignored-source
+  gate, also the pre-stage check in ``git/lib/commit_and_push.py``) recognizes one that already
   EXISTS, so its contents are reported as a stray temp tree to delete rather
   than as publishable source a ``.gitignore`` rule is silently dropping.
 
 Detection is by directory NAME, not by guesswork: the names below appear nowhere
 in any repo's tracked files, so a match is unambiguous. Kept beside the hook
-(rather than under ``scripts/library``) because the hook must stay importable
+(rather than under ``scripts/common/lib``) because the hook must stay importable
 with nothing but its own directory on ``sys.path`` -- a hook whose import fails
 fails OPEN, and a guard that silently stops guarding is worse than none.
 """

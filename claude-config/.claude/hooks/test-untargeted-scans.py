@@ -34,38 +34,38 @@ def check(label, got, want):
 
 
 BLOCK, ALLOW = 2, 0
-INCIDENT = ('cd /d/datrix; powershell -File "d:/datrix/datrix/scripts/dev/semgrep.ps1" '
+INCIDENT = ('cd /d/datrix; powershell -File "d:/datrix/datrix/scripts/scan/semgrep.ps1" '
             "datrix-codegen-python datrix-common datrix-codegen-common 2>&1 | tail -15")
 
 print("== the incident and its relatives block ==")
 check("incident: three-package semgrep, no rule, no question",
       cmd(INCIDENT, "Run semgrep anti-pattern scan on the three touched packages"), BLOCK)
-check("libcst one package, bare", cmd('powershell -File "d:/datrix/datrix/scripts/dev/libcst.ps1" datrix-common'), BLOCK)
-check("ast-grep direct .ps1 form", cmd(r".\scripts\dev\ast-grep.ps1 datrix-cli"), BLOCK)
+check("libcst one package, bare", cmd('powershell -File "d:/datrix/datrix/scripts/scan/libcst.ps1" datrix-common'), BLOCK)
+check("ast-grep direct .ps1 form", cmd(r".\scripts\scan\ast-grep.ps1 datrix-cli"), BLOCK)
 check("empty question marker does not lift it",
       cmd(INCIDENT, "SCAN_QUESTION:   "), BLOCK)
 check("-All blocks even with a question",
-      cmd('powershell -File "d:/datrix/datrix/scripts/dev/semgrep.ps1" -All',
+      cmd('powershell -File "d:/datrix/datrix/scripts/scan/semgrep.ps1" -All',
           "SCAN_QUESTION: any missing-encoding-read after the template change"), BLOCK)
 check("-All blocks even with a rule",
-      cmd('powershell -File "d:/datrix/datrix/scripts/dev/semgrep.ps1" -All -Rule missing-encoding-read'), BLOCK)
+      cmd('powershell -File "d:/datrix/datrix/scripts/scan/semgrep.ps1" -All -Rule missing-encoding-read'), BLOCK)
 check("subagent blocks even with a rule",
-      cmd('powershell -File "d:/datrix/datrix/scripts/dev/semgrep.ps1" datrix-common -Rule missing-encoding-read',
+      cmd('powershell -File "d:/datrix/datrix/scripts/scan/semgrep.ps1" datrix-common -Rule missing-encoding-read',
           "", agent_id="agent-1"), BLOCK)
 check("subagent blocks even with a question",
       cmd(INCIDENT, "SCAN_QUESTION: silent fallbacks in the new helper", agent_id="agent-1"), BLOCK)
 
 print("== targeted or justified scans stay allowed ==")
-check("named rule", cmd('powershell -File "d:/datrix/datrix/scripts/dev/semgrep.ps1" datrix-common -Rule missing-encoding-read'), ALLOW)
+check("named rule", cmd('powershell -File "d:/datrix/datrix/scripts/scan/semgrep.ps1" datrix-common -Rule missing-encoding-read'), ALLOW)
 check("stated question",
       cmd(INCIDENT, "SCAN_QUESTION: does the new sqlite3 helper read a file without an encoding"), ALLOW)
 check("-ListRules is a read of the rule set",
-      cmd('powershell -File "d:/datrix/datrix/scripts/dev/semgrep.ps1" -ListRules',
+      cmd('powershell -File "d:/datrix/datrix/scripts/scan/semgrep.ps1" -ListRules',
           "SCAN_QUESTION: which rules exist"), ALLOW)
 
 print("== reading the scripts and unrelated commands stay allowed ==")
-check("grep the wrapper", cmd("grep -n Rule d:/datrix/datrix/scripts/dev/semgrep.ps1"), ALLOW)
-check("cat the wrapper", cmd("cat d:/datrix/datrix/scripts/dev/libcst.ps1"), ALLOW)
+check("grep the wrapper", cmd("grep -n Rule d:/datrix/datrix/scripts/scan/semgrep.ps1"), ALLOW)
+check("cat the wrapper", cmd("cat d:/datrix/datrix/scripts/scan/libcst.ps1"), ALLOW)
 check("test.ps1 is another guard's business",
       cmd('powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common -Specific "tests/unit/a.py"'), ALLOW)
 check("git status", cmd("git -C d:/datrix/datrix-common status --porcelain"), ALLOW)

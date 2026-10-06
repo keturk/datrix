@@ -39,10 +39,10 @@ spec = importlib.util.spec_from_file_location("digest_red_test_run", os.path.joi
 assert spec is not None and spec.loader is not None
 hook = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hook)
-sys.path.insert(0, hook.LIBRARY_DIR)
-from dev.customer_domain_isolation import corpus_path  # noqa: E402
-from shared.local_llm import LocalLlmSettings  # noqa: E402
-from test.run_digest import DIGEST_FILENAME  # noqa: E402
+hook.add_scripts_lib_to_path()
+from datrix_scripts.customer_domain_isolation import corpus_path  # noqa: E402
+from datrix_scripts.local_llm import LocalLlmSettings  # noqa: E402
+from datrix_scripts.run_digest import DIGEST_FILENAME  # noqa: E402
 
 ANSWER = "1. AssertionError: boom, 2 times, first at datrix-alpha/.test_results/test-results-1/full.log:4"
 

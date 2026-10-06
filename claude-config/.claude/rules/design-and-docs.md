@@ -82,7 +82,7 @@ business domain may leak into framework code, docs, tests, or examples.
 For framework docs/tests/examples, use the neutral e-commerce domain (Product, Order,
 Customer, Warehouse, Variant, LineItem) or a fictional domain.
 
-**This is enforced, not advisory.** `datrix/scripts/test/customer-domain-isolation-gate.ps1`
+**This is enforced, not advisory.** `datrix/scripts/gates/repo-hygiene/customer-domain-isolation-gate.ps1`
 scans every publishable file (tracked + untracked-but-not-ignored) of every framework repo
 against a hashed term corpus, and `git/commit-and-push.ps1` runs the same scan over pending
 changes before it stages anything — one hit aborts the whole commit run. Register a new

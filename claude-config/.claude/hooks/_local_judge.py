@@ -4,7 +4,7 @@ The gates match fixed wording (`_report_language.py`), and a reworded dodge -- "
 leave the remaining two for a follow-up pass", "given where the budget stands I've
 stopped here" -- slips past every pattern while meaning exactly what the patterns ban.
 This module asks a model already in memory on one of the local servers
-(`shared.local_llm`) whether the report does one of the things the calling gate
+(`datrix_scripts.local_llm`) whether the report does one of the things the calling gate
 refuses, and to quote the words that do it.
 
 WHY IT CAN ONLY ADD
@@ -42,11 +42,11 @@ from typing import TYPE_CHECKING, Final
 
 _HOOKS_DIR: Final = os.path.dirname(os.path.abspath(__file__))
 # The hooks directory is reached through the workspace's .claude junction; the real path
-# is <datrix repo>/claude-config/.claude/hooks, beside <datrix repo>/scripts/library.
+# is <datrix repo>/claude-config/.claude/hooks, beside <datrix repo>/scripts/common/lib.
 _REAL_HOOKS_DIR: Final = os.path.dirname(os.path.realpath(__file__))
-_LIBRARY_DIR: Final = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(_REAL_HOOKS_DIR))),
-                                   "scripts", "library")
-for _path in (_HOOKS_DIR, _LIBRARY_DIR):
+_SCRIPTS_LIB_DIR: Final = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(_REAL_HOOKS_DIR))),
+                                       "scripts", "common", "lib")
+for _path in (_HOOKS_DIR, _SCRIPTS_LIB_DIR):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
@@ -54,7 +54,7 @@ from _hook_log import append_record  # noqa: E402
 from _report_language import quote_stands, strip_quoted  # noqa: E402
 
 if TYPE_CHECKING:
-    from shared.local_llm import LocalLlmSettings
+    from datrix_scripts.local_llm import LocalLlmSettings
 
 FAMILY_EXHAUSTION: Final = "exhaustion"
 FAMILY_SECURITY: Final = "security_downgrade"
@@ -145,9 +145,9 @@ def _schema(families: tuple[str, ...]) -> dict[str, object]:
 
 
 def _settings(gate: str) -> LocalLlmSettings:
-    from shared.local_llm import LocalLlmSettings
+    from datrix_scripts.local_llm import LocalLlmSettings
 
-    # Recorded in the local-model usage log under this name (shared.local_llm_usage).
+    # Recorded in the local-model usage log under this name (datrix_scripts.local_llm_usage).
     caller = f"hook:{gate}-judge"
     port = os.environ.get(ENV_TEST_PORT, "")
     if port.isdigit():
@@ -184,10 +184,10 @@ def judge_report(text: str, gate: str, settings: LocalLlmSettings | None = None)
         return CLEAN_JUDGEMENT
     try:
         # Imported here, not at module load: the gates import this module unconditionally,
-        # and a checkout without the scripts library must still let every stop through.
-        from shared.local_llm import ChatRequest, LocalLlmPool, LocalLlmUnavailable
+        # and a checkout without the shared scripts package must still let every stop through.
+        from datrix_scripts.local_llm import ChatRequest, LocalLlmPool, LocalLlmUnavailable
     except ImportError as exc:
-        _log({"gate": gate, "outcome": "unavailable", "detail": f"shared.local_llm not importable: {exc}"})
+        _log({"gate": gate, "outcome": "unavailable", "detail": f"datrix_scripts.local_llm not importable: {exc}"})
         return CLEAN_JUDGEMENT
     report = strip_quoted(text)[-MAX_JUDGED_CHARS:]
     request = ChatRequest(system=_system_prompt(families), user=report, temperature=0.0,

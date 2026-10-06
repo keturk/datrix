@@ -86,7 +86,7 @@ Category → fix: `DeprecationWarning`/`PendingDeprecationWarning` → migrate t
 
 ### Project Structure
 
-Read `{PACKAGE_PATH}.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {PACKAGE}`.
+Read `{PACKAGE_PATH}.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/workspace/project-structure.ps1" {PACKAGE}`.
 
 ### Test-to-Source Mapping Convention
 

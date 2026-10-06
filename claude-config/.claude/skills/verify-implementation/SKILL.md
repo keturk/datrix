@@ -120,7 +120,7 @@ For each design requirement:
 2. **Run the acceptance check** — this is the core of the skill. Both halves are code reads, grep sweeps, generation runs, or validator invocations; neither is a suite run:
    - **Prefer the conformance-gate script over ad-hoc grep sweeps** — write the requirement's checks as a small JSON spec and run it (see `datrix/scripts/dev/quick-reference.md`):
      ```bash
-     powershell -File "d:/datrix/datrix/scripts/dev/conformance-gate.ps1" -Spec "D:\datrix\.tmp\verify-{design}-{req}.spec.json"
+     powershell -File "d:/datrix/datrix/scripts/gates/realization/conformance-gate.ps1" -Spec "D:\datrix\.tmp\verify-{design}-{req}.spec.json"
      ```
      `must_not_contain` is the NEGATIVE half (point `negative_control` at a tree where the forbidden token legitimately appears — the gate fails a vacuous grep); `must_contain` / `file_exists` / `count_equals` cover the POSITIVE half. The ledger JSON + exit code are your pasted evidence, and the spec is re-runnable at Phase 4.
    - **For "output-neutral" / "byte-identical to pre-change" requirements**, point at the test in the owning package that renders the affected construct for a fixture and asserts its output (it must exist and cover the construct), and at the construct's tagged tests in every package it reaches. Never a hand-rolled hash comparison and never a stored snapshot — the repo keeps none (`datrix/docs/architecture/generated-output-stability.md`).

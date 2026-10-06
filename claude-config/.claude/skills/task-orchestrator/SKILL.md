@@ -90,7 +90,7 @@ For complete documentation index with "When to use" guidance, see [doc_index.md]
 - **Don't know where something is documented?** `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"` — a brief answer with the file and line range to open (a lead: open the lines before acting). Every dispatch brief tells the agent the same (see `agent-templates/task-implementation-agent.md`).
 
 ### Project Structure
-Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/workspace/project-structure.ps1" {package-name}`.
 
 ### Test Quick Reference
 Read `d:/datrix/datrix/scripts/test/quick-reference.md` before running any test commands.
@@ -676,7 +676,7 @@ For each invariant / numbered decision (D#/G#) in phase `P`'s `design_contract`:
 
 1. **Enumerate the invariant's full surface set** (from Step 1d). For each surface the design names, run the invariant's **acceptance check** (negative + positive) against REAL generated output / migrated source — not against an agent's self-report. Paste the command + output. **Express the checks as a conformance-gate spec where they are grep/existence assertions** — one spec per invariant, re-runnable, with a `negative_control` tree so a vacuous "forbidden token absent" grep fails loud (see `datrix/scripts/dev/quick-reference.md`):
    ```bash
-   powershell -File "d:/datrix/datrix/scripts/dev/conformance-gate.ps1" -Spec "D:\datrix\.tmp\phase-{NN}-{invariant}.spec.json"
+   powershell -File "d:/datrix/datrix/scripts/gates/realization/conformance-gate.ps1" -Spec "D:\datrix\.tmp\phase-{NN}-{invariant}.spec.json"
    ```
    For an invariant claiming **output-neutrality** ("X replaces Y with byte-identical output"), the proof is a test in the owning package that renders the affected construct for a fixture and asserts its output (landed with the change), plus the tagged tests of that construct in every package it reaches — never a corpus hash comparison, hand-rolled or otherwise; the repo keeps no stored snapshot of generated output.
    - *Negative:* the forbidden construct/state is gone on that surface (e.g. `grep` finds zero raw `env(...)` on secret positions in the migrated tree).

@@ -66,8 +66,8 @@ check("the wrapper, bash form",
 check("the wrapper, call operator",
       cmd(r'& "d:\datrix\datrix\scripts\test\mypy.ps1" datrix-common', tool="PowerShell"),
       BLOCK)
-check("the library entry point",
-      cmd("D:/datrix/.venv/Scripts/python.exe d:/datrix/datrix/scripts/library/mypy.py datrix-cli"),
+check("the wrapper's Python entry point",
+      cmd("D:/datrix/.venv/Scripts/python.exe d:/datrix/datrix/scripts/test/lib/mypy_check.py datrix-cli"),
       BLOCK)
 check("affected-gate with the opt-in switch",
       cmd('powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects datrix-common -Mypy'),
@@ -76,8 +76,8 @@ check("affected-gate with the opt-in switch",
 print("== type-checkers: reading, cleaning up and neighbours stay allowed ==")
 check("reading the wrapper",
       cmd('grep -n "cache-dir" d:/datrix/datrix/scripts/test/mypy.ps1'), ALLOW)
-check("paging the library script",
-      cmd("sed -n '1,80p' /d/datrix/datrix/scripts/library/mypy.py"), ALLOW)
+check("paging the wrapper's Python entry point",
+      cmd("sed -n '1,80p' /d/datrix/datrix/scripts/test/lib/mypy_check.py"), ALLOW)
 check("deleting a stray cache",
       cmd(r"Remove-Item -Recurse -Force d:\datrix\datrix-cli\.mypy_cache", tool="PowerShell"),
       ALLOW)
@@ -94,9 +94,9 @@ check("a file merely named check_mypy.py",
       cmd("python d:/datrix/.scripts/check_mypy.py"), ALLOW)
 check("installing is not running", cmd("pip show mypy"), ALLOW)
 check("syntax-checking the guarded script (-m consumes the module)",
-      cmd("python -m py_compile d:/datrix/datrix/scripts/library/mypy.py"), ALLOW)
+      cmd("python -m py_compile d:/datrix/datrix/scripts/test/lib/mypy_check.py"), ALLOW)
 check("compiling the wrapper's directory",
-      cmd("python -m compileall d:/datrix/datrix/scripts/library"), ALLOW)
+      cmd("python -m compileall d:/datrix/datrix/scripts/test/lib"), ALLOW)
 
 print("== /resolve-conflicts: the window opens only on Jon's own invocation ==")
 TRANSCRIPT_DIR = r"D:\datrix\.tmp"

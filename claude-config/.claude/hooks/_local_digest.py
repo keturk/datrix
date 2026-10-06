@@ -2,7 +2,7 @@
 
 ``digest-red-test-run.py`` (after a failed test run) and ``redirect-large-read.py`` (the first
 whole read of a large log) both ask the local model servers for the distinct failures in a log
-(``shared.local_reading.digest_log``) and put the answer in front of the agent. This module is
+(``datrix_scripts.local_reading.digest_log``) and put the answer in front of the agent. This module is
 their one implementation: the settings a hook can afford -- resident models only, short
 timeouts, so a hook answers in a minute or not at all -- and the call, which never raises.
 
@@ -13,25 +13,20 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from _hook_log import LIBRARY_DIR
+from _hook_log import add_scripts_lib_to_path
 
 if TYPE_CHECKING:
-    from shared.local_llm import LocalLlmSettings
+    from datrix_scripts.local_llm import LocalLlmSettings
 
 REACHABLE_TIMEOUT_MS: Final = 1500
 GENERATE_TIMEOUT_MS: Final = 60000
 MAX_DIGEST_CHARS: Final = 3500
 
 
-def _library() -> None:
-    if LIBRARY_DIR not in sys.path:
-        sys.path.insert(0, LIBRARY_DIR)
-
-
 def default_settings(caller: str) -> "LocalLlmSettings":
     """Resident models only, short timeouts, requests recorded under ``caller``."""
-    _library()
-    from shared.local_llm import LocalLlmSettings
+    add_scripts_lib_to_path()
+    from datrix_scripts.local_llm import LocalLlmSettings
 
     return LocalLlmSettings(allow_load=False, reachable_timeout_ms=REACHABLE_TIMEOUT_MS,
                             generate_timeout_ms=GENERATE_TIMEOUT_MS, caller=caller)
@@ -44,9 +39,9 @@ def digest_of(log: Path, workspace: Path, settings: "LocalLlmSettings", writer: 
     server answers: a hook adds nothing rather than failing the tool call it observed. The
     reason goes to stderr, named ``writer``.
     """
-    _library()
-    from shared.local_llm import LocalLlmPool, LocalLlmUnavailable
-    from shared.local_reading import ReadScope, ReadScopeError, digest_log
+    add_scripts_lib_to_path()
+    from datrix_scripts.local_llm import LocalLlmPool, LocalLlmUnavailable
+    from datrix_scripts.local_reading import ReadScope, ReadScopeError, digest_log
 
     if not log.is_file():
         return ""

@@ -36,7 +36,7 @@ LOG: D:\datrix\.generated\.results\generate-results-20260503-172334.log
 Read first: CLAUDE.md, MEMORY.md.
 
 ### Project Structure
-Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/workspace/project-structure.ps1" {package-name}`.
 
 ## Workflow — Checkpoint-Based
 
@@ -46,7 +46,7 @@ Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `p
    - **ISSUES mode** (user provided a list): read the provided issues verbatim.
    - **LOG mode** (user provided a log path): do NOT read the raw log into context. Run the triage script and read its report instead — it auto-detects pytest / generate / deploy formats and groups failures by likely root cause:
      ```bash
-     powershell -File "d:/datrix/datrix/scripts/dev/triage-failures.ps1" "{log-path}" -OutputFile "D:\datrix\.test-output\checkpoint-triage.md"
+     powershell -File "d:/datrix/datrix/scripts/generation/triage-failures.ps1" "{log-path}" -OutputFile "D:\datrix\.test-output\checkpoint-triage.md"
      ```
      Use the report's groups as the initial issue candidates; Grep the raw log only for a group's representative when the report lacks detail. (Read `datrix/scripts/dev/quick-reference.md` before invoking — a pre-tool hook enforces this.)
 2. Create a numbered issue list with severity (Critical/High/Medium/Low)

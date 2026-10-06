@@ -7,7 +7,7 @@
 **FIRST: script the parse.** Do not read raw pytest/deploy logs into context — run the triage script on each failing log and read its grouped report instead (read `datrix/scripts/dev/quick-reference.md` before invoking; a pre-tool hook enforces this):
 
 ```bash
-powershell -File "d:/datrix/datrix/scripts/dev/triage-failures.ps1" "{log-path}" -Format pytest -OutputFile "D:\datrix\.test-output\legacy-triage.md"   # or -Format deploy
+powershell -File "d:/datrix/datrix/scripts/generation/triage-failures.ps1" "{log-path}" -Format pytest -OutputFile "D:\datrix\.test-output\legacy-triage.md"   # or -Format deploy
 ```
 
 Fall back to the manual reads below only for detail the report lacks (Grep the specific log for the representative failure, don't read the whole file).

@@ -18,7 +18,7 @@ pushes each repo in one pass. No `commit-messages.json` file is involved.
 
 ## Repos
 
-The repo list is **discovered, never hardcoded.** `repo_paths()` in `datrix/scripts/library/git/commit-and-push.py` walks the workspace root and takes the `datrix` showcase repo plus every `datrix-*` directory that carries a `.git` — so a newly cloned `datrix-codegen-<lang>` repo is committed and pushed from its first commit, and an archived repo moved out of the workspace drops out, with no edit to this skill or to the script.
+The repo list is **discovered, never hardcoded.** `repo_paths()` in `datrix/scripts/git/lib/commit_and_push.py` walks the workspace root and takes the `datrix` showcase repo plus every `datrix-*` directory that carries a `.git` — so a newly cloned `datrix-codegen-<lang>` repo is committed and pushed from its first commit, and an archived repo moved out of the workspace drops out, with no edit to this skill or to the script.
 
 Do not re-introduce a literal list here. A literal list once silently omitted two real repos, which meant their commits were invisible to this skill.
 
@@ -52,11 +52,11 @@ Execute:
 powershell -File "d:/datrix/datrix/scripts/git/commit-and-push.ps1"
 ```
 
-The script (via `scripts/library/git/commit-and-push.py`) does everything in one pass:
+The script (via `scripts/git/lib/commit_and_push.py`) does everything in one pass:
 
 1. Refuses the whole run on a customer-domain term, a .gitignore rule shadowing source, or a PolyString case round-trip in the pending changes.
 2. Scans every repo under `d:\datrix` with `git status --porcelain`; clean repos are skipped.
-3. Picks the message source: the first local model that answers on any of the network's model servers (Ollama, vLLM or llama-server; see `library/shared/local_llm.py`), otherwise the Claude Code CLI.
+3. Picks the message source: the first local model that answers on any of the network's model servers (Ollama, vLLM or llama-server; see `scripts/common/lib/datrix_scripts/local_llm.py`), otherwise the Claude Code CLI.
 4. Splits each dirty repo into themed change sets and generates one commit message per set (passed through a quality gate; deterministic fallback if the model output is unusable).
 5. Cleans stale `.lock` files, then stages, commits each set, and pushes each repo once.
 6. Stops on the first git failure. A `git commit` exit code of 1 means nothing to commit (not an error).

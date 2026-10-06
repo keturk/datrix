@@ -5,7 +5,7 @@ An agent whose ``test.ps1`` run failed is told, by CLAUDE.md and every fix skill
 local models were never asked. Now the run's own result carries the answer: when a ``test.ps1``
 / ``test-single.ps1`` run's console output reports a package ``[FAILED]`` (or any status other
 than ``[PASSED]``) and names its ``Details: <run>\\index.json``, this hook has a local model
-list the distinct failures in that run's ``full.log`` (``shared.local_reading.digest_log``) and
+list the distinct failures in that run's ``full.log`` (``datrix_scripts.local_reading.digest_log``) and
 adds the list to the tool result as ``additionalContext``, with the pointers to the structured
 data the run saved (``failure-data.json`` via ``collect-failure-data.ps1``).
 
@@ -30,9 +30,9 @@ from typing import TYPE_CHECKING, Final
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 if TYPE_CHECKING:
-    from shared.local_llm import LocalLlmSettings
+    from datrix_scripts.local_llm import LocalLlmSettings
 
-from _hook_log import LIBRARY_DIR  # noqa: E402
+from _hook_log import add_scripts_lib_to_path  # noqa: E402
 from _local_digest import default_settings, digest_of  # noqa: E402
 
 _SHELL_TOOLS: Final = frozenset({"Bash", "PowerShell"})
@@ -107,9 +107,8 @@ def main() -> None:
     if not _TEST_SCRIPT.search(command):
         sys.exit(0)
     try:
-        if LIBRARY_DIR not in sys.path:
-            sys.path.insert(0, LIBRARY_DIR)
-        from shared.venv import get_datrix_root
+        add_scripts_lib_to_path()
+        from datrix_scripts.venv import get_datrix_root
 
         context = context_for(response_text(data.get("tool_response")), get_datrix_root(),
                               default_settings(CALLER))

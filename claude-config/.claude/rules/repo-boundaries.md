@@ -119,8 +119,8 @@ directory, file, or claim, treat it as a defect to remove.
   which would silently assert the generator is only those targets.
 - **Repo-level validation = scripts, not pytest.** Genuine cross-cutting checks (example
   generation, type-map completeness, the cross-language parity/conformance gate) belong as
-  **scripts under `datrix/scripts/test/`**, invoked by the runner — never as a
-  `datrix/tests/` pytest suite.
+  **scripts under `datrix/scripts/gates/<family>/`** (their Python in that family's `lib/`),
+  invoked by the runner — never as a `datrix/tests/` pytest suite.
 
 ## Cross-surface impact
 

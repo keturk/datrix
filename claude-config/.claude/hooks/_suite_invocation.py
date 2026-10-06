@@ -1,5 +1,5 @@
 """Shared whole-suite invocation classifier for `guard-full-suite-runs.py` and
-`instruction-surface-gate.ps1` (loaded by `datrix/scripts/library/test/instruction_surface.py`).
+`instruction-surface-gate.ps1` (loaded by `datrix/scripts/gates/repo-hygiene/lib/instruction_surface.py`).
 
 WHY THIS IS A SIBLING, NOT A LIBRARY MODULE
 --------------------------------------------
@@ -11,8 +11,8 @@ standard library and modules sitting beside it in this same `hooks/` directory
 (the precedent: `_command_shape.py`, already imported this way by
 `guard-full-suite-runs.py` and `validate-script-invocation.py`).
 
-`instruction-surface-gate.ps1` is a `datrix/scripts/library/test/`
-module running under the venv interpreter, and it needs this IDENTICAL
+`instruction-surface-gate.ps1` runs a `datrix/scripts/gates/repo-hygiene/lib/`
+module under the venv interpreter, and it needs this IDENTICAL
 classification -- a whole-suite `test.ps1`/`affected-gate.ps1` form the census
 finds must be the same set of commands the hook blocks, or the hook and the
 gate could disagree about what a whole-suite invocation even is. Duplicating
@@ -20,8 +20,7 @@ the regex a second time is exactly the defect class this module exists to
 close, so the gate loads THIS file by path with
 `importlib.util.spec_from_file_location` rather than copying it -- the working
 precedent for loading a hooks-directory module from a `datrix/scripts` script
-is `datrix/scripts/library/test/ignored_source.py`'s `load_temp_dir_segment`
-(lines 257-283), which loads `_repo_temp_dir_names.py` the same way for the
+is `datrix/scripts/common/lib/datrix_scripts/ignored_source.py`'s `load_temp_dir_segment`, which loads `_repo_temp_dir_names.py` the same way for the
 same reason (the guard that enforces a rule and the gate that audits it must
 share one definition).
 

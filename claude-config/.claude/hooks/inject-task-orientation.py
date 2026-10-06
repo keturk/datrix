@@ -26,20 +26,15 @@ from typing import TYPE_CHECKING, Final
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _hook_log import LIBRARY_DIR  # noqa: E402
+from _hook_log import add_scripts_lib_to_path  # noqa: E402
 from _local_digest import default_settings  # noqa: E402
 
 if TYPE_CHECKING:
-    from shared.local_llm import LocalLlmSettings
+    from datrix_scripts.local_llm import LocalLlmSettings
 
 CALLER: Final = "hook:task-orientation"
 _TASK_FILE: Final = re.compile(r"[\\/]\.tasks[\\/]phase-\d+[\\/](task-\d+-\d+[^\\/]*)\.md$", re.IGNORECASE)
 _STATE_DIR: Final = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".state")
-
-
-def _library() -> None:
-    if LIBRARY_DIR not in sys.path:
-        sys.path.insert(0, LIBRARY_DIR)
 
 
 def _state_path(session: str, agent: str) -> str:
@@ -68,11 +63,11 @@ def _mark_told(state: str, task: Path) -> None:
 
 def orientation_for(task: Path, workspace: Path, settings: "LocalLlmSettings") -> str:
     """The resolved ``## Orientation`` of ``task`` as text for an agent; empty when it has none."""
-    _library()
-    from code_index.session import open_session
-    from shared.local_llm import LocalLlmPool
-    from shared.local_reading import ReadScope, ask_files
-    from tasks.task_orientation import OrientationItem, orientation_lines, resolve_orientation
+    add_scripts_lib_to_path()
+    from datrix_scripts.code_index.session import open_session
+    from datrix_scripts.local_llm import LocalLlmPool
+    from datrix_scripts.local_reading import ReadScope, ask_files
+    from datrix_scripts.task_orientation import OrientationItem, orientation_lines, resolve_orientation
 
     lines = orientation_lines(task)
     if not lines:
@@ -123,8 +118,8 @@ def main() -> None:
     if not isinstance(payload, dict):
         sys.exit(0)
     try:
-        _library()
-        from shared.venv import get_datrix_root
+        add_scripts_lib_to_path()
+        from datrix_scripts.venv import get_datrix_root
 
         context = decide(payload, get_datrix_root(), default_settings(CALLER))
     except Exception as exc:  # a hook must never fail the tool call it observed

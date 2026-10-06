@@ -84,7 +84,7 @@ Use `evaluate-services.ps1` to run all service prompts in parallel batches:
 ```powershell
 cd D:\datrix\eval\2026-05-11-143022-ecommerce
 
-powershell -File "d:/datrix/datrix/scripts/dev/evaluate-services.ps1" `
+powershell -File "d:/datrix/datrix/scripts/generation/evaluate-services.ps1" `
     -SourceDir "d:\datrix\datrix\examples\03-domains\ecommerce" `
     -GeneratedDir "d:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce"
 ```
