@@ -16,7 +16,7 @@
  owned by that run alone.
 
  This is the file-level twin of TeeLogger._claim_run_dir in
- datrix/scripts/library/shared/logging_utils.py, which enforces the same
+ datrix/scripts/common/lib/datrix_scripts/logging_utils.py, which enforces the same
  invariant for test run DIRECTORIES.
 
  Held by datrix/scripts/test/run-log-exclusivity-gate.ps1.

@@ -1,6 +1,7 @@
 # Common Modules
 
-Shared PowerShell modules and utilities used by all scripts.
+Shared PowerShell modules used by all scripts, and `lib/datrix_scripts/`, the Python package
+every scripts folder shares.
 
 ## Files
 
@@ -8,9 +9,83 @@ Shared PowerShell modules and utilities used by all scripts.
 |------|-------------|
 | `DatrixPaths.psm1` | Path discovery for workspace and repository directories |
 | `DatrixScriptCommon.psm1` | Shared project lists and `ConvertTo-DatrixProjectName` (imports `DatrixPaths.psm1`) |
-| `venv.ps1` | Virtual environment management (creation, activation, package installation) |
+| `venv.ps1` | Virtual environment management (creation, activation, package installation, the scripts `PYTHONPATH`) |
+| `venv-install-order.ps1` | Self-test of the package install order (`datrix_scripts.install_order`) |
 | `CleanupUtils.psm1` | Cleanup utilities (empty parents, confirmation, folder tree display, size formatting) |
 | `DatrixRunLog.psm1` | Run-log file naming and **exclusive** claiming — two runs never share one log file |
+| `lib/datrix_scripts/` | The shared Python package (below) |
+
+## Where Python lives
+
+Every Python file sits beside the wrapper that runs it, never in a central tree:
+
+- **One folder uses it** → `<folder>/lib/<name>.py` (for gates, `gates/<family>/lib/`). The
+  wrapper runs it by path (`Join-Path $scriptDir "lib\<name>.py"`), so `sys.path[0]` is that
+  `lib/` folder and its siblings import each other by bare name (`from compare_tests import ...`).
+- **More than one folder, a hook, or a package test imports it** → `common/lib/datrix_scripts/`.
+  It is always imported as `datrix_scripts.<name>`, and a wrapper that runs one of its modules
+  uses `python -m datrix_scripts.<name>`.
+
+`Ensure-DatrixVenv` calls `Set-DatrixPythonPath`, which puts `scripts\common\lib` first on
+`PYTHONPATH`, so every wrapper's Python can import `datrix_scripts`. A Python process that starts
+another Python process passes `datrix_scripts.paths.script_env()` as its environment. Hooks call
+`add_scripts_lib_to_path()` (`claude-config/.claude/hooks/_hook_log.py`), and the MCP servers are
+registered with `PYTHONPATH` in their `env` (re-run `dev\code-index.ps1 -Setup` and
+`dev\local-llm.ps1 -Setup` on each machine after the server paths change).
+
+Never compute a location from `Path(__file__).parents[N]`: import it from `datrix_scripts.paths`
+(`SCRIPTS_DIR`, `CONFIG_DIR`, `SHOWCASE_DIR`, `WORKSPACE_DIR`, `lib_script(folder, name)`).
+
+`test\shared-library-gate.ps1 -Only check_scripts_tree` holds the layout: no `scripts\library`
+folder, every Python file in a `lib/` folder, no `lib/` module named like a stdlib or installed
+module, every import resolvable, every script a wrapper runs present, and every script path a doc,
+skill, hook, config or package file names present.
+
+### Adding a script
+
+1. Put the Python in the `lib/` of the folder whose wrapper runs it (or in `datrix_scripts`, per
+   the rule above).
+2. Write the wrapper in that folder. It imports `common/DatrixScriptCommon.psm1` (or
+   `DatrixPaths.psm1` alone when it needs no project discovery), dot-sources `common/venv.ps1`,
+   calls `Ensure-DatrixVenv` (and `Ensure-DatrixPackagesInstalled` when it needs the packages),
+   runs the Python with its arguments, and deactivates the venv on exit.
+3. Add its section to the folder's `quick-reference.md`.
+
+## lib/datrix_scripts
+
+| Module | Description |
+|--------|-------------|
+| `paths.py` | Fixed locations in the scripts tree, the showcase repository and the workspace; `script_env()` |
+| `venv.py` | Virtual environment helpers (Python side): the venv interpreter, the workspace root |
+| `install_order.py` | The `datrix-*` package install order for the shared venv |
+| `framework_repos.py` | The framework git repositories at the workspace root, discovered, never listed |
+| `registered_targets.py` | The registered `datrix.languages` / `datrix.platforms` targets and their `src/` directories -- the one place a script learns which targets exist |
+| `pyproject_deps.py` | `datrix-*` dependency declarations read from `pyproject.toml` |
+| `capped_log.py` | Append-only logs with a size cap (hooks and scripts share it) |
+| `logging_utils.py` | Logging and tee-style output (console + file); `TeeLogger` claims a run directory exclusively |
+| `test_projects.py` | Project discovery from `config/test-projects.json` |
+| `test_project.py` | The package test runner behind `test\test.ps1` |
+| `test_runner.py`, `node_test_runner.py`, `package_suites.py` | Test execution: pytest phases, Node suites, which packages carry a suite |
+| `runner_plugin.py`, `suite_stamp.py`, `suite_inputs.py` | The suite-input stamp: what a run touched, and the fingerprint a carried run is compared on |
+| `structured_log_writer.py`, `generated_test_log_writer.py`, `deploy_test_log_writer.py`, `aggregate_test_writer.py`, `deploy_test_aggregate_writer.py` | Structured run directories (`index.json`, clusters) for package, generated-project and deploy runs |
+| `codegen_hint_mapper.py` | Maps a generated file to the template and generator that probably wrote it |
+| `status_tests.py` | Test status from the newest run of every package (`test\status-tests.ps1`) |
+| `collect_failure_data.py`, `classify_run_delta.py`, `run_digest.py` | Failure bundle, run-to-run delta, and the short digest `test.ps1` prints for a red run |
+| `affected_set.py` | Reverse-dependency closure of packages, from actual imports |
+| `generated_example.py` | Generate one example for one registered language, as `datrix generate` would |
+| `evaluate_reports.py` | The report text the evaluation scans write from their own JSON |
+| `local_llm.py`, `local_llm_usage.py` | Local model servers (discovery, readiness, load spreading, failover) and the usage log |
+| `local_reading.py` | Reads framework files and logs through a local model: read scope, chunking, log reduction, citation checking, the customer-term filter |
+| `llm_code_fix.py` | Shared machinery for scripts that ask a local model to rewrite Python |
+| `mcp_stdio.py` | The MCP protocol over stdio, shared by every Datrix MCP server |
+| `code_index/` | The per-machine code index: definitions, references, outlines, search, summaries, usage |
+| `knowledge/` | The knowledge base behind `dev\ineedtoknow.ps1` |
+| `logic_map.py` | Logic-map marker syntax, parser and the `markers.db` writer |
+| `task_metadata.py`, `task_orientation.py` | Task-file and `dependencies.md` parsing; a task's `## Orientation` block |
+| `customer_domain_isolation.py`, `design_task_references.py`, `ignored_source.py`, `polystring_case_roundtrip.py`, `python_lint_correctness.py` | Repo-hygiene detectors shared by their gates, the commit seam and the edit hooks |
+| `behaviour_skeleton.py`, `target_literal_positions.py` | Detectors shared by the parity gates and the import-boundary scanner |
+| `complexity.py`, `dead_code_report.py`, `duplicate.py` | Metrics shared by `metrics\` and `dev\code-scan.ps1` |
+| `visualization/` | Application loading, serialization, diagrams and OpenAPI/AsyncAPI builders for `visualize\` |
 
 ## DatrixPaths.psm1
 
@@ -146,6 +221,6 @@ create-or-fail, and falls through to `<base>-2`, `<base>-3`, … when a name is 
 Never relax that to `Create`/`OpenOrCreate` — both succeed on an existing file, which is
 how two runs end up truncating and interleaving one log.
 
-File-level twin of `TeeLogger._claim_run_dir` (`scripts/library/shared/logging_utils.py`),
+File-level twin of `TeeLogger._claim_run_dir` (`scripts/common/lib/datrix_scripts/logging_utils.py`),
 which does the same for test run *directories*. Held by
 `scripts/test/run-log-exclusivity-gate.ps1`.

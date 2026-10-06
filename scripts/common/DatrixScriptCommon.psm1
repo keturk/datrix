@@ -7,7 +7,7 @@
 
  Project list semantics (see datrix/scripts/README.md):
  - Get-DatrixPackageNamesGlob: metrics -All; filesystem directories under the workspace matching datrix-*.
- - Get-DatrixTestablePackageNames: test runner; workspace datrix-* dirs carrying a suite -- a tests/ folder (pytest) or a package.json with a "test" script (Node) -- excluding retired names and the test-free datrix showcase repo; matches shared/package_suites.py discovery.
+ - Get-DatrixTestablePackageNames: test runner; workspace datrix-* dirs carrying a suite -- a tests/ folder (pytest) or a package.json with a "test" script (Node) -- excluding retired names and the test-free datrix showcase repo; matches datrix_scripts/package_suites.py discovery.
  - Get-DatrixMonoProjectNames: full-monorepo scans (e.g. duplicate -Mono); canonical repo names in order where the directory exists.
 #>
 
@@ -168,7 +168,7 @@ function Get-DatrixTestablePackageNames {
    package.json with a "test" script   -> Node suite
 
  This predicate is the PowerShell half of one fact; the Python half is
- scripts/library/shared/package_suites.py, and test-tooling-parsing-gate.ps1 compares the
+ scripts/common/lib/datrix_scripts/package_suites.py, and test-tooling-parsing-gate.ps1 compares the
  two sets on every run so they cannot drift apart silently.
 
  Matches "datrix-*" toolchain packages only. The "datrix" showcase repo is NOT a testable
@@ -332,11 +332,11 @@ for name in sorted(e.name for e in m.entry_points(group=sys.argv[1])):
 function Get-DatrixLocalLlmArguments {
  <#
  .SYNOPSIS
- Build the shared local-model flags (library/shared/local_llm.py) for a Python script.
+ Build the shared local-model flags (common/lib/datrix_scripts/local_llm.py) for a Python script.
 
  .DESCRIPTION
  Every script that asks a local model for text searches the same machines through
- shared/local_llm.py. The default machine list and the model preference live only there;
+ datrix_scripts/local_llm.py. The default machine list and the model preference live only there;
  they are overridden only when -LocalMachines / -LlmModel carry values.
 
  .PARAMETER LocalMachines
@@ -479,6 +479,10 @@ function Install-DatrixProjectMcpServer {
  .PARAMETER ServerScript
  The server's Python script.
 
+ .PARAMETER PythonPath
+ The directory holding the shared scripts package (datrix_scripts), set as the server's
+ PYTHONPATH: the server is started by Claude Code, not by a wrapper, so it does not inherit one.
+
  .PARAMETER Workspace
  The workspace root the sessions start in.
 
@@ -490,6 +494,7 @@ function Install-DatrixProjectMcpServer {
   [Parameter(Mandatory = $true)] [string]$Name,
   [Parameter(Mandatory = $true)] [string]$PythonExe,
   [Parameter(Mandatory = $true)] [string]$ServerScript,
+  [Parameter(Mandatory = $true)] [string]$PythonPath,
   [Parameter(Mandatory = $true)] [string]$Workspace,
   [Parameter(Mandatory = $true)] [string]$SetupCommand
  )
@@ -502,7 +507,9 @@ function Install-DatrixProjectMcpServer {
    $servers[$server.Name] = $server.Value
   }
  }
- $servers[$Name] = [ordered]@{ type = "stdio"; command = $PythonExe; args = @($ServerScript) }
+ $servers[$Name] = [ordered]@{
+  type = "stdio"; command = $PythonExe; args = @($ServerScript); env = [ordered]@{ PYTHONPATH = $PythonPath }
+ }
  $config["mcpServers"] = $servers
  Write-DatrixJsonFile $configPath $config
  Write-Host "Wrote '$Name' into $configPath." -ForegroundColor Green

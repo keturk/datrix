@@ -176,6 +176,36 @@ function Set-DatrixPythonCachePrefix {
  $env:PYTHONPYCACHEPREFIX = $cachePrefix
 }
 
+function Get-DatrixScriptsPythonPath {
+ <#
+ .SYNOPSIS
+ Get the directory that holds the shared scripts package (datrix_scripts).
+ .DESCRIPTION
+ Python run by a wrapper lives in the lib\ folder beside that wrapper; code imported from more
+ than one scripts folder lives in common\lib\datrix_scripts. This directory is what goes on
+ PYTHONPATH so 'import datrix_scripts.<module>' resolves from every lib\ folder.
+ #>
+ return Join-Path $PSScriptRoot "lib"
+}
+
+function Set-DatrixPythonPath {
+ <#
+ .SYNOPSIS
+ Put the shared scripts package (common\lib) at the front of PYTHONPATH for this process.
+ .NOTES
+ Python children inherit it. An entry already present is not added twice.
+ #>
+ $libRoot = Get-DatrixScriptsPythonPath
+ if (-not (Test-Path -LiteralPath (Join-Path $libRoot "datrix_scripts"))) {
+  throw "The shared scripts package is missing: expected $libRoot\datrix_scripts. Restore it from the datrix repository."
+ }
+ $entries = @()
+ if (-not [string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
+  $entries = @($env:PYTHONPATH -split [System.IO.Path]::PathSeparator | Where-Object { $_ -and ($_ -ne $libRoot) })
+ }
+ $env:PYTHONPATH = (@($libRoot) + $entries) -join [System.IO.Path]::PathSeparator
+}
+
 # Acquire package installation lock
 function Enter-DatrixPackageLock {
  <#
@@ -792,7 +822,7 @@ function Install-DatrixPackageDevExtras {
  Install the dev-extra spec strings a package declares in
  [project.optional-dependencies].dev, without re-resolving the package's own
  base dependencies (mirrors the monorepo branch of
- datrix/scripts/library/test/test_project.py's install_dev_dependencies:
+ datrix/scripts/common/lib/datrix_scripts/test_project.py's install_dev_dependencies:
  the package itself is already editable-installed by Install-DatrixPackage,
  so only the extra specs -- e.g. pytest-asyncio, stripe, PyJWT -- need
  installing; bare local-package specs such as "datrix-language" resolve
@@ -982,6 +1012,7 @@ function Ensure-DatrixVenv {
  }
 
  Set-DatrixPythonCachePrefix
+ Set-DatrixPythonPath
 
  $venvPath = Get-DatrixVenvPath
 
@@ -1037,7 +1068,7 @@ function Get-DatrixPackages {
 
  Install order is DERIVED, not hand-kept: a topological sort (Kahn's algorithm, ties broken
  alphabetically) over each discovered package's declared datrix-* [project.dependencies],
- computed by scripts/library/common/install_order.py. A cycle, or a declared datrix-*
+ computed by scripts/common/lib/datrix_scripts/install_order.py. A cycle, or a declared datrix-*
  dependency missing from disk, throws naming every package involved -- this function never
  silently falls back to alphabetical order.
  #>
@@ -1055,14 +1086,14 @@ function Get-DatrixPackages {
  return @()
  }
 
- $orderScript = Join-Path $datrixRoot "datrix\scripts\library\common\install_order.py"
+ Set-DatrixPythonPath
  $venvPath = Get-DatrixVenvPath
  $pythonExe = Join-Path $venvPath "Scripts\python.exe"
  if (-not (Test-Path $pythonExe)) {
  $pythonExe = "python"
  }
 
- $orderArgs = @($orderScript, "--workspace-root", $datrixRoot, "--packages") + $installable
+ $orderArgs = @("-m", "datrix_scripts.install_order", "--workspace-root", $datrixRoot, "--packages") + $installable
  $orderJson = & $pythonExe @orderArgs 2>&1
  if ($LASTEXITCODE -ne 0) {
  throw "Failed to compute Datrix package install order: $orderJson"
