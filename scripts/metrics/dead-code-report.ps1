@@ -4,7 +4,7 @@
  Dead-code report: never referenced vs only referenced by tests (two-pass Vulture).
 
 .DESCRIPTION
- Ensures the datrix venv is active and runs dead_code_report.py with two-pass Vulture.
+ Ensures the datrix venv is active and runs datrix_scripts.dead_code_report with two-pass Vulture.
 Reports dead code in src/ only, classified as "never referenced" or "only referenced by tests".
 
 .PARAMETER Projects
@@ -37,7 +37,7 @@ every datrix-* package discovered on disk with a pyproject.toml (except datrix) 
 
 .PARAMETER LocalMachines
  Machines to search for local model servers, in preference order. Omit to search the
- default list in library/shared/local_llm.py.
+ default list in common/lib/datrix_scripts/local_llm.py.
 
 .PARAMETER LlmModel
  Models to use for advisory review, best first. Omit to use any model already in memory.
@@ -91,8 +91,9 @@ $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scr
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 $venvUtilsScript = Join-Path $commonDir "venv.ps1"
 $workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$datrixCommon = Join-Path $workspaceRoot "datrix"
-$deadCodeReportPy = Join-Path $datrixCommon "scripts\library\metrics\dead_code_report.py"
+# Shared with dev\code-scan.ps1, so it lives in the shared scripts package and runs as a module.
+$deadCodeReportModule = "datrix_scripts.dead_code_report"
+$deadCodeReportPy = Join-Path $commonDir "lib\datrix_scripts\dead_code_report.py"
 
 if (-not (Test-Path $venvUtilsScript)) {
  Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
@@ -155,12 +156,12 @@ try {
  }
 
  if ($OutputPath) {
-  & python $deadCodeReportPy @pyArgs | Set-Content -Path $OutputPath -Encoding utf8
+  & python -m $deadCodeReportModule @pyArgs | Set-Content -Path $OutputPath -Encoding utf8
   if (-not $Quiet) {
    Get-Content -Path $OutputPath
   }
  } else {
-  & python $deadCodeReportPy @pyArgs
+  & python -m $deadCodeReportModule @pyArgs
  }
 
  exit $LASTEXITCODE

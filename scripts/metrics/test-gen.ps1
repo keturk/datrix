@@ -3,7 +3,7 @@
 .SYNOPSIS
  Run coverage-driven test generation for one or more Datrix projects.
 .DESCRIPTION
- Activates the shared virtual environment and runs library/metrics/test_gen.py.
+ Activates the shared virtual environment and runs metrics/lib/test_gen.py.
  Modes:
  - report       : list uncovered functions ranked by priority
  - generate     : generate test for top-ranked (or target) function
@@ -30,7 +30,7 @@ Include only functions where uncovered/total lines > ratio (default: 0.5).
  Print generated prompts for debugging.
 .PARAMETER LocalMachines
  Machines to search for local model servers, in preference order. Omit to search the
- default list in library/shared/local_llm.py.
+ default list in common/lib/datrix_scripts/local_llm.py.
 .PARAMETER Model
  Models to use for generation, best first. Omit to use any model already in memory.
 .PARAMETER LlmTimeout
@@ -71,8 +71,7 @@ if (-not (Test-Path $venvUtilsScript)) {
 }
 . $venvUtilsScript
 $workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$datrixCommon = Join-Path $workspaceRoot "datrix"
-$libraryScript = Join-Path $datrixCommon "scripts\library\metrics\test_gen.py"
+$libraryScript = Join-Path $scriptDir "lib\test_gen.py"
 if (-not (Test-Path $libraryScript)) {
  Write-Error "Error: test_gen.py not found at: $libraryScript"
  exit 1

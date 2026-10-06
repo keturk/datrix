@@ -4,7 +4,7 @@
  Run Vulture (dead-code detection) across one or more Datrix projects.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs the library vulture.py
+ Activates the datrix virtual environment and runs Vulture (python -m vulture)
 with a single combined invocation across selected projects' src trees.
 This enables cross-project reference detection while excluding test code.
 Finds unused imports, variables, functions, classes. Supports

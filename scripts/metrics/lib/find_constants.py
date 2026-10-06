@@ -6,14 +6,14 @@ Scans ``src/`` and ``tests/`` (when present) for each project by default. Use ``
 ``--tests``). Docstrings are excluded by default.
 
 Usage:
-    python scripts/library/dev/find_constants.py datrix-common
-    python scripts/library/dev/find_constants.py datrix-common --tests
-    python scripts/library/dev/find_constants.py --all --output ./out.md
+    python scripts/metrics/lib/find_constants.py datrix-common   (PYTHONPATH=scripts/common/lib)
+    python scripts/metrics/lib/find_constants.py datrix-common --tests
+    python scripts/metrics/lib/find_constants.py --all --output ./out.md
 
     Or use the PowerShell wrapper:
-        .\\scripts\\dev\\find-constants.ps1 -All
-        .\\scripts\\dev\\find-constants.ps1 datrix-common -Tests
-        .\\scripts\\dev\\find-constants.ps1 datrix-common -Output .\\my-report.md
+        .\\scripts\\metrics\\find-constants.ps1 -All
+        .\\scripts\\metrics\\find-constants.ps1 datrix-common -Tests
+        .\\scripts\\metrics\\find-constants.ps1 datrix-common -Output .\\my-report.md
 """
 
 from __future__ import annotations
@@ -34,11 +34,7 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-_library_dir = Path(__file__).resolve().parent.parent
-if _library_dir.exists() and str(_library_dir) not in sys.path:
-    sys.path.insert(0, str(_library_dir))
-
-from shared.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.venv import get_datrix_root  # noqa: E402
 
 
 @dataclass(frozen=True)

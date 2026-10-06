@@ -4,7 +4,7 @@
  Run pygount (lines-of-code counting) for one or more Datrix projects.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs the library loc.py
+ Activates the datrix virtual environment and runs lib\loc.py
  for each project. Reports code, documentation, and empty line counts
  per language. Supports summary, cloc-xml, and json output formats.
 
@@ -75,9 +75,7 @@ if (-not (Test-Path $venvUtilsScript)) {
 . $venvUtilsScript
 
 $workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$datrixCommon = Join-Path $workspaceRoot "datrix"
-$libraryDir = Join-Path $datrixCommon "scripts\library"
-$locScript = Join-Path $libraryDir "metrics\loc.py"
+$locScript = Join-Path $scriptDir "lib\loc.py"
 
 if (-not (Test-Path $locScript)) {
  Write-Error "Error: loc.py not found at: $locScript"

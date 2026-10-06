@@ -11,29 +11,21 @@ from __future__ import annotations
 
 import argparse
 import ast
-import importlib
 import json
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-# Add library root to sys.path for shared imports
-_LIBRARY_DIR = Path(__file__).resolve().parent.parent
-if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIBRARY_DIR))
-
-from shared.llm_code_fix import parse_code_response  # noqa: E402
-from shared.local_llm import (  # noqa: E402
+from datrix_scripts.llm_code_fix import parse_code_response
+from datrix_scripts.local_llm import (
     ChatRequest,
     LocalLlmPool,
     LocalLlmUnavailable,
     add_local_llm_arguments,
     local_llm_settings,
 )
-
-_venv_utils = importlib.import_module("shared.venv")
-get_datrix_root = _venv_utils.get_datrix_root
+from datrix_scripts.venv import get_datrix_root
 
 # One generation request: a whole test module may come back, after reasoning.
 GENERATE_TIMEOUT_MS = 300000

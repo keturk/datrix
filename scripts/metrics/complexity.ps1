@@ -4,7 +4,7 @@
  Run Radon metrics (complexity, raw, Halstead, MI) for one or more Datrix projects.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs the library complexity.py
+ Activates the datrix virtual environment and runs datrix_scripts.complexity
  for each project. Mode: check (enforce max complexity), cc, raw, halstead, mi.
  Ensures virtual environment is deactivated on exit.
 
@@ -29,7 +29,7 @@
 .PARAMETER Fix
  Fix the worst complexity violation using a local model (mode=check only).
  Sends the offending function to the first local model server that answers
- (library/shared/local_llm.py), validates the result, and overwrites the function if
+ (datrix_scripts/local_llm.py), validates the result, and overwrites the function if
  the file is unchanged. Exits after first successful fix.
  If a fix fails (syntax error, undefined names, test failure), reverts and tries the next.
 
@@ -47,7 +47,7 @@
 
 .PARAMETER LocalMachines
  Machines to search for local model servers, in preference order, for -Fix/-FixAll.
- Omit to search the default list in library/shared/local_llm.py.
+ Omit to search the default list in common/lib/datrix_scripts/local_llm.py.
 
 .PARAMETER Model
  Models to use for -Fix/-FixAll, best first. Omit to use any model already in memory.
@@ -137,9 +137,9 @@ if (-not (Test-Path $venvUtilsScript)) {
 . $venvUtilsScript
 
 $workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$datrixCommon = Join-Path $workspaceRoot "datrix"
-$libraryDir = Join-Path $datrixCommon "scripts\library"
-$complexityScript = Join-Path $libraryDir "metrics\complexity.py"
+# Shared with dev\code-scan.ps1, so it lives in the shared scripts package and runs as a module.
+$complexityModule = "datrix_scripts.complexity"
+$complexityScript = Join-Path $commonDir "lib\datrix_scripts\complexity.py"
 
 if (-not (Test-Path $complexityScript)) {
  Write-Error "Error: complexity.py not found at: $complexityScript"
@@ -274,7 +274,7 @@ try {
 
  $projectRoot = Join-Path $workspaceRoot $project
  $projectArgs = @(
- $complexityScript,
+ "-m", $complexityModule,
  "--project-root", $projectRoot,
  "--mode", $Mode,
  "--max", $Max

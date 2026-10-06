@@ -4,7 +4,7 @@
  Run Bandit security scanner for one or more Datrix projects.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs the library bandit.py
+ Activates the datrix virtual environment and runs lib\bandit_report.py
  for each project. Finds common security issues in Python code.
 
 .PARAMETER Projects
@@ -63,12 +63,10 @@ if (-not (Test-Path $venvUtilsScript)) {
 . $venvUtilsScript
 
 $workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$datrixCommon = Join-Path $workspaceRoot "datrix"
-$libraryDir = Join-Path $datrixCommon "scripts\library"
-$banditScript = Join-Path $libraryDir "metrics\bandit.py"
+$banditScript = Join-Path $scriptDir "lib\bandit_report.py"
 
 if (-not (Test-Path $banditScript)) {
- Write-Error "Error: bandit.py not found at: $banditScript"
+ Write-Error "Error: bandit_report.py not found at: $banditScript"
  exit 1
 }
 

@@ -4,7 +4,7 @@
  Find and list top N files by line count for one or more Datrix projects.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs the library large_files.py
+ Activates the datrix virtual environment and runs lib\large_files.py
  for each project. Walks both src/ and tests/; default is Python files only.
  Reports the largest files by line count in summary or json format.
 
@@ -82,9 +82,7 @@ if (-not (Test-Path $venvUtilsScript)) {
 . $venvUtilsScript
 
 $workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$datrixCommon = Join-Path $workspaceRoot "datrix"
-$libraryDir = Join-Path $datrixCommon "scripts\library"
-$largeFilesScript = Join-Path $libraryDir "metrics\large_files.py"
+$largeFilesScript = Join-Path $scriptDir "lib\large_files.py"
 
 if (-not (Test-Path $largeFilesScript)) {
  Write-Error "Error: large_files.py not found at: $largeFilesScript"

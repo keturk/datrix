@@ -4,7 +4,7 @@
  Report dependency relationships between Datrix packages.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs the library dependency.py
+ Activates the datrix virtual environment and runs lib\dependency.py
  to report which datrix-* packages depend on which (from pyproject.toml).
  Modes: tree (default), list, json.
 
@@ -61,9 +61,7 @@ if (-not (Test-Path $venvUtilsScript)) {
 . $venvUtilsScript
 
 $workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$datrixCommon = Join-Path $workspaceRoot "datrix"
-$libraryDir = Join-Path $datrixCommon "scripts\library"
-$dependencyScript = Join-Path $libraryDir "metrics\dependency.py"
+$dependencyScript = Join-Path $scriptDir "lib\dependency.py"
 
 if (-not (Test-Path $dependencyScript)) {
  Write-Error "Error: dependency.py not found at: $dependencyScript"

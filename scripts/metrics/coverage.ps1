@@ -4,7 +4,7 @@
  Run pytest with coverage for one or more Datrix projects and show coverage details.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs the library coverage.py
+ Activates the datrix virtual environment and runs lib\coverage_report.py
  for each project. Runs tests with pytest-cov and displays the coverage report.
  Optionally fails if coverage is below a threshold (-FailUnder).
 
@@ -65,12 +65,10 @@ if (-not (Test-Path $venvUtilsScript)) {
 . $venvUtilsScript
 
 $workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$datrixCommon = Join-Path $workspaceRoot "datrix"
-$libraryDir = Join-Path $datrixCommon "scripts\library"
-$coverageScript = Join-Path $libraryDir "metrics\coverage.py"
+$coverageScript = Join-Path $scriptDir "lib\coverage_report.py"
 
 if (-not (Test-Path $coverageScript)) {
- Write-Error "Error: coverage.py not found at: $coverageScript"
+ Write-Error "Error: coverage_report.py not found at: $coverageScript"
  exit 1
 }
 

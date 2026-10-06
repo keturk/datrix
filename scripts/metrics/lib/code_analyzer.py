@@ -23,12 +23,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Final
 
-_LIBRARY_DIR = Path(__file__).resolve().parent.parent
-if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIBRARY_DIR))
-
-from dev.find_constants import iter_python_files  # noqa: E402
-from shared.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.venv import get_datrix_root
+from find_constants import iter_python_files
 
 CONSTANT_NAME_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Z][A-Z0-9_]*$")
 DEFAULT_REPORT_NAME = "code-structure-report.md"

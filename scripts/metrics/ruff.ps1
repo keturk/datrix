@@ -4,7 +4,7 @@
  Run Ruff (lint/format) for one or more Datrix projects.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs the library ruff.py
+ Activates the datrix virtual environment and runs lib\ruff_report.py
  for each project. Modes: check (lint), format. Supports output-format,
  fix, diff, statistics for check; check (dry run), diff for format.
  Console output is written to a timestamped log under the workspace-level
@@ -85,12 +85,10 @@ if (-not (Test-Path $venvUtilsScript)) {
 . $venvUtilsScript
 
 $workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$datrixCommon = Join-Path $workspaceRoot "datrix"
-$libraryDir = Join-Path $datrixCommon "scripts\library"
-$ruffScript = Join-Path $libraryDir "metrics\ruff.py"
+$ruffScript = Join-Path $scriptDir "lib\ruff_report.py"
 
 if (-not (Test-Path $ruffScript)) {
- Write-Error "Error: ruff.py not found at: $ruffScript"
+ Write-Error "Error: ruff_report.py not found at: $ruffScript"
  exit 1
 }
 

@@ -28,11 +28,7 @@ try:
 except ImportError:
     tomllib = None # type: ignore[assignment]
 
-_library_dir = Path(__file__).resolve().parents[1]
-if str(_library_dir) not in sys.path:
-    sys.path.insert(0, str(_library_dir))
-
-from shared.pyproject_deps import (  # noqa: E402
+from datrix_scripts.pyproject_deps import (  # noqa: E402
     build_dependency_graph,
     discover_packages,
 )

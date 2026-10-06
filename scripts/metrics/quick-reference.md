@@ -24,9 +24,9 @@ Radon metrics: cyclomatic complexity, cognitive complexity, raw, Halstead, maint
 | **Stop on first fail** | `.\metrics\complexity.ps1 -All -StopOnError` | Stop on first failure |
 | **Verbose** | `.\metrics\complexity.ps1 datrix-common -VerboseOutput` | Verbose output |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|cc\|raw\|halstead\|mi, default: check), `-Max` (default: 15), `-Fix`, `-FixAll`, `-Test` (with -Fix), `-MaxRetries` (default: 3), `-LocalMachines` (default: the list in `library/shared/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-MaxContextChars` (default: 8000), `-StopOnError`, `-VerboseOutput`, `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|cc\|raw\|halstead\|mi, default: check), `-Max` (default: 15), `-Fix`, `-FixAll`, `-Test` (with -Fix), `-MaxRetries` (default: 3), `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-MaxContextChars` (default: 8000), `-StopOnError`, `-VerboseOutput`, `-Dbg`
 
-Every `-Fix`/LLM mode in this category searches the local machines through `library/shared/local_llm.py`: Ollama, vLLM and llama-server are discovered, models already in memory are used first, and a server that fails hands over to the next.
+Every `-Fix`/LLM mode in this category searches the local machines through `common/lib/datrix_scripts/local_llm.py`: Ollama, vLLM and llama-server are discovered, models already in memory are used first, and a server that fails hands over to the next.
 
 ---
 
@@ -172,7 +172,7 @@ Coverage-driven unit test generation via a local model. Finds uncovered function
 | **Debug prompts** | `.\metrics\test-gen.ps1 datrix-common -Generate -VerbosePrompts -MaxPromptTokens 4000` | Print prompts and warn above the token budget |
 | **All projects report** | `.\metrics\test-gen.ps1 -All -Mode report` | Report candidates for all projects |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (report\|generate\|generate-all, default: report), `-Generate`, `-GenerateAll`, `-TargetFunction`, `-MaxRetries` (default: 3), `-MinUncoveredRatio` (default: 0.5), `-MaxPromptTokens` (default: 6000), `-VerbosePrompts`, `-LocalMachines` (default: the list in `library/shared/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 300), `-StopOnError`, `-VerboseOutput`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (report\|generate\|generate-all, default: report), `-Generate`, `-GenerateAll`, `-TargetFunction`, `-MaxRetries` (default: 3), `-MinUncoveredRatio` (default: 0.5), `-MaxPromptTokens` (default: 6000), `-VerbosePrompts`, `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 300), `-StopOnError`, `-VerboseOutput`
 
 ---
 
@@ -253,3 +253,18 @@ Cleans up Ruff check log files from the workspace-level `D:\datrix\.test-output\
 | **Keep latest** | `.\metrics\cleanup-ruff.ps1 -Force -KeepLatest` | Delete old, keep latest per project |
 
 **Parameters:** `-BaseDir`, `-Force`, `-KeepLatest`, `-Dbg`
+
+---
+
+## `metrics\find-constants.ps1`
+
+Finds string literals in Datrix Python projects and writes a grouped Markdown report (magic-constant audit). The report defaults to the current working directory — always pass `-Output` pointing into `D:\datrix\.test-output\`.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **One project** | `.\metrics\find-constants.ps1 datrix-common -Output D:\datrix\.test-output\strings.md` | Report string literals in one project |
+| **Multiple projects** | `.\metrics\find-constants.ps1 datrix-common datrix-language -Output D:\datrix\.test-output\strings.md` | Several projects |
+| **All projects** | `.\metrics\find-constants.ps1 -All -Output D:\datrix\.test-output\strings.md` | Entire monorepo |
+| **Tests only** | `.\metrics\find-constants.ps1 -All -Tests -Output D:\datrix\.test-output\strings.md` | Scan only tests trees |
+
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Src`, `-Tests` (default: both trees), `-Output <path>`, `-IncludeDocstrings`, `-MinLength <n>` (default 1), `-MaxValueChars <n>` (default 120)

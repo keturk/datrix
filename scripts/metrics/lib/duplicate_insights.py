@@ -8,6 +8,8 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from datrix_scripts.paths import WORKSPACE_DIR
+
 
 def parse_clusters(text: str) -> list[tuple[str, str, str, str, int, int]]:
     """Return list of (pkg1, mod1, pkg2, mod2, lines1, lines2) per duplicate cluster."""
@@ -165,8 +167,8 @@ def render_markdown(
     lines.append(
         f"See `{source_dump.name}` for every pylint snippet and line range. Re-run: "
         f"`datrix/scripts/metrics/duplicate.ps1 -Mono -MinLines 6` then regenerate this file with "
-        f"`python datrix/scripts/library/metrics/duplicate_insights.py` "
-        f"(from monorepo root; optional `--input` / `--output`).\n"
+        f"`python datrix/scripts/metrics/lib/duplicate_insights.py` "
+        f"(from monorepo root, with `PYTHONPATH=datrix/scripts/common/lib`; optional `--input` / `--output`).\n"
     )
     return "".join(lines)
 
@@ -192,7 +194,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    root = Path(__file__).resolve().parents[4]
+    root = WORKSPACE_DIR
     inp = args.input if args.input.is_absolute() else root / args.input
     out = args.output if args.output.is_absolute() else root / args.output
 

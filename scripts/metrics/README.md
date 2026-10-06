@@ -19,10 +19,13 @@ Code metrics and linting for Datrix Python packages: Radon (complexity, raw, Hal
 | `bandit.ps1` | Run Bandit security scanner |
 | `coverage.ps1` | Run pytest with coverage and show coverage details |
 | `test-gen.ps1` | Coverage-driven unit test generation via a local model |
+| `find-constants.ps1` | String-literal (magic-constant) audit report; see [quick-reference.md](quick-reference.md) |
+
+Each script's Python is in `lib/`, or in `common/lib/datrix_scripts/` when another folder shares it (complexity, dead-code report, duplicate).
 
 ## complexity.ps1
 
-Uses [scripts/library/metrics/complexity.py](../library/metrics/complexity.py) and [Radon](https://github.com/rubik/radon).
+Uses [scripts/common/lib/datrix_scripts/complexity.py](../common/lib/datrix_scripts/complexity.py) and [Radon](https://github.com/rubik/radon).
 
 **Modes:** `check` (enforce max cyclomatic complexity), `cc` (cyclomatic per block), `raw` (SLOC, comment/blank, LOC, LLOC), `halstead`, `mi` (Maintainability Index).
 
@@ -60,7 +63,7 @@ Uses [scripts/library/metrics/complexity.py](../library/metrics/complexity.py) a
 
 ## vulture.ps1
 
-Uses [scripts/library/metrics/vulture.py](../library/metrics/vulture.py) and [Vulture](https://github.com/jendrikseipp/vulture).
+Runs [Vulture](https://github.com/jendrikseipp/vulture) directly (`python -m vulture`), once over the selected projects' `src/` trees together.
 
 ### Usage
 
@@ -81,7 +84,7 @@ Uses [scripts/library/metrics/vulture.py](../library/metrics/vulture.py) and [Vu
 
 ## dead-code-report.ps1
 
-Uses [scripts/library/metrics/dead_code_report.py](../library/metrics/dead_code_report.py) and runs Vulture twice: once on `src/` only (excluding tests) and once on `src/` and `tests/`. Dead code in `src/` is classified as:
+Uses [scripts/common/lib/datrix_scripts/dead_code_report.py](../common/lib/datrix_scripts/dead_code_report.py) and runs Vulture twice: once on `src/` only (excluding tests) and once on `src/` and `tests/`. Dead code in `src/` is classified as:
 
 - **Never referenced** — unreferenced anywhere (including tests). Safe to remove or whitelist.
 - **Only referenced by tests** — referenced only from test code. Consider removing if tests can be simplified, or keep if the code is test-only by design.
@@ -123,7 +126,7 @@ Only code under each project's `src/` is reported; dead code inside `tests/` is 
 
 ## ruff.ps1
 
-Uses [scripts/library/metrics/ruff.py](../library/metrics/ruff.py) and [Ruff](https://github.com/astral-sh/ruff).
+Uses [scripts/metrics/lib/ruff_report.py](lib/ruff_report.py) and [Ruff](https://github.com/astral-sh/ruff).
 
 ### Usage
 
@@ -146,7 +149,7 @@ Uses [scripts/library/metrics/ruff.py](../library/metrics/ruff.py) and [Ruff](ht
 
 ## dependency.ps1
 
-Uses [scripts/library/metrics/dependency.py](../library/metrics/dependency.py). Reads `pyproject.toml` from each datrix-* package and reports which packages depend on which (datrix-to-datrix only). No external dependency (uses stdlib `tomllib`, Python 3.11+).
+Uses [scripts/metrics/lib/dependency.py](lib/dependency.py). Reads `pyproject.toml` from each datrix-* package and reports which packages depend on which (datrix-to-datrix only). No external dependency (uses stdlib `tomllib`, Python 3.11+).
 
 **Modes:** `tree` (each package with its direct datrix deps, indented), `list` (one `package -> dependency` per line), `json` (machine-readable packages + edges).
 
@@ -171,7 +174,7 @@ Uses [scripts/library/metrics/dependency.py](../library/metrics/dependency.py). 
 
 ## duplicate.ps1
 
-Uses [scripts/library/metrics/duplicate.py](../library/metrics/duplicate.py) and [Pylint](https://github.com/pylint-dev/pylint) (R0801 rule).
+Uses [scripts/common/lib/datrix_scripts/duplicate.py](../common/lib/datrix_scripts/duplicate.py) and [Pylint](https://github.com/pylint-dev/pylint) (R0801 rule).
 
 ### Usage
 
@@ -200,7 +203,7 @@ With `-Mono`, Pylint compares all Python under every project's `src/`. Duplicate
 
 ## bandit.ps1
 
-Uses [scripts/library/metrics/bandit.py](../library/metrics/bandit.py) and [Bandit](https://github.com/PyCQA/bandit).
+Uses [scripts/metrics/lib/bandit_report.py](lib/bandit_report.py) and [Bandit](https://github.com/PyCQA/bandit).
 
 ### Usage
 
@@ -224,7 +227,7 @@ Uses [scripts/library/metrics/bandit.py](../library/metrics/bandit.py) and [Band
 
 ## coverage.ps1
 
-Uses [scripts/library/metrics/coverage.py](../library/metrics/coverage.py) and [pytest-cov](https://github.com/pytest-dev/pytest-cov). Runs the test suite with coverage and displays the coverage report. Optionally fails if total coverage is below a threshold.
+Uses [scripts/metrics/lib/coverage_report.py](lib/coverage_report.py) and [pytest-cov](https://github.com/pytest-dev/pytest-cov). Runs the test suite with coverage and displays the coverage report. Optionally fails if total coverage is below a threshold.
 
 ### Usage
 
@@ -248,7 +251,7 @@ Uses [scripts/library/metrics/coverage.py](../library/metrics/coverage.py) and [
 
 ## test-gen.ps1
 
-Uses [scripts/library/metrics/test_gen.py](../library/metrics/test_gen.py), [pytest-cov](https://github.com/pytest-dev/pytest-cov), [Ruff](https://github.com/astral-sh/ruff), and a local model server found by [library/shared/local_llm.py](../library/shared/local_llm.py) (Ollama, vLLM or llama-server on any searched machine, failing over to the next). It runs project coverage, ranks uncovered functions, and can generate `_generated` pytest files under `tests/unit/`. Generated files are kept only after target-reference checks, Ruff auto-fix/check, the generated test file, and the full project test suite pass; failing generated files are deleted.
+Uses [scripts/metrics/lib/test_gen.py](lib/test_gen.py), [pytest-cov](https://github.com/pytest-dev/pytest-cov), [Ruff](https://github.com/astral-sh/ruff), and a local model server found by [datrix_scripts.local_llm](../common/lib/datrix_scripts/local_llm.py) (Ollama, vLLM or llama-server on any searched machine, failing over to the next). It runs project coverage, ranks uncovered functions, and can generate `_generated` pytest files under `tests/unit/`. Generated files are kept only after target-reference checks, Ruff auto-fix/check, the generated test file, and the full project test suite pass; failing generated files are deleted.
 
 **Modes:** `report` lists ranked candidates, `generate` creates one validated test file, and `generate-all` attempts every matching candidate. Generation modes print an `Added tests` summary for the files that were kept and a summary of generated, skipped, and failed candidates.
 
@@ -281,7 +284,7 @@ The tool writes a per-project manifest at `D:\datrix\.test-output\test-gen\<proj
 | `-MinUncoveredRatio` | Include functions where uncovered/total lines is greater than this ratio (default: 0.5) |
 | `-MaxPromptTokens` | Approximate prompt token budget before warnings are emitted (default: 6000) |
 | `-VerbosePrompts` | Print generated prompts for debugging |
-| `-LocalMachines` | Machines to search for model servers, in preference order (default: the list in `library/shared/local_llm.py`) |
+| `-LocalMachines` | Machines to search for model servers, in preference order (default: the list in `common/lib/datrix_scripts/local_llm.py`) |
 | `-Model` | Models to use, best first (default: any model already in memory) |
 | `-LlmTimeout` | Request timeout in seconds per generation attempt (default: 300) |
 | `-StopOnError` | Stop on first project failure |
@@ -291,5 +294,5 @@ The tool writes a per-project manifest at `D:\datrix\.test-output\test-gen\<proj
 
 1. Resolves project root from the workspace root plus the project name or path.
 2. Excludes the `datrix` showcase package when using `-All` or normalized project inputs.
-3. Activates the shared workspace virtual environment before running the Python library tool.
+3. Activates the shared workspace virtual environment (which puts `common/lib` on `PYTHONPATH`) before running the tool in `lib/` or `datrix_scripts`.
 4. Returns a non-zero exit code when any selected project fails, unless a tool mode explicitly defines a different result contract.

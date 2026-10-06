@@ -71,8 +71,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptsDir = Split-Path -Parent $scriptDir
 $commonDir = Join-Path $scriptsDir "common"
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$libraryDir = Join-Path $scriptsDir "library"
-$pythonScript = Join-Path $libraryDir "metrics\code_analyzer.py"
+$pythonScript = Join-Path $scriptDir "lib\code_analyzer.py"
 
 . (Join-Path $commonDir "venv.ps1")
 

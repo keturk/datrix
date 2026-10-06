@@ -4,7 +4,7 @@
  Run error message quality detection and scoring for one or more Datrix projects.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs the library error_messages.py
+ Activates the datrix virtual environment and runs lib\error_messages.py
  for each project. Modes: check (enforce minimum quality score), report (list all sites).
 
 .PARAMETER Projects
@@ -33,7 +33,7 @@
 
 .PARAMETER LocalMachines
  Machines to search for local model servers, in preference order, for -Fix/-FixAll.
- Omit to search the default list in library/shared/local_llm.py.
+ Omit to search the default list in common/lib/datrix_scripts/local_llm.py.
 
 .PARAMETER Model
  Models to use for -Fix/-FixAll, best first. Omit to use any model already in memory.
@@ -103,9 +103,7 @@ if (-not (Test-Path $venvUtilsScript)) {
 . $venvUtilsScript
 
 $workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$datrixCommon = Join-Path $workspaceRoot "datrix"
-$libraryDir = Join-Path $datrixCommon "scripts\library"
-$errorMessagesScript = Join-Path $libraryDir "metrics\error_messages.py"
+$errorMessagesScript = Join-Path $scriptDir "lib\error_messages.py"
 
 if (-not (Test-Path $errorMessagesScript)) {
  Write-Error "Error: error_messages.py not found at: $errorMessagesScript"

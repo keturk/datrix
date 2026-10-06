@@ -24,24 +24,19 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Add library root to sys.path for shared imports
-_LIBRARY_DIR = Path(__file__).resolve().parent.parent
-if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIBRARY_DIR))
-
-from shared.llm_code_fix import (  # noqa: E402
+from datrix_scripts.llm_code_fix import (
     MAX_FIX_RETRIES,
 )
-from shared.llm_code_fix import (  # noqa: E402
+from datrix_scripts.llm_code_fix import (
     apply_and_verify_on_disk as _apply_and_verify_on_disk_shared,
 )
-from shared.llm_code_fix import (  # noqa: E402
+from datrix_scripts.llm_code_fix import (
     build_retry_feedback as _build_retry_feedback_shared,
 )
-from shared.llm_code_fix import (  # noqa: E402
+from datrix_scripts.llm_code_fix import (
     parse_code_response as _parse_code_response_shared,
 )
-from shared.local_llm import (  # noqa: E402
+from datrix_scripts.local_llm import (
     ChatRequest,
     LocalLlmPool,
     LocalLlmUnavailable,

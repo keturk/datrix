@@ -4,7 +4,7 @@
  Run Pylint duplicate-code detection (R0801) for one or more Datrix projects.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs the library duplicate.py
+ Activates the datrix virtual environment and runs datrix_scripts.duplicate
  for each project. Finds similar/duplicated code blocks across files.
 
 .PARAMETER Projects
@@ -37,7 +37,7 @@
 
 .PARAMETER LocalMachines
  Machines to search for local model servers, in preference order. Omit to search the
- default list in library/shared/local_llm.py.
+ default list in common/lib/datrix_scripts/local_llm.py.
 
 .PARAMETER LlmModel
  Models to use for advisory refactor plan, best first. Omit to use any model already in memory.
@@ -93,9 +93,9 @@ if (-not (Test-Path $venvUtilsScript)) {
 . $venvUtilsScript
 
 $workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$datrixCommon = Join-Path $workspaceRoot "datrix"
-$libraryDir = Join-Path $datrixCommon "scripts\library"
-$duplicateScript = Join-Path $libraryDir "metrics\duplicate.py"
+# Shared with dev\code-scan.ps1, so it lives in the shared scripts package and runs as a module.
+$duplicateModule = "datrix_scripts.duplicate"
+$duplicateScript = Join-Path $commonDir "lib\datrix_scripts\duplicate.py"
 
 if (-not (Test-Path $duplicateScript)) {
  Write-Error "Error: duplicate.py not found at: $duplicateScript"
@@ -161,7 +161,7 @@ try {
  if ($isMonoRun) {
  Write-Host ""
  Write-Host "======== mono (all projects) ========" -ForegroundColor Cyan
- $projectArgs = @($duplicateScript)
+ $projectArgs = @("-m", $duplicateModule)
  foreach ($project in $projectsToAnalyze) {
  $projectRoot = Join-Path $workspaceRoot $project
  $projectArgs += "--project-root"
@@ -191,7 +191,7 @@ try {
  Write-Host "======== $project ========" -ForegroundColor Cyan
  $projectRoot = Join-Path $workspaceRoot $project
  $projectArgs = @(
- $duplicateScript,
+ "-m", $duplicateModule,
  "--project-root", $projectRoot
  )
  if ($PSBoundParameters.ContainsKey('MinLines')) {
