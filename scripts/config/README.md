@@ -11,7 +11,7 @@ Shared configuration files used by scripts.
 | `test-projects.json` | Project definitions for testing and code generation |
 | `customer-term-hashes.json` | Hashed denylist of customer/project terms banned from every framework repo |
 | `ignored-source-exemptions.json` | Reviewed, scoped list of `.gitignore` rules allowed to hide build output rather than source |
-| `zero-environment-runtime-baseline.json` | Per-language zero-environment runtime census: reviewed exemptions (template + reason) for a language declaring the contract realized, a decrease-only `pinned_count` for one declaring it unrealized; read by `test/zero-environment-runtime-gate.ps1`, whose `-UpdateBaseline` is the only writer of counts |
+| `zero-environment-runtime-baseline.json` | Per-language zero-environment runtime census: reviewed exemptions (template + reason) for a language declaring the contract realized, a decrease-only `pinned_count` for one declaring it unrealized; read by `gates/realization/zero-environment-runtime-gate.ps1`, whose `-UpdateBaseline` is the only writer of counts |
 | `semgrep-rules/` | Individual YAML rule files for the Semgrep anti-pattern scanner |
 | `ast-grep-rules/` | Individual YAML rule files for the ast-grep structural scanner |
 
@@ -56,11 +56,11 @@ Defines example projects organized by category for batch testing and generation.
 Used by:
 - `dev/generate.ps1` with `-All`, `-Domains`, etc. flags
 - `test/run-complete.ps1` for batch testing
-- Python scripts via `library/shared/test_projects.py`
+- Python scripts via `common/lib/datrix_scripts/test_projects.py`
 
 ## customer-term-hashes.json
 
-The denylist behind `test/customer-domain-isolation-gate.ps1` and the pre-commit check in
+The denylist behind `gates/repo-hygiene/customer-domain-isolation-gate.ps1` and the pre-commit check in
 `git/commit-and-push.ps1`. Customer/project domain language — a customer name, their service
 names, their cloud resource names, paths into their checkout — must never appear in a
 framework repo (`datrix`, `datrix-cli`, `datrix-codegen-*`, `datrix-common`,
@@ -92,7 +92,7 @@ term collides with ordinary words.
 Never hand-edit a hash. Use the gate, which hashes the term and discards the plaintext:
 
 ```powershell
-.\test\customer-domain-isolation-gate.ps1 -AddTerm acmecorp -Hint "customer project"
+.\gates\repo-hygiene\customer-domain-isolation-gate.ps1 -AddTerm acmecorp -Hint "customer project"
 ```
 
 An empty `terms` list is legitimate (a checkout with no customer projects); both callers
@@ -100,7 +100,7 @@ report `NOT ENFORCED` rather than a silent pass. A missing or malformed file is 
 
 ## ignored-source-exemptions.json
 
-The reviewed exemption list behind `test/ignored-source-gate.ps1`. That gate computes, per
+The reviewed exemption list behind `gates/repo-hygiene/ignored-source-gate.ps1`. That gate computes, per
 framework repo, the difference between the working tree and what a `git add -A` would stage.
 Every element of that difference must appear here; anything else is a source file a
 `.gitignore` rule is silently deleting from every clone — a failure invisible locally (the
@@ -146,7 +146,7 @@ deletion; an entry would license the directory to stay.
 
 ## semgrep-rules/
 
-Individual YAML rule files for the Semgrep anti-pattern scanner (`dev/semgrep.ps1`). Each file defines one Semgrep rule that enforces a `.cursorrules` coding standard.
+Individual YAML rule files for the Semgrep anti-pattern scanner (`scan/semgrep.ps1`). Each file defines one Semgrep rule that enforces a `.cursorrules` coding standard.
 
 See [semgrep-rules/README.md](semgrep-rules/README.md) for the full rule catalog, usage examples, and instructions for adding new rules.
 
@@ -154,18 +154,18 @@ See [semgrep-rules/README.md](semgrep-rules/README.md) for the full rule catalog
 
 ```powershell
 # List all available rules
-.\dev\semgrep.ps1 -ListRules
+.\scan\semgrep.ps1 -ListRules
 
 # Run all rules
-.\dev\semgrep.ps1 -All
+.\scan\semgrep.ps1 -All
 
 # Run a single rule
-.\dev\semgrep.ps1 -All -Rule empty-except-pass
+.\scan\semgrep.ps1 -All -Rule empty-except-pass
 ```
 
 ## ast-grep-rules/
 
-Individual YAML rule files for the ast-grep structural scanner (`dev/ast-grep.ps1`). Each file defines one ast-grep rule for fast AST-shaped Python searches.
+Individual YAML rule files for the ast-grep structural scanner (`scan/ast-grep.ps1`). Each file defines one ast-grep rule for fast AST-shaped Python searches.
 
 See [ast-grep-rules/README.md](ast-grep-rules/README.md) for the full rule catalog, usage examples, and notes on PowerShell quoting for ast-grep metavariables.
 
@@ -173,14 +173,14 @@ See [ast-grep-rules/README.md](ast-grep-rules/README.md) for the full rule catal
 
 ```powershell
 # List all available rules
-.\dev\ast-grep.ps1 -ListRules
+.\scan\ast-grep.ps1 -ListRules
 
 # Run all saved rules
-.\dev\ast-grep.ps1 -All
+.\scan\ast-grep.ps1 -All
 
 # Run a single saved rule
-.\dev\ast-grep.ps1 -All -Rule placeholder-notimplemented-body
+.\scan\ast-grep.ps1 -All -Rule placeholder-notimplemented-body
 
 # Run a one-off structural pattern
-.\dev\ast-grep.ps1 -All -Pattern 'raise Exception($MSG)'
+.\scan\ast-grep.ps1 -All -Pattern 'raise Exception($MSG)'
 ```

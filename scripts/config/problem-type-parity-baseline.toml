@@ -1,6 +1,6 @@
 # Two-directional pin over the problem-type parity gate's unspelled (language, family) cells
-# (scripts/library/test/problem_type_parity.py, wrapped by
-# scripts/test/problem-type-parity-gate.ps1).
+# (scripts/gates/parity/lib/problem_type_parity.py, wrapped by
+# scripts/gates/parity/problem-type-parity-gate.ps1).
 #
 # Every registered language is obligated to spell every registered problem-type family. A cell a
 # language does not spell is counted here and nowhere excused: no declaration, reason or gap row

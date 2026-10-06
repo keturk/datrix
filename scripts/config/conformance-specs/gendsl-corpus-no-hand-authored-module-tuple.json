@@ -1,5 +1,5 @@
 {
-  "target": "../../library/test",
+  "target": "../../gates/realization/lib",
   "negative_control": "_fixtures/gendsl-corpus-no-hand-authored-module-tuple/negative-control",
   "assertions": [
     {

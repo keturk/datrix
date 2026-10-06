@@ -6,7 +6,7 @@
 # (declaration_for_language(lang).name_tokens) as an identifier segment,
 # in datrix_codegen_common and datrix_codegen_kernel.
 # Any INCREASE in a file's count fails
-# datrix/scripts/dev/check-import-boundaries.py --check-shared-target-names.
+# datrix/scripts/scan/lib/check_import_boundaries.py --check-shared-target-names.
 # Decreases are always allowed and should be captured by re-running with
 # --update-baseline once a later change deletes a target-named surface.
 # Every entry is a reviewed exemption and MUST carry a written `reason`

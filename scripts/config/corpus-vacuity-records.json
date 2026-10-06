@@ -1,7 +1,7 @@
 {
   "_comment": [
     "Reviewed corpus-vacuity records for the cross-language artifact-role parity",
-    "gate (datrix/scripts/test/artifact-role-parity-gate.ps1). Each entry names one",
+    "gate (datrix/scripts/gates/parity/artifact-role-parity-gate.ps1). Each entry names one",
     "(language, domain) coordinate where that language realizes the domain by a",
     "structural_pattern that matches ZERO paths anywhere in",
     "that language's ENTIRE generated footprint -- every registered example's tree under",

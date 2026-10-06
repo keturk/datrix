@@ -7,7 +7,7 @@ match (conformance_gate.py's non-vacuity rule: a pattern absent from BOTH
 the target and the negative control proves nothing and fails as vacuous).
 This is a frozen textual snapshot of the retired hand-authored genDSL
 module tuple the seed spec asserts is gone from the real
-scripts/library/test/gendsl_corpus_resolution.py.
+scripts/gates/realization/lib/gendsl_corpus_resolution.py.
 
 Do not delete, rename, or "fix" this file to match the derived
 implementation -- its entire purpose is to keep containing the OLD literal

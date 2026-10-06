@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "Reviewed exemptions for datrix/scripts/test/ignored-source-gate.ps1.",
+    "Reviewed exemptions for datrix/scripts/gates/repo-hygiene/ignored-source-gate.ps1.",
     "",
     "The gate compares, per framework repo, the working tree against what a",
     "'git add -A' would stage. Anything present on disk that git refuses to",

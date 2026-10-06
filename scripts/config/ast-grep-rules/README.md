@@ -34,16 +34,16 @@ the same shapes when an edit adds them.
 
 ```powershell
 # List available rules
-.\scripts\dev\ast-grep.ps1 -ListRules
+.\scripts\scan\ast-grep.ps1 -ListRules
 
 # Run one saved rule on all projects
-.\scripts\dev\ast-grep.ps1 -All -Rule silent-fallback-none
+.\scripts\scan\ast-grep.ps1 -All -Rule silent-fallback-none
 
 # Run several saved rules
-.\scripts\dev\ast-grep.ps1 -All -Rule default-type-mapping-any -Rule empty-except-pass
+.\scripts\scan\ast-grep.ps1 -All -Rule default-type-mapping-any -Rule empty-except-pass
 
 # Run a one-off pattern
-.\scripts\dev\ast-grep.ps1 -All -Pattern 'raise Exception($MSG)'
+.\scripts\scan\ast-grep.ps1 -All -Pattern 'raise Exception($MSG)'
 ```
 
 PowerShell expands `$NAME` in double-quoted strings. Use single quotes for

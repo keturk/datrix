@@ -10,7 +10,7 @@
 # datrix-common module that moved up a layer; its entry moved with it).
 #
 # Decrease-only. Any INCREASE in a file's count fails
-# datrix/scripts/dev/check-import-boundaries.py
+# datrix/scripts/scan/lib/check_import_boundaries.py
 # --check-function-level-imports, which check-import-boundaries.ps1 runs on
 # every check invocation. --update-baseline only lowers counts and drops
 # emptied entries; it refuses to raise one. A module that moves keeps its

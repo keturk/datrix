@@ -5,7 +5,7 @@
 # bare string literal -- identically in two or more datrix-*
 # packages (every package discover_packages() finds, not only the
 # language packages). Any INCREASE in a file's count fails
-# datrix/scripts/dev/check-import-boundaries.py
+# datrix/scripts/scan/lib/check_import_boundaries.py
 # --check-cross-package-vocabulary. Decreases are always allowed
 # and should be captured by re-running with --update-baseline once
 # a later change deletes or hoists a redundant container.

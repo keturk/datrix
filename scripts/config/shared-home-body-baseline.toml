@@ -1,5 +1,5 @@
 # Decrease-only per-package pin of shared-home duplicate bodies
-# (scripts/library/test/shared_home_bodies.py, wrapped by scripts/test/shared-home-body-gate.ps1).
+# (scripts/gates/parity/lib/shared_home_bodies.py, wrapped by scripts/gates/parity/shared-home-body-gate.ps1).
 #
 # `count` is the number of functions in `package` (an import name) whose normalized body equals
 # the body of a public function in another package's shared home. A live count ABOVE `count`

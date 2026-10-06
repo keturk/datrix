@@ -1,5 +1,5 @@
 {
-  "_comment": "I5 docs-conformance exceptions baseline (Invariant I5). Each entry is a backticked span (from an architecture doc) that datrix/scripts/test/check-docs-conformance.py cannot resolve to a real file/directory/module, verified to be legitimately non-existent (a migration-history 'what was removed' claim, a negative/prohibition claim, or another confirmed-intentional non-existence) rather than a genuine drift defect. A NEW entry here is a deliberate, reviewed exception -- never a way to silence a script complaint without reading why it fired.",
+  "_comment": "I5 docs-conformance exceptions baseline (Invariant I5). Each entry is a backticked span (from an architecture doc) that datrix/scripts/gates/repo-hygiene/lib/check_docs_conformance.py cannot resolve to a real file/directory/module, verified to be legitimately non-existent (a migration-history 'what was removed' claim, a negative/prohibition claim, or another confirmed-intentional non-existence) rather than a genuine drift defect. A NEW entry here is a deliberate, reviewed exception -- never a way to silence a script complaint without reading why it fired.",
   "exceptions": [
     {
       "span": "datrix-codegen-common/orchestration/seed_orchestrator.py",

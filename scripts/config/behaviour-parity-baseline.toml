@@ -1,6 +1,6 @@
 # Decrease-only, two-directional ratchet over the behaviour-parity gate's failing-role
-# population (scripts/library/test/behaviour_parity.py, wrapped by
-# scripts/test/behaviour-parity-gate.ps1).
+# population (scripts/gates/parity/lib/behaviour_parity.py, wrapped by
+# scripts/gates/parity/behaviour-parity-gate.ps1).
 #
 # Every role of a gated axis is in scope: every bucket, every domain, and a role no shared
 # domain claims (`undomained`) exactly like any other. No domain-scoped or bucket-scoped

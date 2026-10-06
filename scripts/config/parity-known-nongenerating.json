@@ -3,7 +3,7 @@
     "Examples under datrix/examples/ that the REAL generation pipeline cannot GENERATE today.",
     "This is a DELIBERATELY MAINTAINED SCOPE BOUNDARY, not an auto-heal: it is the only sanctioned",
     "reason for a registered example to have no generated tree when the cross-language",
-    "artifact-role parity gate (datrix/scripts/test/artifact-role-parity-gate.ps1) checks that",
+    "artifact-role parity gate (datrix/scripts/gates/parity/artifact-role-parity-gate.ps1) checks that",
     "every registered language's corpus under <workspace>/.generated is complete.",
     "",
     "KEY FORMAT: a bare example_id (the example's path under datrix/examples/ with '/' replaced",

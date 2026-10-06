@@ -4,7 +4,7 @@
 # carries that package's OWN registered language id or declared alias
 # (declaration_for_language(lang).name_tokens | {lang}) as a whole
 # underscore-delimited identifier segment. Any INCREASE fails
-# datrix/scripts/dev/check-import-boundaries.py --check-own-target-names.
+# datrix/scripts/scan/lib/check_import_boundaries.py --check-own-target-names.
 # Decreases are always allowed and should be captured by re-running with
 # --update-baseline once a rename removes a remaining hit. The terminal
 # state is zero for every package, then the baseline file itself is

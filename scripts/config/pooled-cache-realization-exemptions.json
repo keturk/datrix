@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "Typed exemptions for datrix/scripts/test/pooled-cache-realization-gate.ps1.",
+    "Typed exemptions for datrix/scripts/gates/realization/pooled-cache-realization-gate.ps1.",
     "Each entry names a registered datrix.languages / datrix.platforms target",
     "(entry-point name, unfolded -- a platform name backed by a shared package",
     "such as 'local' with 'docker', or 'azure-vm' with 'azure', still gets its",
