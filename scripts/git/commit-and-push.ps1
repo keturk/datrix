@@ -15,10 +15,9 @@ land in one commit while an unrelated docs edit gets its own. Each message
 describes one coherent change, which is what keeps subjects within 72 characters.
 
 Message source is chosen automatically:
- * The local machines (-LocalMachines) are searched for model servers: Ollama on
-   port 11434 and OpenAI-compatible servers (vLLM, llama-server) on 8000, 8080 and
-   8081. What each serves is discovered, not configured. Models already in memory
-   on any machine are used first, in machine order; an Ollama model is loaded only
+ * The local machines (-LocalMachines) are searched for an Ollama server on port
+   11434. What each holds and can load is discovered, not configured. Models already
+   in memory on any machine are used first, in machine order; a model is loaded only
    when nothing is resident. A model that fails to answer hands over to the next.
  * If no local model can answer, the script falls back to the Claude Code CLI, run
    with no tools and none of the workspace's CLAUDE.md, hooks or skills.
@@ -58,8 +57,8 @@ shows it): the Dell T5820 and T7920 (RTX 3090) and the ASUS GX10.
 HTTP timeout (ms) for each local generate request, with the model already loaded.
 
 .PARAMETER LocalLoadTimeoutMs
-Timeout (ms) for readying a model before the first message: loading an Ollama
-model into memory, or a server's first answer. Default 900000: a cold load of a
+Timeout (ms) for readying a model before the first message: loading it into
+Ollama's memory, or renewing a loaded one. Default 900000: a cold load of a
 large model from a slow disk takes minutes.
 
 .PARAMETER LocalMaxTokens

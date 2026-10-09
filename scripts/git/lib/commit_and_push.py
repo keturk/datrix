@@ -9,11 +9,10 @@ WHY THEMED SETS RATHER THAN ONE COMMIT PER REPO
     commit, an unrelated docs edit gets another -- capped by ``--max-commits-per-repo``.
 
 MESSAGE SOURCE
-    * **Local machines** (preferred) -- model servers on the local network. Each machine
-      is searched for an Ollama server and OpenAI-compatible servers (vLLM, llama-server),
-      and what they serve is discovered, never configured. Models already in memory are
-      used first; an Ollama model is loaded only when none is. A model that fails hands
-      over to the next.
+    * **Local machines** (preferred) -- the Ollama server on each machine of the local
+      network. What each one holds and can load is discovered, never configured. Models
+      already in memory are used first; a model is loaded only when none is. A model that
+      fails hands over to the next.
     * **Claude Code CLI** -- the ``claude`` command, run as a pure text call with no
       tools. Used when no local host is usable (or ``--message-source claude``).
 

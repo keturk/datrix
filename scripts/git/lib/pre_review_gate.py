@@ -17,16 +17,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import socket
 import subprocess
 import sys
-import threading
 from collections.abc import Callable
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
+from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering
 from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
 from pre_review import (
     RULE_BARE_EXCEPT,
@@ -49,7 +47,6 @@ CheckFunc = Callable[[], None]
 _GREEN = "\033[92m"
 _RED = "\033[91m"
 _RESET = "\033[0m"
-_LOOPBACK = "127.0.0.1"
 _GIT_IDENTITY = ("-c", "user.name=pre-review-gate", "-c", "user.email=gate@example.invalid",
                  "-c", "commit.gpgsign=false")
 
@@ -199,67 +196,20 @@ def check_model_findings_must_be_grounded() -> None:
         raise AssertionError(f"{unreadable!r} must raise UnreadableAnswer")
 
 
-def _closed_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((_LOOPBACK, 0))
-        return int(sock.getsockname()[1])
-
-
-class _ModelServer:
-    """An OpenAI-compatible server on loopback answering every chat with ``answer``."""
-
-    def __init__(self, answer: str) -> None:
-        self.prompts: list[str] = []
-        prompts = self.prompts
-
-        class _Handler(BaseHTTPRequestHandler):
-            def _send(self, payload: object) -> None:
-                data = json.dumps(payload).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                self._send({"data": [{"id": "gate-model"}]})
-
-            def do_POST(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])).decode("utf-8"))
-                if body.get("max_tokens") != 1:
-                    prompts.append(str(body["messages"][-1]["content"]))
-                self._send({"choices": [{"message": {"content": answer}, "finish_reason": "stop"}]})
-
-            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-                return
-
-        self._httpd = ThreadingHTTPServer((_LOOPBACK, 0), _Handler)
-        self.port = int(self._httpd.server_address[1])
-        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
-
-    def __enter__(self) -> _ModelServer:
-        self._thread.start()
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self._httpd.shutdown()
-        self._httpd.server_close()
-
-
 def check_model_review_is_advisory_and_skips_tests() -> None:
     answer = json.dumps({"findings": [{"line": 2, "rule": "silent-fallback", "quote": "or 'd'",
                                        "explanation": "defaulted", "confidence": "high"}]})
-    with TemporaryDirectory() as temp, _ModelServer(answer) as server:
+    with TemporaryDirectory() as temp, LoopbackOllama(answering(answer)) as server:
         workspace = Path(temp)
         repo = _repo(workspace, "alpha", {"src/mod.py": "A = 1\n"})
         _write(repo, {"src/mod.py": "A = 1\nB = cfg.get('k') or 'd'\n", "tests/test_mod.py": "C = 1\n"})
-        settings = LocalLlmSettings(machines=(_LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                                    ollama_port=_closed_port(), openai_ports=(server.port,))
+        settings = LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
+                                    ollama_port=server.port)
         result = review(workspace, LocalLlmPool(settings, report=lambda _: None), workers=2, max_chars=4000)
+        prompts = [chat.user for chat in server.chats]
         assert [(f.file, f.line) for f in result.advisory] == [("alpha/src/mod.py", 2)], result.advisory
         assert not result.definite, result.definite
-        assert len(server.prompts) == 1 and "alpha/src/mod.py" in server.prompts[0], \
-            f"only the non-test file may be sent: {server.prompts}"
+        assert len(prompts) == 1 and "alpha/src/mod.py" in prompts[0], f"only the non-test file may be sent: {prompts}"
         offline = review(workspace, None, workers=2, max_chars=4000)
         assert not offline.advisory and "not run" in offline.advisory_note, offline.advisory_note
 

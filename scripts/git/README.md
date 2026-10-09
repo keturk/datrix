@@ -11,7 +11,7 @@ Git operations across all Datrix repositories.
 | `status.ps1` | Show git status for all repositories |
 | `pull.ps1` | Pull latest changes for all repositories |
 | `pre-review.ps1` | First-pass review of the lines pending changes add to Python files (silent fallbacks, bare/swallowing excepts, TODOs, missing type hints, placeholder bodies); run before commit-and-push |
-| `commit-and-push.ps1` | One-pass commit-and-push for all dirty repos, one commit per themed change set; messages from the first local model that answers (discovered Ollama, vLLM or llama-server), or the Claude Code CLI |
+| `commit-and-push.ps1` | One-pass commit-and-push for all dirty repos, one commit per themed change set; messages from the first local model that answers (discovered on the machines' Ollama servers), or the Claude Code CLI |
 
 ## status.ps1
 
@@ -100,12 +100,12 @@ For every repository with uncommitted changes, it splits the changes into themed
 
 1. Finds the dirty repos and runs the pre-commit checks (customer-domain isolation, ignored source, PolyString case round-trips) across all of them before anything is generated or staged.
 2. **Message source:**
-   - Searches each local machine (`-LocalMachines`) for model servers — Ollama on port 11434, OpenAI-compatible servers (vLLM, llama-server) on 8000, 8080 and 8081 — all endpoints in parallel. Nothing about a machine's servers or models is configured: what answers, and what it serves, is discovered on every run. The search, readiness and failover live in `common/lib/datrix_scripts/local_llm.py`, which every local-model script in `scripts/` shares.
-   - Candidates, best first: every model already in memory on any machine (an OpenAI-compatible server's models, models Ollama has loaded), in machine order; then models Ollama would have to load (`OLLAMA_LOAD_PREFERENCE` in `common/lib/datrix_scripts/local_llm.py`, if installed). No Ollama load is offered on a machine where an OpenAI-compatible server answered — that server holds the GPU memory the load would need.
-   - The first candidate is readied before any change set: an Ollama model is loaded under `-LocalLoadTimeoutMs`, so a multi-minute cold load is not charged to a generate call; an OpenAI-compatible server must answer a one-token completion within `-LocalTimeoutMs`, because such a server keeps listing its model after its engine has died.
-   - A candidate that fails to ready or generate (an exhausted GPU, a dead engine) is dropped for the rest of the run and the next one takes over.
+   - Searches each local machine (`-LocalMachines`) for an Ollama server on port 11434 — all machines in parallel. Ollama is the only model server the local machines run. Nothing about a machine's models is configured: what answers, what it holds in memory and what it could load are discovered on every run. The search, readiness and failover live in `common/lib/datrix_scripts/local_llm.py`, which every local-model script in `scripts/` shares.
+   - Candidates, best first: every model Ollama already holds in memory on any machine, in machine order; then models Ollama would have to load (`OLLAMA_LOAD_PREFERENCE` in `common/lib/datrix_scripts/local_llm.py`, if installed).
+   - The first candidate is readied before any change set: its model is loaded (or a loaded one's keep-alive renewed) under `-LocalLoadTimeoutMs`, so a multi-minute cold load is not charged to a generate call.
+   - A candidate that fails to ready or generate (an exhausted GPU, a model that cannot load) is dropped for the rest of the run and the next one takes over.
    - If nothing was found, or every candidate has failed → the Claude Code CLI generates the messages. It runs as a pure text call: no tools, `--safe-mode` (no workspace CLAUDE.md, hooks or skills), and its own system prompt. With `-MessageSource local` the run errors instead.
-   - Reasoning models are asked to skip reasoning (Ollama `think=false`; `enable_thinking=false` through the chat template on an OpenAI-compatible server): a commit message needs none, and it multiplies generate time.
+   - Reasoning models are asked to skip reasoning (Ollama `think=false`, sent only to a model with the `thinking` capability): a commit message needs none, and it multiplies generate time.
 3. **Themed change sets:** each repo's dirty paths (untracked included, `.gitignore` honoured) are grouped by area. Container directories — `src/<package>`, `tests/<tier>`, `scripts`, `examples` — are stepped through, so `src/<pkg>/generators/x.py` and `tests/unit/generators/test_x.py` share the `generators` set and a feature lands in one commit with its tests. Past `-MaxCommitsPerRepo` sets, the smallest are folded into one `other changes` commit.
 4. **One message per set:** the model sees only that set's diff and is told the rest is committed separately. Messages pass a quality gate (English only, no path dumps, no chat-style prose, concrete subject). A subject over 72 characters triggers one rewrite with the overrun shown to the model. If no backend produces a usable message, a model-free message states only the area and file counts — never a guessed description.
 5. For each set: removes stale `.lock` files, `git add -A` over exactly the set's paths, then `git commit` restricted to those paths, so nothing else in the index rides along. Each repo is pushed once after its sets are committed.
