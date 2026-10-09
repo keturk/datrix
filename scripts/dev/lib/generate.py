@@ -71,6 +71,8 @@ def _append_datrix_generate_cli_options(cmd_args: list[str], args: argparse.Name
         cmd_args.extend(["--profile", args.profile])
     if getattr(args, "language", None) is not None:
         cmd_args.extend(["--language", args.language])
+    if getattr(args, "validation_level", None) is not None:
+        cmd_args.extend(["--validation-level", args.validation_level])
 
 
 def _active_profile(args: argparse.Namespace) -> str:
@@ -503,6 +505,7 @@ def main():
     parser.add_argument("--output-base", type=str, default=".generated", help="Output base directory")
     parser.add_argument("--test-set", type=str, default="all", help="Test set to use (e.g. all, foundation, non-foundation, features, domains)")
     parser.add_argument("--profile", type=str, default=None, help="Config profile for YAML resolution (e.g., test, development, production)")
+    parser.add_argument("--validation-level", type=str.lower, default=None, help="Post-generation validation level, forwarded to datrix generate --validation-level (the CLI validates it and owns the default)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
 

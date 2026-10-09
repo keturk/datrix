@@ -3,7 +3,8 @@
 
 Every check builds a real workspace in a temporary directory -- framework repositories, a
 customer-style repository beside them, .tmp and .test-output -- and talks to a real
-OpenAI-compatible HTTP server on loopback whose answers depend on the prompt it receives.
+Ollama-shaped HTTP server on loopback (datrix_scripts.local_llm_loopback) whose answers
+depend on the prompt it receives.
 Nothing here contacts the network's model servers, and every request is recorded in a
 temporary usage log, never the machine's own.
 
@@ -16,18 +17,16 @@ import argparse
 import io
 import json
 import os
-import socket
 import subprocess
 import sys
-import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from datrix_scripts.customer_domain_isolation import hash_term
 from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
+from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, LoopbackOllama, answering, closed_port
 from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
 from datrix_scripts.local_reading import (
     MAP_SYSTEM,
@@ -52,7 +51,6 @@ _GREEN = "\033[92m"
 _RED = "\033[91m"
 _RESET = "\033[0m"
 
-_LOOPBACK = "127.0.0.1"
 _MCP_SCRIPT = Path(__file__).resolve().parent / "local_llm_mcp.py"
 
 _A_PY = "def alpha():\n    return 1\n\n\ndef beta():\n    return 2\n"
@@ -111,66 +109,12 @@ def _workspace() -> Iterator[Path]:
         yield root
 
 
-Responder = Callable[[str, str], str]
+def _settings(ollama_port: int, usage_log: Path) -> LocalLlmSettings:
+    return LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
+                            allow_load=False, ollama_port=ollama_port, usage_log=usage_log, caller="gate")
 
 
-class _ModelServer:
-    """An OpenAI-compatible server on loopback: ``respond(system, user)`` writes every answer."""
-
-    def __init__(self, model: str, respond: Responder) -> None:
-        self.requests: list[tuple[str, str]] = []
-        requests = self.requests
-
-        class _Handler(BaseHTTPRequestHandler):
-            def _send(self, payload: object) -> None:
-                data = json.dumps(payload).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                self._send({"data": [{"id": model}]})
-
-            def do_POST(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])).decode("utf-8"))
-                if body.get("max_tokens") == 1:
-                    self._send({"choices": [{"message": {"content": "pong"}}]})
-                    return
-                system, user = (str(m["content"]) for m in body["messages"])
-                requests.append((system, user))
-                self._send({"choices": [{"message": {"content": respond(system, user)}, "finish_reason": "stop"}]})
-
-            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-                return
-
-        self._httpd = ThreadingHTTPServer((_LOOPBACK, 0), _Handler)
-        self.port = int(self._httpd.server_address[1])
-        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
-
-    def __enter__(self) -> _ModelServer:
-        self._thread.start()
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self._httpd.shutdown()
-        self._httpd.server_close()
-
-
-def _closed_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((_LOOPBACK, 0))
-        return int(sock.getsockname()[1])
-
-
-def _settings(openai_port: int, usage_log: Path) -> LocalLlmSettings:
-    return LocalLlmSettings(machines=(_LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                            allow_load=False, ollama_port=_closed_port(), openai_ports=(openai_port,),
-                            usage_log=usage_log, caller="gate")
-
-
-def _pool(server: _ModelServer, usage_log: Path) -> LocalLlmPool:
+def _pool(server: LoopbackOllama, usage_log: Path) -> LocalLlmPool:
     return LocalLlmPool(_settings(server.port, usage_log), report=lambda _line: None)
 
 
@@ -255,11 +199,11 @@ def check_reduce_log_keeps_error_context_or_the_tail() -> None:
 def check_ask_files_sends_numbered_lines_and_checks_citations() -> None:
     answer = ("alpha is defined at datrix-alpha/src/a.py:1-2; beta at datrix-alpha/src/a.py:999; "
               "see also other/z.py:1.")
-    with _workspace() as root, _ModelServer("gate-model", lambda _s, _u: answer) as server:
+    with _workspace() as root, LoopbackOllama(answering(answer)) as server:
         result = ask_files(ReadScope(root), _pool(server, root / "usage.jsonl"), ["datrix-alpha/src/a.py"],
                            "Where is alpha defined?")
-        assert len(server.requests) == 1, f"one chunk must be one request, got {len(server.requests)}"
-        user = server.requests[0][1]
+        assert len(server.chats) == 1, f"one chunk must be one request, got {len(server.chats)}"
+        user = server.chats[0].user
         assert user.startswith("Question: Where is alpha defined?") and "=== datrix-alpha/src/a.py ===" in user
         assert "1| def alpha():" in user and "5| def beta():" in user, user
         rendered = result.render()
@@ -275,7 +219,7 @@ def check_ask_files_flags_quoted_code_the_model_was_not_sent() -> None:
     answer = ("The helper is `def alpha():` at datrix-alpha/src/a.py:1, returning `return 1`.\n"
               "It also checks:\n```python\nreturn {e for e in enums if re.search(rf\"\\b{e}\\b\", body)}\n```\n"
               "and defers to `to_words`.")
-    with _workspace() as root, _ModelServer("gate-model", lambda _s, _u: answer) as server:
+    with _workspace() as root, LoopbackOllama(answering(answer)) as server:
         result = ask_files(ReadScope(root), _pool(server, root / "usage.jsonl"), ["datrix-alpha/src/a.py"], "q")
         notes = " ".join(result.notes)
         assert "1 quoted code snippet(s) do not appear" in notes and "re.search" in notes, result.notes
@@ -283,7 +227,7 @@ def check_ask_files_flags_quoted_code_the_model_was_not_sent() -> None:
         assert "to_words" not in notes, "a short span is a name, not a quotation, and is not checked"
     honest = ("It is:\n```python\ndef beta():\n    return 2\n```\ndefined in `datrix-alpha/src/a.py:5` and used by "
               "`EventGenerator._render_event_handlers_for_every_service`.")
-    with _workspace() as root, _ModelServer("gate-model", lambda _s, _u: honest) as server:
+    with _workspace() as root, LoopbackOllama(answering(honest)) as server:
         quiet = ask_files(ReadScope(root), _pool(server, root / "usage.jsonl"), ["datrix-alpha/src/a.py"], "q")
         assert not quiet.notes, f"a faithful quotation (whitespace aside) must not be flagged: {quiet.notes}"
 
@@ -291,22 +235,22 @@ def check_ask_files_flags_quoted_code_the_model_was_not_sent() -> None:
 def check_ask_over_many_chunks_maps_then_merges() -> None:
     body = "".join(f"value_{n} = {n}  # padding to make the file long enough\n" for n in range(2000))
 
-    def respond(system: str, user: str) -> str:
-        if system == REDUCE_SYSTEM:
+    def respond(chat: Chat) -> str:
+        if chat.system == REDUCE_SYSTEM:
             return "merged: datrix-alpha/src/long.py:3 and datrix-alpha/src/long.py:1999"
-        if system == MAP_SYSTEM:
-            if "3| value_2 = 2" in user:
+        if chat.system == MAP_SYSTEM:
+            if "3| value_2 = 2" in chat.user:
                 return "datrix-alpha/src/long.py:3"
-            if "1999| value_1998" in user:
+            if "1999| value_1998" in chat.user:
                 return "datrix-alpha/src/long.py:1999"
             return NOTHING_RELEVANT
-        raise AssertionError(f"unexpected system prompt: {system[:60]}")
+        raise AssertionError(f"unexpected system prompt: {chat.system[:60]}")
 
-    with _workspace() as root, _ModelServer("gate-model", respond) as server:
+    with _workspace() as root, LoopbackOllama(respond) as server:
         _write(root / "datrix-alpha" / "src" / "long.py", body)
         result = ask_files(ReadScope(root), _pool(server, root / "usage.jsonl"), ["datrix-alpha/src/long.py"],
                            "Where are value_2 and value_1998?")
-        systems = [system for system, _ in server.requests]
+        systems = [chat.system for chat in server.chats]
         assert systems.count(REDUCE_SYSTEM) == 1 and systems.count(MAP_SYSTEM) == result.chunks > 1, systems
         assert result.text.startswith("merged:") and not result.notes, (result.text, result.notes)
 
@@ -314,20 +258,20 @@ def check_ask_over_many_chunks_maps_then_merges() -> None:
 def check_a_line_with_a_registered_customer_term_is_never_sent() -> None:
     log = ("collected 3 items\nERROR port conflict: container zzgateterm-db is already bound\n"
            "E   AssertionError: boom\n1 failed\n")
-    with _workspace() as root, _ModelServer("gate-model", lambda _s, _u: "ok") as server:
+    with _workspace() as root, LoopbackOllama(answering("ok")) as server:
         _write(root / ".test-output" / "other-stack.log", log)
         result = digest_log(ReadScope(root), _pool(server, root / "usage.jsonl"), ".test-output/other-stack.log", "")
-        sent = server.requests[0][1]
+        sent = server.chats[0].user
         assert _GATE_TERM not in sent.lower(), "a registered customer term reached the model server"
         assert "2| <line withheld" in sent and "3| E   AssertionError: boom" in sent, sent
         assert any("1 line(s) withheld" in note for note in result.notes), result.notes
         _write(root / "datrix-alpha" / "src" / "c.py", f"# {_GATE_TERM}\nX = 1\n")
         ask_files(ReadScope(root), _pool(server, root / "usage.jsonl"), ["datrix-alpha/src/c.py"], "q")
-        assert _GATE_TERM not in server.requests[-1][1].lower(), "the filter covers source files as well as logs"
+        assert _GATE_TERM not in server.chats[-1].user.lower(), "the filter covers source files as well as logs"
 
 
 def check_no_term_corpus_means_nothing_is_read() -> None:
-    with _workspace() as root, _ModelServer("gate-model", lambda _s, _u: "ok") as server:
+    with _workspace() as root, LoopbackOllama(answering("ok")) as server:
         (root / "datrix" / "scripts" / "config" / "customer-term-hashes.json").unlink()
         message = ""
         try:
@@ -335,16 +279,16 @@ def check_no_term_corpus_means_nothing_is_read() -> None:
         except ReadScopeError as exc:
             message = str(exc)
         assert "without the customer-term corpus" in message, message
-        assert not server.requests, "an unfiltered read must not reach the model server"
+        assert not server.requests, "an unfiltered read must not reach the model server at all"
 
 
 def check_digest_log_checks_only_its_own_line_citations() -> None:
     answer = "AssertionError: boom, 1 time, first at .test-output/run.log:2, raised from src/app.py:41; " \
              "also .test-output/run.log:77."
-    with _workspace() as root, _ModelServer("gate-model", lambda _s, _u: answer) as server:
+    with _workspace() as root, LoopbackOllama(answering(answer)) as server:
         result = digest_log(ReadScope(root), _pool(server, root / "usage.jsonl"), ".test-output/run.log",
                             "only assertions")
-        assert "Focus: only assertions" in server.requests[0][1]
+        assert "Focus: only assertions" in server.chats[0].user
         notes = " ".join(result.notes)
         assert ".test-output/run.log:77" in notes, "a log line that does not exist must be called out"
         assert "src/app.py:41" not in notes, "a source location the log itself names is not a wrong citation"
@@ -381,7 +325,7 @@ def _content(response: dict[str, object]) -> tuple[bool, str]:
 
 
 def check_mcp_server_answers_and_refuses_out_of_scope() -> None:
-    with _workspace() as root, _ModelServer("gate-model", lambda _s, _u: "alpha: datrix-alpha/src/a.py:1") as server:
+    with _workspace() as root, LoopbackOllama(answering("alpha: datrix-alpha/src/a.py:1")) as server:
         log = root / "usage.jsonl"
         responses = _exchange(LocalLlmServer(lambda: LocalReader(ReadScope(root), _settings(server.port, log))), [
             {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
@@ -409,11 +353,11 @@ def check_mcp_server_answers_and_refuses_out_of_scope() -> None:
 
 def check_mcp_server_reports_no_model_server_as_a_tool_error() -> None:
     with _workspace() as root:
-        settings = _settings(_closed_port(), root / "usage.jsonl")
+        settings = _settings(closed_port(), root / "usage.jsonl")
         responses = _exchange(LocalLlmServer(lambda: LocalReader(ReadScope(root), settings)), [
             _call(1, "ask_files", {"paths": ["datrix-alpha/src/a.py"], "question": "q"})])
         is_error, text = _content(responses[0])
-        assert is_error and "No local model server could answer" in text, text
+        assert is_error and "No local Ollama server could answer" in text, text
 
 
 def check_mcp_server_stdout_carries_only_protocol() -> None:

@@ -4,7 +4,7 @@
     Set up, inspect and measure the local model servers agents read through.
 
 .DESCRIPTION
-    The local model servers on the network (Ollama, vLLM, llama-server; searched by
+    The Ollama servers on the network's machines (searched by
     common/lib/datrix_scripts/local_llm.py) answer for every local-model script, the stop-gate
     judge, and the agents' MCP tools ask_files, digest_log and local_models (dev/lib/local_llm_mcp.py).
     Every request any of them sends is recorded, by size only, in

@@ -21,17 +21,14 @@ import io
 import json
 import os
 import shutil
-import socket
 import sqlite3
 import subprocess
 import sys
-import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -83,6 +80,7 @@ from datrix_scripts.code_index.summaries import MIN_SUMMARY_LINES, summarize
 from datrix_scripts.code_index.usage import usage_report
 from datrix_scripts.dead_code_report import Finding
 from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
+from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering
 from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
 from datrix_scripts.logic_map import parse_markers
 from datrix_scripts.paths import PACKAGE_DIR, PYTHONPATH_ROOT, SHOWCASE_DIR, WORKSPACE_DIR, script_env
@@ -95,7 +93,6 @@ _GREEN = "\033[92m"
 _RED = "\033[91m"
 _RESET = "\033[0m"
 
-_LOOPBACK = "127.0.0.1"
 _GIT_IDENTITY = ("-c", "user.name=code-index-gate", "-c", "user.email=gate@example.invalid",
                  "-c", "commit.gpgsign=false")
 _MCP_SCRIPT = Path(__file__).resolve().parent / "code_index_mcp.py"
@@ -475,71 +472,24 @@ def check_generate_test_rules_seeds_topics_from_the_index() -> None:
 # ===========================================================================
 
 
-def _closed_port() -> int:
-    """A loopback port nothing listens on: bound, read, released."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((_LOOPBACK, 0))
-        return int(sock.getsockname()[1])
-
-
-class _ModelServer:
-    """An OpenAI-compatible server on an ephemeral loopback port that answers every chat with ``answer``."""
-
-    def __init__(self, model: str, answer: str) -> None:
-        self.prompts: list[str] = []
-        prompts = self.prompts
-
-        class _Handler(BaseHTTPRequestHandler):
-            def _send(self, payload: object) -> None:
-                data = json.dumps(payload).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                self._send({"data": [{"id": model}]})
-
-            def do_POST(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])).decode("utf-8"))
-                if body.get("max_tokens") != 1:
-                    prompts.append(str(body["messages"][-1]["content"]))
-                self._send({"choices": [{"message": {"content": answer}, "finish_reason": "stop"}]})
-
-            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-                return
-
-        self._httpd = ThreadingHTTPServer((_LOOPBACK, 0), _Handler)
-        self.port = int(self._httpd.server_address[1])
-        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
-
-    def __enter__(self) -> _ModelServer:
-        self._thread.start()
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self._httpd.shutdown()
-        self._httpd.server_close()
-
-
 def check_summaries_are_stored_by_content_hash_and_searchable() -> None:
     big = "\n".join(['"""A long module about quasar calibration."""'] +
                     [f"CONSTANT_{n} = {n}" for n in range(MIN_SUMMARY_LINES + 5)]) + "\n"
     with _workspace({"src/alpha_pkg/big.py": big}) as session, \
-            _ModelServer("gate-model", "Calibrates nebula telescopes for the fixture.") as server:
+            LoopbackOllama(answering("Calibrates nebula telescopes for the fixture.")) as server:
         session.refresh()
-        settings = LocalLlmSettings(machines=(_LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                                    ollama_port=_closed_port(), openai_ports=(server.port,))
+        settings = LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
+                                    ollama_port=server.port)
         run = summarize(session.conn, session.workspace, session.config, LocalLlmPool(settings, report=lambda _: None),
                         workers=2, report=lambda _: None)
+        prompts = [chat.user for chat in server.chats]
         assert run.summarized == 1 and run.pending_after == 0, run
-        assert len(server.prompts) == 1 and "Module: alpha_pkg.big" in server.prompts[0], server.prompts
+        assert len(prompts) == 1 and "Module: alpha_pkg.big" in prompts[0], prompts
         assert "Calibrates nebula" in outline(session.conn, "alpha_pkg.big").summary
         assert [h.ref for h in search(session.conn, "nebula telescopes").hits] == ["alpha_pkg.big"]
         again = summarize(session.conn, session.workspace, session.config,
                           LocalLlmPool(settings, report=lambda _: None), workers=2, report=lambda _: None)
-        assert again.summarized == 0 and len(server.prompts) == 1, "an unchanged module must not be sent again"
+        assert again.summarized == 0 and len(server.chats) == 1, "an unchanged module must not be sent again"
 
 
 _BIG_MODULE = "\n".join(['"""A long module about quasar calibration."""'] +

@@ -51,6 +51,11 @@
 .PARAMETER TestSet
  Test set to use (default: all). Only used with -All parameter.
 
+.PARAMETER ValidationLevel
+ Post-generation validation level, forwarded to `datrix generate --validation-level`
+ (none, fast or standard; the CLI validates the value and owns the default, standard).
+ When omitted, no flag is passed.
+
 .PARAMETER VerboseOutput
  Enable verbose output. When not specified, minimal output is shown (summary only).
 
@@ -111,6 +116,9 @@ param(
 
  [Parameter()]
  [string]$TestSet = "all",
+
+ [Parameter()]
+ [string]$ValidationLevel = "",
 
  [Parameter()]
  [switch]$VerboseOutput,
@@ -181,7 +189,7 @@ function Show-HelpMessage {
  Write-Host ""
  Write-Host "Usage:" -ForegroundColor Yellow
  Write-Host " Generate single project:" -ForegroundColor Cyan
- Write-Host " .\generate.ps1 <Source> [Output] -Language <lang> [-Runtime <runtime>] [-ConfigProfile <profile>] [-Dbg]" -ForegroundColor White
+ Write-Host " .\generate.ps1 <Source> [Output] -Language <lang> [-Runtime <runtime>] [-ConfigProfile <profile>] [-ValidationLevel <level>] [-Dbg]" -ForegroundColor White
  Write-Host "   (Output optional; derived from test-projects.json when omitted)" -ForegroundColor Gray
  Write-Host ""
  Write-Host " Generate all projects:" -ForegroundColor Cyan
@@ -599,6 +607,10 @@ $("=" * 80)
  $pythonArgs += "--test-set"
  $pythonArgs += $effectiveTestSet
  }
+ if (-not [string]::IsNullOrWhiteSpace($ValidationLevel)) {
+ $pythonArgs += "--validation-level"
+ $pythonArgs += $ValidationLevel
+ }
  if ($Dbg) {
  $pythonArgs += "--debug"
  }
@@ -645,6 +657,10 @@ $("=" * 80)
  if (-not [string]::IsNullOrWhiteSpace($ConfigProfile)) {
  $pythonArgs += "--profile"
  $pythonArgs += $ConfigProfile
+ }
+ if (-not [string]::IsNullOrWhiteSpace($ValidationLevel)) {
+ $pythonArgs += "--validation-level"
+ $pythonArgs += $ValidationLevel
  }
  if ($Dbg) {
  $pythonArgs += "--debug"

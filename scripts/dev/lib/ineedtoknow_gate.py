@@ -3,7 +3,8 @@
 
 Every check builds a real workspace in a temporary directory (framework repositories plus a
 customer-style repository beside them), uses real SQLite files, and talks to a real
-OpenAI-compatible HTTP server on loopback whose answers depend on the prompt it receives. Nothing
+Ollama-shaped HTTP server on loopback (datrix_scripts.local_llm_loopback) whose answers depend on
+the prompt it receives. Nothing
 here contacts the network's model servers, and nothing touches the machine's own knowledge base.
 
 Run through dev/ineedtoknow-gate.ps1.
@@ -12,15 +13,11 @@ Run through dev/ineedtoknow-gate.ps1.
 from __future__ import annotations
 
 import argparse
-import json
 import re
-import socket
 import subprocess
 import sys
-import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -37,6 +34,7 @@ from datrix_scripts.knowledge.lookup import lookup
 from datrix_scripts.knowledge.seed import chunk_markdown, sync_curated
 from datrix_scripts.knowledge.store import KIND_CURATED, KIND_LEARNED, KnowledgeBase, KnowledgeError, LearnedEntry
 from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings, LocalLlmUnavailable
+from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, ChatAnswer, LoopbackOllama, answering, closed_port
 from datrix_scripts.local_reading import ReadScope
 from datrix_scripts.paths import script_env
 
@@ -45,7 +43,6 @@ CheckFunc = Callable[[], None]
 _GREEN = "\033[92m"
 _RED = "\033[91m"
 _RESET = "\033[0m"
-_LOOPBACK = "127.0.0.1"
 _CLI = Path(__file__).resolve().parent / "ineedtoknow_cli.py"
 
 _TENANCY_DOC = """# Tenancy Pack
@@ -119,63 +116,9 @@ def _workspace() -> Iterator[Path]:
         yield root
 
 
-Responder = Callable[[str, str], str]
-
-
-class _ModelServer:
-    """An OpenAI-compatible server on loopback: ``respond(system, user)`` writes every answer."""
-
-    def __init__(self, respond: Responder) -> None:
-        self.requests: list[tuple[str, str]] = []
-        requests = self.requests
-
-        class _Handler(BaseHTTPRequestHandler):
-            def _send(self, payload: object) -> None:
-                data = json.dumps(payload).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                self._send({"data": [{"id": "gate-model"}]})
-
-            def do_POST(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])).decode("utf-8"))
-                if body.get("max_tokens") == 1:
-                    self._send({"choices": [{"message": {"content": "pong"}}]})
-                    return
-                system, user = (str(m["content"]) for m in body["messages"])
-                requests.append((system, user))
-                self._send({"choices": [{"message": {"content": respond(system, user)}, "finish_reason": "stop"}]})
-
-            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-                return
-
-        self._httpd = ThreadingHTTPServer((_LOOPBACK, 0), _Handler)
-        self.port = int(self._httpd.server_address[1])
-        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
-
-    def __enter__(self) -> _ModelServer:
-        self._thread.start()
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self._httpd.shutdown()
-        self._httpd.server_close()
-
-
-def _closed_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((_LOOPBACK, 0))
-        return int(sock.getsockname()[1])
-
-
-def _pool(openai_port: int, usage_log: Path) -> LocalLlmPool:
-    settings = LocalLlmSettings(machines=(_LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                                allow_load=False, ollama_port=_closed_port(), openai_ports=(openai_port,),
-                                usage_log=usage_log, caller="gate")
+def _pool(ollama_port: int, usage_log: Path) -> LocalLlmPool:
+    settings = LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
+                                allow_load=False, ollama_port=ollama_port, usage_log=usage_log, caller="gate")
     return LocalLlmPool(settings, report=lambda _line: None)
 
 
@@ -192,8 +135,8 @@ def _sent_location(user: str) -> str:
     return f"{header.group(1)}:{number.group(1)}"
 
 
-def _grounded(_system: str, user: str) -> str:
-    return f"Gateways share one route enumeration, so the public surface cannot diverge ({_sent_location(user)})."
+def _grounded(chat: Chat) -> str:
+    return f"Gateways share one route enumeration, so the public surface cannot diverge ({_sent_location(chat.user)})."
 
 
 QUESTION = "how do gateways share enumeration zebra quokka"
@@ -301,9 +244,9 @@ def check_learned_file_round_trips_and_rejects_tampering() -> None:
         raise AssertionError(f"a learned file with {name} was accepted")
 
 
-def _learn_with_model(root: Path, kb: KnowledgeBase, respond: Responder) -> Gathered:
+def _learn_with_model(root: Path, kb: KnowledgeBase, respond: ChatAnswer) -> Gathered:
     scope = ReadScope(root)
-    with TemporaryDirectory(prefix="ineedtoknow-log-") as logs, _ModelServer(respond) as server:
+    with TemporaryDirectory(prefix="ineedtoknow-log-") as logs, LoopbackOllama(respond) as server:
         return gather(kb, scope, _pool(server.port, Path(logs) / "usage.jsonl"), QUESTION, [])
 
 
@@ -365,9 +308,9 @@ def check_gather_reads_real_line_numbers_and_stores_a_grounded_answer() -> None:
         kb = KnowledgeBase(Path(db_dir) / "kb.db")
         sync_curated(kb, ReadScope(root))
         scope = ReadScope(root)
-        with TemporaryDirectory(prefix="ineedtoknow-log-") as logs, _ModelServer(_grounded) as server:
+        with TemporaryDirectory(prefix="ineedtoknow-log-") as logs, LoopbackOllama(_grounded) as server:
             gathered = gather(kb, scope, _pool(server.port, Path(logs) / "usage.jsonl"), QUESTION, [])
-            prompt = server.requests[0][1]
+            prompt = server.chats[0].user
         assert gathered.stored and gathered.models, gathered
         assert f"=== {_TENANCY_PATH} ===" in prompt and "\n10| Gateway realizations consume" in prompt, \
             "the model must be sent the closest chunk with the document's own line numbers"
@@ -376,11 +319,11 @@ def check_gather_reads_real_line_numbers_and_stores_a_grounded_answer() -> None:
         entry = next(iter(kb.learned().values()))
         assert list(entry.sources) == [_TENANCY_PATH], entry.sources
         committed = next(learned_dir(scope).glob("*.md")).read_text(encoding="utf-8")
-        assert entry.model == "gate-model" and _LOOPBACK not in committed and "http" not in committed, \
+        assert entry.model == "gate-model" and LOOPBACK not in committed and "http" not in committed, \
             f"a committed learned file must name the model, never the server's address: {committed[:300]!r}"
 
 
-def _rejected(respond: Responder, what: str) -> None:
+def _rejected(respond: ChatAnswer, what: str) -> None:
     with _workspace() as root, TemporaryDirectory(prefix="ineedtoknow-db-") as db_dir:
         kb = KnowledgeBase(Path(db_dir) / "kb.db")
         sync_curated(kb, ReadScope(root))
@@ -392,12 +335,12 @@ def _rejected(respond: Responder, what: str) -> None:
 
 
 def check_gather_never_stores_an_ungrounded_answer() -> None:
-    _rejected(lambda _s, _u: "Gateways share one route enumeration.", "no citation")
-    _rejected(lambda _s, _u: "It is in datrix-alpha/src/ghost.py:3 somewhere.", "citation of an unsent file")
-    _rejected(lambda _s, user: f"See {_sent_location(user).split(':')[0]}:999 for it.", "citation of an unsent line")
-    _rejected(lambda _s, user: f"Per {_sent_location(user)} it runs `def invented_function_nobody_wrote(x): return x`.",
+    _rejected(answering("Gateways share one route enumeration."), "no citation")
+    _rejected(answering("It is in datrix-alpha/src/ghost.py:3 somewhere."), "citation of an unsent file")
+    _rejected(lambda chat: f"See {_sent_location(chat.user).split(':')[0]}:999 for it.", "citation of an unsent line")
+    _rejected(lambda chat: f"Per {_sent_location(chat.user)} it runs `def invented_function_nobody_wrote(x): return x`.",
               "quoted code that was not sent")
-    _rejected(lambda _s, _u: "NOTHING RELEVANT", "a model that found nothing")
+    _rejected(answering("NOTHING RELEVANT"), "a model that found nothing")
 
 
 def check_gather_reports_a_missing_model_server() -> None:
@@ -406,7 +349,7 @@ def check_gather_reports_a_missing_model_server() -> None:
         scope = ReadScope(root)
         sync_curated(kb, scope)
         try:
-            gather(kb, scope, _pool(_closed_port(), Path(db_dir) / "usage.jsonl"), QUESTION, [])
+            gather(kb, scope, _pool(closed_port(), Path(db_dir) / "usage.jsonl"), QUESTION, [])
         except LocalLlmUnavailable:
             return
         raise AssertionError("gather must raise LocalLlmUnavailable when no model server answers")

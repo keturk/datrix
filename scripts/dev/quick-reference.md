@@ -35,10 +35,13 @@ Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` is **manda
 | **Verbose output** | `.\dev\generate.ps1 -All -L python -VerboseOutput` | Show detailed generation output |
 | **Debug logging** | `.\dev\generate.ps1 -All -L python -Dbg` | Enable DEBUG level logging |
 | **Config profile** | `.\dev\generate.ps1 <source.dtrx> -L python -ConfigProfile production` | Select non-default config profile |
+| **Validation level** | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L python -ValidationLevel fast` | Forwarded to `datrix generate --validation-level` |
 
 `-All`, `-Domains` and `-TestSet` are Jon's: `validate-script-invocation.py` refuses them from an agent tool call.
 
-**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (any registered `datrix.languages` target, **mandatory**, the real generation target — also selects the output-path language segment), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner, output path only), `-ConfigProfile` (config profile that also selects the provider segment read from `config/system.dcfg`, e.g. test\|development\|production; default: test), `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
+Every run writes `generate-results-<timestamp>-<language>[-<profile>].log` to `<workspace>\.generated\.results`, whatever the output path; product repos' generate scripts call this script to get that log.
+
+**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (any registered `datrix.languages` target, **mandatory**, the real generation target — also selects the output-path language segment), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner, output path only), `-ConfigProfile` (config profile that also selects the provider segment read from `config/system.dcfg`, e.g. test\|development\|production; default: test), `-ValidationLevel` (none\|fast\|standard, validated by the CLI; omitted = CLI default, standard), `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
 
 ### `dev\generate-doc-fragments.ps1`
 
@@ -160,7 +163,7 @@ Refreshes the code index (which rewrites the logic map database if markers chang
 
 ### `dev\local-llm.ps1`
 
-**Sets up, inspects and measures the local model servers that agents read through.** The model servers on the network (Ollama, vLLM, llama-server, searched by `common/lib/datrix_scripts/local_llm.py`) answer every local-model script, the stop-gate judge, and the agents' MCP tools from `dev/lib/local_llm_mcp.py`:
+**Sets up, inspects and measures the local model servers that agents read through.** The Ollama servers on the network's machines (the only model server they run; searched by `common/lib/datrix_scripts/local_llm.py`) answer every local-model script, the stop-gate judge, and the agents' MCP tools from `dev/lib/local_llm_mcp.py`:
 
 | Tool | What the agent gets |
 |------|---------------------|
@@ -196,7 +199,7 @@ Hooks reach the shared scripts package through `add_scripts_lib_to_path()` in `_
 
 ### `dev\local-llm-gate.ps1`
 
-Behaviour checks for the local-model reading tools: the reading layer (`common/lib/datrix_scripts/local_reading.py`) and the MCP server built on it (`dev/lib/local_llm_mcp.py`). Each check builds a real workspace in a temporary directory (two framework repositories, a customer-style repository beside them, `.tmp` and `.test-output`) and answers through a real OpenAI-compatible server on loopback whose answers depend on the prompt. It never contacts the network's model servers, and it records requests in a temporary usage log, never the machine's own. The checks cover:
+Behaviour checks for the local-model reading tools: the reading layer (`common/lib/datrix_scripts/local_reading.py`) and the MCP server built on it (`dev/lib/local_llm_mcp.py`). Each check builds a real workspace in a temporary directory (two framework repositories, a customer-style repository beside them, `.tmp` and `.test-output`) and answers through a real Ollama-shaped server on loopback (`common/lib/datrix_scripts/local_llm_loopback.py`) whose answers depend on the prompt. It never contacts the network's model servers, and it records requests in a temporary usage log, never the machine's own. The checks cover:
 
 - scope: framework repositories and `.test-output` are read; another repository, `.tmp`, `..` escapes, `.git` internals and paths outside the workspace are refused; a glob reaching out of scope is refused whole; at most 40 files per call
 - chunking: every chunk opens with its file's header and keeps original line numbers; a long file is split at line boundaries
@@ -240,7 +243,7 @@ It is a repo-level validation **script**, not a pytest suite.
 
 ### `dev\ineedtoknow-gate.ps1`
 
-Behaviour checks for `dev\ineedtoknow.ps1` (`common/lib/datrix_scripts/knowledge/`, `dev/lib/ineedtoknow_cli.py`). Each check builds a real workspace in a temporary directory (framework repositories plus a customer-style repository), uses real SQLite files, and answers through a real OpenAI-compatible server on loopback. It never contacts the network's model servers and never touches the machine's own knowledge base. The checks cover:
+Behaviour checks for `dev\ineedtoknow.ps1` (`common/lib/datrix_scripts/knowledge/`, `dev/lib/ineedtoknow_cli.py`). Each check builds a real workspace in a temporary directory (framework repositories plus a customer-style repository), uses real SQLite files, and answers through a real Ollama-shaped server on loopback (`common/lib/datrix_scripts/local_llm_loopback.py`). It never contacts the network's model servers and never touches the machine's own knowledge base. The checks cover:
 
 - chunking: a chunk's body equals the document's own lines `line_start`..`line_end`; a `#` line inside a code fence is not a heading; a long section splits into bounded chunks that keep every line
 - sync: docs are added, updated by content hash and removed; a customer repository never enters the knowledge base
