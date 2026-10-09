@@ -238,24 +238,34 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
     sub = command("findings-check", cmd_findings_check, model=False)
     sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
-    sub.add_argument("--delete", nargs="+", required=True, help="The files you are about to delete")
+    sub.add_argument("--delete", nargs="+", action="extend", required=True, help="The files you are about to delete")
     sub = command("checklist", cmd_checklist, model=True)
     sub.add_argument("--design", required=True)
     sub = command("absorb-transfer", cmd_absorb_transfer, model=True)
     sub.add_argument("--design", required=True)
-    sub.add_argument("--target", nargs="+", required=True, help="Target docs (workspace-relative paths or globs)")
+    sub.add_argument(
+        "--target", nargs="+", action="extend", required=True, help="Target docs (workspace-relative paths or globs)"
+    )
     sub = command("absorb-references", cmd_absorb_references, model=False)
     sub.add_argument("--design", required=True)
-    sub.add_argument("--also", nargs="*", default=[], help="Extra files or folders to search (e.g. the memory dir)")
+    sub.add_argument("--also", nargs="*", action="extend", default=[], help="Extra files or folders to search (e.g. the memory dir)")
     sub = command("bug-resolution", cmd_bug_resolution, model=True)
     sub.add_argument("--report", required=True)
-    sub.add_argument("--repo", nargs="+", default=[], help="Repositories the fix changed")
-    sub.add_argument("--file", nargs="*", default=[], help="Only these repo-relative files (default: every change)")
+    sub.add_argument("--repo", nargs="+", action="extend", default=[], help="Repositories the fix changed")
+    sub.add_argument(
+        "--file", nargs="*", action="extend", default=[], help="Only these repo-relative files (default: every change)"
+    )
     sub.add_argument("--status", choices=(STATUS_RESOLVED, STATUS_UNRESOLVED), default=STATUS_RESOLVED)
     sub.add_argument("--fix-type", help="App Definition | Generator/Template | Both")
-    sub.add_argument("--exhibiting", nargs="*", default=[], help="Profiles exhibiting the bug")
-    sub.add_argument("--reached", nargs="*", default=[], help="Profiles the fix reaches")
-    sub.add_argument("--verification", nargs="*", default=[], help="profile|regenerated|artifact|result rows")
+    sub.add_argument("--exhibiting", nargs="*", action="extend", default=[], help="Profiles exhibiting the bug")
+    sub.add_argument("--reached", nargs="*", action="extend", default=[], help="Profiles the fix reaches")
+    sub.add_argument(
+        "--verification",
+        nargs="*",
+        action="extend",
+        default=[],
+        help="profile|regenerated|artifact|result rows (the flag may repeat; every row is kept)",
+    )
     sub.add_argument("--reason", help="Unresolved: why the bug could not be fixed")
     sub.add_argument("--notes", help="Unresolved: what was examined and why the fix could not be applied")
     sub.add_argument("--append", action="store_true", help="Append to the report instead of writing a draft")

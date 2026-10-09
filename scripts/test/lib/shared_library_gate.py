@@ -78,16 +78,13 @@ import json
 import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
-import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -128,7 +125,6 @@ from datrix_scripts.llm_code_fix import (
 )
 from datrix_scripts.local_llm import (
     ADVISORY_UNAVAILABLE_SOURCE,
-    LOCAL_API_OLLAMA,
     OLLAMA_LOAD_PREFERENCE,
     ChatRequest,
     LocalCandidate,
@@ -139,10 +135,17 @@ from datrix_scripts.local_llm import (
     advisory_reply,
     discover_candidates,
     ollama_chat_body,
-    openai_chat_body,
     parse_local_machine,
     strip_reasoning,
     survey_ollama,
+)
+from datrix_scripts.local_llm_loopback import (
+    LOOPBACK,
+    Chat,
+    LoopbackJsonServer,
+    LoopbackOllama,
+    answering,
+    closed_port,
 )
 from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE, usage_report
 from datrix_scripts.logging_utils import LogConfig, TeeLogger, cleanup_old_logs
@@ -4497,103 +4500,26 @@ def _set_mtime(path: Path, mtime: float) -> None:
 
 
 # ===========================================================================
-# datrix_scripts.local_llm -- real HTTP servers on loopback, no stand-ins
+# datrix_scripts.local_llm -- real HTTP servers on loopback (datrix_scripts.local_llm_loopback)
 # ===========================================================================
 
-_LOOPBACK = "127.0.0.1"
-
-# (method, path, JSON body or None) -> (HTTP status, JSON payload)
-_Responder = Callable[[str, str, "dict[str, object] | None"], "tuple[int, object]"]
+_MODEL_A = "model-a:1b"
+_MODEL_B = "model-b:1b"
 
 
-class _ModelServer:
-    """A real HTTP server on an ephemeral loopback port answering like a model server.
-
-    ``respond`` decides every answer; every request is recorded so a check can assert
-    what the client actually sent.
-    """
-
-    def __init__(self, respond: _Responder) -> None:
-        self.requests: list[tuple[str, str, dict[str, object] | None]] = []
-        recorder = self.requests
-
-        class _Handler(BaseHTTPRequestHandler):
-            def _answer(self, method: str) -> None:
-                length = int(self.headers["Content-Length"]) if "Content-Length" in self.headers else 0
-                body = json.loads(self.rfile.read(length).decode("utf-8")) if length else None
-                recorder.append((method, self.path, body))
-                status, payload = respond(method, self.path, body)
-                data = json.dumps(payload).encode("utf-8")
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                self._answer("GET")
-
-            def do_POST(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                self._answer("POST")
-
-            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-                return
-
-        self._httpd = ThreadingHTTPServer((_LOOPBACK, 0), _Handler)
-        self.port = int(self._httpd.server_address[1])
-        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
-
-    def __enter__(self) -> _ModelServer:
-        self._thread.start()
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self._httpd.shutdown()
-        self._httpd.server_close()
-
-    def posts_to(self, path: str) -> list[dict[str, object]]:
-        return [body for method, p, body in self.requests if method == "POST" and p == path and body is not None]
-
-
-def _closed_port() -> int:
-    """A loopback port nothing listens on: bound, read, released."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((_LOOPBACK, 0))
-        return int(sock.getsockname()[1])
-
-
-def _openai_server(model: str, answer: str, fail_generation: bool = False,
-                   generation_seconds: float = 0.0) -> _ModelServer:
-    """An OpenAI-compatible server listing ``model``; a one-token readiness request always succeeds.
-
-    ``generation_seconds`` holds each generation open that long, so concurrent requests overlap.
-    """
-
-    def respond(method: str, path: str, body: dict[str, object] | None) -> tuple[int, object]:
-        if method == "GET" and path == "/v1/models":
-            return 200, {"data": [{"id": model}]}
-        if method == "POST" and path == "/v1/chat/completions" and body is not None:
-            if body.get("max_tokens") == 1:
-                return 200, {"choices": [{"message": {"content": "pong"}}]}
-            if fail_generation:
-                return 500, {"error": "engine died"}
-            time.sleep(generation_seconds)
-            return 200, {"choices": [{"message": {"content": answer}, "finish_reason": "stop"}]}
-        return 404, {"error": "not found"}
-
-    return _ModelServer(respond)
-
-
-def _settings_for(openai_ports: tuple[int, ...], ollama_port: int, models: tuple[str, ...] = ()) -> LocalLlmSettings:
+def _settings_for(ollama_port: int, models: tuple[str, ...] = ()) -> LocalLlmSettings:
     return LocalLlmSettings(
-        machines=(_LOOPBACK,),
+        machines=(LOOPBACK,),
         models=models,
         reachable_timeout_ms=2000,
         load_timeout_ms=5000,
         generate_timeout_ms=5000,
         ollama_port=ollama_port,
-        openai_ports=openai_ports,
     )
+
+
+def _from_model(chat: Chat) -> str:
+    return f"from {chat.model}"
 
 
 def check_local_llm_strip_reasoning() -> None:
@@ -4617,8 +4543,8 @@ def check_local_llm_rejects_a_machine_with_scheme_or_port() -> None:
 def check_local_llm_request_bodies_carry_think_schema_and_context() -> None:
     schema: dict[str, object] = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
     request = ChatRequest(system="s", user="u", temperature=0.2, max_tokens=64, context_window=8192, json_schema=schema)
-    thinking = LocalCandidate(LocalHost(LOCAL_API_OLLAMA, "http://x:11434", "reasoner:1b"), thinking=True, resident=True)
-    plain = LocalCandidate(LocalHost(LOCAL_API_OLLAMA, "http://x:11434", "coder:1b"), thinking=False, resident=True)
+    thinking = LocalCandidate(LocalHost("http://x:11434", "reasoner:1b"), thinking=True, resident=True)
+    plain = LocalCandidate(LocalHost("http://x:11434", "coder:1b"), thinking=False, resident=True)
 
     body = ollama_chat_body(thinking, request, "30m")
     assert body["think"] is False, "a thinking-capable Ollama model must be told the caller's think choice"
@@ -4627,12 +4553,6 @@ def check_local_llm_request_bodies_carry_think_schema_and_context() -> None:
     assert "think" not in ollama_chat_body(plain, request, "30m"), (
         "think sent to a model without the thinking capability is an Ollama error"
     )
-
-    openai = openai_chat_body("m", request)
-    assert openai["max_tokens"] == 64
-    assert openai["chat_template_kwargs"] == {"enable_thinking": False}
-    assert openai["response_format"] == {"type": "json_schema", "json_schema": {"name": "response", "schema": schema}}
-    assert "num_ctx" not in json.dumps(openai), "an OpenAI-compatible server fixes its context at start"
 
 
 def check_local_llm_survey_ollama_orders_resident_then_preferred_loadable() -> None:
@@ -4650,38 +4570,30 @@ def check_local_llm_survey_ollama_orders_resident_then_preferred_loadable() -> N
             return 200, {"models": [{"name": "loaded:7b"}, {"name": "embedder:latest"}]}
         return 404, {}
 
-    with _ModelServer(respond) as server:
-        base = f"http://{_LOOPBACK}:{server.port}"
-        default = survey_ollama(base, _settings_for((), server.port))
+    with LoopbackJsonServer(respond) as server:
+        base = f"http://{LOOPBACK}:{server.port}"
+        default = survey_ollama(base, _settings_for(server.port))
         assert [(c.host.model, c.resident, c.thinking) for c in default.candidates] == [
             ("loaded:7b", True, True),
             (preferred, False, False),
         ], f"default survey: resident answering models, then the load preference; got {default.candidates}"
 
-        pinned = survey_ollama(base, _settings_for((), server.port, models=("other:3b",)))
+        pinned = survey_ollama(base, _settings_for(server.port, models=("other:3b",)))
         assert [(c.host.model, c.resident) for c in pinned.candidates] == [("other:3b", False)], (
             f"a named model must be the only candidate, loadable when installed; got {pinned.candidates}"
         )
 
 
-def check_local_llm_openai_server_suppresses_ollama_load() -> None:
-    preferred = OLLAMA_LOAD_PREFERENCE[0]
-
-    def ollama(method: str, path: str, body: dict[str, object] | None) -> tuple[int, object]:
-        if path == "/api/tags":
-            return 200, {"models": [{"name": preferred, "capabilities": ["completion"]}]}
-        if path == "/api/ps":
-            return 200, {"models": []}
-        return 404, {}
-
-    with _ModelServer(ollama) as ollama_server, _openai_server("served:8b", "x") as openai_server:
-        candidates = discover_candidates(
-            _settings_for((openai_server.port,), ollama_server.port), [].append,
-        )
-    assert [(c.host.model, c.resident) for c in candidates] == [("served:8b", True)], (
-        "no Ollama load may be offered on a machine whose GPU an OpenAI-compatible server holds; "
-        f"got {candidates}"
-    )
+def check_local_llm_searches_only_the_ollama_port() -> None:
+    with LoopbackOllama(answering("x")) as server:
+        lines: list[str] = []
+        found = discover_candidates(_settings_for(server.port), lines.append)
+        missing: list[str] = []
+        none = discover_candidates(_settings_for(closed_port()), missing.append)
+    assert [c.host.label() for c in found] == [f"Ollama model 'gate-model' at http://{LOOPBACK}:{server.port}"], found
+    assert [(method, path) for method, path, _ in server.requests] == [("GET", "/api/tags"), ("GET", "/api/ps")], (
+        f"discovery must ask Ollama's API and nothing else: {server.requests}")
+    assert none == [] and len(missing) == 1 and "no Ollama server answered on port" in missing[0], missing
 
 
 def check_local_llm_allow_load_false_offers_only_resident_models() -> None:
@@ -4695,8 +4607,8 @@ def check_local_llm_allow_load_false_offers_only_resident_models() -> None:
             return 200, {"models": [{"name": "loaded:7b"}]}
         return 404, {}
 
-    with _ModelServer(ollama) as server:
-        settings = _settings_for((), server.port)
+    with LoopbackJsonServer(ollama) as server:
+        settings = _settings_for(server.port)
         loads = discover_candidates(settings, [].append)
         resident_only = discover_candidates(
             LocalLlmSettings(**{**settings.__dict__, "allow_load": False}), [].append,
@@ -4709,57 +4621,49 @@ def check_local_llm_allow_load_false_offers_only_resident_models() -> None:
     )
 
 
-def check_local_llm_pool_fails_over_to_the_next_server() -> None:
+def check_local_llm_pool_fails_over_to_the_next_model() -> None:
     lines: list[str] = []
-    with _openai_server("model-a", "from a", fail_generation=True) as a, _openai_server("model-b", "from b") as b:
-        pool = LocalLlmPool(_settings_for((a.port, b.port), _closed_port()), report=lines.append)
+    with LoopbackOllama(_from_model, (_MODEL_A, _MODEL_B), failing=frozenset({_MODEL_A})) as server:
+        pool = LocalLlmPool(_settings_for(server.port), report=lines.append)
         request = ChatRequest(system="s", user="u", temperature=0.0, max_tokens=16)
 
         first = pool.chat(request)
-        assert (first.text, first.host.model) == ("from b", "model-b"), f"expected failover to model-b, got {first}"
-        a_generations = [p for p in a.posts_to("/v1/chat/completions") if p.get("max_tokens") != 1]
-        assert len(a_generations) == 1, f"model-a must have been tried once before failover, saw {len(a_generations)}"
+        assert (first.text, first.host.model) == (f"from {_MODEL_B}", _MODEL_B), f"expected failover, got {first}"
+        tried = len(server.chats_for(_MODEL_A))
+        assert tried == 1, f"{_MODEL_A} must have been tried once before failover, saw {tried}"
 
         second = pool.chat(request)
-        assert second.host.model == "model-b"
-        assert len([p for p in a.posts_to("/v1/chat/completions") if p.get("max_tokens") != 1]) == 1, (
-            "a failed server must be dropped for the rest of the run, not retried"
-        )
-    assert any("model-a" in line and "failed" in line for line in lines), f"the failover was not reported: {lines}"
+        assert second.host.model == _MODEL_B
+        assert len(server.chats_for(_MODEL_A)) == 1, "a failed model must be dropped for the rest of the run, not retried"
+    assert any(_MODEL_A in line and "failed" in line for line in lines), f"the failover was not reported: {lines}"
 
 
-def _generations(server: _ModelServer) -> int:
-    return len([p for p in server.posts_to("/v1/chat/completions") if p.get("max_tokens") != 1])
-
-
-def check_local_llm_pool_spreads_requests_over_ready_servers() -> None:
+def check_local_llm_pool_spreads_requests_over_ready_models() -> None:
     request = ChatRequest(system="s", user="u", temperature=0.0, max_tokens=16)
-    with _openai_server("model-a", "from a") as a, _openai_server("model-b", "from b") as b:
-        single = LocalLlmPool(_settings_for((a.port, b.port), _closed_port()), report=[].append)
-        assert single.chat(request).host.model == "model-a"
-        assert b.posts_to("/v1/chat/completions") == [], (
-            "one request must ready and use only the first candidate, never touch the second"
+    with LoopbackOllama(_from_model, (_MODEL_A, _MODEL_B)) as server:
+        single = LocalLlmPool(_settings_for(server.port), report=[].append)
+        assert single.chat(request).host.model == _MODEL_A
+        assert server.chats_for(_MODEL_B) == [] and server.loads == [_MODEL_A], (
+            f"one request must ready and use only the first candidate, never touch the second; loads {server.loads}"
         )
-    with _openai_server("model-a", "from a", generation_seconds=0.4) as a, \
-            _openai_server("model-b", "from b", generation_seconds=0.4) as b:
-        pool = LocalLlmPool(_settings_for((a.port, b.port), _closed_port()), report=[].append)
+    with LoopbackOllama(_from_model, (_MODEL_A, _MODEL_B), chat_seconds=0.4) as server:
+        pool = LocalLlmPool(_settings_for(server.port), report=[].append)
         with ThreadPoolExecutor(max_workers=4) as workers:
             replies = list(workers.map(lambda _: pool.chat(request), range(8)))
         served = {reply.host.model for reply in replies}
-        assert served == {"model-a", "model-b"}, f"concurrent requests must use every ready server; got {served}"
-        assert _generations(a) + _generations(b) == 8 and min(_generations(a), _generations(b)) >= 2, (
-            f"load was not spread: model-a {_generations(a)}, model-b {_generations(b)}"
-        )
+        assert served == {_MODEL_A, _MODEL_B}, f"concurrent requests must use every ready model; got {served}"
+        a, b = len(server.chats_for(_MODEL_A)), len(server.chats_for(_MODEL_B))
+        assert a + b == 8 and min(a, b) >= 2, f"load was not spread: {_MODEL_A} {a}, {_MODEL_B} {b}"
 
 
 def check_local_llm_pool_records_every_request() -> None:
     request = ChatRequest(system="sys", user="question", temperature=0.0, max_tokens=16)
     with TemporaryDirectory(prefix="local-llm-usage-") as tmp:
         log = Path(tmp) / "usage.jsonl"
-        with _openai_server("model-a", "x", fail_generation=True) as a, _openai_server("model-b", "answer") as b:
-            settings = replace(_settings_for((a.port, b.port), _closed_port()), usage_log=log, caller="gate-caller")
+        with LoopbackOllama(answering("answer"), (_MODEL_A, _MODEL_B), failing=frozenset({_MODEL_A})) as server:
+            settings = replace(_settings_for(server.port), usage_log=log, caller="gate-caller")
             LocalLlmPool(settings, report=[].append).chat(request)
-        down = replace(_settings_for((_closed_port(),), _closed_port()), usage_log=log, caller="gate-caller")
+        down = replace(_settings_for(closed_port()), usage_log=log, caller="gate-caller")
         try:
             LocalLlmPool(down, report=[].append).chat(request)
         except LocalLlmUnavailable:
@@ -4768,7 +4672,7 @@ def check_local_llm_pool_records_every_request() -> None:
             raise AssertionError("a pool with no server must raise LocalLlmUnavailable")
         entries = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
         assert [(e["caller"], e["outcome"], e["model"]) for e in entries] == [
-            ("gate-caller", "failed", "model-a"), ("gate-caller", "ok", "model-b"), ("gate-caller", "unavailable", ""),
+            ("gate-caller", "failed", _MODEL_A), ("gate-caller", "ok", _MODEL_B), ("gate-caller", "unavailable", ""),
         ], entries
         assert entries[1]["prompt_chars"] == len("sys") + len("question") and entries[1]["answer_chars"] == len("answer")
         assert "question" not in log.read_text(encoding="utf-8"), "the log records sizes, never the text sent"
@@ -4777,8 +4681,8 @@ def check_local_llm_pool_records_every_request() -> None:
 
 
 def check_local_llm_pool_treats_an_empty_answer_as_a_failure() -> None:
-    with _openai_server("thinker", "<think>only reasoning</think>") as server:
-        pool = LocalLlmPool(_settings_for((server.port,), _closed_port()), report=[].append)
+    with LoopbackOllama(answering("<think>only reasoning</think>"), ("thinker:1b",)) as server:
+        pool = LocalLlmPool(_settings_for(server.port), report=[].append)
         try:
             pool.chat(ChatRequest(system="s", user="u", temperature=0.0))
         except LocalLlmUnavailable as exc:
@@ -4789,17 +4693,17 @@ def check_local_llm_pool_treats_an_empty_answer_as_a_failure() -> None:
 
 
 def check_local_llm_pool_raises_when_no_server_answers() -> None:
-    settings = _settings_for((_closed_port(),), _closed_port())
+    settings = _settings_for(closed_port())
     try:
         LocalLlmPool(settings, report=[].append).activate()
     except LocalLlmUnavailable as exc:
-        assert _LOOPBACK in str(exc) and "--local-machine" in str(exc), f"message must name the search and the fix: {exc}"
+        assert LOOPBACK in str(exc) and "--local-machine" in str(exc), f"message must name the search and the fix: {exc}"
     else:
         raise AssertionError("activate() must raise when no server answers")
 
     advisory = advisory_reply(settings, ChatRequest(system="s", user="u", temperature=0.0), "LLM triage")
     assert advisory.source == ADVISORY_UNAVAILABLE_SOURCE
-    assert advisory.text.startswith("LLM triage unavailable: No local model server could answer")
+    assert advisory.text.startswith("LLM triage unavailable: No local Ollama server could answer")
 
 
 # ===========================================================================
@@ -4987,10 +4891,10 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_local_llm_rejects_a_machine_with_scheme_or_port,
     check_local_llm_request_bodies_carry_think_schema_and_context,
     check_local_llm_survey_ollama_orders_resident_then_preferred_loadable,
-    check_local_llm_openai_server_suppresses_ollama_load,
+    check_local_llm_searches_only_the_ollama_port,
     check_local_llm_allow_load_false_offers_only_resident_models,
-    check_local_llm_pool_fails_over_to_the_next_server,
-    check_local_llm_pool_spreads_requests_over_ready_servers,
+    check_local_llm_pool_fails_over_to_the_next_model,
+    check_local_llm_pool_spreads_requests_over_ready_models,
     check_local_llm_pool_records_every_request,
     check_local_llm_pool_treats_an_empty_answer_as_a_failure,
     check_local_llm_pool_raises_when_no_server_answers,

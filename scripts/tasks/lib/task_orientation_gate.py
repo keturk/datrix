@@ -25,18 +25,16 @@ import contextlib
 import io
 import json
 import os
-import socket
 import subprocess
 import sys
-import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from datrix_scripts.code_index.session import open_session
 from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
+from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering, closed_port
 from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
 from datrix_scripts.local_reading import ReadScope, ask_files
 from datrix_scripts.task_metadata import parse_task_file, parse_task_text, task_prose_lines
@@ -78,7 +76,6 @@ CheckFunc = Callable[[], None]
 _GREEN = "\033[92m"
 _RED = "\033[91m"
 _RESET = "\033[0m"
-_LOOPBACK = "127.0.0.1"
 _ANSWER = "The test builds the service with a factory (datrix-alpha/src/alpha_pkg/core.py:4)."
 
 _CORE = (
@@ -172,57 +169,9 @@ def _workspace() -> Iterator[Path]:
         yield root
 
 
-class _ModelServer:
-    """An OpenAI-compatible server on loopback answering every chat with ``_ANSWER``."""
-
-    def __init__(self) -> None:
-        self.chats = 0
-        server = self
-
-        class _Handler(BaseHTTPRequestHandler):
-            def _send(self, payload: object) -> None:
-                data = json.dumps(payload).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                self._send({"data": [{"id": "gate-model"}]})
-
-            def do_POST(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])).decode("utf-8"))
-                if body.get("max_tokens") != 1:
-                    server.chats += 1
-                self._send({"choices": [{"message": {"content": _ANSWER}, "finish_reason": "stop"}]})
-
-            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-                return
-
-        self._httpd = ThreadingHTTPServer((_LOOPBACK, 0), _Handler)
-        self.port = int(self._httpd.server_address[1])
-        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
-
-    def __enter__(self) -> _ModelServer:
-        self._thread.start()
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self._httpd.shutdown()
-        self._httpd.server_close()
-
-
-def _closed_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((_LOOPBACK, 0))
-        return int(sock.getsockname()[1])
-
-
-def _settings(openai_port: int, usage_log: Path) -> LocalLlmSettings:
-    return LocalLlmSettings(machines=(_LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                            allow_load=False, ollama_port=_closed_port(), openai_ports=(openai_port,),
-                            usage_log=usage_log, caller="gate")
+def _settings(ollama_port: int, usage_log: Path) -> LocalLlmSettings:
+    return LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
+                            allow_load=False, ollama_port=ollama_port, usage_log=usage_log, caller="gate")
 
 
 # ===========================================================================
@@ -298,7 +247,8 @@ def check_lookup_questions_are_rejected_because_a_model_invents_the_answer() -> 
 
 
 def check_facts_are_exact_stale_entries_are_called_out_and_explanations_are_leads() -> None:
-    with _workspace() as root, _ModelServer() as server, contextlib.closing(open_session(root)) as session:
+    with _workspace() as root, LoopbackOllama(answering(_ANSWER)) as server, \
+            contextlib.closing(open_session(root)) as session:
         session.refresh()
         scope = ReadScope(root)
         pool = LocalLlmPool(_settings(server.port, root / "usage.jsonl"), report=lambda _line: None)
@@ -317,9 +267,9 @@ def check_facts_are_exact_stale_entries_are_called_out_and_explanations_are_lead
             resolved.unresolved
         assert "STALE TASK PREMISE" in text and "UNRESOLVED" in text, text
         assert _ANSWER in text and "A lead, not a finding" in text, "an explanation is the model's, marked as a lead"
-        assert server.chats == 1, f"one explain entry is one model read, got {server.chats}"
+        assert len(server.chats) == 1, f"one explain entry is one model read, got {len(server.chats)}"
         offline = resolve_orientation(lines[:1] + [lines[-1]], session.conn,
-                                      lambda item: ask_files(scope, LocalLlmPool(_settings(_closed_port(), root / "u.jsonl"),
+                                      lambda item: ask_files(scope, LocalLlmPool(_settings(closed_port(), root / "u.jsonl"),
                                                                                   report=lambda _l: None),
                                                              list(item.paths), item.question).render())
         offline_text = offline.render(_fixture_task_id(1))

@@ -8,14 +8,12 @@
  compiled GeneratorDefinition IR, counting declared file clauses (domain-level
  plus recursive iteration/children block files) and domain builders, and flags
  double-emit offenders (domains that declare files while keeping an imperative
- domain builder) and bridgeless declaring domains (no builder callable carries
- the MICRO_GENERATOR_CLS owning-class bridge). BOTH hazard shapes now gate the
- exit code (non-zero if either is found). The target name is resolved
+ domain builder); any offender gates the exit code. The target name is resolved
  against the installed datrix.platforms / datrix.gendsl_generator_targets
  entry points at runtime -- the target set is never hardcoded. Output:
  <workspace>\.tmp\dev\gendsl-census-<language>.json.
- The script's own non-vacuity self-test (proves the double-emit and
- bridgeless comparators can each detect a forced synthetic defect) runs
+ The script's own non-vacuity self-test (proves the double-emit comparator
+ detects a forced synthetic defect and leaves a clean domain alone) runs
  automatically as step 1 of every invocation, including a real census; a
  self-test failure aborts before any real finding is reported. Pass
  -SelfTest to run only the self-test.
@@ -31,8 +29,8 @@
  Enable debug logging in the Python script.
 
 .PARAMETER SelfTest
- Run only the non-vacuity self-test (proves the double-emit and bridgeless
- comparators can detect a forced defect) and skip the real census; no
+ Run only the non-vacuity self-test (proves the double-emit comparator can
+ detect a forced defect) and skip the real census; no
  -Language needed.
 
 .EXAMPLE

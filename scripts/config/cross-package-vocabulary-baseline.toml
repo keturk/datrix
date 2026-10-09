@@ -419,7 +419,7 @@ file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/servi
 count = 2
 
 [[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/testing/test_spec_generator.py"
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/testing/test_spec_contexts.py"
 count = 1
 
 [[baseline]]

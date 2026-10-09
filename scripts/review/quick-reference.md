@@ -33,7 +33,7 @@ powershell -File "d:/datrix/datrix/scripts/review/review.ps1" --phase 43 --verif
 powershell -File "d:/datrix/datrix/scripts/review/review.ps1" --phase 43 --local-machine 10.94.0.102 --local-model qwen3-coder:30b
 ```
 
-Tier 1 runs on the first local model server `datrix_scripts.local_llm` finds (Ollama, vLLM or llama-server), failing over to the next.
+Tier 1 runs on the first model `datrix_scripts.local_llm` finds on the local machines' Ollama servers, failing over to the next.
 
 ### Exit Codes
 

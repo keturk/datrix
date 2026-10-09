@@ -23,8 +23,8 @@ Claude Code → Generate Tasks → task-NN-TT-{slug}.md
                   ↓ review.ps1 --phase NN
 
         Tier 1: Local Model Reviewer
-        first server datrix_scripts.local_llm finds
-        (Ollama, vLLM or llama-server; fails over to the next)
+        first model datrix_scripts.local_llm finds
+        (the machines' Ollama servers; fails over to the next)
         Per-task scope (32K context)
 
                   ↓ writes
@@ -212,11 +212,11 @@ All reviewers emit JSON conforming to this schema:
 
 **Symptom:** `ERROR: No local model server can answer. Exiting.` followed by the machines searched and the last failure.
 
-**Cause:** none of the searched machines runs a model server that answered (Ollama on 11434, vLLM/llama-server on 8000/8080/8081), or every one that did failed.
+**Cause:** none of the searched machines runs an Ollama server that answered on port 11434, or every model that did failed.
 
 **Fix:**
 1. The stderr lines before the error list what each machine offered (`Local machine <ip>: ...`).
-2. Start a server on one of them, or pass `--local-machine` for a machine that has one.
+2. Start Ollama on one of them, or pass `--local-machine` for a machine that runs it.
 3. If using Codex flags (`--codex`, `--codex-phase-gate`), Tier 1 will be skipped automatically
 
 ### Parse failure stub reviews

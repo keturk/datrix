@@ -237,7 +237,7 @@ Audits generated Python code for placeholders and syntax errors under `.generate
 
 ### `scan\gendsl-census.ps1`
 
-Per-domain census of a language's compiled genDSL definitions: file-clause counts (recursing `domain.files` + iteration/children), domain builders, declaring domains, **double-emit offenders** (declares files AND keeps a domain builder), and **bridgeless-declaring domains** (declares files but no bridge callable carries the `MICRO_GENERATOR_CLS` owning-class attribute). Target list discovered from installed entry points at runtime — never hardcoded. Its own non-vacuity self-test (proves the double-emit and bridgeless comparators can each detect a forced synthetic defect) runs automatically as **step 1 of every invocation**, including a real census — a self-test failure aborts before any real finding is reported.
+Per-domain census of a language's compiled genDSL definitions: file-clause counts (recursing `domain.files` + iteration/children), domain builders, declaring domains, and **double-emit offenders** (declares files AND keeps a domain builder). Target list discovered from installed entry points at runtime — never hardcoded. Its own non-vacuity self-test (proves the double-emit comparator detects a forced synthetic defect and leaves a clean domain alone) runs automatically as **step 1 of every invocation**, including a real census — a self-test failure aborts before any real finding is reported.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -245,4 +245,4 @@ Per-domain census of a language's compiled genDSL definitions: file-clause count
 | **Unknown target** | `.\scan\gendsl-census.ps1 -Language cobol` | Fails loud listing installed targets |
 | **Self-test only** | `.\scan\gendsl-census.ps1 -SelfTest` | Run only the non-vacuity self-test; no `-Language` needed |
 
-**Parameters:** `-Language <name>` (required unless `-SelfTest`), `-Output <path>`, `-Dbg`, `-SelfTest`. **Exit codes:** 0 = no double-emit offenders AND no bridgeless-declaring domains, 1 = double-emit offenders OR bridgeless-declaring domains found, 2 = usage / unknown target / the non-vacuity self-test failed.
+**Parameters:** `-Language <name>` (required unless `-SelfTest`), `-Output <path>`, `-Dbg`, `-SelfTest`. **Exit codes:** 0 = no double-emit offenders, 1 = double-emit offenders found, 2 = usage / unknown target / the non-vacuity self-test failed.

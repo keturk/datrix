@@ -2,8 +2,8 @@
 """Repo-level gate for the skill assists (skill/lib/, including skill_assist.py, and datrix_scripts.evaluate_reports).
 
 Every check builds a real workspace in a temporary directory -- git repositories, task files under
-.tasks/phase-NN, a findings folder, a design folder -- and talks to a real OpenAI-compatible HTTP server
-on loopback whose answers depend on the prompt it receives. Nothing here contacts the network's model
+.tasks/phase-NN, a findings folder, a design folder -- and talks to a real Ollama-shaped HTTP server on
+loopback (datrix_scripts.local_llm_loopback) whose answers depend on the prompt it receives. Nothing here contacts the network's model
 servers, and every request is recorded in a temporary usage log, never the machine's own.
 
 Run through skill/skill-assist-gate.ps1.
@@ -14,13 +14,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import socket
 import subprocess
 import sys
-import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -38,19 +35,20 @@ from context_digest import build_digest
 from datrix_scripts.customer_domain_isolation import hash_term
 from datrix_scripts.evaluate_reports import render_project_quick_report, render_service_mechanical
 from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
+from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, LoopbackOllama, answering
 from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
 from datrix_scripts.local_reading import WITHHELD_LINE
 from datrix_scripts.paths import script_env
 from findings import check_consolidation, extract_file
 from phase_tasks import phase_tasks
 from readiness import VERDICT_SATISFIED, missing_edges, satisfied_leads, unresolved_modules
+from skill_assist import _parser
 
 CheckFunc = Callable[[], None]
 
 _GREEN = "\033[92m"
 _RED = "\033[91m"
 _RESET = "\033[0m"
-_LOOPBACK = "127.0.0.1"
 # TEST-NET-1 (RFC 5737): never routed, so no model server can answer there.
 _UNROUTABLE = "192.0.2.1"
 _CLI = Path(__file__).resolve().parent / "skill_assist.py"
@@ -128,63 +126,9 @@ def _task(root: Path, number: int, *, depends: str = "None", review: tuple[str, 
                   f"task-{_PHASE:02d}-{number:02d}-fixture-{number}.md", text)
 
 
-Responder = Callable[[str, str], str]
-
-
-class _ModelServer:
-    """An OpenAI-compatible server on loopback: ``respond(system, user)`` writes every answer."""
-
-    def __init__(self, respond: Responder) -> None:
-        self.requests: list[tuple[str, str]] = []
-        requests = self.requests
-
-        class _Handler(BaseHTTPRequestHandler):
-            def _send(self, payload: object) -> None:
-                data = json.dumps(payload).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                self._send({"data": [{"id": "gate-model"}]})
-
-            def do_POST(self) -> None:  # noqa: N802 -- http.server's dispatch name
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])).decode("utf-8"))
-                if body.get("max_tokens") == 1:
-                    self._send({"choices": [{"message": {"content": "pong"}}]})
-                    return
-                system, user = (str(m["content"]) for m in body["messages"])
-                requests.append((system, user))
-                self._send({"choices": [{"message": {"content": respond(system, user)}, "finish_reason": "stop"}]})
-
-            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-                return
-
-        self._httpd = ThreadingHTTPServer((_LOOPBACK, 0), _Handler)
-        self.port = int(self._httpd.server_address[1])
-        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
-
-    def __enter__(self) -> _ModelServer:
-        self._thread.start()
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self._httpd.shutdown()
-        self._httpd.server_close()
-
-
-def _closed_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((_LOOPBACK, 0))
-        return int(sock.getsockname()[1])
-
-
-def _pool(server: _ModelServer) -> LocalLlmPool:
-    settings = LocalLlmSettings(machines=(_LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                                allow_load=False, ollama_port=_closed_port(), openai_ports=(server.port,),
-                                caller="gate")
+def _pool(server: LoopbackOllama) -> LocalLlmPool:
+    settings = LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
+                                allow_load=False, ollama_port=server.port, caller="gate")
     return LocalLlmPool(settings, report=lambda _line: None)
 
 
@@ -229,7 +173,7 @@ def check_readiness_satisfied_lead_reads_the_verdict_and_checks_citations() -> N
         _task(root, 1, create=("datrix-alpha/src/datrix_alpha/core.py",), prop="core exposes HELPERS")
         _task(root, 2, create=("datrix-alpha/src/datrix_alpha/missing.py",), prop="missing exists")
         answer = "SATISFIED\nHELPERS is defined at datrix-alpha/src/datrix_alpha/core.py:3 and at nowhere.py:9."
-        with _ModelServer(lambda _s, _u: answer) as server:
+        with LoopbackOllama(answering(answer)) as server:
             pending = phase_tasks(root, _PHASE, pending_only=True)
             leads = satisfied_leads(root, _pool(server), pending)
         assert [lead.task_id for lead in leads] == ["task-07-01"], "only a task whose edit sites exist is asked"
@@ -248,7 +192,7 @@ def check_findings_extraction_maps_tails_reports_invented_and_unassigned_citatio
                         "# X\n\nSee `datrix-alpha/src/x.py:3` and `datrix-alpha/src/y.py:9`.\n")
         reply = json.dumps({"findings": [{"title": "T", "seam": "s", "packages": ["datrix-alpha"], "defect": "d",
                                           "citations": ["x.py:3", "made/up.py:1"]}]})
-        with _ModelServer(lambda _s, _u: reply) as server:
+        with LoopbackOllama(answering(reply)) as server:
             result = extract_file(root, _pool(server), ContentFilter(root), source)
         assert result.findings[0].citations == ("datrix-alpha/src/x.py:3",), result.findings
         assert result.invented == ["made/up.py:1"], result.invented
@@ -260,9 +204,9 @@ def check_findings_never_send_a_registered_customer_term() -> None:
         source = _write(root / "reports/finding/20261001-000000-t.md",
                         f"# T\n\nThe {_GATE_TERM} service breaks.\nPlain line.\n")
         reply = json.dumps({"findings": []})
-        with _ModelServer(lambda _s, _u: reply) as server:
+        with LoopbackOllama(answering(reply)) as server:
             extract_file(root, _pool(server), ContentFilter(root), source)
-        sent = " ".join(user for _system, user in server.requests)
+        sent = " ".join(chat.user for chat in server.chats)
         assert _GATE_TERM not in sent, "a registered customer term reached the model"
         assert WITHHELD_LINE in sent and "Plain line." in sent, sent
 
@@ -301,7 +245,7 @@ def check_checklist_verifies_quotes_and_lists_uncovered_requirement_lines() -> N
             {"id": "", "requirement": "Invented.", "surfaces": [], "first_line": 9, "last_line": 9,
              "quote": "this sentence is not in the design at all"},
         ]})
-        with _ModelServer(lambda _s, _u: reply) as server:
+        with LoopbackOllama(answering(reply)) as server:
             checklist = draft_checklist(root, _pool(server), design)
         verified = [r.ident for r in checklist.requirements if r.quote_found]
         assert verified == ["D1"], checklist.requirements
@@ -324,10 +268,10 @@ def check_absorb_transfer_gives_a_verdict_per_section() -> None:
         design = _write(root / "design/042-fixture-design.md", _DESIGN)
         _write(root / "datrix-alpha/docs/guards.md", "# Guards\n\nRoute guards fail closed.\n")
 
-        def respond(_system: str, user: str) -> str:
-            return "PRESENT\ndatrix-alpha/docs/guards.md:3" if "D1 Guards" in user else "MISSING"
+        def respond(chat: Chat) -> str:
+            return "PRESENT\ndatrix-alpha/docs/guards.md:3" if "D1 Guards" in chat.user else "MISSING"
 
-        with _ModelServer(respond) as server:
+        with LoopbackOllama(respond) as server:
             checks = transfer_check(root, _pool(server), design, ["datrix-alpha/docs/guards.md"])
         verdicts = {c.heading: c.verdict for c in checks}
         assert verdicts["D1 Guards"] == VERDICT_PRESENT and verdicts["D2 Names"] == VERDICT_MISSING, verdicts
@@ -354,10 +298,10 @@ def check_bug_resolution_describes_framework_diffs_only_and_appends_once() -> No
         _git(shop, "init", "-q")
         _write(shop / "app.dtrx", "service Shop {}\n")
         report = _write(root / "acme-shop/bugs/bug.md", "# Bug: x\n\n## Summary\nBroken.\n")
-        with _ModelServer(lambda _s, _u: "Adds an EXTRA constant to the core helpers.") as server:
+        with LoopbackOllama(answering("Adds an EXTRA constant to the core helpers.")) as server:
             section = build_resolution(root, _pool(server), _facts(), [alpha, shop], {"src/datrix_alpha/core.py",
                                                                                      "app.dtrx"})
-        sent = " ".join(user for _system, user in server.requests)
+        sent = " ".join(chat.user for chat in server.chats)
         assert "service Shop" not in sent, "a non-framework repository's diff reached the model"
         assert "Adds an EXTRA constant" in section and "`acme-shop/app.dtrx` | +1 / -0 lines" in section, section
         append_resolution(report, section)
@@ -378,6 +322,21 @@ def check_bug_resolution_refuses_incomplete_facts() -> None:
             assert "--exhibiting" in str(exc), exc
             return
         raise AssertionError("a Resolution without the exhibiting profiles and verification rows was built")
+
+
+def check_bug_resolution_keeps_every_row_of_a_repeated_flag() -> None:
+    """A second ``--verification`` (or ``--exhibiting``, ``--file``, ...) adds rows; it never replaces the first."""
+    args = _parser().parse_args([
+        "bug-resolution", "--report", "r.md", "--repo", "a", "--repo", "b",
+        "--file", "x.py", "--file", "y.py", "--exhibiting", "p1", "--exhibiting", "p2",
+        "--reached", "p1", "--reached", "p2",
+        "--verification", "p1|yes|f|gone", "--verification", "p2|no -- why|f|unchanged",
+    ])
+    assert args.repo == ["a", "b"], args.repo
+    assert args.file == ["x.py", "y.py"], args.file
+    assert args.exhibiting == ["p1", "p2"], args.exhibiting
+    assert args.reached == ["p1", "p2"], args.reached
+    assert args.verification == ["p1|yes|f|gone", "p2|no -- why|f|unchanged"], args.verification
 
 
 # ===========================================================================
@@ -470,6 +429,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_absorb_transfer_gives_a_verdict_per_section,
     check_bug_resolution_describes_framework_diffs_only_and_appends_once,
     check_bug_resolution_refuses_incomplete_facts,
+    check_bug_resolution_keeps_every_row_of_a_repeated_flag,
     check_quick_report_renders_every_scan_fact,
     check_service_mechanical_renders_checks_and_dead_code,
     check_cli_exits_3_when_no_local_model_answers,

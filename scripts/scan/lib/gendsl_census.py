@@ -2,22 +2,16 @@
 """Per-domain census of one target's compiled genDSL definitions.
 
 Consolidates the recurring temp-script pattern of ``count_16_26.py``,
-``count_clauses_16_17.py`` and ``find_bridgeless_declaring_domain.py``
-(``D:\\datrix\\.scripts``): walk every domain of a target's compiled
-``GeneratorDefinition`` IR, count declared file clauses (domain-level files
-plus the recursive ``iteration``/``children`` block files), and flag the two
-hazard shapes those scripts hunted by hand:
+``count_clauses_16_17.py`` (``D:\\datrix\\.scripts``): walk every domain of a
+target's compiled ``GeneratorDefinition`` IR, count declared file clauses
+(domain-level files plus the recursive ``iteration``/``children`` block
+files) and domain builders, and flag the hazard shape those scripts hunted by
+hand:
 
 * **double-emit offender** -- a domain that DECLARES file clauses while still
   carrying one or more imperative domain builders. Declared files and domain
-  builders both render unconditionally (the ``render_declared_files``
-  opt-out was removed), so a declaring domain that keeps its
-  builder can emit the same path twice (the hazard ``gate_16_19_verify.py``
-  CHECK 6 polices).
-* **bridgeless declaring** -- a declaring domain none of whose bridge
-  callables (domain-builder callables plus declared-file builder callables,
-  the same scan as ``registry_adapter._owning_bridge_callables``) carries the
-  ``MICRO_GENERATOR_CLS`` owning-class attribute (the D4 bridge).
+  builders both render unconditionally, so a declaring domain that keeps its
+  builder can emit the same path twice.
 
 The target name is resolved against the gendsl target registry at runtime
 (``datrix.platforms`` + ``datrix.gendsl_generator_targets`` entry points) --
@@ -29,9 +23,8 @@ Usage:
   python scripts/scan/lib/gendsl_census.py --self-test
   .\\scripts\\scan\\gendsl-census.ps1 python
 
-Exit codes: 0 = no double-emit offenders AND no bridgeless-declaring domains,
-1 = at least one of either, 2 = usage error (unknown/definition-less target)
-or the non-vacuity self-test failed.
+Exit codes: 0 = no double-emit offenders, 1 = at least one, 2 = usage error
+(unknown/definition-less target) or the non-vacuity self-test failed.
 """
 
 from __future__ import annotations
@@ -41,7 +34,6 @@ import io
 import json
 import logging
 import sys
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -55,11 +47,8 @@ if sys.platform == "win32" and __name__ == "__main__":
 
 from datrix_codegen_kernel.gendsl import target_registry  # noqa: E402
 from datrix_codegen_kernel.gendsl.compiler import get_definitions  # noqa: E402
-from datrix_codegen_kernel.gendsl.registry_adapter import (  # noqa: E402
-    MICRO_GENERATOR_ATTR,  # noqa: E402
-)
 from datrix_codegen_kernel.generation.gendsl_ir import (  # noqa: E402
-    CallExpression,
+    DomainBuilderDefinition,
     DomainDefinition,
     FileDefinition,
     GeneratorDefinition,
@@ -101,7 +90,6 @@ class DomainCensus:
     has_domain_builder: bool
     declares_files: bool
     double_emit_offender: bool
-    bridgeless_declaring: bool
 
     def to_json(self) -> dict[str, object]:
         """Serialize for the output payload."""
@@ -113,7 +101,6 @@ class DomainCensus:
             "has_domain_builder": self.has_domain_builder,
             "declares_files": self.declares_files,
             "double_emit_offender": self.double_emit_offender,
-            "bridgeless_declaring": self.bridgeless_declaring,
         }
 
 
@@ -126,7 +113,6 @@ class CensusTotals:
     declaring_domains: int
     domains_with_builders: int
     double_emit_offenders: int
-    bridgeless_declaring: int
 
     def to_json(self) -> dict[str, int]:
         """Serialize for the output payload."""
@@ -136,7 +122,6 @@ class CensusTotals:
             "declaring_domains": self.declaring_domains,
             "domains_with_builders": self.domains_with_builders,
             "double_emit_offenders": self.double_emit_offenders,
-            "bridgeless_declaring": self.bridgeless_declaring,
         }
 
 
@@ -183,27 +168,6 @@ def _iteration_blocks(domain: DomainDefinition) -> list[IterationBlock]:
     return blocks
 
 
-def _file_builder_callable(file_def: FileDefinition) -> Callable[..., object] | None:
-    """Return the resolved content callable of a ``builder``-kind file clause.
-
-    Mirrors ``registry_adapter._file_builder_callables``: a declared file's
-    ``builder`` is a ``ResolvedFunctionRef`` or a ``CallExpression`` wrapping
-    one; the D4 bridge attribute lives on the resolved callable.
-
-    Args:
-        file_def: A compiled file clause.
-
-    Returns:
-        The resolved callable, or ``None`` for template-kind files.
-    """
-    builder = file_def.builder
-    if builder is None:
-        return None
-    if isinstance(builder, CallExpression):
-        return builder.function_ref.callable_
-    return builder.callable_
-
-
 def census_domain(definition_name: str, domain: DomainDefinition) -> DomainCensus:
     """Compute the census row for one domain.
 
@@ -217,34 +181,17 @@ def census_domain(definition_name: str, domain: DomainDefinition) -> DomainCensu
         domain: The compiled domain definition.
 
     Returns:
-        The census row, including the double-emit and bridgeless flags.
+        The census row, including the double-emit flag.
     """
-    blocks = _iteration_blocks(domain)
-
     file_defs: list[FileDefinition] = list(domain.files)
     builder_count = len(domain.domain_builders)
-    bridge_callables: list[Callable[..., object]] = [
-        builder.builder.callable_ for builder in domain.domain_builders
-    ]
-    for block in blocks:
+    for block in _iteration_blocks(domain):
         file_defs.extend(block.files)
         builder_count += len(block.domain_builders)
-        bridge_callables.extend(
-            builder.builder.callable_ for builder in block.domain_builders
-        )
-
-    for file_def in file_defs:
-        resolved = _file_builder_callable(file_def)
-        if resolved is not None:
-            bridge_callables.append(resolved)
 
     file_clauses = len(file_defs)
     declares_files = file_clauses > 0
     has_domain_builder = builder_count > 0
-    bridged = any(
-        getattr(callable_, MICRO_GENERATOR_ATTR, None) is not None
-        for callable_ in bridge_callables
-    )
     return DomainCensus(
         definition=definition_name,
         domain=domain.name,
@@ -253,20 +200,23 @@ def census_domain(definition_name: str, domain: DomainDefinition) -> DomainCensu
         has_domain_builder=has_domain_builder,
         declares_files=declares_files,
         double_emit_offender=declares_files and has_domain_builder,
-        bridgeless_declaring=declares_files and not bridged,
     )
 
 
-def _self_test_clean_domain() -> DomainDefinition:
-    """A domain with one declared file whose builder carries the D4 bridge
-    attribute -- the comparator must report it clean (not bridgeless)."""
+def _self_test_domain(name: str, *, with_builder: bool) -> DomainDefinition:
+    """A domain declaring one template file clause; *with_builder* also gives
+    it a domain-level ``builder`` line (the planted double-emit defect)."""
 
-    def _bridged_builder() -> None:
-        return None
+    def _builder() -> list[object]:
+        return []
 
-    setattr(_bridged_builder, MICRO_GENERATOR_ATTR, object)
+    builders = (
+        (DomainBuilderDefinition(builder=ResolvedFunctionRef(ref="self_test.emit", callable_=_builder)),)
+        if with_builder
+        else ()
+    )
     return DomainDefinition(
-        name="clean_domain",
+        name=name,
         feature_gates=(),
         semantic_requirements=(),
         context=None,
@@ -275,48 +225,20 @@ def _self_test_clean_domain() -> DomainDefinition:
             FileDefinition(
                 name="model",
                 language="python",
-                template_name=None,
-                builder=ResolvedFunctionRef(ref="self_test.clean", callable_=_bridged_builder),
+                template_name="model.py.j2",
+                builder=None,
                 path_template="{entity.name}.py",
                 collects=None,
             ),
         ),
         appends=(),
-        domain_builders=(),
-    )
-
-
-def _self_test_bridgeless_domain() -> DomainDefinition:
-    """A domain with one declared file whose builder carries NO bridge
-    attribute -- the comparator must report it bridgeless."""
-
-    def _unbridged_builder() -> None:
-        return None
-
-    return DomainDefinition(
-        name="bridgeless_domain",
-        feature_gates=(),
-        semantic_requirements=(),
-        context=None,
-        iteration=(),
-        files=(
-            FileDefinition(
-                name="model",
-                language="python",
-                template_name=None,
-                builder=ResolvedFunctionRef(ref="self_test.bridgeless", callable_=_unbridged_builder),
-                path_template="{entity.name}.py",
-                collects=None,
-            ),
-        ),
-        appends=(),
-        domain_builders=(),
+        domain_builders=builders,
     )
 
 
 def run_self_test() -> None:
-    """Prove ``census_domain`` can detect a forced bridgeless defect and
-    correctly leaves a clean domain unflagged, before trusting either flag
+    """Prove ``census_domain`` can detect a forced double-emit defect and
+    correctly leaves a clean domain unflagged, before trusting the flag
     against real data.
 
     Mirrors the house non-vacuity pattern
@@ -328,27 +250,24 @@ def run_self_test() -> None:
         AssertionError: If either synthetic case does not produce the
             expected result.
     """
-    clean_row = census_domain(_SELF_TEST_DEFINITION_NAME, _self_test_clean_domain())
-    if clean_row.double_emit_offender or clean_row.bridgeless_declaring:
+    clean_row = census_domain(
+        _SELF_TEST_DEFINITION_NAME, _self_test_domain("clean_domain", with_builder=False)
+    )
+    if clean_row.double_emit_offender:
         raise AssertionError(
             f"Non-vacuity self-test FAILED: census_domain flagged a synthetic "
             f"CLEAN domain as an offender ({clean_row}) -- the comparator is "
             f"over-triggering and cannot be trusted to judge real data."
         )
 
-    bridgeless_row = census_domain(_SELF_TEST_DEFINITION_NAME, _self_test_bridgeless_domain())
-    if not bridgeless_row.bridgeless_declaring:
+    defect_row = census_domain(
+        _SELF_TEST_DEFINITION_NAME, _self_test_domain("double_emit_domain", with_builder=True)
+    )
+    if not defect_row.double_emit_offender:
         raise AssertionError(
             f"Non-vacuity self-test FAILED: census_domain did not detect the "
-            f"forced bridgeless defect ({bridgeless_row}) -- a census that "
-            f"cannot detect a real bridgeless domain is worthless."
-        )
-    if bridgeless_row.double_emit_offender:
-        raise AssertionError(
-            f"Non-vacuity self-test FAILED: the bridgeless fixture was also "
-            f"flagged as a double-emit offender ({bridgeless_row}) -- the two "
-            f"flags are not independent, which would make the exit-code OR "
-            f"impossible to attribute to the right defect class."
+            f"forced double-emit defect ({defect_row}) -- a census that cannot "
+            f"detect a real double-emit domain is worthless."
         )
 
 
@@ -400,7 +319,6 @@ def compute_totals(rows: list[DomainCensus]) -> CensusTotals:
         declaring_domains=sum(1 for row in rows if row.declares_files),
         domains_with_builders=sum(1 for row in rows if row.has_domain_builder),
         double_emit_offenders=sum(1 for row in rows if row.double_emit_offender),
-        bridgeless_declaring=sum(1 for row in rows if row.bridgeless_declaring),
     )
 
 
@@ -432,9 +350,6 @@ def build_payload(
         "domains": [row.to_json() for row in rows],
         "totals": totals.to_json(),
         "double_emit_offenders": [row.domain for row in rows if row.double_emit_offender],
-        "bridgeless_declaring_domains": [
-            row.domain for row in rows if row.bridgeless_declaring
-        ],
     }
 
 
@@ -450,8 +365,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Per-domain census of one gendsl target's compiled definitions: file "
-            "clauses, domain builders, double-emit offenders, bridgeless declaring "
-            "domains. Targets are discovered from installed entry points at runtime."
+            "clauses, domain builders, double-emit offenders. Targets are discovered "
+            "from installed entry points at runtime."
         ),
     )
     parser.add_argument(
@@ -483,9 +398,8 @@ def main(argv: list[str] | None = None) -> int:
         argv: Argument list (defaults to ``sys.argv[1:]``).
 
     Returns:
-        Exit code: 0 = no double-emit offenders AND no bridgeless-declaring
-        domains, 1 = at least one of either, 2 = usage error or the
-        non-vacuity self-test failed.
+        Exit code: 0 = no double-emit offenders, 1 = at least one, 2 = usage
+        error or the non-vacuity self-test failed.
     """
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     logging.basicConfig(
@@ -529,15 +443,10 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"{language}: {totals.domains} domains, {totals.file_clauses} file clauses, "
-        f"{totals.double_emit_offenders} double-emit offenders, "
-        f"{totals.bridgeless_declaring} bridgeless"
+        f"{totals.double_emit_offenders} double-emit offenders"
     )
     print(f"Details: {output_path}")
-    return (
-        EXIT_OFFENDERS
-        if totals.double_emit_offenders or totals.bridgeless_declaring
-        else EXIT_OK
-    )
+    return EXIT_OFFENDERS if totals.double_emit_offenders else EXIT_OK
 
 
 if __name__ == "__main__":

@@ -104,8 +104,8 @@
       "repos": ["*"],
       "gitignore": ".gitignore",
       "pattern": ".ruff_cache/",
-      "path_glob": ".ruff_cache/**",
-      "reason": "ruff's incremental lint cache."
+      "path_glob": "**/.ruff_cache/**",
+      "reason": "ruff's incremental lint cache. Scoped to any depth because ruff writes the cache into its project root, which is the working directory when it runs with --isolated or an explicit --config, so a run from inside a source tree leaves one there. Like __pycache__, it is tool output at every depth: never source, never published."
     },
     {
       "repos": ["*"],
