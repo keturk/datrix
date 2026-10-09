@@ -251,7 +251,7 @@ Uses [scripts/metrics/lib/coverage_report.py](lib/coverage_report.py) and [pytes
 
 ## test-gen.ps1
 
-Uses [scripts/metrics/lib/test_gen.py](lib/test_gen.py), [pytest-cov](https://github.com/pytest-dev/pytest-cov), [Ruff](https://github.com/astral-sh/ruff), and a local model server found by [datrix_scripts.local_llm](../common/lib/datrix_scripts/local_llm.py) (Ollama, vLLM or llama-server on any searched machine, failing over to the next). It runs project coverage, ranks uncovered functions, and can generate `_generated` pytest files under `tests/unit/`. Generated files are kept only after target-reference checks, Ruff auto-fix/check, the generated test file, and the full project test suite pass; failing generated files are deleted.
+Uses [scripts/metrics/lib/test_gen.py](lib/test_gen.py), [pytest-cov](https://github.com/pytest-dev/pytest-cov), [Ruff](https://github.com/astral-sh/ruff), and a local model server found by [datrix_scripts.local_llm](../common/lib/datrix_scripts/local_llm.py) (the Ollama server on any searched machine, failing over to the next). It runs project coverage, ranks uncovered functions, and can generate `_generated` pytest files under `tests/unit/`. Generated files are kept only after target-reference checks, Ruff auto-fix/check, the generated test file, and the full project test suite pass; failing generated files are deleted.
 
 **Modes:** `report` lists ranked candidates, `generate` creates one validated test file, and `generate-all` attempts every matching candidate. Generation modes print an `Added tests` summary for the files that were kept and a summary of generated, skipped, and failed candidates.
 

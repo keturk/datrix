@@ -26,7 +26,7 @@ Radon metrics: cyclomatic complexity, cognitive complexity, raw, Halstead, maint
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|cc\|raw\|halstead\|mi, default: check), `-Max` (default: 15), `-Fix`, `-FixAll`, `-Test` (with -Fix), `-MaxRetries` (default: 3), `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-MaxContextChars` (default: 8000), `-StopOnError`, `-VerboseOutput`, `-Dbg`
 
-Every `-Fix`/LLM mode in this category searches the local machines through `common/lib/datrix_scripts/local_llm.py`: Ollama, vLLM and llama-server are discovered, models already in memory are used first, and a server that fails hands over to the next.
+Every `-Fix`/LLM mode in this category searches the local machines' Ollama servers through `common/lib/datrix_scripts/local_llm.py`: models already in memory are used first, and a model that fails hands over to the next.
 
 ---
 
