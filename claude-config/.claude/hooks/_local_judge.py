@@ -21,8 +21,8 @@ FAILING OPEN
   never loads a model (`allow_load=False`), so it waits seconds, never minutes.
 
   DATRIX_LOCAL_JUDGE=off disables it (the hook self-tests set this so they stay
-  deterministic). DATRIX_LOCAL_JUDGE_PORT=<port> points it at an OpenAI-compatible
-  server on 127.0.0.1 only -- a test's own server; it cannot point anywhere else.
+  deterministic). DATRIX_LOCAL_JUDGE_PORT=<port> points it at an Ollama-shaped server
+  on 127.0.0.1 only -- a test's own server; it cannot point anywhere else.
 
 Every verdict is appended to `.state/local-judge.jsonl` beside this file (gitignored; size-capped
 with one rotated file, `_hook_log.py`):
@@ -154,7 +154,7 @@ def _settings(gate: str) -> LocalLlmSettings:
         # A test's own loopback server, and nothing else: no other machine is searched.
         return LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=REACHABLE_TIMEOUT_MS,
                                 generate_timeout_ms=GENERATE_TIMEOUT_MS, allow_load=False,
-                                ollama_port=int(port), openai_ports=(int(port),), caller=caller)
+                                ollama_port=int(port), caller=caller)
     return LocalLlmSettings(reachable_timeout_ms=REACHABLE_TIMEOUT_MS, generate_timeout_ms=GENERATE_TIMEOUT_MS,
                             allow_load=False, caller=caller)
 

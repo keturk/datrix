@@ -22,7 +22,7 @@ Produce a detailed, evidence-grounded analysis report on a **user-supplied targe
 /create-report <target>
 ```
 
-Examples: `/create-report how datrix-codegen-azure renders Key Vault references`, `/create-report the .dtrx parsing pipeline`, `/create-report design/03-pubsub-amqp.md`.
+Examples: `/create-report how datrix-codegen-azure renders Key Vault references`, `/create-report the .dtrx parsing pipeline`, `/create-report the pub/sub AMQP design doc`.
 
 If no target is given, STOP and ask the user what to report on. Do not guess a subject.
 

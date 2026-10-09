@@ -1,8 +1,8 @@
 """Exercise the local second reader (_local_judge.py) through the real stop gates.
 
 Each case runs gate-stop-exhaustion.py or check-agent-report.py as a subprocess, with
-DATRIX_LOCAL_JUDGE_PORT pointing the judge at a real OpenAI-compatible HTTP server on
-loopback whose answer the case sets. Both directions, on purpose:
+DATRIX_LOCAL_JUDGE_PORT pointing the judge at a real Ollama-shaped HTTP server on loopback
+(datrix_scripts.local_llm_loopback) whose answer the case sets. Both directions, on purpose:
 
   BLOCK -- a reworded claim the wordlist misses, flagged at high confidence with a quote
            that is really in the turn.
@@ -15,18 +15,20 @@ imagination would teach evasive writing faster than any wordlist.
 """
 import json
 import os
-import socket
 import subprocess
 import sys
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 H = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, H)
+from _hook_log import add_scripts_lib_to_path  # noqa: E402
+
+add_scripts_lib_to_path()
+from datrix_scripts.local_llm_loopback import Chat, LoopbackOllama, closed_port  # noqa: E402
+
 TRANSCRIPT = r"D:\datrix\.tmp\local-judge-test-transcript.jsonl"
 # The judge's requests to this test's own server must never count as real use of the machines.
 USAGE_LOG = r"D:\datrix\.tmp\local-judge-test-usage.jsonl"
 SID = "TESTSESSION-local-judge"
-LOOPBACK = "127.0.0.1"
 
 REWORDED_EXHAUSTION = (
     "I have finished the parser changes and the three targeted tests pass. Given how much of the working "
@@ -57,45 +59,17 @@ def check(label: str, got: object, want: object) -> None:
         fails.append(f"{label}: got {got!r}, want {want!r}")
 
 
-class ModelServer:
-    """OpenAI-compatible server on loopback; ``answer`` is what every chat returns."""
+class Verdict:
+    """The judge's answer every chat gets; a case sets it before running a gate."""
 
     def __init__(self) -> None:
         self.answer = json.dumps({"verdict": "clean", "quote": "", "confidence": "high"})
-        self.chats = 0
-        server = self
 
-        class Handler(BaseHTTPRequestHandler):
-            def _send(self, payload: object) -> None:
-                data = json.dumps(payload).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self) -> None:  # noqa: N802
-                if self.path == "/v1/models":
-                    self._send({"data": [{"id": "judge-model"}]})
-                else:
-                    self.send_response(404)
-                    self.end_headers()
-
-            def do_POST(self) -> None:  # noqa: N802
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])).decode("utf-8"))
-                if body.get("max_tokens") != 1:
-                    server.chats += 1
-                self._send({"choices": [{"message": {"content": server.answer}, "finish_reason": "stop"}]})
-
-            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-                return
-
-        self.httpd = ThreadingHTTPServer((LOOPBACK, 0), Handler)
-        self.port = int(self.httpd.server_address[1])
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
-
-    def verdict(self, verdict: str, quote: str, confidence: str = "high") -> None:
+    def set(self, verdict: str, quote: str, confidence: str = "high") -> None:
         self.answer = json.dumps({"verdict": verdict, "quote": quote, "confidence": confidence})
+
+    def __call__(self, _chat: Chat) -> str:
+        return self.answer
 
 
 def transcript(assistant_text: str) -> str:
@@ -117,12 +91,6 @@ def run(hook: str, text: str, port: int, *, active: bool = False, judge: str = "
     return process.returncode, process.stderr
 
 
-def closed_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((LOOPBACK, 0))
-        return int(sock.getsockname()[1])
-
-
 def clear_block_state() -> None:
     import tempfile
     state = os.path.join(tempfile.gettempdir(), "datrix-stop-exhaustion", f"{SID}.json")
@@ -130,66 +98,66 @@ def clear_block_state() -> None:
         os.remove(state)
 
 
-server = ModelServer()
 STOP = "gate-stop-exhaustion.py"
 SUBAGENT = "check-agent-report.py"
 if os.path.isfile(USAGE_LOG):
     os.remove(USAGE_LOG)
 
-print("== BLOCK: a reworded claim, quoted verbatim, at high confidence ==")
-clear_block_state()
-server.verdict("exhaustion", QUOTE)
-code, err = run(STOP, REWORDED_EXHAUSTION, server.port)
-check("stop gate blocks a reworded exhaustion claim", code, 2)
-check("the block names the second reader", "second reader" in err, True)
-with open(USAGE_LOG, encoding="utf-8") as handle:
-    callers = [json.loads(line)["caller"] for line in handle]
-check("the judge's request is in the usage log under its hook's name", callers, ["hook:stop-judge"])
-clear_block_state()
-server.verdict("exhaustion", QUOTE.replace("I am going", "I'm going"))
-code, _ = run(STOP, REWORDED_EXHAUSTION, server.port)
-check("a quote with a one-word slip still stands (most of it is verbatim)", code, 2)
-server.verdict("expedient", EXPEDIENT_QUOTE)
-code, err = run(SUBAGENT, REWORDED_EXPEDIENT, server.port)
-check("subagent gate blocks a reworded expedient fix", code, 2)
-check("the block carries the expedient remedy", "size of a fix" in err, True)
-server.verdict("dodge", DODGE_QUOTE)
-code, _ = run(SUBAGENT, REWORDED_DODGE, server.port)
-check("subagent gate ignores a dodge verdict (the judge may not flag dodges)", code, 0)
-
-print("== ALLOW: every way a verdict must fail to stand ==")
-for label, verdict, quote, confidence, text in (
-    ("a quote the turn does not contain", "exhaustion", "I ran out of context entirely", "high",
-     REWORDED_EXHAUSTION),
-    ("a quote inside backticks", "exhaustion", "wrap up at this point to conserve",
-     "high", REWORDED_EXHAUSTION + " The banned phrase is `wrap up at this point to conserve` budget."),
-    ("a negated quote", "expedient", "a temporary shim until the real fix lands", "high",
-     REWORDED_EXHAUSTION.replace("Given how much", "I did not ship a temporary shim until the real fix lands. "
-                                 "Given how much")),
-    ("medium confidence", "exhaustion", QUOTE, "medium", REWORDED_EXHAUSTION),
-    ("a family this gate does not enforce", "dodge", QUOTE, "high", REWORDED_EXHAUSTION),
-    ("a handover verdict (the judge may not flag handovers)", "handover", QUOTE, "high", REWORDED_EXHAUSTION),
-    ("a loose paraphrase", "exhaustion", "because the session's budget is mostly spent I will now stop working",
-     "high", REWORDED_EXHAUSTION),
-):
+reply = Verdict()
+with LoopbackOllama(reply, ("judge-model",)) as server:
+    print("== BLOCK: a reworded claim, quoted verbatim, at high confidence ==")
     clear_block_state()
-    server.verdict(verdict, quote, confidence)
-    code, _ = run(STOP, text, server.port)
-    check(f"allows {label}", code, 0)
+    reply.set("exhaustion", QUOTE)
+    code, err = run(STOP, REWORDED_EXHAUSTION, server.port)
+    check("stop gate blocks a reworded exhaustion claim", code, 2)
+    check("the block names the second reader", "second reader" in err, True)
+    with open(USAGE_LOG, encoding="utf-8") as handle:
+        callers = [json.loads(line)["caller"] for line in handle]
+    check("the judge's request is in the usage log under its hook's name", callers, ["hook:stop-judge"])
+    clear_block_state()
+    reply.set("exhaustion", QUOTE.replace("I am going", "I'm going"))
+    code, _ = run(STOP, REWORDED_EXHAUSTION, server.port)
+    check("a quote with a one-word slip still stands (most of it is verbatim)", code, 2)
+    reply.set("expedient", EXPEDIENT_QUOTE)
+    code, err = run(SUBAGENT, REWORDED_EXPEDIENT, server.port)
+    check("subagent gate blocks a reworded expedient fix", code, 2)
+    check("the block carries the expedient remedy", "size of a fix" in err, True)
+    reply.set("dodge", DODGE_QUOTE)
+    code, _ = run(SUBAGENT, REWORDED_DODGE, server.port)
+    check("subagent gate ignores a dodge verdict (the judge may not flag dodges)", code, 0)
 
-server.verdict("exhaustion", QUOTE)
-before = server.chats
-clear_block_state()
-code, _ = run(STOP, REWORDED_EXHAUSTION, server.port, active=True)
-check("a stop already continuing after a block is not re-judged", (code, server.chats - before), (0, 0))
-code, _ = run(STOP, "Done: the two files are updated and the targeted test passes.", server.port)
-check("a short answer is never sent to the judge", (code, server.chats - before), (0, 0))
-code, _ = run(STOP, REWORDED_EXHAUSTION, server.port, judge="off")
-check("DATRIX_LOCAL_JUDGE=off sends nothing", (code, server.chats - before), (0, 0))
-code, _ = run(STOP, REWORDED_EXHAUSTION, closed_port())
-check("no model server: the stop proceeds", code, 0)
+    print("== ALLOW: every way a verdict must fail to stand ==")
+    for label, verdict, quote, confidence, text in (
+        ("a quote the turn does not contain", "exhaustion", "I ran out of context entirely", "high",
+         REWORDED_EXHAUSTION),
+        ("a quote inside backticks", "exhaustion", "wrap up at this point to conserve",
+         "high", REWORDED_EXHAUSTION + " The banned phrase is `wrap up at this point to conserve` budget."),
+        ("a negated quote", "expedient", "a temporary shim until the real fix lands", "high",
+         REWORDED_EXHAUSTION.replace("Given how much", "I did not ship a temporary shim until the real fix lands. "
+                                     "Given how much")),
+        ("medium confidence", "exhaustion", QUOTE, "medium", REWORDED_EXHAUSTION),
+        ("a family this gate does not enforce", "dodge", QUOTE, "high", REWORDED_EXHAUSTION),
+        ("a handover verdict (the judge may not flag handovers)", "handover", QUOTE, "high", REWORDED_EXHAUSTION),
+        ("a loose paraphrase", "exhaustion", "because the session's budget is mostly spent I will now stop working",
+         "high", REWORDED_EXHAUSTION),
+    ):
+        clear_block_state()
+        reply.set(verdict, quote, confidence)
+        code, _ = run(STOP, text, server.port)
+        check(f"allows {label}", code, 0)
 
-server.httpd.shutdown()
+    reply.set("exhaustion", QUOTE)
+    before = len(server.chats)
+    clear_block_state()
+    code, _ = run(STOP, REWORDED_EXHAUSTION, server.port, active=True)
+    check("a stop already continuing after a block is not re-judged", (code, len(server.chats) - before), (0, 0))
+    code, _ = run(STOP, "Done: the two files are updated and the targeted test passes.", server.port)
+    check("a short answer is never sent to the judge", (code, len(server.chats) - before), (0, 0))
+    code, _ = run(STOP, REWORDED_EXHAUSTION, server.port, judge="off")
+    check("DATRIX_LOCAL_JUDGE=off sends nothing", (code, len(server.chats) - before), (0, 0))
+    code, _ = run(STOP, REWORDED_EXHAUSTION, closed_port())
+    check("no model server: the stop proceeds", code, 0)
+
 clear_block_state()
 if os.path.isfile(USAGE_LOG):
     os.remove(USAGE_LOG)

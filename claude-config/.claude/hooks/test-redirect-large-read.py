@@ -2,7 +2,7 @@
 
 ``decide`` is driven in-process against a temp workspace (framework repositories, a
 customer-style repository, test output) with the real code index over it and a real
-OpenAI-compatible server on loopback; the entry point is driven as a subprocess for the cases
+Ollama-shaped server on loopback; the entry point is driven as a subprocess for the cases
 that must never reach the index or a model. Both directions, on purpose:
 
   REDIRECT -- the first whole read, by one agent, of a large Python file or test log in scope.
@@ -16,16 +16,12 @@ refuses saves nothing.
 import importlib.util
 import json
 import os
-import socket
 import subprocess
 import sys
 import tempfile
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HOOKS = os.path.dirname(os.path.abspath(__file__))
-LOOPBACK = "127.0.0.1"
 SESSION = "TEST-redirect-large-read"
 fails: list[str] = []
 
@@ -44,53 +40,14 @@ spec.loader.exec_module(hook)
 hook.add_scripts_lib_to_path()
 from datrix_scripts.customer_domain_isolation import corpus_path  # noqa: E402
 from datrix_scripts.local_llm import LocalLlmSettings  # noqa: E402
+from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering, closed_port  # noqa: E402
 
 ANSWER = "1. AssertionError: boom, 3 times, first at .test-output/run/big.log:4"
 
 
-class ModelServer:
-    """OpenAI-compatible server on loopback answering every chat with ANSWER."""
-
-    def __init__(self) -> None:
-        self.chats = 0
-        server = self
-
-        class Handler(BaseHTTPRequestHandler):
-            def _send(self, payload: object) -> None:
-                data = json.dumps(payload).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self) -> None:  # noqa: N802
-                self._send({"data": [{"id": "digest-model"}]})
-
-            def do_POST(self) -> None:  # noqa: N802
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])).decode("utf-8"))
-                if body.get("max_tokens") != 1:
-                    server.chats += 1
-                self._send({"choices": [{"message": {"content": ANSWER}, "finish_reason": "stop"}]})
-
-            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-                return
-
-        self.httpd = ThreadingHTTPServer((LOOPBACK, 0), Handler)
-        self.port = int(self.httpd.server_address[1])
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
-
-
-def closed_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((LOOPBACK, 0))
-        return int(sock.getsockname()[1])
-
-
 def settings_for(port: int, usage_log: Path) -> LocalLlmSettings:
     return LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                            allow_load=False, ollama_port=closed_port(), openai_ports=(port,),
-                            usage_log=usage_log, caller=hook.CALLER)
+                            allow_load=False, ollama_port=port, usage_log=usage_log, caller=hook.CALLER)
 
 
 def write(path: Path, text: str) -> Path:
@@ -135,7 +92,8 @@ def cleanup_state() -> None:
 
 cleanup_state()
 try:
-    with tempfile.TemporaryDirectory(prefix="redirect-hook-") as temp:
+    with tempfile.TemporaryDirectory(prefix="redirect-hook-") as temp, \
+            LoopbackOllama(answering(ANSWER), ("digest-model",)) as server:
         workspace = Path(temp)
         for repo in ("datrix", "datrix-alpha", "acme-shop"):
             (workspace / repo).mkdir()
@@ -151,7 +109,6 @@ try:
         small_log = write(workspace / ".test-output/run/small.log", "all fine\n")
         # Nothing reaches a local model without the customer-term corpus; an empty one filters nothing.
         write(corpus_path(workspace / "datrix"), json.dumps({"algorithm": "sha256", "terms": []}))
-        server = ModelServer()
         settings = settings_for(server.port, workspace / "usage.jsonl")
 
         repeats: list[str] = []
@@ -190,7 +147,7 @@ try:
               str(excluded) in hook._told(hook._state_path(SESSION, "main")), False)
 
         print("== a large test log: the digest ==")
-        before = server.chats
+        before = len(server.chats)
         dead = settings_for(closed_port(), workspace / "usage.jsonl")
         check("no model server answers: the read goes through", decide(read(big_log), dead), "")
         check("and the agent is not marked as told, so the next read still gets a digest",
@@ -198,7 +155,7 @@ try:
         log_message = decide(read(big_log))
         check("the first whole read is refused with the model's digest",
               "READ REDIRECTED" in log_message and ANSWER in log_message, True)
-        check("the model was asked once or in chunks, never for nothing", server.chats > before, True)
+        check("the model was asked once or in chunks, never for nothing", len(server.chats) > before, True)
         check("the repeat goes through", decide(read(big_log)), "")
 
         print("== the entry point ==")
@@ -208,7 +165,6 @@ try:
         check("input that is not an object", run_hook(None, raw="[1, 2]"), (0, ""))
         check("a file that is not in the real workspace's framework repositories",
               run_hook(read(customer)), (0, ""))
-        server.httpd.shutdown()
 finally:
     cleanup_state()
 

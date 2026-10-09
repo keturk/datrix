@@ -1,7 +1,7 @@
 """Exercise digest-red-test-run.py: a local model's digest of a red test run's log.
 
 ``context_for`` is driven in-process against a temp workspace (a framework repository and a
-customer-style one) and a real OpenAI-compatible server on loopback; the hook's entry point
+customer-style one) and a real Ollama-shaped server on loopback; the hook's entry point
 is driven as a subprocess for the cases that must never touch a model. Both directions, on
 purpose:
 
@@ -15,16 +15,12 @@ cost more than it saves.
 import importlib.util
 import json
 import os
-import socket
 import subprocess
 import sys
 import tempfile
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HOOKS = os.path.dirname(os.path.abspath(__file__))
-LOOPBACK = "127.0.0.1"
 fails: list[str] = []
 
 
@@ -42,56 +38,15 @@ spec.loader.exec_module(hook)
 hook.add_scripts_lib_to_path()
 from datrix_scripts.customer_domain_isolation import corpus_path  # noqa: E402
 from datrix_scripts.local_llm import LocalLlmSettings  # noqa: E402
+from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering, closed_port  # noqa: E402
 from datrix_scripts.run_digest import DIGEST_FILENAME  # noqa: E402
 
 ANSWER = "1. AssertionError: boom, 2 times, first at datrix-alpha/.test_results/test-results-1/full.log:4"
 
 
-class ModelServer:
-    """OpenAI-compatible server on loopback answering every chat with ANSWER."""
-
-    def __init__(self) -> None:
-        self.chats = 0
-        self.prompts: list[str] = []
-        server = self
-
-        class Handler(BaseHTTPRequestHandler):
-            def _send(self, payload: object) -> None:
-                data = json.dumps(payload).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self) -> None:  # noqa: N802
-                self._send({"data": [{"id": "digest-model"}]})
-
-            def do_POST(self) -> None:  # noqa: N802
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])).decode("utf-8"))
-                if body.get("max_tokens") != 1:
-                    server.chats += 1
-                    server.prompts.append(str(body["messages"][-1]["content"]))
-                self._send({"choices": [{"message": {"content": ANSWER}, "finish_reason": "stop"}]})
-
-            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-                return
-
-        self.httpd = ThreadingHTTPServer((LOOPBACK, 0), Handler)
-        self.port = int(self.httpd.server_address[1])
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
-
-
-def closed_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((LOOPBACK, 0))
-        return int(sock.getsockname()[1])
-
-
 def settings_for(port: int, usage_log: Path) -> LocalLlmSettings:
     return LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                            allow_load=False, ollama_port=closed_port(), openai_ports=(port,),
-                            usage_log=usage_log, caller=hook.CALLER)
+                            allow_load=False, ollama_port=port, usage_log=usage_log, caller=hook.CALLER)
 
 
 def make_run(workspace: Path, repo: str, stamp: str, structured: bool = True) -> Path:
@@ -119,7 +74,8 @@ def run_hook(command: str, response: object, raw: str | None = None) -> tuple[in
     return process.returncode, process.stdout
 
 
-with tempfile.TemporaryDirectory(prefix="digest-hook-") as temp:
+with tempfile.TemporaryDirectory(prefix="digest-hook-") as temp, \
+        LoopbackOllama(answering(ANSWER), ("digest-model",)) as server:
     workspace = Path(temp)
     for repo in ("datrix", "datrix-alpha", "acme-shop"):
         (workspace / repo / ".git").mkdir(parents=True)
@@ -128,7 +84,6 @@ with tempfile.TemporaryDirectory(prefix="digest-hook-") as temp:
     corpus.parent.mkdir(parents=True)
     corpus.write_text(json.dumps({"algorithm": "sha256", "min_token_length": 5, "terms": []}), encoding="utf-8")
     usage = workspace / "usage.jsonl"
-    server = ModelServer()
     settings = settings_for(server.port, usage)
     red = make_run(workspace, "datrix-alpha", "1")
     green = make_run(workspace, "datrix-alpha", "2")
@@ -148,7 +103,7 @@ with tempfile.TemporaryDirectory(prefix="digest-hook-") as temp:
     check("it names the package and the log", "datrix-alpha" in context and "full.log" in context, True)
     check("it points at the structured data the run saved", str(red / "failure-data.json") in context, True)
     check("it tells the agent not to read the log whole", "Do not read full.log whole" in context, True)
-    check("the model was sent the numbered log lines", "3| E   AssertionError: boom" in server.prompts[-1], True)
+    check("the model was sent the numbered log lines", "3| E   AssertionError: boom" in server.chats[-1].user, True)
     unstructured = make_run(workspace, "datrix-alpha", "4", structured=False)
     context = hook.context_for(console(("FAILED", "datrix-alpha", unstructured)), workspace, settings)
     check("with no failure-data.json it names the collector", "collect-failure-data.ps1" in context, True)
@@ -159,29 +114,29 @@ with tempfile.TemporaryDirectory(prefix="digest-hook-") as temp:
     check("the hook's digest file name is the one test.ps1's digest writes", hook.RUN_DIGEST_NAME, DIGEST_FILENAME)
     digested = make_run(workspace, "datrix-alpha", "5")
     (digested / DIGEST_FILENAME).write_text("Failure digest: datrix-alpha FAILED\n", encoding="utf-8")
-    before = server.chats
+    before = len(server.chats)
     check("a red run test.ps1 already digested",
           hook.context_for(console(("FAILED", "datrix-alpha", digested)), workspace, settings), "")
-    check("which reached no model", server.chats, before)
+    check("which reached no model", len(server.chats), before)
     mixed = hook.context_for(console(("FAILED", "datrix-alpha", digested), ("FAILED", "datrix-alpha", red)),
                              workspace, settings)
     check("a digested run does not use up the cap: the undigested one is still digested",
           (mixed.count("Local-model digest of"), str(red / "full.log") in mixed), (1, True))
-    before = server.chats
+    before = len(server.chats)
     check("a green run", hook.context_for(console(("PASSED", "datrix-alpha", green)), workspace, settings), "")
     check("a red run whose log is outside the read scope",
           hook.context_for(console(("FAILED", "acme-shop", customer)), workspace, settings), "")
     missing = workspace / "datrix-alpha" / ".test_results" / "test-results-9"
     check("a red run with no log",
           hook.context_for(console(("FAILED", "datrix-alpha", missing)), workspace, settings), "")
-    check("none of those reached a model", server.chats, before)
+    check("none of those reached a model", len(server.chats), before)
     dead = settings_for(closed_port(), usage)
     check("no model server answers: the result is untouched",
           hook.context_for(console(("FAILED", "datrix-alpha", red)), workspace, dead), "")
     runs = [make_run(workspace, "datrix-alpha", f"cap{n}") for n in range(4)]
-    before = server.chats
+    before = len(server.chats)
     capped = hook.context_for(console(*(("FAILED", "datrix-alpha", r) for r in runs)), workspace, settings)
-    check("at most MAX_RUNS runs are digested", (capped.count("Local-model digest of"), server.chats - before),
+    check("at most MAX_RUNS runs are digested", (capped.count("Local-model digest of"), len(server.chats) - before),
           (hook.MAX_RUNS, hook.MAX_RUNS))
 
     print("== the entry point ==")
@@ -193,7 +148,6 @@ with tempfile.TemporaryDirectory(prefix="digest-hook-") as temp:
           (0, ""))
     check("unparseable input", run_hook("", None, raw="{not json"), (0, ""))
     check("a non-shell tool", run_hook("", None, raw=json.dumps({"tool_name": "Read", "tool_input": {}})), (0, ""))
-    server.httpd.shutdown()
 
 print()
 if fails:
