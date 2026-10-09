@@ -730,7 +730,7 @@ On AWS, both `ecs-fargate` and `app-runner` are **first-class** HTTP runtimes â€
 
 ### No Derived Artifacts (Adopted)
 
-**Principle:** Generator definitions must not create a second editable artifact. The genDSL docstring is source; the compiled IR is runtime state only.
+**Principle:** Generator definitions must not create a second editable artifact. The target's `.gendsl` package resource is source; the compiled IR is runtime state only.
 
 **Why:**
 - Prevents AI agents and humans from patching a derived file instead of editing the source declaration
@@ -741,7 +741,7 @@ On AWS, both `ecs-fargate` and `app-runner` are **first-class** HTTP runtimes â€
 
 | Forbidden | Allowed |
 |-----------|---------|
-| Checked-in generated Python registry files | Embedded generator-definition docstrings |
+| Checked-in generated Python registry files | Hand-written `.gendsl` generator-definition resources |
 | Checked-in generated generator classes | Hand-written Python context builders, hooks, algorithms |
 | Generated manifest or metadata files | Templates |
 | Generated cache or build-output tables | Tests that compile definitions in memory |

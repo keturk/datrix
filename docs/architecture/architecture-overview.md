@@ -700,6 +700,7 @@ The design's seven end-state invariants (I1–I7) hold today as executable gates
 - **Mega-modules are decomposed along the domain taxonomy generator definitions already use** (managed database, cache, pub/sub, document store, storage, observability, identity, pooling, gateway), and each platform's capability declaration moves to live with its own type instead of inside a general-purpose context-bag module
 - **Infrastructure-as-code authoring converges on one style: declarative modules behind a typed builder facade.** Azure's existing `BicepBuilder` pattern — typed `build_*` call sites over declarative per-resource templates — becomes the target for every platform. AWS migrates its CDK stacks off untyped Python-source-through-Jinja to typed data serialized into CDK Python source, with the generated project's `cdk bootstrap && cdk deploy` deploy contract left unchanged; Docker's compose file switches from a hand-indented Jinja template to structured YAML serialization of the dict it already builds. No future platform may introduce another authoring style
 - **Rejected alternatives:** keeping the per-platform dispatch ladders as a "defensive backstop" once capability cells drive dispatch was rejected — two copies of one truth is the defect being fixed, not a safety net. A textual realization grammar for RealizationDSL was rejected because the authoring unit is a table cell, not free text; a validating loader over typed data gives the same closed-compilation guarantee with far less surface. Platform-side per-language lookup tables were rejected in favor of the two new `LanguageRuntimeSpec` capabilities, because language facts belong with the language plugin, not the platform layer. A new shared package for the eight consolidated engines was rejected because the platform layer already owns language-agnostic provider concerns and every platform package already imports it legally. For the AWS migration specifically, dropping the CDK toolkit in favor of an in-process, typed CloudFormation object model was rejected: it would change the generated project's visible deploy contract and would require building a typed CloudFormation object model that does not exist anywhere in the codebase today — the existing deploy contract was treated as a hard constraint, so the migration changes only how the CDK source is produced (typed data serialized to source, replacing template-driven source generation), never the deploy step itself
+- **Amendment (2026-10-05) — AWS CDK authoring notation.** AWS CDK source is a standard-library `ast` tree, authored as parsed fragments with typed holes and serialized at one point; no value reaches emitted source as text. The typed data AWS first migrated to was a hand-written IR of frozen dataclasses mirroring `ast` node for node, built through nested constructor calls and carrying two raw-text escape hatches through which context builders spliced CDK expression text assembled with f-strings. The standard library's `ast` is now the typed data itself: each `build_*` facade keeps its typed signature and returns `ast` nodes, built by filling fragments — CDK Python written once as a plain string literal and parsed when its module is imported — whose holes accept only constants, structures of constants, validated identifiers, or `ast` nodes. A value that names CDK code is typed (a secret reference, an attribute chain), never source text. One function serializes every emitted module and refuses a module that reads a name it never binds, so a missing import fails generation rather than `cdk synth`. The single-authoring-style rule above is unchanged: this replaces the notation of AWS's typed data, not the style
 
 ---
 
@@ -800,6 +801,7 @@ The design's seven end-state invariants (I1–I7) hold today as executable gates
 - One declarative `node.type → handler` registry replaces all three mechanisms, checked bidirectionally against the grammar's node types (a named node with no handler or a handler for a nonexistent node fails); the duplicate member ladders merge into one registry-driven dispatch with a per-container allowed-member set stated as data
 - The god transformers split by block family behind the registry (no transformer module over 800 lines); semantic lowering relocates to the semantic layer (behavior-preserving — diagnostics keep their codes, messages, and locations), consolidating a previously three-way-duplicated invariant into one owner; state passes through an immutable transform context; the one bare-exception swallow narrows to typed errors and the dead validator is removed
 - The generated parser artifacts leave version control and build from the grammar source through the existing build machinery (in wheel packaging and the local autobuild path — not via hosted CI actions), with a suite-level staleness hash gate replacing the committed files
+- **Declared row form (extends the one-route rule):** a node that only copies CST children into model fields is not a hand-written handler but a row — node type, model class, attach route — built by one generic builder from grammar `field()` labels spelled as the model's own constructor parameters and collections. A mapped node type still has exactly one registry entry per context, bound to its row; rows are checked at import against the grammar contract and the model's constructor, and the builder fails closed (an unmapped field, an unlabelled named child, or an unconvertible child raises a located error). Transformers that desugar, validate, accept two spellings of one construct, or attach doc comments stay hand-written and may build their plain part through a row; a census test holds the line
 - **Rejected alternatives:** unifying on the reflection dispatcher (name-based reflection is the silent-failure shape being removed everywhere); splitting transformers by file size rather than family (family boundaries match the registry keys); keeping lowering in the syntax layer (semantic rules there are unreachable by semantic-phase tooling); committing the generated artifacts with only a hash gate (large diffs bury real grammar review)
 
 ---
@@ -1942,6 +1944,32 @@ and it had one latent defect.
   - The set comparison lives in code: `datrix_testing.tenant_fixtures.fixture_set_mismatch`
     compares the negative fixtures on disk with the names a coverage module references, and each
     language package asserts it is empty.
+- **D14 — `@onboarding` serves a customer who has no tenant yet.** When the tenant is a
+  `jwt` claim the token carries only once the caller's own row exists (an `owner = "app"`
+  write-back field), every route that creates or claims that row runs with no request tenant:
+  scoped to it, a registration cannot create the row, an invitation cannot be found by its
+  token, and a first login cannot claim a pre-created member. `@crossTenant` is not the answer
+  (the caller is an untrusted customer), so a second, narrower declaration exists.
+  - Legal only on a service-hosted `auth(required)` REST endpoint that is not `@crossTenant`
+    (TEN011), in a service whose tenant is a `jwt` claim under `relaxed` enforcement (TEN012).
+    The transformer consumes it into `Endpoint.onboarding`; `fn`, tool and WebSocket message
+    slots reject it.
+  - The route guard binds no tenant and refuses (403) a caller whose verified credential
+    already carries one -- the claim, or an API key's own tenant -- so the body runs only
+    before onboarding (Python `require_route(..., onboarding=True)`, TypeScript `@Onboarding()`
+    read by `AuthGuard`).
+  - The body resolves by `CROSS_TENANT` (`QueryTenantSource.onboarding`) and logs the D7 line,
+    but is held to a narrower shape because its caller is a customer: it never reads
+    `Request.tenantId()` (TEN013); outside `tenant(...)` blocks it reaches Tenantable data only
+    by a single-row read keyed on a unique field, a unique index or the primary key -- never a
+    list, count, write or tenant-scoped `fn` call (TEN014); and a block names only `<row>.id` of
+    a non-Tenantable row the body created (the new tenant root) or `<row>.tenantId` of a
+    Tenantable row it loaded by a unique key, `<row>` being a `let` local assigned once (TEN015).
+  - A `unique` field of a Tenantable entity is unique within each tenant
+    (`UNIQUE (tenant_id, field)`), so an onboarding read by it returns one row but cannot prove
+    that only one tenant holds the key. Keying it on a value only the caller can present (its
+    verified identity, a hashed secret) is the author's; the shape rules bound what a body can
+    disclose or write to one row per read -- no list, count or sweep.
 
 | # | Invariant | Check |
 |---|---|---|
@@ -1958,6 +1986,8 @@ and it had one latent defect.
 | I11 | A `tenant(…)` block outside a `@crossTenant` body, or over a non-reference expression, fails analysis | TEN009 / TEN010 tests in `datrix-common` |
 | I12 | `tenant` stays an identifier outside statement-start position | `datrix-language` statement-transformer test |
 | I13 | Every fail-closed tenant fixture is loaded on every language | per-package tenancy coverage tests (tag `tenancy`): fixture set equals the referenced set; Python's rows each fail with the shared message and its one exception asserts generation succeeds |
+| I14 | `@onboarding` appears only where D14 allows, and its body keeps D14's shape | TEN011–TEN015 tests in `datrix-semantic` |
+| I15 | An `@onboarding` route binds no tenant and refuses a caller that has one, on every language; the routes beside it render unchanged | per-language onboarding route tests (executed refusal in Python, rendered guard in TypeScript, neighbour route byte-identical with and without onboarding routes) |
 
 **Rejected:**
 
@@ -2972,6 +3002,23 @@ datrix generate --source system.dtrx --output ./generated -L typescript
 **Problem.** There was one rendering mode, every platform served the SPA shell (so an unknown parameterized URL never returned 404), the routed-path set had three private copies that all missed workspace routes, Angular never shipped declared image assets and images had no alt text, and ui-core could not run under prerendering.
 
 **Decision.** An app header takes `rendering('client' | 'static')`. A static app is prerendered once per page, content key and locale (default locale at `/…`, others under `/<locale>/…`), reaches nothing beyond its documents (`UI044`), lists only web-building targets (`UI045`) and carries per-page `meta(...)` (`UI047`, `UI048`). Content collections, responsive images (`datrix_codegen_kernel.assets.image_variants`: AVIF/WebP plus the source format, content-addressed, metadata-free), `eager` and `reveal` are available to every app and target. `datrix_common.datrix_model.ui_derivation.routed_paths` is the one routed-path set; `datrix_codegen_kernel.platform.web_route_plan.WebRoutePlan` is the one answer to what a bundle's host serves, redirects (`301`), answers for an unknown path (`404`), caches and types (`WEB_CONTENT_TYPES`), rendered by nginx, CloudFront and Static Web Apps. The site's origin and indexability are build inputs (`site_build_inputs`), never generated source, so one client tree builds for every profile; `indexable` defaults to `false`. Angular realizes a static app with `@angular/ssr` server routes, hydration without event replay (no inline script) and a finalize step in the emitted `scripts/build-app.mjs`. Security posture: no backend reach or runtime config, no inline executable script in any document (the build fails on one), Markdown sanitized on both render paths, content paths contained and bounded, image decompression bounded, indexing fails closed. Details: [frontend-clients](./packs/frontend-clients.md).
+
+### Decision 59: Declared Emission for Backend Generators — Every Domain a Declaration, Items Not Emissions (Adopted)
+
+**Problem.** The backend languages reached genDSL through a seam: a domain's files were rendered by a per-domain `MicroGenerator`, its extras by a per-domain hooks class, its iteration by a shared domain orchestrator, and the genDSL clause only re-exposed the already-built `GeneratedFile` (`builder … => call emitted_path(item)`). A domain's file set, gates and paths lived in Python where no declaration could see them, its structural glob was attached to a class attribute, and the genDSL text itself lived in Python docstrings.
+
+**Decision.** Extends Principle 18 and [Decision 44](#decision-44-parity-by-construction--declared-universes-shared-plan-modules-and-declared-routing-on-the-language-axis-adopted) B; amends nothing.
+
+- **One declared shape.** Every backend domain is `each <item-target> [where call <predicate>] { context <Type> from <builder>; <lang> <name> { template … => <path>; [when call <gate>;] } … }`, nested as its items nest; an empty package marker uses the same clause over one empty-module template.
+- **Items, not emissions.** A computed collection is an item-yielding `IterationTargetSpec` whose resolver returns model items; the kernel refuses a `GeneratedFile` item type, a resolver with no declared return type or one declaring `GeneratedFile`, a returned `GeneratedFile` item and a `builder` file clause returning a whole file. A language-neutral closure is registered once in the language layer; a per-language one carries its language prefix.
+- **The context builder is the only Python a domain keeps.** It carries every precondition the micro-generator carried (messages verbatim), builds the shared typed context where the domain has one (Decision 44 B is unchanged: the registered type is still constructed in production), and projects it for the template.
+- **Paths are declared.** Static path templates over Decision 42's sanitizing path attributes; a domain's structural glob derives from them or from its committed `structural` line, never from a class.
+- **Declaration replaces, never joins.** Each migrated domain deleted its orchestrator, micro-generator, hooks, emission builder and binding in the same change, and its output was proven byte-identical before the generator was deleted. The bridge machinery retired with its last user: the emission seam, the builder factory, the file-owner and structural-declarer bridges, the emission-yielding contribution field, `orchestrated()` and the shared orchestrator registry.
+- **`.gendsl` resources.** Every target's definition is a `gendsl/<target>.gendsl` package resource loaded by `generator_definition_file`; the docstring form is deleted.
+- **`migration` is the sole F2 exemption.** Its lifecycle (ledger staging, sealed-revision replay) is not expressible as file clauses, so its compiled spec is replaced by the migration orchestrator's, which carries the compiled domain; its glob is committed in its `.gendsl` domain, and its `builder` line binds to a function that fails loud if the swap is ever skipped.
+- **Held by:** the shared emission-path gate (a domain carrying any `builder` line is undeclared unless F2-exempt — a hard zero), the domain-machinery census in each backend suite, the derived declarations (no class-attribute branch), and the self-consistency gate over real generated output.
+
+**Security posture.** No auth, secret, transport, permission or emitted runtime default changes: generated bytes are identical. Every declared path goes through the existing output-path containment guard on both render sinks; no path is assembled in Python. The `.gendsl` loader reads only package resources of an installed, registered plugin and takes no path from configuration or from the application. Details: [codegen-engine](./packs/codegen-engine.md).
 
 ## Next Steps
 
