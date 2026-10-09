@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """GenDSL corpus reference-resolution gate.
 
-Eager builder/call-expression reference resolution runs at
-``@generator_definition`` registration time
-(``datrix_codegen_kernel.gendsl.resolver``). This is the cross-package proof
+Eager builder/call-expression reference resolution runs when each target's
+``.gendsl`` resource is registered (``generator_definition_file``,
+``datrix_codegen_kernel.gendsl.resolver``). This is the cross-package proof
 that the real, shipped corpus of builder/call/context/appends references
 across every consumer package is genuinely resolvable: importing each
 package's genDSL definitions module IS the assertion. If any reference in
@@ -24,7 +24,7 @@ not inside any single package's own test suite.
 
 **Each module is imported in its own dedicated subprocess -- never in this
 process.** Every discovered target registers its genDSL definitions into
-the SAME global ``@generator_definition`` registry within whichever process
+the SAME global genDSL definition registry within whichever process
 imports them. If two targets' modules were both imported into this one
 process (as a single ``importlib.import_module`` loop would do), a reference
 in target B that would fail to resolve on its own could be silently
@@ -91,8 +91,8 @@ def discover_gendsl_definition_modules() -> tuple[str, ...]:
     Calling `target_registry.target_kind_map()`/`definition_modules_for()`
     here, in this script's own single process, is safe: both only ever
     import the dependency-light `*_gendsl_registration`-shaped modules
-    (never the heavier `gendsl.definitions` modules whose import runs
-    `@generator_definition` registration as a side effect) -- the
+    (never the heavier `gendsl.definitions` modules whose import registers
+    the `.gendsl` resource as a side effect) -- the
     one-subprocess-per-package isolation this gate enforces below applies
     to THOSE modules, not to this discovery step.
 

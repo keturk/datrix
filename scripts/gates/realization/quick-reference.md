@@ -395,8 +395,8 @@ are registered.
 
 ## `gates\realization\gendsl-corpus-resolution-gate.ps1`
 
-GenDSL corpus proof: eager builder/call-expression reference resolution runs at
-`@generator_definition` registration time (`datrix_codegen_kernel.gendsl.resolver`). Importing
+GenDSL corpus proof: eager builder/call-expression reference resolution runs when each target's
+`.gendsl` resource is registered (`datrix_codegen_kernel.gendsl.resolver`). Importing
 each discovered target's genDSL definitions module IS the assertion: a bad reference raises
 `GenDSLReferenceResolutionError` at import time.
 

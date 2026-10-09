@@ -67,6 +67,29 @@ must satisfy, and code shapes held at zero. Repo-level validation **scripts**, n
 
 ---
 
+## `gates\repo-hygiene\package-data-coverage-gate.ps1`
+
+**The repo's proof that every runtime resource a package loads ships in its built wheel.** A generator package loads its Jinja2 templates (`*.j2`) and its genDSL definitions (`*.gendsl`) from its installed package directory. Neither is Python, so a wheel carries them only when a `[tool.setuptools.package-data]` glob of the package's `pyproject.toml` matches them. An editable install reads the source tree directly, so a missing glob is invisible locally. Every test passes, every generation works, and the loss appears only after installing the built wheel, as a package that cannot render a file. Every `datrix-*` package with a package-data table is scanned, discovered from disk.
+
+**Why it exists.** The python and typescript backends shipped two of their three hundred templates each. Their glob, `**/templates/*.j2`, matches only files *directly* inside a `templates/` directory, while nearly every template sits one level deeper (`templates/messaging/…`).
+
+**Setuptools is the oracle for matching.** Each pattern is expanded the way setuptools expands it: `glob.glob(<package dir>/<pattern>, recursive=True)`, with a dotted key naming a sub-package directory. `fnmatch` is never used, because its `*` crosses directory separators and reports a confident "shipped" for a file setuptools leaves out.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\gates\repo-hygiene\package-data-coverage-gate.ps1` | Scan every package in the workspace |
+| **One package** | `.\gates\repo-hygiene\package-data-coverage-gate.ps1 -Package datrix-codegen-python` | Scan only the named package(s) |
+| **Self-test only** | `.\gates\repo-hygiene\package-data-coverage-gate.ps1 -SelfTest` | Run only the non-vacuity self-test |
+| **Debug** | `.\gates\repo-hygiene\package-data-coverage-gate.ps1 -Dbg` | DEBUG logging |
+
+**Parameters:** `-Package <name[,name...]>`, `-SelfTest`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** A planted package whose glob is `**/templates/*.j2` must report its nested `templates/messaging/consumer.py.j2`, and only that file. A recursive `templates/**/*.j2` over the same tree must report nothing.
+
+**Exit codes:** 0 = every runtime resource ships, 1 = at least one resource ships with no glob or the self-test failed, 2 = an unknown `-Package` name.
+
+---
+
 ## `gates\repo-hygiene\ignored-source-gate.ps1`
 
 **The repo's proof that no `.gitignore` rule is silently deleting a publishable file.** For the `datrix` showcase repo and every `datrix-*` clone in the workspace (discovered from disk at runtime — a new package is covered with no edit to the gate), it computes the set difference between the working tree and what a `git add -A` would stage. Every element of that difference must be a reviewed, scoped entry in `scripts/config/ignored-source-exemptions.json`; anything else is a source file that exists locally and will not survive a clone. An entry names the ignore rule by its pattern text and by a segment-aware glob over the repo-relative path of the `.gitignore` file git blames (a literal path matches only that file; `examples/**/generated/**/.gitignore` matches the nested files a generator writes into each emitted project), and scopes the paths it excuses with `path_glob`.
@@ -152,7 +175,7 @@ A self-test failure aborts before any real result is trusted (exit 1).
 
 **The repo's proof that no package carries a pyflakes finding.** Unused imports, undefined names, and test functions silently shadowed by a same-named redefinition (the first definition never runs) are `ruff` rule family `F`. Targets are derived from disk, never listed: every workspace `datrix*` directory holding a `pyproject.toml` contributes its `src/` and `tests/` trees when present, and the `datrix` showcase repo contributes `scripts/`. Each tree is linted with `ruff check --select F --output-format json` run from its package root, so that package's own `per-file-ignores` apply; `--select F` is explicit so no package's rule selection can hide a pyflakes finding. Findings print as `package/path:line:col CODE message`.
 
-**Held at a hard zero with no baseline.** A finding that is genuinely required (an import kept for a documented side effect) is suppressed only by a line-level `# noqa: <code>` carrying the reason on the same line; `RUF100` already reports a stale one. The style families (`UP037`, `I001`, `UP031`, …) are out of scope: they are not correctness defects and would bury the pyflakes signal.
+**Held at a hard zero with no baseline.** A finding that is genuinely required (an import kept for a documented side effect) is suppressed only by a line-level `# noqa: <code>` carrying the reason on the same line; `RUF100` already reports a stale one. The style families (`UP037`, `I001`, `UP031`, …) are out of scope: they are not correctness defects and would bury the pyflakes signal. A package's root `vulture_whitelist.py` is never linted: it is Vulture's input, a list of bare names and `_.attr` reads that nothing binds (every line an F821 by construction); the tree scan never reaches it and the commit path skips it. A same-named file below the root is linted like any other.
 
 | Mode | Command | Description |
 |------|---------|-------------|
