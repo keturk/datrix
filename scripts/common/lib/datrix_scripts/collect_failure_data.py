@@ -63,6 +63,7 @@ from datrix_scripts.local_llm import (  # noqa: E402
     add_local_llm_arguments,
     local_llm_settings,
 )
+from datrix_scripts.local_llm_loopback import LOOPBACK, closed_port  # noqa: E402
 from datrix_scripts.local_reading import (  # noqa: E402
     ReadScopeError,
     load_workspace_term_corpus,
@@ -1156,13 +1157,7 @@ def _check_frame_paths() -> list[str]:
 
 
 def _check_hints_without_a_server() -> list[str]:
-    import socket
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        closed = int(sock.getsockname()[1])
-    settings = LocalLlmSettings(machines=("127.0.0.1",), reachable_timeout_ms=1000,
-                                ollama_port=closed, openai_ports=(closed,))
+    settings = LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=1000, ollama_port=closed_port())
     families = _group_families([_self_test_cluster(n, "failure", f"p{n}", "tail") for n in (1, 2)])
     # The real workspace: its customer-term corpus lets the hint reach the (absent) server.
     ctx = _RunContext(run_dir=Path("."), workspace=get_datrix_root(), project="p", max_log_lines=1)
@@ -1186,7 +1181,8 @@ def _check_no_corpus_means_no_hint_request() -> list[str]:
     with tempfile.TemporaryDirectory(prefix="failure-data-") as temp:
         ctx = _RunContext(run_dir=Path(temp), workspace=Path(temp), project="p", max_log_lines=1)
         # Every machine is unreachable on purpose: a request would show as a server error, not a corpus one.
-        status = _attach_hints(families, ctx, LocalLlmSettings(machines=("127.0.0.1",), openai_ports=()), limit=1)
+        unreachable = LocalLlmSettings(machines=(LOOPBACK,), ollama_port=closed_port())
+        status = _attach_hints(families, ctx, unreachable, limit=1)
     problems: list[str] = []
     if not status.startswith("hints: withheld"):
         problems.append(f"status must say the hints were withheld, got {status!r}")

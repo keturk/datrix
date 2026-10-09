@@ -55,9 +55,10 @@ WITHHELD_LINE = "<line withheld: it carries a registered customer term>"
 GLOB_CHARS = frozenset("*?[")
 
 MAX_FILES = 40
-# The smallest per-request context in the pool sets this: llama-server splits its context
-# across slots (32,768 tokens over 2 slots on the T5820 = 16,384 each). 36,000 characters
-# of code is about 10,000 tokens, leaving room for the instructions and the answer.
+# A chunk must fit the context window of whichever resident model answers. These requests
+# leave ``context_window`` unset, so each model keeps the window it was loaded with.
+# 36,000 characters of code is about 10,000 tokens, which leaves room for the instructions
+# and the answer inside a 16,384-token window.
 MAX_CHUNK_CHARS = 36_000
 # More than this many chunks is too much to read in one call: narrow the request.
 MAX_CHUNKS = 12

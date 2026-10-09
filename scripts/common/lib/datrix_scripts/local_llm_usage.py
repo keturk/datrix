@@ -58,7 +58,6 @@ def invoking_script() -> str:
 class UsageEntry:
     caller: str
     outcome: str
-    api: str
     model: str
     base_url: str
     prompt_chars: int
@@ -71,7 +70,6 @@ class UsageEntry:
             "ts": datetime.now(UTC).isoformat(timespec="seconds"),
             "caller": self.caller,
             "outcome": self.outcome,
-            "api": self.api,
             "model": self.model,
             "base_url": self.base_url,
             "prompt_chars": self.prompt_chars,

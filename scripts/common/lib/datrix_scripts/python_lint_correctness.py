@@ -26,6 +26,14 @@ documented side effect) is suppressed only by a line-level ``# noqa: <code>``
 carrying the reason on the same line; ``RUF100`` already reports a stale one.
 A decrease-only baseline would let the count sit.
 
+VULTURE WHITELISTS ARE NOT LINTED
+---------------------------------
+A package's root ``vulture_whitelist.py`` is Vulture's input, not code: its
+format is a list of bare names and ``_.attr`` reads that nothing binds, so
+every line is an F821 by construction. The tree scan never reaches it (it sits
+outside ``src/`` and ``tests/``), and the commit path skips it by the same
+rule. A file of that name anywhere below the root is ordinary code and linted.
+
 RULE SET: F ONLY
 ----------------
 The style families (UP037, I001, UP031, ...) are not correctness defects and
@@ -56,6 +64,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from datrix_scripts.dead_code_report import VULTURE_WHITELIST_FILE
 from datrix_scripts.framework_repos import SHOWCASE_REPO_NAME
 from datrix_scripts.paths import SHOWCASE_DIR
 
@@ -204,15 +213,24 @@ def is_generated_example(rel_path: str) -> bool:
     return parts[0] == EXAMPLES_DIR and GENERATED_DIR in parts[1:-1]
 
 
+def is_vulture_whitelist(rel_path: str) -> bool:
+    """True for the package-root Vulture whitelist (see the module docstring)."""
+    return rel_path == VULTURE_WHITELIST_FILE
+
+
 def pending_python_files(repo_path: Path, rel_paths: list[str]) -> list[str]:
     """The authored ``.py`` files among ``rel_paths`` that still exist.
 
-    A generated example's output is excluded (see :func:`is_generated_example`).
+    A generated example's output (see :func:`is_generated_example`) and the
+    package-root Vulture whitelist (see :func:`is_vulture_whitelist`) are excluded.
     """
     return [
         p
         for p in rel_paths
-        if p.endswith(".py") and not is_generated_example(p) and (repo_path / p).is_file()
+        if p.endswith(".py")
+        and not is_generated_example(p)
+        and not is_vulture_whitelist(p)
+        and (repo_path / p).is_file()
     ]
 
 
@@ -278,7 +296,23 @@ def self_test(python_exe: str) -> list[str]:
 
         failures.extend(_batching_failures(python_exe, base / "batched"))
         failures.extend(_generated_example_failures(python_exe, base / "examples-tree"))
+        failures.extend(_vulture_whitelist_failures(python_exe, base / "whitelist-tree"))
     return failures
+
+
+def _vulture_whitelist_failures(python_exe: str, root: Path) -> list[str]:
+    """The root Vulture whitelist is skipped; a same-named file below the root is not."""
+    _write_fixture(root, FIXTURE_PYPROJECT, FIXTURE_CLEAN_SOURCE)
+    nested_rel = f"src/{FIXTURE_PACKAGE}/{VULTURE_WHITELIST_FILE}"
+    for rel in (VULTURE_WHITELIST_FILE, nested_rel):
+        (root / rel).write_text(FIXTURE_DIRTY_SOURCE, encoding="utf-8")
+    scanned = pending_python_files(root, [VULTURE_WHITELIST_FILE, nested_rel])
+    if scanned != [nested_rel]:
+        return [f"only the nested same-named file may be scanned, got {scanned}"]
+    codes = sorted(f.code for f in scan_pending(python_exe, root, [VULTURE_WHITELIST_FILE, nested_rel]))
+    if codes != [CODE_UNUSED_IMPORT, CODE_UNDEFINED_NAME]:
+        return [f"the nested same-named file must still report F401 + F821, got {codes}"]
+    return []
 
 
 def _generated_example_failures(python_exe: str, root: Path) -> list[str]:

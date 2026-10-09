@@ -33,13 +33,10 @@ import dataclasses
 import io
 import json
 import re
-import socket
 import sys
 import tempfile
-import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Final
 
@@ -60,6 +57,7 @@ from datrix_scripts.local_llm import (  # noqa: E402
     add_local_llm_arguments,
     local_llm_settings,
 )
+from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, LoopbackOllama, closed_port  # noqa: E402
 from datrix_scripts.local_reading import (  # noqa: E402
     WITHHELD_LINE,
     ReadScopeError,
@@ -390,58 +388,23 @@ def digest_settings(args: argparse.Namespace) -> LocalLlmSettings:
 # Self-test: a real workspace in a temp directory, a real model server on loopback
 # ---------------------------------------------------------------------------
 
-_LOOPBACK: Final = "127.0.0.1"
+_DIGEST_MODEL: Final = "digest-model"
 _HINT_ANSWER: Final = "Defect site catalog/request.py:31; the module was renamed. Check the import."
 _READING_ANSWER: Final = "E1 and F1 share the renamed module; fix E1 first."
 
 
-class _ModelServer:
-    """OpenAI-compatible server on loopback: the reading prompt gets one answer, every hint another."""
-
-    def __init__(self) -> None:
-        self.chats = 0
-        self.prompts: list[str] = []
-        server = self
-
-        class Handler(BaseHTTPRequestHandler):
-            def _send(self, payload: object) -> None:
-                data = json.dumps(payload).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self) -> None:  # noqa: N802
-                self._send({"data": [{"id": "digest-model"}]})
-
-            def do_POST(self) -> None:  # noqa: N802
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])).decode("utf-8"))
-                system = str(body["messages"][0]["content"])
-                if body.get("max_tokens") != 1:
-                    server.chats += 1
-                    server.prompts.append(str(body["messages"][-1]["content"]))
-                answer = _READING_ANSWER if system == _READING_SYSTEM_PROMPT else _HINT_ANSWER
-                self._send({"choices": [{"message": {"content": answer}, "finish_reason": "stop"}]})
-
-            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-                return
-
-        self.httpd = ThreadingHTTPServer((_LOOPBACK, 0), Handler)
-        self.port = int(self.httpd.server_address[1])
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+def _digest_answer(chat: Chat) -> str:
+    """The reading prompt gets one answer, every hint another."""
+    return _READING_ANSWER if chat.system == _READING_SYSTEM_PROMPT else _HINT_ANSWER
 
 
-def _closed_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((_LOOPBACK, 0))
-        return int(sock.getsockname()[1])
+def _model_server() -> LoopbackOllama:
+    return LoopbackOllama(_digest_answer, (_DIGEST_MODEL,))
 
 
 def _settings_for(port: int, usage_log: Path) -> LocalLlmSettings:
-    return LocalLlmSettings(machines=(_LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                            allow_load=False, ollama_port=_closed_port(), openai_ports=(port,),
-                            usage_log=usage_log, caller=CALLER)
+    return LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
+                            allow_load=False, ollama_port=port, usage_log=usage_log, caller=CALLER)
 
 
 def _entry(entry_id: int, test: str, message: str) -> dict[str, object]:
@@ -524,12 +487,10 @@ def _make_workspace(root: Path) -> tuple[Path, Path, Path]:
 
 
 def _check_with_a_model(problems: list[str], root: Path, current: Path, previous: Path) -> None:
-    server = _ModelServer()
     usage = root / "usage.jsonl"
-    try:
+    with _model_server() as server:
         digest = write_digest(current, root, _settings_for(server.port, usage))
-    finally:
-        server.httpd.shutdown()
+    prompts = [chat.user for chat in server.chats]
     text = digest.text
     _check(problems, "the earlier run is the newest older run with the same selection",
            previous_comparable_run(current, _load_json(current / _INDEX_JSON_NAME)) == previous)
@@ -541,34 +502,33 @@ def _check_with_a_model(problems: list[str], root: Path, current: Path, previous
            "at src/shop/order.py:31" in text and '"tests/unit/test_shop.py::TestOrder::test_stock"' in text
            and "e.g. " not in text and f"model: {_HINT_ANSWER}" in text)
     _check(problems, "several groups get one reading across them, labelled with its model",
-           f"Model reading (digest-model): {_READING_ANSWER}" in text)
+           f"Model reading ({_DIGEST_MODEL}): {_READING_ANSWER}" in text)
     _check(problems, "the digest is written beside index.json with failure-data.json",
            digest.path.read_text(encoding="utf-8") == text and (current / "failure-data.json").is_file())
     callers = {json.loads(line)["caller"] for line in usage.read_text(encoding="utf-8").splitlines()}
     _check(problems, "every model request is recorded under the digest's name", callers == {CALLER})
-    _check(problems, "one hint per group plus one reading reached the model", server.chats == 3)
+    _check(problems, "one hint per group plus one reading reached the model", len(prompts) == 3)
     _check(problems, "a line carrying a registered customer term is withheld from every prompt",
-           not any(_TERM in prompt for prompt in server.prompts)
-           and any(WITHHELD_LINE in prompt for prompt in server.prompts))
+           not any(_TERM in prompt for prompt in prompts)
+           and any(WITHHELD_LINE in prompt for prompt in prompts))
 
 
 def _check_without_a_corpus(problems: list[str], root: Path, current: Path) -> None:
     corpus = corpus_path(root / "datrix")
     saved = corpus.read_text(encoding="utf-8")
     corpus.unlink()
-    server = _ModelServer()
     try:
-        text = write_digest(current, root, _settings_for(server.port, root / "usage.jsonl")).text
+        with _model_server() as server:
+            text = write_digest(current, root, _settings_for(server.port, root / "usage.jsonl")).text
     finally:
-        server.httpd.shutdown()
         corpus.write_text(saved, encoding="utf-8")
-    _check(problems, "no customer-term corpus: nothing is sent to the model", server.chats == 0)
+    _check(problems, "no customer-term corpus: nothing is sent to the model", not server.chats)
     _check(problems, "no customer-term corpus: one line says why there is no model text",
            text.count("Model: no hint (Nothing is sent to a local model without the customer-term corpus") == 1)
 
 
 def _check_without_a_model(problems: list[str], root: Path, current: Path) -> None:
-    dead = _settings_for(_closed_port(), root / "usage.jsonl")
+    dead = _settings_for(closed_port(), root / "usage.jsonl")
     text = write_digest(current, root, dead).text
     _check(problems, "no model server: one line says so", text.count("Model: no hint (") == 1)
     _check(problems, "no model server: no model text and no second attempt at a reading",
@@ -579,7 +539,7 @@ def _check_without_a_model(problems: list[str], root: Path, current: Path) -> No
 def _check_without_an_earlier_run(problems: list[str], root: Path, package: Path) -> None:
     lone = _write_run(package, "test-results-20260901-100000", _index(
         "2026-09-01T10:00:00", _TARGETED, [("test_total", _OLD)], []))
-    dead = _settings_for(_closed_port(), root / "usage.jsonl")
+    dead = _settings_for(closed_port(), root / "usage.jsonl")
     text = write_digest(lone, root, dead).text
     _check(problems, "the first run of a selection says there is nothing to compare with",
            "No earlier run of this package with the same test selection" in text and "[new]" not in text)

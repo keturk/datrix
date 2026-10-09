@@ -74,7 +74,7 @@ skill, hook, config or package file names present.
 | `affected_set.py` | Reverse-dependency closure of packages, from actual imports |
 | `generated_example.py` | Generate one example for one registered language, as `datrix generate` would |
 | `evaluate_reports.py` | The report text the evaluation scans write from their own JSON |
-| `local_llm.py`, `local_llm_usage.py` | Local model servers (discovery, readiness, load spreading, failover) and the usage log |
+| `local_llm.py`, `local_llm_usage.py`, `local_llm_loopback.py` | The machines' Ollama servers (discovery, readiness, load spreading, failover), the usage log, and the loopback Ollama server every local-model check runs against |
 | `local_reading.py` | Reads framework files and logs through a local model: read scope, chunking, log reduction, citation checking, the customer-term filter |
 | `llm_code_fix.py` | Shared machinery for scripts that ask a local model to rewrite Python |
 | `mcp_stdio.py` | The MCP protocol over stdio, shared by every Datrix MCP server |

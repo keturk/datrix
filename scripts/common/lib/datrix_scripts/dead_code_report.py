@@ -41,6 +41,10 @@ EXCLUDE_SRC_ONLY = "*\\tests\\*,*\\test\\*,*__pycache__*,*.git*"
 # Pass 2 (src + tests): exclude only cache
 EXCLUDE_SRC_AND_TESTS = "*__pycache__*,*.git*"
 
+# Each package's known Vulture false positives, at its root. Vulture's whitelist
+# format is a list of bare names and ``_.attr`` reads, never bound in the file.
+VULTURE_WHITELIST_FILE = "vulture_whitelist.py"
+
 # Include functions/classes/methods: Vulture reports them at 60% confidence (variables at 100%).
 DEFAULT_MIN_CONFIDENCE = 60
 DATRIX_PREFIX = "datrix-"
@@ -94,10 +98,8 @@ _VALIDATOR_DECORATORS = frozenset({
 })
 #: Decorators that register a module-level function with a registry, so the
 #: function is reached through that registry rather than by name: Typer's
-#: ``command``/``callback``, and genDSL's ``generator_definition`` (the
-#: compiler parses the decorated function's docstring into a registered
-#: ``GeneratorDefinition`` at import time; nothing ever calls it by name).
-_COMMAND_DECORATORS = frozenset({"command", "callback", "generator_definition"})
+#: ``command``/``callback``.
+_COMMAND_DECORATORS = frozenset({"command", "callback"})
 
 
 class Finding(NamedTuple):
@@ -552,7 +554,7 @@ def _collect_paths(
             tests = root / "tests"
             if tests.is_dir():
                 paths.append(str(tests))
-        whitelist = root / "vulture_whitelist.py"
+        whitelist = root / VULTURE_WHITELIST_FILE
         if whitelist.is_file():
             paths.append(str(whitelist))
     return paths

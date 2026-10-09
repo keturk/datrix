@@ -6,18 +6,16 @@ requests the same way, hands over to the next server the same way when one fails
 recorded in the same usage log (``datrix_scripts.local_llm_usage``).
 
 WHY DISCOVERY RATHER THAN A CONFIGURED URL
-    What each machine runs changes: a llama-server container once took over the T5820's
-    GPU, leaving a pinned Ollama URL and model nowhere to load, and every script pinned
-    to that one URL went silent while two other machines sat idle. So each machine is
-    searched for an Ollama server (port 11434) and OpenAI-compatible servers (vLLM on
-    8000, llama-server on 8080 and 8081), and what they serve is discovered on every run.
+    What each machine holds changes: a machine is down, its GPU is taken by something
+    else, or the model a script was pinned to is not the one in memory. A script pinned to
+    one URL and model once went silent while two other machines sat idle. So the Ollama
+    server (port 11434) on every machine is asked, on every run, which models it holds in
+    memory and which it could load. Ollama is the only model server the local machines run.
 
 CANDIDATE ORDER
     Models already in memory on any machine come first, in machine order; models Ollama
-    would have to load come last, because a load claims most of a GPU. No load is offered
-    on a machine where an OpenAI-compatible server answered: that server holds the GPU
-    memory the load would need. When a caller names preferred models, only those are
-    candidates, in the caller's order.
+    would have to load come last, because a load claims most of a GPU. When a caller names
+    preferred models, only those are candidates, in the caller's order.
 
 LOAD SPREADING
     Every resident candidate of the best preference rank is eligible, not only the first:
@@ -64,24 +62,15 @@ from datrix_scripts.local_llm_usage import (
     record_usage,
 )
 
-# The HTTP APIs a local model server can speak. "ollama" is Ollama's native API, which can
-# list, report and load models. "openai" is the OpenAI-compatible chat API that vLLM,
-# llama.cpp's llama-server and most other inference servers expose; such a server holds
-# its models resident already.
-LOCAL_API_OLLAMA = "ollama"
-LOCAL_API_OPENAI = "openai"
-
-# Machines searched for local model servers, in preference order.
+# Machines searched for an Ollama server, in preference order.
 DEFAULT_LOCAL_MACHINES: tuple[str, ...] = (
     "10.94.0.100",  # Dell T5820, RTX 3090
     "10.94.0.101",  # Dell T7920, RTX 3090
-    "10.94.0.102",  # ASUS GX10, vLLM
+    "10.94.0.102",  # ASUS GX10
 )
 
-# Where the servers listen: Ollama on its fixed port, OpenAI-compatible servers on the
-# ports vLLM (8000) and llama-server (8080, and 8081 beside another server) use.
+# Where Ollama listens on every machine.
 OLLAMA_PORT = 11434
-OPENAI_COMPATIBLE_PORTS: tuple[int, ...] = (8000, 8080, 8081)
 
 # Models Ollama may be asked to LOAD when a machine has nothing resident and the caller
 # named no model, best first. Only models installed on the machine count.
@@ -99,11 +88,6 @@ OLLAMA_THINKING_CAPABILITY = "thinking"
 # Ollama resolves an untagged model name to this tag.
 OLLAMA_DEFAULT_TAG = "latest"
 
-# Output tokens for the readiness request an OpenAI-compatible server is sent before it
-# is handed work. One token proves the engine answers; listing a model does not (vLLM
-# keeps listing its model after its engine has died).
-READINESS_MAX_TOKENS = 1
-
 # How long Ollama keeps a model loaded after a request. Requests in one run can be
 # minutes apart, and a cold reload of a 20+ GB model costs minutes on a slow disk.
 DEFAULT_KEEP_ALIVE = "30m"
@@ -118,9 +102,6 @@ MILLISECONDS_PER_SECOND = 1000
 THINK_BLOCK_PATTERN = re.compile(r"<think>.*?</think>", re.DOTALL)
 THINK_CLOSE_TAG = "</think>"
 
-# Name of the schema an OpenAI-compatible server is told to constrain output to.
-RESPONSE_SCHEMA_NAME = "response"
-
 
 class LocalLlmError(RuntimeError):
     """One local server failed one request; the pool fails over on it."""
@@ -132,14 +113,13 @@ class LocalLlmUnavailable(RuntimeError):
 
 @dataclass(frozen=True)
 class LocalHost:
-    """One local model server and one model it can run: the API, where it is, the model."""
+    """One Ollama server and one model it can run: where it is, and the model."""
 
-    api: str
     base_url: str
     model: str
 
     def label(self) -> str:
-        return f"{self.api} model '{self.model}' at {self.base_url}"
+        return f"Ollama model '{self.model}' at {self.base_url}"
 
 
 @dataclass(frozen=True)
@@ -148,16 +128,14 @@ class LocalCandidate:
 
     host: LocalHost
     thinking: bool
-    # Already in memory -- an OpenAI-compatible server's model, or one Ollama has
-    # loaded -- as opposed to a model Ollama would have to load first.
+    # Already loaded into memory, as opposed to a model Ollama would have to load first.
     resident: bool
 
 
 @dataclass(frozen=True)
 class ServerSurvey:
-    """What one model server on one machine offers."""
+    """What the Ollama server on one machine offers."""
 
-    api: str
     base_url: str
     candidates: tuple[LocalCandidate, ...]
 
@@ -167,7 +145,7 @@ class ServerSurvey:
         parts = [f"resident {', '.join(resident) or 'none'}"]
         if loadable:
             parts.append(f"loadable {', '.join(loadable)}")
-        return f"{self.api} at {self.base_url} ({'; '.join(parts)})"
+        return f"Ollama at {self.base_url} ({'; '.join(parts)})"
 
 
 @dataclass(frozen=True)
@@ -187,10 +165,9 @@ class LocalLlmSettings:
     # False offers only models already in memory: a caller that must answer within
     # seconds (a Claude Code hook) can never wait out a multi-minute Ollama load.
     allow_load: bool = True
-    # Where servers listen on each machine. The standard ports; a test points these at
-    # servers it started itself.
+    # Where Ollama listens on each machine. The standard port; a test points it at a
+    # server it started itself.
     ollama_port: int = OLLAMA_PORT
-    openai_ports: tuple[int, ...] = OPENAI_COMPATIBLE_PORTS
     # Where every request is recorded, and the name it is recorded under: the running
     # script's name unless the caller says otherwise (a hook, an MCP tool).
     usage_log: Path = field(default_factory=default_usage_log)
@@ -201,9 +178,8 @@ class LocalLlmSettings:
 class ChatRequest:
     """One system + user exchange and how to sample it.
 
-    ``max_tokens`` and ``context_window`` left unset take the server's own values;
-    ``context_window`` reaches Ollama only (an OpenAI-compatible server fixes its
-    context when it starts). ``json_schema`` constrains the output on both APIs.
+    ``max_tokens`` and ``context_window`` left unset take the model's own values.
+    ``json_schema`` constrains the output.
     """
 
     system: str
@@ -226,15 +202,14 @@ class LocalLlmReply:
 def parse_local_machine(spec: str) -> str:
     """Validate a machine value: a bare host name or IP address, nothing else.
 
-    The ports and APIs are searched, so a scheme, port or path in the value would be
-    ignored at best; it is rejected so a mistyped value never searches the wrong place.
+    The port is fixed, so a scheme, port or path in the value would be ignored at best;
+    it is rejected so a mistyped value never searches the wrong place.
     """
     machine = spec.strip()
     if not machine or any(sep in machine for sep in ("/", ":", "=", " ")):
         raise argparse.ArgumentTypeError(
             f"Local machine '{spec}' is not a bare host name or IP address. Pass only the "
-            f"machine, e.g. {DEFAULT_LOCAL_MACHINES[0]}; its Ollama port {OLLAMA_PORT} and "
-            f"OpenAI-compatible ports {', '.join(map(str, OPENAI_COMPATIBLE_PORTS))} are searched."
+            f"machine, e.g. {DEFAULT_LOCAL_MACHINES[0]}; its Ollama port {OLLAMA_PORT} is searched."
         )
     return machine
 
@@ -269,17 +244,6 @@ def loaded_ollama_models(ps_response: object) -> list[str]:
     ]
 
 
-def listed_openai_models(models_response: object) -> list[str]:
-    """The served model ids, in listed order, from an OpenAI-compatible ``/v1/models`` response."""
-    if not isinstance(models_response, dict) or not isinstance(models_response.get("data"), list):
-        raise ValueError("expected a JSON object with a 'data' list")
-    return [
-        entry["id"]
-        for entry in models_response["data"]
-        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
-    ]
-
-
 def strip_reasoning(text: str) -> str:
     """Remove inline reasoning: whole ``<think>`` blocks, then anything before a stray close tag."""
     cleaned = THINK_BLOCK_PATTERN.sub("", text)
@@ -293,11 +257,9 @@ def _fetch_json(uri: str, timeout_ms: int) -> object:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _wanted(models: tuple[str, ...], api: str) -> tuple[str, ...]:
-    """The caller's model names in the form ``api`` lists them."""
-    if api == LOCAL_API_OLLAMA:
-        return tuple(qualified_ollama_model(m) for m in models)
-    return models
+def _wanted(models: tuple[str, ...]) -> tuple[str, ...]:
+    """The caller's model names in the form Ollama lists them."""
+    return tuple(qualified_ollama_model(m) for m in models)
 
 
 def survey_ollama(base_url: str, settings: LocalLlmSettings) -> ServerSurvey:
@@ -310,11 +272,11 @@ def survey_ollama(base_url: str, settings: LocalLlmSettings) -> ServerSurvey:
     """
     capabilities = listed_ollama_models(_fetch_json(f"{base_url}/api/tags", settings.reachable_timeout_ms))
     loaded = loaded_ollama_models(_fetch_json(f"{base_url}/api/ps", settings.reachable_timeout_ms))
-    wanted = _wanted(settings.models, LOCAL_API_OLLAMA)
+    wanted = _wanted(settings.models)
 
     def candidate(model: str, resident: bool) -> LocalCandidate:
         thinking = OLLAMA_THINKING_CAPABILITY in capabilities[model]
-        return LocalCandidate(LocalHost(LOCAL_API_OLLAMA, base_url, model), thinking, resident)
+        return LocalCandidate(LocalHost(base_url, model), thinking, resident)
 
     answering = {model for model in capabilities if OLLAMA_COMPLETION_CAPABILITY in capabilities[model]}
     resident = [
@@ -322,86 +284,52 @@ def survey_ollama(base_url: str, settings: LocalLlmSettings) -> ServerSurvey:
         for model in loaded
         if model in answering and (not wanted or model in wanted)
     ]
-    loadable_names = wanted or _wanted(OLLAMA_LOAD_PREFERENCE, LOCAL_API_OLLAMA)
+    loadable_names = wanted or _wanted(OLLAMA_LOAD_PREFERENCE)
     loadable = [
         candidate(model, False)
         for model in loadable_names
         if model in answering and model not in loaded
     ]
-    return ServerSurvey(LOCAL_API_OLLAMA, base_url, tuple(resident + loadable))
+    return ServerSurvey(base_url, tuple(resident + loadable))
 
 
-def survey_openai(base_url: str, settings: LocalLlmSettings) -> ServerSurvey:
-    """List the models an OpenAI-compatible server serves; each is resident by definition.
-
-    Such a server does not say whether a model reasons, so every request states the
-    caller's ``think`` choice through the chat template. Raises OSError or ValueError
-    when nothing usable answers.
-    """
-    served = listed_openai_models(_fetch_json(f"{base_url}/v1/models", settings.reachable_timeout_ms))
-    wanted = _wanted(settings.models, LOCAL_API_OPENAI)
-    models = [m for m in served if not wanted or m in wanted]
-    return ServerSurvey(
-        LOCAL_API_OPENAI,
-        base_url,
-        tuple(LocalCandidate(LocalHost(LOCAL_API_OPENAI, base_url, m), False, True) for m in models),
-    )
+def ollama_base_url(machine: str, settings: LocalLlmSettings) -> str:
+    """Where the Ollama server on ``machine`` listens."""
+    return f"http://{machine}:{settings.ollama_port}"
 
 
-Surveyor = Callable[[str, LocalLlmSettings], ServerSurvey]
-
-
-def machine_endpoints(machine: str, settings: LocalLlmSettings) -> list[tuple[Surveyor, str]]:
-    """Every (surveyor, base URL) a model server on ``machine`` may listen at."""
-    endpoints: list[tuple[Surveyor, str]] = [(survey_ollama, f"http://{machine}:{settings.ollama_port}")]
-    endpoints.extend((survey_openai, f"http://{machine}:{port}") for port in settings.openai_ports)
-    return endpoints
-
-
-def _survey_endpoint(surveyor: Surveyor, base_url: str, settings: LocalLlmSettings) -> list[ServerSurvey]:
-    """Run one survey: the server found at ``base_url``, or nothing if none answered.
+def _survey_machine(machine: str, settings: LocalLlmSettings) -> list[ServerSurvey]:
+    """Survey the Ollama server on ``machine``: what it offers, or nothing if none answered.
 
     A closed port, a dropped connection, a timeout, and a port serving something other
-    than a model API are all normal while searching a machine, so none is an error.
+    than Ollama's API are all normal while searching a machine, so none is an error.
     """
     try:
-        return [surveyor(base_url, settings)]
+        return [survey_ollama(ollama_base_url(machine, settings), settings)]
     except (OSError, ValueError):
         return []
 
 
 def _preference_rank(settings: LocalLlmSettings, candidate: LocalCandidate) -> int:
-    wanted = _wanted(settings.models, candidate.host.api)
+    wanted = _wanted(settings.models)
     return wanted.index(candidate.host.model) if candidate.host.model in wanted else 0
 
 
 def discover_candidates(settings: LocalLlmSettings, report: Callable[[str], None]) -> list[LocalCandidate]:
-    """Search every machine for model servers and return what they offer, best first.
+    """Search every machine's Ollama server and return what they offer, best first.
 
-    Every endpoint of every machine is surveyed in parallel, so a machine that drops
-    connections costs one timeout, not one per port. Nothing is loaded here.
+    Every machine is surveyed in parallel, so a machine that drops connections costs one
+    timeout, not one per machine searched after it. Nothing is loaded here.
     """
-    endpoints = [
-        (machine, surveyor, base_url)
-        for machine in settings.machines
-        for surveyor, base_url in machine_endpoints(machine, settings)
-    ]
-    with ThreadPoolExecutor(max_workers=len(endpoints)) as pool:
-        surveys = list(pool.map(lambda e: _survey_endpoint(e[1], e[2], settings), endpoints))
+    with ThreadPoolExecutor(max_workers=len(settings.machines)) as pool:
+        surveys = list(pool.map(lambda machine: _survey_machine(machine, settings), settings.machines))
 
     found: list[ServerSurvey] = []
-    for machine in settings.machines:
-        on_machine = [s for (m, _, _), hits in zip(endpoints, surveys) if m == machine for s in hits]
-        if any(s.api == LOCAL_API_OPENAI for s in on_machine):
-            on_machine = [
-                ServerSurvey(s.api, s.base_url, tuple(c for c in s.candidates if c.resident))
-                for s in on_machine
-            ]
+    for machine, on_machine in zip(settings.machines, surveys):
         if on_machine:
             report(f"Local machine {machine}: {'; '.join(s.summary() for s in on_machine)}.")
         else:
-            ports = ", ".join(str(p) for p in (settings.ollama_port, *settings.openai_ports))
-            report(f"Local machine {machine}: no model server answered on ports {ports}.")
+            report(f"Local machine {machine}: no Ollama server answered on port {settings.ollama_port}.")
         found.extend(on_machine)
 
     candidates = [c for survey in found for c in survey.candidates]
@@ -470,30 +398,11 @@ def ollama_chat_body(candidate: LocalCandidate, request: ChatRequest, keep_alive
     return body
 
 
-def openai_chat_body(model: str, request: ChatRequest) -> dict[str, object]:
-    """One non-streaming chat request for an OpenAI-compatible server.
+def complete(candidate: LocalCandidate, request: ChatRequest, settings: LocalLlmSettings) -> str:
+    """Ask one candidate for an answer; return it with reasoning stripped.
 
-    Reasoning is switched through the chat template (``enable_thinking``); a server
-    whose template has no such switch ignores the variable.
+    An empty answer is a failure of this candidate, not an answer: raises LocalLlmError.
     """
-    body: dict[str, object] = {
-        "model": model,
-        "messages": _messages(request),
-        "temperature": request.temperature,
-        "stream": False,
-        "chat_template_kwargs": {"enable_thinking": request.think},
-    }
-    if request.max_tokens is not None:
-        body["max_tokens"] = request.max_tokens
-    if request.json_schema is not None:
-        body["response_format"] = {
-            "type": "json_schema",
-            "json_schema": {"name": RESPONSE_SCHEMA_NAME, "schema": request.json_schema},
-        }
-    return body
-
-
-def _complete_ollama(candidate: LocalCandidate, request: ChatRequest, settings: LocalLlmSettings) -> str:
     uri = f"{candidate.host.base_url}/api/chat"
     data = _post_json(
         uri, ollama_chat_body(candidate, request, settings.keep_alive),
@@ -503,70 +412,27 @@ def _complete_ollama(candidate: LocalCandidate, request: ChatRequest, settings: 
     content = message.get("content") if isinstance(message, dict) else None
     if not isinstance(content, str):
         raise LocalLlmError(f"{uri} returned no message content for model '{candidate.host.model}'")
-    return content
-
-
-def _complete_openai(candidate: LocalCandidate, request: ChatRequest, settings: LocalLlmSettings) -> str:
-    uri = f"{candidate.host.base_url}/v1/chat/completions"
-    data = _post_json(
-        uri, openai_chat_body(candidate.host.model, request),
-        settings.generate_timeout_ms, candidate.host.model,
-    )
-    choices = data.get("choices")
-    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-        raise LocalLlmError(f"{uri} returned no choices for model '{candidate.host.model}'")
-    message = choices[0].get("message")
-    content = message.get("content") if isinstance(message, dict) else None
-    if not isinstance(content, str):
-        raise LocalLlmError(
-            f"{uri} returned no message content for model '{candidate.host.model}' "
-            f"(finish_reason={choices[0].get('finish_reason')!r})"
-        )
-    return content
-
-
-_COMPLETERS: dict[str, Callable[[LocalCandidate, ChatRequest, LocalLlmSettings], str]] = {
-    LOCAL_API_OLLAMA: _complete_ollama,
-    LOCAL_API_OPENAI: _complete_openai,
-}
-
-
-def complete(candidate: LocalCandidate, request: ChatRequest, settings: LocalLlmSettings) -> str:
-    """Ask one candidate for an answer; return it with reasoning stripped.
-
-    An empty answer is a failure of this candidate, not an answer: raises LocalLlmError.
-    """
-    text = strip_reasoning(_COMPLETERS[candidate.host.api](candidate, request, settings))
+    text = strip_reasoning(content)
     if not text:
         raise LocalLlmError(f"{candidate.host.label()} returned an empty answer")
     return text
 
 
 def ready_candidate(candidate: LocalCandidate, settings: LocalLlmSettings) -> None:
-    """Prove the model answers before it is handed work; raise LocalLlmError if not.
+    """Prove the model can serve before it is handed work; raise LocalLlmError if not.
 
     Ollama loads on demand: a generate request with no prompt only loads the model (or
     renews a loaded one's keep-alive). Doing that once, under the load timeout, keeps a
     cold load from being charged against a generate call's timeout, and a model that
-    cannot load (out of GPU memory) is caught here. An OpenAI-compatible server is sent a
-    one-token completion under the generate timeout: its model is already in memory, and
-    only an answer proves its engine is alive.
+    cannot load (out of GPU memory) is caught here.
     """
     host = candidate.host
-    if host.api == LOCAL_API_OLLAMA:
-        _post_json(
-            f"{host.base_url}/api/generate",
-            {"model": host.model, "keep_alive": settings.keep_alive},
-            settings.load_timeout_ms,
-            host.model,
-        )
-        return
-    uri = f"{host.base_url}/v1/chat/completions"
-    ping = ChatRequest(system="Reply with one word.", user="ping", temperature=0.0, max_tokens=READINESS_MAX_TOKENS)
-    data = _post_json(uri, openai_chat_body(host.model, ping), settings.generate_timeout_ms, host.model)
-    choices = data.get("choices")
-    if not isinstance(choices, list) or not choices:
-        raise LocalLlmError(f"{uri} answered a readiness request for model '{host.model}' with no choices")
+    _post_json(
+        f"{host.base_url}/api/generate",
+        {"model": host.model, "keep_alive": settings.keep_alive},
+        settings.load_timeout_ms,
+        host.model,
+    )
 
 
 def _report_to_stderr(line: str) -> None:
@@ -634,9 +500,9 @@ class LocalLlmPool:
 
     def _record(self, candidate: LocalCandidate | None, outcome: str, prompt_chars: int, answer_chars: int,
                 seconds: float, error: str) -> None:
-        host = candidate.host if candidate is not None else LocalHost("", "", "")
+        host = candidate.host if candidate is not None else LocalHost("", "")
         record_usage(self._settings.usage_log, UsageEntry(
-            caller=self._settings.caller, outcome=outcome, api=host.api, model=host.model,
+            caller=self._settings.caller, outcome=outcome, model=host.model,
             base_url=host.base_url, prompt_chars=prompt_chars, answer_chars=answer_chars,
             seconds=seconds, error=error))
 
@@ -719,26 +585,22 @@ class LocalLlmPool:
         self._ready.discard(candidate)
 
     def _readiness_line(self, candidate: LocalCandidate) -> str:
-        if candidate.host.api == LOCAL_API_OLLAMA:
-            verb = "Checking" if candidate.resident else "Loading"
-            limit_ms = self._settings.load_timeout_ms
-        else:
-            verb = "Checking"
-            limit_ms = self._settings.generate_timeout_ms
-        return f"{verb} {candidate.host.label()} (up to {limit_ms // MILLISECONDS_PER_SECOND}s)..."
+        verb = "Checking" if candidate.resident else "Loading"
+        limit_seconds = self._settings.load_timeout_ms // MILLISECONDS_PER_SECOND
+        return f"{verb} {candidate.host.label()} (up to {limit_seconds}s)..."
 
     def _unavailable_message(self) -> str:
         searched = ", ".join(self._settings.machines)
         wanted = (
             f"any of the models {', '.join(self._settings.models)}"
             if self._settings.models
-            else f"a resident model, or Ollama with one of {', '.join(OLLAMA_LOAD_PREFERENCE)} installed"
+            else f"a resident model, or with one of {', '.join(OLLAMA_LOAD_PREFERENCE)} installed"
         )
         detail = f" Last failure: {self._last_failure}" if self._last_failure else ""
         return (
-            f"No local model server could answer (searched {searched}). Start a model server "
-            f"on one of those machines serving {wanted}, or pass other machines "
-            f"(--local-machine).{detail}"
+            f"No local Ollama server could answer (searched {searched} on port "
+            f"{self._settings.ollama_port}). Start Ollama on one of those machines with {wanted}, "
+            f"or pass other machines (--local-machine).{detail}"
         )
 
 
@@ -786,10 +648,8 @@ def add_local_llm_arguments(
         action="append",
         type=parse_local_machine,
         help=(
-            "A machine (host name or IP) to search for local model servers: Ollama on port "
-            f"{OLLAMA_PORT}, OpenAI-compatible servers on ports "
-            f"{', '.join(map(str, OPENAI_COMPATIBLE_PORTS))}. Repeat to list several, in "
-            f"preference order. Default: {', '.join(DEFAULT_LOCAL_MACHINES)}."
+            f"A machine (host name or IP) whose Ollama server (port {OLLAMA_PORT}) is searched. "
+            f"Repeat to list several, in preference order. Default: {', '.join(DEFAULT_LOCAL_MACHINES)}."
         ),
     )
     if model_preference:
