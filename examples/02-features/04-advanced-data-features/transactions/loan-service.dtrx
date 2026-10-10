@@ -62,9 +62,8 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
     }
 
     rest_api LoanAPI : basePath("/api/v1/loans"), rdbms(loanDb) {
-        // @retry automatically retries failed requests up to maxAttempts
         // @timeout sets a maximum response time for the endpoint
-        @retry(maxAttempts: 3)
+        // No @retry: creating a loan is not idempotent, so a re-run would create a second one
         @timeout(ms: 5000)
         // Custom endpoint using a struct as input and returning an entity
         post(CreateLoanRequest request) : auth(required, providers: [member]) -> loanDb.Loan {
