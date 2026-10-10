@@ -273,7 +273,8 @@ outcome — never submit it. An unproven BLOCKED is the second worst.**
 **You can invoke these:** `/fix-issue`, `/fix-bug-report`, `/fix-tests`, `/checkpoint-debug`,
 `/codegen-fix-loop`, `/operationalize-design`, `/task-orchestrator`, `/verify-implementation`,
 `/absorb-design`, `/commit-and-push`,
-`/evaluate-generated`, `/evaluate-generated-service`, `/consolidate-findings`, `/fix-cli`, `/fix-common`,
+`/evaluate-generated`, `/evaluate-generated-service`, `/consolidate-findings`, `/merge-findings`,
+`/implement-finding`, `/fix-cli`, `/fix-common`,
 `/fix-extensions`, `/fix-language`, `/fix-migration`, `/fix-semantic`, `/fix-testing`,
 `/fix-vscode`,
 `/fix-codegen-{angular,aws,azure,common,component,docker,flutter,kernel,python,sql,typescript,typescript-core}`.

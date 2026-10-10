@@ -170,7 +170,7 @@ It reviews the code on disk against the design, fixes what is wrong or missing, 
 
 Reached only on `Design conformance: PROVEN`.
 
-Invoke `/absorb-design` through the Skill tool with `DOCUMENT: <path>` (and `KEEP SOURCE: true` if Jon set it). It transfers the content into the official docs, replaces every reference, and deletes the source. Units that already updated their docs report "already present"; that is correct, not a defect. Its "no clear target" and "content missed" prompts are real waits.
+Write verify's PROVEN report (its replies, ending in the `Design conformance: PROVEN` line) to `D:\datrix\.tmp\verify-proven-{design file name}.md` with the Write tool, then invoke `/absorb-design` through the Skill tool with `DOCUMENT: <path>`, `VERIFIED: <that file>` (and `KEEP SOURCE: true` if Jon set it). The design's `Status:` line still reads Draft on this path; VERIFIED is what licenses absorb to delete it. It transfers the content into the official docs, replaces every reference, and deletes the source. Units that already updated their docs report "already present"; that is correct, not a defect. Its "no clear target" and "content missed" prompts are real waits.
 
 ## Step 6: Final report
 

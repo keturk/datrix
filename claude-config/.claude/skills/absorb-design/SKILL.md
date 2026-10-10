@@ -30,6 +30,7 @@ With options:
 DOCUMENT: d:\datrix\datrix\docs\designs\some-design.md
 DRY RUN: true
 KEEP SOURCE: true   # Override: do NOT delete the source after transfer
+VERIFIED: D:\datrix\.tmp\verify-proven-some-design.md   # verify's PROVEN replies: the licence to delete
 ```
 
 ## Prereqs
@@ -42,6 +43,18 @@ Read first: CLAUDE.md, MEMORY.md. Also read the design document itself in full b
 | DOCUMENT | Yes | Path to the design document to absorb |
 | DRY RUN | No | If `true`, produce the transfer plan but do not write any files |
 | KEEP SOURCE | No | If `true`, preserve the source document after transfer (default: delete source and replace all references) |
+| VERIFIED | No | A file holding the `/verify-implementation` replies for this DOCUMENT that end `Design conformance: PROVEN`. `implement-design.ps1`, `implement-design-direct.ps1`, `/implement-design` and `/implement-design-direct` pass it. It is the licence to delete (see "Deletion licence") |
+
+## Deletion licence
+
+Deleting the source removes the one document a conformance check measures against, so a design that describes work to implement is deleted only when that work is proven. Decide this once, before Phase 1, from these in order:
+
+1. **VERIFIED is given.** Read the file. If its last `Design conformance:` line reads `PROVEN` and the report names this DOCUMENT, the design is proven: absorb and delete it (unless KEEP SOURCE). The design's own `Status:` line and wording ("Draft", "Not yet operationalized", "red tests", "unresolved defects", "needs a fix") describe the state *before* it was implemented and never outweigh the proof: the direct path never rewrites `Status:` (only `/task-orchestrator` does). Do not ask. If the file is missing, ends `INCOMPLETE`, carries no verdict, or names another design, the proof failed: transfer nothing, delete nothing, and report that verify must run again.
+2. **No VERIFIED, and the `Status:` line reads `Implemented`** — proven: absorb and delete.
+3. **No VERIFIED, and the document describes work not shown to be implemented** — run Phases 1–3 and the reference cleanup, keep the source, and ask Jon in one line whether to delete it.
+4. **The document is knowledge only** (no implementation scope: a decision record, a reference write-up) — absorb and delete; there is nothing to prove.
+
+A requirement in the design is never "task-level, not docs" grounds to keep the source once rule 1 or 2 holds: proven means those requirements are met in code.
 
 ## Target Documentation Folders
 
@@ -202,7 +215,7 @@ WAIT for user decision.
    - If a reference is a backlog/index entry → remove the line entirely
    - If a reference is in CLAUDE.md or MEMORY.md → update or remove as appropriate
 3. **If KEEP SOURCE is true** → preserve the source document and skip deletion
-4. **Otherwise (default)** → delete the source design document
+4. **Otherwise (default)** → delete the source design document when the deletion licence holds (rules 1, 2 or 4); under rule 3, keep it and ask
 5. **Verify** — run `absorb-references` again **before** step 4 deletes the source (it reads the document for its title): it must exit 0 (zero remaining references)
 
 **End-of-phase output:**

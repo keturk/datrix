@@ -1,7 +1,7 @@
 ---
 model: claude-opus-5-5
 effort: medium
-description: Tidy the findings inbox at d:\datrix\reports\finding in place — group related findings into themes (one seam, subsystem or defect class), write each theme as one numbered consolidated-NNN-<slug>.md file holding every defect of that theme as its own section, and delete the superseded sources. Keeps no archive and no register; the folder itself is the result. Use when Jon asks to "consolidate findings", "merge the findings", "clean up reports/finding", or runs /consolidate-findings.
+description: Tidy the findings inbox at d:\datrix\reports\finding in place — group related findings into themes (one seam, subsystem or defect class), write each theme as one numbered consolidated-NNN-<slug>.md file holding every defect of that theme as its own section, and delete the superseded sources. Keeps no archive and no register; the folder itself is the result. Use when Jon asks to "consolidate findings", "group the findings into themes", "clean up reports/finding", or runs /consolidate-findings. For collapsing only files that describe the same issue, use /merge-findings.
 ---
 
 # Consolidate Findings

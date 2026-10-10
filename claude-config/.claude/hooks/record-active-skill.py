@@ -23,6 +23,13 @@ Both invocation forms are recognised, as they reach the hook with different text
 A prompt naming no skill CLEARS the record rather than leaving the last one to
 rot: a follow-up message is not a fresh invocation of whatever ran an hour ago.
 
+A background-task notification is NOT a follow-up message. The harness delivers
+the completion of a `run_in_background` command as a prompt opening with
+`<task-notification>`, and it fires this hook mid-turn. Clearing the record on it
+unscoped the rest of the skill's turn: a `/verify-implementation` run that waited
+on a background test run ended without its verdict line, because the checklist
+requiring that line no longer applied. Such a prompt leaves the record untouched.
+
 Exit codes:
   0 — always
 """
@@ -50,6 +57,9 @@ _NOT_SKILLS: Final = frozenset(
      "login", "logout", "init", "review", "vim", "doctor", "memory", "fast"}
 )
 
+# The opening tag of a prompt the harness injects when a background task completes.
+_TASK_NOTIFICATION_TAG: Final = "<task-notification>"
+
 
 def _state_path(session_id: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_-]", "_", session_id or "unknown")
@@ -71,6 +81,8 @@ def main() -> None:
         sys.exit(0)
 
     prompt = data.get("prompt") or ""
+    if prompt.lstrip().startswith(_TASK_NOTIFICATION_TAG):
+        sys.exit(0)
     path = _state_path(data.get("session_id") or "")
 
     try:

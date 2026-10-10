@@ -86,12 +86,13 @@ Not reached: aws, azure, docker, sql, component. The run is the tags of that beh
 `affected-set.ps1 -All` prints the import closure of every package (src, tests, root
 conftest, declared deps). It is where step 3 starts looking, never the answer.
 
-**The datrix-common root-conftest edge.** `datrix-common/conftest.py` imports
-`datrix_cli.pipeline.generation.GenerationPipeline` and `datrix_language.registration`, and
-its dev extra installs datrix-language, datrix-codegen-component and datrix-codegen-docker,
-because its tests run the real pipeline. A change in language, cli, component, docker, or
-any generator its conftest selects can therefore break datrix-common tests. A scan of `src/`
-and `tests/` alone misses this edge: the file is a package-root `conftest.py`.
+**The parser entry-point edge.** Every package below the parser (datrix-common,
+datrix-semantic, datrix-migration, datrix-codegen-kernel, datrix-codegen-typescript-core,
+datrix-testing) parses its `.dtrx` fixtures with the real datrix-language parser, reached
+through the `datrix.parsers` entry point its root `conftest.py` discovers
+(`datrix_testing.parsing.register_installed_parsers`), never through an import. A change in
+datrix-language can therefore break those packages' tests although no file of theirs imports
+it; the edge is the `datrix-language` entry in each package's dev extra.
 
 ### Do not chase finer-grained selection
 

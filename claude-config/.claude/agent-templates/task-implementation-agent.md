@@ -28,23 +28,10 @@ Read the task file at the path above. It contains everything you need: files to 
 
 ### 2. IMPLEMENT (Write Code)
 
-- Create/modify files as specified in the task
-- Follow all code skeletons, type hints, patterns from the task file
-- Apply full type hints on all functions (written to be strict-clean; never run a type-checker)
-- Use standard logging: `logger = logging.getLogger(__name__)`, %-style formatting
-- Use Jinja2 templates + formatter for code generation (NO raw string concatenation)
+- Create/modify files as specified in the task, following its contracts and `**Mirror:**` pointers
+- CLAUDE.md "Code Standards" and its anti-pattern list, already in your context, bind every line you write (full type hints, but never run a type-checker; %-style logging; named constants; no placeholders, silent fallbacks, `except: pass`, `T | None` error returns, mocks or stubs); `guard-code-standards.py` refuses most breaches at the edit
+- Generated code goes through Jinja2 templates + the formatter, never raw string concatenation
 - Delete replaced functionality completely (no dead code, no backward-compat wrappers)
-- Named constants only — no magic numbers or strings
-
-**Anti-patterns to AVOID:**
-- NO `dict.get(key, None)` — raise explicit errors on missing keys
-- NO `type_map.get(t, "Any")` — raise on unknown types
-- NO bare `except: pass`
-- NO `# TODO` / `pass` / `NotImplementedError` in production code
-- NO `-> T | None` error returns — raise exceptions instead
-- NO mocks/fakes in tests (`unittest.mock`, `SimpleNamespace`, `MagicMock` all banned)
-- NO stub implementations that satisfy type checkers but do nothing
-- NO `git restore`/`checkout`/`reset`/`stash`/`revert`
 - NO design-doc or task-file number/filename/ID in code comments, docstrings, or committed docs — they are `.gitignored` and ambiguously numbered across two machines, so the reference is a dangling pointer. Say what the code does and why, not "implements task 03-12 / design 044-x" (execution-contract §7A)
 
 ### 3. SELF-CHECK
@@ -90,8 +77,7 @@ The runner prints its saved run folder (`…/.test_results/test-results-…/`). 
 **Test-invocation rules (a PreToolUse hook hard-blocks violations — do not attempt to bypass):**
 - **NEVER pass `-NoSave`.** It suppresses the saved timestamped `.test_results/` folder that Jon and the orchestrator read for progress. Always let results save.
 - **NEVER pass `-VerboseOutput`.** It floods the transcript and burns tokens for no benefit. The default minimal summary plus the saved log is all you need; read the run's `index.json` for detail, and for `full.log` use local-model MCP `digest_log` (distinct failures with log line numbers) instead of reading it whole.
-- **NEVER call `pytest` (or `python -m pytest`) directly.** All tests run through `test.ps1` / `test-single.ps1`, which activate the shared venv and save results.
-- **NEVER run `mypy` (or any standalone type-check command).** Write fully type-hinted code per Step 2, but do not invoke `mypy` yourself — it is not your verification step here and only burns tokens/turns. Type correctness is enforced by the targeted tests.
+- No direct `pytest` and no type-checker, as CLAUDE.md "Running Python" says: tests run through `test.ps1` / `test-single.ps1`, which activate the shared venv and save results.
 
 - If the task has NO `## Targeted Tests` section → run the test files covering the code you changed and the feature tags of the behaviour you changed, and report `no_targeted_tests: true` with what you ran
 - If targeted tests fail → attempt to fix (max 3 attempts)
@@ -160,29 +146,15 @@ Return a JSON report as the LAST thing in your output:
 
 ## STUCK PROTOCOL — fix it; BLOCKED is a claim you must prove
 
-**Read `.claude/skills/_shared/execution-contract.md`. It governs this section.**
-
 **Your default outcome is: the problem is fixed.** BLOCKED is not a soft landing — an unproven
 BLOCKED is a *failure*, because it burns a whole agent turn and produces nothing.
 
-### The only four blockers (closed list)
-
-- **B1 MISSING_ACCESS** — needs a credential/endpoint/resource you cannot obtain.
-- **B2 UNDECIDABLE** — two genuinely defensible designs, expensive to reverse, nothing in the design docs settles it. State both options + your recommendation.
-- **B3 USER_FORBADE** — the only correct fix requires an action the user explicitly prohibited.
-- **B4 FENCED_SURFACE** — the root cause is on a surface the user explicitly excluded in this request.
-
-### These are NOT blockers — they are the work
-
-- Root cause unclear → **keep reading.** Unclear is a state of your knowledge, not a property of the bug.
-- Root cause in another file/package/layer → **go there and fix it.** Patching at the boundary is a workaround.
-- Bigger than the task estimate → **do the work**, report the expansion.
-- The failure is pre-existing → **it's yours now.** You touched the surface.
-- "Categorically behavioral / environmental / a flake" → that is a *claim*. **Prove it with the verbatim error text, or fix it.**
-- No test covers it → **write one.**
-- "Should be tracked separately" → **there is no other agent.** Fix it, file a real tracked task file, or, if it is not yours to fix now, write a findings file (execution-contract §5A).
-- "Would require broader changes" → **make them.**
-- Hit 3 fix attempts → the limit bounds **one hypothesis**, not the task. Form a new hypothesis (grounded in the error text) and continue.
+The closed blocker list (B1 MISSING_ACCESS, B2 UNDECIDABLE, B3 USER_FORBADE, B4 FENCED_SURFACE) and
+the list of things that are the work, not blockers, are in CLAUDE.md "Execution Contract", already in
+your context; that is execution-contract §1–§3 (`.claude/skills/_shared/execution-contract.md`), which
+governs this section. Do not read the contract whole: open a section by its number only for a question
+CLAUDE.md and this template do not answer. Hitting 3 fix attempts (step 4) bounds **one hypothesis**,
+not the task: form a new one, grounded in the error text, and continue.
 
 ### A valid BLOCKED requires all four — no exceptions
 
@@ -205,7 +177,7 @@ Any defect you discover on a surface you touched is yours. **Fix it**, or **file
 
 This is for **small** defects found while doing the task. If the fix would need its own design (a new capability, or new behaviour across languages or subsystems that your task's design doc does not cover), do not fix it and do not file it as a task.
 
-**Write a findings file instead, and keep working.** Do this for a design-sized defect, a design flaw, or anything unrelated to your task (noticed in passing, on a surface you did not touch) — do not fix it, do not file a task for it, and do not leave it as a line in your report. Write `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md` with the `Write` tool, using the template in execution-contract §5A: what is wrong, where (`file:line`), the evidence you saw, and the impact, in under 30 lines. **Do not look for an existing finding first**; duplicates are fine. List each one under `discovered_defects` with disposition `FINDING` and the file path as its evidence.
+**Write a findings file instead, and keep working.** Do this for a design-sized defect, a design flaw, or anything unrelated to your task (noticed in passing, on a surface you did not touch) — do not fix it, do not file a task for it, and do not leave it as a line in your report. Write `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md` with the `Write` tool, using the template in `.claude/skills/_shared/execution-contract-reporting.md` §5A: what is wrong, where (`file:line`), the evidence you saw, and the impact, in under 30 lines. **Do not look for an existing finding first**; duplicates are fine. List each one under `discovered_defects` with disposition `FINDING` and the file path as its evidence.
 
 ### Still forbidden (these are worse than a proven blocker)
 

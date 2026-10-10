@@ -41,7 +41,7 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 
 ### Tests that run the Flutter toolchain
 
-Tests marked for the Flutter toolchain run a real `flutter pub get` plus `flutter analyze` (and `dart format --set-exit-if-changed`) on the emitted app. They skip — never silently pass — when the Flutter SDK is not on `PATH`, and they are pooled the way `datrix-codegen-typescript`'s and `datrix-codegen-angular`'s `npm_tsc` tests are, to bound concurrency.
+Tests marked for the Flutter toolchain run a real `flutter pub get` plus `flutter analyze` (and `dart format --set-exit-if-changed`) on the emitted app. They skip — never silently pass — when the Flutter SDK is not on `PATH`.
 
 - An **analyzer diagnostic** is a real defect in the emitted Dart — read it and fix the template, context builder, or type map.
 - A **subprocess timeout** with no diagnostic is a contention/pooling symptom: confirm it by re-running that one test alone with `test-single.ps1` before touching generator code. Never widen a timeout or drop the marker to make it green.

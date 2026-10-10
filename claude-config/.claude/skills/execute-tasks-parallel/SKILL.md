@@ -203,8 +203,9 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
      fix it there, even in another package. Report it under scope_expansion.
    - Pre-existing rule violation you happened to SEE while reading (a stale reference,
      a naming breach, a smell in code you did not touch) → write a findings file
-     (d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md, execution-contract §5A; do not
-     look for an existing one) and move on. It is not a fix, not a task, and not a line in
+     (d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md, template:
+     .claude/skills/_shared/execution-contract-reporting.md §5A; do not look for an
+     existing one) and move on. It is not a fix, not a task, and not a line in
      your report. "Found it, you fix it" covers surfaces you TOUCHED, not surfaces you
      SCANNED; a grep across N files does not make you the owner of N files.
    When both readings are available, ask: does this block the fix I was sent to make?

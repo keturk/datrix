@@ -456,6 +456,15 @@ with open(recorded, encoding="utf-8") as f:
     if json.load(f).get("skill") != "task-orchestrator":
         fails.append("record-active-skill: expanded-body form not detected")
 
+# A background task completing mid-turn arrives as a prompt; it must not unscope the skill's turn.
+run(
+    "record-active-skill.py",
+    {"session_id": SID, "prompt": "<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>"},
+)
+with open(recorded, encoding="utf-8") as f:
+    if json.load(f).get("skill") != "task-orchestrator":
+        fails.append("record-active-skill: a task notification cleared the active skill")
+
 run("record-active-skill.py", {"session_id": SID, "prompt": "now fix the other thing"})
 with open(recorded, encoding="utf-8") as f:
     if json.load(f).get("skill") != "":

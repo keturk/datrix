@@ -89,7 +89,6 @@ Iteration is over the contract's **computed type closure** (`each client_type`) 
 | `tests/integration/test_identifier_collision_emission.py` | `src/.../ts_local_names.py` |
 | `tests/integration/test_generation_without_typescript.py` | `tests/integration/no_typescript_generation_probe.py` (subprocess probe) |
 | `tests/unit/test_import_isolation.py` | static AST scan over `src/datrix_codegen_angular/` |
-| `tests/unit/test_npm_tsc_pooling.py` | `tests/conftest.py` (`pytest_collection_modifyitems`) |
 
 ### Test Fixtures and Helpers
 
@@ -97,12 +96,9 @@ Iteration is over the contract's **computed type closure** (`each client_type`) 
 - `tests/conftest.py` — `.dtrx`-backed application fixtures parsed through the real parser and semantic analyzer: `minimal_angular_app`, `app_with_angular_client`, `app_with_reachable_struct_and_enum`, `app_with_client_endpoints`, `app_with_unreachable_struct`. Fixture `.dtrx` sources live in `tests/fixtures/`.
 - Real objects only — no mocks, no `SimpleNamespace`.
 
-### `npm_tsc` tests run a real toolchain
+### No test compiles or runs the emitted client
 
-Tests marked `npm_tsc` (e.g. `tests/integration/test_models_domain_tsc.py`) run a real `npm install` plus `tsc`/`tsx` on the emitted client. `tests/conftest.py` spreads them over `DATRIX_TS_NPM_TSC_POOLS` (default 4) xdist `loadgroup` pools to bound concurrency.
-
-- A **compile diagnostic** from `tsc` is a real defect in the emitted TypeScript — read the diagnostic and fix the template, context builder, or type map.
-- A **subprocess timeout** with no diagnostic is a contention/pooling symptom: confirm it by re-running that one test alone with `test-single.ps1` before touching generator code. Never widen a timeout or drop the marker to make it green.
+The suite reads the emitted TypeScript as text; it never runs `npm`, `tsc`, `tsx` or `node` over it. What a compile would prove is held as a seam comparison over the emitted tree (every relative import names an emitted module), and what a run would prove is pinned on the emitted expression that decides it (for example, every URL interpolation is `this.base` or an `encodeURIComponent(...)` call).
 
 ### Invariants a Fix Must Not Break
 
