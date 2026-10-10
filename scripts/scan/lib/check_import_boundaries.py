@@ -242,7 +242,8 @@ from datrix_common.plugin.capability_resolution import (
     declaration_for_language,
 )
 
-from datrix_scripts.paths import WORKSPACE_DIR
+from datrix_scripts.paths import PACKAGE_DIR as SCRIPTS_PACKAGE_DIR
+from datrix_scripts.paths import SHOWCASE_DIR, WORKSPACE_DIR
 from datrix_scripts.registered_targets import (
     AXIS_LANGUAGES,
     entry_point_module_roots,
@@ -347,6 +348,18 @@ _GENDSL_AUXILIARY_ENTRY_POINT_GROUPS: frozenset[str] = frozenset(
         "datrix.gendsl_context_namespaces",
         "datrix.gendsl_generator_targets",
     }
+)
+
+# The parser seam (datrix_common.protocols.parser's PARSERS_GROUP, read for
+# its canonical spelling only): datrix-language declares its DSL and stdlib
+# parsers under it so the packages below the parser reach them without an
+# import. It names no generation target, so it carries no taxonomy signal.
+_PARSER_ENTRY_POINT_GROUPS: frozenset[str] = frozenset({"datrix.parsers"})
+
+# Every datrix.-namespaced entry-point group that is neither a taxonomy group
+# nor unrecognized.
+_NON_TAXONOMY_ENTRY_POINT_GROUPS: frozenset[str] = (
+    _GENDSL_AUXILIARY_ENTRY_POINT_GROUPS | _PARSER_ENTRY_POINT_GROUPS
 )
 
 
@@ -499,6 +512,9 @@ def discover_shared_packages(
       registers ONLY ``gendsl_file_languages``/``gendsl_iteration_targets``
       and ``datrix-codegen-common`` ONLY ``gendsl_iteration_targets``; both
       are shared packages.
+    * The parser seam (``_PARSER_ENTRY_POINT_GROUPS``) through which
+      datrix-language supplies its parsers to the packages below it names no
+      generation target, so it is no taxonomy signal either.
 
     A package registering a NON-EMPTY [project.entry-points] table whose
     ``datrix.``-namespaced group name(s) are ALL outside the four known
@@ -552,15 +568,15 @@ def discover_shared_packages(
             group
             for group in groups
             if group.startswith("datrix.")
-            and group not in _GENDSL_AUXILIARY_ENTRY_POINT_GROUPS
+            and group not in _NON_TAXONOMY_ENTRY_POINT_GROUPS
         }
         if unrecognized_datrix_groups:
             raise GeneratorTaxonomyError(
                 f"{manifest}: registers entry-point group(s) "
                 f"{sorted(unrecognized_datrix_groups)}, none of which is "
                 f"{sorted(SHARED_PACKAGE_CLASSIFIER_GROUPS)} (the four taxonomy "
-                f"groups) or {sorted(_GENDSL_AUXILIARY_ENTRY_POINT_GROUPS)} "
-                f"(GenDSL's own non-taxonomy registration axis). This package "
+                f"groups) or {sorted(_NON_TAXONOMY_ENTRY_POINT_GROUPS)} "
+                f"(GenDSL's registration axis and the parser seam). This package "
                 f"cannot be classified as shared or as a taxonomy member -- add an "
                 f"explicit classification before the I1/I6 shared-layer ratchets "
                 f"can be trusted to scan (or skip) it."
@@ -747,9 +763,9 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
         # The shared test harness sits on the foundation alone: every other
         # package lists it as a dev dependency, so an import of any of them
         # would close a cycle through that package's dev install. Parser
-        # implementations reach it only through the calling test session's
-        # registration (datrix_testing.parsing.register_test_parser), never
-        # through an import.
+        # implementations reach it only through the datrix.parsers entry point
+        # (datrix_testing.parsing.register_installed_parsers), never through
+        # an import.
         #
         # The one generation package it may import is the kernel: its assertion,
         # I/O, pipeline and determinism helpers build and compare the kernel's
@@ -785,7 +801,7 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
         # ledger, state store) sits on the core alone. Every generator, the
         # codegen layer and the CLI consume it, so an import of any of them --
         # or of the semantic layer above the core -- would close a cycle. Its
-        # tests reach the parser only through the root conftest's registration.
+        # tests reach the parser only through the datrix.parsers entry point.
         "datrix_migration": BoundaryRule(
             forbidden_prefixes=(
                 "datrix_language",
@@ -800,7 +816,7 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
         # and the test harness depend on it, and every generator and the
         # migration package sit beside it on the core, so an import of any of
         # them would close a cycle or couple two siblings. Its tests reach the
-        # parser only through the root conftest's registration.
+        # parser only through the datrix.parsers entry point.
         "datrix_semantic": BoundaryRule(
             forbidden_prefixes=(
                 "datrix_language",
@@ -1534,67 +1550,89 @@ def scan_package_for_violations(
         )
     rule = rules[package_info.name]
 
-    # Directories to scan: src/, tests/, fixtures/, helpers/
-    scan_dirs = [package_info.src_dir]
-
-    # Add optional directories if they exist
-    for dir_name in ["tests", "fixtures", "helpers"]:
-        optional_dir = package_info.root / dir_name
-        if optional_dir.exists() and optional_dir.is_dir():
-            scan_dirs.append(optional_dir)
-
-    # Walk all .py files under all scan directories, all held to the same
-    # allowed_subtrees -- src/, tests/, fixtures/ and helpers/ alike. There is
-    # no test-tree carve-out: a subtree forbidden in production code is
+    # Every scanned file is held to the same allowed_subtrees -- src/, tests/,
+    # fixtures/, helpers/ and the root-level files alike. There is no
+    # test-tree carve-out: a subtree forbidden in production code is
     # forbidden in tests too.
-    permitted_subtrees = rule.allowed_subtrees
-    for scan_dir in scan_dirs:
-        for py_file in scan_dir.rglob("*.py"):
-            if verbose:
-                rel_path = py_file.relative_to(monorepo_root)
-                print(f"Scanning: {rel_path}", file=sys.stderr)
-
-            try:
-                imports = extract_imports_from_file(py_file)
-            except SyntaxError as e:
-                rel_path = py_file.relative_to(monorepo_root)
-                print(
-                    f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
-                    f"A policed file that cannot be parsed would escape this scan "
-                    f"(a silent blind spot); fix its syntax or encoding.",
-                    file=sys.stderr,
+    for py_file in boundary_scan_files(package_info):
+        if verbose:
+            print(f"Scanning: {py_file.relative_to(monorepo_root)}", file=sys.stderr)
+        for line_num, imported_module in _read_imports_or_exit(py_file, monorepo_root):
+            forbidden_prefix = _first_forbidden_prefix(
+                package_info.name, imported_module, rule
+            )
+            if forbidden_prefix is None:
+                continue
+            violations.append(
+                Violation(
+                    file_path=py_file,
+                    line_number=line_num,
+                    imported_module=imported_module,
+                    source_package=package_info.name,
+                    forbidden_prefix=forbidden_prefix,
                 )
-                sys.exit(2)
-            except (OSError, UnicodeDecodeError) as e:
-                rel_path = py_file.relative_to(monorepo_root)
-                print(
-                    f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
-                    f"cannot be read would escape this scan; resolve the read error.",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-
-            # Check each import against forbidden prefixes, respecting allowed subtrees
-            for line_num, imported_module in imports:
-                for forbidden_prefix in rule.forbidden_prefixes:
-                    if is_forbidden_import(
-                        package_info.name,
-                        imported_module,
-                        forbidden_prefix,
-                        permitted_subtrees,
-                    ):
-                        violations.append(
-                            Violation(
-                                file_path=py_file,
-                                line_number=line_num,
-                                imported_module=imported_module,
-                                source_package=package_info.name,
-                                forbidden_prefix=forbidden_prefix,
-                            )
-                        )
-                        break  # Only report first matching forbidden prefix
+            )
 
     return violations
+
+
+#: Trees under a package root, besides ``src/<package>``, whose ``.py`` files
+#: the boundary scan reads.
+_BOUNDARY_SCAN_DIRS: tuple[str, ...] = ("tests", "fixtures", "helpers")
+
+
+def boundary_scan_files(package_info: PackageInfo) -> list[Path]:
+    """Every ``.py`` file the boundary scan holds to *package_info*'s rule.
+
+    The ``src/`` tree, the ``tests/``, ``fixtures/`` and ``helpers/`` trees,
+    and the package's root-level ``*.py`` files (``conftest.py`` and the
+    like). pytest loads a root ``conftest.py`` for every test of the package,
+    so an import there is the package's own import; a scan that skipped it
+    would let a forbidden import hide one directory above ``tests/``.
+    """
+    files = sorted(package_info.src_dir.rglob("*.py"))
+    files.extend(sorted(package_info.root.glob("*.py")))
+    for dir_name in _BOUNDARY_SCAN_DIRS:
+        optional_dir = package_info.root / dir_name
+        if optional_dir.is_dir():
+            files.extend(sorted(optional_dir.rglob("*.py")))
+    return files
+
+
+def _read_imports_or_exit(py_file: Path, monorepo_root: Path) -> list[tuple[int, str]]:
+    """The imports of *py_file*; exits 2 when it cannot be read or parsed,
+    because a policed file the scan cannot read would be a silent blind spot."""
+    rel_path = py_file.relative_to(monorepo_root)
+    try:
+        return extract_imports_from_file(py_file)
+    except SyntaxError as e:
+        print(
+            f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
+            f"A policed file that cannot be parsed would escape this scan "
+            f"(a silent blind spot); fix its syntax or encoding.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    except (OSError, UnicodeDecodeError) as e:
+        print(
+            f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
+            f"cannot be read would escape this scan; resolve the read error.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+
+def _first_forbidden_prefix(
+    source_package: str, imported_module: str, rule: BoundaryRule
+) -> str | None:
+    """The first of *rule*'s forbidden prefixes *imported_module* violates, or
+    ``None`` when the import is permitted."""
+    for forbidden_prefix in rule.forbidden_prefixes:
+        if is_forbidden_import(
+            source_package, imported_module, forbidden_prefix, rule.allowed_subtrees
+        ):
+            return forbidden_prefix
+    return None
 
 
 # A heuristic dotted-import-path shape: one or more '.'-separated Python
@@ -5458,6 +5496,30 @@ def _reexport_facade_scan_files(
     return files
 
 
+def _with_scripts_package(
+    packages: dict[str, PackageInfo], monorepo_root: Path
+) -> dict[str, PackageInfo]:
+    """*packages* plus the shared scripts package (``datrix_scripts``), so
+    the scripts and hooks the facade check scans resolve their imports of it
+    instead of reporting every one as unresolved. Its location is the one
+    ``datrix_scripts.paths`` declares, re-anchored at *monorepo_root*; a
+    monorepo without that directory gets *packages* unchanged. Used for
+    import resolution only -- the package's files are already in the scan
+    scope through the ``datrix/scripts/`` tree."""
+    scripts_src = monorepo_root / SCRIPTS_PACKAGE_DIR.relative_to(WORKSPACE_DIR)
+    if not (scripts_src / "__init__.py").is_file():
+        return packages
+    name = SCRIPTS_PACKAGE_DIR.name
+    return {
+        **packages,
+        name: PackageInfo(
+            name=name,
+            root=monorepo_root / SHOWCASE_DIR.relative_to(WORKSPACE_DIR),
+            src_dir=scripts_src,
+        ),
+    }
+
+
 def _reexport_facade_provider_hits(
     py_file: Path,
     info: _ModuleFacadeInfo,
@@ -5969,14 +6031,15 @@ def scan_reexport_facades(
         results.setdefault(hit.providing_module, []).append(hit)
 
     scan_files = _reexport_facade_scan_files(packages, monorepo_root)
+    resolution_packages = _with_scripts_package(packages, monorepo_root)
     gendsl_bound = _gendsl_bound_names(
         scan_files,
-        packages,
+        resolution_packages,
         context_module_resolver or _registry_context_module_resolver(),
     )
     for py_file in scan_files:
         try:
-            info = _analyze_scanned_file(py_file, packages)
+            info = _analyze_scanned_file(py_file, resolution_packages)
         except SyntaxError as e:
             rel_path = py_file.relative_to(monorepo_root)
             print(
@@ -5996,13 +6059,15 @@ def scan_reexport_facades(
             sys.exit(2)
 
         for hit in _reexport_facade_provider_hits(
-            py_file, info, packages, monorepo_root, gendsl_bound
+            py_file, info, resolution_packages, monorepo_root, gendsl_bound
         ):
             _add(hit)
-        for hit in _reexport_facade_consumer_hits(py_file, packages, monorepo_root):
+        for hit in _reexport_facade_consumer_hits(
+            py_file, resolution_packages, monorepo_root
+        ):
             _add(hit)
         for hit in _reexport_facade_module_attribute_hits(
-            py_file, packages, monorepo_root
+            py_file, resolution_packages, monorepo_root
         ):
             _add(hit)
 
@@ -6339,7 +6404,8 @@ def _self_test_no_testkit_carve_out(
     (unratcheted) boundary scan."""
     _step(
         "Self-test 1/24: platforms, SQL and component forbid "
-        "datrix_codegen_common in tests/ exactly as in src/"
+        "datrix_codegen_common in tests/ exactly as in src/; a package's "
+        "root-level files are held to its rule too"
     )
     ok = True
 
@@ -6398,7 +6464,52 @@ def _self_test_no_testkit_carve_out(
     )
 
     ok &= _self_test_platform_test_tree_testkit_forbidden()
+    ok &= _self_test_root_level_files_scanned()
 
+    return ok
+
+
+def _self_test_root_level_files_scanned() -> bool:
+    """A forbidden import in a package's root-level ``conftest.py`` is a
+    violation located in that file, and the same file importing nothing
+    forbidden is clean -- the root of a package is no hiding place."""
+    ok = True
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"root-level-scan-{uuid.uuid4().hex}"
+    package_root = tmp_root / "datrix-root-guard"
+    src_dir = package_root / "src" / "datrix_root_guard"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        (src_dir / "__init__.py").write_text("", encoding="utf-8")
+        conftest = package_root / "conftest.py"
+        package_info = PackageInfo(
+            name="datrix_root_guard", root=package_root, src_dir=src_dir
+        )
+        rules = {"datrix_root_guard": BoundaryRule(forbidden_prefixes=("datrix_language",))}
+        absent_before = conftest not in boundary_scan_files(package_info)
+        conftest.write_text("", encoding="utf-8")
+        ok &= _check(
+            "a package's root-level conftest.py is in the boundary scan scope",
+            absent_before and conftest in boundary_scan_files(package_info),
+        )
+        conftest.write_text(
+            "from datrix_language.registration import register_all\n", encoding="utf-8"
+        )
+        planted = scan_package_for_violations(package_info, tmp_root, False, rules)
+        ok &= _check(
+            "a forbidden import planted in a root-level conftest.py is one violation there",
+            [(v.file_path, v.line_number, v.imported_module) for v in planted]
+            == [(conftest, 1, "datrix_language.registration")],
+        )
+        conftest.write_text(
+            "from datrix_testing.parsing import register_installed_parsers\n",
+            encoding="utf-8",
+        )
+        ok &= _check(
+            "the same root-level conftest.py importing nothing forbidden is clean",
+            scan_package_for_violations(package_info, tmp_root, False, rules) == [],
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
     return ok
 
 
@@ -9246,6 +9357,19 @@ def _self_test_shared_package_classification_fixture() -> bool:
         )
 
         _self_test_write_manifest(
+            tmp_root, "datrix-parser-p", "datrix_parser_p",
+            entry_point_groups={"datrix.parsers": {"p": "ParserFactory"}},
+        )
+        parser_src = tmp_root / "datrix-parser-p" / "src" / "datrix_parser_p"
+        parser_src.mkdir(parents=True, exist_ok=True)
+        (parser_src / "__init__.py").write_text("", encoding="utf-8")
+        packages = discover_packages(tmp_root)
+        ok &= _check(
+            "a package registering only the datrix.parsers seam is classified shared",
+            "datrix_parser_p" in discover_shared_packages(tmp_root, packages),
+        )
+
+        _self_test_write_manifest(
             tmp_root, "datrix-mystery-z", "datrix_mystery_z",
             entry_point_groups={"datrix.something_new": {"mystery": "MysteryThing"}},
         )
@@ -9684,8 +9808,9 @@ def _self_test_identity_provider_rules() -> bool:
     """Identity provider type rules stay out of the shared layers.
 
     Direct scanner assertions for the owned-type string literal and the
-    ``IdentityProvider`` member kind (planted ``provider_type == <owned type>`` and two
-    ``IdentityProviderType.<member>`` reads), the zero-hit cases (a docstring, the
+    ``IdentityProvider`` member kind (planted ``provider_type == <owned type>`` and an
+    ``IdentityProviderType.<built-in external member>`` read; no owned type is a member),
+    the zero-hit cases (a docstring, the
     credential kind ``apiKey``, the vocabulary's own home files), and the hard-zero
     check over the shared identity tree."""
     _step(
@@ -9701,7 +9826,7 @@ def _self_test_identity_provider_rules() -> bool:
     )
     if len(owned) < 2:
         return False
-    first, second = owned[0], owned[1]
+    first = owned[0]
     members = {m.value: m.name for m in ConfigIdentityProvider}
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"identity-rules-{uuid.uuid4().hex}"
     scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -9738,17 +9863,22 @@ def _self_test_identity_provider_rules() -> bool:
             "from datrix_common.config.datasource.identity_config import "
             "IdentityProvider as IdentityProviderType\n\n\n"
         )
+        ok &= _check(
+            "no owned provider type is an IdentityProvider member (the .dcfg vocabulary "
+            "is open-world: an owned type is the owning package's string)",
+            not (frozenset(owned) & frozenset(members)),
+        )
+        external_member = members[ConfigIdentityProvider.EXTERNAL.value]
         member_hits = _scan(
-            "owned_member.py",
+            "external_member.py",
             import_line
             + "def f(t):\n"
-            + f"    return t in (IdentityProviderType.{members[first]}, "
-            + f"IdentityProviderType.{members[second]})\n",
+            + f"    return t is IdentityProviderType.{external_member}\n",
         )
         ok &= _check(
-            "two IdentityProviderType.<owned member> reads are exactly two "
-            "identity_provider_member hits (an import alias is followed)",
-            sum(1 for h in member_hits if h.kind == "identity_provider_member") == 2,
+            "an IdentityProviderType.<built-in external member> read is exactly one "
+            "identity_provider_member hit (an import alias is followed)",
+            sum(1 for h in member_hits if h.kind == "identity_provider_member") == 1,
         )
 
         docstring_hits = _scan("owned_docstring.py", f'"""Mentions {first} in prose."""\n')
@@ -9769,7 +9899,7 @@ def _self_test_identity_provider_rules() -> bool:
 
         home_hits = _scan(
             "config/datasource/identity_config.py",
-            import_line + f'def f(t):\n    return t == "{first}" or t is IdentityProviderType.{members[first]}\n',
+            import_line + f'def f(t):\n    return t == "{first}" or t is IdentityProviderType.{external_member}\n',
         )
         ok &= _check(
             "the vocabulary's own home file (identity_config.py) is exempt from both kinds",
@@ -10402,6 +10532,35 @@ def _self_test_reexport_facade_scanner() -> bool:
         ok &= _check(
             "a package's root-level conftest.py is in the re-export-facade scan scope",
             conftest_package_root / "conftest.py" in scoped_files,
+        )
+
+        # The shared scripts package resolves at the location datrix_scripts.paths
+        # declares, so a script importing it is not an unresolved hit.
+        scripts_package_dir = scratch_dir / SCRIPTS_PACKAGE_DIR.relative_to(WORKSPACE_DIR)
+        scripts_package_dir.mkdir(parents=True)
+        (scripts_package_dir / "__init__.py").write_text("\n", encoding="utf-8")
+        (scripts_package_dir / "leaf.py").write_text("X = 1\n", encoding="utf-8")
+        script_file = scratch_dir / "datrix" / "scripts" / "dev" / "lib" / "uses_leaf.py"
+        script_file.parent.mkdir(parents=True)
+        script_file.write_text(
+            f"from {SCRIPTS_PACKAGE_DIR.name}.leaf import X\n"
+            f"from {SCRIPTS_PACKAGE_DIR.name}.no_such import Y\n",
+            encoding="utf-8",
+        )
+        _parse_module_source.cache_clear()
+        script_hits = _reexport_facade_consumer_hits(
+            script_file, _with_scripts_package(packages, scratch_dir), scratch_dir
+        )
+        ok &= _check(
+            "an import of the shared scripts package resolves at its declared home: "
+            "a name its module defines is zero hits, a missing module is one unresolved hit",
+            [(hit.kind, hit.name) for hit in script_hits] == [("unresolved", "Y")],
+        )
+        unregistered_hits = _reexport_facade_consumer_hits(script_file, packages, scratch_dir)
+        ok &= _check(
+            "without the scripts package registered both imports are unresolved "
+            "(the resolution above is what clears the defined name)",
+            sorted(hit.name for hit in unregistered_hits) == ["X", "Y"],
         )
 
         ok &= _self_test_reexport_facade_extended_shapes(scratch_dir, fixture_src, packages)

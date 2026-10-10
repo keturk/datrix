@@ -5,11 +5,18 @@ and Jest JSON (TypeScript) test results. Designed for AI agent consumption —
 the agent reads index.json first, then drills into individual error files.
 
 index.json records every test the run executed in its ``tests`` list (one
-``{"service", "test", "outcome"}`` entry per test, outcomes drawn from
+``{"service", "test", "case", "outcome"}`` entry per test, outcomes drawn from
 :data:`TEST_OUTCOMES`), beside the per-service ``counts``. The failure and error
 lists carry only the tests that did not pass; ``tests`` is the one place a
 passing or skipped test is named, which is what lets the generated-suite parity
 gate compare the set of tests two languages emitted and which of them passed.
+
+``case`` is the test's language-neutral case id
+(:mod:`datrix_codegen_common.algorithms.test_case_identity`), read from the
+framework's own exact per-test channel: the JUnit ``<property>`` named
+:data:`TEST_CASE_ID_PROPERTY` (a generated pytest suite records it from each
+test's marker), or the Jest assertion's own ``title`` when that title is a case
+id. It is ``null`` for a test that carries none.
 """
 
 from __future__ import annotations
@@ -18,11 +25,16 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Final
 
+from datrix_codegen_common.algorithms.test_case_identity import (
+    TEST_CASE_ID_PROPERTY,
+    is_test_case_id,
+)
 from datrix_scripts.codegen_hint_mapper import get_codegen_hint
 
 logger = logging.getLogger(__name__)
@@ -115,11 +127,14 @@ class TestOutcome:
             ``classname::name`` (the dotted module path and enclosing classes, then
             the function) or Jest's ``fullName`` (the enclosing ``describe`` titles
             and the test title). Unique within one service's report.
+        case: The test's language-neutral case id, or ``None`` when the test
+            carries none (see the module docstring for where it is read from).
         outcome: One of :data:`TEST_OUTCOMES`.
     """
 
     service: str
     test: str
+    case: str | None
     outcome: str
 
 
@@ -277,9 +292,10 @@ class GeneratedTestLogWriter:
                 classname = tc.get("classname", "")
                 name = tc.get("name", "")
                 test_id = f"{classname}::{name}" if classname else name
+                case = _junit_case_id(tc)
 
                 if failure_el is not None:
-                    tests_list.append(TestOutcome(service_name, test_id, OUTCOME_FAILED))
+                    tests_list.append(TestOutcome(service_name, test_id, case, OUTCOME_FAILED))
                     failed += 1
                     err_type = failure_el.get("type", "")
                     err_msg = _ANSI_ESCAPE.sub(
@@ -301,7 +317,7 @@ class GeneratedTestLogWriter:
                     self._next_failure_id += 1
 
                 elif error_el is not None:
-                    tests_list.append(TestOutcome(service_name, test_id, OUTCOME_ERROR))
+                    tests_list.append(TestOutcome(service_name, test_id, case, OUTCOME_ERROR))
                     errors += 1
                     err_type = error_el.get("type", "")
                     err_msg = _ANSI_ESCAPE.sub(
@@ -324,10 +340,10 @@ class GeneratedTestLogWriter:
                     self._next_error_id += 1
 
                 elif skipped_el is not None:
-                    tests_list.append(TestOutcome(service_name, test_id, OUTCOME_SKIPPED))
+                    tests_list.append(TestOutcome(service_name, test_id, case, OUTCOME_SKIPPED))
                     skipped += 1
                 else:
-                    tests_list.append(TestOutcome(service_name, test_id, OUTCOME_PASSED))
+                    tests_list.append(TestOutcome(service_name, test_id, case, OUTCOME_PASSED))
                     passed += 1
 
         result = "FAILED" if (failed > 0 or errors > 0 or suite_failures > 0) else "PASSED"
@@ -462,14 +478,15 @@ class GeneratedTestLogWriter:
         for test_result in test_suite.get("assertionResults", []):
             status = test_result.get("status", "")
             full_name = _jest_full_name(test_result)
+            case = _jest_case_id(test_result)
             if status == "passed":
-                tests.append(TestOutcome(service_name, full_name, OUTCOME_PASSED))
+                tests.append(TestOutcome(service_name, full_name, case, OUTCOME_PASSED))
                 passed += 1
             elif status in ("pending", "skipped", "todo", "disabled"):
-                tests.append(TestOutcome(service_name, full_name, OUTCOME_SKIPPED))
+                tests.append(TestOutcome(service_name, full_name, case, OUTCOME_SKIPPED))
                 skipped += 1
             elif status == "failed":
-                tests.append(TestOutcome(service_name, full_name, OUTCOME_FAILED))
+                tests.append(TestOutcome(service_name, full_name, case, OUTCOME_FAILED))
                 failures.append(
                     self._make_jest_failure(service_name, test_file, test_result)
                 )
@@ -812,8 +829,8 @@ class GeneratedTestLogWriter:
         fc_json = [_cluster_to_dict(c) for c in failure_clusters]
         ec_json = [_cluster_to_dict(c) for c in error_clusters]
 
-        tests_json: list[dict[str, str]] = [
-            {"service": t.service, "test": t.test, "outcome": t.outcome}
+        tests_json: list[dict[str, str | None]] = [
+            {"service": t.service, "test": t.test, "case": t.case, "outcome": t.outcome}
             for svc in self._services
             for t in svc.tests
         ]
@@ -1163,6 +1180,48 @@ def _jest_full_name(test_result: dict[str, Any]) -> str:
         ``fullName`` when Jest reported it, else the assertion's ``title``.
     """
     return test_result.get("fullName", test_result.get("title", ""))
+
+
+def _jest_case_id(test_result: Mapping[str, object]) -> str | None:
+    """The case id one Jest assertion carries as its own title.
+
+    Jest's ``--json`` report has no per-test metadata channel, so a generated
+    spec names each test by its case id. Only the assertion's own ``title`` is
+    read (never a ``describe`` title), and only a title that is a well-formed
+    case id counts.
+
+    Args:
+        test_result: One element of a suite's ``assertionResults`` list.
+
+    Returns:
+        The title when it is a case id, else ``None``.
+    """
+    title = test_result.get("title")
+    if isinstance(title, str) and is_test_case_id(title):
+        return title
+    return None
+
+
+def _junit_case_id(testcase: ET.Element) -> str | None:
+    """The case id one JUnit ``<testcase>`` records as a ``<property>``.
+
+    A generated pytest suite copies each test's case-id marker into the test's
+    user properties, which pytest's JUnit writer emits as
+    ``<properties><property name=... value=...></properties>`` under the
+    ``<testcase>``.
+
+    Args:
+        testcase: One ``<testcase>`` element.
+
+    Returns:
+        The recorded value when it is a well-formed case id, else ``None``.
+    """
+    for prop in testcase.iterfind("properties/property"):
+        if prop.get("name") != TEST_CASE_ID_PROPERTY:
+            continue
+        value = prop.get("value", "")
+        return value if is_test_case_id(value) else None
+    return None
 
 
 def _extract_generated_file_from_path(test_file_path: str) -> str | None:

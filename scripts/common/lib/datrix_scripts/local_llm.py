@@ -26,6 +26,12 @@ LOAD SPREADING
     readies and uses only the first candidate. Models Ollama would have to LOAD are never
     spread over: one is loaded only when no resident candidate is left, one at a time.
 
+RESIDENCY
+    A request's ``keep_alive`` replaces the residency Ollama held for the model, including one
+    its owner set with ``OLLAMA_KEEP_ALIVE=-1``. So the pool's own window is sent only when it
+    outlasts what the model already has: a model kept resident indefinitely stays resident,
+    and a machine kept that way keeps taking the resident-only work of hooks and MCP tools.
+
 FAILOVER
     A candidate is readied before it is handed a request, and a candidate that fails -- to
     load, to answer, or mid-run -- is dropped for the rest of the run and the remaining ones
@@ -41,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 import threading
@@ -50,6 +57,7 @@ import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from datrix_scripts.local_llm_usage import (
@@ -88,9 +96,22 @@ OLLAMA_THINKING_CAPABILITY = "thinking"
 # Ollama resolves an untagged model name to this tag.
 OLLAMA_DEFAULT_TAG = "latest"
 
-# How long Ollama keeps a model loaded after a request. Requests in one run can be
-# minutes apart, and a cold reload of a 20+ GB model costs minutes on a slow disk.
-DEFAULT_KEEP_ALIVE = "30m"
+# How long Ollama keeps a model loaded after a request, in seconds. Requests in one run can
+# be minutes apart, and a cold reload of a 20+ GB model costs minutes on a slow disk.
+SECONDS_PER_MINUTE = 60
+DEFAULT_KEEP_ALIVE_SECONDS = 30 * SECONDS_PER_MINUTE
+
+# A --local-keep-alive value: whole seconds, or a number with an s, m or h suffix.
+KEEP_ALIVE_PATTERN = re.compile(r"^(\d+)([smh]?)$")
+KEEP_ALIVE_UNIT_SECONDS: dict[str, int] = {"": 1, "s": 1, "m": SECONDS_PER_MINUTE, "h": 60 * SECONDS_PER_MINUTE}
+
+# The keep_alive value that tells Ollama to keep a model loaded indefinitely.
+OLLAMA_KEEP_ALIVE_INDEFINITE = -1
+
+# Ollama records an indefinite residency as the longest duration it can hold, so ``/api/ps``
+# reports an expiry about 292 years out. An expiry beyond this horizon is that indefinite
+# residency, never a real deadline.
+OLLAMA_INDEFINITE_RESIDENCY_HORIZON = timedelta(days=100 * 365)
 
 DEFAULT_REACHABLE_TIMEOUT_MS = 3000
 DEFAULT_LOAD_TIMEOUT_MS = 900000
@@ -130,6 +151,9 @@ class LocalCandidate:
     thinking: bool
     # Already loaded into memory, as opposed to a model Ollama would have to load first.
     resident: bool
+    # When Ollama will unload a model it holds, as its ``/api/ps`` reported; None for a
+    # model Ollama would have to load.
+    resident_until: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -161,7 +185,9 @@ class LocalLlmSettings:
     reachable_timeout_ms: int = DEFAULT_REACHABLE_TIMEOUT_MS
     load_timeout_ms: int = DEFAULT_LOAD_TIMEOUT_MS
     generate_timeout_ms: int = DEFAULT_GENERATE_TIMEOUT_MS
-    keep_alive: str = DEFAULT_KEEP_ALIVE
+    # How long Ollama keeps a model loaded after a request; never sent where it would
+    # shorten a residency the model already has (``ollama_keep_alive``).
+    keep_alive_seconds: int = DEFAULT_KEEP_ALIVE_SECONDS
     # False offers only models already in memory: a caller that must answer within
     # seconds (a Claude Code hook) can never wait out a multi-minute Ollama load.
     allow_load: bool = True
@@ -214,6 +240,24 @@ def parse_local_machine(spec: str) -> str:
     return machine
 
 
+def parse_keep_alive(spec: str) -> int:
+    """Validate a keep-alive value and return it in seconds: a positive whole number of
+    seconds, or a number with an ``s``, ``m`` or ``h`` suffix.
+
+    Zero (unload after every request) and a negative value (keep every model the pool loads
+    resident indefinitely, claiming most of a GPU for good) are refused.
+    """
+    match = KEEP_ALIVE_PATTERN.match(spec.strip())
+    if match is None or int(match.group(1)) == 0:
+        raise argparse.ArgumentTypeError(
+            f"Keep-alive '{spec}' is not a positive duration. Pass whole seconds or a number "
+            f"with an s, m or h suffix, e.g. {DEFAULT_KEEP_ALIVE_SECONDS // SECONDS_PER_MINUTE}m. "
+            "To keep a model resident indefinitely, set OLLAMA_KEEP_ALIVE=-1 on its machine and "
+            "load it once; the pool never shortens that residency."
+        )
+    return int(match.group(1)) * KEEP_ALIVE_UNIT_SECONDS[match.group(2)]
+
+
 def qualified_ollama_model(model: str) -> str:
     """Return the model name as Ollama lists it, with the implicit tag made explicit."""
     return model if ":" in model else f"{model}:{OLLAMA_DEFAULT_TAG}"
@@ -233,15 +277,31 @@ def listed_ollama_models(tags_response: object) -> dict[str, frozenset[str]]:
     return models
 
 
-def loaded_ollama_models(ps_response: object) -> list[str]:
-    """The model names in an Ollama ``/api/ps`` response -- the models it holds in memory."""
+def _ollama_expiry(entry: dict[str, object]) -> datetime:
+    """When Ollama will unload the model of one ``/api/ps`` entry; raises ValueError if unstated."""
+    stated = entry.get("expires_at")
+    expiry = datetime.fromisoformat(stated) if isinstance(stated, str) else None
+    if expiry is None or expiry.tzinfo is None:
+        raise ValueError(
+            f"model '{entry['name']}' has no 'expires_at' timestamp with a UTC offset (got {stated!r})"
+        )
+    return expiry
+
+
+def loaded_ollama_models(ps_response: object) -> dict[str, datetime]:
+    """Map each model in an Ollama ``/api/ps`` response -- the models it holds in memory --
+    to when Ollama will unload it.
+
+    The expiry is what a request must not shorten (``ollama_keep_alive``), so an entry
+    without one makes the response unusable: raises ValueError.
+    """
     if not isinstance(ps_response, dict) or not isinstance(ps_response.get("models"), list):
         raise ValueError("expected a JSON object with a 'models' list")
-    return [
-        entry["name"]
+    return {
+        entry["name"]: _ollama_expiry(entry)
         for entry in ps_response["models"]
         if isinstance(entry, dict) and isinstance(entry.get("name"), str)
-    ]
+    }
 
 
 def strip_reasoning(text: str) -> str:
@@ -274,19 +334,19 @@ def survey_ollama(base_url: str, settings: LocalLlmSettings) -> ServerSurvey:
     loaded = loaded_ollama_models(_fetch_json(f"{base_url}/api/ps", settings.reachable_timeout_ms))
     wanted = _wanted(settings.models)
 
-    def candidate(model: str, resident: bool) -> LocalCandidate:
+    def candidate(model: str, resident_until: datetime | None) -> LocalCandidate:
         thinking = OLLAMA_THINKING_CAPABILITY in capabilities[model]
-        return LocalCandidate(LocalHost(base_url, model), thinking, resident)
+        return LocalCandidate(LocalHost(base_url, model), thinking, resident_until is not None, resident_until)
 
     answering = {model for model in capabilities if OLLAMA_COMPLETION_CAPABILITY in capabilities[model]}
     resident = [
-        candidate(model, True)
-        for model in loaded
+        candidate(model, expiry)
+        for model, expiry in loaded.items()
         if model in answering and (not wanted or model in wanted)
     ]
     loadable_names = wanted or _wanted(OLLAMA_LOAD_PREFERENCE)
     loadable = [
-        candidate(model, False)
+        candidate(model, None)
         for model in loadable_names
         if model in answering and model not in loaded
     ]
@@ -377,7 +437,23 @@ def _messages(request: ChatRequest) -> list[dict[str, str]]:
     ]
 
 
-def ollama_chat_body(candidate: LocalCandidate, request: ChatRequest, keep_alive: str) -> dict[str, object]:
+def ollama_keep_alive(candidate: LocalCandidate, settings: LocalLlmSettings, now: datetime) -> int:
+    """The ``keep_alive`` to send with a request to an Ollama candidate, in seconds.
+
+    A request's ``keep_alive`` replaces whatever residency Ollama held for the model, so the
+    pool's window is sent only when it outlasts that residency. A model held indefinitely
+    gets ``OLLAMA_KEEP_ALIVE_INDEFINITE``; one held longer than the window gets what is
+    left of its residency; a model being loaded, or held for less, gets the window.
+    """
+    if candidate.resident_until is None:
+        return settings.keep_alive_seconds
+    remaining = candidate.resident_until - now
+    if remaining > OLLAMA_INDEFINITE_RESIDENCY_HORIZON:
+        return OLLAMA_KEEP_ALIVE_INDEFINITE
+    return max(settings.keep_alive_seconds, math.ceil(remaining.total_seconds()))
+
+
+def ollama_chat_body(candidate: LocalCandidate, request: ChatRequest, keep_alive: int) -> dict[str, object]:
     """One non-streaming Ollama ``/api/chat`` request."""
     options: dict[str, object] = {"temperature": request.temperature}
     if request.max_tokens is not None:
@@ -405,7 +481,7 @@ def complete(candidate: LocalCandidate, request: ChatRequest, settings: LocalLlm
     """
     uri = f"{candidate.host.base_url}/api/chat"
     data = _post_json(
-        uri, ollama_chat_body(candidate, request, settings.keep_alive),
+        uri, ollama_chat_body(candidate, request, ollama_keep_alive(candidate, settings, datetime.now(UTC))),
         settings.generate_timeout_ms, candidate.host.model,
     )
     message = data.get("message")
@@ -422,14 +498,15 @@ def ready_candidate(candidate: LocalCandidate, settings: LocalLlmSettings) -> No
     """Prove the model can serve before it is handed work; raise LocalLlmError if not.
 
     Ollama loads on demand: a generate request with no prompt only loads the model (or
-    renews a loaded one's keep-alive). Doing that once, under the load timeout, keeps a
-    cold load from being charged against a generate call's timeout, and a model that
-    cannot load (out of GPU memory) is caught here.
+    renews a loaded one's keep-alive, never shortening it: ``ollama_keep_alive``). Doing
+    that once, under the load timeout, keeps a cold load from being charged against a
+    generate call's timeout, and a model that cannot load (out of GPU memory) is caught
+    here.
     """
     host = candidate.host
     _post_json(
         f"{host.base_url}/api/generate",
-        {"model": host.model, "keep_alive": settings.keep_alive},
+        {"model": host.model, "keep_alive": ollama_keep_alive(candidate, settings, datetime.now(UTC))},
         settings.load_timeout_ms,
         host.model,
     )
@@ -688,8 +765,14 @@ def add_local_llm_arguments(
     )
     group.add_argument(
         "--local-keep-alive",
-        default=DEFAULT_KEEP_ALIVE,
-        help=f"How long Ollama keeps a model loaded after a request (default: {DEFAULT_KEEP_ALIVE}).",
+        type=parse_keep_alive,
+        default=DEFAULT_KEEP_ALIVE_SECONDS,
+        help=(
+            "How long Ollama keeps a model loaded after a request: whole seconds, or a number "
+            "with an s, m or h suffix (default: "
+            f"{DEFAULT_KEEP_ALIVE_SECONDS // SECONDS_PER_MINUTE}m). Never shortens a residency the "
+            "model already has, so a model kept resident indefinitely stays resident."
+        ),
     )
 
 
@@ -709,5 +792,5 @@ def local_llm_settings(args: argparse.Namespace, *, models: tuple[str, ...] | No
         reachable_timeout_ms=args.local_reachable_timeout_ms,
         load_timeout_ms=args.local_load_timeout_ms,
         generate_timeout_ms=args.local_timeout_ms,
-        keep_alive=args.local_keep_alive,
+        keep_alive_seconds=args.local_keep_alive,
     )

@@ -34,8 +34,9 @@ Modules covered:
                                                already covered far more rigorously by
                                                test-specific-selection-gate.ps1's run_dir_exclusivity_check
                                                and are deliberately NOT re-covered here)
-    datrix_scripts.local_llm                  (discovery, candidate order, request shapes, readiness, failover
-                                               and the no-server outcome -- against real HTTP servers on loopback)
+    datrix_scripts.local_llm                  (discovery, candidate order, request shapes, readiness, failover,
+                                               a residency no request shortens, and the no-server outcome --
+                                               against real HTTP servers on loopback)
     datrix_scripts.llm_code_fix               (code-answer parsing; a verification that cannot run fails closed)
     the scripts-tree layout                   (every Python file sits in a ``lib/`` folder or the shared
                                                package, every import resolves, no ``lib/`` file shadows an
@@ -84,9 +85,11 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+from datrix_codegen_common.algorithms.test_case_identity import TEST_CASE_ID_PROPERTY
 
 from datrix_scripts import suite_inputs
 from datrix_scripts.aggregate_test_writer import (
@@ -125,6 +128,8 @@ from datrix_scripts.llm_code_fix import (
 )
 from datrix_scripts.local_llm import (
     ADVISORY_UNAVAILABLE_SOURCE,
+    DEFAULT_KEEP_ALIVE_SECONDS,
+    OLLAMA_KEEP_ALIVE_INDEFINITE,
     OLLAMA_LOAD_PREFERENCE,
     ChatRequest,
     LocalCandidate,
@@ -135,6 +140,8 @@ from datrix_scripts.local_llm import (
     advisory_reply,
     discover_candidates,
     ollama_chat_body,
+    ollama_keep_alive,
+    parse_keep_alive,
     parse_local_machine,
     strip_reasoning,
     survey_ollama,
@@ -146,6 +153,8 @@ from datrix_scripts.local_llm_loopback import (
     LoopbackOllama,
     answering,
     closed_port,
+    held_for,
+    without_expiry,
 )
 from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE, usage_report
 from datrix_scripts.logging_utils import LogConfig, TeeLogger, cleanup_old_logs
@@ -996,12 +1005,9 @@ def check_test_runner_parallel_phase_uses_loadgroup_distribution() -> None:
 
     ``loadgroup`` is the ONLY xdist distribution mode that honours an
     ``xdist_group`` mark: it is what makes every item sharing a group name land
-    on one worker. ``datrix-codegen-typescript`` depends on that and is
-    silently inert without it: it pools its ``npm_tsc`` tests into
-    ``DATRIX_TS_NPM_TSC_POOLS`` groups from its ``tests/conftest.py``
-    collection hook, so that at most that many real ``npm install`` + ``tsc``
-    chains run at once. Downgrading this flag to plain ``--dist load`` would
-    turn that pool back into unbounded concurrency without failing anything.
+    on one worker, so an expensive fixture its consumers share is built once.
+    Downgrading this flag to plain ``--dist load`` would scatter every grouped
+    family across the workers without failing anything.
 
     The serial phase is checked too: it must NOT carry the parallel flags,
     because ``serial`` means strictly one at a time.
@@ -3163,10 +3169,10 @@ def check_generated_test_log_per_test_records() -> None:
         )
         classname = "tests.unit.test_order.TestOrder"
         assert index_junit["tests"] == [
-            {"service": "order_service", "test": f"{classname}::test_passes", "outcome": "passed"},
-            {"service": "order_service", "test": f"{classname}::test_fails", "outcome": "failed"},
-            {"service": "order_service", "test": f"{classname}::test_errors", "outcome": "error"},
-            {"service": "order_service", "test": f"{classname}::test_skipped", "outcome": "skipped"},
+            {"service": "order_service", "test": f"{classname}::test_passes", "case": None, "outcome": "passed"},
+            {"service": "order_service", "test": f"{classname}::test_fails", "case": None, "outcome": "failed"},
+            {"service": "order_service", "test": f"{classname}::test_errors", "case": None, "outcome": "error"},
+            {"service": "order_service", "test": f"{classname}::test_skipped", "case": None, "outcome": "skipped"},
         ], index_junit["tests"]
 
         json_mixed = root / "mixed.json"
@@ -3175,9 +3181,9 @@ def check_generated_test_log_per_test_records() -> None:
             "jest", "typescript", lambda w: w.add_service_jest_json("order_service", json_mixed, log_path)
         )
         assert index_jest["tests"] == [
-            {"service": "order_service", "test": "OrderService should total", "outcome": "failed"},
-            {"service": "order_service", "test": "OrderService should discount", "outcome": "skipped"},
-            {"service": "order_service", "test": "OrderService should ship", "outcome": "passed"},
+            {"service": "order_service", "test": "OrderService should total", "case": None, "outcome": "failed"},
+            {"service": "order_service", "test": "OrderService should discount", "case": None, "outcome": "skipped"},
+            {"service": "order_service", "test": "OrderService should ship", "case": None, "outcome": "passed"},
         ], index_jest["tests"]
 
         # The records account for the counts, per service, for both frameworks.
@@ -3219,6 +3225,94 @@ def check_generated_test_log_per_test_records() -> None:
         by_service = {s: [t for t in index_multi["tests"] if t["service"] == s] for s in ("service_a", "service_b")}
         assert len(by_service["service_a"]) == 5 and len(by_service["service_b"]) == 4
         assert len(index_multi["tests"]) == 9
+
+
+#: Two generated pytest tests that record their case ids, one whose recorded value
+#: is not a case id, and one that records none.
+_GTLW_JUNIT_CASE_IDS = f"""\
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="tests.unit.enums.test_order_status" tests="4">
+    <testcase classname="tests.unit.enums.test_order_status.TestOrderStatusEnum" name="test_is_defined">
+      <properties><property name="{TEST_CASE_ID_PROPERTY}" value="enum/OrderStatus/defined"/></properties>
+    </testcase>
+    <testcase classname="tests.unit.enums.test_order_status.TestOrderStatusEnum" name="test_member_PENDING">
+      <properties>
+        <property name="unrelated" value="x"/>
+        <property name="{TEST_CASE_ID_PROPERTY}" value="enum/OrderStatus/PENDING/member"/>
+      </properties>
+    </testcase>
+    <testcase classname="tests.unit.enums.test_order_status.TestOrderStatusEnum" name="test_bad">
+      <properties><property name="{TEST_CASE_ID_PROPERTY}" value="not an id"/></properties>
+    </testcase>
+    <testcase classname="tests.unit.enums.test_order_status.TestOrderStatusEnum" name="test_unmarked"/>
+  </testsuite>
+</testsuites>
+"""
+
+#: The same item tested by a Jest suite: the assertion title is the case id, while
+#: the describe title stays prose and is never read as one.
+_GTLW_JEST_CASE_IDS: dict[str, object] = {
+    "testResults": [
+        {
+            "name": "/app/test/order-status.enum.spec.ts",
+            "status": "passed",
+            "message": "",
+            "assertionResults": [
+                {"title": "enum/OrderStatus/defined", "status": "passed",
+                 "fullName": "OrderStatus enum/OrderStatus/defined"},
+                {"title": "enum/OrderStatus/PENDING/member", "status": "passed",
+                 "fullName": "OrderStatus enum/OrderStatus/PENDING/member"},
+                {"title": "is defined as a runtime value", "status": "passed",
+                 "fullName": "enum/OrderStatus/defined is defined as a runtime value"},
+            ],
+        }
+    ],
+}
+
+
+def check_generated_test_log_records_case_ids_from_each_frameworks_channel() -> None:
+    """Each per-test record carries the test's case id: from the JUnit property a
+    generated pytest suite writes, and from the Jest assertion's own title. A value
+    that is not a case id, a missing property, and a prose title (even one nested
+    under an id-shaped describe) all record no case. Two frameworks naming the same
+    test differently record the same case."""
+    with TemporaryDirectory(prefix="gtlw-cases-") as tmp:
+        root = Path(tmp)
+        log_path = root / "svc.log"
+        log_path.write_text("log\n", encoding="utf-8")
+
+        xml_path = root / "cases.xml"
+        xml_path.write_text(_GTLW_JUNIT_CASE_IDS, encoding="utf-8")
+        junit_dir = root / "junit"
+        junit_dir.mkdir()
+        junit_writer = _make_generated_test_log_writer(junit_dir)
+        junit_writer.add_service_junit_xml("order_service", xml_path, log_path)
+        junit_index = json.loads(junit_writer.write(duration_seconds=0.1).read_text(encoding="utf-8"))
+        assert [t["case"] for t in junit_index["tests"]] == [
+            "enum/OrderStatus/defined",
+            "enum/OrderStatus/PENDING/member",
+            None,
+            None,
+        ], junit_index["tests"]
+
+        json_path = root / "cases.json"
+        json_path.write_text(json.dumps(_GTLW_JEST_CASE_IDS), encoding="utf-8")
+        jest_dir = root / "jest"
+        jest_dir.mkdir()
+        jest_writer = _make_generated_test_log_writer(jest_dir, language="typescript")
+        jest_writer.add_service_jest_json("order_service", json_path, log_path)
+        jest_index = json.loads(jest_writer.write(duration_seconds=0.1).read_text(encoding="utf-8"))
+        assert [t["case"] for t in jest_index["tests"]] == [
+            "enum/OrderStatus/defined",
+            "enum/OrderStatus/PENDING/member",
+            None,
+        ], jest_index["tests"]
+
+        junit_names = {t["test"] for t in junit_index["tests"][:2]}
+        jest_names = {t["test"] for t in jest_index["tests"][:2]}
+        assert junit_names.isdisjoint(jest_names), "the fixture must name the tests differently"
+        assert [t["case"] for t in junit_index["tests"][:2]] == [t["case"] for t in jest_index["tests"][:2]]
 
 
 # ===========================================================================
@@ -4506,6 +4600,9 @@ def _set_mtime(path: Path, mtime: float) -> None:
 _MODEL_A = "model-a:1b"
 _MODEL_B = "model-b:1b"
 
+# An ``/api/ps`` expiry in the form Ollama writes it (RFC 3339, nanoseconds, UTC offset).
+_OLLAMA_SOON = "2026-10-07T01:30:00.123456789-07:00"
+
 
 def _settings_for(ollama_port: int, models: tuple[str, ...] = ()) -> LocalLlmSettings:
     return LocalLlmSettings(
@@ -4546,11 +4643,12 @@ def check_local_llm_request_bodies_carry_think_schema_and_context() -> None:
     thinking = LocalCandidate(LocalHost("http://x:11434", "reasoner:1b"), thinking=True, resident=True)
     plain = LocalCandidate(LocalHost("http://x:11434", "coder:1b"), thinking=False, resident=True)
 
-    body = ollama_chat_body(thinking, request, "30m")
+    body = ollama_chat_body(thinking, request, 1800)
     assert body["think"] is False, "a thinking-capable Ollama model must be told the caller's think choice"
     assert body["format"] == schema
     assert body["options"] == {"temperature": 0.2, "num_predict": 64, "num_ctx": 8192}
-    assert "think" not in ollama_chat_body(plain, request, "30m"), (
+    assert body["keep_alive"] == 1800
+    assert "think" not in ollama_chat_body(plain, request, 1800), (
         "think sent to a model without the thinking capability is an Ollama error"
     )
 
@@ -4567,7 +4665,8 @@ def check_local_llm_survey_ollama_orders_resident_then_preferred_loadable() -> N
                 {"name": "embedder:latest", "capabilities": ["embedding"]},
             ]}
         if path == "/api/ps":
-            return 200, {"models": [{"name": "loaded:7b"}, {"name": "embedder:latest"}]}
+            return 200, {"models": [{"name": "loaded:7b", "expires_at": _OLLAMA_SOON},
+                                    {"name": "embedder:latest", "expires_at": _OLLAMA_SOON}]}
         return 404, {}
 
     with LoopbackJsonServer(respond) as server:
@@ -4577,6 +4676,9 @@ def check_local_llm_survey_ollama_orders_resident_then_preferred_loadable() -> N
             ("loaded:7b", True, True),
             (preferred, False, False),
         ], f"default survey: resident answering models, then the load preference; got {default.candidates}"
+        assert [c.resident_until for c in default.candidates] == [datetime.fromisoformat(_OLLAMA_SOON), None], (
+            f"a resident model must carry the expiry /api/ps reported, a loadable one none; got {default.candidates}"
+        )
 
         pinned = survey_ollama(base, _settings_for(server.port, models=("other:3b",)))
         assert [(c.host.model, c.resident) for c in pinned.candidates] == [("other:3b", False)], (
@@ -4604,7 +4706,7 @@ def check_local_llm_allow_load_false_offers_only_resident_models() -> None:
             return 200, {"models": [{"name": "loaded:7b", "capabilities": ["completion"]},
                                     {"name": preferred, "capabilities": ["completion"]}]}
         if path == "/api/ps":
-            return 200, {"models": [{"name": "loaded:7b"}]}
+            return 200, {"models": [{"name": "loaded:7b", "expires_at": _OLLAMA_SOON}]}
         return 404, {}
 
     with LoopbackJsonServer(ollama) as server:
@@ -4619,6 +4721,69 @@ def check_local_llm_allow_load_false_offers_only_resident_models() -> None:
     assert [c.host.model for c in resident_only] == ["loaded:7b"], (
         f"allow_load=False must offer only models already in memory; got {resident_only}"
     )
+
+
+def check_local_llm_keep_alive_parses_positive_durations_only() -> None:
+    assert [parse_keep_alive(s) for s in ("30m", "45", "10s", "2h", " 5m ")] == [1800, 45, 10, 7200, 300]
+    for bad in ("0", "0m", "-1", "-1m", "1h30m", "", "5d", "m"):
+        try:
+            parse_keep_alive(bad)
+        except argparse.ArgumentTypeError as exc:
+            assert "positive duration" in str(exc) and "OLLAMA_KEEP_ALIVE=-1" in str(exc), (
+                f"error for {bad!r} does not say what is expected and how to keep a model resident: {exc}"
+            )
+        else:
+            raise AssertionError(f"parse_keep_alive accepted {bad!r}")
+
+
+def check_local_llm_keep_alive_never_shortens_a_residency() -> None:
+    settings = LocalLlmSettings(keep_alive_seconds=DEFAULT_KEEP_ALIVE_SECONDS)
+    now = datetime.now(UTC)
+    host = LocalHost("http://x:11434", "held:7b")
+
+    def sent(resident_until: datetime | None) -> int:
+        candidate = LocalCandidate(host, False, resident_until is not None, resident_until)
+        return ollama_keep_alive(candidate, settings, now)
+
+    assert sent(None) == DEFAULT_KEEP_ALIVE_SECONDS, "a model the pool loads must get the pool's window"
+    assert sent(now + timedelta(minutes=2)) == DEFAULT_KEEP_ALIVE_SECONDS, (
+        "a residency shorter than the window must be extended to the window"
+    )
+    assert sent(now + timedelta(hours=2)) == 7200, "a residency longer than the window must keep what is left of it"
+    assert sent(now + timedelta(days=292 * 365)) == OLLAMA_KEEP_ALIVE_INDEFINITE, (
+        "a model Ollama holds indefinitely must stay held indefinitely"
+    )
+
+
+def check_local_llm_pool_never_shortens_a_residency_on_the_wire() -> None:
+    request = ChatRequest(system="s", user="u", temperature=0.0)
+    cases = (
+        (timedelta(days=292 * 365), OLLAMA_KEEP_ALIVE_INDEFINITE),
+        (timedelta(minutes=2), DEFAULT_KEEP_ALIVE_SECONDS),
+    )
+    for residency, expected in cases:
+        with LoopbackOllama(answering("answer"), ("held:7b",), expires_at=held_for(residency)) as server:
+            reply = LocalLlmPool(_settings_for(server.port), report=[].append).chat(request)
+            readiness = [body["keep_alive"] for body in server.posts_to("/api/generate")]
+            chats = [body["keep_alive"] for body in server.posts_to("/api/chat")]
+        assert reply.text == "answer"
+        assert (readiness, chats) == ([expected], [expected]), (
+            f"a model resident for {residency} must be sent keep_alive {expected} on both the readiness "
+            f"and the chat request; got readiness {readiness}, chat {chats}"
+        )
+
+
+def check_local_llm_survey_refuses_a_resident_model_without_expiry() -> None:
+    with LoopbackOllama(answering("answer"), ("held:7b",), expires_at=without_expiry) as server:
+        try:
+            survey_ollama(f"http://{LOOPBACK}:{server.port}", _settings_for(server.port))
+        except ValueError as exc:
+            assert "held:7b" in str(exc) and "expires_at" in str(exc), f"the error must name the model and field: {exc}"
+        else:
+            raise AssertionError(
+                "a resident model with no expiry must make the survey unusable: a request to it could "
+                "shorten a residency the pool cannot see"
+            )
 
 
 def check_local_llm_pool_fails_over_to_the_next_model() -> None:
@@ -4863,6 +5028,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_generated_test_log_detail_files_and_codegen_hint,
     check_generated_test_log_multi_service_and_log_only_fallback,
     check_generated_test_log_per_test_records,
+    check_generated_test_log_records_case_ids_from_each_frameworks_channel,
     # datrix_scripts.aggregate_test_writer
     check_aggregate_test_writer_cross_project_correlation,
     check_aggregate_test_writer_suite_failure_clusters_separate_type,
@@ -4893,6 +5059,10 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_local_llm_survey_ollama_orders_resident_then_preferred_loadable,
     check_local_llm_searches_only_the_ollama_port,
     check_local_llm_allow_load_false_offers_only_resident_models,
+    check_local_llm_keep_alive_parses_positive_durations_only,
+    check_local_llm_keep_alive_never_shortens_a_residency,
+    check_local_llm_pool_never_shortens_a_residency_on_the_wire,
+    check_local_llm_survey_refuses_a_resident_model_without_expiry,
     check_local_llm_pool_fails_over_to_the_next_model,
     check_local_llm_pool_spreads_requests_over_ready_models,
     check_local_llm_pool_records_every_request,

@@ -11,7 +11,8 @@ checks of the pool's own survey logic. ``LoopbackOllama`` builds the usual case 
 model it lists is loaded, and a chat is answered by ``answer``:
 
     GET  /api/tags      every model, with ``capabilities``
-    GET  /api/ps        every model (all of them are held in memory)
+    GET  /api/ps        every model (all of them are held in memory), each with the
+                        ``expires_at`` the check chose (30 minutes out by default)
     POST /api/generate  a load (no prompt): recorded in ``loads``, always succeeds
     POST /api/chat      recorded in ``chats``; HTTP 500 for a model in ``failing``,
                         otherwise ``answer(chat)`` after ``chat_seconds``
@@ -25,6 +26,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 LOOPBACK = "127.0.0.1"
@@ -108,6 +110,27 @@ class Chat:
 
 ChatAnswer = Callable[[Chat], str]
 
+#: What ``/api/ps`` reports as a model's ``expires_at``: RFC 3339 text with a UTC offset,
+#: or ``None`` for an entry that states none.
+ExpiryText = Callable[[], "str | None"]
+
+DEFAULT_RESIDENCY = timedelta(minutes=30)
+
+
+def held_for_thirty_minutes() -> str:
+    """An ``expires_at`` of ``DEFAULT_RESIDENCY`` from now, as Ollama writes it."""
+    return (datetime.now(UTC) + DEFAULT_RESIDENCY).isoformat()
+
+
+def held_for(residency: timedelta) -> ExpiryText:
+    """An ``expires_at`` source reporting every model held for *residency* from now."""
+    return lambda: (datetime.now(UTC) + residency).isoformat()
+
+
+def without_expiry() -> None:
+    """An ``expires_at`` source for a response whose entries state none."""
+    return None
+
 
 def answering(text: str) -> ChatAnswer:
     """An ``answer`` that gives ``text`` to every chat."""
@@ -133,6 +156,7 @@ class LoopbackOllama(LoopbackJsonServer):
         failing: frozenset[str] = frozenset(),
         chat_seconds: float = 0.0,
         capabilities: tuple[str, ...] = COMPLETION_CAPABILITIES,
+        expires_at: ExpiryText = held_for_thirty_minutes,
     ) -> None:
         self.chats: list[Chat] = []
         self.loads: list[str] = []
@@ -141,6 +165,7 @@ class LoopbackOllama(LoopbackJsonServer):
         self._failing = failing
         self._chat_seconds = chat_seconds
         self._capabilities = capabilities
+        self._expires_at = expires_at
         super().__init__(self._respond)
 
     def __enter__(self) -> LoopbackOllama:
@@ -151,11 +176,16 @@ class LoopbackOllama(LoopbackJsonServer):
         """The chats sent to ``model``, answered or failed."""
         return [chat for chat in self.chats if chat.model == model]
 
+    def _resident_entry(self, model: str) -> dict[str, object]:
+        """One ``/api/ps`` entry: the model, and when Ollama will unload it unless unstated."""
+        expiry = self._expires_at()
+        return {"name": model} if expiry is None else {"name": model, "expires_at": expiry}
+
     def _respond(self, method: str, path: str, body: dict[str, object] | None) -> tuple[int, object]:
         if method == "GET" and path == "/api/tags":
             return HTTP_OK, {"models": [{"name": m, "capabilities": list(self._capabilities)} for m in self._models]}
         if method == "GET" and path == "/api/ps":
-            return HTTP_OK, {"models": [{"name": m} for m in self._models]}
+            return HTTP_OK, {"models": [self._resident_entry(m) for m in self._models]}
         if method == "POST" and path == "/api/generate" and body is not None:
             self.loads.append(str(body["model"]))
             return HTTP_OK, {"model": body["model"], "done": True}
