@@ -68,6 +68,7 @@ from datrix_codegen_common.generation.wire_naming import body_wire_name
 from datrix_codegen_kernel.parity.conformance_probes import (
     DocumentationSurfaces,
     EnumClassifierRender,
+    EventEnvelopeCensus,
     LanguageConformanceProbes,
     ResponseBodyWireField,
     RouteWireContract,
@@ -462,6 +463,9 @@ class _FixtureProbes:
 
     def render_enum_classifier(self, enum: object, paths: object) -> EnumClassifierRender:
         return EnumClassifierRender(())
+
+    def event_envelopes(self, generated_root: Path) -> EventEnvelopeCensus:
+        return EventEnvelopeCensus(published=(), consumed_keys={})
 
 
 class _FixturePluginWithoutProbes:

@@ -419,6 +419,28 @@ Application probe-path literal gate: no platform package may hardcode a route a 
 
 ---
 
+## `gates\repo-hygiene\template-reachability-gate.ps1`
+
+Template reachability gate: every Jinja template a framework package ships is named by something that can render it. Every `.j2` below a `templates/` directory of every `datrix-*/src` tree is discovered from disk; a template counts as named when a Python string constant in any framework `src/` (`ast`, docstrings excluded) equals its path below `templates/` or its file name, when an f-string / `+` concatenation / `{placeholder}` constant matches it with at least one literal character left in the file-name part, when a template statically includes, imports or extends it (`jinja2.meta`), or when a compiled genDSL `FileDefinition` of any registered generator target names it (definition modules imported, IR walked). Exists because dead templates are reviewed and shipped while no generator can render them — two cache-access templates once sat beside the live one that way.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\gates\repo-hygiene\template-reachability-gate.ps1` | Scan every framework package, fail on any template nothing names |
+| **Self-test only** | `.\gates\repo-hygiene\template-reachability-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Debug** | `.\gates\repo-hygiene\template-reachability-gate.ps1 -Dbg` | Print the python invocation |
+
+**Parameters:** `-BaseDir <path>`, `-SelfTest`, `-Dbg`
+
+**Assertions:**
+- Every shipped template is named by one of the four mechanisms above (a literal may also name a template by its bare file stem, the way a render plan composing `{dir}/{stem}.{ext}.j2` does); a genDSL template name that matches no template on disk is a dangling reference and fails too.
+- An unnamed template that a declared contract requires to exist is listed in `datrix/scripts/config/template-reachability-exemptions.json` (template path + written reason); dead output is otherwise deleted. An entry whose template is named or gone is stale and fails the gate.
+- A pattern names every variant it can spell (`f"pubsub_connection_{engine}.py.j2"` names every engine's template), so the gate proves each template is reachable by a name, not that every placeholder value is produced at runtime.
+- Non-vacuity self-test (every invocation): a planted workspace with a literal-named, a pattern-named, an included, a docstring-only and an unnamed template yields exactly the docstring-only and unnamed ones; the live genDSL walk must find template names; and the real workspace must hold templates.
+
+**Exit codes:** 0 = every template is named (or a successful `-SelfTest`), 1 = an unnamed template, a dangling genDSL name or a stale exemption was found, 2 = the self-test failed, a template does not parse, or the exemptions file is missing or malformed.
+
+---
+
 ## `gates\repo-hygiene\example-registry-gate.ps1`
 
 Example-universe consistency **and layout** gate: every `system.dtrx` under `datrix/examples/` must appear in >= 1 named test set of `scripts/config/test-projects.json`, or carry a reviewed entry in `scripts/config/test-set-exclusions.json`. An unregistered example is never built by `generate.ps1 -All`/`run-complete.ps1 -All`, which select their corpus FROM `test-projects.json`'s test sets -- this is exactly how the `config-store` and `replayable-ingestion` whole-example parked defects (tracked in `parity-known-nongenerating.json`) went unnoticed for a full generation cycle before this gate landed.
@@ -450,7 +472,7 @@ The gate also enforces the examples tree's layout contract, since an example's i
 Committed example-snapshot gate. An example may carry `generated/<language>-<platform>/` snapshots of its own output; nothing else compares them with the generator, so they rot (a tree for a language nobody can generate any more, an import of a framework module that has since moved). Two checks, both derived from the registered entry points and from `importlib`, never from a hand-written list:
 
 - **Snapshot identity.** Every directory directly under any `datrix/examples/**/generated/` is named `<language>-<platform>` with `<language>` a registered `datrix.languages` name and `<platform>` a registered `datrix.platforms` name (parsed by matching a registered language prefix, then the remainder against the platform set, since platform names contain hyphens). For each example and each platform it carries, the snapshot languages equal the registered language set.
-- **Framework references resolve.** Every dotted `datrix_*` reference in every text file of every snapshot and in every `datrix-*/src/**/*.j2` template resolves: the longest prefix `importlib.util.find_spec` finds is imported and the remaining segments resolve by attribute access. A reference rooted at a name the same file binds with `import ... as <name>` (a Dart import prefix) is that file's own binding, not a framework module.
+- **Framework references resolve.** Every dotted `datrix_*` reference in every text file of every snapshot and in every `datrix-*/src/**/*.j2` template resolves through the shared resolver (`common/lib/datrix_scripts/framework_references.py`): the longest prefix `importlib.util.find_spec` finds is imported and the remaining segments resolve as members (an attribute, or on a class a Pydantic, dataclass or annotated field). A `datrix_*` segment inside a longer dotted chain is not a reference of its own. A reference rooted at a name the same file binds with `import ... as <name>` (a Dart import prefix) is that file's own binding, not a framework module. Framework Python comments and docstrings are held by `source-comment-reference-gate.ps1`.
 
 It does not regenerate and diff (a whole-system generation per language per run); refresh a snapshot with `generation\refresh-example-snapshot.ps1`.
 
@@ -465,6 +487,31 @@ It does not regenerate and diff (a whole-system generation per language per run)
 **Self-test (every invocation):** a fixture holding every registered language passes; a planted unregistered language fails naming it; a fixture missing one registered language fails naming it; a planted `datrix_common.migration.live_snapshot_export` fails and `datrix_migration.live_snapshot_export` passes; `datrix_common.utils.text.to_snake_case` passes and a missing attribute fails; a file-local import alias is exempt only in the file that binds it.
 
 **Exit codes:** 0 = clean (or a successful `-SelfTest`), 1 = at least one violation (each names `file:line` and the reference, or the directory, the installed sets and the refresh command), 2 = fewer than two registered languages, a failed self-test, no snapshot on disk, or no template reference found.
+
+---
+
+## `gates\repo-hygiene\source-comment-reference-gate.ps1`
+
+**Every module a framework `src/` comment or docstring cites exists.** Imports are proven by importing; a comment naming a module is proven by nothing, so a module that is moved, split or renamed leaves every comment naming it pointing at code that is not there. The gate reads prose only — comment tokens and string-literal expression statements (docstrings of every kind) in every `.py` under every `datrix-*` package's `src/` (packages discovered from disk) — and resolves two citation shapes:
+
+- **Dotted references.** Every `datrix_*` dotted reference resolves through the shared resolver the example-snapshot gate uses.
+- **File citations** (`foo.py`, `a/b/foo.py`; a `.py.j2` template name is not a module citation). An anchored citation — at a framework repository (`datrix-codegen-x/...`, `datrix/scripts/...`), an import name (`datrix_codegen_x/...`) or an importable third-party package (`pygls/io_.py`) — must name a file that exists there. A bare or relative citation must name a `.py` file of the citing package or of a package in its runtime dependency closure (read from each `pyproject.toml`). **A module of any other package is cited by its anchored or dotted path**: a bare name is otherwise satisfied by any unrelated package that happens to own a file of that name, which is how comments in a language package kept citing an Azure `resource_mapper.py` long after Azure split it — the only `resource_mapper.py` left belonged to AWS.
+
+A citation that resolves none of those ways still passes when it names a file the generators emit: a `*.py.j2` template's output name, a genDSL output path (`=> "cdk/app.py"`), or a code string literal whose whole value is a `*.py` path (`"settings_loader.py"`). A longer string that only mentions a `.py` name — an error message's "Fix: edit x.py" — names a framework module, not an output, and excuses nothing. A citation inside a URL is skipped.
+
+**The terminal state is zero.** No baseline, no exemption file. A failing citation is rewritten to the module's current home, to its anchored or dotted path, or to a description of the behaviour.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\gates\repo-hygiene\source-comment-reference-gate.ps1` | Scan every framework package's `src/` comments and docstrings |
+| **Debug** | `.\gates\repo-hygiene\source-comment-reference-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\gates\repo-hygiene\source-comment-reference-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Self-test (every invocation):** a planted three-package workspace (a core package and two packages depending on it) carries every passing shape — an own module, a dependency's module, anchored repository and import-name paths, template/genDSL/code-string emitted names, a template name, placeholders and globs, a URL, a resolving dotted reference, a `datrix_*` segment inside a longer chain, an instance attribute, a model field, a resolving package-relative reference — and every failing shape: a bare name owned only by a package outside the closure, a name owned by nobody, a name only an error message mentions, an anchored path to a missing file, a removed dotted module, a missing member and a missing package-relative reference. Exactly the failing lines must be reported, with the expected citation counts.
+
+**Exit codes:** 0 = every citation resolves (or a successful `-SelfTest`), 1 = at least one violation (each names `file:line`, the citation and the citing package's dependency closure), 2 = a failed self-test, no package found, or a scan that saw no citation of either shape.
 
 ---
 

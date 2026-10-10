@@ -20,11 +20,12 @@ from a hand-written inventory:
     error (exit 2): with one language the equality is vacuous.
   - Framework references resolve. Every dotted ``datrix_*`` reference in (a)
     every text file of every snapshot and (b) every ``.j2`` template under
-    every ``datrix-*/src`` is resolved through ``importlib``: the longest
-    prefix ``importlib.util.find_spec`` finds is imported and the remaining
-    segments resolve by attribute access. The check reads text, so it is
-    language- and platform-agnostic: it catches a Python import, a comment and
-    a Java doc comment alike.
+    every ``datrix-*/src`` is resolved by the shared
+    ``datrix_scripts.framework_references`` resolver: the longest prefix
+    ``importlib.util.find_spec`` finds is imported and the remaining segments
+    resolve as members. The check reads text, so it is language- and
+    platform-agnostic: it catches a Python import, a comment and a Java doc
+    comment alike.
 
 The gate does not regenerate and diff -- that is a whole-system generation per
 language per run. ``refresh-example-snapshot.ps1`` makes regeneration one
@@ -46,8 +47,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import importlib
-import importlib.util
 import logging
 import os
 import re
@@ -57,6 +56,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Final
 
+from datrix_scripts.framework_references import FRAMEWORK_REFERENCE, ReferenceResolver
 from datrix_scripts.paths import SHOWCASE_DIR, WORKSPACE_DIR
 from datrix_scripts.registered_targets import (
     registered_language_names,
@@ -83,10 +83,6 @@ REFRESH_COMMAND: Final = (
     "powershell -File d:/datrix/datrix/scripts/generation/refresh-example-snapshot.ps1 "
     "-Source <example>/system.dtrx -Language <language>"
 )
-
-#: A dotted framework reference: a ``datrix_*`` package followed by one or more
-#: dotted identifier segments.
-FRAMEWORK_REFERENCE: Final = re.compile(r"\bdatrix_[a-z0-9_]+(?:\.[A-Za-z_][A-Za-z0-9_]*)+")
 
 #: A name the file itself binds with ``import ... as <name>`` (Dart import
 #: prefixes, Python and TypeScript aliases). A reference rooted at such a name
@@ -190,50 +186,6 @@ def find_snapshot_containers(examples_root: Path) -> dict[Path, list[str]]:
 # ---------------------------------------------------------------------------
 # Framework references
 # ---------------------------------------------------------------------------
-
-
-class ReferenceResolver:
-    """Resolves dotted ``datrix_*`` references through ``importlib``, caching verdicts."""
-
-    def __init__(self) -> None:
-        self._verdicts: dict[str, str | None] = {}
-
-    def unresolved_reason(self, reference: str) -> str | None:
-        """Return why *reference* does not resolve, or ``None`` when it does."""
-        if reference not in self._verdicts:
-            self._verdicts[reference] = self._resolve(reference)
-        return self._verdicts[reference]
-
-    @staticmethod
-    def _longest_importable_prefix(parts: Sequence[str]) -> int:
-        """Length of the longest leading run of *parts* ``find_spec`` finds; 0 when none."""
-        for length in range(len(parts), 0, -1):
-            try:
-                spec = importlib.util.find_spec(".".join(parts[:length]))
-            except (ImportError, ValueError):
-                continue
-            if spec is not None:
-                return length
-        return 0
-
-    def _resolve(self, reference: str) -> str | None:
-        parts = reference.split(".")
-        length = self._longest_importable_prefix(parts)
-        if length == 0:
-            return f"top-level package '{parts[0]}' is not importable"
-        module_name = ".".join(parts[:length])
-        try:
-            target = importlib.import_module(module_name)
-        except ImportError as exc:
-            return f"module '{module_name}' is found but does not import: {exc}"
-        for position in range(length, len(parts)):
-            if not hasattr(target, parts[position]):
-                return (
-                    f"'{'.'.join(parts[:position])}' has no attribute or submodule "
-                    f"'{parts[position]}'"
-                )
-            target = getattr(target, parts[position])
-        return None
 
 
 def scan_text(

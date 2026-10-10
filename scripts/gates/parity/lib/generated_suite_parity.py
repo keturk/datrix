@@ -16,11 +16,13 @@ reported:
     a fail, so it is reported as its own category and never folded into either set; a
     test every language skips is not a divergence.
 
-A test is identified by its service and the framework-reported full test name, exactly as
-the index records it (pytest ``classname::name``, Jest ``fullName``). Two languages agree
-on a test only when they emit the same name for it, so test naming is part of what this
-gate holds: a language whose generated tests are named differently reports every one of
-them as a role gap.
+A test is identified by its service and its language-neutral case id
+(``datrix_codegen_common.algorithms.test_case_identity``), which the index records beside
+the framework-reported full name: a generated test carries the same case id in every
+language however its framework names it (pytest ``classname::name``, Jest ``fullName``),
+so module paths, ``describe`` titles and test wording never decide whether two languages
+test the same thing. A test that carries no case id can match nothing, so it is reported
+as an UNIDENTIFIED TEST -- its own failing category, never a role gap and never dropped.
 
 THERE IS NO STORED BASELINE. The gate reads whatever the latest unit-test run of each
 project wrote, prints every language's oldest and newest index timestamp, and REFUSES to
@@ -73,6 +75,7 @@ from artifact_role_parity import (
     load_known_non_generating,
     registered_example_relpaths,
 )
+from datrix_codegen_common.algorithms.test_case_identity import TEST_CASE_ID_PROPERTY
 from datrix_scripts.generated_test_log_writer import (
     OUTCOME_ERROR,
     OUTCOME_FAILED,
@@ -102,6 +105,8 @@ INDEX_FILENAME: Final[str] = "index.json"
 #: ran contributes no test, and the gate refuses an index that reports one.
 _RECORDED_COUNT_KEYS: Final[tuple[str, ...]] = ("passed", "failed", "errors", "skipped")
 _SUITE_FAILURES_KEY: Final[str] = "suite_failures"
+#: The per-test record key holding the test's case id (``null`` when it carries none).
+_CASE_KEY: Final[str] = "case"
 
 #: How a test's outcome is classed for comparison. ``failed`` and ``error`` are both a
 #: test that did not pass; ``skipped`` is a third state, never a pass or a fail.
@@ -126,6 +131,9 @@ _SELF_TEST_EXAMPLE: Final[str] = "self_test_category/self_test_example"
 _SELF_TEST_RUNTIME: Final[str] = "self_test_runtime"
 _SELF_TEST_PROVIDER: Final[str] = "self_test_provider"
 _SELF_TEST_SERVICE: Final[str] = "self_test_service"
+_SELF_TEST_CASE_DOMAIN: Final[str] = "self_test"
+_SELF_TEST_PYTEST_CLASS: Final[str] = "tests.unit.test_planted.TestPlanted"
+_SELF_TEST_JEST_DESCRIBE: Final[str] = "Planted suite"
 _SELF_TEST_STAMP: Final[str] = "20260101-000000"
 _SELF_TEST_NEWER_STAMP: Final[str] = "20260102-000000"
 #: Scratch root for the discovery self-test's synthetic corpus -- workspace-level per
@@ -161,8 +169,10 @@ class SuiteIndex:
         example: The example's posix path relative to ``datrix/examples``.
         runtime: The deployment runtime path segment (e.g. ``docker-compose``).
         provider: The provider path segment (e.g. ``local``).
-        outcomes: ``{test key: outcome}`` -- every test the run executed, keyed by
-            :func:`identity_key`; each outcome is one of ``TEST_OUTCOMES``.
+        outcomes: ``{test key: outcome}`` -- every test the run executed that carries a
+            case id, keyed by :func:`identity_key`; each outcome is one of ``TEST_OUTCOMES``.
+        unidentified: ``<service>::<framework test name>`` of every test the run executed
+            that carries no case id -- never comparable, always reported.
         source: Where the index was read from (a path, for the report).
         timestamp: The index's own ``timestamp``, so a reader sees how current it is.
     """
@@ -172,6 +182,7 @@ class SuiteIndex:
     runtime: str
     provider: str
     outcomes: Mapping[str, str]
+    unidentified: tuple[str, ...]
     source: str
     timestamp: str
 
@@ -220,30 +231,59 @@ class SkipGap:
 
 
 @dataclasses.dataclass(frozen=True)
+class UnidentifiedTest:
+    """A test a language's suite ran that carries no case id, so no other language's
+    test can ever be matched to it."""
+
+    example: str
+    runtime: str
+    provider: str
+    language: str
+    test_name: str
+
+
+@dataclasses.dataclass(frozen=True)
 class SuiteComparison:
     """Every divergence :func:`compare_suites` found, by kind."""
 
     role_gaps: list[RoleGap]
     behaviour_gaps: list[BehaviourGap]
     skip_gaps: list[SkipGap]
+    unidentified: list[UnidentifiedTest]
 
     @property
     def clean(self) -> bool:
         """True when no divergence of any kind was found."""
-        return not (self.role_gaps or self.behaviour_gaps or self.skip_gaps)
+        return not (self.role_gaps or self.behaviour_gaps or self.skip_gaps or self.unidentified)
+
+    def extend(self, other: SuiteComparison) -> None:
+        """Add every divergence *other* found to this comparison."""
+        self.role_gaps.extend(other.role_gaps)
+        self.behaviour_gaps.extend(other.behaviour_gaps)
+        self.skip_gaps.extend(other.skip_gaps)
+        self.unidentified.extend(other.unidentified)
 
 
-def identity_key(service: str, test: str) -> str:
-    """The identity a test is compared under: its service and its full test name.
+def _empty_comparison() -> SuiteComparison:
+    """A comparison that has found nothing yet."""
+    return SuiteComparison([], [], [], [])
+
+
+def identity_key(service: str, case: str) -> str:
+    """The identity a test is compared under: its service and its case id.
+
+    The case id is the language-neutral identity every generated test carries
+    (``datrix_codegen_common.algorithms.test_case_identity``), so the same test of the
+    same item matches across languages however each framework names it.
 
     Args:
         service: The service the test ran in.
-        test: The framework-reported full test name from the index's ``tests`` list.
+        case: The test's case id from the index's ``tests`` list.
 
     Returns:
-        ``<service>::<test>``.
+        ``<service>::<case>``.
     """
-    return f"{service}::{test}"
+    return f"{service}::{case}"
 
 
 # ---------------------------------------------------------------------------
@@ -306,10 +346,39 @@ def _expected_test_counts(data: Mapping[str, object], index_path: Path) -> dict[
     return expected
 
 
+@dataclasses.dataclass(frozen=True)
+class _TestRecord:
+    """One parsed per-test record of an index."""
+
+    service: str
+    test: str
+    case: str | None
+    outcome: str
+
+
+def _record_case(record: Mapping[str, object], where: str, index_path: Path) -> str | None:
+    """The record's case id, or ``None`` for a test that carries none.
+
+    Raises:
+        MalformedSuiteIndexError: The record has no ``case`` key (the index predates
+            case ids), or its value is neither a string nor null.
+    """
+    if _CASE_KEY not in record:
+        raise _malformed(
+            index_path,
+            f"{where} has no {_CASE_KEY!r} key -- it was written before per-test case ids "
+            f"existed, so no test in it can be matched across languages",
+        )
+    case = record[_CASE_KEY]
+    if case is None:
+        return None
+    return _expect(case, str, f"{where}[{_CASE_KEY!r}]", index_path)
+
+
 def _parse_test_record(
     entry: object, position: int, services: Iterable[str], index_path: Path
-) -> tuple[str, str, str]:
-    """One per-test record as ``(service, identity key, outcome)``.
+) -> _TestRecord:
+    """One per-test record.
 
     Raises:
         MalformedSuiteIndexError: The record is malformed, records an outcome outside the
@@ -319,11 +388,12 @@ def _parse_test_record(
     record = _expect(entry, dict, where, index_path)
     service = _field(record, "service", str, where, index_path)
     outcome = _field(record, "outcome", str, where, index_path)
-    key = identity_key(service, _field(record, "test", str, where, index_path))
+    test = _field(record, "test", str, where, index_path)
+    case = _record_case(record, where, index_path)
     if outcome not in TEST_OUTCOMES:
         raise _malformed(
             index_path,
-            f"{where} records outcome {outcome!r} for {key!r}; expected one of "
+            f"{where} records outcome {outcome!r} for {service}::{test}; expected one of "
             f"{sorted(TEST_OUTCOMES)}",
         )
     if service not in set(services):
@@ -332,7 +402,7 @@ def _parse_test_record(
             f"{where} names service {service!r}, which the index's services list does "
             f"not contain ({sorted(services)})",
         )
-    return service, key, outcome
+    return _TestRecord(service=service, test=test, case=case, outcome=outcome)
 
 
 def _require_records_match_counts(
@@ -356,14 +426,18 @@ def _require_records_match_counts(
 
 def _recorded_outcomes(
     data: Mapping[str, object], expected_by_service: Mapping[str, int], index_path: Path
-) -> dict[str, str]:
-    """Every per-test record of the index as ``{test key: outcome}``, checked against
-    the per-service counts.
+) -> tuple[dict[str, str], tuple[str, ...]]:
+    """Every per-test record of the index, checked against the per-service counts.
+
+    Returns:
+        ``({identity key: outcome}, unidentified)``: the outcome of every test that
+        carries a case id, and ``<service>::<framework test name>`` of every test that
+        carries none.
 
     Raises:
         MalformedSuiteIndexError: The index has no ``tests`` list (it predates per-test
-            records), a record is malformed, two records share one identity, or a
-            service's records do not add up to its counts.
+            records), a record is malformed or predates case ids, two tests carry one
+            case id, or a service's records do not add up to its counts.
     """
     if "tests" not in data:
         raise _malformed(
@@ -372,19 +446,26 @@ def _recorded_outcomes(
             "the set of tests the run executed is unknown",
         )
     outcomes: dict[str, str] = {}
+    unidentified: list[str] = []
     recorded: Counter[str] = Counter()
     for position, entry in enumerate(_field(data, "tests", list, "index", index_path)):
-        service, key, outcome = _parse_test_record(entry, position, expected_by_service, index_path)
+        record = _parse_test_record(entry, position, expected_by_service, index_path)
+        recorded[record.service] += 1
+        if record.case is None:
+            unidentified.append(f"{record.service}::{record.test}")
+            continue
+        key = identity_key(record.service, record.case)
         if key in outcomes:
-            raise _malformed(
-                index_path,
-                f"two tests share the identity {key!r}; a pass set cannot be compared when "
-                f"two tests are indistinguishable by name",
+            raise MalformedSuiteIndexError(
+                f"GENERATED-SUITE PARITY GATE CANNOT RUN: unit-tests index {index_path} "
+                f"records two tests carrying the case id {key!r} (the second is "
+                f"{record.test!r}). A generated suite renders each case of each item once; "
+                f"the template that rendered this case twice must give each test its own "
+                f"declared case (datrix_codegen_common.algorithms.test_case_identity)."
             )
-        outcomes[key] = outcome
-        recorded[service] += 1
+        outcomes[key] = record.outcome
     _require_records_match_counts(recorded, expected_by_service, index_path)
-    return outcomes
+    return outcomes, tuple(unidentified)
 
 
 def parse_suite_index(
@@ -419,13 +500,16 @@ def parse_suite_index(
                 f"it records {key} {found!r} but sits under the {key} {expected!r} -- it "
                 f"was written for another project",
             )
-    outcomes = _recorded_outcomes(index, _expected_test_counts(index, index_path), index_path)
+    outcomes, unidentified = _recorded_outcomes(
+        index, _expected_test_counts(index, index_path), index_path
+    )
     return SuiteIndex(
         language=language,
         example=example,
         runtime=runtime,
         provider=provider,
         outcomes=outcomes,
+        unidentified=unidentified,
         source=str(index_path),
         timestamp=_field(index, "timestamp", str, "index", index_path),
     )
@@ -657,7 +741,12 @@ def _compare_group(
     names: set[str] = set()
     for suite_outcomes in by_language.values():
         names.update(suite_outcomes)
-    comparison = SuiteComparison([], [], [])
+    comparison = _empty_comparison()
+    for suite in sorted(group, key=lambda s: s.language):
+        comparison.unidentified.extend(
+            UnidentifiedTest(example, runtime, provider, suite.language, test)
+            for test in suite.unidentified
+        )
     for name in sorted(names):
         present = tuple(sorted(lang for lang, outcomes in by_language.items() if name in outcomes))
         absent = tuple(sorted(lang for lang, outcomes in by_language.items() if name not in outcomes))
@@ -682,7 +771,9 @@ def compare_suites(indices: Sequence[SuiteIndex]) -> SuiteComparison:
     or error in another is a behaviour gap (the comparison runs over the languages the
     test is present in, so a role gap never hides a behaviour gap). A test present in at
     least two languages that one skips and another runs is a skip gap. A test every
-    present language skips, or whose outcomes agree, is no divergence.
+    present language skips, or whose outcomes agree, is no divergence. A test carrying no
+    case id is reported as unidentified: it can never match another language's test, so
+    it is neither counted as a role gap nor left out.
 
     Args:
         indices: One index per language for each group; groups are formed from
@@ -697,12 +788,9 @@ def compare_suites(indices: Sequence[SuiteIndex]) -> SuiteComparison:
     by_group: dict[tuple[str, str, str], list[SuiteIndex]] = {}
     for suite in indices:
         by_group.setdefault(suite.group_key, []).append(suite)
-    merged = SuiteComparison([], [], [])
+    merged = _empty_comparison()
     for group_key, group in sorted(by_group.items()):
-        found = _compare_group(group_key, group)
-        merged.role_gaps.extend(found.role_gaps)
-        merged.behaviour_gaps.extend(found.behaviour_gaps)
-        merged.skip_gaps.extend(found.skip_gaps)
+        merged.extend(_compare_group(group_key, group))
     return merged
 
 
@@ -775,6 +863,11 @@ def _report_group(
         [f"test={g.test_name} outcomes={dict(sorted(g.outcomes.items()))}" for g in comparison.skip_gaps],
         limit,
     )
+    _log_gaps(
+        "GENERATED-SUITE UNIDENTIFIED TEST", label,
+        [f"test={g.test_name} language={g.language}" for g in comparison.unidentified],
+        limit,
+    )
 
 
 def check_generated_suite_parity(
@@ -796,7 +889,8 @@ def check_generated_suite_parity(
 
     Returns:
         ``EXIT_OK`` when every comparable group's suites agree, ``EXIT_FAIL`` when a role,
-        behaviour or skip gap was found, ``EXIT_USAGE`` when no group is unit-tested in
+        behaviour or skip gap or an unidentified test was found, ``EXIT_USAGE`` when no
+        group is unit-tested in
         >= 2 languages (a vacuous comparison).
 
     Raises:
@@ -817,13 +911,11 @@ def check_generated_suite_parity(
             generated_root, _MIN_LANGUAGES,
         )
         return EXIT_USAGE
-    totals = SuiteComparison([], [], [])
+    totals = _empty_comparison()
     for group_key, group in groups.items():
         comparison = compare_suites(group)
         _report_group(group_key, group, comparison, limit)
-        totals.role_gaps.extend(comparison.role_gaps)
-        totals.behaviour_gaps.extend(comparison.behaviour_gaps)
-        totals.skip_gaps.extend(comparison.skip_gaps)
+        totals.extend(comparison)
     if totals.clean:
         logger.info(
             "GENERATED-SUITE PARITY GATE PASSED: %d group(s) unit-tested in >= %d languages, "
@@ -833,8 +925,9 @@ def check_generated_suite_parity(
         return EXIT_OK
     logger.error(
         "GENERATED-SUITE PARITY GATE FAILED: %d group(s) compared, %d role gap(s), %d "
-        "behaviour gap(s), %d skip gap(s).",
+        "behaviour gap(s), %d skip gap(s), %d unidentified test(s).",
         len(groups), len(totals.role_gaps), len(totals.behaviour_gaps), len(totals.skip_gaps),
+        len(totals.unidentified),
     )
     return EXIT_FAIL
 
@@ -844,7 +937,9 @@ def check_generated_suite_parity(
 # ---------------------------------------------------------------------------
 
 
-def _fixture_index(language: str, outcomes: Mapping[str, str]) -> SuiteIndex:
+def _fixture_index(
+    language: str, outcomes: Mapping[str, str], unidentified: tuple[str, ...] = ()
+) -> SuiteIndex:
     """A synthetic in-memory index for the comparator's self-test."""
     return SuiteIndex(
         language=language,
@@ -852,14 +947,20 @@ def _fixture_index(language: str, outcomes: Mapping[str, str]) -> SuiteIndex:
         runtime=_SELF_TEST_RUNTIME,
         provider=_SELF_TEST_PROVIDER,
         outcomes=outcomes,
+        unidentified=unidentified,
         source="self-test fixture",
         timestamp="2026-01-01T00:00:00",
     )
 
 
+def _planted_case(test: str) -> str:
+    """The case id a planted test carries."""
+    return f"{_SELF_TEST_CASE_DOMAIN}/{test}"
+
+
 def _planted(test: str) -> str:
     """The comparison key of a planted test in the self-test's one service."""
-    return identity_key(_SELF_TEST_SERVICE, test)
+    return identity_key(_SELF_TEST_SERVICE, _planted_case(test))
 
 
 def _report_case(label: str, problems: list[str]) -> list[str]:
@@ -967,6 +1068,28 @@ def _self_test_skip_category() -> list[str]:
     return problems
 
 
+def _self_test_unidentified() -> list[str]:
+    """A test carrying no case id is reported as unidentified -- never as a role gap,
+    never dropped -- and keeps the comparison from being clean."""
+    shared = _planted("shared")
+    unmarked = f"{_SELF_TEST_SERVICE}::tests.unit.test_planted::test_unmarked"
+    found = compare_suites([
+        _fixture_index(_SELF_TEST_LANGUAGE_A, {shared: OUTCOME_PASSED}, (unmarked,)),
+        _fixture_index(_SELF_TEST_LANGUAGE_B, {shared: OUTCOME_PASSED}),
+    ])
+    expected = UnidentifiedTest(
+        _SELF_TEST_EXAMPLE, _SELF_TEST_RUNTIME, _SELF_TEST_PROVIDER, _SELF_TEST_LANGUAGE_A, unmarked,
+    )
+    problems: list[str] = []
+    if found.unidentified != [expected]:
+        problems.append(f"expected exactly the planted UnidentifiedTest {expected}, got {found.unidentified}")
+    if found.role_gaps or found.behaviour_gaps or found.skip_gaps:
+        problems.append(f"an unidentified test was folded into another gap kind: {found}")
+    if found.clean:
+        problems.append("a comparison holding an unidentified test reported clean")
+    return problems
+
+
 def _refusal(call: Callable[[], object], error: type[Exception]) -> tuple[bool, str]:
     """Run *call* and report whether it raised *error*, with the message when it did.
 
@@ -1034,23 +1157,36 @@ def _self_test_outcome_vocabulary() -> list[str]:
     return problems
 
 
-def _junit_report(cases: Mapping[str, str]) -> str:
-    """A pytest-shaped JUnit XML report with one test case per ``{name: outcome}`` entry."""
+def _junit_report(cases: Mapping[str, str], unidentified: Sequence[str]) -> str:
+    """A pytest-shaped JUnit XML report: one test per ``{name: outcome}`` entry, named the
+    pytest way and recording its case id as the property a generated suite writes, plus
+    one passing test per *unidentified* name that records none."""
     bodies = {
         OUTCOME_PASSED: "",
         OUTCOME_FAILED: '<failure type="AssertionError" message="planted">planted</failure>',
         OUTCOME_ERROR: '<error type="RuntimeError" message="planted">planted</error>',
         OUTCOME_SKIPPED: '<skipped message="planted"/>',
     }
+    case_property = (
+        f"<properties><property name={xml_utils.quoteattr(TEST_CASE_ID_PROPERTY)} "
+        "value={value}/></properties>"
+    )
     cases_xml = "".join(
-        f'<testcase classname="" name={xml_utils.quoteattr(name)}>{bodies[outcome]}</testcase>'
+        f'<testcase classname="{_SELF_TEST_PYTEST_CLASS}" name={xml_utils.quoteattr(name)}>'
+        f"{case_property.format(value=xml_utils.quoteattr(_planted_case(name)))}{bodies[outcome]}</testcase>"
         for name, outcome in cases.items()
+    )
+    cases_xml += "".join(
+        f'<testcase classname="{_SELF_TEST_PYTEST_CLASS}" name={xml_utils.quoteattr(name)}/>'
+        for name in unidentified
     )
     return f'<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite>{cases_xml}</testsuite></testsuites>'
 
 
 def _jest_report(cases: Mapping[str, str]) -> dict[str, object]:
-    """A Jest ``--json`` report with one assertion per ``{name: outcome}`` entry."""
+    """A Jest ``--json`` report with one assertion per ``{name: outcome}`` entry, titled by
+    its case id under a prose ``describe`` -- so its full name differs from the pytest
+    report's while its case id matches."""
     statuses = {
         OUTCOME_PASSED: "passed",
         OUTCOME_FAILED: "failed",
@@ -1058,7 +1194,12 @@ def _jest_report(cases: Mapping[str, str]) -> dict[str, object]:
         OUTCOME_SKIPPED: "pending",
     }
     assertions: list[dict[str, object]] = [
-        {"title": name, "fullName": name, "status": statuses[outcome], "failureMessages": ["planted"]}
+        {
+            "title": _planted_case(name),
+            "fullName": f"{_SELF_TEST_JEST_DESCRIBE} {_planted_case(name)}",
+            "status": statuses[outcome],
+            "failureMessages": ["planted"],
+        }
         for name, outcome in cases.items()
     ]
     failed = any(a["status"] == "failed" for a in assertions)
@@ -1074,20 +1215,29 @@ def _jest_report(cases: Mapping[str, str]) -> dict[str, object]:
 
 
 def _plant_unit_run(
-    root: Path, language: str, example: str, stamp: str, cases: Mapping[str, str], *, jest: bool
+    root: Path,
+    language: str,
+    example: str,
+    stamp: str,
+    cases: Mapping[str, str],
+    *,
+    jest: bool,
+    unidentified: Sequence[str] = (),
 ) -> Path:
     """Write one synthetic unit-tests run through the REAL index writer; return its run dir.
 
     The planted report is JUnit XML (the pytest shape) or Jest JSON, parsed and indexed by
     ``GeneratedTestLogWriter`` exactly as ``run_complete.py`` does, so the discovery
     self-test proves the producer's output is what this gate's reader accepts.
+    *unidentified* plants pytest tests that record no case id.
     """
     project = root / language / _SELF_TEST_RUNTIME / _SELF_TEST_PROVIDER / example
     run_dir = project / TEST_RESULTS_DIRNAME / f"{UNIT_RUN_DIR_PREFIX}{stamp}"
     run_dir.mkdir(parents=True, exist_ok=True)
     report = run_dir / ("planted-report.json" if jest else "planted-report.xml")
     report.write_text(
-        json.dumps(_jest_report(cases)) if jest else _junit_report(cases), encoding="utf-8"
+        json.dumps(_jest_report(cases)) if jest else _junit_report(cases, unidentified),
+        encoding="utf-8",
     )
     writer = GeneratedTestLogWriter(
         project_path=f"{language}/{_SELF_TEST_RUNTIME}/{_SELF_TEST_PROVIDER}/{example}",
@@ -1132,12 +1282,37 @@ def _self_test_discovery(scratch: Path) -> list[str]:
     if len(groups) != 2:
         problems.append(f"comparison_groups returned {sorted(groups)}, expected the two planted groups")
     found = compare_suites(indices)
-    if [g.test_name for g in found.role_gaps] != [identity_key(_SELF_TEST_SERVICE, "beta")]:
+    if [g.test_name for g in found.role_gaps] != [_planted("beta")]:
         problems.append(f"the role gap planted through the real writer was not found: {found.role_gaps}")
-    if [g.test_name for g in found.behaviour_gaps] != [identity_key(_SELF_TEST_SERVICE, "alpha")]:
+    if [g.test_name for g in found.behaviour_gaps] != [_planted("alpha")]:
         problems.append(f"the behaviour gap planted through the real writer was not found: {found.behaviour_gaps}")
-    if found.skip_gaps:
-        problems.append(f"unexpected skip gaps over the planted corpus: {found.skip_gaps}")
+    if found.skip_gaps or found.unidentified:
+        problems.append(f"unexpected skip gaps or unidentified tests over the planted corpus: {found}")
+    problems += _framework_names_differ_while_cases_match(root, role_example)
+    return problems
+
+
+def _framework_names_differ_while_cases_match(root: Path, example: str) -> list[str]:
+    """The two planted frameworks name the shared test differently and record one case id
+    for it -- the property that makes the comparison above non-vacuous."""
+    records: dict[str, list[dict[str, object]]] = {}
+    for language in (_SELF_TEST_LANGUAGE_A, _SELF_TEST_LANGUAGE_B):
+        project = root / language / _SELF_TEST_RUNTIME / _SELF_TEST_PROVIDER / example
+        run_dir = latest_unit_run_dir(project)
+        if run_dir is None:
+            return [f"no planted run directory under {project}"]
+        index = json.loads((run_dir / INDEX_FILENAME).read_text(encoding="utf-8"))
+        records[language] = index["tests"]
+    names_a = {r["test"] for r in records[_SELF_TEST_LANGUAGE_A]}
+    names_b = {r["test"] for r in records[_SELF_TEST_LANGUAGE_B]}
+    cases_a = {r[_CASE_KEY] for r in records[_SELF_TEST_LANGUAGE_A]}
+    cases_b = {r[_CASE_KEY] for r in records[_SELF_TEST_LANGUAGE_B]}
+    problems: list[str] = []
+    if names_a & names_b:
+        problems.append(f"the planted frameworks share test names {sorted(names_a & names_b)}; the "
+                        f"case-id match is not being exercised")
+    if cases_a & cases_b != {_planted_case("alpha")}:
+        problems.append(f"the planted frameworks did not record one shared case id: {cases_a} / {cases_b}")
     return problems
 
 
@@ -1185,7 +1360,10 @@ def _valid_index_document(language: str, example: str) -> dict[str, object]:
             "name": _SELF_TEST_SERVICE,
             "counts": {"passed": 1, "failed": 0, "errors": 0, "skipped": 0, "suite_failures": 0},
         }],
-        "tests": [{"service": _SELF_TEST_SERVICE, "test": "alpha", "outcome": OUTCOME_PASSED}],
+        "tests": [{
+            "service": _SELF_TEST_SERVICE, "test": "test_alpha", _CASE_KEY: _planted_case("alpha"),
+            "outcome": OUTCOME_PASSED,
+        }],
     }
 
 
@@ -1207,12 +1385,16 @@ def _self_test_index_refusals(scratch: Path) -> list[str]:
 
     valid = _plant_index(root / "valid.json", _valid_index_document(language, example))
     parsed = parse_suite_index(valid, language, example, _SELF_TEST_RUNTIME, _SELF_TEST_PROVIDER)
-    if parsed.outcomes != {identity_key(_SELF_TEST_SERVICE, "alpha"): OUTCOME_PASSED}:
-        problems.append(f"a valid index parsed to {dict(parsed.outcomes)}")
+    if parsed.outcomes != {_planted("alpha"): OUTCOME_PASSED} or parsed.unidentified:
+        problems.append(f"a valid index parsed to {dict(parsed.outcomes)} / {parsed.unidentified}")
 
     predates = _valid_index_document(language, example)
     del predates["tests"]
     problems += _expect_refusal("index without per-test records", _plant_index(root / "predates.json", predates), "no 'tests' list")
+
+    no_cases = _valid_index_document(language, example)
+    no_cases["tests"] = [{"service": _SELF_TEST_SERVICE, "test": "test_alpha", "outcome": OUTCOME_PASSED}]
+    problems += _expect_refusal("index without per-test case ids", _plant_index(root / "no-cases.json", no_cases), "per-test case ids")
 
     totals_only = _valid_index_document(language, example)
     totals_only["tests"] = []
@@ -1231,13 +1413,18 @@ def _self_test_index_refusals(scratch: Path) -> list[str]:
         "counts": {"passed": 2, "failed": 0, "errors": 0, "skipped": 0, "suite_failures": 0},
     }]
     duplicate["tests"] = [
-        {"service": _SELF_TEST_SERVICE, "test": "alpha", "outcome": OUTCOME_PASSED},
-        {"service": _SELF_TEST_SERVICE, "test": "alpha", "outcome": OUTCOME_FAILED},
+        {"service": _SELF_TEST_SERVICE, "test": "test_alpha", _CASE_KEY: _planted_case("alpha"),
+         "outcome": OUTCOME_PASSED},
+        {"service": _SELF_TEST_SERVICE, "test": "test_alpha_again", _CASE_KEY: _planted_case("alpha"),
+         "outcome": OUTCOME_FAILED},
     ]
-    problems += _expect_refusal("two tests with one identity", _plant_index(root / "duplicate.json", duplicate), "share the identity")
+    problems += _expect_refusal("two tests with one case id", _plant_index(root / "duplicate.json", duplicate), "carrying the case id")
 
     unknown = _valid_index_document(language, example)
-    unknown["tests"] = [{"service": _SELF_TEST_SERVICE, "test": "alpha", "outcome": "self_test_undeclared_outcome"}]
+    unknown["tests"] = [{
+        "service": _SELF_TEST_SERVICE, "test": "test_alpha", _CASE_KEY: _planted_case("alpha"),
+        "outcome": "self_test_undeclared_outcome",
+    }]
     problems += _expect_refusal("outcome outside the vocabulary", _plant_index(root / "unknown.json", unknown), "expected one of")
 
     other_project = _valid_index_document(_SELF_TEST_LANGUAGE_B, example)
@@ -1255,7 +1442,7 @@ def _self_test_latest_run(scratch: Path) -> list[str]:
     _plant_unit_run(root, _SELF_TEST_LANGUAGE_A, example, _SELF_TEST_STAMP, {"alpha": OUTCOME_PASSED}, jest=False)
     newer = _plant_unit_run(root, _SELF_TEST_LANGUAGE_A, example, _SELF_TEST_NEWER_STAMP, {"alpha": OUTCOME_FAILED}, jest=False)
     found = discover_suite_indices(root, languages, {}, [example])
-    if [dict(s.outcomes) for s in found] != [{identity_key(_SELF_TEST_SERVICE, "alpha"): OUTCOME_FAILED}]:
+    if [dict(s.outcomes) for s in found] != [{_planted("alpha"): OUTCOME_FAILED}]:
         problems.append(f"the newest run was not the one read: {[dict(s.outcomes) for s in found]}")
     (newer / INDEX_FILENAME).unlink()
     try:
@@ -1280,13 +1467,23 @@ class _CollectingHandler(logging.Handler):
 
 
 def _run_planted_gate(
-    scratch: Path, name: str, corpus: Mapping[str, tuple[Mapping[str, str], Mapping[str, str]]], limit: int
+    scratch: Path,
+    name: str,
+    corpus: Mapping[str, tuple[Mapping[str, str], Mapping[str, str]]],
+    limit: int,
+    unidentified_in_a: Sequence[str] = (),
 ) -> tuple[int, list[str]]:
     """Plant *corpus* under ``scratch/name``, run the real entry point over it, and return
-    its exit code and everything it logged (kept off the console)."""
+    its exit code and everything it logged (kept off the console). *unidentified_in_a*
+    adds language A tests that record no case id to every planted example."""
     root = scratch / name
     root.mkdir()
-    _plant_corpus(root, corpus)
+    for example, (cases_a, cases_b) in corpus.items():
+        _plant_unit_run(
+            root, _SELF_TEST_LANGUAGE_A, example, _SELF_TEST_STAMP, cases_a,
+            jest=False, unidentified=unidentified_in_a,
+        )
+        _plant_unit_run(root, _SELF_TEST_LANGUAGE_B, example, _SELF_TEST_STAMP, cases_b, jest=True)
     handler = _CollectingHandler()
     propagate, level = logger.propagate, logger.level
     logger.addHandler(handler)
@@ -1337,6 +1534,16 @@ def _self_test_exit_codes(scratch: Path) -> list[str]:
         if not any(detail in m for m in messages):
             problems.append(f"the {name} gap report does not name {detail!r}: {messages}")
 
+    code, messages = _run_planted_gate(
+        scratch, "unidentified", {_SELF_TEST_EXAMPLE: (both, dict(both))}, 10, ("test_unmarked",)
+    )
+    if code != EXIT_FAIL:
+        problems.append(f"a planted unidentified test exited {code}, expected {EXIT_FAIL}")
+    if not any(m.startswith("GENERATED-SUITE UNIDENTIFIED TEST") for m in messages):
+        problems.append(f"the unidentified test report has no headline: {messages}")
+    if not any(f"{_SELF_TEST_PYTEST_CLASS}::test_unmarked" in m for m in messages):
+        problems.append(f"the unidentified test report does not name the test: {messages}")
+
     many = {"alpha": OUTCOME_PASSED, "beta": OUTCOME_PASSED, "gamma": OUTCOME_PASSED}
     _, messages = _run_planted_gate(scratch, "limit", {_SELF_TEST_EXAMPLE: (many, {})}, 1)
     listed = [m for m in messages if m.strip().startswith("test=")]
@@ -1372,6 +1579,11 @@ _IN_MEMORY_CASES: Final[tuple[tuple[str, Callable[[], list[str]]], ...]] = (
         _self_test_skip_category,
     ),
     (
+        "unidentified test: a test carrying no case id is its own reported category, never "
+        "a role gap and never dropped",
+        _self_test_unidentified,
+    ),
+    (
         "language floor: fewer than two registered languages is refused, and so is a "
         "single-language group",
         _self_test_language_floor,
@@ -1386,7 +1598,8 @@ _IN_MEMORY_CASES: Final[tuple[tuple[str, Callable[[], list[str]]], ...]] = (
 _SCRATCH_CASES: Final[tuple[tuple[str, Callable[[Path], list[str]]], ...]] = (
     (
         "discovery: indices written by the real writer (pytest JUnit and Jest JSON) are "
-        "read, grouped and compared",
+        "read, grouped and compared by case id while the two frameworks name each test "
+        "differently",
         _self_test_discovery,
     ),
     (
@@ -1395,8 +1608,9 @@ _SCRATCH_CASES: Final[tuple[tuple[str, Callable[[Path], list[str]]], ...]] = (
         _self_test_missing_index,
     ),
     (
-        "refusal: an index predating per-test records, totals-only, holding a never-run "
-        "spec file, a duplicate identity, an unknown outcome, or another project's is refused",
+        "refusal: an index predating per-test records or case ids, totals-only, holding a "
+        "never-run spec file, two tests with one case id, an unknown outcome, or another "
+        "project's is refused",
         _self_test_index_refusals,
     ),
     (
@@ -1404,8 +1618,9 @@ _SCRATCH_CASES: Final[tuple[tuple[str, Callable[[Path], list[str]]], ...]] = (
         _self_test_latest_run,
     ),
     (
-        "exit codes: agreeing suites exit 0; a planted role, behaviour or skip gap exits 1 "
-        "and is named in the report; --list-limit bounds the listing; an empty corpus exits 2",
+        "exit codes: agreeing suites exit 0; a planted role, behaviour or skip gap or an "
+        "unidentified test exits 1 and is named in the report; --list-limit bounds the "
+        "listing; an empty corpus exits 2",
         _self_test_exit_codes,
     ),
 )

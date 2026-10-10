@@ -21,22 +21,32 @@ one "lagging" side.
 
 Grouping keys, tried in order for every function:
 
-0. **Coordinate role** (platform axis only) -- the capability a function
-   realizes, resolved from the platform package's own registration table
+0. **Coordinate roles** (platform axis only) -- the capabilities a function
+   realizes, resolved from the platform package's own registration tables
    rather than from file layout or name shape. Every platform builds closed
    ``RealizationTable``s (``load_realization_table``) pairing each
-   ``(block_type, flavor)`` cell it offers with the ``plan_builder`` function
-   that realizes it. A function that is the plan builder of cells of exactly
-   one block type is keyed by that block type: every flavor builder of one
-   block type in one package folds into ONE role, because flavors are one
-   platform's own vocabulary (``rds``/``aurora``, ``flexible-server``,
-   ``container``) and a flavor-level key would give each role a single
-   member package, which no comparison ever reads. A builder bound to cells
-   of several block types (one uniform builder serving the whole table) names
-   no single capability and falls through to the keys below. The language
-   axis never builds this index, so the key cannot apply to it. A platform
-   package whose tables cannot be imported or located fails the scan: it is
-   never silently keyed by name instead.
+   ``(block_type, flavor)`` cell it offers with the ``plan_builder`` that
+   realizes it and the ``emitters`` that emit its provisioning artifact.
+   Those bindings seed the key, and every function of the SAME package a
+   seed statically reaches (``ReferenceGraph``: calls and function values,
+   resolved through imports, ``self``/``super()`` and annotated receivers --
+   never by text) joins the role of the seed's block type. Flavors fold into
+   one role per block type, because flavors are one platform's own
+   vocabulary (``rds``/``aurora``, ``flexible-server``, ``container``) and a
+   flavor-level key would give each role a single member package. A function
+   reached from several block types (a uniform builder serving the whole
+   table, a helper shared by two capabilities) is a member of EACH of those
+   roles: it realizes part of each. A cell another platform's container
+   scaffolding emits (``ScaffoldRuntimeRealization``) seeds only its plan
+   builder; its emitters are keyed in the scaffold platform's package. Before
+   the scan, every declared emitter must be reached from its platform's
+   generator -- the ``datrix.platforms`` entry-point class's methods and the
+   functions its compiled genDSL definitions reference -- and every scaffold
+   delegation must land on a scaffold-platform cell that binds emitters; a
+   declaration naming code the generator never runs fails the scan. The
+   language axis never builds this index, so the key cannot apply to it. A
+   platform package whose tables cannot be imported or located fails the
+   scan: it is never silently keyed by name instead.
 1. **Signature role** -- the role-defining component of a signature is the
    PRODUCT it declares: a return annotation naming a type of the shared
    codegen layer (``datrix_codegen_common.*`` -- a frozen artifact context,
@@ -200,7 +210,7 @@ import tomllib
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from importlib.metadata import EntryPoint
+from importlib.metadata import EntryPoint, entry_points
 from pathlib import Path
 from types import FunctionType, MappingProxyType
 from typing import Final, Literal
@@ -215,12 +225,18 @@ from datrix_codegen_common.testkit.fixtures.fixtureclient import (
 )
 from datrix_codegen_common.transpiler.emit_dsl import emit_adapter
 from datrix_codegen_kernel.platform.realization_dsl import (
+    ArtifactEmitter,
     RealizationCell,
     RealizationTable,
+    ScaffoldRuntimeRealization,
 )
 from datrix_common.errors.plugin import PluginNotFoundError
 from datrix_common.plugin import registry as registry_module
-from datrix_common.plugin.capability_resolution import declaration_for_language
+from datrix_common.plugin.capability_resolution import (
+    container_scaffold_generator_names_for,
+    declaration_for_language,
+)
+from datrix_common.plugin.identity import RuntimeId
 from datrix_common.plugin.client_capability import ClientTargetCapabilityDeclaration
 from datrix_common.plugin.descriptor import PluginDescriptor
 from datrix_common.plugin.registry import GENERATOR_GROUP, PluginRegistry
@@ -798,15 +814,23 @@ def _bare_name(fn: FunctionSource) -> str:
 
 
 #: ``(defining file, __qualname__)`` of a function -- what a registered plan
-#: builder and a scanned ``FunctionSource`` both reduce to.
+#: builder, a declared emitter and a scanned ``FunctionSource`` all reduce to.
 BuilderIdentity = tuple[Path, str]
-#: Every registered plan builder that realizes exactly one block type.
-CoordinateIndex = Mapping[BuilderIdentity, CoordinateRole]
+#: Every platform function's coordinate roles: the block types whose
+#: registered plan builders or declared emitters reach it.
+CoordinateIndex = Mapping[BuilderIdentity, frozenset[CoordinateRole]]
 
 _REALIZATION_LOADER_NAME: Final[str] = "load_realization_table"
 #: Bound on following a plan builder through delegating adapters to the
 #: function that holds the behaviour.
 _MAX_BUILDER_HOPS: Final[int] = 5
+#: The methods a constructor call ``Class(...)`` runs.
+_CONSTRUCTOR_METHOD_NAMES: Final[tuple[str, ...]] = ("__new__", "__init__", "__post_init__")
+#: Receivers naming the enclosing class's own instance or class.
+_SELF_RECEIVER_NAMES: Final[frozenset[str]] = frozenset({"self", "cls"})
+_SUPER_NAME: Final[str] = "super"
+#: The entry-point group each platform registers its generator under.
+_PLATFORM_ENTRY_POINT_GROUP: Final[str] = "datrix.platforms"
 _PACKAGE_INIT_STEM: Final[str] = "__init__"
 
 
@@ -857,31 +881,72 @@ def _defining_function(builder: object, description: str) -> FunctionType:
     )
 
 
-def coordinate_index_from_tables(tables: Iterable[RealizationTable]) -> dict[BuilderIdentity, CoordinateRole]:
-    """``{builder identity: CoordinateRole}`` for every plan builder the
-    *tables* bind to cells of exactly one block type.
+def coordinate_seeds(tables: Iterable[RealizationTable]) -> dict[BuilderIdentity, frozenset[str]]:
+    """``{function identity: block types}`` for every plan builder and every
+    declared emitter the *tables* bind -- the functions a platform's own
+    registration names as realizing each capability.
 
-    Every flavor builder of one block type resolves to that one role. A
-    builder bound to cells of several block types names no single capability
-    and is left out, so its function keeps its signature or name key.
+    A function bound to cells of several block types (a uniform builder
+    serving the whole table, an emitter writing every block type's
+    artifact) carries every one of them.
 
     Args:
-        tables: Closed ``RealizationTable``s of one or more platforms.
+        tables: Closed ``RealizationTable``s of one platform package.
 
     Raises:
-        ValueError: A cell's plan builder cannot be resolved to a function.
+        ValueError: A cell's plan builder or emitter cannot be resolved to a
+            function.
     """
-    block_types: dict[BuilderIdentity, set[str]] = {}
+    seeds: dict[BuilderIdentity, set[str]] = {}
     for table in tables:
         for (block_type, flavor), cell in table.items():
-            if cell.plan_builder is None:
-                continue
-            function = _defining_function(cell.plan_builder, f"RealizationTable cell ({block_type!r}, {flavor!r})")
-            block_types.setdefault(_function_identity(function), set()).add(block_type)
+            where = f"RealizationTable cell ({block_type!r}, {flavor!r})"
+            for binding in (cell.plan_builder, *_own_emitters(cell)):
+                function = _defining_function(binding, where)
+                seeds.setdefault(_function_identity(function), set()).add(block_type)
+    return {identity: frozenset(kinds) for identity, kinds in seeds.items()}
+
+
+def _own_emitters(cell: RealizationCell) -> tuple[ArtifactEmitter, ...]:
+    """The cell's own emitter functions -- none for a cell another
+    platform's container scaffolding realizes (its functions are keyed in
+    that platform's package, through that platform's own cell)."""
+    return () if isinstance(cell.emitters, ScaffoldRuntimeRealization) else cell.emitters
+
+
+def coordinate_index_from_seeds(
+    platform_label: str, seeds: Mapping[BuilderIdentity, frozenset[str]], graph: ReferenceGraph
+) -> dict[BuilderIdentity, frozenset[CoordinateRole]]:
+    """Every function of one platform package that a seed reaches, keyed to
+    the block types of every seed reaching it.
+
+    A helper reached from the builders or emitters of several block types
+    joins each of those roles: it realizes part of each capability.
+
+    Args:
+        platform_label: The platform package label, named in errors.
+        seeds: ``coordinate_seeds`` of the package's own tables.
+        graph: The package's ``ReferenceGraph``.
+
+    Raises:
+        ValueError: A seed is not a function of the package -- the table
+            binds code the platform does not own, which no platform member
+            can stand for.
+    """
+    outside = sorted(set(seeds) - graph.functions)
+    if outside:
+        raise ValueError(
+            f"behaviour_parity:platform {platform_label!r} binds plan builder(s) or emitter(s) defined outside its "
+            f"own package: {[f'{path}:{name}' for path, name in outside]}. Fix: bind the platform's own function "
+            f"that realizes the cell; shared code it calls is reached from there."
+        )
+    block_types: dict[BuilderIdentity, set[str]] = {}
+    for seed, kinds in seeds.items():
+        for identity in graph.reach((seed,)):
+            block_types.setdefault(identity, set()).update(kinds)
     return {
-        identity: CoordinateRole(block_type=next(iter(kinds)))
+        identity: frozenset(CoordinateRole(block_type=kind) for kind in kinds)
         for identity, kinds in block_types.items()
-        if len(kinds) == 1
     }
 
 
@@ -979,54 +1044,728 @@ def platform_realization_tables(platform_label: str, src_dirs: Sequence[Path]) -
     return tables
 
 
-def platform_coordinate_index(
-    target_src_dirs: Mapping[str, tuple[Path, ...]],
-) -> dict[BuilderIdentity, CoordinateRole]:
+# ---------------------------------------------------------------------------
+# Reference graph (platform axis): which package functions each function reaches
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _ClassInfo:
+    """One class of a scanned package: its methods, its base expressions, and
+    the type expression of each instance attribute it declares (a class-level
+    annotation, a ``self.x: T`` annotation, or a ``self.x = Class(...)``
+    construction in one of its methods)."""
+
+    module_name: str
+    name: str
+    methods: Mapping[str, BuilderIdentity]
+    bases: tuple[ast.expr, ...]
+    attributes: Mapping[str, ast.expr]
+
+
+@dataclass(frozen=True)
+class _ModuleInfo:
+    """One module of a scanned package: what its names resolve to."""
+
+    name: str
+    import_table: Mapping[str, str]
+    functions: Mapping[str, BuilderIdentity]
+    classes: Mapping[str, _ClassInfo]
+
+
+@dataclass(frozen=True)
+class ReferenceGraph:
+    """Every function of one package and the package functions each one
+    statically references: a call, or a function passed as a value.
+
+    References are resolved, never matched by text: module-level functions,
+    imported functions (relative imports and package re-exports followed),
+    ``self``/``cls``/``super()`` methods through the package's own base
+    classes, ``Class.method``, a method on a parameter annotated with a
+    package class, and a constructor call (``__new__``/``__init__``/
+    ``__post_init__``). A reference into another package is never followed.
+    """
+
+    edges: Mapping[BuilderIdentity, frozenset[BuilderIdentity]]
+    modules: Mapping[str, _ModuleInfo]
+
+    @property
+    def functions(self) -> frozenset[BuilderIdentity]:
+        """Every function of the package."""
+        return frozenset(self.edges)
+
+    def reach(self, roots: Iterable[BuilderIdentity]) -> frozenset[BuilderIdentity]:
+        """*roots* and every package function they reach, transitively.
+
+        Raises:
+            ValueError: A root is not a function of the package.
+        """
+        reached: set[BuilderIdentity] = set()
+        pending = list(roots)
+        while pending:
+            identity = pending.pop()
+            if identity in reached:
+                continue
+            if identity not in self.edges:
+                raise ValueError(
+                    f"behaviour_parity:{identity[0]}:{identity[1]} is not a function of the scanned package, so "
+                    f"nothing it reaches can be followed. Fix: start from a function the package defines."
+                )
+            reached.add(identity)
+            pending.extend(self.edges[identity])
+        return frozenset(reached)
+
+    def class_methods(self, module_name: str, class_name: str) -> frozenset[BuilderIdentity]:
+        """Every method *class_name* (in *module_name*) defines or inherits
+        from a base class of the package.
+
+        Raises:
+            ValueError: The module or class is not part of the package.
+        """
+        module = self.modules[module_name] if module_name in self.modules else None
+        if module is None or class_name not in module.classes:
+            raise ValueError(
+                f"behaviour_parity:{module_name}.{class_name} is not a class of the scanned package. Fix: register "
+                f"the platform's generator class from the package that implements the platform."
+            )
+        resolver = _ReferenceResolver(self.modules)
+        return resolver.inherited_methods(module.classes[class_name], frozenset())
+
+
+def _collect_class_defs(body: list[ast.stmt]) -> list[ast.ClassDef]:
+    """Every class reachable through non-function statement containers,
+    nested classes included -- the same scope ``_collect_module_and_method_defs``
+    collects methods from."""
+    found: list[ast.ClassDef] = []
+    for stmt in body:
+        if isinstance(stmt, ast.ClassDef):
+            found.append(stmt)
+            found.extend(_collect_class_defs(stmt.body))
+            continue
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for attr in _CONTAINER_BODY_ATTRS:
+            nested_body = getattr(stmt, attr, None)
+            if nested_body:
+                found.extend(_collect_class_defs(nested_body))
+        for handler in getattr(stmt, "handlers", ()):
+            found.extend(_collect_class_defs(handler.body))
+    return found
+
+
+def _module_info(
+    module_name: str, file_path: Path, module: ast.Module, import_table: dict[str, str]
+) -> tuple[_ModuleInfo, list[tuple[_FunctionDefNode, str | None]]]:
+    """One module's ``_ModuleInfo`` plus its collected definitions."""
+    defs = _collect_module_and_method_defs(module.body, None)
+    resolved = file_path.resolve()
+    functions = {node.name: (resolved, node.name) for node, owner in defs if owner is None}
+    methods_by_class: dict[str, dict[str, BuilderIdentity]] = {}
+    for node, owner in defs:
+        if owner is not None:
+            methods_by_class.setdefault(owner, {})[node.name] = (resolved, _qualified_def_name(node, owner))
+    bases_by_class: dict[str, list[ast.expr]] = {}
+    attributes_by_class: dict[str, dict[str, ast.expr]] = {}
+    for class_def in _collect_class_defs(module.body):
+        bases_by_class.setdefault(class_def.name, []).extend(class_def.bases)
+        attributes_by_class.setdefault(class_def.name, {}).update(_instance_attribute_types(class_def))
+    classes = {
+        name: _ClassInfo(
+            module_name=module_name,
+            name=name,
+            methods=methods_by_class[name] if name in methods_by_class else {},
+            bases=tuple(bases),
+            attributes=attributes_by_class[name],
+        )
+        for name, bases in bases_by_class.items()
+    }
+    return _ModuleInfo(module_name, import_table, functions, classes), defs
+
+
+def _instance_attribute_types(class_def: ast.ClassDef) -> dict[str, ast.expr]:
+    """``{attribute: type expression}`` for every attribute *class_def*
+    declares: a class-level ``x: T``, a ``self.x: T = ...`` in one of its
+    methods, or a ``self.x = T(...)`` construction in one of its methods."""
+    attributes: dict[str, ast.expr] = {}
+    for stmt in class_def.body:
+        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            attributes[stmt.target.id] = stmt.annotation
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for node in ast.walk(stmt):
+                attributes.update(_self_attribute_type(node))
+    return attributes
+
+
+def _self_attribute_type(node: ast.AST) -> dict[str, ast.expr]:
+    """The ``{attribute: type expression}`` one ``self.x`` binding states."""
+    if isinstance(node, ast.AnnAssign):
+        name = _self_attribute_name(node.target)
+        return {name: node.annotation} if name is not None else {}
+    if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.value, ast.Call):
+        name = _self_attribute_name(node.targets[0])
+        return {name: node.value.func} if name is not None else {}
+    return {}
+
+
+def _local_type_binding(node: ast.AST) -> tuple[str, ast.expr] | None:
+    """``(name, type expression)`` for a local ``x: T = ...`` or
+    ``x = T(...)``; ``None`` for any other node."""
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return node.target.id, node.annotation
+    if (
+        isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and isinstance(node.value, ast.Call)
+    ):
+        return node.targets[0].id, node.value.func
+    return None
+
+
+def _self_attribute_name(target: ast.expr) -> str | None:
+    """``x`` for a ``self.x``/``cls.x`` target; ``None`` for any other target."""
+    if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
+        return target.attr if target.value.id in _SELF_RECEIVER_NAMES else None
+    return None
+
+
+def platform_reference_graph(src_dirs: Sequence[Path]) -> ReferenceGraph:
+    """The ``ReferenceGraph`` of the package under *src_dirs*.
+
+    Raises:
+        SkeletonError: A file under *src_dirs* cannot be parsed.
+    """
+    modules: dict[str, _ModuleInfo] = {}
+    definitions: list[tuple[_ModuleInfo, _FunctionDefNode, str | None]] = []
+    for src_dir in src_dirs:
+        for py_file in sorted(src_dir.rglob("*.py")):
+            module = parse_module_or_raise(py_file)
+            module_name = _module_name_for(src_dir, py_file)
+            import_table = build_import_table(module, _dotted_package_for_file(src_dir, py_file))
+            info, defs = _module_info(module_name, py_file, module, import_table)
+            modules[module_name] = info
+            definitions.extend((info, node, owner) for node, owner in defs)
+    resolver = _ReferenceResolver(modules)
+    edges: dict[BuilderIdentity, set[BuilderIdentity]] = {}
+    for info, node, owner in definitions:
+        own = _definition_identity(info, node, owner)
+        edges.setdefault(own, set()).update(resolver.references(info, node, owner))
+    return ReferenceGraph(
+        edges={identity: frozenset(targets) for identity, targets in edges.items()},
+        modules=modules,
+    )
+
+
+def _definition_identity(info: _ModuleInfo, node: _FunctionDefNode, owner: str | None) -> BuilderIdentity:
+    if owner is None:
+        return info.functions[node.name]
+    return info.classes[owner].methods[node.name]
+
+
+def _attribute_chain(node: ast.Attribute) -> tuple[ast.expr, list[str]]:
+    """``a.b.c`` -> ``(Name a, ["b", "c"])``: the chain's base expression and
+    its attribute names in reading order."""
+    attrs: list[str] = []
+    current: ast.expr = node
+    while isinstance(current, ast.Attribute):
+        attrs.append(current.attr)
+        current = current.value
+    attrs.reverse()
+    return current, attrs
+
+
+def _is_super_call(node: ast.expr) -> bool:
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == _SUPER_NAME
+
+
+def _bound_names(node: _FunctionDefNode) -> frozenset[str]:
+    """Every name *node* binds itself: its parameters and every name it
+    assigns -- a reference through one of them is a local value, never the
+    module-level function of the same name."""
+    args = node.args
+    params = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    params.extend(arg for arg in (args.vararg, args.kwarg) if arg is not None)
+    stored = {
+        child.id
+        for stmt in node.body
+        for child in ast.walk(stmt)
+        if isinstance(child, ast.Name) and isinstance(child.ctx, (ast.Store, ast.Del))
+    }
+    return frozenset({param.arg for param in params} | stored)
+
+
+class _ReferenceResolver:
+    """Resolves the names a function's body references to the package
+    functions they denote, through the package's own module index."""
+
+    def __init__(self, modules: Mapping[str, _ModuleInfo]) -> None:
+        self._modules = modules
+
+    def references(
+        self, module: _ModuleInfo, node: _FunctionDefNode, owner: str | None
+    ) -> frozenset[BuilderIdentity]:
+        """Every package function *node*'s body references."""
+        collector = _ReferenceCollector(self, module, owner, _bound_names(node), self._receivers(module, node))
+        for stmt in node.body:
+            collector.visit(stmt)
+        return frozenset(collector.found)
+
+    def _receivers(self, module: _ModuleInfo, node: _FunctionDefNode) -> Mapping[str, _ClassInfo]:
+        """Parameters whose annotation names exactly one package class, and
+        locals bound to a package-class construction (``x = Class(...)``) or
+        annotated with one (``x: Class = ...``)."""
+        args = node.args
+        receivers: dict[str, _ClassInfo] = {}
+        for param in (*args.posonlyargs, *args.args, *args.kwonlyargs):
+            cls = self.annotation_class(module, param.annotation)
+            if cls is not None:
+                receivers[param.arg] = cls
+        children = (child for stmt in node.body for child in ast.walk(stmt))
+        bindings = [binding for binding in map(_local_type_binding, children) if binding is not None]
+        for local_name, type_expr in bindings:
+            cls = self.annotation_class(module, type_expr)
+            if cls is not None:
+                receivers[local_name] = cls
+        return receivers
+
+    def annotation_class(self, module: _ModuleInfo, annotation: ast.expr | None) -> _ClassInfo | None:
+        """The one package class an annotation (or a constructor expression)
+        names: a name, a dotted name, a string forward reference, or a
+        ``T | None`` union with exactly one package-class side."""
+        if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
+            try:
+                annotation = ast.parse(annotation.value, mode="eval").body
+            except SyntaxError:
+                return None
+        if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+            sides = [self.annotation_class(module, side) for side in (annotation.left, annotation.right)]
+            classes = [side for side in sides if side is not None]
+            return classes[0] if len(classes) == 1 else None
+        if isinstance(annotation, (ast.Name, ast.Attribute)):
+            return self.class_for_expr(module, annotation)
+        return None
+
+    def qualify(self, module: _ModuleInfo, name: str) -> str | None:
+        """The dotted name *name* denotes in *module*, or ``None`` for a name
+        the module neither defines nor imports (a builtin)."""
+        if name in module.functions or name in module.classes:
+            return f"{module.name}.{name}"
+        return module.import_table[name] if name in module.import_table else None
+
+    def _split_module(self, dotted: str) -> tuple[_ModuleInfo, list[str]] | None:
+        """The longest package-module prefix of *dotted* and the rest."""
+        parts = dotted.split(".")
+        for cut in range(len(parts), 0, -1):
+            prefix = ".".join(parts[:cut])
+            if prefix in self._modules:
+                return self._modules[prefix], parts[cut:]
+        return None
+
+    def resolve_dotted(self, dotted: str, hops: int = 0) -> frozenset[BuilderIdentity]:
+        """The package function(s) a dotted reference denotes: a function,
+        a method, or a class's constructor methods."""
+        split = self._split_module(dotted)
+        if split is None or hops >= _MAX_REEXPORT_HOPS:
+            return frozenset()
+        module, rest = split
+        if not rest:
+            return frozenset()
+        head, tail = rest[0], rest[1:]
+        if head in module.functions:
+            return frozenset({module.functions[head]}) if not tail else frozenset()
+        if head in module.classes:
+            return self._class_member(module.classes[head], tail)
+        if head in module.import_table:
+            return self.resolve_dotted(".".join([module.import_table[head], *tail]), hops + 1)
+        return frozenset()
+
+    def _class_member(self, cls: _ClassInfo, tail: list[str]) -> frozenset[BuilderIdentity]:
+        if not tail:
+            return self.constructors(cls)
+        if len(tail) == 1:
+            method = self.method(cls, tail[0], frozenset())
+            return frozenset({method}) if method is not None else frozenset()
+        return frozenset()
+
+    def class_for_dotted(self, dotted: str, hops: int = 0) -> _ClassInfo | None:
+        split = self._split_module(dotted)
+        if split is None or hops >= _MAX_REEXPORT_HOPS:
+            return None
+        module, rest = split
+        if len(rest) != 1:
+            return None
+        if rest[0] in module.classes:
+            return module.classes[rest[0]]
+        if rest[0] in module.import_table:
+            return self.class_for_dotted(module.import_table[rest[0]], hops + 1)
+        return None
+
+    def class_for_expr(self, module: _ModuleInfo, expr: ast.expr) -> _ClassInfo | None:
+        """The package class a ``Name`` or dotted ``Attribute`` names."""
+        if isinstance(expr, ast.Name):
+            dotted = self.qualify(module, expr.id)
+            return self.class_for_dotted(dotted) if dotted is not None else None
+        if isinstance(expr, ast.Attribute):
+            base, attrs = _attribute_chain(expr)
+            if not isinstance(base, ast.Name):
+                return None
+            root = self.qualify(module, base.id)
+            return self.class_for_dotted(".".join([root, *attrs])) if root is not None else None
+        return None
+
+    def method(self, cls: _ClassInfo, name: str, seen: frozenset[str]) -> BuilderIdentity | None:
+        """*cls*'s own *name* method, else the first one its package base
+        classes define, depth-first in declaration order."""
+        if name in cls.methods:
+            return cls.methods[name]
+        key = f"{cls.module_name}.{cls.name}"
+        for base_cls in self._base_classes(cls):
+            base_key = f"{base_cls.module_name}.{base_cls.name}"
+            if base_key in seen or base_key == key:
+                continue
+            found = self.method(base_cls, name, seen | {key})
+            if found is not None:
+                return found
+        return None
+
+    def _base_classes(self, cls: _ClassInfo) -> list[_ClassInfo]:
+        module = self._modules[cls.module_name]
+        return [base for base in (self.class_for_expr(module, expr) for expr in cls.bases) if base is not None]
+
+    def attribute_class(self, cls: _ClassInfo, attr: str, seen: frozenset[str]) -> _ClassInfo | None:
+        """The package class *cls*'s instance attribute *attr* holds, from
+        its own declaration or its package bases'."""
+        if attr in cls.attributes:
+            return self.annotation_class(self._modules[cls.module_name], cls.attributes[attr])
+        key = f"{cls.module_name}.{cls.name}"
+        for base_cls in self._base_classes(cls):
+            base_key = f"{base_cls.module_name}.{base_cls.name}"
+            if base_key in seen or base_key == key:
+                continue
+            found = self.attribute_class(base_cls, attr, seen | {key})
+            if found is not None:
+                return found
+        return None
+
+    def chain_method(self, receiver: _ClassInfo, attrs: list[str]) -> BuilderIdentity | None:
+        """The method ``receiver.a.b.method`` denotes, following each
+        intermediate attribute's declared package class."""
+        current: _ClassInfo | None = receiver
+        for attr in attrs[:-1]:
+            current = self.attribute_class(current, attr, frozenset()) if current is not None else None
+        return self.method(current, attrs[-1], frozenset()) if current is not None else None
+
+    def super_method(self, cls: _ClassInfo, name: str) -> BuilderIdentity | None:
+        for base_cls in self._base_classes(cls):
+            found = self.method(base_cls, name, frozenset({f"{cls.module_name}.{cls.name}"}))
+            if found is not None:
+                return found
+        return None
+
+    def constructors(self, cls: _ClassInfo) -> frozenset[BuilderIdentity]:
+        found = (self.method(cls, name, frozenset()) for name in _CONSTRUCTOR_METHOD_NAMES)
+        return frozenset(method for method in found if method is not None)
+
+    def inherited_methods(self, cls: _ClassInfo, seen: frozenset[str]) -> frozenset[BuilderIdentity]:
+        """Every method *cls* defines plus every method its package bases define."""
+        key = f"{cls.module_name}.{cls.name}"
+        methods = set(cls.methods.values())
+        for base_cls in self._base_classes(cls):
+            base_key = f"{base_cls.module_name}.{base_cls.name}"
+            if base_key not in seen and base_key != key:
+                methods |= self.inherited_methods(base_cls, seen | {key})
+        return frozenset(methods)
+
+
+class _ReferenceCollector(ast.NodeVisitor):
+    """Collects the package functions one function body references."""
+
+    def __init__(
+        self,
+        resolver: _ReferenceResolver,
+        module: _ModuleInfo,
+        owner: str | None,
+        bound: frozenset[str],
+        receivers: Mapping[str, _ClassInfo],
+    ) -> None:
+        self._resolver = resolver
+        self._module = module
+        self._owner = module.classes[owner] if owner is not None and owner in module.classes else None
+        self._bound = bound
+        self._receivers = receivers
+        self.found: set[BuilderIdentity] = set()
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if not isinstance(node.ctx, ast.Load) or node.id in self._bound:
+            return
+        dotted = self._resolver.qualify(self._module, node.id)
+        if dotted is not None:
+            self.found.update(self._resolver.resolve_dotted(dotted))
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        base, attrs = _attribute_chain(node)
+        if _is_super_call(base):
+            self._add_method(self._super_target(attrs))
+            return
+        if not isinstance(base, ast.Name):
+            self.generic_visit(node)
+            return
+        self.found.update(self._name_chain_targets(base.id, attrs))
+
+    def _super_target(self, attrs: list[str]) -> BuilderIdentity | None:
+        if self._owner is None or len(attrs) != 1:
+            return None
+        return self._resolver.super_method(self._owner, attrs[0])
+
+    def _add_method(self, method: BuilderIdentity | None) -> None:
+        if method is not None:
+            self.found.add(method)
+
+    def _name_chain_targets(self, root: str, attrs: list[str]) -> frozenset[BuilderIdentity]:
+        receiver = self._receiver_class(root)
+        if receiver is not None:
+            method = self._resolver.chain_method(receiver, attrs)
+            return frozenset({method}) if method is not None else frozenset()
+        if root in self._bound:
+            return frozenset()
+        dotted = self._resolver.qualify(self._module, root)
+        return self._resolver.resolve_dotted(".".join([dotted, *attrs])) if dotted is not None else frozenset()
+
+    def _receiver_class(self, root: str) -> _ClassInfo | None:
+        if root in _SELF_RECEIVER_NAMES and self._owner is not None:
+            return self._owner
+        return self._receivers[root] if root in self._receivers else None
+
+
+def platform_generator_roots(platform_label: str, graph: ReferenceGraph) -> frozenset[BuilderIdentity]:
+    """The functions a platform's generator runs from: every method of each
+    ``datrix.platforms`` entry-point class the label folds, and every package
+    function the label's compiled genDSL definitions reference (a genDSL
+    builder lives in a docstring, so no AST call reaches it).
+
+    Raises:
+        ValueError: A folded name has no entry point, or its class is not
+            part of the package.
+    """
+    from datrix_codegen_kernel.gendsl.compiler import get_definitions
+    from datrix_codegen_kernel.gendsl.target_registry import target_kind_map
+
+    registered = {ep.name: ep for ep in entry_points(group=_PLATFORM_ENTRY_POINT_GROUP)}
+    gendsl_targets = target_kind_map()
+    roots: set[BuilderIdentity] = set()
+    for name in platform_label.split(_LABEL_JOIN_SEPARATOR):
+        if name not in registered:
+            raise ValueError(
+                f"behaviour_parity:platform {name!r} (label {platform_label!r}) has no {_PLATFORM_ENTRY_POINT_GROUP!r} "
+                f"entry point; registered: {sorted(registered)}. Fix: install the platform package."
+            )
+        entry_point = registered[name]
+        roots |= graph.class_methods(entry_point.module, entry_point.attr)
+        if name in gendsl_targets:
+            roots |= _gendsl_reference_roots(get_definitions(name), graph)
+    return frozenset(roots)
+
+
+def _gendsl_reference_roots(definitions: Iterable[object], graph: ReferenceGraph) -> frozenset[BuilderIdentity]:
+    """Every package function a compiled genDSL definition tree references
+    (each resolved ``ResolvedFunctionRef.callable_``)."""
+    from datrix_codegen_kernel.generation.gendsl_ir import ResolvedFunctionRef
+
+    roots: set[BuilderIdentity] = set()
+    pending: list[object] = list(definitions)
+    while pending:
+        current = pending.pop()
+        if isinstance(current, ResolvedFunctionRef):
+            if isinstance(current.callable_, FunctionType):
+                identity = _function_identity(current.callable_)
+                if identity in graph.edges:
+                    roots.add(identity)
+            continue
+        if dataclasses.is_dataclass(current) and not isinstance(current, type):
+            pending.extend(getattr(current, field.name) for field in dataclasses.fields(current))
+        elif isinstance(current, (list, tuple, frozenset, set)):
+            pending.extend(current)
+        elif isinstance(current, Mapping):
+            pending.extend(current.values())
+    return frozenset(roots)
+
+
+@dataclass(frozen=True)
+class UnreachedEmitter:
+    """A declared emitter the platform's generator never reaches."""
+
+    block_type: str
+    flavor: str
+    emitter: str
+
+
+def unreached_emitters(
+    tables: Iterable[RealizationTable], graph: ReferenceGraph, roots: Iterable[BuilderIdentity]
+) -> list[UnreachedEmitter]:
+    """Every declared emitter of *tables* that *roots* never reach -- a
+    declaration naming code the generator does not run.
+
+    Raises:
+        ValueError: An emitter cannot be resolved to a function, or a root is
+            not a function of the package.
+    """
+    reached = graph.reach(roots)
+    missing: list[UnreachedEmitter] = []
+    for table in tables:
+        for (block_type, flavor), cell in table.items():
+            for emitter in _own_emitters(cell):
+                function = _defining_function(emitter, f"RealizationTable cell ({block_type!r}, {flavor!r})")
+                if _function_identity(function) not in reached:
+                    missing.append(UnreachedEmitter(block_type, flavor, f"{function.__module__}.{function.__qualname__}"))
+    return sorted(missing, key=lambda entry: (entry.block_type, entry.flavor, entry.emitter))
+
+
+def unrealized_scaffold_cells(
+    tables_by_label: Mapping[str, Sequence[RealizationTable]],
+    scaffold_labels_for: Callable[[RuntimeId], tuple[str, ...]],
+) -> list[str]:
+    """Every cell bound to a ``ScaffoldRuntimeRealization`` that no
+    container-scaffold platform of its runtime realizes with its own emitters
+    for the same ``(block_type, flavor)`` -- a delegation to nothing.
+
+    Args:
+        tables_by_label: Every scanned platform package's tables.
+        scaffold_labels_for: The labels of the platforms declaring a runtime
+            in their ``container_scaffold_runtimes``.
+    """
+    missing: list[str] = []
+    for label, tables in tables_by_label.items():
+        for table in tables:
+            for pair, cell in table.items():
+                if not isinstance(cell.emitters, ScaffoldRuntimeRealization):
+                    continue
+                providers = scaffold_labels_for(cell.emitters.runtime)
+                if not any(_owns_emitter_cell(tables_by_label, provider, pair) for provider in providers):
+                    missing.append(
+                        f"{label}: {pair} -> runtime {cell.emitters.runtime!s}, whose scaffold platform(s) "
+                        f"{list(providers)} bind no emitter function for that cell"
+                    )
+    return sorted(missing)
+
+
+def _owns_emitter_cell(
+    tables_by_label: Mapping[str, Sequence[RealizationTable]], label: str, pair: tuple[str, str]
+) -> bool:
+    tables = tables_by_label[label] if label in tables_by_label else ()
+    return any(pair in table and _own_emitters(table[pair]) for table in tables)
+
+
+def _live_scaffold_labels_for(target_src_dirs: Mapping[str, tuple[Path, ...]]) -> Callable[[RuntimeId], tuple[str, ...]]:
+    """The live ``scaffold_labels_for``: each platform the shared registry
+    reports as container scaffolding for a runtime, mapped to its label."""
+    label_of = {name: label for label in target_src_dirs for name in label.split(_LABEL_JOIN_SEPARATOR)}
+
+    def scaffold_labels_for(runtime: RuntimeId) -> tuple[str, ...]:
+        names = container_scaffold_generator_names_for(runtime)
+        return tuple(sorted({label_of[name] for name in names if name in label_of}))
+
+    return scaffold_labels_for
+
+
+def require_platform_emitters_reached(target_src_dirs: Mapping[str, tuple[Path, ...]]) -> None:
+    """Refuse a platform whose declared emitters its generator never reaches,
+    and a cell delegated to a container-scaffold runtime whose platform does
+    not realize it.
+
+    Raises:
+        ValueError: Naming every unreached ``(block_type, flavor) -> emitter``
+            per platform, and every unrealized scaffold delegation.
+    """
+    failures: list[str] = []
+    tables_by_label: dict[str, list[RealizationTable]] = {}
+    for label, src_dirs in target_src_dirs.items():
+        graph = platform_reference_graph(src_dirs)
+        roots = platform_generator_roots(label, graph)
+        tables_by_label[label] = platform_realization_tables(label, src_dirs)
+        missing = unreached_emitters(tables_by_label[label], graph, roots)
+        failures.extend(f"{label}: ({entry.block_type}, {entry.flavor}) -> {entry.emitter}" for entry in missing)
+        logger.info(
+            "behaviour_parity:platform %s emitter reach: %d root(s), %d unreached emitter binding(s)",
+            label,
+            len(roots),
+            len(missing),
+        )
+    failures.extend(unrealized_scaffold_cells(tables_by_label, _live_scaffold_labels_for(target_src_dirs)))
+    if failures:
+        raise ValueError(
+            "behaviour_parity:declared emitter binding(s) the platform generators do not realize: "
+            + "; ".join(failures)
+            + ". Fix: bind the function the generator actually calls to emit the cell's provisioning artifact, "
+            "wire the declared emitter into the generator, or delegate the cell to the container-scaffold runtime "
+            "whose platform emits it."
+        )
+
+
+def platform_coordinate_index(target_src_dirs: Mapping[str, tuple[Path, ...]]) -> dict[BuilderIdentity, frozenset[CoordinateRole]]:
     """The coordinate index of every platform in *target_src_dirs* -- the one
     place the platform axis reads each package's own registration tables.
 
+    Each package is resolved on its own: its seeds (``coordinate_seeds``) are
+    followed through its OWN reference graph, so a call into another
+    platform's package never keys that package's functions.
+
     Raises:
-        ValueError: A platform's tables cannot be located, imported or resolved.
+        ValueError: A platform's tables cannot be located, imported or
+            resolved, or a seed lies outside its package.
+        SkeletonError: A package file cannot be parsed.
     """
-    tables: list[RealizationTable] = []
+    index: dict[BuilderIdentity, frozenset[CoordinateRole]] = {}
     for label, src_dirs in target_src_dirs.items():
-        tables.extend(platform_realization_tables(label, src_dirs))
-    return coordinate_index_from_tables(tables)
+        seeds = coordinate_seeds(platform_realization_tables(label, src_dirs))
+        index.update(coordinate_index_from_seeds(label, seeds, platform_reference_graph(src_dirs)))
+    return index
 
 
-def _coordinate_role_key_for(fn: FunctionSource, index: CoordinateIndex) -> CoordinateRole | None:
-    """The role *fn*'s registration identifies, or ``None`` when *fn* is no
-    registered plan builder of a single block type -- the caller then keys it
-    by the existing signature-then-name ladder, unchanged."""
-    return index.get((fn.file_path.resolve(), fn.qualified_name))
+def _coordinate_roles_for(fn: FunctionSource, index: CoordinateIndex) -> frozenset[CoordinateRole]:
+    """The roles *fn*'s platform registration reaches it from -- empty when
+    no registered plan builder or declared emitter reaches it, and the caller
+    then keys it by the existing signature-then-name ladder, unchanged."""
+    identity = (fn.file_path.resolve(), fn.qualified_name)
+    return index[identity] if identity in index else frozenset()
 
 
-def _role_key_for(
+def _role_keys_for(
     fn: FunctionSource, tokens: frozenset[str], coordinate_index: CoordinateIndex | None = None
-) -> RoleKey:
-    """The key ladder for one function: coordinate (only when a
-    *coordinate_index* is supplied -- the platform axis), then signature,
-    then normalized name.
+) -> tuple[RoleKey, ...]:
+    """The key ladder for one function: its coordinate roles (only when a
+    *coordinate_index* is supplied -- the platform axis), else its signature
+    role, else its normalized-name role.
 
     Args:
         fn: The function to key.
         tokens: This function's own package's token vocabulary.
-        coordinate_index: The platform axis's registered plan builders, or
-            ``None`` on an axis with no coordinate key.
+        coordinate_index: The platform axis's coordinate index, or ``None``
+            on an axis with no coordinate key.
 
     Returns:
-        A ``CoordinateRole`` if *fn* is a registered plan builder of one block
-        type, else a ``SignatureRole`` if its return annotation declares a
-        shared product, else a ``NameRole``.
+        Every ``CoordinateRole`` the platform registration reaches *fn* from,
+        sorted by block type -- a function realizing part of several
+        capabilities is a member of each -- else one ``SignatureRole`` or one
+        ``NameRole``.
 
     Raises:
         SkeletonError: If *fn*'s return annotation cannot be classified,
             naming the member.
     """
     if coordinate_index is not None:
-        coordinate = _coordinate_role_key_for(fn, coordinate_index)
-        if coordinate is not None:
-            return coordinate
+        coordinates = _coordinate_roles_for(fn, coordinate_index)
+        if coordinates:
+            return tuple(sorted(coordinates, key=lambda role: role.block_type))
+    return (_ladder_role_key_for(fn, tokens),)
+
+
+def _ladder_role_key_for(fn: FunctionSource, tokens: frozenset[str]) -> RoleKey:
+    """The signature-then-name key of one function.
+
+    Raises:
+        SkeletonError: If *fn*'s return annotation cannot be classified,
+            naming the member.
+    """
     try:
         product_type = shared_product_type(fn.node.returns, fn.import_table)
     except SkeletonError as exc:
@@ -1287,17 +2026,19 @@ def key_functions_by_role(
     coordinate_index: CoordinateIndex | None = None,
 ) -> dict[RoleKey, list[FunctionSource]]:
     """Collect every target's functions -- across EVERY package implementing
-    it, a language core included -- and key each into its role (the key
-    ladder of ``_role_key_for``) -- every role, including those with a single
+    it, a language core included -- and key each into its role(s) (the key
+    ladder of ``_role_keys_for``) -- every role, including those with a single
     member package. A core's functions carry their target's label, so they are
-    members of the same target, never of a separate package.
+    members of the same target, never of a separate package. On the platform
+    axis a function reached from several block types' registrations is a
+    member of each of those coordinate roles.
 
     Args:
         target_src_dirs: ``{label: (src dir, ...)}`` for every target to compare.
         tokens_by_label: ``{label: token vocabulary}`` for every label in
             *target_src_dirs*.
-        coordinate_index: The platform axis's registered plan builders;
-            ``None`` on an axis with no coordinate key.
+        coordinate_index: The platform axis's coordinate index; ``None`` on
+            an axis with no coordinate key.
 
     Returns:
         ``{role key: members}``, every qualifying and non-qualifying role
@@ -1311,7 +2052,8 @@ def key_functions_by_role(
         package_tokens = tokens_by_label[label]
         for src_dir in src_dirs:
             for fn in collect_function_sources(src_dir, label):
-                by_role.setdefault(_role_key_for(fn, package_tokens, coordinate_index), []).append(fn)
+                for key in _role_keys_for(fn, package_tokens, coordinate_index):
+                    by_role.setdefault(key, []).append(fn)
     return by_role
 
 
@@ -1431,7 +2173,10 @@ def discover_role_scan(
     _require_min_packages(axis, frozenset(target_src_dirs))
     other_src_dirs = discover_all_other_package_src_dirs(workspace_root, all_src_dirs(target_src_dirs))
     tokens_by_label = {label: tokens_for(axis, label) for label in target_src_dirs}
-    coordinate_index = platform_coordinate_index(target_src_dirs) if axis == AXIS_PLATFORMS else None
+    coordinate_index: CoordinateIndex | None = None
+    if axis == AXIS_PLATFORMS:
+        require_platform_emitters_reached(target_src_dirs)
+        coordinate_index = platform_coordinate_index(target_src_dirs)
     by_role = key_functions_by_role(dict(target_src_dirs), tokens_by_label, coordinate_index)
     verdicts = classify_keyed_roles(by_role, other_src_dirs)
     return RoleScan(verdicts=verdicts, by_role={key: tuple(members) for key, members in by_role.items()})
@@ -1595,20 +2340,38 @@ def uncovered_functions(by_role: Mapping[RoleKey, Sequence[FunctionSource]]) -> 
 
     A role with >= 2 packages counts as covered even if the other-package
     name exclusion later drops it: that exclusion is a deliberate decision
-    about the role, and the pass must not re-open it under another key.
+    about the role, and the pass must not re-open it under another key. A
+    function that is a member of several roles (a platform helper reached
+    from several block types) is uncovered only when NO role it belongs to
+    is covered, and is listed once.
 
     Args:
         by_role: Every role's members, from ``key_functions_by_role`` (via
             ``RoleScan.by_role``).
 
     Returns:
-        Every member of an under-covered role, in role-then-source order.
+        Every uncovered function, once, in role-then-source order.
     """
-    functions: list[FunctionSource] = []
+    covered: set[tuple[Path, str, int]] = set()
     for members in by_role.values():
-        if len({member.package for member in members}) < _MIN_PACKAGES_FOR_COMPARISON:
-            functions.extend(members)
+        if len({member.package for member in members}) >= _MIN_PACKAGES_FOR_COMPARISON:
+            covered.update(_source_key(member) for member in members)
+    functions: list[FunctionSource] = []
+    listed: set[tuple[Path, str, int]] = set()
+    for members in by_role.values():
+        if len({member.package for member in members}) >= _MIN_PACKAGES_FOR_COMPARISON:
+            continue
+        for member in members:
+            key = _source_key(member)
+            if key not in covered and key not in listed:
+                listed.add(key)
+                functions.append(member)
     return functions
+
+
+def _source_key(fn: FunctionSource) -> tuple[Path, str, int]:
+    """One collected function's identity across the roles it is keyed into."""
+    return fn.file_path, fn.qualified_name, fn.line_number
 
 
 def _fingerprint_from_skeleton(fn: FunctionSource, skeleton: str) -> BehaviourFingerprint | None:
@@ -3981,12 +4744,19 @@ _SELF_TEST_PLATFORM_ALPHA_SOURCE: Final[str] = '''
     from datrix_codegen_kernel.platform.realization_dsl import load_realization_table
     from datrix_common.plugin.capability_cells import BlockRealization
 
+    from .iac import emit_alpha_cache, emit_alpha_database, emit_alpha_uniform
+
     _CELL = BlockRealization(structural_pattern="*/infra/main.tf")
 
 
-    class Infra:
-        def provision_database(self, block):
+    class InfraBase:
+        def _narrow(self, block):
             return block.name
+
+
+    class Infra(InfraBase):
+        def provision_database(self, block):
+            return self._narrow(block)
 
 
     def _adapt(provision):
@@ -3998,7 +4768,7 @@ _SELF_TEST_PLATFORM_ALPHA_SOURCE: Final[str] = '''
 
 
     def alpha_cache_plan(block, service):
-        return service.name
+        return alpha_helper(service.name)
 
 
     def alpha_uniform_plan(block, service):
@@ -4007,6 +4777,10 @@ _SELF_TEST_PLATFORM_ALPHA_SOURCE: Final[str] = '''
 
     def alpha_helper(value):
         return value.strip()
+
+
+    def alpha_unrelated(value):
+        return value.lower()
 
 
     _DATABASE_BUILDER = _adapt(Infra().provision_database)
@@ -4027,8 +4801,41 @@ _SELF_TEST_PLATFORM_ALPHA_SOURCE: Final[str] = '''
             ("queue", "small"): alpha_uniform_plan,
             ("nosql", "small"): alpha_uniform_plan,
         },
+        emitters={
+            ("rdbms", "small"): (emit_alpha_database,),
+            ("rdbms", "large"): (emit_alpha_database,),
+            ("cache", "small"): (emit_alpha_cache,),
+            ("queue", "small"): (emit_alpha_uniform,),
+            ("nosql", "small"): (emit_alpha_uniform,),
+        },
     )
 '''
+#: The alpha platform's IaC module: its generator class reaches the database
+#: and cache emitters, never the uniform one.
+_SELF_TEST_PLATFORM_ALPHA_IAC_SOURCE: Final[str] = '''
+    class AlphaGenerator:
+        def generate(self, service):
+            return [emit_alpha_database(service), emit_alpha_cache(service)]
+
+
+    def emit_alpha_database(service):
+        from .tables import alpha_helper
+
+        return render_database(alpha_helper(service.name))
+
+
+    def render_database(name):
+        return name.upper()
+
+
+    def emit_alpha_cache(service):
+        return service.name
+
+
+    def emit_alpha_uniform(service):
+        return service.name
+'''
+_SELF_TEST_PLATFORM_ALPHA_IAC_MODULE: Final[str] = "iac.py"
 _SELF_TEST_PLATFORM_BETA_SOURCE: Final[str] = '''
     from datrix_codegen_kernel.platform.realization_dsl import load_realization_table
     from datrix_common.plugin.capability_cells import BlockRealization
@@ -4045,6 +4852,19 @@ _SELF_TEST_PLATFORM_BETA_SOURCE: Final[str] = '''
         return block.name
 
 
+    def beta_emit_db(service):
+        return service.name
+
+
+    def beta_emit_redis(renderer: "BetaRenderer", service):
+        return renderer.render(service)
+
+
+    class BetaRenderer:
+        def render(self, service):
+            return beta_helper(service.name)
+
+
     def beta_helper(value):
         return value.strip()
 
@@ -4056,6 +4876,7 @@ _SELF_TEST_PLATFORM_BETA_SOURCE: Final[str] = '''
             ("rdbms", "tiny"): BetaInfra().make_db_plan,
             ("cache", "tiny"): beta_redis_builder,
         },
+        emitters={("rdbms", "tiny"): (beta_emit_db,), ("cache", "tiny"): (beta_emit_redis,)},
     )
 '''
 _SELF_TEST_PLATFORM_NO_TABLE_SOURCE: Final[str] = "def plain_function(value):\n    return value\n"
@@ -4064,7 +4885,9 @@ _SELF_TEST_PLATFORM_UNBOUND_TABLE_SOURCE: Final[str] = '''
 
 
     def build_table():
-        return load_realization_table(platform_label="gamma", block_realizations={}, plan_builders={})
+        return load_realization_table(
+            platform_label="gamma", block_realizations={}, plan_builders={}, emitters={}
+        )
 '''
 
 
@@ -4079,12 +4902,24 @@ def _two_delegate_adapter(first: Callable[..., object], second: Callable[..., ob
     return plan_builder
 
 
-def _write_platform_package(root: Path, label: str, source: str) -> Path:
-    """One synthetic platform package ``root/<prefix>_<label>`` holding one
-    module; returns its src dir."""
+def _write_platform_package(root: Path, label: str, source: str, extra_modules: Mapping[str, str] | None = None) -> Path:
+    """One synthetic platform package ``root/<prefix>_<label>`` holding its
+    table module plus *extra_modules* (``{file name: source}``); returns its
+    src dir."""
     src_dir = root / f"{_SELF_TEST_PLATFORM_PREFIX}_{label}"
     _write_module(src_dir, source, _SELF_TEST_PLATFORM_MODULE)
+    for module_name, module_source in (extra_modules or {}).items():
+        _write_module(src_dir, module_source, module_name)
     return src_dir
+
+
+def _write_alpha_platform(root: Path) -> Path:
+    return _write_platform_package(
+        root,
+        _SELF_TEST_ALPHA,
+        _SELF_TEST_PLATFORM_ALPHA_SOURCE,
+        {_SELF_TEST_PLATFORM_ALPHA_IAC_MODULE: _SELF_TEST_PLATFORM_ALPHA_IAC_SOURCE},
+    )
 
 
 def _purge_synthetic_platform_modules() -> None:
@@ -4092,19 +4927,60 @@ def _purge_synthetic_platform_modules() -> None:
         del sys.modules[name]
 
 
+def _roles_by_qualified_name(
+    index: CoordinateIndex, target_src_dirs: Mapping[str, tuple[Path, ...]]
+) -> dict[str, frozenset[str]]:
+    """``{qualified name: block types}`` of every keyed synthetic function."""
+    return {
+        fn.qualified_name: frozenset(role.block_type for role in _coordinate_roles_for(fn, index))
+        for label, src_dirs in target_src_dirs.items()
+        for src_dir in src_dirs
+        for fn in collect_function_sources(src_dir, label)
+        if _coordinate_roles_for(fn, index)
+    }
+
+
+#: What the c1 index must key, per synthetic function: builders through an
+#: adapter and a bound method, a method inherited from a package base class,
+#: an emitter and the function it calls, a helper shared by a cache builder
+#: and an rdbms emitter (member of both), a uniform builder and emitter bound
+#: to two block types (member of both), and a method reached through a
+#: parameter annotated with a package class.
+_SELF_TEST_EXPECTED_COORDINATES: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
+    {
+        "Infra.provision_database": frozenset({"rdbms"}),
+        "InfraBase._narrow": frozenset({"rdbms"}),
+        "emit_alpha_database": frozenset({"rdbms"}),
+        "render_database": frozenset({"rdbms"}),
+        "alpha_helper": frozenset({"rdbms", "cache"}),
+        "alpha_cache_plan": frozenset({"cache"}),
+        "emit_alpha_cache": frozenset({"cache"}),
+        "alpha_uniform_plan": frozenset({"queue", "nosql"}),
+        "emit_alpha_uniform": frozenset({"queue", "nosql"}),
+        "BetaInfra.make_db_plan": frozenset({"rdbms"}),
+        "beta_emit_db": frozenset({"rdbms"}),
+        "beta_redis_builder": frozenset({"cache"}),
+        "beta_emit_redis": frozenset({"cache"}),
+        "BetaRenderer.render": frozenset({"cache"}),
+        "beta_helper": frozenset({"cache"}),
+    }
+)
+
+
 def _self_test_case_coordinate_key() -> bool:
-    """(c1) Two synthetic platform packages register plan builders through
-    ``load_realization_table``. The coordinate index resolves a builder bound
-    to several flavors of ONE block type (through a delegating adapter over a
-    bound method, and through a plain bound method) to that block type's role,
-    leaves a uniform builder bound to several block types out, and keys a
-    function that is no plan builder by the unchanged name ladder. The scan
-    with the index finds MORE roles than the same scan keyed by name alone, and
-    a scan given no index never produces a coordinate role (the language axis
-    passes none)."""
+    """(c1) Two synthetic platform packages register plan builders and
+    emitters through ``load_realization_table``. The coordinate index keys
+    every function a builder or emitter reaches -- through a delegating
+    adapter, a bound method, an inherited method, a relative import, an
+    annotated parameter -- to the block type of every seed reaching it, so a
+    helper shared by two block types and a uniform builder bound to two are
+    members of both roles. A function no seed reaches (the generator class, an
+    unrelated helper) keeps the unchanged name ladder; a scan given no index
+    never produces a coordinate role (the language axis passes none) and
+    keeps the helpers in their shared name role."""
     with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-c1-") as tmp:
         root = Path(tmp)
-        alpha_dir = _write_platform_package(root, _SELF_TEST_ALPHA, _SELF_TEST_PLATFORM_ALPHA_SOURCE)
+        alpha_dir = _write_alpha_platform(root)
         beta_dir = _write_platform_package(root, _SELF_TEST_BETA, _SELF_TEST_PLATFORM_BETA_SOURCE)
         target_src_dirs = {_SELF_TEST_ALPHA: (alpha_dir,), _SELF_TEST_BETA: (beta_dir,)}
         sys.path.insert(0, str(root))
@@ -4129,26 +5005,41 @@ def _self_test_case_coordinate_key() -> bool:
             if isinstance(verdict.role_key, CoordinateRole)
         }
         rdbms, cache = CoordinateRole("rdbms"), CoordinateRole("cache")
+        alpha_tokens = tokens[_SELF_TEST_ALPHA]
         return (
-            len(index) == 4
-            and _coordinate_role_key_for(by_qualified["Infra.provision_database"], index) == rdbms
-            and _coordinate_role_key_for(by_qualified["BetaInfra.make_db_plan"], index) == rdbms
-            and _coordinate_role_key_for(by_qualified["alpha_cache_plan"], index) == cache
-            and _coordinate_role_key_for(by_qualified["alpha_uniform_plan"], index) is None
-            and _coordinate_role_key_for(by_qualified["alpha_helper"], index) is None
-            and _role_key_for(by_qualified["alpha_uniform_plan"], tokens[_SELF_TEST_ALPHA], index)
-            == NameRole("uniform_plan")
-            and _role_key_for(by_qualified["alpha_helper"], tokens[_SELF_TEST_ALPHA], index) == NameRole("helper")
+            _roles_by_qualified_name(index, target_src_dirs) == dict(_SELF_TEST_EXPECTED_COORDINATES)
+            and _role_keys_for(by_qualified["alpha_helper"], alpha_tokens, index) == (cache, rdbms)
+            and _role_keys_for(by_qualified["alpha_uniform_plan"], alpha_tokens, index)
+            == (CoordinateRole("nosql"), CoordinateRole("queue"))
+            and _role_keys_for(by_qualified["alpha_unrelated"], alpha_tokens, index) == (NameRole("unrelated"),)
+            and _role_keys_for(by_qualified["AlphaGenerator.generate"], alpha_tokens, index) == (NameRole("generate"),)
             and coordinate_roles
             == {
-                rdbms: {"Infra.provision_database", "BetaInfra.make_db_plan"},
-                cache: {"alpha_cache_plan", "beta_redis_builder"},
+                rdbms: {
+                    "Infra.provision_database",
+                    "InfraBase._narrow",
+                    "emit_alpha_database",
+                    "render_database",
+                    "alpha_helper",
+                    "BetaInfra.make_db_plan",
+                    "beta_emit_db",
+                },
+                cache: {
+                    "alpha_cache_plan",
+                    "alpha_helper",
+                    "emit_alpha_cache",
+                    "beta_redis_builder",
+                    "beta_emit_redis",
+                    "BetaRenderer.render",
+                    "beta_helper",
+                },
             }
-            and len(with_index) == len(without_index) + len(coordinate_roles)
+            and not any(verdict.role_key == NameRole("helper") for verdict in with_index)
+            and any(verdict.role_key == NameRole("helper") for verdict in without_index)
             and not any(isinstance(verdict.role_key, CoordinateRole) for verdict in without_index)
             and role_label(rdbms) == "coordinate:rdbms"
-            and _role_key_for(by_qualified["Infra.provision_database"], tokens[_SELF_TEST_ALPHA])
-            == NameRole("provision_database")
+            and _role_keys_for(by_qualified["Infra.provision_database"], alpha_tokens)
+            == (NameRole("provision_database"),)
         )
 
 
@@ -4157,11 +5048,15 @@ def _self_test_case_coordinate_key_fails_closed() -> bool:
     scan naming the cause, never keying that platform by name instead: a
     package building no table, a ``load_realization_table`` call that is not
     a module-level assignment, an unimportable module, an adapter closing over
-    two callables, and a builder that is not a function are each refused."""
+    two callables, a builder that is not a function, a seed defined outside
+    the platform's package, and a generator class the package does not
+    define are each refused."""
     with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-c2-") as tmp:
         root = Path(tmp)
         no_table = _write_platform_package(root, "notable", _SELF_TEST_PLATFORM_NO_TABLE_SOURCE)
         unbound = _write_platform_package(root, "unbound", _SELF_TEST_PLATFORM_UNBOUND_TABLE_SOURCE)
+        graph = platform_reference_graph([no_table])
+        foreign_seed = {_function_identity(_two_delegate_adapter): frozenset({"rdbms"})}
         return (
             _refuses(lambda: platform_realization_tables("notable", [no_table]), "builds no RealizationTable", "notable")
             and _refuses(
@@ -4178,22 +5073,117 @@ def _self_test_case_coordinate_key_fails_closed() -> bool:
             )
             and _refuses(lambda: _defining_function(_two_delegate_adapter(print, repr), "cell"), "closes over 2")
             and _refuses(lambda: _defining_function(len, "cell"), "neither a function nor a bound method")
+            and _refuses(
+                lambda: coordinate_index_from_seeds("notable", foreign_seed, graph),
+                "outside its own package",
+                "_two_delegate_adapter",
+            )
+            and _refuses(lambda: graph.class_methods("nowhere", "Generator"), "not a class of the scanned package")
         )
 
 
-#: The floor on live coordinate roles: block types whose plan builders are
-#: registered by at least two platform packages. Measured on the live tree
-#: (rdbms, cache, pubsub, queue, nosql, storage, serverless); a regression to
-#: name-only grouping, an unresolvable registration or a platform that stops
-#: registering a block type's builder drops the count below it.
+def _self_test_case_emitter_reach() -> bool:
+    """(c4) A declared emitter the platform's generator never reaches is
+    refused, naming the cell and the emitter: alpha's generator class reaches
+    its database and cache emitters but not the uniform one, so both cells
+    binding the uniform emitter are named and no other. A genDSL definition
+    tree referencing the uniform emitter (a ``ResolvedFunctionRef`` nested in
+    the compiled IR) supplies the missing root, and the same tables then
+    pass."""
+    from datrix_codegen_kernel.generation.gendsl_ir import CallExpression, ResolvedFunctionRef
+
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-c4-") as tmp:
+        root = Path(tmp)
+        alpha_dir = _write_alpha_platform(root)
+        sys.path.insert(0, str(root))
+        importlib.invalidate_caches()
+        try:
+            tables = platform_realization_tables(_SELF_TEST_ALPHA, [alpha_dir])
+            uniform = importlib.import_module(f"{_SELF_TEST_PLATFORM_PREFIX}_{_SELF_TEST_ALPHA}.iac").emit_alpha_uniform
+        finally:
+            sys.path.remove(str(root))
+            _purge_synthetic_platform_modules()
+        graph = platform_reference_graph([alpha_dir])
+        generator_roots = graph.class_methods(f"{_SELF_TEST_PLATFORM_PREFIX}_{_SELF_TEST_ALPHA}.iac", "AlphaGenerator")
+        gendsl_tree = [
+            CallExpression(
+                function_ref=ResolvedFunctionRef(ref="alpha.iac.emit_alpha_uniform", callable_=uniform),
+                raw_expression="alpha.iac.emit_alpha_uniform(service)",
+            )
+        ]
+        gendsl_roots = _gendsl_reference_roots(gendsl_tree, graph)
+        missing = unreached_emitters(tables, graph, generator_roots)
+        uniform_name = f"{_SELF_TEST_PLATFORM_PREFIX}_{_SELF_TEST_ALPHA}.iac.emit_alpha_uniform"
+        return (
+            missing
+            == [
+                UnreachedEmitter("nosql", "small", uniform_name),
+                UnreachedEmitter("queue", "small", uniform_name),
+            ]
+            and gendsl_roots == frozenset({_function_identity(uniform)})
+            and unreached_emitters(tables, graph, generator_roots | gendsl_roots) == []
+        )
+
+
+def _self_test_scaffold_plan(block: object, service: object) -> object:
+    """A synthetic plan builder for the scaffold-delegation case."""
+    return block, service
+
+
+def _self_test_scaffold_emit(service: object) -> object:
+    """A synthetic emitter for the scaffold-delegation case."""
+    return service
+
+
+def _self_test_case_scaffold_delegation() -> bool:
+    """(c5) A cell delegated to a container-scaffold runtime seeds nothing of
+    its own (only its plan builder keys), passes while the runtime's scaffold
+    platform binds emitter functions for the same pair, and is named when that
+    platform lacks the cell or no platform scaffolds the runtime."""
+    from datrix_common.plugin.capability_cells import BlockRealization
+
+    from datrix_codegen_kernel.platform.realization_dsl import load_realization_table
+
+    compose = RuntimeId("behaviour-parity-selftest-compose")
+    cell = BlockRealization(structural_pattern="*docker-compose.yml")
+    rdbms, cache = ("rdbms", "container"), ("cache", "container")
+    provider = load_realization_table(
+        platform_label="provider",
+        block_realizations={rdbms: cell, cache: cell},
+        plan_builders={rdbms: _self_test_scaffold_plan, cache: _self_test_scaffold_plan},
+        emitters={rdbms: ScaffoldRuntimeRealization(compose), cache: ScaffoldRuntimeRealization(compose)},
+    )
+    scaffold = load_realization_table(
+        platform_label="scaffold",
+        block_realizations={rdbms: cell},
+        plan_builders={rdbms: _self_test_scaffold_plan},
+        emitters={rdbms: (_self_test_scaffold_emit,)},
+    )
+    tables = {"provider": [provider], "scaffold": [scaffold]}
+    with_scaffold = unrealized_scaffold_cells(tables, lambda runtime: ("scaffold",) if runtime == compose else ())
+    without_scaffold = unrealized_scaffold_cells(tables, lambda runtime: ())
+    return (
+        coordinate_seeds([provider]) == {_function_identity(_self_test_scaffold_plan): frozenset({"rdbms", "cache"})}
+        and len(with_scaffold) == 1
+        and "('cache', 'container')" in with_scaffold[0]
+        and len(without_scaffold) == 2
+    )
+
+
+#: The floor on live coordinate roles: block types whose plan builders or
+#: emitters are registered by at least two platform packages. Measured on the
+#: live tree (rdbms, cache, pubsub, queue, nosql, storage, serverless); a
+#: regression to name-only grouping, an unresolvable registration or a
+#: platform that stops registering a block type drops the count below it.
 _PLATFORM_COORDINATE_ROLE_FLOOR: Final[int] = 7
 
 
 def _self_test_case_live_coordinate_floor() -> bool:
     """(c3) The live platform index resolves at least
     ``_PLATFORM_COORDINATE_ROLE_FLOOR`` block types that two or more platform
-    packages register a plan builder for. Name-only grouping resolves none of
-    them, so a regression to it fails here before any real scan is trusted."""
+    packages register a plan builder or emitter for. Name-only grouping
+    resolves none of them, so a regression to it fails here before any real
+    scan is trusted."""
     target_src_dirs = discover_target_package_src_dirs(AXIS_PLATFORMS, registered_platform_names(), WORKSPACE_ROOT)
     try:
         index = platform_coordinate_index(target_src_dirs)
@@ -4201,10 +5191,11 @@ def _self_test_case_live_coordinate_floor() -> bool:
         logger.error("behaviour_parity:the live platform coordinate index cannot be built: %s", exc)
         return False
     labels_by_role: dict[CoordinateRole, set[str]] = {}
-    for (file_path, _), role in index.items():
+    for (file_path, _), roles in index.items():
         for label, src_dirs in target_src_dirs.items():
             if any(file_path.is_relative_to(src_dir.resolve()) for src_dir in src_dirs):
-                labels_by_role.setdefault(role, set()).add(label)
+                for role in roles:
+                    labels_by_role.setdefault(role, set()).add(label)
     spanning = [role for role, labels in labels_by_role.items() if len(labels) >= _MIN_PACKAGES_FOR_COMPARISON]
     logger.info(
         "behaviour-parity self-test: %d live coordinate role(s) span two or more platform packages (floor %d): %s",
@@ -4404,20 +5395,31 @@ def run_self_test() -> bool:
     )
     ok &= _assert(
         _self_test_case_coordinate_key(),
-        "(c1) coordinate key: plan builders registered through load_realization_table (one through a delegating "
-        "adapter over a bound method) resolve to their block type, folding flavors; a uniform multi-block-type "
-        "builder and a non-builder keep the name key; the scan finds more roles than name-only grouping; no index, "
-        "no coordinate role",
+        "(c1) coordinate key: every function a registered plan builder or declared emitter reaches is keyed to the "
+        "block type of each seed reaching it (adapter, bound and inherited methods, relative import, annotated "
+        "receiver); a shared helper and a uniform builder join every role they serve; an unreached function keeps "
+        "the name key; no index, no coordinate role",
     )
     ok &= _assert(
         _self_test_case_coordinate_key_fails_closed(),
         "(c2) coordinate key fails closed: a platform with no table, an unbound load_realization_table call, an "
-        "unimportable module, a two-delegate adapter and a non-function builder are each refused naming the cause",
+        "unimportable module, a two-delegate adapter, a non-function builder, a seed outside the package and an "
+        "unknown generator class are each refused naming the cause",
+    )
+    ok &= _assert(
+        _self_test_case_emitter_reach(),
+        "(c4) a declared emitter the generator class never reaches is refused naming each cell binding it; a genDSL "
+        "definition tree referencing it supplies the root and the tables pass",
+    )
+    ok &= _assert(
+        _self_test_case_scaffold_delegation(),
+        "(c5) a cell delegated to a container-scaffold runtime seeds only its plan builder, passes while the "
+        "runtime's scaffold platform binds emitters for the pair, and is named when it does not",
     )
     ok &= _assert(
         _self_test_case_live_coordinate_floor(),
         f"(c3) the live platform index resolves at least {_PLATFORM_COORDINATE_ROLE_FLOOR} block types that two or "
-        f"more platform packages register a plan builder for -- the floor name-only grouping cannot reach",
+        f"more platform packages register a plan builder or emitter for -- the floor name-only grouping cannot reach",
     )
     return ok
 

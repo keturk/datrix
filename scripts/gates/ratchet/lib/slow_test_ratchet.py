@@ -616,7 +616,7 @@ def _check_call_ceiling_boundary() -> None:
 
 
 def _check_xdist_group_suffix_is_not_part_of_the_id() -> None:
-    assert schedule_independent_nodeid("tests/t.py::C::test_a@npm_tsc_pool_1") == "tests/t.py::C::test_a"
+    assert schedule_independent_nodeid("tests/t.py::C::test_a@fixture_family_1") == "tests/t.py::C::test_a"
     assert schedule_independent_nodeid("tests/t.py::test_p[x@y]@grp") == "tests/t.py::test_p[x@y]"
     assert schedule_independent_nodeid("tests/t.py::test_p[x@y]") == "tests/t.py::test_p[x@y]"
     assert schedule_independent_nodeid("tests/t.py::test_plain") == "tests/t.py::test_plain"
@@ -626,7 +626,7 @@ def _check_xdist_group_suffix_is_not_part_of_the_id() -> None:
         _write_full_run_index(run_dir)
         _write_timings(
             run_dir,
-            calls=[{"nodeid": "tests/test_x.py::test_slow@npm_tsc_pool_3", "seconds": 31.0, "worker": "gw0"}],
+            calls=[{"nodeid": "tests/test_x.py::test_slow@fixture_family_3", "seconds": 31.0, "worker": "gw0"}],
             fixtures=[],
         )
         offenders, _ = find_offenders(_pytest_suite("datrix-selftest-pkg", pkg_dir))

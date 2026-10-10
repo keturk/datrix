@@ -171,7 +171,7 @@ _PLATFORM_FACT_FIELDS: Final[frozenset[str]] = frozenset({
     "identity_deployment_target",
     "identity_write_back",
     "cdn_invalidation_realization",
-    "requires_trusted_caller_behind_managed_gateway",
+    "trusted_caller",
     "native_identity_provider",
     "gateway_terminates_tls",
     "rdbms_login_principal_is_per_service",
@@ -183,6 +183,9 @@ _PLATFORM_FACT_FIELDS: Final[frozenset[str]] = frozenset({
     "publishes_gateway_behind_managed_edge",
     "trusted_edge_client_address_include",
     "client_address_source",
+    # Set exactly when serverless endpoints are hosted off the container runtime;
+    # the declaration's own construction check enforces that equivalence.
+    "serverless_http_client_address",
     "deploy_preflight_entrypoint",
     "deploy_time_settings",                     # the setting name this platform delivers per role
     "websocket_upgrade_idle_timeout_seconds",   # this ingress's idle bound per upgrading runtime

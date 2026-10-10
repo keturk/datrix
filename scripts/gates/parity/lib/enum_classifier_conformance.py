@@ -49,6 +49,7 @@ from datrix_codegen_kernel.generation.registry import SubGeneratorSpec  # noqa: 
 from datrix_codegen_kernel.parity.conformance_probes import (  # noqa: E402
     DocumentationSurfaces,
     EnumClassifierRender,
+    EventEnvelopeCensus,
     LanguageConformanceProbes,
     ResponseBodyWireField,
     RouteWireContract,
@@ -450,6 +451,9 @@ class _FixtureEnumProbes:
 
     def render_enum_classifier(self, enum: Enum, paths: ServicePaths) -> EnumClassifierRender:
         return EnumClassifierRender(self._sources)
+
+    def event_envelopes(self, generated_root: Path) -> EventEnvelopeCensus:
+        return EventEnvelopeCensus(published=(), consumed_keys={})
 
 
 class _FixturePluginWithoutProbes:

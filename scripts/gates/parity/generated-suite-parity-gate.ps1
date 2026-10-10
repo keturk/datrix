@@ -18,11 +18,16 @@
    BEHAVIOUR GAP  a test present in several languages' suites that passes in
                   one and fails (or errors) in another;
    SKIP GAP       a test one language skips and another runs -- its own
-                  category, a skip is neither a pass nor a fail.
+                  category, a skip is neither a pass nor a fail;
+   UNIDENTIFIED   a test that carries no language-neutral case id, so it can
+                  match no other language's test.
 
- A test is identified by its service and the framework-reported full test name
- exactly as the index records it, so two languages agree on a test only when
- they emit the same name for it.
+ A test is identified by its service and its language-neutral case id, which
+ the index records beside the framework-reported name (from the JUnit property
+ a generated pytest suite writes, or the Jest test's own title). The same test
+ of the same item carries the same case id in every language, so module
+ paths, describe titles and wording never decide whether two languages test
+ the same thing.
 
  Generates NOTHING and runs NOTHING -- reads existing index.json files only.
  There is no committed baseline: the gate is exactly as current as the local

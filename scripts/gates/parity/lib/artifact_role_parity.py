@@ -60,9 +60,22 @@ For every (example, runtime, provider) generated in >= 2 languages:
      the set of roles each provider's tree carries must be identical -- a role
      present under one provider and absent under another is a failure on
      its own line (`ARTIFACT-ROLE CROSS-PROVIDER DRIFT`). The same corpus
-     vacuity skip applies. Below two providers there is nothing to compare,
-     so the provider axis is a no-op over a single-provider corpus -- its
-     self-test is what proves it live.
+     vacuity skip applies, and one more, read from the platforms' own
+     capability declarations: a PLATFORM-GATED domain (one the kernel's
+     ``PLATFORM_GATED_DOMAINS`` links to the capability predicate its
+     emission path calls, e.g. ``cdn`` -> ``provides_cdn_cache_invalidation``)
+     is not drift when the lacking provider's platform withholds that
+     capability and every provider carrying the role realizes it. A gap row
+     never stands in for that answer: a platform that does not offer the
+     capability is declaring its topology, not a hole. Below two providers
+     there is nothing to compare, so the provider axis is a no-op over a
+     single-provider corpus -- its self-test is what proves it live.
+
+  5. The platform-gate excuse is held to the generated output it excuses: a
+     tree carrying a role its own provider's platform withholds is a failure
+     (`ARTIFACT-ROLE PLATFORM-WITHHELD ROLE EMITTED`) -- either that platform
+     declaration or the domain's gate entry is wrong. This check runs over
+     every tree, so it is live on a single-provider corpus.
 
 This gate pins PRESENCE across languages and providers. Whether the CONTENT of a generated
 file is right is proven where it can be decided: each language package's own
@@ -76,7 +89,9 @@ a matching pair, proves classify_paths correctly buckets a synthetic manifest
 against synthetic declarations (including the unclassified bucket), proves a
 missing role is a failure unless the corpus vacuity skip excuses it, and proves
 the provider axis detects a planted role present under one provider and absent
-under another while reporting nothing for identical sets or a single provider.
+under another while reporting nothing for identical sets or a single provider,
+excuses a platform-withheld role only when every carrying provider realizes the
+capability, and reports a tree carrying a role its platform withholds.
 Refuses to pass vacuously: zero (example, runtime, provider) groups generated
 in >= 2 languages is exit 2, never a silent 0-example pass.
 
@@ -107,6 +122,7 @@ from datrix_codegen_kernel.parity.domain_declaration import (
     DomainDeclaration,
     DomainDeclarations,
 )
+from datrix_codegen_kernel.parity.platform_gated_domains import platform_withheld_domains
 
 from datrix_scripts.paths import SHOWCASE_DIR, WORKSPACE_DIR
 from datrix_scripts.registered_targets import registered_language_names
@@ -871,6 +887,71 @@ def cross_provider_role_gaps(
     }
 
 
+#: ``{provider path segment: {withheld domain id: gating capability}}``: for each
+#: provider, the platform-gated domains its platform's own capability
+#: declaration does not realize (:func:`platform_withheld_domains_by_provider`).
+WithheldByProvider = Mapping[str, Mapping[str, str]]
+
+
+def platform_withheld_domains_by_provider(providers: Iterable[str]) -> dict[str, dict[str, str]]:
+    """Resolve each provider path segment to the platform-gated domains its
+    platform withholds.
+
+    The ``<provider>`` segment ``generate.ps1`` writes is the run's resolved
+    ``deployment.provider`` -- the same key the emission path resolves the
+    platform declaration by -- so the answer read here is the answer
+    generation acted on.
+
+    Args:
+        providers: Provider path segments of the discovered trees.
+
+    Returns:
+        ``{provider: platform_withheld_domains(its declaration)}`` for every
+        distinct provider.
+
+    Raises:
+        ValueError: If a provider segment resolves to no registered platform.
+    """
+    from datrix_common.errors.plugin import PluginError
+    from datrix_common.plugin.capability_resolution import declaration_for_provider
+
+    withheld: dict[str, dict[str, str]] = {}
+    for provider in sorted(set(providers)):
+        try:
+            declaration = declaration_for_provider(provider)
+        except PluginError as exc:
+            raise ValueError(
+                f"ARTIFACT-ROLE GATE CANNOT RUN: the generated provider directory "
+                f"{provider!r} resolves to no registered platform capability "
+                f"declaration ({exc}). Every <provider> segment under the generated "
+                f"root must be a registered datrix.platforms name, since generate.ps1 "
+                f"writes the run's resolved deployment.provider there. Delete the "
+                f"stray trees under that segment, or install the platform package "
+                f"that registers it."
+            ) from exc
+        withheld[provider] = platform_withheld_domains(declaration)
+    return withheld
+
+
+def _platform_withholds(
+    domain_id: str,
+    *,
+    provider: str,
+    present_under: Sequence[str],
+    withheld_by_provider: WithheldByProvider,
+) -> bool:
+    """Whether *provider*'s platform withholds *domain_id* while every provider
+    carrying the role realizes it.
+
+    Both halves are required: a role carried under a provider whose platform
+    also withholds it is not explained by the gate, so it stays drift (and
+    :func:`withheld_role_emissions` reports the carrying tree).
+    """
+    return domain_id in withheld_by_provider[provider] and not any(
+        domain_id in withheld_by_provider[other] for other in present_under
+    )
+
+
 def cross_provider_drifts(
     trees: Sequence[GeneratedTree],
     *,
@@ -879,13 +960,16 @@ def cross_provider_drifts(
     runtime: str,
     declarations: Mapping[str, DomainDeclaration],
     footprint: Mapping[str, Sequence[str]],
+    withheld_by_provider: WithheldByProvider,
 ) -> list[CrossProviderDrift]:
     """Every role-set difference across the providers of one (language, example,
     runtime) that nothing excuses.
 
     Each provider's gap set runs through `unexcused_missing_domains`, the
-    same corpus-vacuity skip the language axis applies. A provider-specific
-    hole is a failure until it is fixed.
+    same corpus-vacuity skip the language axis applies, and then through the
+    platform gate: a role the lacking provider's platform withholds (and every
+    carrying provider's platform realizes) is logged, not reported. Any other
+    provider-specific hole is a failure until it is fixed.
 
     Returns:
         One drift per unexcused (provider, role), sorted by provider then role;
@@ -906,6 +990,19 @@ def cross_provider_drifts(
             present_under = tuple(
                 sorted(name for name, roles in per_provider.items() if domain_id in roles)
             )
+            if _platform_withholds(
+                domain_id,
+                provider=provider,
+                present_under=present_under,
+                withheld_by_provider=withheld_by_provider,
+            ):
+                logger.info(
+                    "artifact_role_platform_withheld language=%s example=%s runtime=%s "
+                    "provider=%s domain=%s capability=%s present_under=%s",
+                    language, example, runtime, provider, domain_id,
+                    withheld_by_provider[provider][domain_id], list(present_under),
+                )
+                continue
             drifts.append(
                 CrossProviderDrift(
                     language=language,
@@ -925,6 +1022,7 @@ def provider_axis_drifts(
     *,
     declarations_by_language: Mapping[str, Mapping[str, DomainDeclaration]],
     footprint: Mapping[str, Sequence[str]],
+    withheld_by_provider: WithheldByProvider,
 ) -> list[CrossProviderDrift]:
     """The provider axis over every (language, example, runtime) the corpus
     generated under >= 2 providers.
@@ -943,9 +1041,85 @@ def provider_axis_drifts(
                 runtime=runtime,
                 declarations=declarations_by_language[language],
                 footprint=footprint,
+                withheld_by_provider=withheld_by_provider,
             )
         )
     return drifts
+
+
+@dataclass(frozen=True)
+class WithheldRoleEmission:
+    """One generated tree carrying a role its own provider's platform withholds.
+
+    Attributes:
+        language: The language the tree was generated in.
+        example: The example's posix path relative to ``EXAMPLES_ROOT``.
+        runtime: The deployment runtime path segment.
+        provider: The provider whose platform withholds the role.
+        domain: The platform-gated domain role the tree carries.
+        capability: The declaration field the platform answers False.
+        tree_root: The generated project carrying the role.
+    """
+
+    language: str
+    example: str
+    runtime: str
+    provider: str
+    domain: str
+    capability: str
+    tree_root: Path
+
+    def report_line(self) -> str:
+        """The failure line, naming the tree, the role and the capability."""
+        return (
+            f"ARTIFACT-ROLE PLATFORM-WITHHELD ROLE EMITTED language={self.language} "
+            f"example={self.example} runtime={self.runtime} provider={self.provider} "
+            f"domain={self.domain} capability={self.capability} ({self.provider}'s "
+            f"platform declaration answers False for {self.capability}, which "
+            f"withholds this domain, yet its generated tree {self.tree_root} carries "
+            f"a file matching the domain's structural_pattern. Fix whichever is "
+            f"wrong: the platform's capability declaration, the domain's entry in "
+            f"PLATFORM_GATED_DOMAINS, or the generator emitting the file)"
+        )
+
+
+def withheld_role_emissions(
+    trees: Sequence[GeneratedTree],
+    *,
+    declarations_by_language: Mapping[str, Mapping[str, DomainDeclaration]],
+    withheld_by_provider: WithheldByProvider,
+) -> list[WithheldRoleEmission]:
+    """Every tree carrying a role its own provider's platform withholds.
+
+    The seam check behind the provider axis's platform gate: the gate may
+    excuse a role only because the platform declaration says the role cannot
+    be emitted there, so a tree that emits it anyway disproves the declaration
+    or the gate entry. Runs over every tree, not only multi-provider groups.
+
+    Returns:
+        One emission per (tree, withheld role), in tree order then role order.
+    """
+    emissions: list[WithheldRoleEmission] = []
+    for tree in trees:
+        withheld = withheld_by_provider[tree.provider]
+        if not withheld:
+            continue
+        roles, _unclassified = classify_paths(
+            list(tree.paths), declarations_by_language[tree.language]
+        )
+        emissions.extend(
+            WithheldRoleEmission(
+                language=tree.language,
+                example=tree.example,
+                runtime=tree.runtime,
+                provider=tree.provider,
+                domain=domain_id,
+                capability=withheld[domain_id],
+                tree_root=tree.root,
+            )
+            for domain_id in sorted(roles & withheld.keys())
+        )
+    return emissions
 
 
 # ---------------------------------------------------------------------------
@@ -1153,6 +1327,12 @@ _SELF_TEST_FOOTPRINT: Final[Mapping[str, Sequence[str]]] = {
 }
 _SELF_TEST_PROVIDER_ONE: Final[str] = "self_test_provider_one"
 _SELF_TEST_PROVIDER_TWO: Final[str] = "self_test_provider_two"
+_SELF_TEST_CAPABILITY: Final[str] = "self_test_capability"
+#: Neither synthetic provider's platform withholds anything.
+_SELF_TEST_NOTHING_WITHHELD: Final[WithheldByProvider] = {
+    _SELF_TEST_PROVIDER_ONE: {},
+    _SELF_TEST_PROVIDER_TWO: {},
+}
 _SELF_TEST_RUNTIME: Final[str] = "rt"
 _SELF_TEST_OTHER_RUNTIME: Final[str] = "rt_other"
 _SELF_TEST_STAMP: Final[str] = "2026-01-01T00:00:00Z"
@@ -1210,6 +1390,7 @@ def run_self_test() -> list[str]:
     _self_test_vacuity_predicate(ledger)
     ledger.absorb("generated-corpus discovery reader", _self_test_corpus_discovery())
     _self_test_provider_axis(ledger)
+    _self_test_platform_resolution(ledger)
     ledger.absorb("corpus-vacuity record comparison", _self_test_vacuity_records())
     return ledger.problems
 
@@ -1577,8 +1758,11 @@ def _self_test_provider_axis(ledger: _SelfTestLedger) -> None:
     language, example and runtime; a planted role present under one provider
     and absent under another is reported against exactly the provider lacking
     it, on a line naming both providers; identical role sets and a single
-    provider report nothing; and the one skip, corpus vacuity, excuses a role
-    on the provider axis exactly as on the language axis.
+    provider report nothing; the corpus vacuity skip excuses a role on the
+    provider axis exactly as on the language axis; and the platform gate
+    excuses only a role the lacking provider's platform withholds while every
+    carrying provider's realizes it, with a tree carrying a withheld role
+    reported.
     """
     example = registered_example_relpaths()[0]
     other_example = registered_example_relpaths()[-1]
@@ -1589,6 +1773,7 @@ def _self_test_provider_axis(ledger: _SelfTestLedger) -> None:
         _write_provider_axis_scratch(scratch, example, other_example)
         trees = discover_generated_trees(scratch, (_SELF_TEST_LANGUAGE_A, _SELF_TEST_LANGUAGE_B))
         _expect_provider_axis(ledger, trees, example, other_example)
+        _expect_platform_gate(ledger, trees, example)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
@@ -1617,6 +1802,7 @@ def _expect_provider_axis(
             trees,
             declarations_by_language={language: declarations},
             footprint=axis_footprint,
+            withheld_by_provider=_SELF_TEST_NOTHING_WITHHELD,
         )
 
     keys = provider_comparison_keys(trees)
@@ -1669,6 +1855,7 @@ def _expect_provider_axis(
         runtime=runtime,
         declarations=declarations,
         footprint=footprint,
+        withheld_by_provider=_SELF_TEST_NOTHING_WITHHELD,
     )
     ledger.expect(
         "a single provider reports no gap and raises nothing",
@@ -1681,6 +1868,110 @@ def _expect_provider_axis(
         "provider axis",
         vacuous_drifts == [],
         f"got {vacuous_drifts}",
+    )
+
+
+def _expect_platform_gate(
+    ledger: _SelfTestLedger,
+    trees: Sequence[GeneratedTree],
+    example: str,
+) -> None:
+    """The platform-gate assertions over the discovered synthetic corpus.
+
+    The planted role is carried under provider one and missing under provider
+    two (see `_write_provider_axis_scratch`); each case varies only which
+    synthetic platform withholds it.
+    """
+    provider_one = _SELF_TEST_PROVIDER_ONE
+    provider_two = _SELF_TEST_PROVIDER_TWO
+    shared = _SELF_TEST_DOMAIN_SHARED
+    forced = _SELF_TEST_DOMAIN_FORCED_GAP
+    declarations: DomainDeclarations = {
+        shared: _patterned(shared, _SELF_TEST_ORDERS_PATTERN),
+        forced: _patterned(forced, _SELF_TEST_SHIPMENTS_PATTERN),
+    }
+    declarations_by_language = {
+        _SELF_TEST_LANGUAGE_A: declarations,
+        _SELF_TEST_LANGUAGE_B: declarations,
+    }
+    footprint = corpus_footprint(trees)
+    withheld_by_one = {provider_one: {forced: _SELF_TEST_CAPABILITY}, provider_two: {}}
+    withheld_by_two = {provider_one: {}, provider_two: {forced: _SELF_TEST_CAPABILITY}}
+    withheld_by_both = {
+        provider_one: {forced: _SELF_TEST_CAPABILITY},
+        provider_two: {forced: _SELF_TEST_CAPABILITY},
+    }
+
+    def drifted_providers(withheld: WithheldByProvider) -> list[str]:
+        drifts = provider_axis_drifts(
+            trees,
+            declarations_by_language={_SELF_TEST_LANGUAGE_A: declarations},
+            footprint=footprint,
+            withheld_by_provider=withheld,
+        )
+        return [drift.provider for drift in drifts]
+
+    excused = drifted_providers(withheld_by_two)
+    ledger.expect(
+        "a role the lacking provider's platform withholds, and the carrying provider's realizes, "
+        "is not reported on the provider axis",
+        excused == [],
+        f"got drifts against {excused}",
+    )
+    ledger.expect(
+        "a role withheld by the carrying provider's platform too is still provider-axis drift",
+        drifted_providers(withheld_by_both) == [provider_two],
+        f"got drifts against {drifted_providers(withheld_by_both)}",
+    )
+    ledger.expect(
+        "a role withheld only by the carrying provider's platform is still provider-axis drift",
+        drifted_providers(withheld_by_one) == [provider_two],
+        f"got drifts against {drifted_providers(withheld_by_one)}",
+    )
+    emissions = withheld_role_emissions(
+        trees, declarations_by_language=declarations_by_language, withheld_by_provider=withheld_by_one
+    )
+    line = emissions[0].report_line() if len(emissions) == 1 else ""
+    ledger.expect(
+        "a tree carrying a role its own platform withholds is reported, naming the tree, the role "
+        "and the capability",
+        [(e.language, e.example, e.runtime, e.provider, e.domain) for e in emissions]
+        == [(_SELF_TEST_LANGUAGE_A, example, _SELF_TEST_RUNTIME, provider_one, forced)]
+        and line.startswith("ARTIFACT-ROLE PLATFORM-WITHHELD ROLE EMITTED")
+        and all(part in line for part in (f"provider={provider_one}", forced, _SELF_TEST_CAPABILITY)),
+        f"expected one emission at {provider_one!r}/{example!r}, got {emissions}",
+    )
+    clean = withheld_role_emissions(
+        trees,
+        declarations_by_language=declarations_by_language,
+        withheld_by_provider=_SELF_TEST_NOTHING_WITHHELD,
+    )
+    ledger.expect(
+        "no tree is reported when no platform withholds anything",
+        clean == [],
+        f"got {clean}",
+    )
+
+
+def _self_test_platform_resolution(ledger: _SelfTestLedger) -> None:
+    """The production resolver answers for every registered platform and
+    refuses a provider directory no platform registers (fail closed)."""
+    from datrix_common.plugin.capability_resolution import installed_platform_names
+
+    installed = installed_platform_names()
+    resolved = platform_withheld_domains_by_provider(installed)
+    ledger.expect(
+        "platform_withheld_domains_by_provider resolves every registered platform",
+        bool(installed) and sorted(resolved) == sorted(installed),
+        f"installed {installed}, resolved {sorted(resolved)}",
+    )
+    refusal = _value_error_message(
+        lambda: platform_withheld_domains_by_provider([_SELF_TEST_PROVIDER_ONE])
+    )
+    ledger.expect(
+        "platform_withheld_domains_by_provider refuses a provider directory no platform registers",
+        refusal is not None and _SELF_TEST_PROVIDER_ONE in refusal,
+        f"got {refusal!r}",
     )
 
 
@@ -1939,17 +2230,25 @@ def check_artifact_role_parity(generated_root: Path) -> int:
     by the capability-gap ledger gate, and this gate reports the missing role
     regardless.
 
+    The provider axis alone has a second skip, read from each provider's own
+    platform capability declaration: a platform-gated role the lacking
+    provider's platform withholds, while every carrying provider's platform
+    realizes it. `withheld_role_emissions` holds that answer to the output: a
+    tree carrying a role its platform withholds fails.
+
     Args:
         generated_root: The ``generate.ps1`` output base to read.
 
     Returns:
         Exit code (0 = every group's role sets agree modulo recorded
         corpus-vacuous domains, on both the language and the provider
-        axis; 1 = an un-excused role difference was found on either axis, or a
-        corpus-vacuous domain has no reviewed record (or a record has no
-        corpus-vacuous domain); 2 = the corpus is incomplete for some language,
-        a park entry is stale, or zero groups are generated in >= 2 languages
-        -- a vacuous comparison).
+        axis, and no tree carries a role its platform withholds; 1 = an
+        un-excused role difference was found on either axis, a tree carries a
+        platform-withheld role, or a corpus-vacuous domain has no reviewed
+        record (or a record has no corpus-vacuous domain); 2 = the corpus is
+        incomplete for some language, a park entry is stale, a provider
+        directory names no registered platform, or zero groups are generated
+        in >= 2 languages -- a vacuous comparison).
     """
     trees = load_complete_corpus(generated_root)
     groups = comparison_groups(trees)
@@ -1982,19 +2281,30 @@ def check_artifact_role_parity(generated_root: Path) -> int:
         )
         for (example, runtime, provider), language_trees in groups.items()
     ]
+    withheld_by_provider = platform_withheld_domains_by_provider(tree.provider for tree in trees)
+    logger.info("artifact_role_platform_withheld_domains %s", withheld_by_provider)
     provider_drifts = provider_axis_drifts(
         trees,
         declarations_by_language=declarations_by_language,
         footprint=footprint,
+        withheld_by_provider=withheld_by_provider,
     )
     for drift in provider_drifts:
         logger.error("%s", drift.report_line())
+    emissions = withheld_role_emissions(
+        trees,
+        declarations_by_language=declarations_by_language,
+        withheld_by_provider=withheld_by_provider,
+    )
+    for emission in emissions:
+        logger.error("%s", emission.report_line())
 
-    if vacuity_ok and all(group_results) and not provider_drifts:
+    if vacuity_ok and all(group_results) and not provider_drifts and not emissions:
         logger.info(
             "ARTIFACT-ROLE GATE PASSED: %d group(s) generated in >= 2 languages and %d "
             "(language, example, runtime) group(s) generated under >= 2 providers, role "
-            "sets identical modulo recorded corpus-vacuous domains.",
+            "sets identical modulo recorded corpus-vacuous domains and platform-withheld "
+            "roles; no tree carries a role its platform withholds.",
             len(groups), len(provider_keys),
         )
         return EXIT_OK
