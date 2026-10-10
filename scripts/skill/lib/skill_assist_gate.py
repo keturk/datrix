@@ -40,6 +40,7 @@ from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
 from datrix_scripts.local_reading import WITHHELD_LINE
 from datrix_scripts.paths import script_env
 from findings import check_consolidation, extract_file
+from implement_finding import EXIT_DELETED, EXIT_KEPT, EXIT_UNUSABLE, finding_files, test_runs
 from phase_tasks import phase_tasks
 from readiness import VERDICT_SATISFIED, missing_edges, satisfied_leads, unresolved_modules
 from skill_assist import _parser
@@ -222,6 +223,100 @@ def check_findings_check_refuses_a_lost_citation_and_a_dangling_related_pointer(
         _write(kept, "# Theme\n\n## 1. R\n\nAt `a/b.py:1`.\n")
         passed = check_consolidation(folder, [raw])
         assert passed.passed, passed
+
+
+def check_findings_check_keep_raw_allows_a_surviving_raw_file_but_not_a_lost_citation() -> None:
+    with _workspace() as root:
+        folder = root / "reports/finding"
+        survivor = _write(folder / "20261001-000000-same.md", "# Same\n\nAt `a/b.py:1`.\n")
+        duplicate = _write(folder / "20261001-000001-same-again.md", "# Same\n\nAt `a/b.py:1` and `a/c.py:2`.\n")
+        strict = check_consolidation(folder, [duplicate])
+        assert strict.raw_left == [survivor.name], strict.raw_left
+        lost = check_consolidation(folder, [duplicate], raw_may_remain=True)
+        assert lost.lost == {duplicate.name: ["a/c.py:2"]} and not lost.raw_left, lost
+        _write(survivor, "# Same\n\nAt `a/b.py:1` and `a/c.py:2`.\n")
+        passed = check_consolidation(folder, [duplicate], raw_may_remain=True)
+        assert passed.passed, passed
+
+
+# ===========================================================================
+# implement-finding
+# ===========================================================================
+
+_TEST_PS1 = 'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-alpha'
+
+
+def _shell_call(call_id: str, command: str, background: bool = False) -> str:
+    tool_input: dict[str, object] = {"command": command, "description": "d"}
+    if background:
+        tool_input["run_in_background"] = True
+    block = {"type": "tool_use", "id": call_id, "name": "PowerShell", "input": tool_input}
+    return json.dumps({"type": "assistant", "message": {"content": [block]}})
+
+
+def _shell_result(call_id: str, text: str, is_error: bool = False) -> str:
+    block = {"type": "tool_result", "tool_use_id": call_id, "is_error": is_error, "content": text}
+    return json.dumps({"type": "user", "message": {"content": [block]}})
+
+
+def _close(root: Path, finding: Path, session_log: Path | None = None) -> subprocess.CompletedProcess[str]:
+    log_args = ["--session-log", str(session_log)] if session_log else []
+    return subprocess.run(
+        [sys.executable, str(_CLI), "--workspace", str(root), "finding-close", "--finding", str(finding), *log_args],
+        capture_output=True, text=True, check=False, env=script_env())
+
+
+def check_implement_finding_selects_the_first_files_by_name() -> None:
+    with _workspace() as root:
+        folder = root / "reports/finding"
+        for name in ("20261002-000000-b.md", "consolidated-001-c.md", "20261001-000000-a.md", "notes.txt"):
+            _write(folder / name, "# X\n")
+        assert [p.name for p in finding_files(folder, 2)] == ["20261001-000000-a.md", "20261002-000000-b.md"]
+        assert len(finding_files(folder, 10)) == 3
+
+
+def check_implement_finding_test_runs_reads_foreground_test_ps1_results_only() -> None:
+    with _workspace() as root:
+        log = _write(root / ".tmp/step.stream.jsonl", "\n".join([
+            _shell_call("a", f"{_TEST_PS1} -ListTags"), _shell_result("a", "tags"),
+            _shell_call("b", f"{_TEST_PS1} -Tag x", background=True), _shell_result("b", "started"),
+            _shell_call("c", "git status"), _shell_result("c", "clean"),
+            "not json",
+            _shell_call("d", f"{_TEST_PS1} -Tag x"), _shell_result("d", "Exit code 1", is_error=True),
+            _shell_call("e", f"{_TEST_PS1} -Tag x | Select-Object -Last 5"), _shell_result("e", "12 passed"),
+            _shell_call("g", f"{_TEST_PS1} -Tag x; {_TEST_PS1} -Tag y"),
+            _shell_result("g", "[FAIL] Tests failed for datrix-alpha\n[PASS] Tests passed for datrix-alpha"),
+            _shell_call("h", 'powershell -File "test-single.ps1" "t.py::x"'), _shell_result("h", "ok"),
+            _shell_call("f", f"{_TEST_PS1} -Specific a.py || exit 1"), _shell_result("f", "12 passed, 0 failed"),
+        ]) + "\n")
+        runs = test_runs(log)
+        assert [run.passed for run in runs] == [False, False, False, True], runs
+        assert runs[-1].command.endswith("-Specific a.py || exit 1"), runs
+
+
+def check_implement_finding_close_deletes_only_an_unreferenced_finding_with_a_passing_last_test_run() -> None:
+    with _workspace() as root:
+        folder = root / "reports/finding"
+        finding = _write(folder / "20261001-000000-a.md", "# A\n")
+        referrer = _write(folder / "consolidated-001-x.md", "# X\n\n**Related:** 20261001-000000-a\n")
+        log = _write(root / ".tmp/step.stream.jsonl", _shell_call("a", "git status") + "\n")
+        result = _close(root, finding, log)
+        assert result.returncode == EXIT_KEPT and finding.exists(), (result.returncode, result.stdout)
+        assert "consolidated-001-x.md still names it" in result.stdout and "ran no foreground" in result.stdout, \
+            result.stdout
+        _write(referrer, "# X\n")
+        _write(log, "\n".join([_shell_call("p", f"{_TEST_PS1} -Tag x"), _shell_result("p", "4 passed"),
+                               _shell_call("f", f"{_TEST_PS1} -Tag x"), _shell_result("f", "1 failed")]) + "\n")
+        result = _close(root, finding, log)
+        assert result.returncode == EXIT_KEPT and "last test run failed" in result.stdout, result.stdout
+        _write(log, _shell_call("p", f"{_TEST_PS1} -Tag x") + "\n" + _shell_result("p", "4 passed") + "\n")
+        result = _close(root, finding, log)
+        assert result.returncode == EXIT_DELETED and not finding.exists(), (result.returncode, result.stdout)
+        _write(finding, "# A\n")
+        result = _close(root, finding)
+        assert result.returncode == EXIT_DELETED and not finding.exists(), (result.returncode, result.stdout)
+        result = _close(root, finding)
+        assert result.returncode == EXIT_UNUSABLE, (result.returncode, result.stdout)
 
 
 # ===========================================================================
@@ -424,6 +519,10 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_findings_extraction_maps_tails_reports_invented_and_unassigned_citations,
     check_findings_never_send_a_registered_customer_term,
     check_findings_check_refuses_a_lost_citation_and_a_dangling_related_pointer,
+    check_findings_check_keep_raw_allows_a_surviving_raw_file_but_not_a_lost_citation,
+    check_implement_finding_selects_the_first_files_by_name,
+    check_implement_finding_test_runs_reads_foreground_test_ps1_results_only,
+    check_implement_finding_close_deletes_only_an_unreferenced_finding_with_a_passing_last_test_run,
     check_checklist_verifies_quotes_and_lists_uncovered_requirement_lines,
     check_absorb_references_find_name_number_and_title_but_not_task_folders,
     check_absorb_transfer_gives_a_verdict_per_section,

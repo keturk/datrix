@@ -96,16 +96,23 @@ function Invoke-ChainStep {
     <#
     .SYNOPSIS
         Run one prompt as a headless step and return its row: Name, IsError, Subtype, Result,
-        SessionId, Models, Turns, Minutes, CostUsd, Denials, DryRun. The step streams its events:
+        SessionId, Models, Turns, Minutes, CostUsd, Denials, StreamPath, DryRun. The step streams its events:
         each is kept in <label>.stream.jsonl and, unless Quiet, shown as one line; the final
-        result is kept in <label>.json.
+        result is kept in <label>.json. Model and Effort start the session on that model and effort;
+        a skill's own `model:`/`effort:` still applies while it runs, so they are for skills that
+        declare none and leave the choice to the caller.
     #>
-    param([Parameter(Mandatory)] [string]$Name, [Parameter(Mandatory)] [string]$Prompt)
+    param(
+        [Parameter(Mandatory)] [string]$Name,
+        [Parameter(Mandatory)] [string]$Prompt,
+        [string]$Model = "",
+        [string]$Effort = ""
+    )
     $options = $script:Options
     $script:StepNumber += 1
     $label = "{0:D2}-{1}" -f $script:StepNumber, $Name
     Write-Host ""
-    Write-Host "=== step $label ===" -ForegroundColor Cyan
+    Write-Host "=== step $label$(if ($Model) { " ($Model$(if ($Effort) { ", $Effort" }))" }) ===" -ForegroundColor Cyan
     Write-Host $Prompt
     if ($options.DryRun) {
         return [pscustomobject]@{ Name = $label; IsError = $false; Result = ""; SessionId = ""; DryRun = $true }
@@ -114,6 +121,8 @@ function Invoke-ChainStep {
     $cliArgs = @("-p", $Prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", $options.PermissionMode)
     if ($options.Resume -and $script:SessionId) { $cliArgs += @("--resume", $script:SessionId) }
     if ($options.MaxBudgetUsd -gt 0) { $cliArgs += @("--max-budget-usd", "$($options.MaxBudgetUsd)") }
+    if ($Model) { $cliArgs += @("--model", $Model) }
+    if ($Effort) { $cliArgs += @("--effort", $Effort) }
     $jsonPath = Join-Path $options.RunDir "$label.json"
     $streamPath = Join-Path $options.RunDir "$label.stream.jsonl"
     $errPath = Join-Path $options.RunDir "$label.stderr.txt"
@@ -148,7 +157,8 @@ function Invoke-ChainStep {
     $row = [pscustomobject]@{
         Name = $label; IsError = [bool]$result.is_error; Subtype = $result.subtype; Result = [string]$result.result
         SessionId = $result.session_id; Models = $models; Turns = $result.num_turns; Minutes = $minutes
-        CostUsd = [math]::Round([double]$result.total_cost_usd, 2); Denials = $denials; DryRun = $false
+        CostUsd = [math]::Round([double]$result.total_cost_usd, 2); Denials = $denials; StreamPath = $streamPath
+        DryRun = $false
     }
     $script:Steps.Add($row)
     $colour = if ($row.IsError) { "Red" } else { "Green" }
@@ -224,31 +234,57 @@ function Get-DesignVerdict {
         verdict in the session wins.
     #>
     param([Parameter(Mandatory)] [object]$Row)
+    return Get-TextVerdict ((Get-SessionReplies $Row) -join "`n")
+}
+
+function Get-TextVerdict {
+    <# The last verdict line in Text: PROVEN, INCOMPLETE, or "" when it carries none. #>
+    param([string]$Text)
     $verdict = ""
-    foreach ($reply in (Get-SessionReplies $Row)) {
-        foreach ($match in [regex]::Matches($reply, $VerdictPattern)) { $verdict = $match.Groups[1].Value }
-    }
+    foreach ($match in [regex]::Matches($Text, $VerdictPattern)) { $verdict = $match.Groups[1].Value }
     return $verdict
+}
+
+function Get-VerifyProofPath {
+    <#
+    .SYNOPSIS
+        Where the verify session's replies are kept once they end PROVEN, for /absorb-design's
+        VERIFIED input. The path depends only on the design, so a later run that starts at absorb
+        finds the proof an earlier run wrote.
+    #>
+    param([Parameter(Mandatory)] [string]$DesignPath)
+    $stem = [System.IO.Path]::GetFileNameWithoutExtension($DesignPath)
+    return Join-Path $script:Options.Workspace ".tmp\verify-proven-$stem.md"
 }
 
 function Invoke-DesignVerify {
     <#
     .SYNOPSIS
-        Run /verify-implementation until it replies PROVEN. On INCOMPLETE, its reply is saved to a
-        file and OnIncomplete runs with that path (the step that implements again) before the next
-        round; after MaxRounds the chain stops with exit 1. A reply with neither verdict stops with 2.
+        Run /verify-implementation until it replies PROVEN, then save its replies to the design's
+        proof file (Get-VerifyProofPath). On INCOMPLETE, its reply is saved to a file and
+        OnIncomplete runs with that path (the step that implements again) before the next round;
+        after MaxRounds the chain stops with exit 1. A reply with neither verdict stops with 2.
     #>
     param(
         [Parameter(Mandatory)] [string]$Prompt,
+        [Parameter(Mandatory)] [string]$DesignPath,
         [Parameter(Mandatory)] [scriptblock]$OnIncomplete,
         [int]$MaxRounds = 3
     )
+    $proof = Get-VerifyProofPath $DesignPath
+    if (Test-Path $proof) { Remove-Item -LiteralPath $proof }
     for ($round = 1; $round -le $MaxRounds; $round++) {
         $row = Invoke-ChainStep "verify" $Prompt
         if ($row.DryRun) { return }
         if ($row.IsError) { Stop-Chain 1 "/verify-implementation ended in error ($($row.Subtype))." $row }
         $verdict = Get-DesignVerdict $row
-        if ($verdict -eq "PROVEN") { return }
+        if ($verdict -eq "PROVEN") {
+            $replies = (Get-SessionReplies $row) -join "`n`n---`n`n"
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $proof) | Out-Null
+            [System.IO.File]::WriteAllText($proof, $replies, [System.Text.UTF8Encoding]::new($false))
+            Write-Host "Verify: PROVEN (proof for absorb: $proof)." -ForegroundColor Green
+            return
+        }
         if ($verdict -ne "INCOMPLETE") {
             Stop-Chain 2 "/verify-implementation replied with neither PROVEN nor INCOMPLETE; read its reply." $row
         }
@@ -266,12 +302,23 @@ function Invoke-DesignVerify {
 function Invoke-DesignAbsorb {
     <#
     .SYNOPSIS
-        Run /absorb-design. Without KeepSource the design must be gone afterwards; when it is not,
-        absorb stopped at one of its questions and the chain stops with exit 2.
+        Run /absorb-design with VERIFIED set to the design's proof file, which a PROVEN verify
+        wrote (in this run or, after -StartAt absorb, an earlier one). Without that file the chain
+        stops with exit 1 before absorb runs: absorb deletes the design only on that proof. Without
+        KeepSource the design must be gone afterwards; when it is not, absorb stopped at one of its
+        questions and the chain stops with exit 2.
     #>
     param([Parameter(Mandatory)] [string]$DesignPath, [switch]$KeepSource)
+    $proof = Get-VerifyProofPath $DesignPath
+    if (-not $script:Options.DryRun) {
+        $verdict = if (Test-Path $proof) { Get-TextVerdict (Get-Content -Raw -Encoding UTF8 $proof) } else { "" }
+        if ($verdict -ne "PROVEN") {
+            Stop-Chain 1 ("No PROVEN verify reply for this design at $proof, so absorb would not delete it. " +
+                "Rerun with -StartAt verify.")
+        }
+    }
     $keep = if ($KeepSource) { "`nKEEP SOURCE: true" } else { "" }
-    $row = Invoke-ChainStep "absorb" "/absorb-design`nDOCUMENT: $DesignPath$keep"
+    $row = Invoke-ChainStep "absorb" "/absorb-design`nDOCUMENT: $DesignPath`nVERIFIED: $proof$keep"
     if ($row.DryRun) { return }
     if ($row.IsError) { Stop-Chain 1 "/absorb-design ended in error ($($row.Subtype))." $row }
     if (-not $KeepSource -and (Test-Path $DesignPath)) {
@@ -285,4 +332,4 @@ function Complete-Chain {
 }
 
 Export-ModuleMember -Function Initialize-SkillChain, Get-SkillChainRunDir, Invoke-ChainStep, Write-ChainSummary, Stop-Chain,
-    Invoke-DesignVerify, Invoke-DesignAbsorb, Complete-Chain
+    Get-SessionReplies, Invoke-DesignVerify, Invoke-DesignAbsorb, Complete-Chain

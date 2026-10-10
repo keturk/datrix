@@ -7,8 +7,13 @@ Commands:
     context-digest     --phase N                 the implementers' shared-context digest (code index)
     readiness          --phase N                 readiness-audit evidence (exact checks + model leads)
     findings-index     [--dir D]                 atomic-finding index of the findings inbox (model, checked)
-    findings-check     --delete F... [--dir D]   would deleting F lose a citation? (exact)
-    checklist          --design PATH             conformance checklist draft (model, checked)
+    findings-check     --delete F... [--dir D] [--keep-raw]
+                                                 would deleting F lose a citation? (exact)
+    finding-select     [--count N] [--dir D]     the first N findings files by name (exact)
+    finding-close      --finding F [--session-log L]
+                                                 delete F unless a findings file names it or L shows
+                                                 no passing test run (exact)
+    checklist         --design PATH             conformance checklist draft (model, checked)
     absorb-transfer    --design PATH --target T  is each design section in the target docs? (model leads)
     absorb-references  --design PATH [--also P]  every line that names the design (exact)
     bug-resolution     --report R --repo P ...   the Resolution section for a fixed bug report
@@ -66,6 +71,8 @@ from datrix_scripts.local_reading import ReadScopeError
 from datrix_scripts.task_metadata import format_phase
 from datrix_scripts.venv import get_datrix_root
 from findings import build_index, check_consolidation, render_check, render_index
+from implement_finding import DEFAULT_COUNT as DEFAULT_FINDING_COUNT
+from implement_finding import close_finding, finding_files, findings_dir
 from phase_tasks import phase_tasks
 from readiness import (
     VERDICT_SATISFIED,
@@ -166,7 +173,7 @@ def cmd_findings_check(args: argparse.Namespace) -> int:
     if missing:
         raise AssistError(f"Not files in the findings folder: {', '.join(missing)}. Pass the names of files "
                           "you are about to delete.")
-    result = check_consolidation(directory, delete)
+    result = check_consolidation(directory, delete, raw_may_remain=args.keep_raw)
     print(render_check(result), end="")
     return EXIT_OK if result.passed else EXIT_CHECK_FAILED
 
@@ -216,6 +223,19 @@ def cmd_bug_resolution(args: argparse.Namespace) -> int:
     return _done(path, "Draft written; review it, then run again with --append to add it to the report.")
 
 
+def cmd_finding_select(args: argparse.Namespace) -> int:
+    for path in finding_files(findings_dir(_workspace(args), args.dir or ""), args.count):
+        print(path)
+    return EXIT_OK
+
+
+def cmd_finding_close(args: argparse.Namespace) -> int:
+    session_log = Path(args.session_log).resolve() if args.session_log else None
+    text, code = close_finding(Path(args.finding).resolve(), session_log)
+    print(text)
+    return code
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--workspace", help="Workspace root (default: this checkout's workspace)")
@@ -239,6 +259,14 @@ def _parser() -> argparse.ArgumentParser:
     sub = command("findings-check", cmd_findings_check, model=False)
     sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
     sub.add_argument("--delete", nargs="+", action="extend", required=True, help="The files you are about to delete")
+    sub.add_argument("--keep-raw", action="store_true",
+                     help="Raw files may remain (/merge-findings keeps every distinct finding in place)")
+    sub = command("finding-select", cmd_finding_select, model=False)
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--count", type=int, default=DEFAULT_FINDING_COUNT)
+    sub = command("finding-close", cmd_finding_close, model=False)
+    sub.add_argument("--finding", required=True, help="The findings file to delete")
+    sub.add_argument("--session-log", help="The fix step's .stream.jsonl; its last test.ps1 run must have passed")
     sub = command("checklist", cmd_checklist, model=True)
     sub.add_argument("--design", required=True)
     sub = command("absorb-transfer", cmd_absorb_transfer, model=True)

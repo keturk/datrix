@@ -14,8 +14,12 @@
                                                     already-satisfied leads)
       findings-index     [--dir D]                  atomic-finding index of the findings inbox
       findings-check     --delete F... [--dir D]    would deleting F lose a citation or leave a dangling
-                                                    Related pointer?
-      checklist          --design PATH              conformance checklist draft for a design
+                         [--keep-raw]               Related pointer? (--keep-raw: raw files may remain)
+      finding-select     [--count N] [--dir D]      the first N findings files by name (/implement-finding)
+      finding-close      --finding F                delete F unless another findings file names it;
+                         [--session-log L]          with L (a step's .stream.jsonl), also unless its
+                                                    last test.ps1 run failed or it ran none
+      checklist         --design PATH              conformance checklist draft for a design
       absorb-transfer    --design PATH --target T.. is each design section present in the target docs?
       absorb-references  --design PATH [--also P..] every line that still names the design
       bug-resolution     --report R --repo P.. ...  the Resolution section for a fixed bug report
@@ -59,8 +63,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet("context-digest", "readiness", "findings-index", "findings-check", "checklist",
-        "absorb-transfer", "absorb-references", "bug-resolution")]
+    [ValidateSet("context-digest", "readiness", "findings-index", "findings-check", "finding-select",
+        "finding-close", "checklist", "absorb-transfer", "absorb-references", "bug-resolution")]
     [string]$Command,
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)] [string[]]$Arguments = @(),
     [Parameter()] [string[]]$LocalMachines = @(),

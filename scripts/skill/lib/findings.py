@@ -1,4 +1,5 @@
-"""The mechanical half of /consolidate-findings: the atomic-finding index, and the no-loss check.
+"""The mechanical half of /consolidate-findings and /merge-findings: the atomic-finding index, and the
+no-loss check.
 
 INDEX (a lead, checked)
     A local model splits each findings file into atomic findings -- one defect, one root cause --
@@ -11,7 +12,8 @@ CHECK (exact)
     Before the superseded files are deleted: every ``path:line`` citation and every backticked file
     path in a file about to be deleted appears in a file that remains; every ``**Related:**`` pointer
     in a remaining file names a consolidated file that remains; no remaining file carries mojibake;
-    no raw (agent-written) file is left behind un-superseded.
+    no raw (agent-written) file is left behind un-superseded (waived for /merge-findings, which keeps
+    every distinct raw file).
 """
 
 from __future__ import annotations
@@ -196,8 +198,11 @@ class ConsolidationCheck:
         return not (self.lost or self.dangling_related or self.mojibake or self.raw_left)
 
 
-def check_consolidation(directory: Path, delete: list[Path]) -> ConsolidationCheck:
-    """Would deleting ``delete`` lose a citation, leave a dangling pointer, or leave a raw file behind?"""
+def check_consolidation(directory: Path, delete: list[Path], raw_may_remain: bool = False) -> ConsolidationCheck:
+    """Would deleting ``delete`` lose a citation, leave a dangling pointer, or leave a raw file behind?
+
+    ``raw_may_remain`` is for /merge-findings, which collapses duplicates into one surviving raw file and
+    leaves every distinct finding where it is: raw files left behind are then the expected result."""
     doomed = {path.resolve() for path in delete}
     remaining = [path for path in finding_files(directory) if path.resolve() not in doomed]
     texts = {path.name: read_text(path) for path in remaining}
@@ -215,7 +220,8 @@ def check_consolidation(directory: Path, delete: list[Path]) -> ConsolidationChe
             result.dangling_related[name] = [f"consolidated-{n}" for n in dangling]
         if any(mark in text for mark in MOJIBAKE):
             result.mojibake.append(name)
-    result.raw_left = sorted(name for name in texts if not name.startswith(CONSOLIDATED_PREFIX))
+    if not raw_may_remain:
+        result.raw_left = sorted(name for name in texts if not name.startswith(CONSOLIDATED_PREFIX))
     return result
 
 

@@ -16,8 +16,10 @@
       * the phase is closed only when phase-status.ps1 shows every task completed with no
         How-Solved red flag and the design's Status line reads Implemented; otherwise the
         orchestrator runs again (up to -MaxRounds).
-      * absorb runs only after verify replies "Design conformance: PROVEN"; on INCOMPLETE the
-        orchestrator and verify run again (up to -MaxRounds).
+      * absorb runs only after verify replies "Design conformance: PROVEN". That reply is kept at
+        <workspace>\.tmp\verify-proven-<design file name>.md and passed to absorb as VERIFIED, its
+        licence to delete the design; -StartAt absorb needs that file from an earlier run. On
+        INCOMPLETE the orchestrator and verify run again (up to -MaxRounds).
 
     Every step's JSON result and stderr are kept under <workspace>\.tmp\skill-chain\<timestamp>\.
     Exit codes: 0 the design is absorbed; 1 a step ended in error or a check failed; 2 a step
@@ -156,7 +158,7 @@ if ($first -le 0) {
 if ($first -le 1) { Invoke-Orchestration $number }
 
 if ($first -le 2) {
-    Invoke-DesignVerify -Prompt "/verify-implementation`nDESIGN: $designPath`nTASKS: $number" -MaxRounds $MaxRounds `
+    Invoke-DesignVerify -Prompt "/verify-implementation`nDESIGN: $designPath`nTASKS: $number" -DesignPath $designPath -MaxRounds $MaxRounds `
         -OnIncomplete { param($report) Invoke-Orchestration $number }
 }
 

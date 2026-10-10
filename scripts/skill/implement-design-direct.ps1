@@ -19,9 +19,11 @@
         "## Files changed" section. No ledger means it stopped at its gate for a decision (exit 2);
         unchecked units mean it ran out of turn, so implement runs again from the ledger (up to
         -MaxRounds).
-      * absorb runs only after verify replies "Design conformance: PROVEN". On INCOMPLETE, verify's
-        reply is saved and implement runs again with GAPS: <that file>, then verify again (up to
-        -MaxRounds).
+      * absorb runs only after verify replies "Design conformance: PROVEN". That reply is kept at
+        <workspace>\.tmp\verify-proven-<design file name>.md and passed to absorb as VERIFIED, its
+        licence to delete the design; -StartAt absorb needs that file from an earlier run. On
+        INCOMPLETE, verify's reply is saved and implement runs again with GAPS: <that file>, then
+        verify again (up to -MaxRounds).
 
     Every step's JSON result and stderr are kept under <workspace>\.tmp\skill-chain\<timestamp>\.
     Exit codes: 0 the design is absorbed; 1 a step ended in error or a check failed; 2 a step
@@ -130,7 +132,7 @@ if ($first -le 0) { Invoke-Implementation }
 
 if ($first -le 1) {
     $verifyPrompt = "/verify-implementation`nDESIGN: $designPath`nTASKS: none`nFILES: the files listed under '## Files changed' in $ledger"
-    Invoke-DesignVerify -Prompt $verifyPrompt -MaxRounds $MaxRounds -OnIncomplete { param($report) Invoke-Implementation $report }
+    Invoke-DesignVerify -Prompt $verifyPrompt -DesignPath $designPath -MaxRounds $MaxRounds -OnIncomplete { param($report) Invoke-Implementation $report }
 }
 
 Invoke-DesignAbsorb -DesignPath $designPath -KeepSource:$KeepSource
