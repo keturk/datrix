@@ -53,7 +53,6 @@ from datrix_scripts.task_metadata import (
     extract_dependency_ids,
     find_task_file,
     format_phase,
-    get_datrix_root,
     normalize_task_id,
     parse_dependencies_md,
     parse_task_file,
@@ -63,6 +62,7 @@ from datrix_scripts.task_metadata import (
     task_id_phase,
     write_json_output,
 )
+from datrix_scripts.venv import get_datrix_root
 from plan_waves import find_dependency_cycle
 
 logger = logging.getLogger(__name__)

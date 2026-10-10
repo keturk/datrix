@@ -41,12 +41,12 @@ from datrix_scripts.task_metadata import (
     discover_phase_task_files,
     find_task_file,
     format_phase,
-    get_datrix_root,
     parse_dependencies_md,
     parse_task_file,
     task_id_phase,
     write_json_output,
 )
+from datrix_scripts.venv import get_datrix_root
 
 logger = logging.getLogger(__name__)
 
