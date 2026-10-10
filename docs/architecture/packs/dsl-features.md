@@ -43,7 +43,7 @@ A route pages exactly when it is a `GET` returning **`Page<T>`** (`endpoint_is_p
 - **Derived lists page too.** The resource `list` operation, the empty-body `LIST`/`LIST_BY_FIELD` derivations, view lists and nested relationship lists all produce `Page<E>`; an empty-body list declared `Array<E>` is `API023`.
 - **Clients.** A service-to-service call sends its `PageRequest` in the callee's declared pair (`EndpointContract.page_window`) and decodes the envelope; a browser/mobile client types the response `Page<T>`, and its `PagedBinding` loads one page per request and numbers pages from `total` (see [frontend-clients](./frontend-clients.md)).
 
-Diagnostics `API020`–`API023`, `UI042`; syntax: [datrix-syntax-reference.md — Windows and pages](../../../../datrix-language/docs/reference/datrix-syntax-reference.md#windows-and-pages).
+Diagnostics `API020`–`API023`, `UI042`, `UI053`; syntax: [datrix-syntax-reference.md — Windows and pages](../../../../datrix-language/docs/reference/datrix-syntax-reference.md#windows-and-pages).
 
 ## Extern Services
 

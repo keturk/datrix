@@ -664,10 +664,10 @@ Example mapping on Azure (`runtime: azure-app-service, provider: azure`):
 | `rest_api` or `graphql_api` | App Service Web App (Linux, one per service with an HTTP surface) |
 | `subscribe` (event consumer) | Azure Function — Service Bus or Event Hubs trigger |
 | `jobs()` (scheduled) | Azure Function — timer trigger (NCRONTAB schedule) |
-| `enqueue` consumer | Azure Function — queue trigger (Service Bus or Storage Queue) |
+| `enqueue` consumer | Azure Function — Service Bus queue trigger |
 | `serverless { … }` block handlers | Azure Function — per-handler trigger type |
 | `pubsub` block | Service Bus namespace or Event Hubs namespace (by engine) |
-| `queues` block | Service Bus queue or Storage Queue |
+| `queues` block | Service Bus queue |
 | `rdbms` block | Azure Flexible Server (PostgreSQL/MySQL/MariaDB) |
 | `cache` block | Azure Cache for Redis |
 | `nosql` block | Cosmos DB |

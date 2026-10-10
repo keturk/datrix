@@ -580,7 +580,7 @@ service ecommerce.InventoryService : version('1.0.0') {
 
 **When not to use:** If only **one** service touches a resource, keep the block **inside that service** — shared blocks add cross-service coupling and require explicit **`uses`** on every consumer/producer.
 
-**Operational pairing:** Pair DSL **`uses SharedName : subscribe | publish | readonly | readwrite;`** with **`dependencies('config/dependencies.dcfg');`** for URLs, timeouts, and health checks (see [Configuration guide](./configuration-guide.md)).
+**Operational pairing:** The DSL **`uses SharedName : subscribe | publish | readonly | readwrite;`** names only the access mode. The shared block's connection settings live in the shared container's own `config shared` `.dcfg`; a service's call timeouts to other services live in its `resilience` block (see [Configuration guide](./configuration-guide.md#timeout)).
 
 ---
 

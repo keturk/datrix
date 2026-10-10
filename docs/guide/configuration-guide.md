@@ -14,22 +14,21 @@ This guide covers Datrix `.dcfg` ConfigDSL files, their structure, options, and 
 4. [Profiles and Environments](#profiles-and-environments)
 5. [System Configuration](#system-configuration)
 6. [Service Configuration](#service-configuration)
-7. [Service dependencies (`dependencies` section)](#service-dependencies-dependencies-section)
-8. [Datasources Configuration](#datasources-configuration)
-9. [Service Registration](#service-registration)
-10. [Resilience Configuration](#resilience-configuration)
-11. [Gateway Configuration](#gateway-configuration)
-12. [Registry Configuration](#registry-configuration)
-13. [Observability Configuration](#observability-configuration)
-14. [Storage Configuration](#storage-configuration)
-15. [Jobs Configuration](#jobs-configuration)
-16. [Queue Configuration](#queue-configuration)
-17. [Integrations Configuration](#integrations-configuration)
-18. [Extern Service Configuration](#extern-service-configuration)
-19. [Platform-Specific Configuration](#platform-specific-configuration)
-20. [Seed Configuration](#seed-configuration)
-21. [Secrets Management](#secrets-management)
-22. [Runtime Config Store](#runtime-config-store)
+7. [Datasources Configuration](#datasources-configuration)
+8. [Service Registration](#service-registration)
+9. [Resilience Configuration](#resilience-configuration)
+10. [Gateway Configuration](#gateway-configuration)
+11. [Registry Configuration](#registry-configuration)
+12. [Observability Configuration](#observability-configuration)
+13. [Storage Configuration](#storage-configuration)
+14. [Jobs Configuration](#jobs-configuration)
+15. [Queue Configuration](#queue-configuration)
+16. [Integrations Configuration](#integrations-configuration)
+17. [Extern Service Configuration](#extern-service-configuration)
+18. [Platform-Specific Configuration](#platform-specific-configuration)
+19. [Seed Configuration](#seed-configuration)
+20. [Secrets Management](#secrets-management)
+21. [Runtime Config Store](#runtime-config-store)
 
 ---
 
@@ -286,6 +285,17 @@ httpSecurity {
   corsHeaders = ["*"];
 }
 ```
+
+**How every backend realizes it.** Each generated service, whatever its language,
+checks the `Host` header of every request (and every WebSocket upgrade) before any
+CORS answer, guard or route runs, and refuses a host it does not allow with
+`400 Invalid host header`. The allow-list is `allowedHosts`, plus the front-door
+host patterns the deployment's platform declares, plus the in-network name peers
+dial the service at. A pattern is `*` (any host), an exact host name, or `*.`
+followed by a domain (any host ending in `.` plus that domain); the port is not
+part of the match, and a `*` anywhere else fails generation. Generation also fails
+when `httpSecurity` or any of its four fields is absent. The CORS policy answers
+only the declared origins, methods and headers, with credentials.
 
 ### Language-Specific and Platform-Specific Docs
 
@@ -631,6 +641,7 @@ Target language is **not** a `.dcfg` field — it is a required generation param
 | `deployment.target` | String | — | Provider-specific target (e.g., `vm`) |
 | `deployment.registry` | String | — | Provider-specific image registry (e.g., `acr`, `ecr`) |
 | `defaultTimeout` | Integer | 30000 | Default request timeout (ms) |
+| `maxPageSize` | Integer | `MAX_PAGE_SIZE` (100) | Largest page a paginated route accepts on this profile: the `limit` bound every backend's list and nested-collection handlers enforce. It may only lower the framework ceiling `datrix.foundation.MAX_PAGE_SIZE` (a denial-of-service bound), and may not drop below `DEFAULT_PAGE_SIZE` (20); outside that range analysis fails with `SYS002`. Clients send no page size, and read the size the server applied from the page envelope |
 | `region` | String | — | Cloud region (required for AWS/Azure) |
 | `network` | Object | — | VPC/network configuration |
 | `registry` | String | — | Docker registry URL |
@@ -733,32 +744,6 @@ deployment:
   provider: aws
   registry: ecr
 ```
-
----
-
-## Service dependencies (`dependencies.dcfg`)
-
-**DSL:** `dependencies('config/<service-name>/dependencies.dcfg');` inside a **`service { }`** body sets **`Service.dependencies_path`**. Stage 1 config resolution loads **`DependenciesProfileConfig`** (`datrix_common.config.dependencies`) into **`service.dependencies`**.
-
-**Purpose:** supply **operational** metadata for **`uses`** targets — remote **service** URLs, timeouts, retries, — separate from behavioral DSL.
-
-**Shape (per active profile):**
-
-```yaml
-services:
-  PaymentService:
-    url: http://payment-service:8080
-    version: "1.0"
-    healthCheck: /health
-    timeout: 30s
-    retry:
-      maxAttempts: 3
-      backoff: exponential
-```
-
-- **`services`** — keys are the **simple** service names referenced by **`uses`**. Each value is a **`ServiceDependencyConfig`** (`url`, `version`, `healthCheck`, `timeout`, `retry`, optional `loadBalance`, `healthyOnly`). An unknown key is an error that names the valid keys.
-
-Files may be **flat** (top-level keys `development` / `production` / `test`) or **nested** profiles; see the loader docstring in **`datrix_common/config/dependencies.py`**.
 
 ---
 
@@ -974,7 +959,7 @@ test:
     health_check_cmd: "redis-cli ping"
 
   pubsub:
-    engine: kafka                       # Required: kafka, rabbitmq, sns-sqs, servicebus, eventbridge
+    engine: kafka                       # Required: kafka, rabbitmq, sns-sqs, servicebus, eventhub-amqp
     platform: container                 # Required: container, msk, managed
     brokers: localhost:9092
     docker_image: confluentinc/cp-kafka:7.5.0
@@ -1122,7 +1107,7 @@ service orderService {
 
 | Field | Type | Options |
 |-------|------|---------|
-| `engine` | String | `kafka`, `rabbitmq`, `sns-sqs`, `servicebus`, `eventbridge` |
+| `engine` | String | `kafka`, `rabbitmq`, `sns-sqs`, `servicebus`, `eventhub-amqp` |
 | `platform` | String | `container`, `msk`, `managed` |
 
 **Optional fields (container platform):**
@@ -1137,7 +1122,7 @@ service orderService {
 
 **Cloud-managed engines:**
 
-For cloud engines (`sns-sqs`, `servicebus`, `eventbridge`), `brokers` field is not used. Connection details are managed by the cloud provider.
+For cloud engines (`sns-sqs`, `servicebus`), `brokers` field is not used. Connection details are managed by the cloud provider.
 
 ### NoSQL Configuration
 
@@ -1218,60 +1203,57 @@ test:
 
 ## Resilience Configuration
 
-**File:** `config/<service-name>/resilience.dcfg`
+**File:** the service's own `.dcfg` (the path on the `service` declaration), as a `resilience { }` block of a profile.
 
-**Referenced in:** Service block
-
-```dtrx
-service OrderService {
-    resilience('config/order-service/resilience.dcfg');
-}
-```
+A service with no `resilience` block gets a synthesized profile: every dependency uses a 10s timeout. When the service has a `discovery` block, its dependencies marked `healthyOnly` also get retry with exponential backoff and a circuit breaker; otherwise every resolved `uses` dependency does. Declaring a `resilience` block replaces that profile as a whole.
 
 ### Complete Example
 
-```yaml
-test:
-  circuitBreaker:
-    enabled: true
-    failureThreshold: 5         # Open circuit after 5 failures
-    timeout: 60000              # Stay open for 60 seconds
-
-  retry:
-    enabled: true
-    maxAttempts: 3              # Retry up to 3 times
-    backoff:
-      type: exponential         # exponential, linear, constant
-      initialDelay: 1000        # Start with 1 second
-      maxDelay: 10000           # Cap at 10 seconds
-      multiplier: 2             # Double delay each retry
-
-  timeout:
-    enabled: true
-    default: 30000              # Default timeout (ms)
-    read: 10000                 # Read timeout
-    connect: 5000               # Connection timeout
-
-  bulkhead:
-    enabled: true
-    maxConcurrent: 10           # Max concurrent requests
-    maxWaiting: 5               # Max requests in queue
-
-  fallback:
-    enabled: true
-    type: cache                 # cache, static, default
-    cacheTtl: 300               # Cache fallback for 5 minutes
+```dcfg
+config service ecommerce.OrderService {
+  base {
+    port = 8001;
+    resilience {
+      defaults {
+        timeout = "10s";            // every dependency without its own timeout, and the base client
+        retry {
+          maxAttempts = 3;
+          backoff {
+            type = "exponential";   // exponential, linear, fixed
+            initial = "200ms";
+            multiplier = 2;
+            max = "5s";
+            jitter = 0.1;
+          }
+        }
+      }
+      config {
+        InventoryService {          // the dependency as the service spells it in `uses`/`discovery`
+          timeout = "2s";
+          circuitBreaker {
+            failureThreshold = 5;
+            timeout = "30s";        // how long the circuit stays open
+          }
+          bulkhead {
+            maxConcurrent = 50;
+            maxWait = "5s";
+          }
+        }
+      }
+    }
+  }
+}
 ```
 
 ### Circuit Breaker
 
-Prevents cascading failures by opening circuit after repeated failures.
+Prevents cascading failures by opening circuit after repeated failures. Declared per dependency, under `resilience.config.<Dependency>.circuitBreaker`.
 
-```yaml
-circuitBreaker:
-  enabled: true
-  failureThreshold: 5      # Open after 5 failures
-  timeout: 60000           # Half-open after 60 seconds
+```dcfg
+circuitBreaker {
+  failureThreshold = 5;    // open after 5 failures
+  timeout = "30s";         // half-open after 30 seconds
+}
 ```
 
 **States:**
@@ -1291,63 +1273,65 @@ renders them.
 
 ### Retry Policy
 
-Automatically retry failed requests.
+Automatically retry failed requests. Declared once under `resilience.defaults.retry`, or for one dependency under `resilience.config.<Dependency>.retry` (which replaces the default retry for that dependency).
 
-```yaml
-retry:
-  enabled: true
-  maxAttempts: 3
-  backoff:
-    type: exponential      # exponential, linear, constant
-    initialDelay: 1000     # First retry after 1 second
-    maxDelay: 10000        # Cap delays at 10 seconds
-    multiplier: 2          # Double delay each time
+```dcfg
+retry {
+  maxAttempts = 3;
+  backoff {
+    type = "exponential";  // exponential, linear, fixed
+    initial = "200ms";     // first retry delay
+    multiplier = 2;        // must be > 1 for exponential, > 0 for linear
+    max = "5s";            // cap on any delay
+  }
+}
 ```
 
 **Backoff types:**
-- `exponential` — Delay doubles: 1s, 2s, 4s, 8s
-- `linear` — Delay increases linearly: 1s, 2s, 3s, 4s
-- `constant` — Same delay: 1s, 1s, 1s, 1s
+- `exponential` — Delay multiplies: 200ms, 400ms, 800ms, …
+- `linear` — Delay grows by a fixed step
+- `fixed` — Same delay every time
 
 ### Timeout
 
-Prevent requests from hanging indefinitely.
+Prevent requests from hanging indefinitely. A dependency's timeout has **one home**: `resilience.config.<Dependency>.timeout`. A dependency with no entry takes `resilience.defaults.timeout`, which is also the base client's default timeout; generation fails when neither is set. No other section declares a dependency timeout — `dependencyPolicy` entries carry no `timeout`, and a `dependencies` section is an unknown key.
 
-```yaml
-timeout:
-  enabled: true
-  default: 30000           # Default for all requests
-  read: 10000              # Read operation timeout
-  connect: 5000            # Connection establishment timeout
+```dcfg
+resilience {
+  defaults {
+    timeout = "10s";
+  }
+  config {
+    ProductService {
+      timeout = "1h";      // a long bulk call to one dependency
+    }
+  }
+}
 ```
+
+With a shared template, add the entry by path — objects merge by key:
+
+```dcfg
+resilience from sharedResilience();
+resilience.config.ProductService.timeout = "1h";
+```
+
+Each `config` key must be the dependency exactly as the service spells it in `uses` or `discovery` (`uses catalog.ProductService;` → `catalog.ProductService`). A key that names no dependency fails generation and lists the valid keys; it is never silently dropped.
 
 ### Bulkhead
 
-Limit concurrent requests to prevent resource exhaustion.
+Limit concurrent requests to one dependency to prevent resource exhaustion.
 
-```yaml
-bulkhead:
-  enabled: true
-  maxConcurrent: 10        # Max concurrent requests
-  maxWaiting: 5            # Max queued requests
-```
-
-### Fallback
-
-Provide alternative responses when primary fails.
-
-```yaml
-fallback:
-  enabled: true
-  type: cache              # cache, static, default
-  cacheTtl: 300            # Cache TTL in seconds
-  staticValue: null        # For type: static
-  defaultValue: {}         # For type: default
+```dcfg
+bulkhead {
+  maxConcurrent = 10;      // max concurrent requests
+  maxWait = "5s";          // how long a request waits for a slot
+}
 ```
 
 ### Dependency Resilience Policy
 
-Every `service` dependency that a service issues inter-service calls to requires an **explicit** resilience policy. The generator never synthesizes timeout, circuit-breaker, or bulkhead values. If a called service has no resolved policy, generation fails with `RESILIENCE_POLICY_REQUIRED`.
+Every `service` dependency that a service issues inter-service calls to requires an **explicit** dependency policy (`availability` and `health`). The generator never synthesizes one. If a called service has no resolved policy, generation fails with `RESILIENCE_POLICY_REQUIRED`. Timeouts are not part of the dependency policy: they live under `resilience.config` / `resilience.defaults` ([Timeout](#timeout)).
 
 #### Two-Level Hierarchy
 
@@ -1372,7 +1356,8 @@ resilience {
       service from standardServicePolicy();
     }
     service InventoryService {
-      timeout = 2000;        // tighter timeout for one dependency
+      availability = "optional";   // one dependency that differs from the baseline
+      health = "degraded";
     }
   }
 }
@@ -1735,14 +1720,14 @@ Handler keys match **`on EventName`**, **`job JobName`**, **`@name('X')`** for H
 
 **Referenced in:** `service ServiceName('config/<service-name>.dcfg')` with a **`queues { ... }`** block on a producing service.
 
-The service `.dcfg` queues section configures **task-dispatch** brokers (RabbitMQ, SQS, Azure Service Bus, Azure Storage Queue). It is **not** a datasource. Services that only **consume** queues via `enqueue OtherService.TaskName { … }` do **not** define a `queues` section; workers and clients resolve settings from the **producer’s** `.dcfg`.
+The service `.dcfg` queues section configures **task-dispatch** brokers (RabbitMQ, SQS, Azure Service Bus). It is **not** a datasource. Services that only **consume** queues via `enqueue OtherService.TaskName { … }` do **not** define a `queues` section; workers and clients resolve settings from the **producer’s** `.dcfg`.
 
 ### Profiles and engines
 
 Each profile (`test`, `production`, …) is a `QueueConfig` object:
 
-- **`engine`** (required): `rabbitmq` \| `sqs` \| `service-bus` \| `storage-queue`
-- **`platform`** (required): `container` \| `external` \| `sqs` \| `amazon-mq` \| `service-bus` \| `storage-queue` — must match hosting + engine (see [config-system architecture](../../../datrix-common/docs/architecture/config-system.md#queue-configuration) in datrix-common)
+- **`engine`** (required): `rabbitmq` \| `sqs` \| `service-bus`
+- **`platform`** (required): `container` \| `external` \| `sqs` \| `amazon-mq` \| `service-bus` — must match hosting + engine (see [config-system architecture](../../../datrix-common/docs/architecture/config-system.md#queue-configuration) in datrix-common)
 
 Connection and ops fields (when required): `host`, `port`, `managementPort`, `defaultUser`, `dockerImage`, `volumePath`, `healthCheckCmd`, `region`, `queuePrefix`, `connectionString`, `sku`.
 
@@ -1828,7 +1813,7 @@ production:
   workerReplicas: 2
 ```
 
-**Language codegen note:** Python and TypeScript queue **clients and workers** are generated for `rabbitmq`, `sqs`, and `service-bus` only today; `storage-queue` is for Azure infra / future parity.
+**Language codegen note:** Python and TypeScript queue **clients and workers** are generated for every engine above: `rabbitmq`, `sqs`, and `service-bus`.
 
 ---
 
@@ -2481,7 +2466,7 @@ DeploymentValidationError: Service flavor 'compose' is incompatible with deploym
 config/
 ├── system.dcfg                     # System profiles: deployment, gateway, registry, observability
 ├── templates/                      # Optional shared ConfigDSL templates/imports
-└── <service-name>.dcfg             # Service profiles: deployment, infrastructure, dependencies, jobs, queues, integrations
+└── <service-name>.dcfg             # Service profiles: deployment, infrastructure, resilience, jobs, queues, integrations
 ```
 
 ---
