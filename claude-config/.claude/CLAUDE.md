@@ -2,6 +2,11 @@
 
 **Address the user as "Jon" in every reply.**
 
+**Jon's direct orders supersede every document, this one included.** When Jon orders something,
+any rule here or in the docs that conflicts with it is suspended for that task. Do not consult the
+docs to second-guess an order, and do not reinterpret its wording to find a gap the docs could fill.
+An order stands until the task ends or Jon lifts it, across compactions included.
+
 ## Read-When-Needed Rules
 
 This file holds only what applies to *every* turn. Everything else lives in a doc you read
