@@ -30,10 +30,6 @@
           "reason": "allowedAudienceRefs name deploy-time app settings that hold audience values; an unset ref raises JwksValidationError, never an empty audience."
         },
         {
-          "template": "templates/persistence/cache_connection_redis.py.j2",
-          "reason": "Pooled-Redis env-var slice delivery, selected only when the resolved platform's cache_pooled_slice_delivery capability declares env-var; the non-pooled path reads AppSettings."
-        },
-        {
           "template": "templates/service/inprocess_consumers.py.j2",
           "reason": "The Event Hubs checkpoint account's blob endpoint is a deploy-time app setting the platform delivers under the name its declaration gives it; read once when the checkpoint store is built and fails loud (RuntimeError) when unset or empty."
         },

@@ -41,22 +41,6 @@
   },
   {
     "kind": "call",
-    "package": "datrix-codegen-typescript",
-    "id": "tests/integration/test_stdlib_request_context_tsc.py::TestTheRequestContextCompiles::test_tsc_noemit_is_clean",
-    "seconds": 63.43,
-    "class": "toolchain-compile",
-    "reason": "Installs node modules and runs tsc over the generated request-context module; the wall time is the toolchain's."
-  },
-  {
-    "kind": "call",
-    "package": "datrix-codegen-typescript",
-    "id": "tests/integration/generators/entity/test_entity_input_semantics_tsc.py::TestInputSemanticsCompileAndRun::test_runtime_input_rule_holds",
-    "seconds": 67.32,
-    "class": "toolchain-compile",
-    "reason": "Installs node modules, compiles the generated entity input rules with tsc and runs them under node; the wall time is the toolchain's."
-  },
-  {
-    "kind": "call",
     "package": "datrix-common",
     "id": "tests/unit/testing/test_runner_plugin.py::test_the_plugin_costs_at_most_five_percent",
     "seconds": 65.14,

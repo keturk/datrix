@@ -27,44 +27,6 @@
 # identifier-shape match alone could not see; none of them is new code
 # written by that change either.
 
-# reason: documented platform-identity config-schema model (AwsPlatformConfig-shaped
-# Pydantic fields/classes) -- G2 (-CheckSharedTargetNames) already excludes
-# datrix_common from its identical identifier-shape scan for the same reason
-# (documented public config-schema API); relocating this schema out of the shared
-# layer is a separate architectural decision, not this task's scope.
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/platform/aws.py"
-count = 30
-
-# reason: documented platform-identity config-schema model (AzurePlatformConfig-shaped
-# Pydantic fields/classes) -- G2 (-CheckSharedTargetNames) already excludes
-# datrix_common from its identical identifier-shape scan for the same reason
-# (documented public config-schema API); relocating this schema out of the shared
-# layer is a separate architectural decision, not this task's scope.
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/platform/azure.py"
-count = 42
-
-# reason: documented platform-identity config-schema model (AzurePlatformConfig-shaped
-# Pydantic fields/classes for the Azure VM target) -- G2 already excludes datrix_common
-# from its identical identifier-shape scan for the same reason (documented public
-# config-schema API); relocating this schema out of the shared layer is a separate
-# architectural decision, not this task's scope; the module's own import of
-# AzurePlatformConfig from config.platform.azure is now also a target_module_import
-# hit naming 'azure'.
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/platform/azure_vm.py"
-count = 17
-
-# reason: documented platform-identity config-schema model (DockerPlatformConfig-shaped
-# Pydantic fields/classes) -- G2 already excludes datrix_common from its identical
-# identifier-shape scan for the same reason (documented public config-schema API);
-# relocating this schema out of the shared layer is a separate architectural
-# decision, not this task's scope.
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/platform/docker.py"
-count = 19
-
 # reason: shared system-config model referencing the documented platform-config
 # union (Aws/Azure/DockerPlatformConfig), same config-schema surface as
 # config/platform/*.py, not this task's scope; the module's own imports of AwsPlatformConfig/AzurePlatformConfig/
@@ -179,16 +141,13 @@ file = "datrix-common/src/datrix_common/paths.py"
 count = 1
 
 # reason: single platform-named identity example in the shared testing fixtures
-# module, part of the same documented config-schema surface as
-# config/platform/*.py, not this task's scope; the module's own import of
-# ZitadelIdentityDeploymentConfig from config.platform.docker is now also a
-# target_module_import hit naming 'docker'. Two more hits are the dict keys
-# `"zitadel"` and `"cognito"` of the example's `.dcfg` identity-config payloads --
-# the closed config schema's own provider block names (`zitadel { }`, `cognito { }`),
-# fixture DATA that builds a config, not a rule keyed by the provider type.
+# module. Two more hits are the dict keys `"zitadel"` and `"cognito"` of the
+# example's `.dcfg` identity-config payloads -- the provider block names
+# (`zitadel { }`, `cognito { }`), fixture DATA that builds a config, not a rule
+# keyed by the provider type.
 [[baseline]]
 file = "datrix-testing/src/datrix_testing/identity_example.py"
-count = 4
+count = 3
 
 # reason: one `IdentityProviderType.ZITADEL` read that builds a Zitadel-provider
 # `IdentityConfig` for the API-key test fixture -- fixture data selecting a provider

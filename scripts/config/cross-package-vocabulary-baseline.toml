@@ -219,10 +219,6 @@ file = "datrix-codegen-kernel/src/datrix_codegen_kernel/pooling/db_extensions.py
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/sql_facts/column_builder.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-kernel/src/datrix_codegen_kernel/sql_facts/type_mappings.py"
 count = 3
 
@@ -236,15 +232,6 @@ count = 3
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/api/_endpoint_import_resolution.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/cross_cutting/observability_generator.py"
-count = 1
-reason = "HEALTH_PROBE_PATHS maps each probe kind (live / ready / health) the health template reads to the route THIS language's runtime spec declares to every platform (LIVENESS_PROBE_PATH / READINESS_PROBE_PATH / HEALTH_REPORT_PATH in its own runtime_spec). A language declares its own probe routes on its own spec; the key set coincides with TypeScript's because both templates interpolate the same three probe kinds."
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/_entity_constants.py"
 count = 1
 
 [[baseline]]
@@ -274,11 +261,6 @@ count = 1
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/_service_generator_ast.py"
 count = 1
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/testing/test_spec_generator.py"
-count = 1
-reason = "_SIMPLE_CALL_EXPRS is the Python rendering of each DSL builtin no-argument bare call (uuid() -> uuid.uuid4()), keyed by the DSL builtin's name. The kernel's SQL column-default table is keyed by the same builtin because uuid() is the one such call both targets render; each renders it in its own spelling, so the single key coincides without being one fact."
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/micro_generators/agents.py"
@@ -394,11 +376,6 @@ file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/cross
 count = 2
 
 [[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/cross_cutting/observability_generator.py"
-count = 1
-reason = "HEALTH_PROBE_PATHS maps each probe kind (live / ready / health) the health controller template reads to the route THIS language's runtime spec declares to every platform (LIVENESS_PROBE_PATH / READINESS_PROBE_PATH / HEALTH_REPORT_PATH in its own runtime_spec). A language declares its own probe routes on its own spec; the key set coincides with Python's because both templates interpolate the same three probe kinds."
-
-[[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/messaging/_messaging_helpers.py"
 count = 1
 
@@ -450,10 +427,6 @@ count = 1
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/engine_defaults.py"
 count = 4
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/config/platform/azure.py"
-count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/platform/diagnostics.py"

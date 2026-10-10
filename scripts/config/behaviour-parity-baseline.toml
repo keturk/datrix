@@ -26,8 +26,8 @@
 # from a document.
 #
 # Both axes gate, each against its own section. The `platforms` axis keys a function by the
-# capability (block type) its platform's own realization table registers it for, before the
-# normalized-name key; it is seeded from a live run of
+# capabilities (block types) whose realization-table plan builders or declared emitters reach it,
+# before the normalized-name key; it is seeded from a live run of
 # `behaviour-parity-gate.ps1 -Axis platforms -Dbg` under that key.
 
 [languages]

@@ -1,0 +1,16 @@
+{
+  "_comment": [
+    "Reviewed exemptions for template-reachability-gate.ps1.",
+    "An entry belongs here only when a shipped template that nothing names cannot be",
+    "deleted yet because a declared contract requires the file to exist, and the",
+    "unrealized contract is recorded as a finding. Dead output is otherwise deleted.",
+    "Each entry pins one template path; an entry whose template is named, or no longer",
+    "exists, is stale and fails the gate."
+  ],
+  "exemptions": [
+    {
+      "template": "datrix-extensions/src/datrix_extensions/postgis/templates/migration/postgis_init.sql.j2",
+      "reason": "The PostGIS pack's template_dirs() contributes this file and raises when it is missing, but no generator consumes DatrixExtension.template_dirs(): the extension template-directory contract is unrealized, and deleting the file would break the pack's own contract check."
+    }
+  ]
+}
