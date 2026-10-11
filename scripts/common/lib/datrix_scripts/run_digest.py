@@ -71,6 +71,8 @@ CALLER: Final = "test-digest"
 
 _INDEX_JSON_NAME: Final = "index.json"
 _RUN_DIR_GLOB: Final = "test-results-*"
+#: The result an interrupted run's index.json records (no JUnit XML, no counts).
+_INCOMPLETE_RESULT: Final = "INCOMPLETE"
 _EXIT_OK: Final = 0
 _EXIT_SELF_TEST_FAILED: Final = 1
 _EXIT_USAGE: Final = 2
@@ -216,7 +218,9 @@ def previous_comparable_run(run_dir: Path, index: dict[str, object]) -> Path | N
 
     Runs with a different selection (another ``-Specific`` file, another tag) answer a
     different question, so a test absent from one of them is not "fixed". A run whose
-    index.json is missing or unreadable is still in flight or broken, and is skipped.
+    index.json is missing or unreadable is still in flight or broken, and is skipped;
+    so is an interrupted run (``INCOMPLETE``, no counts), which ran no test to compare
+    with -- taking it would report every current failure as new.
     """
     selection = index.get("selection")
     timestamp = str(index["timestamp"])
@@ -224,19 +228,29 @@ def previous_comparable_run(run_dir: Path, index: dict[str, object]) -> Path | N
         return None
     best: tuple[str, Path] | None = None
     for sibling in run_dir.parent.glob(_RUN_DIR_GLOB):
-        candidate_index = sibling / _INDEX_JSON_NAME
-        if sibling == run_dir or not candidate_index.is_file():
+        if sibling == run_dir:
             continue
-        try:
-            other = _load_json(candidate_index)
-        except DigestError:
-            continue
-        other_stamp = str(other.get("timestamp", ""))
-        if other.get("selection") != selection or not other_stamp or other_stamp >= timestamp:
-            continue
-        if best is None or other_stamp > best[0]:
+        other_stamp = _comparable_stamp(sibling, selection, timestamp)
+        if other_stamp is not None and (best is None or other_stamp > best[0]):
             best = (other_stamp, sibling)
     return None if best is None else best[1]
+
+
+def _comparable_stamp(run: Path, selection: object, before: str) -> str | None:
+    """*run*'s timestamp when it is a completed run of *selection* older than *before*; else None."""
+    candidate_index = run / _INDEX_JSON_NAME
+    if not candidate_index.is_file():
+        return None
+    try:
+        other = _load_json(candidate_index)
+    except DigestError:
+        return None
+    other_stamp = str(other.get("timestamp", ""))
+    if other.get("selection") != selection or not other_stamp or other_stamp >= before:
+        return None
+    if other.get("result") == _INCOMPLETE_RESULT or not isinstance(other.get("counts"), dict):
+        return None
+    return other_stamp
 
 
 def _change_line(run_dir: Path, index: dict[str, object]) -> tuple[str, set[str], set[str]]:
@@ -478,6 +492,12 @@ def _make_workspace(root: Path) -> tuple[Path, Path, Path]:
         "2026-10-01T10:00:00", _TARGETED, [("test_total", _OLD), ("test_lines", _RENAMED)], []))
     _write_run(package, "test-results-20261002-100000", _index(
         "2026-10-02T10:00:00", _OTHER, [("test_unrelated", _OLD)], []))
+    # Newer than *previous*, same selection, but interrupted: never the comparison run.
+    interrupted = package / ".test_results" / "test-results-20261002-120000"
+    interrupted.mkdir(parents=True)
+    (interrupted / _INDEX_JSON_NAME).write_text(json.dumps({
+        "project": "datrix-alpha", "timestamp": "2026-10-02T12:00:00", "result": _INCOMPLETE_RESULT,
+        "counts": None, "failures": [], "errors": [], "selection": _TARGETED}), encoding="utf-8")
     current = _write_run(package, "test-results-20261003-100000", _index(
         "2026-10-03T10:00:00", _TARGETED, [("test_lines", _RENAMED), ("test_lines_again", _RENAMED)],
         [("test_stock", _SETUP)]))
@@ -492,7 +512,7 @@ def _check_with_a_model(problems: list[str], root: Path, current: Path, previous
         digest = write_digest(current, root, _settings_for(server.port, usage))
     prompts = [chat.user for chat in server.chats]
     text = digest.text
-    _check(problems, "the earlier run is the newest older run with the same selection",
+    _check(problems, "the earlier run is the newest older completed run with the same selection",
            previous_comparable_run(current, _load_json(current / _INDEX_JSON_NAME)) == previous)
     _check(problems, "the change line counts new, still failing and fixed tests",
            f"Versus {previous.name} (same selection): 2 new failing test(s), 1 still failing, 1 fixed." in text)

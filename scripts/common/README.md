@@ -11,6 +11,7 @@ every scripts folder shares.
 | `DatrixScriptCommon.psm1` | Shared project lists and `ConvertTo-DatrixProjectName` (imports `DatrixPaths.psm1`) |
 | `venv.ps1` | Virtual environment management (creation, activation, package installation, the scripts `PYTHONPATH`) |
 | `venv-install-order.ps1` | Self-test of the package install order (`datrix_scripts.install_order`) |
+| `venv-dev-specs.ps1` | Self-test of the `[dev]` specs the venv installs (`datrix_scripts.dev_specs`) |
 | `CleanupUtils.psm1` | Cleanup utilities (empty parents, confirmation, folder tree display, size formatting) |
 | `DatrixRunLog.psm1` | Run-log file naming and **exclusive** claiming — two runs never share one log file |
 | `lib/datrix_scripts/` | The shared Python package (below) |
@@ -58,6 +59,7 @@ skill, hook, config or package file names present.
 | `paths.py` | Fixed locations in the scripts tree, the showcase repository and the workspace; `script_env()` |
 | `venv.py` | Virtual environment helpers (Python side): the venv interpreter, the workspace root |
 | `install_order.py` | The `datrix-*` package install order for the shared venv |
+| `dev_specs.py` | A package's `[dev]` specs as the shared venv installs them: a direct-URL spec to a sibling workspace package becomes its bare name, so pip never replaces that package's editable install with a frozen copy |
 | `framework_repos.py` | The framework git repositories at the workspace root, discovered, never listed |
 | `registered_targets.py` | The registered `datrix.languages` / `datrix.platforms` targets and their `src/` directories -- the one place a script learns which targets exist |
 | `pyproject_deps.py` | `datrix-*` dependency declarations read from `pyproject.toml` |

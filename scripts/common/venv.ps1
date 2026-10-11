@@ -528,11 +528,19 @@ function Install-DatrixPackage {
  # the hatchling backend into an isolated env first -- the backend import fails
  # with "Cannot import 'hatchling.build'" on a venv that has never had hatchling
  # installed before. Pre-seed it here, mirroring the setuptools/wheel bootstrap
- # above, exactly once, before the editable install is attempted.
+ # above, exactly once, before the editable install is attempted. Both halves
+ # are checked: hatchling builds an editable wheel through the separate
+ # "editables" package, so a venv holding hatchling alone still fails every
+ # editable build with "No module named 'editables'".
  if ($PackageName -eq "datrix-extensions") {
+ 	# One "pip show" per package: "pip show a b" exits 0 when only one of
+ 	# them is installed.
  	$ErrorActionPreference = "SilentlyContinue"
- 	$null = & pip show hatchling 2>&1
- 	$hatchlingInstalled = $LASTEXITCODE -eq 0
+ 	$hatchlingInstalled = $true
+ 	foreach ($backendPackage in @("hatchling", "editables")) {
+ 		$null = & pip show $backendPackage 2>&1
+ 		if ($LASTEXITCODE -ne 0) { $hatchlingInstalled = $false }
+ 	}
  	$ErrorActionPreference = $oldErrorActionPreference
 
  	if (-not $hatchlingInstalled) {
@@ -722,26 +730,15 @@ function Get-DatrixPackageDevSpecs {
  return @()
  }
 
- # Single-quoted Python string literals only: PowerShell's argument marshalling
- # to a native exe (python.exe) mangles/drops literal double quotes embedded in
- # a -c script string passed as a variable, which silently corrupted this into
- # invalid Python (e.g. `open(path, rb)` -- an undefined-name NameError) and
- # made every call return @() -- so Test-PackageDevExtrasNeedInstall always
- # read "no dev specs declared" and Install-DatrixPackageDevExtras never ran.
- $parseScript = @'
-import json
-import sys
-import tomllib
-
-with open(sys.argv[1], 'rb') as f:
-    data = tomllib.load(f)
-specs = data.get('project', {}).get('optional-dependencies', {}).get('dev', [])
-print(json.dumps([s for s in specs if isinstance(s, str)]))
-'@
-
+ # datrix_scripts.dev_specs names a sibling workspace package by its bare name
+ # instead of the direct URL a pyproject may declare
+ # ("datrix-extensions @ file:../datrix-extensions"): pip installing that URL
+ # replaces the sibling's editable install with a frozen copy, and every later
+ # edit to its source is then invisible to the packages that import it.
+ Set-DatrixPythonPath
  $oldErrorActionPreference = $ErrorActionPreference
  $ErrorActionPreference = "SilentlyContinue"
- $rawJson = & $pythonExe -c $parseScript $pyprojectToml 2>&1
+ $rawJson = & $pythonExe -m datrix_scripts.dev_specs (Split-Path $pyprojectToml -Parent) 2>&1
  $exitCode = $LASTEXITCODE
  $ErrorActionPreference = $oldErrorActionPreference
 
@@ -1410,6 +1407,50 @@ function Test-DatrixCommand {
  return $false
  } catch {
  if ($Detail) { $Detail.Value = "'$datrixExe --version' could not be run: $_" }
+ return $false
+ } finally {
+ $ErrorActionPreference = $oldErrorActionPreference
+ }
+}
+
+function Test-DatrixPluginDiscovery {
+ <#
+ .SYNOPSIS
+ Test that every installed Datrix plugin loads: the datrix.languages,
+ datrix.generators, datrix.platforms and datrix.extensions groups.
+ 'datrix --version' (Test-DatrixCommand) loads no plugin, so a package whose
+ plugin fails to register passes it and then breaks every generation and every
+ plugin-discovering test at the same place. Runs
+ 'python -m datrix_scripts.plugin_discovery' in the active venv.
+ .PARAMETER Detail
+ [ref] receiving the per-group report (OK or FAILED with the registry's error)
+ when the check fails. Empty string when it succeeds.
+ .RETURNS
+ $true if every group loaded, $false otherwise.
+ #>
+ param(
+ [ref]$Detail
+ )
+
+ if ($Detail) { $Detail.Value = "" }
+ Set-DatrixPythonPath
+ $pythonExe = Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"
+
+ # "Continue", not "SilentlyContinue": see Test-DatrixCommand -- stderr lines must
+ # reach the pipeline so a failure can say why.
+ $oldErrorActionPreference = $ErrorActionPreference
+ $ErrorActionPreference = "Continue"
+ try {
+ $rawOutput = & $pythonExe -m datrix_scripts.plugin_discovery 2>&1
+ $exitCode = $LASTEXITCODE
+ $output = (@($rawOutput) | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
+ if ($exitCode -eq 0) {
+ return $true
+ }
+ if ($Detail) { $Detail.Value = "plugin discovery exited $exitCode`n$($output.TrimEnd())" }
+ return $false
+ } catch {
+ if ($Detail) { $Detail.Value = "plugin discovery could not be run: $_" }
  return $false
  } finally {
  $ErrorActionPreference = $oldErrorActionPreference

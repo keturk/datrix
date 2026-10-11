@@ -23,11 +23,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-try:
- import tomllib
-except ImportError:
- tomllib = None # type: ignore[assignment]
-
+from datrix_scripts.dev_specs import installable_dev_specs  # noqa: E402
 from datrix_scripts.node_test_runner import run_node_suite  # noqa: E402
 from datrix_scripts.package_suites import SuiteKind, detect_suite_kind  # noqa: E402
 from datrix_scripts.test_runner import TIER_MARKER_EXPRESSIONS, TestConfig, TestRunner, split_tags  # noqa: E402
@@ -54,23 +50,15 @@ def _parse_package_name(spec: str) -> str:
 
 
 def _get_dev_specs(project_root: Path) -> list[str]:
- """Read [project.optional-dependencies].dev from pyproject.toml and return spec strings."""
- pyproject_path = project_root / "pyproject.toml"
- if not pyproject_path.exists():
-  return []
+ """The [dev] extra specs of *project_root*, a workspace package named by bare name.
+
+ See ``datrix_scripts.dev_specs``: a direct-URL spec to a sibling workspace
+ package would replace its editable install with a frozen copy.
+ """
  try:
-  if tomllib is not None:
-   with open(pyproject_path, "rb") as f:
-    data = tomllib.load(f)
-  else:
-   return []
- except (OSError, ValueError):
+  return installable_dev_specs(project_root)
+ except (OSError, ValueError, RuntimeError):
   return []
- opt_deps = data.get("project", {}).get("optional-dependencies", {})
- dev_specs = opt_deps.get("dev", [])
- if not isinstance(dev_specs, list):
-  return []
- return [s for s in dev_specs if isinstance(s, str)]
 
 
 def _get_dev_imports_to_check(project_root: Path) -> list[str]:

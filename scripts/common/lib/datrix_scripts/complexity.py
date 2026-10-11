@@ -27,6 +27,7 @@ import hashlib
 import subprocess
 import sys
 import textwrap
+from collections.abc import Sequence
 from pathlib import Path
 
 from datrix_scripts.llm_code_fix import (
@@ -250,18 +251,31 @@ def collect_py_files(
     return sorted(out)
 
 
+def files_to_check(
+    project_root: Path | None,
+    ignore_dirs: tuple[str, ...],
+    ignore_path_contains_all: tuple[str, ...] | None,
+    files: Sequence[Path] | None,
+) -> list[Path]:
+    """The explicit *files* when given, else every Python file under ``project_root/src``."""
+    if files is not None:
+        return sorted(files)
+    if project_root is None:
+        raise ValueError("Pass either a project root or an explicit file list to check.")
+    return collect_py_files(project_root, ignore_dirs, ignore_path_contains_all)
+
+
 def run_check(
-    project_root: Path,
+    project_root: Path | None,
     max_complexity: int,
     ignore_dirs: tuple[str, ...],
     verbose: bool,
     ignore_path_contains_all: tuple[str, ...] | None = None,
+    files: Sequence[Path] | None = None,
 ) -> list[tuple[str, str, int, int]]:
     """Check that no block exceeds max complexity. Return list of violations."""
     violations: list[tuple[str, str, int, int]] = []
-    for file_path in collect_py_files(
-        project_root, ignore_dirs, ignore_path_contains_all
-    ):
+    for file_path in files_to_check(project_root, ignore_dirs, ignore_path_contains_all, files):
         try:
             source = file_path.read_text(encoding="utf-8", errors="replace")
         except OSError as e:
@@ -292,21 +306,20 @@ def run_check(
 
 
 def run_check_cognitive(
-    project_root: Path,
+    project_root: Path | None,
     max_complexity: int,
     ignore_dirs: tuple[str, ...],
     verbose: bool,
     ignore_path_contains_all: tuple[str, ...] | None = None,
+    files: Sequence[Path] | None = None,
 ) -> list[tuple[str, str, int, int]]:
-    """Check that no function exceeds max cognitive complexity. Return list of violations."""
+    """Check that no function or async function exceeds max cognitive complexity. Return list of violations."""
     if get_cognitive_complexity is None:
         raise RuntimeError(
             "cognitive_complexity is not installed. Install with: pip install cognitive_complexity"
         )
     violations: list[tuple[str, str, int, int]] = []
-    for file_path in collect_py_files(
-        project_root, ignore_dirs, ignore_path_contains_all
-    ):
+    for file_path in files_to_check(project_root, ignore_dirs, ignore_path_contains_all, files):
         try:
             source = file_path.read_text(encoding="utf-8", errors="replace")
         except OSError as e:
@@ -321,7 +334,7 @@ def run_check_cognitive(
             continue
         rel_path = str(file_path)
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 try:
                     complexity = get_cognitive_complexity(node)
                 except Exception as e:
@@ -1137,6 +1150,39 @@ def run_mi(
         print(f"{file_path} mi={mi:.2f}")
 
 
+def check_files(files: Sequence[Path], max_complexity: int, mode: str, fix_requested: bool) -> int:
+    """Check exactly *files* for cyclomatic and cognitive complexity above *max_complexity*.
+
+    Returns 0 when every block is within the limit, 1 on a violation or a bad argument
+    (a missing file, a non-.py file, a mode other than check, or --fix), 2 when the
+    cognitive-complexity package is missing.
+    """
+    if mode != "check" or fix_requested:
+        print("Error: --files supports --mode check only, without --fix/--fix-all.", file=sys.stderr)
+        return 1
+    bad = [str(path) for path in files if not path.is_file() or path.suffix != ".py"]
+    if bad:
+        print(f"Error: not an existing .py file: {bad}", file=sys.stderr)
+        return 1
+    resolved = [path.resolve() for path in files]
+    cc_violations = run_check(None, max_complexity, (), False, files=resolved)
+    try:
+        cog_violations = run_check_cognitive(None, max_complexity, (), False, files=resolved)
+    except RuntimeError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    for label, violations in (("cyclomatic", cc_violations), ("cognitive", cog_violations)):
+        for file_path, name, lineno, complexity in sorted(violations, key=lambda v: (v[0], v[2])):
+            print(f"  {file_path}:{lineno} {name} ({label}={complexity})", file=sys.stderr)
+    total = len(cc_violations) + len(cog_violations)
+    print(
+        f"{len(resolved)} file(s): {len(cc_violations)} cyclomatic and {len(cog_violations)} cognitive "
+        f"violation(s) above {max_complexity}.",
+        file=sys.stderr,
+    )
+    return 1 if total else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
     description="Radon metrics for a Datrix project (complexity, raw, Halstead, MI).",
@@ -1144,8 +1190,13 @@ def main() -> int:
     parser.add_argument(
     "--project-root",
     type=Path,
-    required=True,
-    help="Path to the project root (containing src/).",
+    help="Path to the project root (containing src/). Required unless --files is given.",
+    )
+    parser.add_argument(
+    "--files",
+    type=Path,
+    nargs="+",
+    help="Check exactly these .py files instead of a project (mode=check only; no --fix).",
     )
     parser.add_argument(
     "--mode",
@@ -1240,6 +1291,11 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+    if args.files is not None:
+        return check_files(args.files, args.max, args.mode, args.fix or args.fix_all)
+    if args.project_root is None:
+        print("Error: pass --project-root (a package) or --files (explicit .py files).", file=sys.stderr)
+        return 1
     project_root = args.project_root.resolve()
     if not project_root.is_dir():
         print(

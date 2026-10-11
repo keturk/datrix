@@ -59,6 +59,21 @@ def discover_packages(workspace_root: Path) -> dict[str, Path]:
     return dict(sorted(result.items()))
 
 
+def third_party_dependencies(packages: dict[str, Path]) -> dict[str, list[tuple[str, str]]]:
+    """Every non-datrix runtime dependency -> ``(declaring package, its full spec)`` pairs.
+
+    Unlike the datrix graph below, an unreadable or malformed ``pyproject.toml`` propagates:
+    a package silently dropped from this report would hide its dependencies entirely.
+    """
+    owners: dict[str, list[tuple[str, str]]] = {}
+    for name, project_root in packages.items():
+        for spec in read_project_dependencies(project_root / "pyproject.toml"):
+            dep_name = parse_package_name(spec)
+            if not dep_name.startswith(DATRIX_PREFIX):
+                owners.setdefault(dep_name.lower(), []).append((name, spec.strip()))
+    return dict(sorted(owners.items()))
+
+
 def build_dependency_graph(
     packages: dict[str, Path],
 ) -> tuple[list[str], list[tuple[str, str]]]:
