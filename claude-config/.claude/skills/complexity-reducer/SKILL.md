@@ -50,7 +50,8 @@ When invoked, Claude Code will:
 3. **For Each Function**:
    - Read full function with imports and context
    - Apply refactoring strategies
-   - Validate with pytest
+   - Confirm the file is within the limit (`complexity.ps1 -Files <file>`)
+   - Validate with the file's targeted tests (`test.ps1 <pkg> -Specific`)
    - Retry with error context if validation fails
    - Stage successful changes
 4. **Report**: Summary of results
@@ -100,6 +101,12 @@ To find complexity violations before refactoring:
 ```powershell
 .\datrix\scripts\metrics\complexity.ps1 datrix-common -Mode check -Max 15
 .\datrix\scripts\metrics\complexity.ps1 -All -Mode check -Max 10
+```
+
+To confirm a refactored function is within the limit, check just the files you changed
+(cyclomatic and cognitive, `def` and `async def`; exit 1 on any violation):
+```powershell
+.\datrix\scripts\metrics\complexity.ps1 -Files datrix-common\src\datrix_common\config\loader.py
 ```
 
 Target: complexity ≤ 15 (configurable via `-Max`).

@@ -67,6 +67,17 @@ git -C <repo> diff --name-only HEAD @{u}                     # files the pull ch
   (`git diff --name-only --diff-filter=A HEAD @{u}`).
 - Both empty → `git -C <repo> pull --ff-only` (or step 3's diverged form) and move on.
 
+`pull.ps1`'s summary already labels each blocked path, comparing the local and incoming edits
+on HEAD line ranges. Use the label to plan step 4, not as a substitute for reading both sides:
+
+- `OVERLAPS` → expect conflict markers on reapply; this file needs a hand merge.
+- `DISJOINT` → both sides changed it, in different places; it normally reapplies clean.
+- `NO LOCAL CONTENT CHANGE` → the only local difference is line endings or mode. Run
+  `datrix/scripts/git/fix-line-endings.ps1 -Repo <repo>` (it rewrites only terminators, to
+  match the index copy). The path then stops being modified and drops out of the overlap,
+  with nothing to stash.
+- `UNTRACKED` → an untracked collision (below).
+
 ### 2. Clear the way — only the overlapping paths
 
 **Tracked overlap:**
