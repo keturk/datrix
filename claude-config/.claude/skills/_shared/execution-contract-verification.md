@@ -126,7 +126,7 @@ you touched (paths relative to `d:/datrix/datrix/scripts/`):
 | Debug scatter, stale bytecode | `scan/check-debug-artifacts.ps1`, `scan/check-python-bytecode.ps1` |
 | Docs drift | `dev/check-docs.ps1`, `gates/repo-hygiene/check-docs-conformance.ps1` |
 | Generated-output preservation | A test in the owning package rendering the construct and asserting its output (no stored snapshot exists — `datrix/docs/architecture/generated-output-stability.md`); cross-language presence: `gates/parity/artifact-role-parity-gate.ps1` over a complete local `.generated/` corpus |
-| Realization / parity holes | `gates/parity/block-realization-parity-gate.ps1`, `gates/realization/standing-conformance-gate.ps1`, `gates/parity/supported-domain-parity-gate.ps1`, `gates/parity/observability-axis-parity-gate.ps1`, `gates/realization/gendsl-corpus-resolution-gate.ps1` |
+| Realization / parity holes | `gates/parity/block-realization-parity-gate.ps1`, `gates/realization/standing-conformance-gate.ps1`, `gates/parity/supported-domain-parity-gate.ps1`, `gates/parity/observability-axis-parity-gate.ps1`, `gates/realization/dgen-corpus-resolution-gate.ps1` |
 | Scripts-tree layout, dangling script paths | `test/shared-library-gate.ps1 -Only check_scripts_tree` |
 | Duplicate logic | code-index `find_canonical` / `find_symbol` (MCP tools, or `dev/code-index.ps1 -Canonical` / `-Symbol`) |
 

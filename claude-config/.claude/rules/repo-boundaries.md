@@ -25,7 +25,7 @@ dependency; it imports none of them, and no frontend target depends on the backe
 
 `datrix-codegen-kernel` holds the target-neutral generation framework
 (`datrix_codegen_kernel`: generator base classes, template engine, discovery, the shared
-route and runtime derivations, the deploy-script machinery, the GenDSL data model, the Seed
+route and runtime derivations, the deploy-script machinery, the DAL generator data model, the Seed
 datasets) and depends on `datrix-common` and `datrix-migration`. Every generator, the language layer
 (`datrix-codegen-common`), the CLI and `datrix-testing` declare it as a runtime
 dependency; it loads no language-layer, generator, parser, semantic or CLI module.

@@ -53,7 +53,7 @@ every surface in it.
 1. **List the changed surface.** Every module you modified and every public name in it whose
    behaviour, signature or emitted output changed.
 2. **Close it over the changed package.** Add every unchanged module in the same package that
-   references a surface member — by import *or* by dotted-path string (genDSL
+   references a surface member — by import *or* by dotted-path string (DAL generator
    `resolver_ref`, entry-point targets, registry keys) — repeating until nothing new is
    added. A shared helper you did not edit still carries your change to everyone who calls it.
 3. **Find the direct consumers.** Every other package whose `src/`, `tests/` or root
@@ -143,7 +143,7 @@ need a `-Rule` or a stated question (`guard-untargeted-scans.py`).
   `instruction-surface-gate` (agent-facing documents), `check-docs-conformance`
   (architecture docs), `check-generated-file-ratchet` (GeneratedFile call sites),
   `type-mapping-completeness` (type registry/mappings), `supported-domain-parity-gate`
-  (domain registration), `gendsl-corpus-resolution-gate` (genDSL definitions).
+  (domain registration), `dgen-corpus-resolution-gate` (DAL generator definitions).
 
 ## Rules
 

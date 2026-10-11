@@ -27,7 +27,7 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 
 - **Scope:** Angular frontend-client codegen ONLY. Do NOT cross into the backend language codegen packages (`datrix-codegen-typescript`, `-python`, or any other registered language) or into the sibling frontend target `datrix-codegen-flutter`.
 - **Package:** `datrix-codegen-angular` — frontend API client generation (models, enums, injectable HTTP clients, route/provider manifest).
-- **Fix target:** Generator source code, GenDSL definitions, Jinja2 templates, or test code — never generated output.
+- **Fix target:** Generator source code, DAL generator definitions, Jinja2 templates, or test code — never generated output.
 
 ### This is a frontend TARGET, not a language
 
@@ -40,21 +40,21 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 
 | File | Purpose |
 |---|---|
-| `plugin.py` | `AngularClientGenerator` — compiles the GenDSL definitions, builds the client contract, renders, checks type-map completeness |
+| `plugin.py` | `AngularClientGenerator` — compiles the DAL generator definitions, builds the client contract, renders, checks type-map completeness |
 | `activation.py` | `active_for_angular_client()`, `ANGULAR_CLIENT_TARGET_KEY` — the `clients { angular { … } }` gate |
 | `client_settings.py` | `parse_angular_client_settings()` — `baseUrlToken`; unknown settings are rejected, not ignored |
-| `gendsl_definitions.py` | `angular_client_definition()` — the whole emission spec (`domain models` / `endpoints` / `manifest`) and every output path |
-| `gendsl/registrations.py` | `register_file_languages` / `register_context_namespaces` / `register_generator_target` (kind `"component"`) |
-| `gendsl/api.py` | `build_api_context`, `has_browser_routes`, path/query/body param contexts |
-| `gendsl/models.py` | `build_struct_context` / `build_entity_context` / `build_enum_context` + the three mutually exclusive closure predicates |
-| `gendsl/manifest.py` | `build_manifest_context`, `build_file_manifest`, `verify_file_manifest`, `build_readme` |
+| `dgen_definitions.py` | `angular_client_definition()` — the whole emission spec (`domain models` / `endpoints` / `manifest`) and every output path |
+| `dgen/registrations.py` | `register_file_languages` / `register_context_namespaces` / `register_generator_target` (kind `"component"`) |
+| `dgen/api.py` | `build_api_context`, `has_browser_routes`, path/query/body param contexts |
+| `dgen/models.py` | `build_struct_context` / `build_entity_context` / `build_enum_context` + the three mutually exclusive closure predicates |
+| `dgen/manifest.py` | `build_manifest_context`, `build_file_manifest`, `verify_file_manifest`, `build_readme` |
 | `type_mappings.py` | `ANGULAR_TYPE_MAP`, extension maps, `apply_json_wire_overrides`, `UnmappedBuiltinTypeError` |
 | `type_resolution.py` | `resolve_route_type`, `resolve_closure_type_ref`, `check_type_map_completeness` |
 | `ts_local_names.py` | `allocate_local_names` — import aliasing and collision-free local names |
 | `ts_source.py` | Escapers/validators for emitted TypeScript (`escape_ts_string`, `require_ts_binding_identifier`, …) + `register_ts_source_filters` |
 | `templates/` | `models/struct.ts.j2`, `models/enum.ts.j2`, `endpoints/client.ts.j2`, `core/*.ts.j2`, `manifest/*.ts.j2` |
 
-### Emission Layout (from `gendsl_definitions.py`)
+### Emission Layout (from `dgen_definitions.py`)
 
 ```
 domain models    → libs/api-contract/src/lib/models/{container}/…  + core/branded.ts
@@ -73,18 +73,18 @@ Iteration is over the contract's **computed type closure** (`each client_type`) 
 | `tests/unit/test_plugin.py` | `src/.../plugin.py` |
 | `tests/unit/test_activation.py` | `src/.../activation.py` |
 | `tests/unit/test_client_settings.py` | `src/.../client_settings.py` |
-| `tests/unit/test_gendsl_angular_defs.py`, `tests/unit/test_client_file_bindings.py` | `src/.../gendsl_definitions.py` (+ `templates/`) |
-| `tests/unit/gendsl/test_api_context.py` | `src/.../gendsl/api.py` |
-| `tests/unit/gendsl/test_models_context_builders.py` | `src/.../gendsl/models.py` |
-| `tests/unit/gendsl/test_manifest.py` | `src/.../gendsl/manifest.py` |
-| `tests/unit/gendsl/test_registrations.py` | `src/.../gendsl/registrations.py` |
+| `tests/unit/test_dgen_angular_defs.py`, `tests/unit/test_client_file_bindings.py` | `src/.../dgen_definitions.py` (+ `templates/`) |
+| `tests/unit/dgen/test_api_context.py` | `src/.../dgen/api.py` |
+| `tests/unit/dgen/test_models_context_builders.py` | `src/.../dgen/models.py` |
+| `tests/unit/dgen/test_manifest.py` | `src/.../dgen/manifest.py` |
+| `tests/unit/dgen/test_registrations.py` | `src/.../dgen/registrations.py` |
 | `tests/unit/test_type_mappings.py`, `tests/unit/test_type_map_completeness.py` | `src/.../type_mappings.py`, `type_resolution.py::check_type_map_completeness` |
 | `tests/unit/test_type_resolution.py` | `src/.../type_resolution.py` |
 | `tests/unit/test_ts_local_names.py` | `src/.../ts_local_names.py` |
 | `tests/unit/test_ts_string_escaping.py` | `src/.../ts_source.py` |
-| `tests/integration/test_endpoint_emission.py` | `templates/endpoints/client.ts.j2` + `gendsl/api.py` |
-| `tests/integration/test_models_domain_emission.py` | `templates/models/*.ts.j2` + `gendsl/models.py` |
-| `tests/integration/test_manifest_emission.py` | `templates/manifest/*.ts.j2` + `gendsl/manifest.py` |
+| `tests/integration/test_endpoint_emission.py` | `templates/endpoints/client.ts.j2` + `dgen/api.py` |
+| `tests/integration/test_models_domain_emission.py` | `templates/models/*.ts.j2` + `dgen/models.py` |
+| `tests/integration/test_manifest_emission.py` | `templates/manifest/*.ts.j2` + `dgen/manifest.py` |
 | `tests/integration/test_hostile_text_emission.py` | `src/.../ts_source.py` escapers |
 | `tests/integration/test_identifier_collision_emission.py` | `src/.../ts_local_names.py` |
 | `tests/integration/test_generation_without_typescript.py` | `tests/integration/no_typescript_generation_probe.py` (subprocess probe) |
@@ -114,4 +114,4 @@ These are gated by this package's own tests; a change that turns a test green by
 
 ### Shared-layer boundary
 
-The framework-neutral **client contract** — routes, params (DSL name *and* wire name), response type refs, provider sets, body encoding, pagination flags — lives in `datrix-codegen-common` (`generation/client_contract.py`), and the GenDSL compiler/executor and parity declarations live there too. A defect in any of those is fixed **there**, not worked around here — but that layer is consumed by EVERY generator, so a change to it must keep the changed behaviour's tagged tests green in every consuming package it reaches (CLAUDE.md's cross-surface impact rule). A per-frontend-target difference is a declared parameter or a renderer-local rendering step, never a target-name conditional in the shared layer — no frontend-target name may appear in a shared type, field, or alias.
+The framework-neutral **client contract** — routes, params (DSL name *and* wire name), response type refs, provider sets, body encoding, pagination flags — lives in `datrix-codegen-common` (`generation/client_contract.py`), and the DAL generator compiler/executor and parity declarations live there too. A defect in any of those is fixed **there**, not worked around here — but that layer is consumed by EVERY generator, so a change to it must keep the changed behaviour's tagged tests green in every consuming package it reaches (CLAUDE.md's cross-surface impact rule). A per-frontend-target difference is a declared parameter or a renderer-local rendering step, never a target-name conditional in the shared layer — no frontend-target name may appear in a shared type, field, or alias.

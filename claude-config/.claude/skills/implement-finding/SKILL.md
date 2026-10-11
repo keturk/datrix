@@ -42,9 +42,12 @@ Before your first edit, read the mandatory cores and the knowledge pack of each 
    at the seam (execution-contract §12). One test may prove several defects; say which.
 4. **Run only the tests of what you changed**, in the foreground (never `run_in_background`): the
    files you touched (`test.ps1 <pkg> -Specific`) and the feature tags of the behaviour you changed,
-   in every package it reaches (`-Tag`, at most 3 per run). Never a whole suite. Do not pipe the
-   output through a filter: a pipe hides `test.ps1`'s exit code, so a piped run proves nothing. Your **last** `test.ps1` run must pass: under `CLOSE: script` the script
-   reads it from the session log and keeps the finding when it failed or never ran.
+   in every package it reaches (`-Tag`, at most 3 per run). Never a whole suite. Prefer not to
+   pipe the output through a filter: a pipe hides `test.ps1`'s exit code, so a piped run counts only
+   when its output still ends with `test.ps1`'s own `Total: N | Passed: N | Failed: 0` line for every
+   `test.ps1` call (`| tail` keeps it; `| head`, `| grep` and `Select-String` drop it). Your **last**
+   `test.ps1` run must pass: under `CLOSE: script` the script reads it from the session log and keeps
+   the finding when it failed, never ran, or proved nothing.
 5. **Update the documentation** your change makes wrong, and every doc the finding names as stale —
    it must describe the behaviour the code now has. No design-doc or task reference and no customer
    term in a committed file. **Remove pointers to this finding** from other findings files (a
