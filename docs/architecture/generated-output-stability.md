@@ -87,4 +87,8 @@ byte-identical":
 
 `datrix/scripts/generation/compare-generated.ps1` compares `.generated` against `.generated_saved` at
 feature level — presence of known content patterns, not a byte-level diff. It is a development
-aid, not a proof of anything.
+aid, not a proof of anything. `datrix/scripts/generation/tree-hash.ps1` is the byte-level
+counterpart: it snapshots the SHA-256 of every generated file and diffs two snapshots into
+added, removed and changed paths. An empty diff measures that one regeneration of one project
+did not move. It does not prove output preservation either: that proof is still the owning
+package's test.
