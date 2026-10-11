@@ -72,7 +72,7 @@ my-project/
 │       ├── user-service.dtrx
 │       ├── order-service.dtrx
 │       └── payment-service.dtrx
-├── config/                        # ConfigDSL files (.dcfg)
+├── config/                        # config documents (.dcfg)
 │   ├── system.dcfg               # System-level profile config
 │   ├── user-service.dcfg         # User service runtime/infrastructure config
 │   └── order-service.dcfg        # Order service runtime/infrastructure config
@@ -90,7 +90,7 @@ my-project/
 | Directory | Purpose | Managed By |
 |-----------|---------|------------|
 | `specs/` | `.dtrx` specification files | You (version controlled) |
-| `config/` | `.dcfg` ConfigDSL files | You (version controlled) |
+| `config/` | `.dcfg` config documents | You (version controlled) |
 | `generated/` | Generated application code | Datrix CLI (overwritten on regeneration) |
 
 > **💡 Tip:** Only edit files in `specs/` and `config/`. Never manually edit `generated/` — your changes will be lost on next generation.
@@ -167,7 +167,7 @@ system ecommerce.System('config/system.dcfg') : version('1.0.0') {
 
 ### System Configuration
 
-The declaration-level `.dcfg` path points to the system ConfigDSL file:
+The declaration-level `.dcfg` path points to the system config document:
 
 | Location | Config File | Purpose |
 |----------|-------------|---------|
@@ -1585,14 +1585,13 @@ config service OrderService {
 
 ### Dependency Resilience Policy
 
-Resilience is a property of the **dependency**, declared once and applied everywhere — Datrix never synthesizes timeout/breaker/bulkhead values and never auto-classifies an operation as safe to degrade. A `dependencyPolicy` section under `resilience` declares, per dependency kind (`cache`, `rdbms`, `pubsub`, `objectStorage`, `service`, `extern`), its availability, health severity, and operation-level failure behavior. The safe baseline is authored **once at the application level** in a `defaults` block; an individual dependency overrides only where it differs.
+Resilience is a property of the **dependency**, declared once and applied everywhere — Datrix never synthesizes timeout/breaker/bulkhead values and never auto-classifies an operation as safe to degrade. A `dependencyPolicy` section under `resilience` declares, for each dependency kind a generated service probes (`cache`, `rdbms`, `pubsub`), its availability, health severity and — for a cache — operation-level failure behavior. The safe baseline is authored **once at the application level** in a `defaults` block; an individual dependency overrides only where it differs.
 
 ```dcfg
 resilience {
   dependencyPolicy {
     defaults {
-      // Recommended service-call values, opted into by name (always visible in config)
-      service from standardServicePolicy();
+      rdbms { availability = "required"; health = "ready"; }
 
       cache {
         availability = "required"; health = "ready";
@@ -1604,15 +1603,16 @@ resilience {
     }
 
     // Override the app-level baseline for one dependency only where it differs
-    service ProductService { timeout = 3000; bulkhead { maxConcurrent = 400; } }
+    rdbms archiveDb { availability = "optional"; health = "degraded"; }
   }
 }
 ```
 
 Key rules:
 
-- **Declared once, inherited.** One `defaults { service from standardServicePolicy(); }` covers every `service` dependency at once; a per-service block overrides the baseline only where one dependency differs.
-- **Uncovered is an error.** A policy-managed operation (a cache `read` or `write`), or a `service` dependency that has inter-service calls, left uncovered at every level fails generation with `RESILIENCE_POLICY_REQUIRED` — nothing is invented to fill the gap.
+- **Declared once, inherited.** One `defaults { rdbms { … } }` covers every rdbms block the service realizes; a per-block entry overrides the baseline only where one dependency differs.
+- **Uncovered is an error.** A policy-managed operation (a cache `read` or `write`) left uncovered at every level fails generation with `RESILIENCE_POLICY_REQUIRED` — nothing is invented to fill the gap.
+- **Only realized knobs are accepted.** A `service`, `extern` or `objectStorage` entry is rejected with `RESILIENCE_POLICY_INVALID`: no generated service probes a peer, so its availability would change nothing. Check a peer in code with `Microservice.health()`/`isAvailable()`.
 - **The operation vocabulary is closed.** Only a cache's `read` and `write` have a per-operation failure policy; any other `operations` key is rejected with `RESILIENCE_POLICY_INVALID`. Counter increments, lock acquisitions and rate-limit checks have no policy: their failures always propagate, so a limiter never admits a request it could not count, and there is no opt-out flag.
 - **Readiness stays honest.** `availability = "optional"` together with `health = "ready"` is rejected (it would gate readiness on an optional dependency).
 - **Typed calls route through resilient clients.** Every typed inter-service call (see [Calling Another Service's Endpoints](#calling-another-services-endpoints)) goes through a generated per-dependency resilient client driven by this policy. Timeout, circuit breaker, and bulkhead are non-amplifying and stay on; **retry is off by default** and is enabled only when the provider endpoint is marked `idempotent` (an HTTP `GET` is *not* assumed idempotent), bounded by a retry budget and suppressed while the breaker is open.
@@ -1624,10 +1624,10 @@ Generated services expose three distinct probes rather than one conflated `/heal
 | Endpoint | Reports |
 |----------|---------|
 | `/live` | Process liveness only |
-| `/ready` | All `required` dependencies usable — returns 503 when a required dependency is down |
+| `/ready` | All readiness-blocking dependencies usable and every in-process consumer running — returns 503 otherwise |
 | `/health` | Detailed per-dependency report, including `degraded` optional dependencies |
 
-A dependency declared `health = "degraded"` keeps `/ready` green while `/health` reports `degraded`, unless you set `readyOnDegraded = false` to make it a readiness blocker for guarded rollouts. Deployment probes (Docker healthcheck) point at `/ready`.
+Every language probes the same dependencies — each rdbms block, each nosql block, each pubsub block the service publishes on (through its publish path), each policy-governed cache — and reports each under `<kind>.<block>` (`rdbms.orderDb`, `pubsub.orderEvents`). A dependency declared `health = "degraded"` keeps `/ready` green while `/health` reports `degraded`, unless you set `readyOnDegraded = false` to make it a readiness blocker for guarded rollouts. Deployment probes (Docker healthcheck) point at `/ready`.
 
 ---
 

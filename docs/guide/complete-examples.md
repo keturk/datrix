@@ -87,7 +87,7 @@ Optional **language override** for development (see [`datrix-cli/docs/commands.m
 datrix generate --source examples/03-domains/ecommerce/system.dtrx --output ./generated -L python
 ```
 
-**Note:** Deployment configuration (runtime and provider) is specified in the ConfigDSL files, not via CLI flags.
+**Note:** Deployment configuration (runtime and provider) is specified in the `.dcfg` config documents, not via CLI flags.
 
 The e-commerce domain also ships **pre-generated** trees for inspection — one per registered language on the docker-compose profile, under [`examples/03-domains/ecommerce/generated/`](../../examples/03-domains/ecommerce/generated/) (`python-docker/`, `typescript-docker/`); regenerating is still the supported workflow.
 
@@ -292,7 +292,7 @@ datrix seed --profile prod --category reference
 datrix seed --profile dev --dry-run
 ```
 
-For the full SeedDSL syntax and guidelines, see [Seed Data Guidelines](./seed-data-guidelines.md).
+For the full `.dseed` syntax and guidelines, see [Seed Data Guidelines](./seed-data-guidelines.md).
 
 ---
 

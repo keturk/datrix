@@ -80,7 +80,7 @@ Datrix generation does not infer whether a target database is empty or already p
 
 ## D13: Automatic Migrations Are Safe/Additive Only
 
-Datrix-generated automatic migrations do not perform destructive or ambiguous schema changes. Field/table removal, rename, type narrowing, enum removal/rename/reorder, index removal, primary-key changes, and foreign-key removal fail as generation errors before rendering. There is no ConfigDSL or CLI override that converts destructive diffs into automatic generated migrations.
+Datrix-generated automatic migrations do not perform destructive or ambiguous schema changes. Field/table removal, rename, type narrowing, enum removal/rename/reorder, index removal, primary-key changes, and foreign-key removal fail as generation errors before rendering. There is no `.dcfg` or CLI override that converts destructive diffs into automatic generated migrations.
 
 ## D14: SQL Files Are Not an Implicit Fallback
 
@@ -92,7 +92,7 @@ Datrix-generated automatic migrations do not perform destructive or ambiguous sc
 
 ## D16: RDBMS UUID Is Required and Stable Across Profiles
 
-Every resolved `RdbmsConfig` must contain an `id` UUID authored in ConfigDSL. Normal code generation does not silently generate missing IDs. Within a resolved profile, IDs are unique across service-owned and shared-owned RDBMS blocks. When the same owner-qualified RDBMS block appears in multiple profiles, it must resolve to the same ID. `load_service_config` and `load_shared_config` enforce this when the config loads: they resolve every profile of the `.dcfg` and reject a block whose ID differs between profiles with `RDBMS_ID_UNSTABLE`, naming the block, the profiles and the IDs. A block absent from some profiles is allowed.
+Every resolved `RdbmsConfig` must contain an `id` UUID authored in `.dcfg`. Normal code generation does not silently generate missing IDs. Within a resolved profile, IDs are unique across service-owned and shared-owned RDBMS blocks. When the same owner-qualified RDBMS block appears in multiple profiles, it must resolve to the same ID. `load_service_config` and `load_shared_config` enforce this when the config loads: they resolve every profile of the `.dcfg` and reject a block whose ID differs between profiles with `RDBMS_ID_UNSTABLE`, naming the block, the profiles and the IDs. A block absent from some profiles is allowed.
 
 ## D17: Shared-Owned RDBMS Migrations Use Shared Generated Output
 
@@ -202,7 +202,7 @@ App-level migration state lives at `{app_dir}/.datrix/rdbms-migrations/{target}/
 
 ## D36: `target` Is the Concrete Profile Name
 
-The `target` segment is the **concrete profile name** — the identifier before `as "alias"` in the ConfigDSL `profile <name> as "<alias>"` declaration (e.g. `development`, `test`, `staging`, `production`) — never the short alias. This is the system's existing and only profile-identity convention: config resolution matches profiles by concrete name exclusively (`p.name == name`), raises a hard error on no match, and never matches aliases (aliases populate interpolation context only). The CLI `--profile` value and the orchestrator's resolved profile are both already concrete names threaded through this same resolution, so using the profile directly as the directory segment requires no new canonicalization. **Constraint:** if two profiles ever target the same physical database, they must share a `target` key — out of scope, recorded as a documented limitation.
+The `target` segment is the **concrete profile name** — the identifier before `as "alias"` in the `.dcfg` `profile <name> as "<alias>"` declaration (e.g. `development`, `test`, `staging`, `production`) — never the short alias. This is the system's existing and only profile-identity convention: config resolution matches profiles by concrete name exclusively (`p.name == name`), raises a hard error on no match, and never matches aliases (aliases populate interpolation context only). The CLI `--profile` value and the orchestrator's resolved profile are both already concrete names threaded through this same resolution, so using the profile directly as the directory segment requires no new canonicalization. **Constraint:** if two profiles ever target the same physical database, they must share a `target` key — out of scope, recorded as a documented limitation.
 
 ## D37: Layout Groups by Target, Then Block
 
@@ -210,7 +210,7 @@ The path is `{target}/{rdbms_id}/`, so wiping or rebaselining a target is a sing
 
 ## D38: Existing State Is Relocated, Not Regenerated
 
-A guarded, idempotent `relocate-state` operation seeds the target-scoped layout from existing shared `{rdbms_id}/` state. It discovers the declared deployable targets by parsing the application's ConfigDSL profiles (not a flag list or hard-coded default), copies each existing block directory into every declared target's slot (copy-not-move until byte-identity is verified, then removes the legacy directory), is idempotent (existing target-scoped state is skipped, not overwritten), and refuses-and-reports any `{rdbms_id}/` directory that maps to no declared target. Regeneration is rejected because it would silently rewrite history; faithful relocation preserves the recorded baseline and is auditable. After the layout change, `load(rdbms_id, target)` raises `MigrationStateLegacyLayoutError` (naming the `relocate-state` command) when it finds legacy-layout state and no target-scoped state — there is no silent fallback to the legacy path.
+A guarded, idempotent `relocate-state` operation seeds the target-scoped layout from existing shared `{rdbms_id}/` state. It discovers the declared deployable targets by parsing the application's `.dcfg` profiles (not a flag list or hard-coded default), copies each existing block directory into every declared target's slot (copy-not-move until byte-identity is verified, then removes the legacy directory), is idempotent (existing target-scoped state is skipped, not overwritten), and refuses-and-reports any `{rdbms_id}/` directory that maps to no declared target. Regeneration is rejected because it would silently rewrite history; faithful relocation preserves the recorded baseline and is auditable. After the layout change, `load(rdbms_id, target)` raises `MigrationStateLegacyLayoutError` (naming the `relocate-state` command) when it finds legacy-layout state and no target-scoped state — there is no silent fallback to the legacy path.
 
 ---
 
@@ -263,4 +263,4 @@ A relationship change is matched to its constraint by the full (columns, referre
 - [RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md) — Shared module documentation
 - [RdbmsMigrationAdapter Protocol](../../../datrix-codegen-kernel/docs/migration-adapter.md) — Adapter contract
 - [CLI Migrations Commands](../../../datrix-cli/docs/commands/migrations.md) — CLI surface
-- [Config DSL Reference — RDBMS ID](../reference/config-dsl-reference.md#rdbms-migration-identity) — ConfigDSL `id` field
+- [Config Document Reference — RDBMS ID](../reference/dcfg-reference.md#rdbms-migration-identity) — `.dcfg` `id` field

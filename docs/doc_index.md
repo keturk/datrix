@@ -31,7 +31,7 @@ Quick-reference index for AI agents. All paths relative to `D:/datrix/`.
 - [codegen-design.md](datrix-common/docs/architecture/codegen-design.md) → Code generation design
 - [codegen-consolidation.md](datrix-common/docs/architecture/codegen-consolidation.md) → Consolidation architecture
 - [config-system.md](datrix-common/docs/architecture/config-system.md) → Configuration architecture
-- [config-migration-rationale.md](datrix-common/docs/architecture/config-migration-rationale.md) → YAML → ConfigDSL migration
+- [config-migration-rationale.md](datrix-common/docs/architecture/config-migration-rationale.md) → YAML → config document (`.dcfg`) migration
 - [semantic-validators.md](datrix-semantic/docs/architecture/semantic-validators.md) → Validation system
 - [ast-parent-containment.md](datrix-common/docs/architecture/ast-parent-containment.md) → AST design
 - [import-boundaries.md](datrix-common/docs/architecture/import-boundaries.md) → Module dependency rules
@@ -73,18 +73,18 @@ Quick-reference index for AI agents. All paths relative to `D:/datrix/`.
 - [alert-syntax.md](datrix-language/docs/reference/alert-syntax.md) → Alert definitions
 - [audit-syntax.md](datrix-language/docs/reference/audit-syntax.md) → Audit trail syntax
 
-### Config DSL
+### Config Documents (`.dcfg`)
 
 **When:** Working with configuration files
-- [config-dsl-reference.md](datrix/docs/reference/config-dsl-reference.md) → ConfigDSL syntax reference
-- [config-dsl-reference.md](datrix-common/docs/config-dsl-reference.md) → ConfigDSL syntax reference (datrix-common)
-- [config-dsl-guide.md](datrix-common/docs/config-dsl-guide.md) → Practical ConfigDSL guide
+- [dcfg-reference.md](datrix/docs/reference/dcfg-reference.md) → `.dcfg` syntax reference
+- [dcfg-reference.md](datrix-common/docs/dcfg-reference.md) → `.dcfg` syntax reference (datrix-common)
+- [dcfg-guide.md](datrix-common/docs/dcfg-guide.md) → Practical `.dcfg` guide
 - [config-store.md](datrix-common/docs/config-store.md) → Runtime config store schema, enums, validation, and engine compatibility
 
-### Seed DSL
+### Seed Documents (`.dseed`)
 
 **When:** Defining seed data
-- [seed-dsl-syntax-reference.md](datrix-language/docs/reference/seed-dsl-syntax-reference.md) → SeedDSL syntax
+- [dseed-reference.md](datrix-language/docs/reference/dseed-reference.md) → `.dseed` syntax
 
 ## 🧪 Testing
 
@@ -111,21 +111,21 @@ Quick-reference index for AI agents. All paths relative to `D:/datrix/`.
 
 **When:** Working with generators, templates, or code output
 
-### GenDSL (datrix-codegen-kernel)
+### DAL generator (datrix-codegen-kernel)
 
 **When:** Defining or modifying generators
-- [overview.md](datrix-codegen-kernel/docs/gendsl/overview.md) → Generator Definition DSL overview
-- [syntax.md](datrix-codegen-kernel/docs/gendsl/syntax.md) → GenDSL syntax specification
-- [context-models.md](datrix-codegen-kernel/docs/gendsl/context-models.md) → Template context models
-- [iteration-model.md](datrix-codegen-kernel/docs/gendsl/iteration-model.md) → Multi-pass generation
-- [python-interop.md](datrix-codegen-kernel/docs/gendsl/python-interop.md) → Python integration
-- [runtime-ir.md](datrix-codegen-kernel/docs/gendsl/runtime-ir.md) → Runtime IR
-- [semantic-requirements.md](datrix-codegen-kernel/docs/gendsl/semantic-requirements.md) → Semantic requirements
-- [design-decisions.md](datrix-codegen-kernel/docs/gendsl/design-decisions.md) → GenDSL design decisions
-- [migration-guide.md](datrix-codegen-kernel/docs/gendsl/migration-guide.md) → GenDSL migration guide
-- [cross-domain-contributions.md](datrix-codegen-kernel/docs/gendsl/cross-domain-contributions.md) → Cross-domain file contributions
-- [generated-tests.md](datrix-codegen-kernel/docs/gendsl/generated-tests.md) → Generated test structure
-- [examples.md](datrix-codegen-kernel/docs/gendsl/examples.md) → Complete GenDSL examples
+- [overview.md](datrix-codegen-kernel/docs/dgen/overview.md) → Generator Definition DSL overview
+- [syntax.md](datrix-codegen-kernel/docs/dgen/syntax.md) → DAL generator syntax specification
+- [context-models.md](datrix-codegen-kernel/docs/dgen/context-models.md) → Template context models
+- [iteration-model.md](datrix-codegen-kernel/docs/dgen/iteration-model.md) → Multi-pass generation
+- [python-interop.md](datrix-codegen-kernel/docs/dgen/python-interop.md) → Python integration
+- [runtime-ir.md](datrix-codegen-kernel/docs/dgen/runtime-ir.md) → Runtime IR
+- [semantic-requirements.md](datrix-codegen-kernel/docs/dgen/semantic-requirements.md) → Semantic requirements
+- [design-decisions.md](datrix-codegen-kernel/docs/dgen/design-decisions.md) → DAL generator design decisions
+- [migration-guide.md](datrix-codegen-kernel/docs/dgen/migration-guide.md) → DAL generator migration guide
+- [cross-domain-contributions.md](datrix-codegen-kernel/docs/dgen/cross-domain-contributions.md) → Cross-domain file contributions
+- [generated-tests.md](datrix-codegen-kernel/docs/dgen/generated-tests.md) → Generated test structure
+- [examples.md](datrix-codegen-kernel/docs/dgen/examples.md) → Complete DAL generator examples
 
 ### Codegen Common
 

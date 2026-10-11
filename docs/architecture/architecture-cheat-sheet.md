@@ -16,7 +16,7 @@
 | Touching `auth(...)`, identity providers, guards, tenancy, `@crossTenant`, `@produces`, API keys, revocation | [auth](./packs/auth.md) |
 | Touching Angular/Flutter or any client target, the client/UI contract, the `app` container, `UI0xx` diagnostics | [frontend-clients](./packs/frontend-clients.md) |
 | Touching DSL doc comments, enum keywords or wire/stored values, `work { }`, `extern service`, or needing the grammar snapshot | [dsl-features](./packs/dsl-features.md) |
-| Touching the transpiler, genDSL paths/escaping, `#{}` interpolation, SQL literal quoting | [codegen-engine](./packs/codegen-engine.md) |
+| Touching the transpiler, DAL generator paths/escaping, `#{}` interpolation, SQL literal quoting | [codegen-engine](./packs/codegen-engine.md) |
 | Touching generated-service startup, the secret backend, env vars, framework headers, problem types, gateways, observability | [runtime-and-deploy](./packs/runtime-and-deploy.md) |
 | Touching schema snapshots, the migration ledger, `migrations { }`, migration adapters | [migrations](./packs/migrations.md) |
 | Touching the LSP, keyword manifest, `datrix-vscode` | [language-server](./packs/language-server.md) |
@@ -34,8 +34,8 @@ Eighteen core packages plus optional **datrix-extensions**. Dependencies point d
 | datrix-semantic | `SemanticAnalyzer`, phase pipeline, validators, synthesis, auth-contract lowering. Depends on common only |
 | datrix-migration | RDBMS migration machinery (snapshot, diff, policy, ledger, state store). Depends on common only |
 | datrix-language | Tree-sitter parser, CST→AST transformers, stdlib `.dtrx` modules, language server. Depends on common, semantic |
-| datrix-codegen-kernel | Target-neutral generation framework (`Generator`, template engine, discovery, type-mapping registry, shared route/runtime derivations, deploy-script machinery, GenDSL model, Seed, `sql_facts`). Depends on common, migration; loads no language-layer module |
-| datrix-codegen-common | Language layer: transpiler, `LanguageProfile` + `SyntaxEmitters`, context builders, genDSL. Used by EVERY language generator |
+| datrix-codegen-kernel | Target-neutral generation framework (`Generator`, template engine, discovery, type-mapping registry, shared route/runtime derivations, deploy-script machinery, DAL generator model, Seed, `sql_facts`). Depends on common, migration; loads no language-layer module |
+| datrix-codegen-common | Language layer: transpiler, `LanguageProfile` + `SyntaxEmitters`, context builders, DAL generator. Used by EVERY language generator |
 | datrix-codegen-typescript-core | Shared TypeScript core (transpiler core, profile, type maps, naming/path facts, web-client mechanics). Library; used by the TS backend and every TS-emitting frontend |
 | datrix-codegen-python / -typescript | Backend language generators (FastAPI / NestJS-Express) |
 | datrix-codegen-sql / -component | SQL DDL; platform-agnostic artifacts (docs, config, scripts). Depend on the kernel, never on codegen-common |
@@ -82,7 +82,7 @@ Each is held by an executable gate; the pack and decision named give the check.
 
 ## Technology
 
-Python 3.11+, Tree-sitter, Pydantic v2, Jinja2, ruff, pytest.
+Python 3.11+, Tree-sitter (author-facing `.dtrx`), Lark (DAL, the internal document language), Pydantic v2, Jinja2, ruff, pytest.
 
 ## Full Docs
 

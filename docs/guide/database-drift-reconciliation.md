@@ -352,7 +352,7 @@ Now `L ≠ R` (live has status, recorded doesn't). You have two choices:
 
 ## See Also
 
-- **[Config DSL Reference — Drift Policy Selector](../reference/config-dsl-reference.md#drift-policy-selector)** — How to configure `driftPolicy` in your `.dcfg` files
+- **[Config Document Reference — Drift Policy Selector](../reference/dcfg-reference.md#drift-policy-selector)** — How to configure `driftPolicy` in your `.dcfg` files
 - **[RDBMS Migration Decisions (D24–D29)](../architecture/rdbms-migration-decisions.md#database-drift-detection--reconciliation-d24d29)** — Drift detection and reconciliation technical rationale
 - **[RDBMS Migration Decisions (D30–D34)](../architecture/rdbms-migration-decisions.md#regime-aware-migration-lifecycle-d30d34)** — Rebaseline and regime-aware generation rationale
 - **[Architecture Overview — Decision 10](../architecture/architecture-overview.md#decision-10-database-drift-detection--reconciliation-adopted)** — System-level overview

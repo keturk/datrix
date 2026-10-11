@@ -34,7 +34,7 @@ Index of **repository** examples under [`examples/`](../../examples/) (feature e
 
 ### [Seed Data Guidelines](./seed-data-guidelines.md)
 How to declare, manage, and deploy seed data:
-- SeedDSL file format (`.dseed`) and declaration syntax
+- Seed document file format (`.dseed`) and declaration syntax
 - Reference data, baseline data, and volume data categories
 - Profile-aware seeding and production safety
 - Field selection rules, trait-specific seeding, type-specific patterns
@@ -104,7 +104,7 @@ Proven patterns for common scenarios:
 - [Field Attributes](../../../datrix-language/docs/reference/field-attributes.md) — All field modifiers
 - [Decorators](../../../datrix-language/docs/reference/datrix-decorators.md) — Function and entity decorators
 - [Built-in Objects](../../../datrix-language/docs/reference/datrix-builtins.md) — Available utility functions
-- [SeedDSL Syntax](../../../datrix-language/docs/reference/seed-dsl-syntax-reference.md) — `.dseed` file format and constructs
+- [Seed Document (`.dseed`) Reference](../../../datrix-language/docs/reference/dseed-reference.md) — `.dseed` file format and constructs
 
 **Architecture & Design**
 - [Architecture Overview](../architecture/architecture-overview.md) — System pipeline and structure
@@ -142,7 +142,7 @@ service example.MyService : version('1.0.0') {
 ```
 
 ```dcfg
-# ConfigDSL files use this syntax
+# .dcfg config documents use this syntax
 config system example.System {
     profile test {
         deployment { runtime: docker-compose, provider: local }

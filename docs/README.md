@@ -49,4 +49,4 @@ datrix generate --source path/to/system.dtrx --output ./generated --language pyt
 datrix generate --source path/to/system.dtrx --output ./generated --profile production --language python
 ```
 
-**Note:** Deployment configuration (runtime and provider) is specified in ConfigDSL files via the `deployment` section, not through CLI flags. `--language`/`-L` is a required CLI flag — target language is a generation parameter, not config; there is no default.
+**Note:** Deployment configuration (runtime and provider) is specified in `.dcfg` config documents via the `deployment` section, not through CLI flags. `--language`/`-L` is a required CLI flag — target language is a generation parameter, not config; there is no default.

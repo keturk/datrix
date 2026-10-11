@@ -6,7 +6,7 @@
 
 [Decision 46](../architecture-overview.md#decision-46-ai-agents--model-driven-tool-loops-as-a-declared-service-block-approved--implementation-in-progress) — Approved; Phases 1–2 implemented, Phase 3 not started.
 
-An `agents <alias> { model h; tool T(…) -> R : description('…') { ensure …; … } agent A(…) -> R { model(h); tools(…); steps(N); attachments(p); prompt { … } } }` service block: the author declares, the generator emits a bounded observe → decide → act → update loop. Provider, model id, sampling, timeout, key handle and budget live under the block alias in the service ConfigDSL (`provider` = API family, `flavor` = `container`/`external`/`managed`/`direct`).
+An `agents <alias> { model h; tool T(…) -> R : description('…') { ensure …; … } agent A(…) -> R { model(h); tools(…); steps(N); attachments(p); prompt { … } } }` service block: the author declares, the generator emits a bounded observe → decide → act → update loop. Provider, model id, sampling, timeout, key handle and budget live under the block alias in the service `.dcfg` (`provider` = API family, `flavor` = `container`/`external`/`managed`/`direct`).
 
 - The model chooses only among declared tools (closed at generation); model-supplied arguments are untrusted input, parsed and checked by the tool's leading `ensure` clauses; tools run with the caller's identity; a model result is data, parsed against the declared type before use.
 - Provider realization is a required per-provider platform declaration (absence is a construction error; no provider name in shared layers). Keys are logical secret handles; off-loopback transport is verified TLS unless `allowPlaintextHttp = true` with `auth = "none"`; no certificate-verification switch exists.

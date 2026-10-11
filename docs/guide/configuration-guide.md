@@ -2,7 +2,7 @@
 
 **Complete reference for Datrix configuration files**
 
-This guide covers Datrix `.dcfg` ConfigDSL files, their structure, options, and how to use profiles for environment-specific settings.
+This guide covers Datrix `.dcfg` config documents, their structure, options, and how to use profiles for environment-specific settings.
 
 ---
 
@@ -56,7 +56,7 @@ Datrix implements a **no-hardcoded-app-defaults principle**: every app-specific 
 
 Each new surface lives in one of two config locations, chosen by ownership boundary:
 
-| Surface | Home | Wave | Profile | ConfigDSL Block |
+| Surface | Home | Wave | Profile | `.dcfg` Block |
 |---------|------|------|---------|-----------------|
 | **Per-Deployment Infrastructure** |  |  |  |  |
 | AWS CloudWatch alarms (RDS/ElastiCache/DynamoDB thresholds) | `platforms.aws.alarms` | C | system | `alarms { rdsCpuPercent = 80; … }` |
@@ -106,7 +106,7 @@ Each new surface lives in one of two config locations, chosen by ownership bound
 
 ### `.dcfg` Authoring Syntax
 
-All new config surfaces use the ConfigDSL generic block syntax. Here are representative examples:
+All new config surfaces use the `.dcfg` generic block syntax. Here are representative examples:
 
 #### System Config (deployment-wide)
 
@@ -314,7 +314,7 @@ Each generator package publishes detailed docs for its config surfaces:
 Datrix uses a **hierarchical configuration system** with **profile-based environments**. Configuration is split between:
 
 1. **`.dtrx` files** — Behavioral definitions (entities, APIs, services)
-2. **ConfigDSL (`.dcfg`) files** — Environmental configuration (databases, credentials, deployment)
+2. **Config documents (`.dcfg`)** — Environmental configuration (databases, credentials, deployment)
 
 ### Key Principles
 
@@ -338,21 +338,21 @@ Tier 1: Project Settings (assembled from generator defaults)
 ├── Dependency version catalog
 └── Infrastructure image catalog
 
-Tier 2: System-Level Config (profile-based ConfigDSL)
+Tier 2: System-Level Config (profile-based .dcfg)
 ├── Language and deployment target
 ├── API Gateway
 ├── Service Registry
 ├── Observability
 └── System-wide deployment settings
 
-Tier 3: Service-Level Config (profile-based ConfigDSL)
+Tier 3: Service-Level Config (profile-based .dcfg)
 ├── Service deployment config
 ├── Resilience patterns
 ├── Service metadata
 ├── Integrations
 └── Multi-tenancy settings
 
-Tier 4: Block-Level Config (profile-based ConfigDSL)
+Tier 4: Block-Level Config (profile-based .dcfg)
 ├── RDBMS (datasources.dcfg) — per **service** or **`shared`** block
 ├── Cache (datasources.dcfg)
 ├── PubSub (datasources.dcfg)
@@ -362,7 +362,7 @@ Tier 4: Block-Level Config (profile-based ConfigDSL)
 └── Queues (queue.dcfg — separate file, not a datasource)
 ```
 
-**`shared` blocks** use the **same** Tier 4 ConfigDSL shapes as services; paths in `.dtrx` are resolved relative to the project root during **`resolve_infrastructure_configs`** just like service-owned blocks.
+**`shared` blocks** use the **same** Tier 4 `.dcfg` shapes as services; paths in `.dtrx` are resolved relative to the project root during **`resolve_infrastructure_configs`** just like service-owned blocks.
 
 ---
 
@@ -397,7 +397,7 @@ config system ecommerce.System {
 
 `test` and `development` inherit from `base` automatically (no explicit profile needed). Only `production` needs overrides.
 
-**ConfigDSL format:**
+**`.dcfg` format:**
 
 ```dcfg
 # config/system.dcfg
@@ -546,7 +546,7 @@ base:
       engine: postgres
       database: library
   # registration: omitted → defaults to { tags: [api, <system-name>, v1], healthCheck: { type: http, path: /health, interval: 10s } }
-  # resilience: omitted → defaults to { timeout: 10s, retry: { maxAttempts: 2, backoff: { type: exponential, initial: 100ms } } }
+  # resilience: omitted → defaults to { timeout: 10s, retry: { maxAttempts: 2, backoff: { type: exponential, initial: 100ms, multiplier: 2 } } }
 ```
 
 To explicitly opt out:
@@ -561,7 +561,7 @@ base:
 
 ## System Configuration
 
-**File:** `config/system.dcfg` (ConfigDSL format)
+**File:** `config/system.dcfg` (`.dcfg` format)
 
 **Referenced in:** `system` block (declaration-level config path)
 
@@ -693,7 +693,7 @@ table omits is a loud generation error, never a nearest-match.
 
 ### Language Selection
 
-Language is not a ConfigDSL field. It is a required generation-time CLI parameter, resolved against the registered `datrix.languages` set (`python`, `typescript`, …):
+Language is not a `.dcfg` field. It is a required generation-time CLI parameter, resolved against the registered `datrix.languages` set (`python`, `typescript`, …):
 
 ```bash
 datrix generate --source system.dtrx --output ./generated --language python
@@ -1026,7 +1026,7 @@ different, non-overlapping set of sizing fields — a field accepted but silentl
 the wrong flavor is treated as a defect, so the wrong combination is rejected at generation
 time rather than accepted and dropped.
 
-| Field | ConfigDSL key | Type | Legal on | Required |
+| Field | `.dcfg` key | Type | Legal on | Required |
 |-------|---------------|------|----------|----------|
 | `min_capacity` | `minCapacity` | Float | `aurora-serverless` only | Yes, on `aurora-serverless` |
 | `max_capacity` | `maxCapacity` | Float | `aurora-serverless` only | Yes, on `aurora-serverless` |
@@ -1277,20 +1277,29 @@ Automatically retry failed requests. Declared once under `resilience.defaults.re
 
 ```dcfg
 retry {
-  maxAttempts = 3;
-  backoff {
+  maxAttempts = 3;         // total runs, the first included
+  backoff {                // required: a retry always declares its waits
     type = "exponential";  // exponential, linear, fixed
-    initial = "200ms";     // first retry delay
-    multiplier = 2;        // must be > 1 for exponential, > 0 for linear
-    max = "5s";            // cap on any delay
+    initial = "200ms";     // the wait before the second run (required)
+    multiplier = 2;        // > 1 for exponential, > 0 for linear; not declared for fixed
+    max = "5s";            // optional cap on every wait; not declared for fixed
+    jitter = 0.1;          // optional fraction in [0, 1] each wait may be shortened by
   }
 }
 ```
 
-**Backoff types:**
-- `exponential` — Delay multiplies: 200ms, 400ms, 800ms, …
-- `linear` — Delay grows by a fixed step
-- `fixed` — Same delay every time
+**Backoff types** — the wait before retry `n` (`n = 0` before the second run):
+- `exponential` — `initial × multiplier^n`: 200ms, 400ms, 800ms, …
+- `linear` — `initial × (1 + multiplier × n)`: with `multiplier = 1`, 200ms, 400ms, 600ms, …
+- `fixed` — `initial` every time
+
+Each wait is capped at `max` when one is declared; without `max` the waits grow until
+`maxAttempts` ends them (generation fails when an uncapped wait outgrows any representable
+duration). `jitter` shortens each wait by a uniformly random share of at most that fraction,
+so the cap stays a bound; without it every wait is exact. The generator computes the waits
+once and every language's client renders that same table, so one `.dcfg` gives every target
+the same retry timing. A `retry` with no `backoff`, a `fixed` backoff declaring `multiplier`
+or `max`, and a `max` below `initial` are refused when the config loads.
 
 ### Timeout
 
@@ -1331,21 +1340,17 @@ bulkhead {
 
 ### Dependency Resilience Policy
 
-Every `service` dependency that a service issues inter-service calls to requires an **explicit** dependency policy (`availability` and `health`). The generator never synthesizes one. If a called service has no resolved policy, generation fails with `RESILIENCE_POLICY_REQUIRED`. Timeouts are not part of the dependency policy: they live under `resilience.config` / `resilience.defaults` ([Timeout](#timeout)).
+A dependency policy declares how a dependency the service's readiness depends on affects `/ready` and `/health` — its `availability`, `health` and `readyOnDegraded` — and, for a cache, the failure behavior of its `read`/`write` operations. Policies exist for the kinds a generated service probes: `cache`, `rdbms` and `pubsub` (and `model`, for a live model handle's circuit breaker and bulkhead). Timeouts are not part of the dependency policy: they live under `resilience.config` / `resilience.defaults` ([Timeout](#timeout)).
 
 #### Two-Level Hierarchy
 
 Policy is resolved from two levels — later takes precedence:
 
-1. **Application-level baseline** — `resilience.dependencyPolicy.defaults.service`, declared once in the service `.dcfg` and inherited by every `service` dependency.
-2. **Per-service override** — `resilience.dependencyPolicy.service <Name>`, applied only where one dependency differs from the baseline.
-
-#### `standardServicePolicy()` Template
-
-The recommended starting point for the `service` baseline:
+1. **Application-level baseline** — `resilience.dependencyPolicy.defaults.<kind>`, declared once in the service `.dcfg` and inherited by every dependency of that kind the service realizes.
+2. **Per-dependency override** — `resilience.dependencyPolicy.<kind> <block>`, applied only where one dependency differs from the baseline.
 
 ```dcfg
-template standardServicePolicy() {
+template standardStorePolicy() {
   availability = "required";
   health = "ready";
 }
@@ -1353,10 +1358,10 @@ template standardServicePolicy() {
 resilience {
   dependencyPolicy {
     defaults {
-      service from standardServicePolicy();
+      rdbms from standardStorePolicy();
     }
-    service InventoryService {
-      availability = "optional";   // one dependency that differs from the baseline
+    rdbms archiveDb {
+      availability = "optional";   // one store that differs from the baseline
       health = "degraded";
     }
   }
@@ -1365,19 +1370,19 @@ resilience {
 
 Opting in **by name** keeps values visible in config — they are never inherited silently.
 
-#### Canonical Service Name
+#### Peer Services Are Not Readiness Dependencies
 
-Config must use the **canonical resolved service model name** (e.g., `OrderService`, `InventoryService`). A non-canonical or misspelled name is a config error, never silently aliased.
+A `service` (and an `extern` or `objectStorage`) entry is refused with `RESILIENCE_POLICY_INVALID`: no generated service probes a peer or applies a policy to it, so its `availability` would change nothing. A down peer never fails the caller's `/ready`. Check a peer in code with `Microservice.health()` or `Microservice.isAvailable()`.
 
 #### Retry Off by Default
 
-Retry stays **off** for service calls unless the target endpoint is marked `idempotent`. Even then, it is bounded by a retry budget and is circuit-breaker-aware. Timeout, circuit breaker, and bulkhead are non-amplifying and stay active within the declared policy.
+Retry stays **off** for service calls unless the target endpoint is marked `idempotent`. Even then, it is bounded by a retry budget and is circuit-breaker-aware. Timeout, circuit breaker, and bulkhead are non-amplifying and stay active, configured under `resilience.config.<Service>`.
 
 #### `RESILIENCE_POLICY_REQUIRED`
 
-Triggered when a `service` dependency with calls is covered at **neither** the application baseline nor the per-service override level. The fix is to declare `defaults { service from standardServicePolicy(); }` at the service level, or a per-service block for that specific dependency.
+Triggered when a policy-managed operation (a cache `read` or `write`) has no resolved decision at either level, or a declared entry resolves no `availability` or `health`.
 
-See [config-dsl-reference.md — dependencyPolicy block](../reference/config-dsl-reference.md#dependencypolicy-block) for the full field reference.
+See [dcfg-reference.md — dependencyPolicy block](../reference/dcfg-reference.md#dependencypolicy-block) for the full field reference.
 
 ### Dependency Health and Readiness {#dependency-health-and-readiness}
 
@@ -1386,10 +1391,23 @@ Generated services expose three distinct health endpoints:
 | Endpoint | Semantics |
 |---|---|
 | `/live` | Process liveness — the service process can respond. No dependency checks. |
-| `/ready` | Readiness — all `required`-availability dependencies are up. Fails 503 when a required dependency is down. |
-| `/health` | Full status — all dependency checks including degraded optional dependencies. |
+| `/ready` | Readiness — all readiness-blocking dependencies are up and every in-process consumer is running. Fails 503 otherwise. |
+| `/health` | Full status — every probed dependency, including degraded optional ones. |
 
-**Deployment probes point at `/ready` for readiness, `/live` for liveness.** The old single `/health` contract is replaced outright; there are no backward-compatible fields.
+**Deployment probes point at `/ready` for readiness, `/live` for liveness.**
+
+#### What Is Probed
+
+Every language probes the same dependencies and reports each under the same key, `<kind>.<block>`:
+
+| Dependency | Probed when | Key |
+|---|---|---|
+| rdbms block | the service owns or consumes it | `rdbms.orderDb` |
+| nosql block | the service owns it | `nosql.catalogDocs` |
+| pubsub block | the service publishes on it (the probe exercises the publish path of the topic the producer publishes to) | `pubsub.orderEvents` |
+| cache block | a `cache` policy governs it | `cache.sessionCache` |
+
+A store, broker or nosql block with no policy entry is required and blocks readiness. A consumer hosted in the web app that is not running blocks `/ready` under `consumers`. A failed probe is logged and reported as `down`; its error text — which names internal hosts and ports — is never returned.
 
 #### Readiness and Health Severity
 
@@ -1411,8 +1429,8 @@ Use `readyOnDegraded = false` to make a degraded dependency block rollout readin
   "status": "degraded",
   "service": "order_service",
   "checks": {
-    "database": {"status": "up", "required": true},
-    "cache.sessionCache": {"status": "down", "required": false, "health": "degraded", "error": "connection refused"}
+    "rdbms.orderDb": {"status": "up", "required": true},
+    "cache.sessionCache": {"status": "down", "required": false, "health": "degraded"}
   }
 }
 ```
@@ -1733,7 +1751,7 @@ Connection and ops fields (when required): `host`, `port`, `managementPort`, `de
 
 ### Defaults and overrides
 
-| ConfigDSL key | Role |
+| `.dcfg` key | Role |
 |----------|------|
 | `visibilityTimeout` | Seconds before redelivery (default 30) |
 | `maxReceiveCount` | Max deliveries before DLQ routing (default 5) |
@@ -2130,7 +2148,7 @@ Production profiles run **only reference data** by default. Baseline and volume 
 
 Seed policy can be configured per target component (`rdbms`, `nosql`, or `storage`) rather than at the service level. Global defaults in `system.dcfg` apply unless overridden by component-specific settings.
 
-For the full SeedDSL syntax and authoring guidelines, see [Seed Data Guidelines](./seed-data-guidelines.md) and [SeedDSL Syntax Reference](../../../datrix-language/docs/reference/seed-dsl-syntax-reference.md).
+For the full `.dseed` syntax and authoring guidelines, see [Seed Data Guidelines](./seed-data-guidelines.md) and the [Seed Document (`.dseed`) Reference](../../../datrix-language/docs/reference/dseed-reference.md).
 
 ---
 
@@ -2250,14 +2268,14 @@ not require the write-and-restart sequence above. This applies to the *issuer's*
 keys, not to application secrets like database passwords.
 
 > **Reference:** [Secret Backend Policy](../../../datrix-common/docs/secret-backend-policy.md),
-> [ConfigDSL Reference — Logical Secrets](../reference/config-dsl-reference.md),
+> [Config Document Reference — Logical Secrets](../reference/dcfg-reference.md),
 > and the runtime resolver in `datrix-codegen-python` (`templates/service/secrets_resolver.py.j2`).
 
 ---
 
 ## Runtime Config Store
 
-The `configStore` section in a **system** ConfigDSL profile enables a runtime-mutable configuration plane — feature flags, kill switches, rate-limit tuning, and per-environment overrides — without rebuilding or redeploying services.
+The `configStore` section in a **system** `.dcfg` profile enables a runtime-mutable configuration plane — feature flags, kill switches, rate-limit tuning, and per-environment overrides — without rebuilding or redeploying services.
 
 **Key traits:**
 - **Additive and gated:** services receive a generated runtime client only when `configStore` is declared; apps without it produce byte-equivalent output (no client files, no env vars, no infrastructure).
@@ -2432,7 +2450,7 @@ ConfigValidationError: Field 'deployment.runtime' is required in system .dcfg pr
 
 **Fix:** Add the missing field to the profile.
 
-### Error: `language` in ConfigDSL
+### Error: `language` in `.dcfg`
 
 ```
 ConfigError: language is a generation target, not system configuration. Remove 'language = "python";' from config/system.dcfg and pass 'datrix generate --language <lang>' instead.
@@ -2465,7 +2483,7 @@ DeploymentValidationError: Service flavor 'compose' is incompatible with deploym
 ```
 config/
 ├── system.dcfg                     # System profiles: deployment, gateway, registry, observability
-├── templates/                      # Optional shared ConfigDSL templates/imports
+├── templates/                      # Optional shared .dcfg templates/imports
 └── <service-name>.dcfg             # Service profiles: deployment, infrastructure, resilience, jobs, queues, integrations
 ```
 

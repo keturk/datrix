@@ -6,7 +6,7 @@
 
 ## Overview
 
-Datrix provides a declarative seed data system that lets project authors specify reference data, baseline environments, and volume test data alongside their `.dtrx` and `.dcfg` files. Seed declarations are written in `.dseed` files using SeedDSL, parsed and validated at compile time, and generate executable seed scripts for each target language.
+Datrix provides a declarative seed data system that lets project authors specify reference data, baseline environments, and volume test data alongside their `.dtrx` and `.dcfg` files. Seed declarations are written in seed documents (`.dseed` files), parsed and validated at compile time, and generate executable seed scripts for each target language.
 
 ### Why Seed Data Matters
 
@@ -137,13 +137,13 @@ seed service ecommerce.CatalogService {
 }
 ```
 
-An imported file is read once, before analysis, and is bounded: at most 8 MiB, 50 000 rows and 256 columns, UTF-8 only, and located inside the project. Every row becomes generated source, so data beyond those bounds is a bulk load, not seed data. See the [SeedDSL syntax reference](../../../datrix-language/docs/reference/seed-dsl-syntax-reference.md#external-file-import) for the formats and the cell rules.
+An imported file is read once, before analysis, and is bounded: at most 8 MiB, 50 000 rows and 256 columns, UTF-8 only, and located inside the project. Every row becomes generated source, so data beyond those bounds is a bulk load, not seed data. See the [seed document (`.dseed`) reference](../../../datrix-language/docs/reference/dseed-reference.md#external-file-import) for the formats and the cell rules.
 
 ---
 
 ## Field Selection Rules
 
-SeedDSL may provide values for any persisted field the target component stores. Omitted fields use the target's normal default behavior.
+A seed document may provide values for any persisted field the target component stores. Omitted fields use the target's normal default behavior.
 
 | Rule | Example | Behavior |
 |------|---------|----------|
@@ -286,7 +286,7 @@ authDb.Organization table {
 
 ### Hook-Maintained Computed Fields
 
-If seed data for one entity implies state changes on another entity (e.g., `Warehouse.hasRefrigeratedZone` maintained by `StorageZone` hooks), the seed declaration must include the corresponding rows/fields explicitly. SeedDSL does not infer or repair business semantics.
+If seed data for one entity implies state changes on another entity (e.g., `Warehouse.hasRefrigeratedZone` maintained by `StorageZone` hooks), the seed declaration must include the corresponding rows/fields explicitly. A seed document does not infer or repair business semantics.
 
 ### CQRS Views After Seeding
 
@@ -432,7 +432,7 @@ All seed operations are idempotent. Re-running a seed script does not duplicate 
 
 ## Seed Capture
 
-Capture existing database state into SeedDSL declarations:
+Capture existing database state into `.dseed` declarations:
 
 ```bash
 # Capture one service
@@ -455,7 +455,7 @@ Capture rules:
 
 ## See Also
 
-- [SeedDSL Syntax Reference](../../../datrix-language/docs/reference/seed-dsl-syntax-reference.md) — Complete `.dseed` file format
+- [Seed Document (`.dseed`) Reference](../../../datrix-language/docs/reference/dseed-reference.md) — Complete `.dseed` file format
 - [Seed Builtin Functions](../../../datrix-language/docs/reference/datrix-builtins.md#seed) — `Seed.*` builtin reference
 - [CLI Seed Command](../../../datrix-cli/docs/commands/seed.md) — CLI execution and capture
 - [Configuration Guide](configuration-guide.md) — Profile and seed configuration

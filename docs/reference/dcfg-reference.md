@@ -1,4 +1,4 @@
-# Config DSL Reference
+# Config Document (`.dcfg`) Reference
 
 **Version:** 1.1
 **Last Updated:** 2026-06-22
@@ -7,7 +7,7 @@
 
 ## Overview
 
-The Config Definition DSL (configDSL) provides a structured, template-based syntax for authoring Datrix configuration. Files with the `.dcfg` extension compile to the same canonical dictionary shape as YAML, validated by the same Pydantic models.
+A config document (`.dcfg`) provides a structured, template-based syntax for authoring Datrix configuration; it is one of the three document kinds of the author-facing tree-sitter grammar, beside the `.dtrx` model and the `.dseed` seed document ([Decision 61](../architecture/architecture-overview.md#decision-61-dtrx-dcfg-and-dseed-are-three-document-kinds-of-one-tree-sitter-grammar-config-documents-reach-datrix-common-through-a-parser-protocol-adopted)). Config documents compile to the same canonical dictionary shape as YAML, validated by the same Pydantic models.
 
 **Key features:**
 - Reusable templates with parameters
@@ -413,7 +413,7 @@ bucket: ecommerce-prod-order-data
 
 ## Deployment Target
 
-ConfigDSL follows the deployment target contract. System configs declare deployment settings per profile:
+`.dcfg` follows the deployment target contract. System configs declare deployment settings per profile:
 
 ```dcfg
 config system ecommerce.System {
@@ -440,9 +440,9 @@ config system ecommerce.System {
 }
 ```
 
-Target language is not part of ConfigDSL — it is a required generation parameter passed via `--language`/`-L` on `datrix generate`.
+Target language is not part of `.dcfg` — it is a required generation parameter passed via `--language`/`-L` on `datrix generate`.
 
-**Flavor terminology:** ConfigDSL uses `flavor` for both service runtime flavor and infrastructure provisioning flavor. Context determines the meaning:
+**Flavor terminology:** `.dcfg` uses `flavor` for both service runtime flavor and infrastructure provisioning flavor. Context determines the meaning:
 
 ```dcfg
 flavor = container-apps;  // service runtime flavor (system-level)
@@ -965,7 +965,7 @@ integrations:
 
 ## `dependencyPolicy` Block {#dependencypolicy-block}
 
-The `dependencyPolicy` block is nested inside a `resilience { }` block and declares the explicit failure-behavior policy for every dependency that requires one. The generator **never** synthesizes a policy value — every `service` dependency with inter-service calls must be covered or generation fails with `RESILIENCE_POLICY_REQUIRED`.
+The `dependencyPolicy` block is nested inside a `resilience { }` block and declares how each dependency a service's readiness depends on affects `/ready` and `/health`, plus the per-operation failure behavior of a cache. The generator **never** synthesizes a policy value — a policy-managed operation left undeclared fails generation with `RESILIENCE_POLICY_REQUIRED`.
 
 ### Structure
 
@@ -973,7 +973,7 @@ The `dependencyPolicy` block is nested inside a `resilience { }` block and decla
 resilience {
   dependencyPolicy {
     defaults {
-      service from standardServicePolicy();   // baseline for all service deps
+      rdbms from standardStorePolicy();       // baseline for every rdbms block
       cache {                                  // baseline for all cache deps
         availability = "required";
         health = "ready";
@@ -983,7 +983,7 @@ resilience {
         }
       }
     }
-    service InventoryService {               // per-service override
+    pubsub orderEvents {                     // per-broker override
       availability = "optional";
       health = "degraded";
     }
@@ -995,20 +995,29 @@ resilience {
 }
 ```
 
+### Kinds
+
+| Kind | What a policy governs |
+|---|---|
+| `cache` | readiness of every cache block the service realizes, and its `read`/`write` operations |
+| `rdbms` | readiness of every rdbms block the service owns or consumes |
+| `pubsub` | readiness of every pubsub block the service publishes on (its publish path is the probe) |
+| `model` | `circuitBreaker`/`bulkhead` of a live model handle only |
+
+`service`, `extern` and `objectStorage` entries are refused with `RESILIENCE_POLICY_INVALID`: nothing probes them or applies a policy to them. A down peer service never fails the caller's readiness; check one in code with `Microservice.health()`/`isAvailable()`, and bound its calls under `resilience.config.<Service>`.
+
+Every language reports a probe under `<kind>.<block>` (`rdbms.orderDb`, `pubsub.orderEvents`, `cache.sessionCache`, `nosql.catalogDocs`) in the `/health` `checks` map and the `/ready` `blockers` map. A store, broker or nosql block no entry governs is required and blocks readiness; a cache no entry governs is not probed.
+
 ### `defaults` Section
 
 Declares per-kind application-level baselines. Each kind entry is inherited by every dependency of that kind unless a named override exists.
 
-- `service from <template>()` — opt into a named template for the `service` baseline.
+- `<kind> from <template>()` — opt into a named template for the kind's baseline.
 - Named kind blocks (`cache { … }`, `rdbms { … }`, etc.) — inline baseline for that kind.
 
 ### Per-Dependency Overrides
 
-Named blocks (`service <Name> { … }` / `cache <Name> { … }`) override the baseline for exactly one dependency. The name must be the **canonical resolved dependency name**:
-- `service` kind → canonical service model name (e.g., `OrderService`)
-- Other kinds → declared name in the DSL block (e.g., `sessionCache`, `orderDb`)
-
-Non-canonical names are a config error, never silently aliased.
+Named blocks (`rdbms <name> { … }` / `cache <name> { … }` / `pubsub <name> { … }`) override the baseline for exactly one dependency, named by its declared block name (e.g., `sessionCache`, `orderDb`). An `rdbms` entry naming no block the service realizes, or a `pubsub` entry naming a block it does not publish on, fails generation.
 
 ### Per-Dependency Fields
 
@@ -1028,7 +1037,7 @@ Each operation entry specifies failure behavior for one operation a generator re
 | Kind | Operations |
 |---|---|
 | `cache` | `read`, `write` |
-| `rdbms`, `pubsub`, `objectStorage`, `service`, `extern`, `model` | none: dependencies of these kinds have no per-operation failure policy |
+| `rdbms`, `pubsub`, `model` | none: dependencies of these kinds have no per-operation failure policy |
 
 ```dcfg
 operations {
@@ -1045,18 +1054,18 @@ An `operations` key outside the kind's vocabulary is rejected with `RESILIENCE_P
 
 | Diagnostic | Cause |
 |---|---|
-| `RESILIENCE_POLICY_REQUIRED` | `service` dependency with calls has no resolved `availability` or `health`; a policy-managed operation has no resolved decision; non-canonical service name |
-| `RESILIENCE_POLICY_INVALID` | An `operations` key the kind does not consume; `availability = "optional"` with `health = "ready"` |
+| `RESILIENCE_POLICY_REQUIRED` | A declared entry has no resolved `availability` or `health`; a policy-managed operation has no resolved decision |
+| `RESILIENCE_POLICY_INVALID` | An `operations` key the kind does not consume; `availability = "optional"` with `health = "ready"`; a `service`/`extern`/`objectStorage` entry; `circuitBreaker`/`bulkhead` on a kind other than `model` |
 
 ### No Grammar Change
 
-The existing named-block parser already accepts `cache <name> { … }` / `service <name> { … }`. No `.dcfg` grammar change is needed to use `dependencyPolicy`.
+The existing named-block parser already accepts `cache <name> { … }` / `rdbms <name> { … }`. No `.dcfg` grammar change is needed to use `dependencyPolicy`.
 
 ---
 
 ## Diagnostic Output (Planned)
 
-The ConfigDSL compiler does not write YAML config files during normal generation. A planned diagnostic command will print the resolved canonical dictionary for review, testing, and migration verification:
+The `.dcfg` compiler does not write YAML config files during normal generation. A planned diagnostic command will print the resolved canonical dictionary for review, testing, and migration verification:
 
 ```bash
 datrix config resolve config/order-service.dcfg --profile production --format json
@@ -1069,8 +1078,8 @@ This is useful for inspecting the resolved config without running the full gener
 ## See Also
 
 - **[Configuration System Architecture](../../../datrix-common/docs/architecture/config-system.md)** — Config taxonomy, validation, pipeline integration
-- **[ConfigDSL Reference (Canonical — datrix-common)](../../../datrix-common/docs/config-dsl-reference.md)** — Complete reference including [Author Migration](../../../datrix-common/docs/config-dsl-reference.md#author-migration-logical-secrets-and-deployment-profile-secret-backend-policy) (logical secrets, deployment-profile policy, breaking changes)
-- **[ConfigDSL Reference — Identity Provider Config Keys](../../../datrix-common/docs/config-dsl-reference.md#identity-provider-config-keys-localidentity-profileprojection-profilestore)** — `localIdentity`, `profileProjection`, and `profileStore` config-key reference for provider `.dcfg` files
+- **[Config Document Reference (Canonical — datrix-common)](../../../datrix-common/docs/dcfg-reference.md)** — Complete reference including [Author Migration](../../../datrix-common/docs/dcfg-reference.md#author-migration-logical-secrets-and-deployment-profile-secret-backend-policy) (logical secrets, deployment-profile policy, breaking changes)
+- **[Config Document Reference — Identity Provider Config Keys](../../../datrix-common/docs/dcfg-reference.md#identity-provider-config-keys-localidentity-profileprojection-profilestore)** — `localIdentity`, `profileProjection`, and `profileStore` config-key reference for provider `.dcfg` files
 - **[Identity Subsystem Architecture](../../../datrix-common/docs/architecture/identity.md#local-identity-resolution-localidentity)** — Architecture rationale for `localIdentity` resolution modes and opt-in profile projection
 - **[Secret Backend Policy](../../../datrix-common/docs/secret-backend-policy.md)** — Deployment-level secret backend selection and name rendering
 - **[Decision 14: Runtime Configuration & Secrets — Zero-Environment Architecture](./architecture-overview.md#decision-14-runtime-configuration--secrets--zero-environment-architecture-adopted)** — Zero-environment design and single planning pipeline
