@@ -14,6 +14,7 @@ Radon metrics: cyclomatic complexity, cognitive complexity, raw, Halstead, maint
 |------|---------|-------------|
 | **Check one project** | `.\metrics\complexity.ps1 datrix-common` | Enforce max complexity (default mode=check, max=15) |
 | **Check all** | `.\metrics\complexity.ps1 -All` | All projects |
+| **Check given files** | `.\metrics\complexity.ps1 -Files a.py,b.py` | Cyclomatic + cognitive on exactly these files (the ones an edit touched); exit 1 on a violation |
 | **Custom max** | `.\metrics\complexity.ps1 datrix-language -Max 10` | Lower threshold |
 | **Cyclomatic only** | `.\metrics\complexity.ps1 datrix-common -Mode cc` | Cyclomatic complexity report |
 | **Raw metrics** | `.\metrics\complexity.ps1 datrix-common -Mode raw` | SLOC, comments, blanks |
@@ -24,7 +25,9 @@ Radon metrics: cyclomatic complexity, cognitive complexity, raw, Halstead, maint
 | **Stop on first fail** | `.\metrics\complexity.ps1 -All -StopOnError` | Stop on first failure |
 | **Verbose** | `.\metrics\complexity.ps1 datrix-common -VerboseOutput` | Verbose output |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|cc\|raw\|halstead\|mi, default: check), `-Max` (default: 15), `-Fix`, `-FixAll`, `-Test` (with -Fix), `-MaxRetries` (default: 3), `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-MaxContextChars` (default: 8000), `-StopOnError`, `-VerboseOutput`, `-Dbg`
+The cognitive check measures `def` and `async def` alike. `-Files` runs mode=check only, and does not combine with `-Fix`/`-FixAll`, `-All` or project names.
+
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Files <path,...>`, `-Mode` (check\|cc\|raw\|halstead\|mi, default: check), `-Max` (default: 15), `-Fix`, `-FixAll`, `-Test` (with -Fix), `-MaxRetries` (default: 3), `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-MaxContextChars` (default: 8000), `-StopOnError`, `-VerboseOutput`, `-Dbg`
 
 Every `-Fix`/LLM mode in this category searches the local machines' Ollama servers through `common/lib/datrix_scripts/local_llm.py`: models already in memory are used first, and a model that fails hands over to the next.
 
@@ -194,16 +197,18 @@ AST inventory of classes, methods, module functions, constants (UPPER_SNAKE heur
 
 ## `metrics\dependency.ps1`
 
-Reports dependency relationships between Datrix packages (from pyproject.toml).
+Reports dependency relationships between Datrix packages (from pyproject.toml), or the
+third-party runtime dependencies each package declares.
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **All (tree)** | `.\metrics\dependency.ps1 -All` | Dependency tree for all packages |
 | **All (list)** | `.\metrics\dependency.ps1 -All -Mode list` | Edge list (package -> dep) |
 | **All (json)** | `.\metrics\dependency.ps1 -All -Mode json` | JSON format |
+| **Third-party** | `.\metrics\dependency.ps1 -All -Mode third-party` | Every non-datrix runtime dependency, each declaring package and its spec; `SPEC DRIFT` marks specifiers that differ by package (the shared venv resolves one version) |
 | **Specific packages** | `.\metrics\dependency.ps1 datrix-common datrix-language -Mode tree` | Selected packages |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (tree\|list\|json, default: tree), `-VerboseOutput`, `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (tree\|list\|json\|third-party, default: tree), `-VerboseOutput`, `-Dbg`
 
 ---
 
@@ -268,3 +273,29 @@ Finds string literals in Datrix Python projects and writes a grouped Markdown re
 | **Tests only** | `.\metrics\find-constants.ps1 -All -Tests -Output D:\datrix\.test-output\strings.md` | Scan only tests trees |
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Src`, `-Tests` (default: both trees), `-Output <path>`, `-IncludeDocstrings`, `-MinLength <n>` (default 1), `-MaxValueChars <n>` (default 120)
+
+---
+
+## `metrics\agent-spend.ps1`
+
+Where subagents spend their context, measured from Claude Code transcripts rather than guessed. It
+reads the subagent transcripts of this workspace's Claude Code project folder
+(`~\.claude\projects\<workspace slug>\<session>\subagents\agent-*.jsonl`, labelled by the
+`meta.json` beside each) and reports:
+
+- tool calls and tool-result size by tool;
+- Read results by kind of file (task file, design doc, rules, tests, source), and the whole-file share;
+- the files read whole most often, and by how many agents;
+- how much source/test reading went to files the reading agent never edited;
+- one line per agent.
+
+This measures the spend rules (`execution-contract-spend.md` §10–§11). Token figures are estimates
+(characters / 4).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Recent subagents** | `.\metrics\agent-spend.ps1 -Days 2` | Subagents whose transcript changed in the last two days |
+| **One run** | `.\metrics\agent-spend.ps1 -Session <session-id>` | The subagents of one session (an orchestrator run) |
+| **Explicit files** | `.\metrics\agent-spend.ps1 -Transcript a.jsonl,b.jsonl` | Named transcripts |
+
+**Parameters:** `-Session <id,...>`, `-Days <n>` (default 7), `-Transcript <path,...>`, `-Top <n>` (default 20). **Exit codes:** 0 = report printed, 1 = no transcript matched, 2 = a bad argument or no project folder.

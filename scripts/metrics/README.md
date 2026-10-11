@@ -10,16 +10,17 @@ Code metrics and linting for Datrix Python packages: Radon (complexity, raw, Hal
 
 | Script | Description |
 |--------|-------------|
-| `complexity.ps1` | Run Radon metrics: check (enforce max), cc, raw, halstead, mi |
+| `complexity.ps1` | Run Radon metrics: check (enforce max), cc, raw, halstead, mi; `-Files` checks exactly the named files |
 | `vulture.ps1` | Run Vulture dead-code detection |
 | `dead-code-report.ps1` | Dead-code report: never referenced vs only referenced by tests (two-pass Vulture) |
 | `ruff.ps1` | Run Ruff lint (check) or format |
-| `dependency.ps1` | Report datrix package dependencies (tree, list, json) |
+| `dependency.ps1` | Report datrix package dependencies (tree, list, json), or third-party runtime dependencies with specifier drift (`-Mode third-party`) |
 | `duplicate.ps1` | Run Pylint duplicate-code detection (R0801) |
 | `bandit.ps1` | Run Bandit security scanner |
 | `coverage.ps1` | Run pytest with coverage and show coverage details |
 | `test-gen.ps1` | Coverage-driven unit test generation via a local model |
 | `find-constants.ps1` | String-literal (magic-constant) audit report; see [quick-reference.md](quick-reference.md) |
+| `agent-spend.ps1` | Where subagents spend their context (tool calls, tool-result size, whole-file reads), from Claude Code transcripts; see [quick-reference.md](quick-reference.md) |
 
 Each script's Python is in `lib/`, or in `common/lib/datrix_scripts/` when another folder shares it (complexity, dead-code report, duplicate).
 
@@ -27,7 +28,7 @@ Each script's Python is in `lib/`, or in `common/lib/datrix_scripts/` when anoth
 
 Uses [scripts/common/lib/datrix_scripts/complexity.py](../common/lib/datrix_scripts/complexity.py) and [Radon](https://github.com/rubik/radon).
 
-**Modes:** `check` (enforce max cyclomatic complexity), `cc` (cyclomatic per block), `raw` (SLOC, comment/blank, LOC, LLOC), `halstead`, `mi` (Maintainability Index).
+**Modes:** `check` (enforce max cyclomatic and cognitive complexity; `def` and `async def` alike), `cc` (cyclomatic per block), `raw` (SLOC, comment/blank, LOC, LLOC), `halstead`, `mi` (Maintainability Index). `-Files a.py,b.py` runs `check` on exactly those files instead of whole projects: the check for the code an edit touched.
 
 ### Usage
 
@@ -47,6 +48,9 @@ Uses [scripts/common/lib/datrix_scripts/complexity.py](../common/lib/datrix_scri
 
 # Custom max (mode=check)
 .\scripts\metrics\complexity.ps1 datrix-language -Mode check -Max 10
+
+# Just the files an edit touched
+.\scripts\metrics\complexity.ps1 -Files datrix-cli\src\datrix_cli\main.py,datrix-cli\src\datrix_cli\commands\generate.py
 ```
 
 ### Parameters
@@ -149,9 +153,9 @@ Uses [scripts/metrics/lib/ruff_report.py](lib/ruff_report.py) and [Ruff](https:/
 
 ## dependency.ps1
 
-Uses [scripts/metrics/lib/dependency.py](lib/dependency.py). Reads `pyproject.toml` from each datrix-* package and reports which packages depend on which (datrix-to-datrix only). No external dependency (uses stdlib `tomllib`, Python 3.11+).
+Uses [scripts/metrics/lib/dependency.py](lib/dependency.py). Reads `pyproject.toml` from each datrix-* package and reports which packages depend on which (datrix-to-datrix), or which third-party runtime dependencies each declares. No external dependency (uses stdlib `tomllib`, Python 3.11+).
 
-**Modes:** `tree` (each package with its direct datrix deps, indented), `list` (one `package -> dependency` per line), `json` (machine-readable packages + edges).
+**Modes:** `tree` (each package with its direct datrix deps, indented), `list` (one `package -> dependency` per line), `json` (machine-readable packages + edges), `third-party` (every non-datrix runtime dependency with each declaring package and its spec; `SPEC DRIFT` marks specifiers that differ by package, since the shared venv resolves one version).
 
 ### Usage
 
@@ -159,6 +163,7 @@ Uses [scripts/metrics/lib/dependency.py](lib/dependency.py). Reads `pyproject.to
 .\scripts\metrics\dependency.ps1 -All
 .\scripts\metrics\dependency.ps1 -All -Mode list
 .\scripts\metrics\dependency.ps1 -All -Mode json
+.\scripts\metrics\dependency.ps1 -All -Mode third-party
 .\scripts\metrics\dependency.ps1 datrix-common datrix-language -Mode tree
 ```
 
