@@ -712,7 +712,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
                 let Patient patient = PatientService.PatientAPI.get.patientByIdInternal(appointment.patientId);
 
                 if (patient.email != null) {
-                    Email.send({
+                    Email.sendTemplate({
                         to: patient.email,
                         subject: "Appointment Confirmation",
                         template: "appointmentConfirmation",
@@ -741,7 +741,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
                 let Patient patient = PatientService.PatientAPI.get.patientByIdInternal(appointment.patientId);
 
                 if (patient.email != null) {
-                    Email.send({
+                    Email.sendTemplate({
                         to: patient.email,
                         subject: "Appointment Cancelled",
                         template: "appointmentCancellation",
@@ -787,7 +787,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
                     let Patient patient = PatientService.PatientAPI.get.patientByIdInternal(appointment.patientId);
 
                     if (patient.email != null) {
-                        Email.send({
+                        Email.sendTemplate({
                             to: patient.email,
                             subject: "Appointment Reminder - Tomorrow",
                             template: "appointmentReminder",

@@ -161,7 +161,7 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
                 dispatch UserRegistered(id, email, fullName);
 
                 // Built-in Email.send() for sending templated emails
-                Email.send({
+                Email.sendTemplate({
                     to: email,
                     subject: "Verify your email",
                     template: "emailVerification",
@@ -591,7 +591,7 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
 
     // Service-level function
     fn sendPasswordResetEmail(userDb.User user) {
-        Email.send({
+        Email.sendTemplate({
             to: user.email,
             subject: "Reset your password",
             template: "passwordReset",

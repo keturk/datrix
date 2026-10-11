@@ -17,7 +17,7 @@ service ecommerce.NotificationService('config/notification-service.dcfg') : vers
     enqueue ecommerce.OrderService.SendOrderConfirmation(UUID orderId, Email customerEmail, String orderNumber) {
         Log.info("SendOrderConfirmation task", { orderId: orderId, orderNumber: orderNumber });
 
-        Email.send({
+        Email.sendTemplate({
             to: customerEmail,
             subject: #"Order {orderNumber} confirmed",
             template: "order-confirmation",
