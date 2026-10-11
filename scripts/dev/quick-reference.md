@@ -1,7 +1,8 @@
 # Quick Reference — Development Scripts
 
-Generation, the code index, the local model servers and the knowledge base agents read through,
-documentation checks and code-health digests, with the gates that hold each tool. Generation
+Generation, import and parse-tree lookups, the code index, the local model servers and the
+knowledge base agents read through, documentation checks and code-health digests, with the gates
+that hold each tool. Generation
 support (parser, snapshots, triage, evaluation) is in [../generation/quick-reference.md](../generation/quick-reference.md);
 static scans in [../scan/quick-reference.md](../scan/quick-reference.md); workspace listing and
 cleanup in [../workspace/quick-reference.md](../workspace/quick-reference.md); codemods in
@@ -41,6 +42,8 @@ Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` is **manda
 
 Every run writes `generate-results-<timestamp>-<language>[-<profile>].log` to `<workspace>\.generated\.results`, whatever the output path; product repos' generate scripts call this script to get that log.
 
+Before generating, the script verifies the `datrix` CLI (`Test-DatrixCommand`) and then that every installed plugin loads (`Test-DatrixPluginDiscovery` in `common\venv.ps1`, running `python -m datrix_scripts.plugin_discovery` over the `datrix.languages`, `datrix.generators`, `datrix.platforms` and `datrix.extensions` groups). `datrix --version` loads no plugin, so a package whose plugin fails to register is named here, with the registry's own error, instead of failing deep inside the pipeline.
+
 **Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (any registered `datrix.languages` target, **mandatory**, the real generation target — also selects the output-path language segment), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner, output path only), `-ConfigProfile` (config profile that also selects the provider segment read from `config/system.dcfg`, e.g. test\|development\|production; default: test), `-ValidationLevel` (none\|fast\|standard, validated by the CLI; omitted = CLI default, standard), `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
 
 ### `dev\generate-doc-fragments.ps1`
@@ -56,6 +59,56 @@ Generates documentation fragments from source code. Extracts semantic pipeline s
 | **With debug** | `.\dev\generate-doc-fragments.ps1 -Dbg` | Show detailed output |
 
 **Parameters:** `-Fragment` (positional 0: all\|semantic-pipeline\|cli-help, default: all), `-Check`, `-Dbg`
+
+---
+
+## Imports and Parse Trees
+
+### `dev\find-imports.ps1`
+
+The worklist before a move or rename: every place that imports names from given modules. It
+AST-parses (multi-line safe) every `.py` under each `datrix-*` repository's `src/` and `tests/`
+trees and root `*.py` files, the scripts tree and the Claude Code hooks
+(`datrix_scripts.import_sites`, shared with `codemods\split-module.ps1`). It resolves relative
+imports inside `src/` packages and prints `path:line` per site. The code index's
+`find_references` resolves symbols; this answers "which import statements name this module path"
+and needs no index. Report only (exit 0). A file that does not parse is printed as UNPARSEABLE and
+counted.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Importers of a name** | `.\dev\find-imports.ps1 -Module datrix_common.errors.plugin -Name PluginError` | `[from-import]` sites, plus `[attribute]` reads (`plugin_mod.PluginError`) on a bound module |
+| **Everything from a module** | `.\dev\find-imports.ps1 -Module datrix_codegen_common.transpiler.base` | Every from-import, plus `[import]`/`[module-import]` statements binding the module itself |
+
+**Parameters:** `-Module <dotted,...>` (required), `-Name <name,...>`, `-Dbg`
+
+### `dev\who-imports.ps1`
+
+Which runtime import chain first loads a module. It imports each `-Root` in a fresh interpreter
+with an observer on `sys.meta_path`. At the first lookup of a `-Target` (or any submodule of a
+target package), it prints the workspace frames that led there, function-level imports and
+entry-point loads included. The observer resolves nothing itself. `scan\check-import-boundaries.ps1`
+reports *that* a forbidden edge exists (statically); this shows *which chain* realizes it.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Trace a target** | `.\dev\who-imports.ps1 -Root datrix_codegen_kernel.gendsl -Target datrix_codegen_common` | Does the kernel load the language layer, and through which import? |
+
+**Parameters:** `-Root <module,...>` (required), `-Target <module,...>` (required). **Exit codes:** 0 = every root imported (a target that never loaded is listed as such), 2 = a root failed to import (its error is printed).
+
+### `dev\print-sexp.ps1`
+
+The tree-sitter parse tree of Datrix source, as a corpus-style S-expression (two-space indent,
+closing parentheses on the last child's line) ready to paste into a corpus test. It uses the built
+Datrix grammar (`TreeSitterParser.parse_tree`); the native `tree-sitter` CLI cannot load that
+library on every host. Named nodes only by default; MISSING nodes print as `(MISSING <type>)`.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **File** | `.\dev\print-sexp.ps1 examples\01-foundation\system.dtrx` | Tree of one file |
+| **Inline** | `.\dev\print-sexp.ps1 -Text 'service s { }' -All` | Inline source, anonymous nodes included |
+
+**Parameters:** `-Path` (positional 0) or `-Text`, `-All`. **Exit codes:** 0 = clean tree, 1 = ERROR or MISSING nodes present (tree still printed), 2 = input unreadable.
 
 ---
 

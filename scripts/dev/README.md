@@ -18,6 +18,9 @@ generation support (parser rebuild, snapshots, triage, evaluation, cleanup) in
 |--------|-------------|
 | `generate.ps1` | Generate code from .dtrx source files |
 | `generate-doc-fragments.ps1` | Generate documentation fragments from source |
+| `find-imports.ps1` | Every import statement naming given modules (and names): the worklist before a move or rename |
+| `who-imports.ps1` | The runtime import chain that first loads a module |
+| `print-sexp.ps1` | Corpus-style tree-sitter S-expression of `.dtrx` source |
 | `check-docs.ps1` | Lint documentation for common drift patterns |
 | `code-index.ps1` | Query the code index; `-Setup` registers its MCP server |
 | `code-index-gate.ps1` | Behaviour checks for the code index |
@@ -31,7 +34,9 @@ generation support (parser rebuild, snapshots, triage, evaluation, cleanup) in
 
 ## generate.ps1
 
-Main code generation script. Generates Python/TypeScript code from .dtrx source files.
+Main code generation script. Generates code from .dtrx source files for any registered language.
+Before generating it verifies the `datrix` CLI (`Test-DatrixCommand`) and that every installed
+plugin loads (`Test-DatrixPluginDiscovery`), so a plugin that fails to register is named up front.
 
 ### Single Project Mode
 
