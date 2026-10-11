@@ -9,8 +9,14 @@ UPDATED       the pull brought in new commits (old..new and the commit count)
 UP TO DATE    nothing to pull
 CONFLICT      the pull stopped with unmerged paths (listed); resolve them, then commit
 BLOCKED       the pull refused to start because it would overwrite local changes or
-              untracked files (listed); nothing was merged -- run /resolve-conflicts
-FAILED        anything else (no upstream, network, authentication); git's error is shown
+              untracked files (listed); nothing was merged -- run /resolve-conflicts.
+              Each listed path carries a verdict comparing the local edit (HEAD vs the
+              working tree) with the incoming one (HEAD vs the fetched upstream), on HEAD
+              line ranges: OVERLAPS (the same lines, within git's 3-line context, changed on
+              both sides -- a real conflict), DISJOINT (both changed, different places),
+              NOT CHANGED UPSTREAM, NO LOCAL CONTENT CHANGE (mode or line endings only) or
+              UNTRACKED (a local file the incoming commits add).
+FAILED       anything else (no upstream, network, authentication); git's error is shown
 
 A repository already holding unmerged paths before the pull is reported as CONFLICT:
 git refuses the pull, and the unmerged paths are what stand in the way.
@@ -22,6 +28,7 @@ Exit codes: 0 every repository updated or up to date, 1 at least one did not,
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -48,6 +55,12 @@ _PATH_LIST_INDENT = "\t"
 _ERROR_PREFIXES = ("fatal:", "error:")
 _NOT_A_REASON_PREFIXES = ("From ", "hint:")
 SUMMARY_RULE = "=" * 72
+
+#: A unified-diff hunk header; group 1/2 are the HEAD-side start line and length.
+_HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@")
+#: Lines of context git merges with; edits closer than this collide.
+MERGE_CONTEXT_LINES = 3
+UPSTREAM_REF = "@{upstream}"
 
 
 class PullOutcome(Enum):
@@ -135,6 +148,48 @@ def overwritten_paths(pull_output: str) -> list[str]:
     return paths
 
 
+def hunk_ranges(diff_output: str) -> list[tuple[int, int]]:
+    """HEAD-side ``(first, last)`` line ranges of every hunk in a ``--unified=0`` diff.
+
+    A pure insertion (length 0) is the one-line range at the line it follows.
+    """
+    ranges: list[tuple[int, int]] = []
+    for line in diff_output.splitlines():
+        match = _HUNK_HEADER.match(line)
+        if match is None:
+            continue
+        start = int(match.group(1))
+        length = int(match.group(2)) if match.group(2) is not None else 1
+        ranges.append((start, start + max(length, 1) - 1))
+    return ranges
+
+
+def ranges_collide(first: tuple[int, int], second: tuple[int, int]) -> bool:
+    """True when two HEAD-side ranges come within git's merge context of each other."""
+    return first[0] - MERGE_CONTEXT_LINES <= second[1] and second[0] - MERGE_CONTEXT_LINES <= first[1]
+
+
+def _format_ranges(ranges: list[tuple[int, int]]) -> str:
+    return ", ".join(f"{first}-{last}" for first, last in ranges)
+
+
+def overlap_verdict(repo: Path, path: str) -> str:
+    """How a blocking local edit of *path* relates to the incoming change (see the module docstring)."""
+    if _run_git(repo, ["cat-file", "-e", f"HEAD:{path}"], GIT_TIMEOUT_SECONDS).returncode != 0:
+        return "UNTRACKED here; the incoming commits add it -- compare the two by hand"
+    local = hunk_ranges(_git_value(repo, ["diff", "--unified=0", "HEAD", "--", path]))
+    if not local:
+        return "NO LOCAL CONTENT CHANGE (mode or line endings only)"
+    incoming = hunk_ranges(_git_value(repo, ["diff", "--unified=0", "HEAD", UPSTREAM_REF, "--", path]))
+    if not incoming:
+        return "NOT CHANGED UPSTREAM"
+    collisions = [(mine, theirs) for mine in local for theirs in incoming if ranges_collide(mine, theirs)]
+    if collisions:
+        pairs = "; ".join(f"local {mine[0]}-{mine[1]} vs incoming {theirs[0]}-{theirs[1]}" for mine, theirs in collisions)
+        return f"OVERLAPS upstream at HEAD lines {pairs}"
+    return f"DISJOINT: local {_format_ranges(local)} | incoming {_format_ranges(incoming)}"
+
+
 def failure_reason(pull_output: str) -> str:
     """The line that says why a pull failed: git's last fatal/error line, else its first message line.
 
@@ -158,7 +213,8 @@ def classify(repo: Path, before: str, pull: GitResult) -> RepoPull:
     if pull.returncode != 0:
         blocked = overwritten_paths(pull.output)
         if blocked:
-            return RepoPull(repo.name, PullOutcome.BLOCKED, blocked)
+            verdicts = [f"{path}  [{overlap_verdict(repo, path)}]" for path in blocked]
+            return RepoPull(repo.name, PullOutcome.BLOCKED, verdicts)
         return RepoPull(repo.name, PullOutcome.FAILED, detail=failure_reason(pull.output))
     after = _head(repo)
     if after == before:
