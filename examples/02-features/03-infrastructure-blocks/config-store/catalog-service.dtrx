@@ -1,5 +1,5 @@
 
-// CatalogService manages the product catalog. The system ConfigDSL attaches a
+// CatalogService manages the product catalog. The system .dcfg attaches a
 // runtime configStore (feature flags + rate-limit tuning) so behaviour can be
 // changed without redeploying this service.
 service shop.CatalogService('config/catalog-service.dcfg') : version('1.0.0'), description('product catalog service') {

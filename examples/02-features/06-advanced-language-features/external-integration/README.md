@@ -1,6 +1,6 @@
 # External Infrastructure Pattern (hostdemo)
 
-This example shows a two-service system where `test` and `development` run with Docker Compose defaults, while `production` is modeled for AWS through ConfigDSL deployment and service flavor settings.
+This example shows a two-service system where `test` and `development` run with Docker Compose defaults, while `production` is modeled for AWS through `.dcfg` deployment and service flavor settings.
 
 ## Prerequisites
 
@@ -10,7 +10,7 @@ This example shows a two-service system where `test` and `development` run with 
 
 ## Local Dependencies
 
-For local Docker Compose profiles, the generated stack owns the service dependencies declared in ConfigDSL:
+For local Docker Compose profiles, the generated stack owns the service dependencies declared in the `.dcfg` config documents:
 
 - PostgreSQL on `5432` for `hostdemo_blog` and `hostdemo_user`.
 - Redis on `6379`.

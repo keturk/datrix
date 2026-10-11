@@ -115,7 +115,7 @@ service credentials.CertificateService('config/certificate-service.dcfg') : vers
         model analyst;
 
         @retry(maxAttempts: 2)
-        tool findIssuers(String text) -> Array<db.Issuer> : description('Find active issuers whose code or name contains the given text.') {
+        tool findIssuers(String text) -> Array<db.Issuer> : description('Find active issuers whose code or name contains the given text.'), idempotent {
             ensure text.length > 0;
             return db.Issuer.where(active: true).all().filter(i => i.code.contains(text) || i.name.contains(text));
         }

@@ -64,7 +64,7 @@ service credentials.SupportService('config/support-service.dcfg') : version('1.0
         model primary;
 
         @retry(maxAttempts: 2)
-        tool recentOrders(UUID customerId) -> Array<db.Order> : description('The five most recent orders of a customer.') {
+        tool recentOrders(UUID customerId) -> Array<db.Order> : description('The five most recent orders of a customer.'), idempotent {
             return db.Order.where(customerId: customerId).orderBy(createdAt: desc).limit(5).all();
         }
 
