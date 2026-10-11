@@ -1,7 +1,8 @@
 # Scan Scripts
 
 Static checks over source and generated output: anti-pattern scanners, compile/import checks,
-`.dtrx`/`.dcfg` syntax and formatting, generated-output audits, and the import-boundary scanner.
+`.dtrx`/`.dcfg` syntax and formatting, generated-output audits, the import-boundary scanner, and
+code-structure reports (duplicated bodies, unimplemented abstract methods).
 Every wrapper runs its Python from `lib/`. Command-by-command reference:
 [quick-reference.md](quick-reference.md).
 
@@ -25,6 +26,8 @@ Every wrapper runs its Python from `lib/`. Command-by-command reference:
 | `syntax-checker.ps1` | Validate `.dtrx` file syntax |
 | `datrix-linter.ps1` / `datrix-format.ps1` | Semantic lint / lossless format of `.dtrx` files |
 | `config-linter.ps1` | Lint and format ConfigDSL `.dcfg` files |
+| `find-duplicate-bodies.ps1` | Function bodies duplicated (exactly or renamed) anywhere across the package `src/` trees: the hoist candidates the shared-home body gate cannot see |
+| `find-unimplemented-abstracts.ps1` | Leaf classes that inherit abstract methods they never implement |
 
 Whole-package anti-pattern scans are phase-boundary acts: inside a fix, run `semgrep.ps1`,
 `libcst.ps1` or `ast-grep.ps1` only with a named `-Rule` or a stated question

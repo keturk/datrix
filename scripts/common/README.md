@@ -86,6 +86,10 @@ skill, hook, config or package file names present.
 | `task_metadata.py`, `task_orientation.py` | Task-file and `dependencies.md` parsing; a task's `## Orientation` block |
 | `customer_domain_isolation.py`, `design_task_references.py`, `ignored_source.py`, `polystring_case_roundtrip.py`, `python_lint_correctness.py` | Repo-hygiene detectors shared by their gates, the commit seam and the edit hooks |
 | `behaviour_skeleton.py`, `target_literal_positions.py` | Detectors shared by the parity gates and the import-boundary scanner |
+| `function_sources.py` | The one walker of module-level functions and class methods in a package tree (`collect_function_sources`), shared by the behaviour-parity and shared-home body gates and `scan\find-duplicate-bodies.ps1` |
+| `body_digest.py` | A function body's comparison form (normalized and exact digests, the 8-line / 40-node floor), shared by the shared-home body gate and `scan\find-duplicate-bodies.ps1` |
+| `import_sites.py` | Where a module or its names are imported across the workspace (relative imports resolved), shared by `dev\find-imports.ps1` and `codemods\split-module.ps1` |
+| `plugin_discovery.py` | Loads every installed plugin group and names the one that fails; run by `Test-DatrixPluginDiscovery` in `venv.ps1` |
 | `complexity.py`, `dead_code_report.py`, `duplicate.py` | Metrics shared by `metrics\` and `dev\code-scan.ps1` |
 | `visualization/` | Application loading, serialization, diagrams and OpenAPI/AsyncAPI builders for `visualize\` |
 
@@ -149,6 +153,10 @@ Install-DatrixPackage -PackageName "datrix-common"
 
 # Ensure all packages are installed (with change detection)
 Ensure-DatrixPackagesInstalled
+
+# Verify the CLI entry point, then that every installed plugin loads (generate.ps1 runs both)
+Test-DatrixCommand -Detail ([ref]$cliDetail)
+Test-DatrixPluginDiscovery -Detail ([ref]$pluginDetail)
 
 # Skip reinstall if already importable (for concurrent operations)
 Ensure-DatrixPackagesInstalled -SkipIfInstalled

@@ -22,7 +22,7 @@ Runs tests for one or more Datrix projects.
 | **Keyword filter** | `.\test\test.ps1 datrix-common -Keyword "test_parse"` | Match by keyword (-k) |
 | **Feature tag** | `.\test\test.ps1 datrix-codegen-python datrix-codegen-typescript -Tag gateway` | Only the tests carrying the tag, in every named package — how a change's behaviour is verified across the packages it reaches |
 | **Several tags** | `.\test\test.ps1 datrix-common -Tag config-resolution,secrets` | A test runs when it carries ANY named tag |
-| **List tags** | `.\test\test.ps1 datrix-codegen-python -ListTags` | Every tag with its test count, and the untagged tests; runs nothing; exit 1 while any test is untagged or a module fails to collect |
+| **List tags** | `.\test\test.ps1 datrix-codegen-python -ListTags` | Every tag with its test count, and the untagged tests; runs nothing; exit 1 while any test is untagged or a module fails to collect. Then lists each package's tags missing from the vocabulary table in `feature-tags.md`, with where each is first applied (`test\lib\tag_vocabulary.py`, a static AST read; report only, never changes the exit code) |
 | **List tags (scoped)** | `.\test\test.ps1 datrix-common -ListTags -Specific "tests/unit/config"` | Listing over the named files/directories only |
 | **Verbose output** | `.\test\test.ps1 datrix-common -Specific "tests/unit/test_foo.py" -VerboseOutput` | Verbose pytest output (Jon; agents never pass it) |
 | **No log save** | `.\test\test.ps1 datrix-common -Specific "tests/unit/test_foo.py" -NoSave` | Don't save output to log files (Jon; agents never pass it) |

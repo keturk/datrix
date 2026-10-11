@@ -232,6 +232,10 @@ A function with a shared home has exactly one definition. The homes are `datrix-
 `datrix-codegen-kernel` and `datrix-codegen-common`; a private copy elsewhere is usually a renamed
 one, so this gate compares **normalized bodies**, not names or text (the sibling hoist tests prove a
 copy is gone by name; Pylint's similar-lines check is textual and misses a renamed copy).
+The walker (`datrix_scripts.function_sources`) and the normalization (`datrix_scripts.body_digest`)
+are shared with `scan\find-duplicate-bodies.ps1`, which reports every duplicate group anywhere. That
+includes copies the gate does not pin, such as two private copies in two target packages, or a copy
+of a private home helper.
 
 **What a hit is.** The gate AST-walks every public function of the three homes (no segment of the
 qualified name starts with `_`) and every function, public or private, of every discovered
