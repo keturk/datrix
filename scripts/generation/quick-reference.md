@@ -1,7 +1,8 @@
 # Quick Reference — Generation Scripts
 
 Scripts around generated output: the parser build, example snapshots and seed datasets, status
-and triage of generation runs, evaluation scans of a generated project, and cleanup. Generating
+and triage of generation runs, comparison of generated trees, evaluation scans of a generated
+project, and cleanup. Generating
 a project itself is `dev\generate.ps1` (see [../dev/quick-reference.md](../dev/quick-reference.md)).
 
 > **Bash invocation:** Prefix with `powershell -File`, use forward slashes, quote paths. See [../quick-reference.md](../quick-reference.md) for full details.
@@ -95,6 +96,24 @@ Compares `.generated` vs `.generated_saved` with content-level feature detection
 **Parameters:** `-Current` (default: .generated), `-Saved` (default: .generated_saved), `-Report` (default: generated-comparison-report.md)
 
 **Note:** this is *feature detection* (presence of known content patterns), not a byte-level diff, and it proves nothing about output preservation — a behaviour-preservation claim is proven by a test in the owning package that renders the construct and asserts its output (see `datrix/docs/architecture/generated-output-stability.md`).
+
+### `generation\tree-hash.ps1`
+
+Byte-level diff of generated trees: snapshot the SHA-256 of every file under one or more roots,
+then diff two snapshots into **added / removed / changed** paths. Keys are
+`<root name>/<relative path>`, so two output directories or two checkouts compare file by file.
+`.git`, `node_modules`, `__pycache__` and tool caches are skipped. This is the measurement behind
+"this refactor changes no output": snapshot, change, regenerate, snapshot, diff. When the diff is
+not empty, the behaviour-preservation proof is still a test in the owning package (see the note
+above). Keep manifests outside the package repos.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Snapshot** | `.\generation\tree-hash.ps1 -Snapshot -Manifest D:\datrix\.tmp\before.json -Root <generated tree>` | Hash every file under the root(s) |
+| **Diff** | `.\generation\tree-hash.ps1 -Diff -Before D:\datrix\.tmp\before.json -After D:\datrix\.tmp\after.json` | List added, removed and changed paths |
+| **Diff, every path** | `.\generation\tree-hash.ps1 -Diff -Before ... -After ... -Limit 0` | No per-section cap |
+
+**Parameters:** `-Snapshot -Manifest <path> -Root <dir,...>` (root names must differ), or `-Diff -Before <path> -After <path> [-Limit <n>]` (default 50; 0 = all). **Exit codes:** `-Snapshot` 0; `-Diff` 0 = identical, 1 = differences (listed), 2 = bad input.
 
 ---
 

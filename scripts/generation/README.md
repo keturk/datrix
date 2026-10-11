@@ -18,6 +18,7 @@ Every wrapper runs its Python from `lib/`. Command-by-command reference:
 | `status-generation.ps1` | Generation status from the latest `generate-results-*.log` |
 | `triage-failures.ps1` | Group test/generation/deploy log failures by likely root cause |
 | `compare-generated.ps1` | Feature-level comparison of `.generated` against `.generated_saved` |
+| `tree-hash.ps1` | Byte-level snapshot of generated trees, and the added/removed/changed diff of two snapshots |
 | `evaluate-generated-scan.ps1` | Mechanical core of `/evaluate-generated` |
 | `evaluate-service-scan.ps1` | Mechanical core of `/evaluate-generated-service` |
 | `evaluate-services.ps1` | Run the per-service evaluation prompts in parallel |
