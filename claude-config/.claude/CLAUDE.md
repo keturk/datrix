@@ -202,6 +202,13 @@ Full text: `execution-contract-spend.md` §10–§11.
   notification. Never `until <check>; do sleep N; done`.
 - **Don't re-establish what you already know** (a file you just wrote, a passing check). **A retry
   needs a reason, not hope.** Say so when a task cost far more than it should have, with the cause.
+- **Be certain the fix worked before writing or running tests for it.** First re-run the thing that
+  showed the failure — the regeneration, the failing test, the reproduction — and see it pass. Only
+  then add or run tests for the fix. If the reproduction still fails, the fix is wrong, and tests
+  written for it are wasted. The same goes for any follow-up that depends on an unconfirmed result
+  (docs, findings, cleanup): it waits for the result. While a decisive run is in flight, wait for it —
+  do not fill the gap with dependent work. And spend nothing on work outside the task: a side
+  investigation, an extra check, or a "while I'm here" is a cost Jon did not ask for.
 
 ## Output Style
 

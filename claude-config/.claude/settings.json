@@ -67,6 +67,10 @@
           {
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/guard-shell-file-writes.py\""
+          },
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/guard-approved-test-plan.py\""
           }
         ]
       },
@@ -96,6 +100,10 @@
           {
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/gate-mandatory-reads.py\""
+          },
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/guard-approved-test-plan.py\""
           }
         ]
       },

@@ -125,6 +125,8 @@ It cuts both ways, and both directions are your work:
 
 Static first (CLAUDE.md's ladder): compute the reach set from the `extends` graph and the emitter. The reach set is the set of profiles your fix must be *correct* for; it is **not** the set you regenerate.
 
+**A product's own profile policy comes first** (its `CLAUDE.md` files — see Prereqs). When it names the profile verification regenerates, regenerate that profile alone (and a second one only under the condition the policy states); every other reached profile is verified by reading. The grouping rule below applies only when the product declares no such policy.
+
 **Regenerate the fewest profiles that prove the fix, chosen by the emitter and never by name.** Group the exhibiting profiles that are in the reach set by what selects the emitter — `deployment { runtime, provider }` plus the language — and regenerate **one representative per group**, preferring a profile a report was actually filed against. Every other profile in the reach set is verified by reading: the `extends` clause that puts it there and the emitter that feeds it. A profile outside the groups, or one Jon did not name, is never regenerated. A reach set of five profiles on one runtime/provider/language is one regeneration run, not five; two groups are two runs. Each run uses that profile's own wrapper; regeneration is local and deploys nothing.
 
 ```
@@ -158,7 +160,9 @@ git -C <dsl-root>       diff --stat
 
 ## Prereqs
 
-Read first: `$DATRIX_HOME` `CLAUDE.md`, `MEMORY.md`, `datrix-common/docs/contributing/ai-agent-rules.md` (core; open the packs its index names for the surface you touch) + `test-guidelines/`. Don't know where something is documented? `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"`.
+Read first: `$DATRIX_HOME` `CLAUDE.md`, `MEMORY.md`, `datrix-common/docs/contributing/ai-agent-rules.md` (core; open the packs its index names for the surface you touch) + `test-guidelines/`.
+
+**Then read the product's own agent instructions** — the `CLAUDE.md` at the product root and in every product repo you derived (report repo, DSL root, generated root, scripts root) — before triage. A product's profile policy there (which profiles may be generated, verified or inspected at all, and which one verifies by default) **overrides this skill's profile-selection rules**, including "one representative per runtime/provider group": a profile the product excludes is never regenerated, read as a regression check, or compared, whatever group it is in. Profiles the policy excludes are verified by reading the `extends` edge or the emitter and the neutral-fixture tests, never by regeneration. No policy found → this skill's rules apply; say so in the triage report. Don't know where something is documented? `powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" "<question>"`.
 
 ---
 

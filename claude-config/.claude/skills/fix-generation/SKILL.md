@@ -232,6 +232,17 @@ This is the inner loop. It runs on **one** example and generates **only** that e
    - **Same error** → the fix is incomplete; investigate deeper and loop (max 3 attempts on the same error before aborting this example).
    - **A different error** → this is the next layer of the *same* example. Go back to Step 3 with the new error and keep looping. Layered failures are normal and do not mean the previous fix was wrong.
 
+**A product project outside `datrix/examples` is regenerated the product's way.** Before
+regenerating it, read the product's own `CLAUDE.md` (in the source repo and its scripts/platform
+repo): use the per-profile wrapper script it names instead of a raw `generate.ps1` call, and
+generate only the profiles it says are in focus — never another profile, for any reason.
+
+**Generation first, tests last.** While the example still fails to generate, write and run no
+tests: a later layer can show the fix was wrong, and every test written for it is then wasted. Write
+and run the tests for every framework change that held only once the example generates
+successfully — together, once. While a regeneration is running, wait for it; do not fill the time
+with test or doc work that depends on its result.
+
 **Never regenerate a different example inside this loop** — not to check whether the fix generalises, not as a regression check, not because the triage report says a sibling shares the signature. Never regenerate while the fix that unblocks the current error is still in flight: a regeneration run is expensive (compile validation/formatters), and running it before the fix lands only re-proves a failure you already know about.
 
 ### Step 7: Advance the Queue
