@@ -3,12 +3,15 @@
 Report dependency relationships between Datrix packages from pyproject.toml.
 
 Reads [project].dependencies from each datrix-* package under the workspace root
-and reports which packages depend on which (datrix-to-datrix only).
+and reports which packages depend on which (datrix-to-datrix), or which third-party
+runtime dependencies each package declares.
 
 Modes:
-    tree - Print a tree: each package with its direct datrix dependencies (indented).
-    list - Print one edge per line: "package -> dependency".
-    json - Machine-readable: packages list and edges array.
+    tree        - Print a tree: each package with its direct datrix dependencies (indented).
+    list        - Print one edge per line: "package -> dependency".
+    json        - Machine-readable: packages list and edges array.
+    third-party - Every non-datrix runtime dependency with each declaring package and its
+                  spec; SPEC DRIFT marks a dependency whose specifiers differ by package.
 
 Usage:
     python dependency.py --workspace-root D:\\datrix --mode tree
@@ -31,6 +34,7 @@ except ImportError:
 from datrix_scripts.pyproject_deps import (  # noqa: E402
     build_dependency_graph,
     discover_packages,
+    third_party_dependencies,
 )
 
 
@@ -51,6 +55,29 @@ def run_list_edges(edges: list[tuple[str, str]]) -> None:
     """Print one 'package -> dependency' per line."""
     for pkg, dep in edges:
         print(f"{pkg} -> {dep}")
+
+
+def run_third_party(packages: dict[str, Path], selected: set[str] | None) -> None:
+    """Print every non-datrix runtime dependency with the packages declaring it.
+
+    A dependency whose specifiers differ between packages is marked SPEC DRIFT: the shared
+    venv resolves one version, so differing pins mean some package is tested against a
+    version its own declaration does not describe.
+    """
+    owners = third_party_dependencies(packages)
+    shown = 0
+    for dep_name, declarations in owners.items():
+        if selected is not None:
+            declarations = [entry for entry in declarations if entry[0] in selected]
+        if not declarations:
+            continue
+        shown += 1
+        specs = {spec for _, spec in declarations}
+        marker = "  SPEC DRIFT" if len(specs) > 1 else ""
+        print(f"{dep_name}{marker}")
+        for package, spec in sorted(declarations):
+            print(f"  {package}: {spec}")
+    print(f"\n{shown} third-party runtime dependenc{'y' if shown == 1 else 'ies'}.")
 
 
 def run_json(package_names: list[str], edges: list[tuple[str, str]]) -> None:
@@ -74,9 +101,9 @@ def main() -> int:
     )
     parser.add_argument(
     "--mode",
-    choices=("tree", "list", "json"),
+    choices=("tree", "list", "json", "third-party"),
     default="tree",
-    help="Output mode: tree, list, json (default: tree).",
+    help="Output mode: tree, list, json, third-party (default: tree).",
     )
     parser.add_argument(
     "--packages",
@@ -127,19 +154,29 @@ def main() -> int:
             return 1
         selected = set(args.packages)
 
-    package_names, edges = build_dependency_graph(packages)
+    if args.mode == "third-party":
+        try:
+            run_third_party(packages, selected)
+        except (OSError, ValueError) as exc:
+            print(f"Error: a pyproject.toml could not be read: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    run_graph(packages, selected, args.mode, args.verbose or args.debug)
+    return 0
 
+
+def run_graph(packages: dict[str, Path], selected: set[str] | None, mode: str, verbose: bool) -> None:
+    """Print the datrix-to-datrix graph in *mode* (tree, list or json), narrowed to *selected*."""
+    package_names, edges = build_dependency_graph(packages)
     if selected is not None:
         package_names = [p for p in package_names if p in selected]
         edges = [e for e in edges if e[0] in selected]
-
-    if args.mode == "tree":
-        run_tree(package_names, edges, args.verbose or args.debug)
-    elif args.mode == "list":
+    if mode == "tree":
+        run_tree(package_names, edges, verbose)
+    elif mode == "list":
         run_list_edges(edges)
     else:
         run_json(package_names, edges)
-    return 0
 
 
 if __name__ == "__main__":

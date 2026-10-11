@@ -6,7 +6,8 @@
 .DESCRIPTION
  Activates the datrix virtual environment and runs lib\dependency.py
  to report which datrix-* packages depend on which (from pyproject.toml).
- Modes: tree (default), list, json.
+ Modes: tree (default), list, json, third-party (every non-datrix runtime dependency
+ with each declaring package and its spec; SPEC DRIFT marks differing specifiers).
 
 .PARAMETER Projects
  Optional. Restrict output to these package names (e.g. datrix-common, datrix-language).
@@ -15,7 +16,7 @@
  Include all datrix-* packages (default when no -Projects).
 
 .PARAMETER Mode
- Output mode: tree, list, json. Default: tree.
+ Output mode: tree, list, json, third-party. Default: tree.
 
 .PARAMETER VerboseOutput
  Verbose output.
@@ -32,6 +33,10 @@
  Show edges (package -> dependency) for all packages.
 
 .EXAMPLE
+ .\dependency.ps1 -All -Mode third-party
+ Every third-party runtime dependency, who declares it, and where the specifiers drift.
+
+.EXAMPLE
  .\dependency.ps1 datrix-common datrix-language -Mode json
  Show JSON for datrix-common and datrix-language only.
 #>
@@ -42,7 +47,7 @@ param(
  [string[]]$Projects,
 
  [switch]$All,
- [ValidateSet("tree", "list", "json")]
+ [ValidateSet("tree", "list", "json", "third-party")]
  [string]$Mode = "tree",
  [switch]$VerboseOutput,
  [switch]$Dbg
@@ -98,7 +103,7 @@ try {
  Write-Host " .\dependency.ps1 datrix-common datrix-language -Mode tree" -ForegroundColor Cyan
  Write-Host ""
  Write-Host "Parameters:" -ForegroundColor Yellow
- Write-Host " -Mode tree | list | json (default: tree)" -ForegroundColor Gray
+ Write-Host " -Mode tree | list | json | third-party (default: tree)" -ForegroundColor Gray
  Write-Host " -All Include all datrix-* packages" -ForegroundColor Gray
  Write-Host " -VerboseOutput Verbose output" -ForegroundColor Gray
  Write-Host " -Dbg Debug output" -ForegroundColor Gray

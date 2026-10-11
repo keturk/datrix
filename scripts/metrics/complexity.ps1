@@ -26,6 +26,11 @@
 .PARAMETER Max
  Maximum cyclomatic and cognitive complexity allowed per block (mode=check). Default: 15.
 
+.PARAMETER Files
+ Check exactly these .py files (cyclomatic and cognitive, mode=check) instead of whole
+ projects -- the check for the functions an edit touches, before it lands. Exit 1 on any
+ violation. Not combinable with -Fix/-FixAll or another -Mode.
+
 .PARAMETER Fix
  Fix the worst complexity violation using a local model (mode=check only).
  Sends the offending function to the first local model server that answers
@@ -86,6 +91,10 @@
  Report Halstead metrics for all projects.
 
 .EXAMPLE
+ .\complexity.ps1 -Files datrix-cli\src\datrix_cli\main.py,datrix-cli\src\datrix_cli\commands\generate.py
+ Check just the two files an edit touched.
+
+.EXAMPLE
  .\complexity.ps1 datrix-common -Fix
  Fix the worst complexity violation in datrix-common using a local model.
 
@@ -108,6 +117,7 @@ param(
  [string]$Mode = "check",
  [Parameter()]
  [int]$Max = 15,
+ [string[]]$Files = @(),
  [switch]$Fix,
  [switch]$FixAll,
  [switch]$Test,
@@ -159,10 +169,19 @@ if ($Test -and -not $Fix) {
  exit 1
 }
 
+# `powershell -File` passes "a,b" as one string; accept both that and a real array.
+$Files = @($Files | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+if ($Files.Count -gt 0 -and ($Fix -or $Mode -ne "check" -or $All -or $Projects.Count -gt 0)) {
+ Write-Host "ERROR: -Files runs mode=check on the named files only; drop -Fix/-FixAll, -Mode, -All and project names." -ForegroundColor Red
+ exit 1
+}
+
 try {
  $projectsToAnalyze = @()
 
- if ($All) {
+ if ($Files.Count -gt 0) {
+ Write-Host "Running complexity (mode=check) for $($Files.Count) file(s)" -ForegroundColor Cyan
+ } elseif ($All) {
  $projectsToAnalyze = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
  if ($projectsToAnalyze.Count -eq 0) {
  Write-Host "ERROR: No Datrix projects found in: $workspaceRoot" -ForegroundColor Red
@@ -258,6 +277,17 @@ try {
  exit 1
  }
  }
+ }
+
+ if ($Files.Count -gt 0) {
+ & python -m $complexityModule --files @Files --max $Max
+ $exitCode = $LASTEXITCODE
+ if ($exitCode -eq 0) {
+ Write-Host "[PASS] Complexity (check) passed for $($Files.Count) file(s)" -ForegroundColor Green
+ } else {
+ Write-Host "[FAIL] Complexity (check) failed (exit code: $exitCode)" -ForegroundColor Red
+ }
+ exit $exitCode
  }
 
  $results = @{}
