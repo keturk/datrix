@@ -11,19 +11,19 @@ scripts/
 │   ├── semgrep-rules/      # Individual YAML rule files for the Semgrep anti-pattern scanner
 │   ├── ast-grep-rules/     # Individual YAML rule files for the ast-grep structural scanner
 │   └── conformance-specs/  # Committed specs for the standing conformance gate
-├── dev/          # Generation, the code index, local model servers, ineedtoknow, docs checks, code-health digests
-├── generation/   # Parser rebuild, example snapshots, seed datasets, generation status/triage, evaluation scans
-├── scan/         # Anti-pattern scanners, import boundaries, compile/syntax checks, generated-output audits
+├── dev/          # Generation, import/parse-tree lookups, the code index, local model servers, ineedtoknow, docs checks, code-health digests
+├── generation/   # Parser rebuild, example snapshots, seed datasets, generation status/triage, generated-tree comparison, evaluation scans
+├── scan/         # Anti-pattern scanners, import boundaries, compile/syntax checks, generated-output audits, duplicate-body/abstract-method reports
 ├── workspace/    # Project listing, structure files, counts, cache and empty-folder cleanup
-├── codemods/     # Bowler/libCST codemods for refactoring Datrix Python code
+├── codemods/     # Bowler/libCST codemods and the module splitter for refactoring Datrix Python code
 ├── test/         # The test runner, status and failure analysis, test-tooling gates
 ├── gates/        # Repo-level validation gates
 │   ├── parity/        # Every target realizes the same thing the same way
 │   ├── realization/   # A declared capability is actually realized
 │   ├── ratchet/       # Counts that only move one way
 │   └── repo-hygiene/  # What may be committed; docs, examples, hard-zero code shapes
-├── git/          # Git operations across all repositories
-├── metrics/      # Code metrics: Radon, Vulture, Ruff, dependency, duplicate-code, Bandit, coverage
+├── git/          # Git operations across all repositories (status, pull, line endings, review, commit)
+├── metrics/      # Code metrics: Radon, Vulture, Ruff, dependency, duplicate-code, Bandit, coverage, agent spend
 ├── review/       # Task-file review (Tier 1 local model, Tier 2 Codex)
 ├── skill/        # Headless skill chains and skill assists
 ├── tasks/        # Task-file management and phase analysis
@@ -133,8 +133,9 @@ Whole-suite runs (a bare package, `-All`, `-Rerun`, a tier switch) are Jon's; ag
 
 ### Code Metrics
 ```powershell
-# Cyclomatic complexity check (Radon; default max 15)
+# Cyclomatic and cognitive complexity check (default max 15), per package or per file
 .\metrics\complexity.ps1 datrix-common
+.\metrics\complexity.ps1 -Files datrix-cli\src\datrix_cli\main.py
 
 # Raw metrics, Halstead, or Maintainability Index
 .\metrics\complexity.ps1 datrix-common -Mode raw
@@ -143,9 +144,10 @@ Whole-suite runs (a bare package, `-All`, `-Rerun`, a tier switch) are Jon's; ag
 # Dead-code detection (Vulture)
 .\metrics\vulture.ps1 datrix-common
 
-# Package dependency report (tree, list, or json)
+# Package dependency report (tree, list, json), or third-party dependencies with specifier drift
 .\metrics\dependency.ps1 -All
 .\metrics\dependency.ps1 -All -Mode list
+.\metrics\dependency.ps1 -All -Mode third-party
 
 # Lint or format (Ruff)
 .\metrics\ruff.ps1 datrix-common

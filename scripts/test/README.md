@@ -98,6 +98,8 @@ Main test runner for one or more Datrix projects.
 | `-Slow` | Run slow tests only |
 | `-Specific` | Run specific test file/pattern |
 | `-Keyword` | Filter tests by keyword (-k) |
+| `-Tag` | Run only the tests carrying any of these feature tags |
+| `-ListTags` | List every tag with its test count and the untagged tests (runs nothing), then the tags in use that the vocabulary table in `feature-tags.md` does not list (`lib/tag_vocabulary.py`, report only) |
 | `-Dbg` | Enable debug logging |
 
 ### Output
