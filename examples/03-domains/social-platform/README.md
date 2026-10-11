@@ -63,7 +63,7 @@ datrix generate examples/02-domains/social-platform/system.dtrx -l typescript -p
 
 ## Files
 
-config/ contains the ConfigDSL files referenced by system.dtrx and each service:
+config/ contains the .dcfg config documents referenced by system.dtrx and each service:
     - config/notification-service.dcfg
     - config/post-service.dcfg
     - config/system.dcfg

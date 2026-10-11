@@ -62,7 +62,7 @@ datrix generate examples/02-domains/learning-management/system.dtrx -l typescrip
 
 ## Files
 
-config/ contains the ConfigDSL files referenced by system.dtrx and each service:
+config/ contains the .dcfg config documents referenced by system.dtrx and each service:
     - config/course-service.dcfg
     - config/enrollment-service.dcfg
     - config/student-service.dcfg

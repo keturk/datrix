@@ -1,9 +1,4 @@
 ﻿config service social.PostService {
-  template standardServicePolicy() {
-    availability = "required";
-    health = "ready";
-  }
-
   template standardCachePolicy() {
     availability = "required";
     health = "ready";
@@ -92,7 +87,6 @@
       dependencyPolicy {
         defaults {
           cache from standardCachePolicy();
-          service from standardServicePolicy();
         }
       }
     }

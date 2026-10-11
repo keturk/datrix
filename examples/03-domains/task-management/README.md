@@ -64,7 +64,7 @@ datrix generate examples/02-domains/task-management/system.dtrx -l typescript -p
 
 ## Files
 
-config/ contains the ConfigDSL files referenced by system.dtrx and each service:
+config/ contains the .dcfg config documents referenced by system.dtrx and each service:
     - config/project-service.dcfg
     - config/system.dcfg
     - config/task-service.dcfg

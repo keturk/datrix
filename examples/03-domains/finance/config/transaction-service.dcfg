@@ -1,9 +1,4 @@
 ﻿config service finance.TransactionService {
-  template standardServicePolicy() {
-    availability = "required";
-    health = "ready";
-  }
-
   base {
     port = 8003;
     flavor = "compose";
@@ -93,11 +88,6 @@
             initial = "100ms";
             multiplier = 2;
           }
-        }
-      }
-      dependencyPolicy {
-        defaults {
-          service from standardServicePolicy();
         }
       }
     }

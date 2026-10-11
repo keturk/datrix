@@ -123,7 +123,7 @@ that a cross-language wire comparison needs to exercise, each declared once in t
 ## Usage
 
 The target language is a generation parameter; the deployment target is selected
-by the ConfigDSL profile in `config/system.dcfg`.
+by the config profile in `config/system.dcfg`.
 
 ```bash
 # Local docker-compose stack (the default profile, `test`)
@@ -188,7 +188,7 @@ To run one of them, regenerate into a scratch directory (that restores `secrets/
 
 ## Files
 
-`config/` contains the ConfigDSL files referenced by `system.dtrx` and each service:
+`config/` contains the `.dcfg` config documents referenced by `system.dtrx` and each service:
 
 - `config/system.dcfg`
 - `config/identity/identity.dcfg`

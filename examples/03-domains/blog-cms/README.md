@@ -60,7 +60,7 @@ datrix generate examples/02-domains/blog-cms/system.dtrx -l typescript -p docker
 
 ## Files
 
-config/ contains the ConfigDSL files referenced by system.dtrx and each service:
+config/ contains the .dcfg config documents referenced by system.dtrx and each service:
     - config/author-service.dcfg
     - config/comment-service.dcfg
     - config/content-service.dcfg

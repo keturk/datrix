@@ -66,14 +66,6 @@
           }
         }
       }
-      dependencyPolicy {
-        defaults {
-          service {
-            availability = "required";
-            health = "ready";
-          }
-        }
-      }
     }
     // Operator-provisioned handles: each is mounted as a compose file secret
     // and the deploy script refuses to start while its file is absent. The

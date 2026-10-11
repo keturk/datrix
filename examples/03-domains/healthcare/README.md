@@ -61,7 +61,7 @@ datrix generate examples/02-domains/healthcare/system.dtrx -l typescript -p dock
 
 ## Files
 
-config/ contains the ConfigDSL files referenced by system.dtrx and each service:
+config/ contains the .dcfg config documents referenced by system.dtrx and each service:
     - config/appointment-service.dcfg
     - config/medical-record-service.dcfg
     - config/patient-service.dcfg
