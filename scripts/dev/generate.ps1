@@ -569,6 +569,17 @@ $("=" * 80)
  Write-TeeHost "datrix command verified successfully" -ForegroundColor Green -LogFilePath $logFilePath
  }
 
+ # Verify every installed plugin loads. 'datrix --version' loads none, so a package whose
+ # plugin fails to register would otherwise fail deep inside the pipeline; name it here,
+ # with the registry's own error, before any generation starts.
+ $pluginDetail = ""
+ if (-not (Test-DatrixPluginDiscovery -Detail ([ref]$pluginDetail))) {
+ Write-TeeHost "Plugin discovery failed:" -ForegroundColor Red -LogFilePath $logFilePath
+ Write-TeeHost $pluginDetail -ForegroundColor Red -LogFilePath $logFilePath
+ Write-Error "A Datrix plugin failed to load; fix the package named above, then re-run.`n$pluginDetail"
+ exit 1
+ }
+
  # Get Python executable from venv
  $venvPath = Get-DatrixVenvPath
  $pythonExe = Join-Path $venvPath "Scripts\python.exe"
