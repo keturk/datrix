@@ -1,7 +1,8 @@
 # Quick Reference — Scan Scripts
 
 Static checks over source: `.dtrx`/`.dcfg` syntax and formatting, anti-pattern scanners, import
-boundaries and their ratchets, compile/import checks, and generated-output audits.
+boundaries and their ratchets, compile/import checks, generated-output audits, and code-structure
+reports (duplicated function bodies, unimplemented abstract methods).
 
 > **Bash invocation:** Prefix with `powershell -File`, use forward slashes, quote paths. See [../quick-reference.md](../quick-reference.md) for full details.
 >
@@ -246,3 +247,43 @@ Per-domain census of a language's compiled genDSL definitions: file-clause count
 | **Self-test only** | `.\scan\gendsl-census.ps1 -SelfTest` | Run only the non-vacuity self-test; no `-Language` needed |
 
 **Parameters:** `-Language <name>` (required unless `-SelfTest`), `-Output <path>`, `-Dbg`, `-SelfTest`. **Exit codes:** 0 = no double-emit offenders, 1 = double-emit offenders found, 2 = usage / unknown target / the non-vacuity self-test failed.
+
+---
+
+## Code Structure Reports
+
+### `scan\find-duplicate-bodies.ps1`
+
+Function bodies duplicated anywhere across every `datrix-*` package's `src/` tree. Every
+module-level function and class method at or above the floor (8 lines, 40 AST nodes) is grouped
+two ways: **exact** (identical body, names and constants kept: a straight copy) and **normalized**
+(identical once parameters/locals become positional tokens and constants collapse to their type:
+a renamed copy). It uses the same walker (`datrix_scripts.function_sources`) and normalization
+(`datrix_scripts.body_digest`) as `gates\parity\shared-home-body-gate.ps1`, which pins only copies
+of a *public shared-home* function. This report also shows copies where neither side is in a shared
+home: the hoist candidates. Cross-package groups are listed first, largest first. Report only.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Cross-package groups** | `.\scan\find-duplicate-bodies.ps1 -CrossPackage` | The 25 largest groups spanning two or more packages |
+| **One package** | `.\scan\find-duplicate-bodies.ps1 -Package datrix_codegen_python -Limit 0` | Every group with a member in that package (import name) |
+| **JSON** | `.\scan\find-duplicate-bodies.ps1 -Limit 0 -JsonOut D:\datrix\.tmp\duplicate-bodies.json` | Also write every selected group as JSON |
+
+**Parameters:** `-CrossPackage`, `-Package <import name,...>`, `-Limit <n>` (default 25; 0 = all), `-JsonOut <path>`, `-Dbg`. **Exit codes:** 0 = report printed, 2 = a source file did not parse (named) or a bad argument.
+
+### `scan\find-unimplemented-abstracts.ps1`
+
+Classes that inherit abstract methods they never implement. Imports every module of the selected
+packages and lists every class whose `__abstractmethods__` is non-empty. A class counts as an
+**intended abstract base** when it subclasses `abc.ABC` directly, declares an abstract method
+itself, is a `typing.Protocol`, or is subclassed. Every other such class is a leaf meant to be
+concrete: it is **INCOMPLETE** (it cannot be instantiated, and nothing says so until something
+tries), printed with each missing method and the base declaring it. A module that fails to import
+is listed, never skipped.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **All packages** | `.\scan\find-unimplemented-abstracts.ps1` | Every incomplete class |
+| **One package, with bases** | `.\scan\find-unimplemented-abstracts.ps1 -Package datrix_codegen_python -ShowBases` | Also list the intended abstract bases |
+
+**Parameters:** `-Package <import name,...>` (default: every `datrix-*` package), `-ShowBases`, `-Dbg`. **Exit codes:** 0 = no incomplete class, 1 = incomplete class(es) found, 2 = a module failed to import or a bad argument.
