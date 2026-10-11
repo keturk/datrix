@@ -164,7 +164,7 @@ def check_import(
     compatibility but deliberately NOT injected into ``PYTHONPATH``. Putting the raw
     ``src`` directories on ``sys.path`` shadows those editable installs with plain
     directories that carry no ``.dist-info``, which silently strips the packages' entry
-    points. A generator package whose GenDSL definitions validate their own target
+    points. A generator package whose DAL generator definitions validate their own target
     against the discovered-plugin registry at import time then fails with a bogus
     "Unknown generator target" -- reporting a package that imports correctly in every
     real code path as an import error. Resolution is identical either way, since the

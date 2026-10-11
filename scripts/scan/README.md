@@ -22,10 +22,10 @@ Every wrapper runs its Python from `lib/`. Command-by-command reference:
 | `ruff-checker.ps1` | Check Jinja2 templates with ruff linter |
 | `compile.ps1` / `compile-any-path.ps1` | Syntax and import check for Datrix projects / any Python path |
 | `audit.ps1` | Audit generated Python for placeholders and syntax |
-| `gendsl-census.ps1` | Per-domain census of a language's compiled genDSL definitions |
+| `dgen-census.ps1` | Per-domain census of a language's compiled DAL generator definitions |
 | `syntax-checker.ps1` | Validate `.dtrx` file syntax |
 | `datrix-linter.ps1` / `datrix-format.ps1` | Semantic lint / lossless format of `.dtrx` files |
-| `config-linter.ps1` | Lint and format ConfigDSL `.dcfg` files |
+| `config-linter.ps1` | Lint and format `.dcfg` config documents |
 | `find-duplicate-bodies.ps1` | Function bodies duplicated (exactly or renamed) anywhere across the package `src/` trees: the hoist candidates the shared-home body gate cannot see |
 | `find-unimplemented-abstracts.ps1` | Leaf classes that inherit abstract methods they never implement |
 
@@ -312,7 +312,7 @@ Validates .dtrx file syntax without full generation.
 
 ## config-linter.ps1
 
-Lints and formats ConfigDSL `.dcfg` files using the shared ConfigDSL parser (`datrix_common.config.dcfg.parser`).
+Lints and formats `.dcfg` files using the config parser (`datrix_language.parser.dcfg_parser.parse_dcfg`, on the shared Datrix grammar). A file that does not parse is reported with that parser's syntax error, which names positions and token kinds, never string or number text.
 
 You must pass either `-All` or one/more file-system paths.
 

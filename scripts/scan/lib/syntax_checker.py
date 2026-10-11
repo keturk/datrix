@@ -155,11 +155,11 @@ class SyntaxChecker:
                 self.files_with_errors += 1
                 return False
 
-            # Only do tree-sitter parse + error check, skip full AST transform
+            # Only do tree-sitter parse + error check, skip full AST transform. The grammar
+            # also parses config and seed documents cleanly, so the check is the model
+            # parser's own: a .dtrx model with no ERROR or MISSING node.
             tree = parser.parse_tree(source, file_path=file_path)
-            if tree.root_node.has_error:
-                # Use parser's error reporting to get a nice message
-                parser._raise_parse_error(tree.root_node, source, file_path)
+            parser.require_clean_tree(tree, source, file_path)
 
             # Lightweight semantic check: validate contextual keywords
             source_bytes = source.encode("utf-8")

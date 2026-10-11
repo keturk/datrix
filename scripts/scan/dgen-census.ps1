@@ -1,17 +1,17 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Per-domain census of one gendsl target's compiled genDSL definitions.
+ Per-domain census of one dgen target's compiled DAL generator definitions.
 
 .DESCRIPTION
- PowerShell wrapper for gendsl_census.py. Walks every domain of the target's
+ PowerShell wrapper for dgen_census.py. Walks every domain of the target's
  compiled GeneratorDefinition IR, counting declared file clauses (domain-level
  plus recursive iteration/children block files) and domain builders, and flags
  double-emit offenders (domains that declare files while keeping an imperative
  domain builder); any offender gates the exit code. The target name is resolved
- against the installed datrix.platforms / datrix.gendsl_generator_targets
+ against the installed datrix.platforms / datrix.dgen_generator_targets
  entry points at runtime -- the target set is never hardcoded. Output:
- <workspace>\.tmp\dev\gendsl-census-<language>.json.
+ <workspace>\.tmp\dev\dgen-census-<language>.json.
  The script's own non-vacuity self-test (proves the double-emit comparator
  detects a forced synthetic defect and leaves a clean domain alone) runs
  automatically as step 1 of every invocation, including a real census; a
@@ -19,7 +19,7 @@
  -SelfTest to run only the self-test.
 
 .PARAMETER Language
- Installed gendsl target name (e.g. python). Unknown names fail loud listing
+ Installed dgen target name (e.g. python). Unknown names fail loud listing
  every installed target. Not required with -SelfTest.
 
 .PARAMETER Output
@@ -34,13 +34,13 @@
  -Language needed.
 
 .EXAMPLE
- .\gendsl-census.ps1 python
+ .\dgen-census.ps1 python
 
 .EXAMPLE
- .\gendsl-census.ps1 typescript -Output D:\datrix\.tmp\dev\ts-census.json
+ .\dgen-census.ps1 typescript -Output D:\datrix\.tmp\dev\ts-census.json
 
 .EXAMPLE
- .\gendsl-census.ps1 -SelfTest
+ .\dgen-census.ps1 -SelfTest
 #>
 
 [CmdletBinding()]
@@ -62,7 +62,7 @@ $ErrorActionPreference = "Stop"
 
 # Script directory
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\gendsl_census.py"
+$pythonScript = Join-Path $scriptDir "lib\dgen_census.py"
 
 # Import common modules
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
@@ -70,7 +70,7 @@ Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
 if (-not (Test-Path $pythonScript)) {
- Write-Error "Error: gendsl_census.py not found at: $pythonScript"
+ Write-Error "Error: dgen_census.py not found at: $pythonScript"
  exit 1
 }
 

@@ -129,7 +129,7 @@
  module held as an object whose attribute is read as m.attr or
  getattr(m, "attr") although the module does not define it (module-object
  side; tests.<module> test-tree modules are providers too, and a name
- bound only for a genDSL reference is not a provider hit); a
+ bound only for a DAL generator reference is not a provider hit); a
  pyproject.toml entry point naming an attribute its target module does
  not define (entry-point side); or an import whose module resolves to
  nothing on disk at all (unresolved). Every hit is attributed to the

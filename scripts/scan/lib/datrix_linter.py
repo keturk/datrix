@@ -246,6 +246,12 @@ class DatrixLinter:
         try:
             parser = self._get_parser()
             app = parser.parse_loaded_file(content, entry_point)
+            # Every .dcfg (config resolution, and the strings files semantic
+            # analysis loads) is read through the application's source, as the
+            # generation pipeline's attach_config_documents stage provides.
+            from datrix_language.parser.dcfg_documents import disk_config_documents
+
+            app.config_documents = disk_config_documents()
             self._dbg(f"Parsed OK: {entry_point}")
         except Exception as exc:
             msg = str(exc)

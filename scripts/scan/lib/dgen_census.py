@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Per-domain census of one target's compiled genDSL definitions.
+"""Per-domain census of one target's compiled DAL generator definitions.
 
 Consolidates the recurring temp-script pattern of ``count_16_26.py``,
 ``count_clauses_16_17.py`` (``D:\\datrix\\.scripts``): walk every domain of a
@@ -13,15 +13,15 @@ hand:
   builders both render unconditionally, so a declaring domain that keeps its
   builder can emit the same path twice.
 
-The target name is resolved against the gendsl target registry at runtime
-(``datrix.platforms`` + ``datrix.gendsl_generator_targets`` entry points) --
+The target name is resolved against the dgen target registry at runtime
+(``datrix.platforms`` + ``datrix.dgen_generator_targets`` entry points) --
 the installed target set is NEVER hardcoded; Datrix is a multi-language,
 multi-platform generator and new targets appear with no edit here.
 
 Usage:
-  python scripts/scan/lib/gendsl_census.py --language python   (PYTHONPATH=scripts/common/lib)
-  python scripts/scan/lib/gendsl_census.py --self-test
-  .\\scripts\\scan\\gendsl-census.ps1 python
+  python scripts/scan/lib/dgen_census.py --language python   (PYTHONPATH=scripts/common/lib)
+  python scripts/scan/lib/dgen_census.py --self-test
+  .\\scripts\\scan\\dgen-census.ps1 python
 
 Exit codes: 0 = no double-emit offenders, 1 = at least one, 2 = usage error
 (unknown/definition-less target) or the non-vacuity self-test failed.
@@ -45,9 +45,9 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_codegen_kernel.gendsl import target_registry  # noqa: E402
-from datrix_codegen_kernel.gendsl.compiler import get_definitions  # noqa: E402
-from datrix_codegen_kernel.generation.gendsl_ir import (  # noqa: E402
+from datrix_codegen_kernel.dgen import target_registry  # noqa: E402
+from datrix_codegen_kernel.dgen.compiler import get_definitions  # noqa: E402
+from datrix_codegen_kernel.generation.dgen_ir import (  # noqa: E402
     DomainBuilderDefinition,
     DomainDefinition,
     FileDefinition,
@@ -67,7 +67,7 @@ EXIT_USAGE = 2
 
 #: Default output location (cross-cutting output per the script conventions).
 OUTPUT_SUBDIRS: tuple[str, ...] = (".tmp", "dev")
-OUTPUT_FILENAME_TEMPLATE = "gendsl-census-{language}.json"
+OUTPUT_FILENAME_TEMPLATE = "dgen-census-{language}.json"
 
 
 class UsageError(Exception):
@@ -76,12 +76,12 @@ class UsageError(Exception):
 
 #: Definition name used only by the self-test fixtures below -- deliberately
 #: not a real compiled definition name.
-_SELF_TEST_DEFINITION_NAME = "__gendsl_census_self_test__"
+_SELF_TEST_DEFINITION_NAME = "__dgen_census_self_test__"
 
 
 @dataclass(frozen=True)
 class DomainCensus:
-    """Census row for one genDSL domain of one compiled definition."""
+    """Census row for one DAL generator domain of one compiled definition."""
 
     definition: str
     domain: str
@@ -126,10 +126,10 @@ class CensusTotals:
 
 
 def resolve_target_kind(language: str) -> str:
-    """Resolve *language* against the installed gendsl targets, failing loud.
+    """Resolve *language* against the installed dgen targets, failing loud.
 
     Args:
-        language: Requested gendsl target name (e.g. ``python``).
+        language: Requested dgen target name (e.g. ``python``).
 
     Returns:
         The target's registered kind (``language``/``platform``/...).
@@ -142,8 +142,8 @@ def resolve_target_kind(language: str) -> str:
     if language not in kinds:
         installed = ", ".join(f"{name} ({kind})" for name, kind in sorted(kinds.items()))
         raise UsageError(
-            f"Unknown gendsl target {language!r}. Installed targets (discovered from "
-            f"the datrix.platforms / datrix.gendsl_generator_targets entry points): "
+            f"Unknown dgen target {language!r}. Installed targets (discovered from "
+            f"the datrix.platforms / datrix.dgen_generator_targets entry points): "
             f"{installed}. Pass one of those names, or install the package that "
             f"contributes the target you want."
         )
@@ -272,10 +272,10 @@ def run_self_test() -> None:
 
 
 def run_census(language: str) -> tuple[str, list[GeneratorDefinition], list[DomainCensus]]:
-    """Compile-and-walk the census for one installed gendsl target.
+    """Compile-and-walk the census for one installed dgen target.
 
     Args:
-        language: The gendsl target name (validated against the registry).
+        language: The dgen target name (validated against the registry).
 
     Returns:
         ``(target_kind, definitions, rows)`` -- one row per domain across
@@ -289,9 +289,9 @@ def run_census(language: str) -> tuple[str, list[GeneratorDefinition], list[Doma
     if not definitions:
         raise UsageError(
             f"Target {language!r} (kind={target_kind}) is installed but registers "
-            f"no compiled genDSL definitions -- there is nothing to census. If the "
+            f"no compiled DAL generator definitions -- there is nothing to census. If the "
             f"target should have definitions, check its "
-            f"datrix.gendsl_generator_targets contribution's definition_modules."
+            f"datrix.dgen_generator_targets contribution's definition_modules."
         )
     rows: list[DomainCensus] = []
     for definition in definitions:
@@ -364,7 +364,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Per-domain census of one gendsl target's compiled definitions: file "
+            "Per-domain census of one dgen target's compiled definitions: file "
             "clauses, domain builders, double-emit offenders. Targets are discovered "
             "from installed entry points at runtime."
         ),
@@ -373,14 +373,14 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--language",
         required=False,
         default=None,
-        help="Installed gendsl target name (e.g. python). Unknown names fail loud "
+        help="Installed dgen target name (e.g. python). Unknown names fail loud "
         "listing every installed target. Not required with --self-test.",
     )
     parser.add_argument(
         "--output",
         default=None,
         help="Override the output JSON path (default: "
-        "<workspace>/.tmp/dev/gendsl-census-<language>.json).",
+        "<workspace>/.tmp/dev/dgen-census-<language>.json).",
     )
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG logging.")
     parser.add_argument(
@@ -421,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.language:
             raise UsageError(
                 "--language is required unless --self-test is passed. Pass an "
-                "installed gendsl target name (e.g. python), or --self-test to "
+                "installed dgen target name (e.g. python), or --self-test to "
                 "run only the non-vacuity self-test."
             )
         language = str(args.language)

@@ -29,7 +29,7 @@ Validates `.dtrx` file syntax using the tree-sitter parser.
 
 ### `scan\config-linter.ps1`
 
-Lint/format ConfigDSL `.dcfg` files using the ConfigDSL parser.
+Lint/format `.dcfg` config documents using the `.dcfg` parser.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -236,15 +236,15 @@ Audits generated Python code for placeholders and syntax errors under `.generate
 
 **Parameters:** `-OutputBase` (default: .generated), `-Report <path>`, `-FailOnSyntax`, `-FailOnPlaceholders`
 
-### `scan\gendsl-census.ps1`
+### `scan\dgen-census.ps1`
 
-Per-domain census of a language's compiled genDSL definitions: file-clause counts (recursing `domain.files` + iteration/children), domain builders, declaring domains, and **double-emit offenders** (declares files AND keeps a domain builder). Target list discovered from installed entry points at runtime — never hardcoded. Its own non-vacuity self-test (proves the double-emit comparator detects a forced synthetic defect and leaves a clean domain alone) runs automatically as **step 1 of every invocation**, including a real census — a self-test failure aborts before any real finding is reported.
+Per-domain census of a language's compiled DAL generator definitions: file-clause counts (recursing `domain.files` + iteration/children), domain builders, declaring domains, and **double-emit offenders** (declares files AND keeps a domain builder). Target list discovered from installed entry points at runtime — never hardcoded. Its own non-vacuity self-test (proves the double-emit comparator detects a forced synthetic defect and leaves a clean domain alone) runs automatically as **step 1 of every invocation**, including a real census — a self-test failure aborts before any real finding is reported.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Census a target** | `.\scan\gendsl-census.ps1 -Language python` | → `D:\datrix\.tmp\dev\gendsl-census-python.json` |
-| **Unknown target** | `.\scan\gendsl-census.ps1 -Language cobol` | Fails loud listing installed targets |
-| **Self-test only** | `.\scan\gendsl-census.ps1 -SelfTest` | Run only the non-vacuity self-test; no `-Language` needed |
+| **Census a target** | `.\scan\dgen-census.ps1 -Language python` | → `D:\datrix\.tmp\dev\dgen-census-python.json` |
+| **Unknown target** | `.\scan\dgen-census.ps1 -Language cobol` | Fails loud listing installed targets |
+| **Self-test only** | `.\scan\dgen-census.ps1 -SelfTest` | Run only the non-vacuity self-test; no `-Language` needed |
 
 **Parameters:** `-Language <name>` (required unless `-SelfTest`), `-Output <path>`, `-Dbg`, `-SelfTest`. **Exit codes:** 0 = no double-emit offenders, 1 = double-emit offenders found, 2 = usage / unknown target / the non-vacuity self-test failed.
 

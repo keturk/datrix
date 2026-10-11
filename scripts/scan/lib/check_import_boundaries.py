@@ -168,7 +168,7 @@ target module does not define (entry-point side); and a `from M import N`
 whose M does not resolve to any module on disk at all (unresolved). A
 test-tree module (`tests.<module>`, resolved against the importing file's
 own package) is a provider like any Datrix module, and a name bound only
-for a genDSL `<namespace>.<module>.<name>` reference (read from the
+for a DAL generator `<namespace>.<module>.<name>` reference (read from the
 definitions text, namespace resolved by the kernel registry) is not a
 provider-side hit. Relative imports
 (`from .a import X`, `from . import sub`) are resolved to their absolute
@@ -327,12 +327,12 @@ SHARED_PACKAGE_CLASSIFIER_GROUPS: frozenset[str] = frozenset(
     }
 )
 
-# GenDSL's own entry-point-group axis -- a SEPARATE, cross-cutting
+# DAL generator's own entry-point-group axis -- a SEPARATE, cross-cutting
 # registration mechanism from the four taxonomy groups above (mirrors
-# datrix_common.plugin.registry's GENDSL_FILE_LANGUAGES_GROUP/
-# GENDSL_ITERATION_TARGETS_GROUP/GENDSL_CONTEXT_NAMESPACES_GROUP, plus
-# datrix_codegen_kernel.gendsl.target_registry's
-# GENDSL_GENERATOR_TARGETS_GROUP -- read for the canonical spellings only,
+# datrix_common.plugin.registry's DGEN_FILE_LANGUAGES_GROUP/
+# DGEN_ITERATION_TARGETS_GROUP/DGEN_CONTEXT_NAMESPACES_GROUP, plus
+# datrix_codegen_kernel.dgen.target_registry's
+# DGEN_GENERATOR_TARGETS_GROUP -- read for the canonical spellings only,
 # same as the four taxonomy groups; this scanner does not import either
 # module). Confirmed against the real manifests (not assumed): every
 # language, every platform, the frontend targets, SQL, AND the shared
@@ -341,12 +341,12 @@ SHARED_PACKAGE_CLASSIFIER_GROUPS: frozenset[str] = frozenset(
 # SHARED_PACKAGE_CLASSIFIER_GROUPS would misclassify every one of those as
 # shared, and treating it as "unrecognized" would make
 # discover_shared_packages abort on the shared packages themselves.
-_GENDSL_AUXILIARY_ENTRY_POINT_GROUPS: frozenset[str] = frozenset(
+_DGEN_AUXILIARY_ENTRY_POINT_GROUPS: frozenset[str] = frozenset(
     {
-        "datrix.gendsl_file_languages",
-        "datrix.gendsl_iteration_targets",
-        "datrix.gendsl_context_namespaces",
-        "datrix.gendsl_generator_targets",
+        "datrix.dgen_file_languages",
+        "datrix.dgen_iteration_targets",
+        "datrix.dgen_context_namespaces",
+        "datrix.dgen_generator_targets",
     }
 )
 
@@ -359,7 +359,7 @@ _PARSER_ENTRY_POINT_GROUPS: frozenset[str] = frozenset({"datrix.parsers"})
 # Every datrix.-namespaced entry-point group that is neither a taxonomy group
 # nor unrecognized.
 _NON_TAXONOMY_ENTRY_POINT_GROUPS: frozenset[str] = (
-    _GENDSL_AUXILIARY_ENTRY_POINT_GROUPS | _PARSER_ENTRY_POINT_GROUPS
+    _DGEN_AUXILIARY_ENTRY_POINT_GROUPS | _PARSER_ENTRY_POINT_GROUPS
 )
 
 
@@ -498,19 +498,19 @@ def discover_shared_packages(
       feature-tag pytest plugin this way, alongside zero taxonomy groups) is
       a third-party mechanism, not a Datrix plugin-kind signal, and is
       ignored unconditionally.
-    * GenDSL's own cross-cutting registration axis
-      (``_GENDSL_AUXILIARY_ENTRY_POINT_GROUPS`` -- ``datrix_common.plugin.registry``'s
-      ``GENDSL_FILE_LANGUAGES_GROUP``/``GENDSL_ITERATION_TARGETS_GROUP``/
-      ``GENDSL_CONTEXT_NAMESPACES_GROUP``, plus
-      ``datrix_codegen_kernel.gendsl.target_registry.GENDSL_GENERATOR_TARGETS_GROUP``)
+    * DAL generator's own cross-cutting registration axis
+      (``_DGEN_AUXILIARY_ENTRY_POINT_GROUPS`` -- ``datrix_common.plugin.registry``'s
+      ``DGEN_FILE_LANGUAGES_GROUP``/``DGEN_ITERATION_TARGETS_GROUP``/
+      ``DGEN_CONTEXT_NAMESPACES_GROUP``, plus
+      ``datrix_codegen_kernel.dgen.target_registry.DGEN_GENERATOR_TARGETS_GROUP``)
       is registered by packages spanning EVERY taxonomy class alike --
       the shared ``datrix-codegen-kernel`` and ``datrix-codegen-common``,
       every language, every platform, the frontend targets, and SQL all
       register into it, so its presence says nothing about which of the four
       taxonomy groups a package belongs to (or doesn't). Confirmed against the
       real monorepo manifests, not assumed: ``datrix-codegen-kernel``
-      registers ONLY ``gendsl_file_languages``/``gendsl_iteration_targets``
-      and ``datrix-codegen-common`` ONLY ``gendsl_iteration_targets``; both
+      registers ONLY ``dgen_file_languages``/``dgen_iteration_targets``
+      and ``datrix-codegen-common`` ONLY ``dgen_iteration_targets``; both
       are shared packages.
     * The parser seam (``_PARSER_ENTRY_POINT_GROUPS``) through which
       datrix-language supplies its parsers to the packages below it names no
@@ -518,7 +518,7 @@ def discover_shared_packages(
 
     A package registering a NON-EMPTY [project.entry-points] table whose
     ``datrix.``-namespaced group name(s) are ALL outside the four known
-    taxonomy groups AND outside the known GenDSL auxiliary axis is
+    taxonomy groups AND outside the known DAL generator auxiliary axis is
     UNCLASSIFIABLE: folding it into "shared" would silently widen ratchet
     scope to a package that is plausibly a not-yet-recognized plugin kind,
     and excluding it would silently leave a real generator unpoliced by
@@ -540,7 +540,7 @@ def discover_shared_packages(
             the same per-manifest parsing ``discover_generator_taxonomy``
             uses), or a manifest registers a ``datrix.``-namespaced
             entry-point group outside both the four taxonomy groups and the
-            known GenDSL auxiliary axis.
+            known DAL generator auxiliary axis.
     """
     root_by_dir: dict[Path, str] = {info.root: name for name, info in packages.items()}
     shared: set[str] = set()
@@ -576,7 +576,7 @@ def discover_shared_packages(
                 f"{sorted(unrecognized_datrix_groups)}, none of which is "
                 f"{sorted(SHARED_PACKAGE_CLASSIFIER_GROUPS)} (the four taxonomy "
                 f"groups) or {sorted(_NON_TAXONOMY_ENTRY_POINT_GROUPS)} "
-                f"(GenDSL's registration axis and the parser seam). This package "
+                f"(DAL generator's registration axis and the parser seam). This package "
                 f"cannot be classified as shared or as a taxonomy member -- add an "
                 f"explicit classification before the I1/I6 shared-layer ratchets "
                 f"can be trusted to scan (or skip) it."
@@ -672,7 +672,7 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
         },
         # SQL generator: forbidden from every language package, from the whole of
         # datrix_codegen_common, and from datrix_cli. SQL is a schema/DDL generator, not a
-        # language generator: every target-neutral fact it consumes (the GenDSL engine,
+        # language generator: every target-neutral fact it consumes (the DAL generator engine,
         # the migration adapter protocol and chain model, the parity declaration types,
         # the pure-SQL index facts) lives in datrix_codegen_kernel, which it depends on
         # instead. Its tests use the target-neutral conformance kit in datrix_testing --
@@ -688,7 +688,7 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
         ),
         # Component generator: forbidden from every language package, from the whole of
         # datrix_codegen_common, and from datrix_cli. Component is a language-agnostic
-        # scaffolding generator: the GenDSL engine, the serverless plan and the NoSQL
+        # scaffolding generator: the DAL generator engine, the serverless plan and the NoSQL
         # collection facts it consumes live in datrix_codegen_kernel, which it depends
         # on instead. Its tests use the target-neutral conformance kit in datrix_testing --
         # datrix_codegen_common is forbidden identically in src/ and tests/, with no
@@ -720,7 +720,7 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
             ),
         ),
         # Platform generators are forbidden the whole of datrix_codegen_common: every
-        # target-neutral service they consume (the GenDSL engine, the provider library,
+        # target-neutral service they consume (the DAL generator engine, the provider library,
         # pooling, secrets, seed planning, dashboards, the serverless and replayable-
         # ingestion plans, the shared enums) lives in datrix_codegen_kernel, which they
         # depend on instead. Their tests use the target-neutral conformance kit in
@@ -781,7 +781,7 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
             allowed_subtrees=frozenset({"datrix_codegen_kernel"}),
         ),
         # The generation kernel (generator base classes, template engine,
-        # discovery, the shared route and runtime derivations, the GenDSL data
+        # discovery, the shared route and runtime derivations, the DAL generator data
         # model, the Seed datasets) sits on the core alone. Every language,
         # platform and frontend generator, the language layer and the CLI
         # depend on it, so an import of any of them -- or of the parser or the
@@ -869,8 +869,8 @@ TARGET_LITERAL_CENTRAL_NAMES: frozenset[str] = frozenset(
         "GENERATORS_BY_LANGUAGE",  # enums.py:33 (deleted 06-04)
         "DeploymentProvider",  # enums.py:82-97 (deleted 07-03)
         "PROVIDER_GENERATORS",  # enums.py:289 (deleted 07-03)
-        "_TARGET_KIND_MAP",  # gendsl/parser.py:36, validator.py:30 (deleted 06-02)
-        "_KNOWN_DEFINITION_MODULES",  # gendsl/compiler.py:153-161 (deleted 06-02)
+        "_TARGET_KIND_MAP",  # dgen/parser.py:36, validator.py:30 (deleted 06-02)
+        "_KNOWN_DEFINITION_MODULES",  # dgen/compiler.py:153-161 (deleted 06-02)
         "EMAIL_REALIZATION",  # provisioning.py:60-81 (deleted 07-04)
         "SMS_REALIZATION",  # provisioning.py:92-109 (deleted 07-04)
         "PUSH_REALIZATION",  # provisioning.py:~129 (deleted 07-04)
@@ -1637,7 +1637,7 @@ def _first_forbidden_prefix(
 
 # A heuristic dotted-import-path shape: one or more '.'-separated Python
 # identifier segments, at least two segments (a bare identifier is never a
-# module path). Matches "datrix_codegen_aws.gendsl.aws_definitions"; never
+# module path). Matches "datrix_codegen_aws.dgen.aws_definitions"; never
 # matches a plain single word or a non-identifier string.
 _DOTTED_MODULE_PATH_RE: re.Pattern[str] = re.compile(
     r"[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)+"
@@ -3817,7 +3817,7 @@ def check_shared_vocabulary_ratchet(
 # G2 Shared-Layer Target-Name Ratchet (Decision D4, Invariant I3)
 #
 # The shared codegen packages this ratchet polices: the language layer and the
-# generation kernel (which took the GenDSL data model and catalog modules out of
+# generation kernel (which took the DAL generator data model and catalog modules out of
 # the language layer, so leaving it out would drop them from this check).
 # `datrix_common` and
 # `datrix_cli` are deliberately excluded (design §8): they hold platform
@@ -5034,9 +5034,9 @@ def check_cross_package_vocabulary_ratchet(
 # module, `hasattr` / `getattr` with a default (existence probes), and a read
 # inside `pytest.raises(AttributeError)`. Tracked per scope.
 #
-# genDSL-bound names. The kernel resolver looks a `<namespace>.<module>.<name>`
-# genDSL reference up as an attribute of the module the namespace reaches, so a
-# name imported there only to be bound for genDSL is not a provider-side hit;
+# DAL generator-bound names. The kernel resolver looks a `<namespace>.<module>.<name>`
+# DAL generator reference up as an attribute of the module the namespace reaches, so a
+# name imported there only to be bound for DAL generator is not a provider-side hit;
 # the allowlist is read from the definitions text and fails closed.
 #
 # Every `[project.entry-points.*]` value shaped "module.path:attr" in a
@@ -5525,15 +5525,15 @@ def _reexport_facade_provider_hits(
     info: _ModuleFacadeInfo,
     packages: dict[str, PackageInfo],
     monorepo_root: Path,
-    gendsl_bound: frozenset[tuple[Path, str]] = frozenset(),
+    dgen_bound: frozenset[tuple[Path, str]] = frozenset(),
 ) -> list[ReexportFacadeHit]:
     """The provider-side shape for one already-analyzed file: every bound
     name it imports from a Datrix or test-tree module and passes through --
     via a self-aliased import or its own ``__all__`` -- without defining it.
     A bound name that is itself a submodule of the module it is imported from
     (``from . import sub``) is a package traversal, never a facade, and a
-    name in *gendsl_bound* (see ``_gendsl_bound_names``) is bound for a
-    genDSL ``<namespace>.<module>.<name>`` reference, not re-exported."""
+    name in *dgen_bound* (see ``_dgen_bound_names``) is bound for a
+    DAL generator ``<namespace>.<module>.<name>`` reference, not re-exported."""
     hits: list[ReexportFacadeHit] = []
     providing_module = str(py_file.relative_to(monorepo_root)).replace("\\", "/")
     providing_module_dotted = _dotted_module_name_for_file(py_file, packages)
@@ -5544,7 +5544,7 @@ def _reexport_facade_provider_hits(
             continue
         if not (self_aliased or bound_name in info.all_names):
             continue
-        if (py_file, bound_name) in gendsl_bound:
+        if (py_file, bound_name) in dgen_bound:
             continue
         resolved_source = _resolve_policed_module(source_module, packages, py_file)
         if resolved_source is not None and _is_submodule_member(
@@ -5904,10 +5904,10 @@ def _reexport_facade_module_attribute_hits(
     return hits
 
 
-#: A genDSL function reference as the definitions text spells it: ``builder
+#: A DAL generator function reference as the definitions text spells it: ``builder
 #: <ref>``, ``call <ref>(...)`` or ``from <ref>`` (the ``context T from`` /
 #: ``appends X from`` forms), where ``<ref>`` is ``<namespace>.<module>.<name>``.
-_GENDSL_REFERENCE_PATTERN = re.compile(
+_DGEN_REFERENCE_PATTERN = re.compile(
     r"(?<![\w.])(?:builder|call|from)\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)"
 )
 
@@ -5915,31 +5915,31 @@ ContextModuleResolver = Callable[[str], str | None]
 
 
 def _registry_context_module_resolver() -> ContextModuleResolver:
-    """Resolve a genDSL ``<namespace>.<module>`` path to its real module path
-    through the kernel's own registry -- the single resolver the genDSL
+    """Resolve a DAL generator ``<namespace>.<module>`` path to its real module path
+    through the kernel's own registry -- the single resolver the DAL generator
     executor uses -- or ``None`` when no registered namespace prefixes it."""
-    from datrix_codegen_kernel.gendsl import target_registry
+    from datrix_codegen_kernel.dgen import target_registry
     from datrix_common.errors.generation import GenerationError
 
     def resolve(module_path: str) -> str | None:
         try:
-            return target_registry.resolve_gendsl_context_module(module_path)
+            return target_registry.resolve_dgen_context_module(module_path)
         except GenerationError:
             return None
 
     return resolve
 
 
-def _gendsl_bound_names(
+def _dgen_bound_names(
     files: list[Path],
     packages: dict[str, PackageInfo],
     resolve_context_module: ContextModuleResolver,
 ) -> frozenset[tuple[Path, str]]:
-    """Every ``(module file, name)`` a genDSL reference in the scanned
-    packages' ``src/`` trees resolves to. The kernel genDSL resolver looks a
+    """Every ``(module file, name)`` a DAL generator reference in the scanned
+    packages' ``src/`` trees resolves to. The kernel DAL generator resolver looks a
     ``<namespace>.<module>.<name>`` reference up as an ATTRIBUTE of the
     module the namespace reaches, so a name imported into that module only
-    to be bound for genDSL is not a re-export for Python callers.
+    to be bound for DAL generator is not a re-export for Python callers.
 
     The allowlist is read from the definitions text itself (string constants,
     f-string literal parts included). A reference the text spells in a way
@@ -5960,7 +5960,7 @@ def _gendsl_bound_names(
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
                 continue
-            for match in _GENDSL_REFERENCE_PATTERN.finditer(node.value):
+            for match in _DGEN_REFERENCE_PATTERN.finditer(node.value):
                 module_path, _, name = match.group(1).rpartition(".")
                 if not module_path:
                     continue
@@ -6017,7 +6017,7 @@ def scan_reexport_facades(
     Args:
         packages: Package name -> PackageInfo, as returned by discover_packages().
         monorepo_root: Monorepo root for relative path reporting.
-        context_module_resolver: Resolves a genDSL ``<namespace>.<module>``
+        context_module_resolver: Resolves a DAL generator ``<namespace>.<module>``
             path to its real module path, or ``None`` for an unregistered
             namespace; defaults to the kernel registry's resolver.
 
@@ -6032,7 +6032,7 @@ def scan_reexport_facades(
 
     scan_files = _reexport_facade_scan_files(packages, monorepo_root)
     resolution_packages = _with_scripts_package(packages, monorepo_root)
-    gendsl_bound = _gendsl_bound_names(
+    dgen_bound = _dgen_bound_names(
         scan_files,
         resolution_packages,
         context_module_resolver or _registry_context_module_resolver(),
@@ -6059,7 +6059,7 @@ def scan_reexport_facades(
             sys.exit(2)
 
         for hit in _reexport_facade_provider_hits(
-            py_file, info, resolution_packages, monorepo_root, gendsl_bound
+            py_file, info, resolution_packages, monorepo_root, dgen_bound
         ):
             _add(hit)
         for hit in _reexport_facade_consumer_hits(
@@ -6357,8 +6357,8 @@ def _real_repo_rules() -> tuple[GeneratorTaxonomy, dict[str, BoundaryRule]]:
 #: Formerly carved out of datrix_codegen_common for platforms, SQL and
 #: component; now in the kernel. Each must be forbidden in src/ AND tests/.
 _FORMER_CARVE_OUT_MODULES: tuple[str, ...] = (
-    "datrix_codegen_common.gendsl",
-    "datrix_codegen_common.gendsl.compiler",
+    "datrix_codegen_common.dgen",
+    "datrix_codegen_common.dgen.compiler",
     "datrix_codegen_common.dashboards.builder",
     "datrix_codegen_common.algorithms.serverless",
     "datrix_codegen_common.context_models.serverless",
@@ -6373,7 +6373,7 @@ _FORMER_CARVE_OUT_MODULES: tuple[str, ...] = (
 )
 #: The kernel home of the same facts: never forbidden to any target.
 _KERNEL_TARGET_MODULES: tuple[str, ...] = (
-    "datrix_codegen_kernel.gendsl.compiler",
+    "datrix_codegen_kernel.dgen.compiler",
     "datrix_codegen_kernel.dashboards.builder",
     "datrix_codegen_kernel.algorithms.serverless",
     "datrix_codegen_kernel.context_models.migration",
@@ -6382,7 +6382,7 @@ _KERNEL_TARGET_MODULES: tuple[str, ...] = (
     "datrix_codegen_kernel.platform.runtime",
     "datrix_codegen_kernel.pooling.contract",
     "datrix_codegen_kernel.parity.domain_declaration",
-    "datrix_codegen_kernel.generation.gendsl_ir",
+    "datrix_codegen_kernel.generation.dgen_ir",
 )
 
 
@@ -6653,7 +6653,7 @@ def _self_test_sql_and_component_coverage(rules: dict[str, BoundaryRule]) -> boo
             _rule_forbids(rules, "datrix_codegen_sql", imported),
         )
     for imported in (
-        "datrix_codegen_kernel.gendsl.compiler",
+        "datrix_codegen_kernel.dgen.compiler",
         "datrix_codegen_kernel.context_models.migration",
         "datrix_codegen_kernel.algorithms.postgresql_fulltext",
     ):
@@ -6681,7 +6681,7 @@ def _self_test_sql_and_component_coverage(rules: dict[str, BoundaryRule]) -> boo
             _rule_forbids(rules, "datrix_codegen_component", imported),
         )
     for imported in (
-        "datrix_codegen_common.gendsl.compiler",
+        "datrix_codegen_common.dgen.compiler",
         "datrix_codegen_common.algorithms.nosql_connection",
     ):
         ok &= _check(
@@ -6689,7 +6689,7 @@ def _self_test_sql_and_component_coverage(rules: dict[str, BoundaryRule]) -> boo
             _rule_forbids(rules, "datrix_codegen_component", imported),
         )
     for imported in (
-        "datrix_codegen_kernel.gendsl.compiler",
+        "datrix_codegen_kernel.dgen.compiler",
         "datrix_codegen_kernel.algorithms.nosql_connection",
     ):
         ok &= _check(
@@ -6748,7 +6748,7 @@ def _self_test_client_target_and_language_core_rules(rules: dict[str, BoundaryRu
         ok &= _check(f"language core {core} has a boundary-rule entry", core in rules)
         for imported in (
             f"{owner}.plugin",
-            "datrix_codegen_angular.gendsl",
+            "datrix_codegen_angular.dgen",
             "datrix_codegen_python",
             "datrix_language.parser",
             "datrix_cli",
@@ -6771,8 +6771,8 @@ def _self_test_client_target_and_language_core_rules(rules: dict[str, BoundaryRu
                 _rule_forbids(rules, source, f"{core}.profile"),
             )
     for source, imported in (
-        ("datrix_codegen_angular", "datrix_codegen_flutter.gendsl"),
-        ("datrix_codegen_flutter", "datrix_codegen_angular.gendsl"),
+        ("datrix_codegen_angular", "datrix_codegen_flutter.dgen"),
+        ("datrix_codegen_flutter", "datrix_codegen_angular.dgen"),
     ):
         ok &= _check(
             f"client target {source} cannot import client target {imported}",
@@ -9994,7 +9994,7 @@ def _self_test_reexport_facade_extended_shapes(
     """Scanner assertions for the three shapes a plain ``from <datrix module>
     import N`` scan cannot see: test-tree modules (``tests.<module>``) as
     providers, module objects read by attribute or ``getattr``, and names
-    bound for a genDSL ``<namespace>.<module>.<name>`` reference. Every case
+    bound for a DAL generator ``<namespace>.<module>.<name>`` reference. Every case
     runs the real scanner functions over real fixture files, the negative
     (zero-hit) case beside the positive one."""
     ok = True
@@ -10176,10 +10176,10 @@ def _self_test_reexport_facade_extended_shapes(
         [hit.site_line for hit in _attribute(tests_module_use)] == [3, 4],
     )
 
-    # genDSL-bound names: the kernel resolver looks ``<namespace>.<module>.<name>``
+    # DAL generator-bound names: the kernel resolver looks ``<namespace>.<module>.<name>``
     # up as an attribute of the module the namespace reaches.
     bound_module = _write(
-        "datrix_fixture/gendsl_mod.py",
+        "datrix_fixture/dgen_mod.py",
         "from datrix_fixture.pkg.sub import X as X\nfrom datrix_fixture.pkg.sub import Y as Y\n",
     )
     definitions = _write(
@@ -10189,17 +10189,17 @@ def _self_test_reexport_facade_extended_shapes(
     )
 
     def _resolve_fixture_namespace(module_path: str) -> str | None:
-        return {"fx.builders": "datrix_fixture.gendsl_mod"}.get(module_path)
+        return {"fx.builders": "datrix_fixture.dgen_mod"}.get(module_path)
 
-    bound = _gendsl_bound_names([definitions], packages, _resolve_fixture_namespace)
+    bound = _dgen_bound_names([definitions], packages, _resolve_fixture_namespace)
     ok &= _check(
-        "the genDSL allowlist holds exactly the (module, name) pairs the definitions "
+        "the DAL generator allowlist holds exactly the (module, name) pairs the definitions "
         "text references through a registered namespace",
         bound == frozenset({(bound_module, "X")}),
     )
     bound_info = _analyze_scanned_file(bound_module, packages)
     ok &= _check(
-        "a name bound for a genDSL reference is not a provider hit; an unreferenced "
+        "a name bound for a DAL generator reference is not a provider hit; an unreferenced "
         "import in the same module still is",
         [
             hit.name
@@ -10217,11 +10217,11 @@ def _self_test_reexport_facade_extended_shapes(
         == ["X", "Y"],
     )
     ok &= _check(
-        "a Python caller importing a genDSL-bound name through that module is still "
+        "a Python caller importing a DAL generator-bound name through that module is still "
         "a consumer hit",
         len(
             _consumer(
-                _write("datrix_fixture/gendsl_caller.py", "from datrix_fixture.gendsl_mod import X\n"),
+                _write("datrix_fixture/dgen_caller.py", "from datrix_fixture.dgen_mod import X\n"),
                 packages,
             )
         )

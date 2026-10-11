@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Lint and format ConfigDSL (.dcfg) files.
+ Lint and format config documents (.dcfg).
 
 .DESCRIPTION
  Discovers .dcfg files and applies deterministic formatting.

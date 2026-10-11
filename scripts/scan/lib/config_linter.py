@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lint and format ConfigDSL (.dcfg) files.
+"""Lint and format config documents (.dcfg).
 
 Run with one or more paths, or use ``--all`` to scan all datrix repositories.
 """
@@ -195,7 +195,7 @@ def _render_named_block(node: ast.NamedBlockDecl, indent: int) -> str:
 
 
 #: Maps a config-store key's canonical ``ConfigValueType.value`` (e.g.
-#: ``"Integer"``) back to its ConfigDSL source token (e.g. ``"Int"``) -- the
+#: ``"Integer"``) back to its ``.dcfg`` source token (e.g. ``"Int"``) -- the
 #: parser's own ``_CONFIG_TYPE_TOKENS`` inverted. Only ``Integer``/``Int``
 #: actually differ; the rest are identity.
 _CONFIG_KEY_TYPE_SOURCE_TOKENS: dict[str, str] = {
@@ -374,13 +374,14 @@ def _render_profile(profile: ast.ProfileBlock, *, is_base: bool, indent: int) ->
 
 def format_dcfg(source: str, source_path: Path) -> tuple[str, list[LintIssue], str | None]:
     """Return formatted content + lint issues + optional parse error."""
-    from datrix_common.config.dcfg.parser import ConfigDSLParseError, parse_dcfg
+    from datrix_common.config.dcfg.errors import DcfgSyntaxError
+    from datrix_language.parser.dcfg_parser import parse_dcfg
 
     issues = _lint_source_text(source)
 
     try:
         ast = parse_dcfg(source, str(source_path))
-    except ConfigDSLParseError as exc:
+    except DcfgSyntaxError as exc:
         message = f"Syntax error: {exc}"
         return source, issues, message
 
@@ -436,7 +437,8 @@ def _formatting_safety_issue(
     blindly, re-parse the formatted text and compare ASTs: any divergence (or a
     parse failure, or lost ``//`` comments) means the format is unsafe to write.
     """
-    from datrix_common.config.dcfg.parser import ConfigDSLParseError, parse_dcfg
+    from datrix_common.config.dcfg.errors import DcfgSyntaxError
+    from datrix_language.parser.dcfg_parser import parse_dcfg
 
     source_comments = _count_comment_lines(source)
     formatted_comments = _count_comment_lines(formatted)
@@ -445,13 +447,13 @@ def _formatting_safety_issue(
             1,
             1,
             f"Formatter would drop {source_comments - formatted_comments} comment "
-            "line(s); leaving file unchanged. ConfigDSL comments are not preserved "
+            "line(s); leaving file unchanged. .dcfg comments are not preserved "
             "by the formatter -- this is a formatter limitation, not a file error.",
         )
 
     try:
         formatted_ast = parse_dcfg(formatted, str(source_path))
-    except ConfigDSLParseError as exc:
+    except DcfgSyntaxError as exc:
         return LintIssue(
             1,
             1,
