@@ -23,6 +23,18 @@ Shows git status for all repositories under the workspace root.
 
 Pulls all git repositories under the workspace root (wraps `git\lib\pull.py`), printing git's output per repo, then one summary grouping every repo by outcome: **Updated** (old..new, commit count), **Up to date**, **Conflict** (unmerged paths listed), **Blocked by local changes** (the paths the pull would overwrite; nothing merged — Jon's `/resolve-conflicts`), **Failed** (git's error line).
 
+Each blocked path carries a verdict. It compares the local edit (HEAD vs the working tree) with the
+incoming one (HEAD vs the fetched upstream) on HEAD line ranges, which is the first question a
+conflict resolution asks:
+
+| Verdict | Meaning |
+|---------|---------|
+| `OVERLAPS upstream at HEAD lines ...` | Both sides changed the same lines (within git's 3-line merge context): a real conflict |
+| `DISJOINT: local a-b \| incoming c-d` | Both changed the file, in different places |
+| `NOT CHANGED UPSTREAM` | Only the local side changed the file's content |
+| `NO LOCAL CONTENT CHANGE` | The local difference is mode or line endings only (see `git\fix-line-endings.ps1`) |
+| `UNTRACKED` | A local untracked file the incoming commits add; compare the two by hand |
+
 | Mode | Command |
 |------|---------|
 | **Pull all** | `.\git\pull.ps1` |
@@ -30,6 +42,26 @@ Pulls all git repositories under the workspace root (wraps `git\lib\pull.py`), p
 **Parameters:** none.
 
 **Exit codes:** 0 = every repo updated or up to date, 1 = at least one conflicted, was blocked or failed, 2 = the run could not start.
+
+---
+
+## `git\fix-line-endings.ps1`
+
+Gives each modified file back the line endings its index copy has. A tool that writes a file back
+in the other line-ending style turns a small edit into a whole-file rewrite and hides the real
+change. For every file with unstaged modifications, it reads the file's own index blob
+(`git show :<path>`, read-only) and rewrites **only the working copy's line terminators** to match
+it. Content is never changed, and nothing is reverted, staged or checked out. Binary files and
+files that already match are skipped. A file whose index copy itself mixes CRLF and LF is named and
+left as is.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Preview** | `.\git\fix-line-endings.ps1 -DryRun` | List the files whose endings differ from their index copy |
+| **One repo** | `.\git\fix-line-endings.ps1 -Repo datrix-codegen-python` | Restore them in one repository |
+| **Every repo** | `.\git\fix-line-endings.ps1` | Every framework repository |
+
+**Parameters:** `-Repo <name,...>` (default: every framework repo), `-DryRun`. **Exit codes:** 0 = done (or a clean `-DryRun`), 2 = a git command failed or a bad argument.
 
 ---
 

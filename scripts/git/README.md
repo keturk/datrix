@@ -9,7 +9,8 @@ Git operations across all Datrix repositories.
 | Script | Description |
 |--------|-------------|
 | `status.ps1` | Show git status for all repositories |
-| `pull.ps1` | Pull latest changes for all repositories |
+| `pull.ps1` | Pull latest changes for all repositories; a pull blocked by local changes labels each path OVERLAPS / DISJOINT / NOT CHANGED UPSTREAM / NO LOCAL CONTENT CHANGE / UNTRACKED |
+| `fix-line-endings.ps1` | Give each modified file back the line endings of its index copy, so a small edit stops showing as a whole-file rewrite |
 | `pre-review.ps1` | First-pass review of the lines pending changes add to Python files (silent fallbacks, bare/swallowing excepts, TODOs, missing type hints, placeholder bodies); run before commit-and-push |
 | `commit-and-push.ps1` | One-pass commit-and-push for all dirty repos, one commit per themed change set; messages from the first local model that answers (discovered on the machines' Ollama servers), or the Claude Code CLI |
 
@@ -63,12 +64,32 @@ Conflict (1):
       src/datrix_semantic/analyzer.py
 Blocked by local changes (1):
   datrix
-      docs/architecture/config-system.md
+      docs/architecture/config-system.md  [DISJOINT: local 40-52 | incoming 118-121]
 ========================================================================
 2 repositories need attention.
 ```
 
+Each blocked path carries a verdict that compares the local edit (HEAD vs the working tree) with the
+incoming one (HEAD vs the fetched upstream) on HEAD line ranges:
+
+- `OVERLAPS` means a real conflict (the same lines within git's 3-line context).
+- `DISJOINT` means both sides changed the file, in different places.
+- `NOT CHANGED UPSTREAM`, `NO LOCAL CONTENT CHANGE` (mode or line endings only; see `fix-line-endings.ps1`) and `UNTRACKED` (a local file the incoming commits add) are the other verdicts.
+
 Exit code 0 when every repo is updated or up to date, 1 when any conflicted, was blocked or failed, 2 when the run could not start.
+
+## fix-line-endings.ps1
+
+Gives each modified file back the line endings its index copy has. For every file with unstaged
+modifications, it reads the file's index blob (read-only) and rewrites only the working copy's line
+terminators to match. Content is never changed, and nothing is reverted, staged or checked out.
+Binary files are skipped, and a file whose index copy mixes CRLF and LF is named and left alone.
+Delegates to `scripts/git/lib/fix_line_endings.py`.
+
+```powershell
+.\fix-line-endings.ps1 -DryRun                        # list what would change
+.\fix-line-endings.ps1 -Repo datrix-codegen-python    # one repository
+```
 
 ## commit-and-push.ps1
 
