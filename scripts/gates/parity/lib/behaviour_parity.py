@@ -23,8 +23,9 @@ Grouping keys, tried in order for every function:
 
 0. **Coordinate roles** (platform axis only) -- the capabilities a function
    realizes, resolved from the platform package's own registration tables
-   rather than from file layout or name shape. Every platform builds closed
-   ``RealizationTable``s (``load_realization_table``) pairing each
+   rather than from file layout or name shape. Every platform loads closed
+   ``RealizationTable``s from its DAL ``realization.dal``
+   (``load_realization_tables``) pairing each
    ``(block_type, flavor)`` cell it offers with the ``plan_builder`` that
    realizes it and the ``emitters`` that emit its provisioning artifact.
    Those bindings seed the key, and every function of the SAME package a
@@ -41,7 +42,7 @@ Grouping keys, tried in order for every function:
    builder; its emitters are keyed in the scaffold platform's package. Before
    the scan, every declared emitter must be reached from its platform's
    generator -- the ``datrix.platforms`` entry-point class's methods and the
-   functions its compiled genDSL definitions reference -- and every scaffold
+   functions its compiled DAL generator definitions reference -- and every scaffold
    delegation must land on a scaffold-platform cell that binds emitters; a
    declaration naming code the generator never runs fails the scan. The
    language axis never builds this index, so the key cannot apply to it. A
@@ -223,12 +224,13 @@ from datrix_codegen_common.testkit.fixtures.fixtureclient import (
     FIXTURECLIENT_CAPABILITY_DECLARATION,
     fixture_client_target_descriptor,
 )
-from datrix_codegen_common.transpiler.emit_dsl import emit_adapter
-from datrix_codegen_kernel.platform.realization_dsl import (
+from datrix_codegen_common.transpiler.emit_table import emit_adapter
+from datrix_codegen_kernel.platform.realization_table import (
     ArtifactEmitter,
     RealizationCell,
     RealizationTable,
     ScaffoldRuntimeRealization,
+    parse_realization_tables,
 )
 from datrix_common.errors.plugin import PluginNotFoundError
 from datrix_common.plugin import registry as registry_module
@@ -824,7 +826,7 @@ BuilderIdentity = tuple[Path, str]
 #: registered plan builders or declared emitters reach it.
 CoordinateIndex = Mapping[BuilderIdentity, frozenset[CoordinateRole]]
 
-_REALIZATION_LOADER_NAME: Final[str] = "load_realization_table"
+_REALIZATION_LOADER_NAME: Final[str] = "load_realization_tables"
 #: Bound on following a plan builder through delegating adapters to the
 #: function that holds the behaviour.
 _MAX_BUILDER_HOPS: Final[int] = 5
@@ -968,11 +970,11 @@ def _is_loader_call(node: ast.AST) -> bool:
 
 
 def _table_names_in(module: ast.Module, py_file: Path) -> list[str]:
-    """The module-level names bound to ``load_realization_table(...)`` results.
+    """The module-level names bound to ``load_realization_tables(...)`` results.
 
     Raises:
-        ValueError: A ``load_realization_table`` call is not the value of a
-            module-level assignment, so the table it builds cannot be located
+        ValueError: A ``load_realization_tables`` call is not the value of a
+            module-level assignment, so the tables it loads cannot be located
             by name.
     """
     names: list[str] = []
@@ -990,20 +992,26 @@ def _table_names_in(module: ast.Module, py_file: Path) -> list[str]:
     if calls != len(names):
         raise ValueError(
             f"behaviour_parity:{py_file} calls {_REALIZATION_LOADER_NAME} {calls} time(s) but only {len(names)} "
-            f"call(s) are the value of a module-level assignment. Fix: bind each table to a module-level name so "
-            f"the gate can locate it."
+            f"call(s) are the value of a module-level assignment. Fix: bind each loaded table mapping to a "
+            f"module-level name so the gate can locate it."
         )
     return names
 
 
-def _import_table(module_name: str, attribute: str, platform_label: str) -> RealizationTable:
-    """The ``RealizationTable`` *module_name* binds to *attribute*.
+def _is_realization_table(table: object) -> bool:
+    return isinstance(table, Mapping) and all(isinstance(cell, RealizationCell) for cell in table.values())
+
+
+def _import_tables(module_name: str, attribute: str, platform_label: str) -> list[RealizationTable]:
+    """The ``RealizationTable``s of the table mapping *module_name* binds to
+    *attribute* (``load_realization_tables`` returns one table per name).
 
     Raises:
         ValueError: The module cannot be imported, lacks the attribute, or the
-            attribute is not a mapping of ``RealizationCell``.
+            attribute is not a mapping of table names to mappings of
+            ``RealizationCell``.
     """
-    where = f"platform {platform_label!r} table {module_name}.{attribute}"
+    where = f"platform {platform_label!r} tables {module_name}.{attribute}"
     try:
         module = importlib.import_module(module_name)
     except ImportError as exc:
@@ -1011,19 +1019,19 @@ def _import_table(module_name: str, attribute: str, platform_label: str) -> Real
             f"behaviour_parity:cannot import {module_name} to read {where} ({exc}). Fix: install the platform "
             f"package into the shared venv."
         ) from exc
-    table = getattr(module, attribute, None)
-    if not isinstance(table, Mapping) or not all(isinstance(cell, RealizationCell) for cell in table.values()):
+    tables = getattr(module, attribute, None)
+    if not isinstance(tables, Mapping) or not all(_is_realization_table(table) for table in tables.values()):
         raise ValueError(
-            f"behaviour_parity:{where} is not a mapping of RealizationCell (found {type(table).__name__}). Fix: "
-            f"bind the result of {_REALIZATION_LOADER_NAME} to that name."
+            f"behaviour_parity:{where} is not a mapping of table names to RealizationCell mappings (found "
+            f"{type(tables).__name__}). Fix: bind the result of {_REALIZATION_LOADER_NAME} to that name."
         )
-    return table
+    return list(tables.values())
 
 
 def platform_realization_tables(platform_label: str, src_dirs: Sequence[Path]) -> list[RealizationTable]:
     """Every ``RealizationTable`` the platform package under *src_dirs*
-    builds, located by parsing its source for ``load_realization_table``
-    call sites and imported by the module and name each one is bound to.
+    loads, located by parsing its source for ``load_realization_tables``
+    call sites and imported by the module and name each result is bound to.
 
     Args:
         platform_label: The platform package label, named in errors.
@@ -1038,7 +1046,7 @@ def platform_realization_tables(platform_label: str, src_dirs: Sequence[Path]) -
     for src_dir in src_dirs:
         for py_file in sorted(src_dir.rglob("*.py")):
             for name in _table_names_in(parse_module_or_raise(py_file), py_file):
-                tables.append(_import_table(_module_name_for(src_dir, py_file), name, platform_label))
+                tables.extend(_import_tables(_module_name_for(src_dir, py_file), name, platform_label))
     if not tables:
         raise ValueError(
             f"behaviour_parity:platform {platform_label!r} builds no RealizationTable under "
@@ -1544,18 +1552,18 @@ class _ReferenceCollector(ast.NodeVisitor):
 def platform_generator_roots(platform_label: str, graph: ReferenceGraph) -> frozenset[BuilderIdentity]:
     """The functions a platform's generator runs from: every method of each
     ``datrix.platforms`` entry-point class the label folds, and every package
-    function the label's compiled genDSL definitions reference (a genDSL
+    function the label's compiled DAL generator definitions reference (a DAL generator
     builder lives in a docstring, so no AST call reaches it).
 
     Raises:
         ValueError: A folded name has no entry point, or its class is not
             part of the package.
     """
-    from datrix_codegen_kernel.gendsl.compiler import get_definitions
-    from datrix_codegen_kernel.gendsl.target_registry import target_kind_map
+    from datrix_codegen_kernel.dgen.compiler import get_definitions
+    from datrix_codegen_kernel.dgen.target_registry import target_kind_map
 
     registered = {ep.name: ep for ep in entry_points(group=_PLATFORM_ENTRY_POINT_GROUP)}
-    gendsl_targets = target_kind_map()
+    dgen_targets = target_kind_map()
     roots: set[BuilderIdentity] = set()
     for name in platform_label.split(_LABEL_JOIN_SEPARATOR):
         if name not in registered:
@@ -1565,15 +1573,15 @@ def platform_generator_roots(platform_label: str, graph: ReferenceGraph) -> froz
             )
         entry_point = registered[name]
         roots |= graph.class_methods(entry_point.module, entry_point.attr)
-        if name in gendsl_targets:
-            roots |= _gendsl_reference_roots(get_definitions(name), graph)
+        if name in dgen_targets:
+            roots |= _dgen_reference_roots(get_definitions(name), graph)
     return frozenset(roots)
 
 
-def _gendsl_reference_roots(definitions: Iterable[object], graph: ReferenceGraph) -> frozenset[BuilderIdentity]:
-    """Every package function a compiled genDSL definition tree references
+def _dgen_reference_roots(definitions: Iterable[object], graph: ReferenceGraph) -> frozenset[BuilderIdentity]:
+    """Every package function a compiled DAL generator definition tree references
     (each resolved ``ResolvedFunctionRef.callable_``)."""
-    from datrix_codegen_kernel.generation.gendsl_ir import ResolvedFunctionRef
+    from datrix_codegen_kernel.generation.dgen_ir import ResolvedFunctionRef
 
     roots: set[BuilderIdentity] = set()
     pending: list[object] = list(definitions)
@@ -3258,7 +3266,7 @@ def _marked_adapter_member(package: str, file_path: Path) -> FunctionSource:
     set-aside used to excuse."""
     source = (
         f"from {emit_adapter.__module__} import {emit_adapter.__qualname__}\n\n"
-        f"@{emit_adapter.__qualname__}\n"
+        f"@{emit_adapter.__qualname__}(realizes=None)\n"
         f"def build_thing(value: str) -> str:\n"
         f"    return value\n"
     )
@@ -4624,11 +4632,11 @@ def _self_test_case_fingerprint_report_only() -> bool:
 #: cases import. Never a real package.
 _SELF_TEST_PLATFORM_PREFIX: Final[str] = "behaviour_parity_selftest_platform"
 _SELF_TEST_PLATFORM_MODULE: Final[str] = "tables.py"
+#: Every synthetic platform's realization document, beside its table module.
+_SELF_TEST_PLATFORM_DOCUMENT: Final[str] = "realization.dal"
 _SELF_TEST_PLATFORM_ALPHA_SOURCE: Final[str] = '''
-    from datrix_codegen_kernel.platform.realization_dsl import load_realization_table
+    from datrix_codegen_kernel.platform.realization_table import load_realization_tables
     from datrix_common.plugin.capability_cells import BlockRealization
-
-    from .iac import emit_alpha_cache, emit_alpha_database, emit_alpha_uniform
 
     _CELL = BlockRealization(structural_pattern="*/infra/main.tf")
 
@@ -4669,31 +4677,40 @@ _SELF_TEST_PLATFORM_ALPHA_SOURCE: Final[str] = '''
 
     _DATABASE_BUILDER = _adapt(Infra().provision_database)
 
-    ALPHA_TABLE = load_realization_table(
-        platform_label="alpha",
+    ALPHA_TABLES = load_realization_tables(
+        "behaviour_parity_selftest_platform_alpha",
+        "realization.dal",
+        platform="alpha",
         block_realizations={
-            ("rdbms", "small"): _CELL,
-            ("rdbms", "large"): _CELL,
-            ("cache", "small"): _CELL,
-            ("queue", "small"): _CELL,
-            ("nosql", "small"): _CELL,
-        },
-        plan_builders={
-            ("rdbms", "small"): _DATABASE_BUILDER,
-            ("rdbms", "large"): _DATABASE_BUILDER,
-            ("cache", "small"): alpha_cache_plan,
-            ("queue", "small"): alpha_uniform_plan,
-            ("nosql", "small"): alpha_uniform_plan,
-        },
-        emitters={
-            ("rdbms", "small"): (emit_alpha_database,),
-            ("rdbms", "large"): (emit_alpha_database,),
-            ("cache", "small"): (emit_alpha_cache,),
-            ("queue", "small"): (emit_alpha_uniform,),
-            ("nosql", "small"): (emit_alpha_uniform,),
+            "cells": {
+                ("rdbms", "small"): _CELL,
+                ("rdbms", "large"): _CELL,
+                ("cache", "small"): _CELL,
+                ("queue", "small"): _CELL,
+                ("nosql", "small"): _CELL,
+            }
         },
     )
 '''
+#: The alpha platform's realization document: an adapter over a bound method
+#: and plain functions as builders, one emitter per cell.
+_SELF_TEST_PLATFORM_ALPHA_DOCUMENT: Final[str] = """
+    platform alpha {
+      label "alpha";
+      builder database = behaviour_parity_selftest_platform_alpha.tables._DATABASE_BUILDER;
+      builder cache = behaviour_parity_selftest_platform_alpha.tables.alpha_cache_plan;
+      builder uniform = behaviour_parity_selftest_platform_alpha.tables.alpha_uniform_plan;
+      emitters database = behaviour_parity_selftest_platform_alpha.iac.emit_alpha_database;
+      emitters cache = behaviour_parity_selftest_platform_alpha.iac.emit_alpha_cache;
+      emitters uniform = behaviour_parity_selftest_platform_alpha.iac.emit_alpha_uniform;
+      table cells {
+        rdbms "small", "large" -> database emits database;
+        cache "small" -> cache emits cache;
+        queue "small" -> uniform emits uniform;
+        nosql "small" -> uniform emits uniform;
+      }
+    }
+"""
 #: The alpha platform's IaC module: its generator class reaches the database
 #: and cache emitters, never the uniform one.
 _SELF_TEST_PLATFORM_ALPHA_IAC_SOURCE: Final[str] = '''
@@ -4721,7 +4738,7 @@ _SELF_TEST_PLATFORM_ALPHA_IAC_SOURCE: Final[str] = '''
 '''
 _SELF_TEST_PLATFORM_ALPHA_IAC_MODULE: Final[str] = "iac.py"
 _SELF_TEST_PLATFORM_BETA_SOURCE: Final[str] = '''
-    from datrix_codegen_kernel.platform.realization_dsl import load_realization_table
+    from datrix_codegen_kernel.platform.realization_table import load_realization_tables
     from datrix_common.plugin.capability_cells import BlockRealization
 
     _CELL = BlockRealization(structural_pattern="*/infra/main.bicep")
@@ -4753,24 +4770,38 @@ _SELF_TEST_PLATFORM_BETA_SOURCE: Final[str] = '''
         return value.strip()
 
 
-    BETA_TABLE = load_realization_table(
-        platform_label="beta",
-        block_realizations={("rdbms", "tiny"): _CELL, ("cache", "tiny"): _CELL},
-        plan_builders={
-            ("rdbms", "tiny"): BetaInfra().make_db_plan,
-            ("cache", "tiny"): beta_redis_builder,
-        },
-        emitters={("rdbms", "tiny"): (beta_emit_db,), ("cache", "tiny"): (beta_emit_redis,)},
+    _BETA_INFRA = BetaInfra()
+
+    BETA_TABLES = load_realization_tables(
+        "behaviour_parity_selftest_platform_beta",
+        "realization.dal",
+        platform="beta",
+        block_realizations={"cells": {("rdbms", "tiny"): _CELL, ("cache", "tiny"): _CELL}},
     )
 '''
+#: The beta platform's realization document: a bound method of a module-level
+#: instance as one builder.
+_SELF_TEST_PLATFORM_BETA_DOCUMENT: Final[str] = """
+    platform beta {
+      label "beta";
+      builder db = behaviour_parity_selftest_platform_beta.tables._BETA_INFRA.make_db_plan;
+      builder redis = behaviour_parity_selftest_platform_beta.tables.beta_redis_builder;
+      emitters db = behaviour_parity_selftest_platform_beta.tables.beta_emit_db;
+      emitters redis = behaviour_parity_selftest_platform_beta.tables.beta_emit_redis;
+      table cells {
+        rdbms "tiny" -> db emits db;
+        cache "tiny" -> redis emits redis;
+      }
+    }
+"""
 _SELF_TEST_PLATFORM_NO_TABLE_SOURCE: Final[str] = "def plain_function(value):\n    return value\n"
 _SELF_TEST_PLATFORM_UNBOUND_TABLE_SOURCE: Final[str] = '''
-    from datrix_codegen_kernel.platform.realization_dsl import load_realization_table
+    from datrix_codegen_kernel.platform.realization_table import load_realization_tables
 
 
-    def build_table():
-        return load_realization_table(
-            platform_label="gamma", block_realizations={}, plan_builders={}, emitters={}
+    def build_tables():
+        return load_realization_tables(
+            "behaviour_parity_selftest_platform_unbound", "realization.dal", platform="gamma", block_realizations={}
         )
 '''
 
@@ -4802,7 +4833,19 @@ def _write_alpha_platform(root: Path) -> Path:
         root,
         _SELF_TEST_ALPHA,
         _SELF_TEST_PLATFORM_ALPHA_SOURCE,
-        {_SELF_TEST_PLATFORM_ALPHA_IAC_MODULE: _SELF_TEST_PLATFORM_ALPHA_IAC_SOURCE},
+        {
+            _SELF_TEST_PLATFORM_ALPHA_IAC_MODULE: _SELF_TEST_PLATFORM_ALPHA_IAC_SOURCE,
+            _SELF_TEST_PLATFORM_DOCUMENT: _SELF_TEST_PLATFORM_ALPHA_DOCUMENT,
+        },
+    )
+
+
+def _write_beta_platform(root: Path) -> Path:
+    return _write_platform_package(
+        root,
+        _SELF_TEST_BETA,
+        _SELF_TEST_PLATFORM_BETA_SOURCE,
+        {_SELF_TEST_PLATFORM_DOCUMENT: _SELF_TEST_PLATFORM_BETA_DOCUMENT},
     )
 
 
@@ -4853,7 +4896,7 @@ _SELF_TEST_EXPECTED_COORDINATES: Final[Mapping[str, frozenset[str]]] = MappingPr
 
 def _self_test_case_coordinate_key() -> bool:
     """(c1) Two synthetic platform packages register plan builders and
-    emitters through ``load_realization_table``. The coordinate index keys
+    emitters through ``load_realization_tables``. The coordinate index keys
     every function a builder or emitter reaches -- through a delegating
     adapter, a bound method, an inherited method, a relative import, an
     annotated parameter -- to the block type of every seed reaching it, so a
@@ -4865,7 +4908,7 @@ def _self_test_case_coordinate_key() -> bool:
     with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-c1-") as tmp:
         root = Path(tmp)
         alpha_dir = _write_alpha_platform(root)
-        beta_dir = _write_platform_package(root, _SELF_TEST_BETA, _SELF_TEST_PLATFORM_BETA_SOURCE)
+        beta_dir = _write_beta_platform(root)
         target_src_dirs = {_SELF_TEST_ALPHA: (alpha_dir,), _SELF_TEST_BETA: (beta_dir,)}
         sys.path.insert(0, str(root))
         importlib.invalidate_caches()
@@ -4930,7 +4973,7 @@ def _self_test_case_coordinate_key() -> bool:
 def _self_test_case_coordinate_key_fails_closed() -> bool:
     """(c2) A platform whose tables cannot be located or resolved fails the
     scan naming the cause, never keying that platform by name instead: a
-    package building no table, a ``load_realization_table`` call that is not
+    package building no table, a ``load_realization_tables`` call that is not
     a module-level assignment, an unimportable module, an adapter closing over
     two callables, a builder that is not a function, a seed defined outside
     the platform's package, and a generator class the package does not
@@ -4951,7 +4994,7 @@ def _self_test_case_coordinate_key_fails_closed() -> bool:
                 "builds no RealizationTable",
             )
             and _refuses(
-                lambda: _import_table("behaviour_parity_selftest_missing_module", "TABLE", "gamma"),
+                lambda: _import_tables("behaviour_parity_selftest_missing_module", "TABLES", "gamma"),
                 "cannot import",
                 "gamma",
             )
@@ -4970,11 +5013,11 @@ def _self_test_case_emitter_reach() -> bool:
     """(c4) A declared emitter the platform's generator never reaches is
     refused, naming the cell and the emitter: alpha's generator class reaches
     its database and cache emitters but not the uniform one, so both cells
-    binding the uniform emitter are named and no other. A genDSL definition
+    binding the uniform emitter are named and no other. A DAL generator definition
     tree referencing the uniform emitter (a ``ResolvedFunctionRef`` nested in
     the compiled IR) supplies the missing root, and the same tables then
     pass."""
-    from datrix_codegen_kernel.generation.gendsl_ir import CallExpression, ResolvedFunctionRef
+    from datrix_codegen_kernel.generation.dgen_ir import CallExpression, ResolvedFunctionRef
 
     with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-c4-") as tmp:
         root = Path(tmp)
@@ -4989,13 +5032,13 @@ def _self_test_case_emitter_reach() -> bool:
             _purge_synthetic_platform_modules()
         graph = platform_reference_graph([alpha_dir])
         generator_roots = graph.class_methods(f"{_SELF_TEST_PLATFORM_PREFIX}_{_SELF_TEST_ALPHA}.iac", "AlphaGenerator")
-        gendsl_tree = [
+        dgen_tree = [
             CallExpression(
                 function_ref=ResolvedFunctionRef(ref="alpha.iac.emit_alpha_uniform", callable_=uniform),
-                raw_expression="alpha.iac.emit_alpha_uniform(service)",
+                arguments=("service",),
             )
         ]
-        gendsl_roots = _gendsl_reference_roots(gendsl_tree, graph)
+        dgen_roots = _dgen_reference_roots(dgen_tree, graph)
         missing = unreached_emitters(tables, graph, generator_roots)
         uniform_name = f"{_SELF_TEST_PLATFORM_PREFIX}_{_SELF_TEST_ALPHA}.iac.emit_alpha_uniform"
         return (
@@ -5004,19 +5047,37 @@ def _self_test_case_emitter_reach() -> bool:
                 UnreachedEmitter("nosql", "small", uniform_name),
                 UnreachedEmitter("queue", "small", uniform_name),
             ]
-            and gendsl_roots == frozenset({_function_identity(uniform)})
-            and unreached_emitters(tables, graph, generator_roots | gendsl_roots) == []
+            and dgen_roots == frozenset({_function_identity(uniform)})
+            and unreached_emitters(tables, graph, generator_roots | dgen_roots) == []
         )
 
 
-def _self_test_scaffold_plan(block: object, service: object) -> object:
-    """A synthetic plan builder for the scaffold-delegation case."""
-    return block, service
+#: The synthetic scaffold-delegation package: one plan builder and one emitter.
+_SELF_TEST_SCAFFOLD_LABEL: Final[str] = "scaffold"
+_SELF_TEST_SCAFFOLD_SOURCE: Final[str] = '''
+    def plan(block, service):
+        return block, service
 
 
-def _self_test_scaffold_emit(service: object) -> object:
-    """A synthetic emitter for the scaffold-delegation case."""
-    return service
+    def emit(service):
+        return service
+'''
+#: A provider that delegates both its cells to a container-scaffold runtime,
+#: and the scaffold platform that binds emitter functions for one of them.
+_SELF_TEST_SCAFFOLD_DOCUMENT: Final[str] = """
+    platform provider {
+      label "provider";
+      builder plan = behaviour_parity_selftest_platform_scaffold.tables.plan;
+      emitters scaffolded = scaffold "behaviour-parity-selftest-compose";
+      table cells { rdbms "container" -> plan emits scaffolded; cache "container" -> plan emits scaffolded; }
+    }
+    platform scaffold {
+      label "scaffold";
+      builder plan = behaviour_parity_selftest_platform_scaffold.tables.plan;
+      emitters files = behaviour_parity_selftest_platform_scaffold.tables.emit;
+      table cells { rdbms "container" -> plan emits files; }
+    }
+"""
 
 
 def _self_test_case_scaffold_delegation() -> bool:
@@ -5026,28 +5087,33 @@ def _self_test_case_scaffold_delegation() -> bool:
     platform lacks the cell or no platform scaffolds the runtime."""
     from datrix_common.plugin.capability_cells import BlockRealization
 
-    from datrix_codegen_kernel.platform.realization_dsl import load_realization_table
-
     compose = RuntimeId("behaviour-parity-selftest-compose")
     cell = BlockRealization(structural_pattern="*docker-compose.yml")
     rdbms, cache = ("rdbms", "container"), ("cache", "container")
-    provider = load_realization_table(
-        platform_label="provider",
-        block_realizations={rdbms: cell, cache: cell},
-        plan_builders={rdbms: _self_test_scaffold_plan, cache: _self_test_scaffold_plan},
-        emitters={rdbms: ScaffoldRuntimeRealization(compose), cache: ScaffoldRuntimeRealization(compose)},
-    )
-    scaffold = load_realization_table(
-        platform_label="scaffold",
-        block_realizations={rdbms: cell},
-        plan_builders={rdbms: _self_test_scaffold_plan},
-        emitters={rdbms: (_self_test_scaffold_emit,)},
-    )
+    package = f"{_SELF_TEST_PLATFORM_PREFIX}_{_SELF_TEST_SCAFFOLD_LABEL}"
+    with tempfile.TemporaryDirectory(prefix="behaviour-parity-selftest-c5-") as tmp:
+        root = Path(tmp)
+        _write_platform_package(root, _SELF_TEST_SCAFFOLD_LABEL, _SELF_TEST_SCAFFOLD_SOURCE)
+        sys.path.insert(0, str(root))
+        importlib.invalidate_caches()
+        try:
+            document = textwrap.dedent(_SELF_TEST_SCAFFOLD_DOCUMENT)
+            provider = parse_realization_tables(
+                document, package=package, platform="provider", block_realizations={"cells": {rdbms: cell, cache: cell}}
+            )["cells"]
+            scaffold = parse_realization_tables(
+                document, package=package, platform="scaffold", block_realizations={"cells": {rdbms: cell}}
+            )["cells"]
+            plan = importlib.import_module(f"{package}.tables").plan
+        finally:
+            sys.path.remove(str(root))
+            _purge_synthetic_platform_modules()
     tables = {"provider": [provider], "scaffold": [scaffold]}
     with_scaffold = unrealized_scaffold_cells(tables, lambda runtime: ("scaffold",) if runtime == compose else ())
     without_scaffold = unrealized_scaffold_cells(tables, lambda runtime: ())
     return (
-        coordinate_seeds([provider]) == {_function_identity(_self_test_scaffold_plan): frozenset({"rdbms", "cache"})}
+        coordinate_seeds([provider]) == {_function_identity(plan): frozenset({"rdbms", "cache"})}
+        and provider[rdbms].emitters == ScaffoldRuntimeRealization(compose)
         and len(with_scaffold) == 1
         and "('cache', 'container')" in with_scaffold[0]
         and len(without_scaffold) == 2
@@ -5286,13 +5352,13 @@ def run_self_test() -> bool:
     )
     ok &= _assert(
         _self_test_case_coordinate_key_fails_closed(),
-        "(c2) coordinate key fails closed: a platform with no table, an unbound load_realization_table call, an "
+        "(c2) coordinate key fails closed: a platform with no table, an unbound load_realization_tables call, an "
         "unimportable module, a two-delegate adapter, a non-function builder, a seed outside the package and an "
         "unknown generator class are each refused naming the cause",
     )
     ok &= _assert(
         _self_test_case_emitter_reach(),
-        "(c4) a declared emitter the generator class never reaches is refused naming each cell binding it; a genDSL "
+        "(c4) a declared emitter the generator class never reaches is refused naming each cell binding it; a DAL generator "
         "definition tree referencing it supplies the root and the tables pass",
     )
     ok &= _assert(

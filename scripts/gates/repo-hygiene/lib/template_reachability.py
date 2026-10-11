@@ -21,10 +21,10 @@ A template counts as named when any of these reaches it:
    engine variant; ``f"{name}.py.j2"`` names nothing);
 3. a static Jinja ``include``/``import``/``from``/``extends`` in any template
    (parsed with ``jinja2.meta``; a template that does not parse is an error);
-4. the ``template_name`` of a compiled genDSL ``FileDefinition`` of any
+4. the ``template_name`` of a compiled DAL generator ``FileDefinition`` of any
    registered generator target (the definition modules are imported and the
-   compiled IR is walked -- genDSL lives in docstrings, so a text scan would
-   miss it). A genDSL template name that matches no template on disk is a
+   compiled IR is walked -- DAL generator lives in docstrings, so a text scan would
+   miss it). A DAL generator template name that matches no template on disk is a
    dangling reference and fails the gate too.
 
 Rule 2 is static: a pattern names every variant it can spell, so a variant the
@@ -33,12 +33,12 @@ templates are reachable by a name, not that every value is produced.
 
 Non-vacuity, every run: a planted workspace with one literal-named, one
 pattern-named, one included, one docstring-only and one unnamed template yields
-exactly the docstring-only and unnamed ones; and the live genDSL walk must find
+exactly the docstring-only and unnamed ones; and the live DAL generator walk must find
 at least one template name for every target that declares template files.
 
 Exit codes:
-    0: Every template is named and every genDSL template name resolves.
-    1: At least one unnamed template or dangling genDSL template name.
+    0: Every template is named and every DAL generator template name resolves.
+    1: At least one unnamed template or dangling DAL generator template name.
     2: Usage error, a template that does not parse, or the self-test failed.
 """
 
@@ -99,11 +99,11 @@ class Template:
 
 @dataclass(frozen=True)
 class ScanResult:
-    """What the scan found: unnamed templates and genDSL names that resolve to none."""
+    """What the scan found: unnamed templates and DAL generator names that resolve to none."""
 
     unnamed: tuple[Template, ...]
-    dangling_gendsl: tuple[str, ...]
-    gendsl_names_by_target: Mapping[str, frozenset[str]]
+    dangling_dgen: tuple[str, ...]
+    dgen_names_by_target: Mapping[str, frozenset[str]]
 
 
 class TemplateParseError(ValueError):
@@ -248,7 +248,7 @@ def jinja_references(templates: Iterable[Template]) -> set[str]:
 
 
 def _template_names_in(definitions: Iterable[object]) -> Iterator[str]:
-    from datrix_codegen_kernel.generation.gendsl_ir import FileDefinition
+    from datrix_codegen_kernel.generation.dgen_ir import FileDefinition
 
     pending: list[object] = list(definitions)
     while pending:
@@ -263,10 +263,10 @@ def _template_names_in(definitions: Iterable[object]) -> Iterator[str]:
             pending.extend(current.values())
 
 
-def gendsl_template_names() -> dict[str, frozenset[str]]:
-    """Every compiled genDSL ``FileDefinition`` template name, per registered target."""
-    from datrix_codegen_kernel.gendsl import target_registry
-    from datrix_codegen_kernel.gendsl.compiler import get_definitions
+def dgen_template_names() -> dict[str, frozenset[str]]:
+    """Every compiled DAL generator ``FileDefinition`` template name, per registered target."""
+    from datrix_codegen_kernel.dgen import target_registry
+    from datrix_codegen_kernel.dgen.compiler import get_definitions
 
     names: dict[str, frozenset[str]] = {}
     for target in sorted(target_registry.target_kind_map()):
@@ -322,20 +322,20 @@ class _NameIndex:
         return any(m.fullmatch(template.relative) for m in self._computed)
 
 
-def scan(base_dir: Path, *, with_gendsl: bool) -> ScanResult:
-    """Find every unnamed template and every genDSL template name naming none."""
+def scan(base_dir: Path, *, with_dgen: bool) -> ScanResult:
+    """Find every unnamed template and every DAL generator template name naming none."""
     sources = discover_package_sources(base_dir)
     templates = discover_templates(sources)
     literal_names: set[str] = jinja_references(templates)
-    gendsl = gendsl_template_names() if with_gendsl else {}
-    gendsl_names = {_PLACEHOLDER.sub(WILDCARD, n) for names in gendsl.values() for n in names}
-    literal_names |= gendsl_names
+    dgen = dgen_template_names() if with_dgen else {}
+    dgen_names = {_PLACEHOLDER.sub(WILDCARD, n) for names in dgen.values() for n in names}
+    literal_names |= dgen_names
     index = _NameIndex(python_name_patterns(sources) | literal_names)
     unnamed = tuple(t for t in templates if not index.names(t))
     dangling = tuple(
-        sorted(name for name in gendsl_names if not any(_names(name, t) for t in templates))
+        sorted(name for name in dgen_names if not any(_names(name, t) for t in templates))
     )
-    return ScanResult(unnamed=unnamed, dangling_gendsl=dangling, gendsl_names_by_target=gendsl)
+    return ScanResult(unnamed=unnamed, dangling_dgen=dangling, dgen_names_by_target=dgen)
 
 
 _PLANT_FILES: Mapping[str, str] = {
@@ -363,7 +363,7 @@ _PLANT_EXPECTED_UNNAMED: frozenset[str] = frozenset(
 
 
 def self_test(base_dir: Path) -> list[str]:
-    """Prove the matcher on a planted workspace and the genDSL walk on the real one."""
+    """Prove the matcher on a planted workspace and the DAL generator walk on the real one."""
     failures: list[str] = []
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -371,18 +371,18 @@ def self_test(base_dir: Path) -> list[str]:
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(text, encoding="utf-8")
-        planted = scan(root, with_gendsl=False)
+        planted = scan(root, with_dgen=False)
         unnamed = frozenset(t.relative for t in planted.unnamed)
         if unnamed != _PLANT_EXPECTED_UNNAMED:
             failures.append(
                 f"planted workspace: expected unnamed {sorted(_PLANT_EXPECTED_UNNAMED)}, "
                 f"got {sorted(unnamed)}"
             )
-    declared = gendsl_template_names()
+    declared = dgen_template_names()
     if not declared:
-        failures.append("no genDSL generator target is registered; the genDSL walk is untested")
+        failures.append("no DAL generator generator target is registered; the DAL generator walk is untested")
     if not any(declared.values()):
-        failures.append("no registered genDSL target declares a template file; the walk found nothing")
+        failures.append("no registered DAL generator target declares a template file; the walk found nothing")
     if not discover_templates(discover_package_sources(base_dir)):
         failures.append(f"no template found under {base_dir}; the scan would pass vacuously")
     return failures
@@ -392,21 +392,21 @@ def _report(result: ScanResult, exemptions: list[Exemption], base_dir: Path) -> 
     unnamed, stale = apply_exemptions(result.unnamed, exemptions, base_dir)
     for template in unnamed:
         print(f"{RED}UNNAMED{RESET} {template.path.relative_to(base_dir).as_posix()}")
-    for name in result.dangling_gendsl:
-        print(f"{RED}DANGLING{RESET} genDSL template name {name!r} matches no template on disk")
+    for name in result.dangling_dgen:
+        print(f"{RED}DANGLING{RESET} DAL generator template name {name!r} matches no template on disk")
     for exemption in stale:
         print(f"{RED}STALE EXEMPTION{RESET} {exemption.template} is named or gone; remove the entry")
-    if unnamed or result.dangling_gendsl or stale:
+    if unnamed or result.dangling_dgen or stale:
         print(
-            f"\n{len(unnamed)} unnamed template(s), {len(result.dangling_gendsl)} dangling genDSL "
+            f"\n{len(unnamed)} unnamed template(s), {len(result.dangling_dgen)} dangling DAL generator "
             f"name(s), {len(stale)} stale exemption(s). Fix: delete a template nothing renders, or "
-            f"name it from the generator that should; point a dangling genDSL name at an existing "
+            f"name it from the generator that should; point a dangling DAL generator name at an existing "
             f"template; drop a stale exemption."
         )
         return EXIT_FINDINGS
-    counted = sum(len(names) for names in result.gendsl_names_by_target.values())
+    counted = sum(len(names) for names in result.dgen_names_by_target.values())
     print(
-        f"{GREEN}OK{RESET} every template is named ({counted} genDSL template names resolved, "
+        f"{GREEN}OK{RESET} every template is named ({counted} DAL generator template names resolved, "
         f"{len(exemptions)} reviewed exemption(s))"
     )
     return EXIT_OK
@@ -428,7 +428,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.self_test:
             return EXIT_OK
         exemptions = load_exemptions(base_dir / EXEMPTIONS_RELATIVE_PATH)
-        return _report(scan(base_dir, with_gendsl=True), exemptions, base_dir)
+        return _report(scan(base_dir, with_dgen=True), exemptions, base_dir)
     except (TemplateParseError, ExemptionFileError) as error:
         print(f"{RED}ERROR{RESET} {error}")
         return EXIT_USAGE

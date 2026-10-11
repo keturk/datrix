@@ -6,7 +6,7 @@
 .DESCRIPTION
  For every datrix-* package in the workspace with a [tool.setuptools.package-data]
  table, expands each glob exactly as setuptools expands it and requires every
- Jinja2 template (*.j2) and genDSL definition (*.gendsl) under the package to
+ Jinja2 template (*.j2) and DAL generator definition (*.dal) under the package to
  be matched. An editable install reads the source tree directly, so a missing
  glob is invisible locally; the loss only appears after installing the built
  wheel, as a package that cannot render a file.

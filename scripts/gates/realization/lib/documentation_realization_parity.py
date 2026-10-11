@@ -27,7 +27,7 @@ Generates one small fixture project (module constants below) via
 ``datrix generate`` / ``generate.ps1`` runs -- once per registered target.
 A hand-built ``Application``/``CodegenContext`` (``parse_fixture_with_semantics``
 + ``attach_default_configs`` + a package-private test context) is NOT the
-generator: it skips ConfigDSL resolution, ``DeploymentPlan.resolve()``,
+generator: it skips ``.dcfg`` resolution, ``DeploymentPlan.resolve()``,
 ``build_runtime_bootstrap()``, the secret-backend policy, the companion
 generators and the post-generation language hooks, and a previous repo gate
 built that way drifted until it could not generate at all. Calling the

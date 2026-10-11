@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""GenDSL corpus reference-resolution gate.
+"""DAL generator corpus reference-resolution gate.
 
 Eager builder/call-expression reference resolution runs when each target's
-``.gendsl`` resource is registered (``generator_definition_file``,
-``datrix_codegen_kernel.gendsl.resolver``). This is the cross-package proof
+``.dal`` resource is registered (``generator_definition_file``,
+``datrix_codegen_kernel.dgen.resolver``). This is the cross-package proof
 that the real, shipped corpus of builder/call/context/appends references
 across every consumer package is genuinely resolvable: importing each
-package's genDSL definitions module IS the assertion. If any reference in
+package's DAL generator definitions module IS the assertion. If any reference in
 any package failed to resolve, the import itself raises
-``GenDSLReferenceResolutionError``.
+``DalReferenceError``.
 
 This check previously lived as a pytest test
-(``datrix-codegen-common/tests/integration/gendsl/test_resolution_corpus.py``)
+(``datrix-codegen-common/tests/integration/dgen/test_resolution_corpus.py``)
 that imported all seven concrete target packages directly from
 ``datrix-codegen-common``'s own test suite -- a cross-package import boundary
 violation (``datrix_codegen_common`` must not import concrete target
@@ -23,8 +23,8 @@ spans every generator package -- so it belongs as a script under
 not inside any single package's own test suite.
 
 **Each module is imported in its own dedicated subprocess -- never in this
-process.** Every discovered target registers its genDSL definitions into
-the SAME global genDSL definition registry within whichever process
+process.** Every discovered target registers its DAL generator definitions into
+the SAME global DAL generator definition registry within whichever process
 imports them. If two targets' modules were both imported into this one
 process (as a single ``importlib.import_module`` loop would do), a reference
 in target B that would fail to resolve on its own could be silently
@@ -32,15 +32,15 @@ satisfied by a registration that target A's earlier import happened to
 make -- reintroducing, inside this script, the exact cross-package coupling
 the pytest test was removed for. Running each target's import in its own
 subprocess guarantees no single process ever holds more than one generator
-package's genDSL modules loaded at once, so each target's corpus is proven
+package's DAL generator modules loaded at once, so each target's corpus is proven
 to resolve entirely on its own. The target set itself is derived from
-``datrix.gendsl_generator_targets`` + ``datrix.platforms`` entry-point
-discovery (see :func:`discover_gendsl_definition_modules`), never a
+``datrix.dgen_generator_targets`` + ``datrix.platforms`` entry-point
+discovery (see :func:`discover_dgen_definition_modules`), never a
 hardcoded package count or list.
 
 Usage:
-    python gendsl_corpus_resolution.py
-    python gendsl_corpus_resolution.py --debug
+    python dgen_corpus_resolution.py
+    python dgen_corpus_resolution.py --debug
 """
 
 from __future__ import annotations
@@ -51,9 +51,9 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-from datrix_codegen_kernel.gendsl import target_registry
+from datrix_codegen_kernel.dgen import target_registry
 
-#: Generous ceiling for a single package's genDSL-definitions import. Eager
+#: Generous ceiling for a single package's DAL generator-definitions import. Eager
 #: reference resolution walks one package's compiled IR tree in memory; a
 #: real run finishes in well under a second per package, so this only exists
 #: to fail loud (instead of hanging the gate forever) if a subprocess never
@@ -63,36 +63,36 @@ SUBPROCESS_TIMEOUT_SECONDS: int = 120
 
 @dataclass(frozen=True)
 class ModuleResolutionResult:
-    """Outcome of importing one genDSL definitions module in isolation."""
+    """Outcome of importing one DAL generator definitions module in isolation."""
 
     module_name: str
     succeeded: bool
     error_output: str
 
 
-def discover_gendsl_definition_modules() -> tuple[str, ...]:
-    """Derive every discovered gendsl target's definition modules.
+def discover_dgen_definition_modules() -> tuple[str, ...]:
+    """Derive every discovered dgen target's definition modules.
 
     Replaces the former 7-entry hand-authored tuple. EVERY target --
     language, platform, artifact or component alike -- contributes its own
-    `GendslTargetContribution.definition_modules`, resolved uniformly
+    `DgenTargetContribution.definition_modules`, resolved uniformly
     through `target_registry.definition_modules_for()`. There is no
     separate platform path: the transitional platform-definition-module map
     that once carried aws/azure/docker has been retired, and platform
-    definition modules are now a first-class `GendslTargetContribution`
+    definition modules are now a first-class `DgenTargetContribution`
     fact like any other target's.
 
     Consequence: the target set is never a literal here. A target that
-    declares no genDSL definition modules of its own correctly resolves to
+    declares no DAL generator definition modules of its own correctly resolves to
     an empty tuple (as `local` does -- its artifacts are declared by the
     docker package that owns it), and a future `datrix-codegen-<x>` is
     swept with no edit to this gate.
 
     Calling `target_registry.target_kind_map()`/`definition_modules_for()`
     here, in this script's own single process, is safe: both only ever
-    import the dependency-light `*_gendsl_registration`-shaped modules
-    (never the heavier `gendsl.definitions` modules whose import registers
-    the `.gendsl` resource as a side effect) -- the
+    import the dependency-light `*_dgen_registration`-shaped modules
+    (never the heavier `dgen.definitions` modules whose import registers
+    the `.dal` resource as a side effect) -- the
     one-subprocess-per-package isolation this gate enforces below applies
     to THOSE modules, not to this discovery step.
 
@@ -124,10 +124,10 @@ def resolve_module_in_subprocess(
 
     Runs ``python -c "import <module_name>"`` as a fresh child process so
     that this module's process never holds more than one generator
-    package's genDSL modules loaded at once. Eager reference resolution
-    (``datrix_codegen_kernel.gendsl.resolver``) runs as a side effect of the
+    package's DAL generator modules loaded at once. Eager reference resolution
+    (``datrix_codegen_kernel.dgen.resolver``) runs as a side effect of the
     import; any unresolved reference raises
-    ``GenDSLReferenceResolutionError`` inside the child process, which
+    ``DalReferenceError`` inside the child process, which
     prints its traceback to stderr and exits non-zero -- the child's
     combined stdout/stderr is returned verbatim for the caller to surface.
 
@@ -135,7 +135,7 @@ def resolve_module_in_subprocess(
         python_executable: Path to the Python interpreter to run the import
             under (the shared venv interpreter, so the target package is
             importable).
-        module_name: Fully qualified genDSL definitions module to import.
+        module_name: Fully qualified DAL generator definitions module to import.
 
     Returns:
         The resolution result: whether the import succeeded, and (on
@@ -164,7 +164,7 @@ def resolve_module_in_subprocess(
 
 
 def check_corpus_resolution(python_executable: str, modules: tuple[str, ...]) -> int:
-    """Import every genDSL definitions module in isolation and report failures.
+    """Import every DAL generator definitions module in isolation and report failures.
 
     Args:
         python_executable: Path to the Python interpreter each per-package
@@ -181,7 +181,7 @@ def check_corpus_resolution(python_executable: str, modules: tuple[str, ...]) ->
     failures: dict[str, str] = {}
     for module_name in modules:
         logger.info(
-            "Resolving genDSL corpus (isolated subprocess): %s", module_name
+            "Resolving DAL generator corpus (isolated subprocess): %s", module_name
         )
         result = resolve_module_in_subprocess(python_executable, module_name)
         if not result.succeeded:
@@ -194,7 +194,7 @@ def check_corpus_resolution(python_executable: str, modules: tuple[str, ...]) ->
 
     if failures:
         logger.error(
-            "GenDSL corpus resolution failed for %d of %d package(s): %s",
+            "DAL generator corpus resolution failed for %d of %d package(s): %s",
             len(failures),
             len(modules),
             ", ".join(sorted(failures)),
@@ -202,7 +202,7 @@ def check_corpus_resolution(python_executable: str, modules: tuple[str, ...]) ->
         return 1
 
     logger.info(
-        "GenDSL corpus resolution passed for all %d package(s)", len(modules)
+        "DAL generator corpus resolution passed for all %d package(s)", len(modules)
     )
     return 0
 
@@ -215,11 +215,11 @@ def main() -> int:
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Prove every discovered gendsl target's builder/call/context/"
+            "Prove every discovered dgen target's builder/call/context/"
             "appends reference corpus resolves at import time, one "
             "subprocess per target so no single process ever holds more "
-            "than one generator package's genDSL modules loaded at once. "
-            "The target set is derived from datrix.gendsl_generator_targets "
+            "than one generator package's DAL generator modules loaded at once. "
+            "The target set is derived from datrix.dgen_generator_targets "
             "+ datrix.platforms entry-point discovery -- never hardcoded."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -229,9 +229,9 @@ def main() -> int:
 
     configure_logging(debug=args.debug)
 
-    modules = discover_gendsl_definition_modules()
+    modules = discover_dgen_definition_modules()
     logging.getLogger(__name__).info(
-        "Discovered %d genDSL definition module(s) across every registered "
+        "Discovered %d DAL generator definition module(s) across every registered "
         "target: %s", len(modules), modules,
     )
     return check_corpus_resolution(sys.executable, modules)

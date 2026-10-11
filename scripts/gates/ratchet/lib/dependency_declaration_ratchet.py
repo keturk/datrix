@@ -110,7 +110,12 @@ from typing import Final
 import jinja2
 import jinja2.nodes
 import yaml
+from datrix_codegen_kernel.dal.errors import DalDependenciesSyntaxError
+from datrix_codegen_kernel.dal.frontend import parse_document
+from datrix_codegen_kernel.dal.kinds import DocumentKind
+from datrix_codegen_kernel.dal.literals import decode_string
 from datrix_common.config.project.catalog import DependencyCatalog
+from lark import Token
 
 from datrix_scripts.paths import SHOWCASE_DIR
 from datrix_scripts.registered_targets import (
@@ -151,13 +156,19 @@ EXIT_OK: Final[int] = 0
 EXIT_FAIL: Final[int] = 1
 EXIT_USAGE: Final[int] = 2
 
-#: The keyword a declared-table row names its package with
-#: (`DependencyRow(package="...")`) -- read structurally by the live
-#: non-vacuity check, which takes its real package names from the declared
-#: tables rather than from a pinned coordinate that a migration invalidates.
-_DECLARED_ROW_PACKAGE_KEYWORD: Final[str] = "package"
+#: Relative path, under a language package's `src/datrix_codegen_<lang>/` root,
+#: of the DAL dependencies document its declared table loads -- read
+#: structurally (parsed by the DAL front end) by the live non-vacuity check,
+#: which takes its real package names from the declared tables rather than
+#: from a pinned coordinate that a migration invalidates.
+_DECLARED_DOCUMENT_RELATIVE_PATH: Final[Path] = Path("generation") / "dependencies.dal"
 
-#: The typed predicate (`datrix_codegen_common.generation.dependency_dsl
+#: The DAL grammar production of one dependency row; its package strings are
+#: its direct STRING children (a qualifier's value sits in a nested subtree).
+_DEPENDENCY_ROW_RULE: Final[str] = "dependency_row"
+_STRING_TERMINAL: Final[str] = "STRING"
+
+#: The typed predicate (`datrix_codegen_common.generation.dependency_table
 #: .DependencyQualifier`) a generator narrows a declared-table lookup with; a
 #: literal passed to it is a qualifier value, never a package decision.
 _QUALIFIER_CALL_NAME: Final[str] = "DependencyQualifier"
@@ -779,24 +790,29 @@ def _self_test_language_core(tmp_root: Path) -> bool:
 
 
 def _declared_row_packages(src_roots: tuple[Path, ...]) -> frozenset[str]:
-    """Every `package=` string a language's declared table(s) name a row with,
-    read off the AST of each root's `generation/dependency_tables.py`."""
+    """Every package a language's declared table(s) name a row with, read off
+    the parse tree of each root's `generation/dependencies.dal`."""
     names: set[str] = set()
     for root in src_roots:
-        table = root / _DECLARED_TABLE_RELATIVE_PATH
-        if not table.is_file():
+        document = root / _DECLARED_DOCUMENT_RELATIVE_PATH
+        if not document.is_file():
             continue
-        tree = ast.parse(table.read_text(encoding="utf-8-sig"), filename=str(table))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            for keyword in node.keywords:
-                if (
-                    keyword.arg == _DECLARED_ROW_PACKAGE_KEYWORD
-                    and isinstance(keyword.value, ast.Constant)
-                    and isinstance(keyword.value.value, str)
-                ):
-                    names.add(keyword.value.value)
+        tree = parse_document(
+            document.read_text(encoding="utf-8"),
+            DocumentKind.DEPENDENCIES,
+            source_path=str(document),
+            error_type=DalDependenciesSyntaxError,
+        )
+        for row in tree.find_data(_DEPENDENCY_ROW_RULE):
+            for child in row.children:
+                if isinstance(child, Token) and child.type == _STRING_TERMINAL:
+                    names.add(
+                        decode_string(
+                            child,
+                            error_type=DalDependenciesSyntaxError,
+                            source_path=str(document),
+                        )
+                    )
     return frozenset(names)
 
 

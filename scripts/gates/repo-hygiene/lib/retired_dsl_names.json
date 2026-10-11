@@ -1,0 +1,37 @@
+{
+  "families": [
+    {
+      "name": "gendsl",
+      "replacement": "dgen (identifiers, paths, entry-point groups, tags); \"DAL generator\" (prose)",
+      "patterns": ["gen[-_ ]?dsl"],
+      "samples": ["gendsl", "genDSL", "GenDSL", "GENDSL", "gen-dsl", "gen_dsl", "gen dsl"]
+    },
+    {
+      "name": "emit",
+      "replacement": "emit_table (identifiers, modules, paths); \"DAL emit\" (prose)",
+      "patterns": ["emit[-_ ]?dsl"],
+      "samples": ["emitdsl", "emitDSL", "EmitDSL", "EMITDSL", "emit-dsl", "emit_dsl", "emit dsl"]
+    },
+    {
+      "name": "dependency",
+      "replacement": "dependency_table (identifiers, modules, paths); \"DAL dependencies\" (prose)",
+      "patterns": ["dependency[-_ ]?dsl"],
+      "samples": ["dependencydsl", "dependencyDSL", "DependencyDSL", "DEPENDENCYDSL", "dependency-dsl", "dependency_dsl", "dependency dsl"]
+    },
+    {
+      "name": "realization",
+      "replacement": "realization_table (identifiers, modules, paths); \"DAL realization\" / \"realization table\" (prose)",
+      "patterns": ["realization[-_ ]?dsl"],
+      "samples": ["realizationdsl", "realizationDSL", "RealizationDSL", "REALIZATIONDSL", "realization-dsl", "realization_dsl", "realization dsl"]
+    },
+    {
+      "name": "config-seed",
+      "replacement": "dcfg / dseed (identifiers, modules, paths); \"config document (.dcfg)\" / \"seed document (.dseed)\" (prose)",
+      "patterns": ["config[-_ ]?dsl", "seed[-_ ]?dsl"],
+      "samples": [
+        "configdsl", "configDSL", "ConfigDSL", "CONFIGDSL", "config-dsl", "config_dsl", "Config DSL",
+        "seeddsl", "seedDSL", "SeedDSL", "SEEDDSL", "seed-dsl", "seed_dsl", "Seed DSL"
+      ]
+    }
+  ]
+}

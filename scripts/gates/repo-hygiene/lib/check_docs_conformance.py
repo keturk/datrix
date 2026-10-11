@@ -39,8 +39,8 @@ one of the 13 known package directory names, or a ``D:\datrix\`` /
 ``d:/datrix/`` absolute prefix) and module-reference candidates that are
 **fully import-qualified** (start with one of the 12 known Python import
 names). A bare, package-relative shorthand span with no package/import
-anchor at all (e.g. a doc writing `` `gendsl/_naming.py` `` instead of the
-fully-qualified `` `datrix-codegen-common/gendsl/_naming.py` `` or `` `src/`
+anchor at all (e.g. a doc writing `` `dgen/_naming.py` `` instead of the
+fully-qualified `` `datrix-codegen-common/dgen/_naming.py` `` or `` `src/`
 `` form) is never a candidate: such bare spans are pervasive across these
 docs and dominated by illustrative/generic filenames (``api.py``,
 ``base.py``, ``0001_initial.py``) that are not real repo-path claims at

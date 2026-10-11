@@ -36,8 +36,9 @@ list:
         unrelated package happens to own a file of the same name.
 
     A citation that resolves none of those ways still passes when it names a
-    file the generators emit: a ``*.py.j2`` template's output name, a genDSL
-    output path (``=> "cdk/app.py"``), or a code string literal whose whole
+    file the generators emit: a ``*.py.j2`` template's output name, a DAL generator
+    output path (``=> "cdk/app.py"``) declared in a package's ``.dal`` generator
+    resource or in a code string, or a code string literal whose whole
     value is a ``*.py`` path (``"settings_loader.py"``). Generated files are
     cited in prose constantly (``deploy.py``, ``auth.py``) and are not
     framework modules. A longer string that only mentions a ``.py`` name (an
@@ -78,6 +79,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
 
+from datrix_codegen_kernel.dal.frontend import DAL_RESOURCE_SUFFIX
 from datrix_scripts.framework_references import FRAMEWORK_REFERENCE, ReferenceResolver
 from datrix_scripts.framework_repos import SHOWCASE_REPO_NAME
 from datrix_scripts.paths import WORKSPACE_DIR
@@ -125,8 +127,8 @@ FILE_CITATION: Final = re.compile(
 #: name -- an error message's "Fix: edit dependency_tables.py" -- names a
 #: framework module, not an output, and must not excuse a citation of it.
 CODE_STRING_FILE: Final = re.compile(r"(?:[^\s/]*/)*(?P<stem>[A-Za-z_][A-Za-z0-9_]*)\.py")
-#: A genDSL output path: ``=> "cdk/stacks/vpc_stack.py"``.
-GENDSL_OUTPUT_PATH: Final = re.compile(r"=>\s*\"([^\"]+)\"")
+#: A DAL generator output path: ``=> "cdk/stacks/vpc_stack.py"``.
+DGEN_OUTPUT_PATH: Final = re.compile(r"=>\s*\"([^\"]+)\"")
 #: A quoted ``*.py.j2`` template name: the template renders ``<stem>.py``.
 QUOTED_TEMPLATE: Final = re.compile(r"[\"'](?:[^\"'\s]*/)?([A-Za-z_][A-Za-z0-9_]*)\.py\.j2[\"']")
 
@@ -159,15 +161,22 @@ def prose_lines(text: str, tree: ast.Module) -> list[tuple[int, str]]:
     return sorted(lines)
 
 
+def output_path_stems(text: str) -> set[str]:
+    """Stems of the ``*.py`` files the DAL generator output paths in *text* declare."""
+    return {
+        Path(match.group(1)).name.removesuffix(PYTHON_SUFFIX)
+        for match in DGEN_OUTPUT_PATH.finditer(text)
+    }
+
+
 def emitted_names_in_module(tree: ast.Module) -> set[str]:
-    """Stems of the ``*.py`` files a module's code strings and genDSL name."""
+    """Stems of the ``*.py`` files a module's code strings and DAL generator name."""
     docstrings = {id(node) for node in _docstring_nodes(tree)}
     names: set[str] = set()
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
             continue
-        for match in GENDSL_OUTPUT_PATH.finditer(node.value):
-            names.add(Path(match.group(1)).name.removesuffix(PYTHON_SUFFIX))
+        names.update(output_path_stems(node.value))
         for match in QUOTED_TEMPLATE.finditer(node.value):
             names.add(match.group(1))
         emitted_file = CODE_STRING_FILE.fullmatch(node.value)
@@ -254,6 +263,8 @@ def load_workspace(workspace_root: Path) -> Workspace:
             template.name.removesuffix(TEMPLATE_SUFFIX)
             for template in source_root.rglob(f"*{TEMPLATE_SUFFIX}")
         )
+        for resource in sorted(source_root.rglob(f"*{DAL_RESOURCE_SUFFIX}")):
+            emitted.update(output_path_stems(resource.read_text(encoding="utf-8")))
         for path in sorted(source_root.rglob(f"*{PYTHON_SUFFIX}")):
             text = path.read_text(encoding="utf-8")
             tree = ast.parse(text, filename=str(path))
@@ -482,7 +493,8 @@ _SELF_TEST_PROSE: Final[tuple[tuple[str, bool], ...]] = (
     ("# Anchored import path: ``datrix_fixture_platform/resource_mapper.py``.", False),
     ("# Anchored but missing: ``datrix-fixture-platform/src/datrix_fixture_platform/gone.py``.", True),
     ("# Emitted by a template: the generated ``deploy.py``.", False),
-    ("# Emitted by genDSL: ``cdk/app.py``.", False),
+    ("# Emitted by DAL generator: ``cdk/app.py``.", False),
+    ("# Emitted by a DAL generator resource: ``cdk/stacks/vpc_stack.py``.", False),
     ("# Emitted by a code string: ``settings_loader.py``.", False),
     ("# Only an error message names it: ``_gone_code.py``.", True),
     ("# Template name, not a module: ``deploy.py.j2``.", False),
@@ -520,13 +532,22 @@ def emitter() -> None:
     """
 '''
 
+#: A platform package's DAL generator resource: the output path it declares is an
+#: emitted file even though no Python string names it.
+_SELF_TEST_GENERATOR_RESOURCE: Final = """generator fixture : fixture {
+    domain stacks {
+        builder fixture.emit_vpc_stack => "cdk/stacks/vpc_stack.py";
+    }
+}
+"""
+
 #: Five dotted references on the citing module's prose (the chain interior is
 #: none) and two package-relative ones.
 _SELF_TEST_DOTTED_SEEN: Final = 7
-#: Twelve file citations on the citing module's prose plus the platform
-#: module's genDSL output path. A code string literal is not prose and is
-#: never counted.
-_SELF_TEST_FILES_SEEN: Final = 13
+#: Thirteen file citations on the citing module's prose plus the platform
+#: module's DAL generator output path. A code string literal and a ``.dal``
+#: resource are not prose and are never counted.
+_SELF_TEST_FILES_SEEN: Final = 14
 
 
 def _write(path: Path, text: str) -> None:
@@ -551,6 +572,7 @@ def _plant_workspace(root: Path) -> tuple[Path, Path]:
     _write(root / "datrix-fixture-language/tests/unit/test_spec.py", '"""Spec test."""\n')
     platform = root / "datrix-fixture-platform/src/datrix_fixture_platform"
     _write(platform / "resource_mapper.py", _SELF_TEST_PLATFORM_MODULE)
+    _write(platform / f"dgen/generator{DAL_RESOURCE_SUFFIX}", _SELF_TEST_GENERATOR_RESOURCE)
     _write(platform / "templates/deploy.py.j2", "# template\n")
     citing = root / "datrix-fixture-language/src/datrix_fixture_language/language_spec.py"
     _write(

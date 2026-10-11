@@ -128,7 +128,7 @@ def violations_in(
 # ---------------------------------------------------------------------------
 
 
-#: The profile the fixture's ConfigDSL resolves.
+#: The profile the fixture's ``.dcfg`` resolves.
 _PROFILE: Final[str] = "test"
 
 

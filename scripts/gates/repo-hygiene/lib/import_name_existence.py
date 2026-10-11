@@ -39,8 +39,10 @@ Resolution, in order, for ``from M import N``:
 3. **A runtime attribute of M**, by importing M -- the last resort, reached only
    for names steps 1 and 2 miss. It covers what an AST walk cannot see: a name
    re-exported through ``from x import *``, or synthesized by a module-level
-   ``__getattr__``. An import that raises is reported with the exception text,
-   never silently treated as resolved.
+   ``__getattr__``. A module importable at runtime but outside the indexed
+   ``src/`` trees (the scripts' own ``datrix_scripts`` library) gets step 2 here:
+   ``N`` resolves when ``M.N`` is a findable submodule. An import that raises is
+   reported with the exception text, never silently treated as resolved.
 
 Steps 1 and 2 read the workspace's own source tree, so the common case costs no
 imports and no side effects at all.
@@ -64,6 +66,7 @@ import importlib.util
 import os
 import sys
 import tempfile
+import types
 from dataclasses import dataclass
 
 from datrix_scripts.paths import WORKSPACE_DIR
@@ -309,9 +312,16 @@ class NameResolver:
             detail = f"{static_detail}; importing it to check raised {type(exc).__name__}: {exc}"
             self._runtime[key] = detail
             return detail
-        detail = "" if hasattr(imported, name) else static_detail
+        detail = "" if hasattr(imported, name) or _has_runtime_submodule(imported, name) else static_detail
         self._runtime[key] = detail
         return detail
+
+
+def _has_runtime_submodule(package: types.ModuleType, name: str) -> bool:
+    """Whether *name* is a submodule of the imported *package*, found without executing it."""
+    if not hasattr(package, "__path__"):
+        return False
+    return importlib.util.find_spec(f"{package.__name__}.{name}") is not None
 
 
 #: Exceptions whose presence in an `except` clause or a `pytest.raises(...)`

@@ -37,7 +37,7 @@ from datrix_scripts.customer_domain_isolation import (
     scan_paths,
     self_test,
 )
-from datrix_scripts.framework_repos import framework_repos
+from datrix_scripts.framework_repos import select_framework_repos
 from datrix_scripts.paths import SHOWCASE_DIR
 
 DATRIX_ROOT = SHOWCASE_DIR
@@ -115,19 +115,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def resolve_repos(workspace_root: Path, wanted: list[str] | None) -> list[Path] | None:
     """Return the repos to scan, or None when a requested name does not exist."""
-    repos = framework_repos(workspace_root)
-    if wanted is None:
-        return repos
-    selected = [repo for repo in repos if repo.name in set(wanted)]
-    missing = sorted(set(wanted) - {repo.name for repo in selected})
-    if missing:
-        print(
-            f"ERROR: no framework repo named {', '.join(missing)} under {workspace_root}. "
-            f"Known: {', '.join(repo.name for repo in repos)}",
-            file=sys.stderr,
-        )
+    try:
+        return select_framework_repos(workspace_root, wanted)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         return None
-    return selected
 
 
 def main(argv: list[str]) -> int:

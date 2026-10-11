@@ -4,7 +4,7 @@
  Example config load gate: every declared profile of every example .dcfg loads.
 
 .DESCRIPTION
- Every model a ConfigDSL document validates into rejects unknown keys, so a
+ Every model a config document validates into rejects unknown keys, so a
  key the model does not declare is an error at load time rather than a value
  silently dropped. This gate loads every declared profile of every .dcfg
  under datrix/examples through the real loaders (service, shared, system,

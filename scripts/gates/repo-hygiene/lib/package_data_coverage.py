@@ -1,7 +1,7 @@
 """Package-data coverage gate: every runtime resource a package loads ships in its wheel.
 
-A generator package loads its Jinja2 templates (``*.j2``) and its genDSL
-definitions (``*.gendsl``) from its installed package directory at run time.
+A generator package loads its Jinja2 templates (``*.j2``) and its DAL generator
+definitions (``*.dal``) from its installed package directory at run time.
 Neither is Python, so a built wheel carries them only when a
 ``[tool.setuptools.package-data]`` glob of the package's ``pyproject.toml``
 matches them. An editable install reads the source tree directly, so a
@@ -53,7 +53,7 @@ EXIT_FAIL = 1
 EXIT_USAGE = 2
 
 #: The suffixes of the non-Python resources a generator package loads at run time.
-RUNTIME_RESOURCE_SUFFIXES: tuple[str, ...] = (".j2", ".gendsl")
+RUNTIME_RESOURCE_SUFFIXES: tuple[str, ...] = (".j2", ".dal")
 _PACKAGE_GLOB = "datrix-*"
 _SOURCE_DIR = "src"
 

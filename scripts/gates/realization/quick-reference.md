@@ -45,7 +45,7 @@ Standing conformance-spec corpus gate: runs every committed `conformance_gate.py
 
 **Assertions:**
 - Every `*.json` file directly under `scripts/config/conformance-specs/` is a spec, run via `conformance_gate.py --spec <file>` (its own built-in self-test runs first, per-spec, aborting that spec with exit 2 before any real result is trusted).
-- Seed spec `gendsl-corpus-no-hand-authored-module-tuple.json`: `gendsl_corpus_resolution.py` contains none of the seven retired hand-authored genDSL definitions-module literal strings, proven non-vacuous by a dedicated negative-control fixture under `scripts/config/conformance-specs/_fixtures/` that intentionally still contains them.
+- Seed spec `dgen-corpus-no-hand-authored-module-tuple.json`: `dgen_corpus_resolution.py` contains none of the seven retired hand-authored DAL generator definitions-module literal strings, proven non-vacuous by a dedicated negative-control fixture under `scripts/config/conformance-specs/_fixtures/` that intentionally still contains them.
 
 **Exit codes:** 0 = every spec passed, 1 = at least one spec's assertions failed, 2 = the spec directory is missing/empty, a committed spec addresses its trees by absolute path, or any individual spec's own self-test failed (that spec's run aborts before its real assertions are evaluated).
 
@@ -393,16 +393,16 @@ are registered.
 
 ---
 
-## `gates\realization\gendsl-corpus-resolution-gate.ps1`
+## `gates\realization\dgen-corpus-resolution-gate.ps1`
 
-GenDSL corpus proof: eager builder/call-expression reference resolution runs when each target's
-`.gendsl` resource is registered (`datrix_codegen_kernel.gendsl.resolver`). Importing
-each discovered target's genDSL definitions module IS the assertion: a bad reference raises
-`GenDSLReferenceResolutionError` at import time.
+DAL generator corpus proof: eager builder/call-expression reference resolution runs when each target's
+`.dal` resource is registered (`datrix_codegen_kernel.dgen.resolver`). Importing
+each discovered target's DAL generator definitions module IS the assertion: a bad reference raises
+`DalReferenceError` at import time.
 
 **Target set is derived, never hardcoded.** The module list comes from
-`datrix_codegen_kernel.gendsl.target_registry.target_kind_map()` +
-`definition_modules_for()`, folded from `datrix.gendsl_generator_targets` entry-point discovery --
+`datrix_codegen_kernel.dgen.target_registry.target_kind_map()` +
+`definition_modules_for()`, folded from `datrix.dgen_generator_targets` entry-point discovery --
 every target, platforms included, self-registers its definition modules there (platform
 KIND classification separately derives from `datrix.platforms` membership). A future
 `datrix-codegen-<x>` package that registers either entry-point group is swept automatically, with
@@ -414,16 +414,16 @@ cross-package test is prohibited everywhere), so it lives here rather than allow
 violation.
 
 **Each target's module is imported in its own dedicated subprocess** — never in this process — so
-no single process ever holds more than one generator package's genDSL modules loaded at once (a
+no single process ever holds more than one generator package's DAL generator modules loaded at once (a
 registration from one package's earlier import could otherwise silently satisfy a reference the
 next package's own corpus does not actually resolve on its own).
 
 | Mode | Command | Description |
 |------|---------|--------------|
-| **Run gate** | `.\gates\realization\gendsl-corpus-resolution-gate.ps1` | Import every discovered target's genDSL definitions, fail on any unresolved reference |
-| **Debug** | `.\gates\realization\gendsl-corpus-resolution-gate.ps1 -Dbg` | Debug logging (also prints the discovered module list and count) |
+| **Run gate** | `.\gates\realization\dgen-corpus-resolution-gate.ps1` | Import every discovered target's DAL generator definitions, fail on any unresolved reference |
+| **Debug** | `.\gates\realization\dgen-corpus-resolution-gate.ps1 -Dbg` | Debug logging (also prints the discovered module list and count) |
 
 **Parameters:** `-Dbg`
 
-**Exit codes:** 0 = every discovered target's genDSL corpus resolved at import, 1 = at least one
+**Exit codes:** 0 = every discovered target's DAL generator corpus resolved at import, 1 = at least one
 target failed to resolve or import.

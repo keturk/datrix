@@ -13,8 +13,8 @@ Every profile of every system.dcfg is checked (not just the default "test"
 profile) -- a violation could hide in a non-default profile whose deployment
 or observability block overrides the base.
 
-Uses the real ConfigDSL pipeline (datrix_common.config.unified_loader.
-load_system_config + datrix_common.config.dcfg.parser.parse_dcfg) to resolve
+Uses the real config pipeline (datrix_common.config.unified_loader.
+load_system_config over datrix_language's disk config document source) to resolve
 each profile, exactly as datrix_cli's generation pipeline does -- never a
 hand-rolled regex/text scan of the DSL, which cannot correctly follow
 profile inheritance.
@@ -43,6 +43,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from datrix_common.errors.generation import GenerationError
+from datrix_common.protocols.parser import ConfigDocumentSourceProtocol
 
 from datrix_scripts.paths import SHOWCASE_DIR
 
@@ -93,17 +94,18 @@ def discover_system_configs(examples_root: Path) -> list[Path]:
     return sorted(examples_root.rglob("config/system.dcfg"))
 
 
-def profile_names(config_path: Path) -> list[str]:
-    """Every resolvable profile name declared in a system.dcfg."""
-    from datrix_common.config.dcfg.parser import parse_dcfg
-
-    source = config_path.read_text(encoding="utf-8")
-    decl = parse_dcfg(source, str(config_path))
+def profile_names(config_path: Path, documents: ConfigDocumentSourceProtocol) -> list[str]:
+    """Every resolvable profile name declared in a system.dcfg, read through *documents*."""
+    decl = documents.config_document(config_path)
     return [profile.name for profile in decl.profiles]
 
 
 def check_profile(
-    config_path: Path, project_root: Path, profile: str, example_relpath: str
+    config_path: Path,
+    project_root: Path,
+    profile: str,
+    example_relpath: str,
+    documents: ConfigDocumentSourceProtocol,
 ) -> list[Violation]:
     """Resolve one profile and return every native-only-observability violation it contains.
 
@@ -127,7 +129,10 @@ def check_profile(
 
     try:
         unified = load_system_config(
-            config_path=config_path, project_root=project_root, profile=profile
+            config_path=config_path,
+            project_root=project_root,
+            profile=profile,
+            documents=documents,
         )
     except GenerationError as e:
         match = _NATIVE_ONLY_VIOLATION_PATTERN.match(str(e))
@@ -185,14 +190,21 @@ def scan_examples(examples_root: Path) -> list[Violation]:
 
     A load_system_config failure unrelated to this guard (a pre-existing
     example config defect) is never caught-and-skipped -- it propagates,
-    exactly like generate.ps1 does for the same example.
+    exactly like generate.ps1 does for the same example. Every ``.dcfg`` is
+    read through one config document source, so each is parsed once per scan.
     """
+    from datrix_language.parser.dcfg_documents import disk_config_documents
+
+    documents = disk_config_documents()
     violations: list[Violation] = []
     for config_path in discover_system_configs(examples_root):
+        config_path = config_path.resolve()
         project_root = config_path.parent.parent
-        example_relpath = str(config_path.relative_to(examples_root.parent))
-        for profile in profile_names(config_path):
-            violations.extend(check_profile(config_path, project_root, profile, example_relpath))
+        example_relpath = str(config_path.relative_to(examples_root.resolve().parent))
+        for profile in profile_names(config_path, documents):
+            violations.extend(
+                check_profile(config_path, project_root, profile, example_relpath, documents)
+            )
     return sorted(violations, key=lambda v: (v.example, v.profile, v.category))
 
 

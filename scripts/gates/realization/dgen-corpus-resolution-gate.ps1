@@ -1,15 +1,15 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- GenDSL corpus reference-resolution gate.
+ DAL generator corpus reference-resolution gate.
 
 .DESCRIPTION
  Proves the real, shipped corpus of builder/call/context/appends references
- across every DISCOVERED genDSL target -- derived from
- datrix.gendsl_generator_targets + datrix.platforms entry-point discovery,
+ across every DISCOVERED DAL generator target -- derived from
+ datrix.dgen_generator_targets + datrix.platforms entry-point discovery,
  never a hardcoded package list -- is genuinely resolvable. Imports each
- target's genDSL definitions module -- import succeeding IS the assertion;
- a bad reference raises GenDSLReferenceResolutionError at import time.
+ target's DAL generator definitions module -- import succeeding IS the assertion;
+ a bad reference raises DalReferenceError at import time.
 
  Repo-level validation script (per the datrix showcase boundary -- no pytest
  suite lives in datrix). Previously a pytest test inside datrix-codegen-common
@@ -22,11 +22,11 @@
  Enable debug logging (DEBUG level instead of INFO).
 
 .EXAMPLE
- .\gendsl-corpus-resolution-gate.ps1
- Run the gate for every discovered genDSL target.
+ .\dgen-corpus-resolution-gate.ps1
+ Run the gate for every discovered DAL generator target.
 
 .EXAMPLE
- .\gendsl-corpus-resolution-gate.ps1 -Dbg
+ .\dgen-corpus-resolution-gate.ps1 -Dbg
  Run the gate with debug logging.
 #>
 
@@ -39,7 +39,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\gendsl_corpus_resolution.py"
+$runnerScript = Join-Path $scriptDir "lib\dgen_corpus_resolution.py"
 
 $commonDir = Join-Path $scriptDir "..\..\common"
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
@@ -49,7 +49,7 @@ $datrixRoot = Get-DatrixRoot
 $datrixWorkspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
 
 if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: gendsl_corpus_resolution.py not found at: $runnerScript"
+    Write-Error "Error: dgen_corpus_resolution.py not found at: $runnerScript"
     exit 1
 }
 
@@ -72,16 +72,16 @@ try {
         $pythonArgs += "--debug"
     }
 
-    Write-Host "Running GenDSL corpus resolution gate (all discovered targets)" -ForegroundColor Cyan
+    Write-Host "Running DAL generator corpus resolution gate (all discovered targets)" -ForegroundColor Cyan
     python @pythonArgs
     $exitCode = $LASTEXITCODE
 
     if ($exitCode -ne 0) {
-        Write-Host "GenDSL corpus resolution gate failed with exit code $exitCode" -ForegroundColor Red
+        Write-Host "DAL generator corpus resolution gate failed with exit code $exitCode" -ForegroundColor Red
         exit $exitCode
     }
 
-    Write-Host "GenDSL corpus resolution gate passed" -ForegroundColor Green
+    Write-Host "DAL generator corpus resolution gate passed" -ForegroundColor Green
     exit 0
 
 } finally {

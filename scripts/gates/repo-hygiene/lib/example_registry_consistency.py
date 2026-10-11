@@ -71,7 +71,7 @@ EXIT_FAIL = 1
 EXIT_USAGE = 2
 
 #: Suffixes of the files an example OWNS -- its Datrix sources and its
-#: ConfigDSL. Prose (README.md) is deliberately excluded: examples/README.md
+#: ``.dcfg`` config documents. Prose (README.md) is deliberately excluded: examples/README.md
 #: describes the whole tree and belongs to no single example.
 EXAMPLE_FILE_SUFFIXES: tuple[str, ...] = (".dtrx", ".dcfg")
 

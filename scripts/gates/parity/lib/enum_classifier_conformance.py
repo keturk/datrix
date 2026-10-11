@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Final
 
 from datrix_codegen_kernel.generation.discovery import get_language_plugin  # noqa: E402
-from datrix_codegen_kernel.generation.gendsl_ir import DomainDefinition  # noqa: E402
+from datrix_codegen_kernel.generation.dgen_ir import DomainDefinition  # noqa: E402
 from datrix_codegen_kernel.generation.registry import SubGeneratorSpec  # noqa: E402
 from datrix_codegen_kernel.parity.conformance_probes import (  # noqa: E402
     DocumentationSurfaces,
@@ -91,8 +91,8 @@ _FIXTURE_KEYWORD_MISS: Final[str] = "ZULU-UNRECOGNIZED"
 #: can resolve a per-service import/using/package line for the declared exception.
 _FIXTURE_SERVICE_NAME: Final[str] = "catalog"
 
-#: The GenDSL domain id every enum-emitting language plugin registers its `EnumGenerator`
-#: sub-generator under (`_declare_structural("enum", EnumGenerator)` in each language's own gendsl
+#: The DAL generator domain id every enum-emitting language plugin registers its `EnumGenerator`
+#: sub-generator under (`_declare_structural("enum", EnumGenerator)` in each language's own dgen
 #: definitions module). This is deliberately NOT a structural-parity declaration in
 #: `plugin.domain_declarations` -- that declaration carries a structural glob pattern for the
 #: cross-language STRUCTURAL parity surface, which a language's `EnumGenerator` does not need in
@@ -174,7 +174,7 @@ def _registered_domain_names(specs: list[SubGeneratorSpec]) -> frozenset[str]:
 
     Mirrors the two sanctioned registration shapes documented by
     `datrix_testing.conformance.domain_self_consistency.registered_orchestrator_domains`
-    (a string `cls.DOMAIN` class attribute, or a GenDSL-compiled `DomainDefinition` under
+    (a string `cls.DOMAIN` class attribute, or a DAL generator-compiled `DomainDefinition` under
     `spec.extras["domain"]`) -- WITHOUT that gate's `SHARED_CONTEXT_TYPES` scoping, since `"enum"`
     is deliberately outside that 39-domain shared-context-type registry (it is not one of the rich
     cross-language domains that registry exists to compare) yet is exactly the domain id every
@@ -206,7 +206,7 @@ def enum_emitting_language_names(languages: frozenset[str]) -> frozenset[str]:
     required to conform.
 
     The capability signal is each plugin's own sub-generator registration -- does it register a
-    sub-generator under the `"enum"` GenDSL domain (`_registered_domain_names`) -- never a
+    sub-generator under the `"enum"` DAL generator domain (`_registered_domain_names`) -- never a
     hardcoded language-name list, and never a structural-parity declaration in
     `domain_declarations` (see `_ENUM_DOMAIN_NAME`'s own docstring for why that is the wrong
     signal).

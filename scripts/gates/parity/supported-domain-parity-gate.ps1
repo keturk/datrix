@@ -8,14 +8,14 @@
  the full shared domain universe:
 
  1. Domain-universe closure -- the union of every registered language's
-    COMPILED GenDSL IR domain ids equals the shared registry
+    COMPILED DAL generator IR domain ids equals the shared registry
     (`SHARED_CONTEXT_TYPES`) exactly. A domain id some language's compiled
     IR declares but the registry omits, or a registry id no registered
     language's compiled IR declares (a dead entry), fails loud and
     short-circuits before anything downstream runs.
  2. Per-language declaration presence -- every registered language declares
     every STRUCTURAL domain id (the kernel's structural-domain-id tuple;
-    `discovery` and `resilience` keep their GenDSL registration but carry no
+    `discovery` and `resilience` keep their DAL generator registration but carry no
     structural-pattern obligation, so no language is required to declare
     either and a language that does is not reported), and declares nothing
     outside the full registration universe. An undeclared structural id or an

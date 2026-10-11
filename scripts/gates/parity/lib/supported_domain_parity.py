@@ -12,7 +12,7 @@ the comparison universe from ``importlib.metadata.entry_points(group=
 package is picked up automatically with no edit to this script.
 
 **Property 1: domain-universe closure.** ``check_domain_universe_closure``
-computes the union of every registered language's COMPILED GenDSL IR domain
+computes the union of every registered language's COMPILED DAL generator IR domain
 ids (``get_definitions(<lang>)``, independent of any declaration a plugin
 commits) and asserts it equals ``SHARED_CONTEXT_TYPES.keys()`` exactly: a
 domain id some language's compiled IR declares but the registry omits fails
@@ -30,7 +30,7 @@ structural id a language does not declare, or an id a language declares that is
 not (or no longer) part of the universe, is a fail-loud
 ``DECLARATION PRESENCE VIOLATION`` naming the language and the id -- a domain a
 language does not realize is counted here and never excused. ``discovery`` and
-``resilience`` keep their GenDSL registration and so stay in the registration
+``resilience`` keep their DAL generator registration and so stay in the registration
 universe, but carry no structural-pattern obligation: no language is required to
 declare either, and a language that declares one is not reported
 out-of-universe. The gate reads only membership (``domain_id in
@@ -220,11 +220,11 @@ def domain_gap_rows_by_language(
 def compiled_domain_ids_by_language(
     language_names: Iterable[str],
 ) -> dict[str, frozenset[str]]:
-    """Every domain id each language's COMPILED GenDSL IR declares.
+    """Every domain id each language's COMPILED DAL generator IR declares.
 
     Unlike ``declarations_by_language`` (which reads a plugin's derived
     ``domain_declarations``), this reads ``get_definitions(name)`` directly:
-    the compiled IR is the raw fact of what a language's GenDSL source
+    the compiled IR is the raw fact of what a language's DAL generator source
     declares, independent of any declaration a plugin later commits. The
     domain-universe closure check measures the universe against THIS raw
     compiled fact, never against the registry's own idea of itself.
@@ -236,7 +236,7 @@ def compiled_domain_ids_by_language(
         `{language_name: frozenset of every DomainDefinition.name the
         compiled IR reports for that language}`.
     """
-    from datrix_codegen_kernel.gendsl.compiler import get_definitions
+    from datrix_codegen_kernel.dgen.compiler import get_definitions
 
     return {
         name: frozenset(
@@ -740,7 +740,7 @@ def check_supported_domain_parity() -> int:
 
     Runs, in order:
     1. Domain-universe closure -- the union of every registered language's
-       COMPILED GenDSL IR domain ids must equal ``SHARED_CONTEXT_TYPES.keys()``
+       COMPILED DAL generator IR domain ids must equal ``SHARED_CONTEXT_TYPES.keys()``
        exactly. A domain id declared by some language's compiled IR but
        absent from the registry, or a registry id no registered language's
        compiled IR declares, fails loud and short-circuits before anything
@@ -786,7 +786,7 @@ def check_supported_domain_parity() -> int:
         closure_ok = False
         logger.error(
             "DOMAIN UNIVERSE CLOSURE VIOLATION: domain %r is declared by "
-            "%s's compiled GenDSL IR but is not a member of "
+            "%s's compiled DAL generator IR but is not a member of "
             "SHARED_CONTEXT_TYPES. Fix: add it to "
             "datrix_codegen_kernel.generation.registry.COMMON_GENERATOR_REGISTRATIONS.",
             domain_id, sorted(declaring_languages),
@@ -795,7 +795,7 @@ def check_supported_domain_parity() -> int:
         closure_ok = False
         logger.error(
             "DOMAIN UNIVERSE CLOSURE VIOLATION: %d registry id(s) are "
-            "declared by NO registered language's compiled GenDSL IR (dead "
+            "declared by NO registered language's compiled DAL generator IR (dead "
             "entries -- delete them per Decision 28 invariant 6, never "
             "deprecate in place): %s",
             len(dead_registry_ids), sorted(dead_registry_ids),
@@ -882,7 +882,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Prove domain-universe closure (the registry equals the union "
-            "of every registered datrix.languages plugin's compiled GenDSL "
+            "of every registered datrix.languages plugin's compiled DAL generator "
             "IR) and per-language declaration presence (every registered "
             "language declares every structural domain id in that closed "
             "universe, and nothing outside it)."

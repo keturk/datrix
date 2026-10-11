@@ -8,10 +8,10 @@ call -- in every ``.py`` file under each discovered ``datrix-*`` package's
 
   - Everything under a package's ``tests/`` directory (this scanner only
     walks ``src/``, never ``tests/``).
-  - ``datrix-codegen-kernel/src/datrix_codegen_kernel/gendsl/executor.py``
+  - ``datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/executor.py``
     (the declared-file render path's own internals -- constructing
     ``GeneratedFile`` there IS the render mechanism, not a hand-coded
-    duplicate of a genDSL declaration).
+    duplicate of a DAL generator declaration).
 
 ``GeneratedFile.from_content(...)`` (the factory classmethod) is a distinct
 call shape (``Attribute(attr="from_content")``) and is never counted -- only
@@ -49,7 +49,7 @@ from datrix_scripts.paths import WORKSPACE_DIR
 # monorepo root, forward slashes.
 EXCLUDED_FILES: frozenset[str] = frozenset(
     {
-        "datrix-codegen-kernel/src/datrix_codegen_kernel/gendsl/executor.py",
+        "datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/executor.py",
     }
 )
 
@@ -195,13 +195,13 @@ def write_baseline(baseline_path: Path, counts: dict[str, int]) -> None:
             "I5 GeneratedFile-construction ratchet baseline "
             "(Invariant I5). Frozen per-package counts of direct "
             "GeneratedFile(...) constructor calls in each package's src/ "
-            "tree (tests/ excluded; datrix-codegen-kernel/.../gendsl/"
+            "tree (tests/ excluded; datrix-codegen-kernel/.../dgen/"
             "executor.py excluded as the declared-render path's own "
             "internals). Any INCREASE fails "
             "datrix/scripts/gates/ratchet/check-generated-file-ratchet.ps1. Decreases "
             "are always allowed and should be captured by re-running with "
             "--update-baseline once a migration converts hand-coded "
-            "construction into a genDSL declaration."
+            "construction into a DAL generator declaration."
         ),
         "baseline": {name: counts[name] for name in sorted(counts)},
     }
@@ -230,7 +230,7 @@ def check_ratchet(current_counts: dict[str, int], baseline: dict[str, int]) -> l
             messages.append(
                 f"{name}: GeneratedFile construction count increased from "
                 f"baseline {frozen} to {current}. Fix: declare the new "
-                f"file(s) in genDSL instead of constructing GeneratedFile "
+                f"file(s) in DAL generator instead of constructing GeneratedFile "
                 f"directly, or (if this increase is an intentional, "
                 f"reviewed exception) rerun with --update-baseline -- "
                 f"which only accepts decreases once a baseline exists, so "
@@ -247,7 +247,7 @@ def check_ratchet(current_counts: dict[str, int], baseline: dict[str, int]) -> l
 # assert statements only -- no pytest, no unittest.mock/SimpleNamespace, per
 # project test guidelines. These are the same edge cases the (now-deleted)
 # pytest suite covered: bare vs. module-qualified GeneratedFile(...) calls,
-# .from_content(...) NOT counted, tests/ never scanned, the gendsl/executor.py
+# .from_content(...) NOT counted, tests/ never scanned, the dgen/executor.py
 # exclusion, ratchet regression/no-regression/missing-baseline behavior, and
 # package-discovery filtering. Runs automatically as an unconditional first
 # step of every invocation (see main()), and can be run in isolation via
@@ -360,7 +360,7 @@ def _check_excluded_executor_file_never_counted() -> None:
     with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
         root = Path(tmp)
         pkg_dir = root / "datrix-codegen-kernel"
-        executor_dir = pkg_dir / "src" / "datrix_codegen_kernel" / "gendsl"
+        executor_dir = pkg_dir / "src" / "datrix_codegen_kernel" / "dgen"
         executor_dir.mkdir(parents=True)
         (executor_dir / "executor.py").write_text(
             "from datrix_codegen_kernel.generation.generator import GeneratedFile\n"
@@ -378,7 +378,7 @@ def _check_excluded_executor_file_never_counted() -> None:
 
         package = PackageInfo(name="datrix-codegen-kernel", src_dir=pkg_dir / "src")
         total = scan_package(package, root, verbose=False)
-        assert total == 0, f"gendsl/executor.py must be excluded, got total={total}"
+        assert total == 0, f"dgen/executor.py must be excluded, got total={total}"
 
 
 def _check_ratchet_no_regression_when_equal_to_baseline() -> None:
@@ -480,7 +480,7 @@ def _report_update_baseline_increases(increases: list[str]) -> None:
     for message in increases:
         print(f"  {message}", file=sys.stderr)
     print(
-        "\nFix: resolve the increase (declare the file(s) in genDSL) "
+        "\nFix: resolve the increase (declare the file(s) in DAL generator) "
         "before updating the baseline.",
         file=sys.stderr,
     )

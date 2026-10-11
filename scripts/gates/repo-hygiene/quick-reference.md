@@ -38,6 +38,29 @@ must satisfy, and code shapes held at zero. Repo-level validation **scripts**, n
 
 ---
 
+## `gates\repo-hygiene\retired-dsl-names-gate.ps1`
+
+**The repo's proof that no retired internal-DSL name survives a rename.** When an internal language is renamed or replaced, its old name leaves every identifier, module, package, entry-point group, feature tag, script, resource file and document. The gate scans every publishable file (tracked plus untracked-but-not-ignored) of every framework repo, discovered from disk — file content, file names and directory names — and fails listing `path:line` per hit (`path: name segment '<segment>'` for a file or directory name; a directory is reported once). The terminal state is zero: there is no baseline and no allowlist.
+
+**The spellings are data.** `gates/repo-hygiene/lib/retired_dsl_names.json` holds one entry per retired family: `name`, `replacement` (printed in the failure message), `patterns` (case-insensitive regular expressions) and `samples` (concrete spellings the self-test plants; each must match one of its family's patterns or the gate refuses to run). That file is the only path the scan skips, so the gate's own module, wrapper and this page are scanned and never spell a retired name. Retiring another language is one new entry.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\gates\repo-hygiene\retired-dsl-names-gate.ps1` | Scan every publishable file in every framework repo |
+| **One repo** | `.\gates\repo-hygiene\retired-dsl-names-gate.ps1 -Repo datrix-common` | Scan only the named repo(s) |
+| **Self-test only** | `.\gates\repo-hygiene\retired-dsl-names-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Debug** | `.\gates\repo-hygiene\retired-dsl-names-gate.ps1 -Dbg` | Print the python invocation before running |
+
+**Parameters:** `-Repo <name[,name...]>`, `-SelfTest`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** It creates a scratch git repo under `D:\datrix\.tmp\`, plants every sample of every family in file content, in a file name and in a directory name of untracked files, plus a git-ignored copy, a clean file and an exempt spellings file, lists it with the same lister the real scan uses, and fails unless every planted spelling is reported and nothing else is.
+
+**Exit codes:** 0 = no retired name (or the self-test passed, with `-SelfTest`), 1 = at least one retired name or a failing self-test, 2 = usage error, a malformed spellings file, a repo git cannot list, or a publishable file that exists but cannot be read (for example, locked by another process on Windows). An unreadable file is never skipped: skipping it would leave its content unscanned and report a clean tree, so the gate names the file and stops.
+
+**Security posture.** The gate only reads files (and, in the self-test, writes a scratch repo under `D:\datrix\.tmp\`); it opens no network connection and changes nothing in the repos it scans.
+
+---
+
 ## `gates\repo-hygiene\design-task-reference-gate.ps1`
 
 **The repo's proof that no committed artifact cites a design document or a task file.** `design/` and `.tasks/` are gitignored and are developed on more than one machine, so their numbering collides: two different `044-*` documents can exist, and after a clone neither is present. A reference to one from anything committed is a dangling pointer — it resolves to nothing, or to a different artifact elsewhere. The gate scans the committed trees for the SHAPE of such a reference and fails on any hit.
@@ -69,7 +92,7 @@ must satisfy, and code shapes held at zero. Repo-level validation **scripts**, n
 
 ## `gates\repo-hygiene\package-data-coverage-gate.ps1`
 
-**The repo's proof that every runtime resource a package loads ships in its built wheel.** A generator package loads its Jinja2 templates (`*.j2`) and its genDSL definitions (`*.gendsl`) from its installed package directory. Neither is Python, so a wheel carries them only when a `[tool.setuptools.package-data]` glob of the package's `pyproject.toml` matches them. An editable install reads the source tree directly, so a missing glob is invisible locally. Every test passes, every generation works, and the loss appears only after installing the built wheel, as a package that cannot render a file. Every `datrix-*` package with a package-data table is scanned, discovered from disk.
+**The repo's proof that every runtime resource a package loads ships in its built wheel.** A generator package loads its Jinja2 templates (`*.j2`) and its DAL generator definitions (`*.dal`) from its installed package directory. Neither is Python, so a wheel carries them only when a `[tool.setuptools.package-data]` glob of the package's `pyproject.toml` matches them. An editable install reads the source tree directly, so a missing glob is invisible locally. Every test passes, every generation works, and the loss appears only after installing the built wheel, as a package that cannot render a file. Every `datrix-*` package with a package-data table is scanned, discovered from disk.
 
 **Why it exists.** The python and typescript backends shipped two of their three hundred templates each. Their glob, `**/templates/*.j2`, matches only files *directly* inside a `templates/` directory, while nearly every template sits one level deeper (`templates/messaging/…`).
 
@@ -349,7 +372,7 @@ A `-Tag` run and a `-ListTags` listing are never hits (targeted / runs nothing).
 
 ## `gates\repo-hygiene\check-observability-native-only.ps1`
 
-Native-only observability providers conformance gate: scans every `datrix/examples/**/config/system.dcfg` (every declared profile, not just the default) for a portable observability provider (`prometheus`/`datadog` metrics, `jaeger`/`zipkin` tracing, `loki` logging, `grafana` visualization, `alertmanager` alerting) paired with a cloud deployment target (`provider = aws` or `azure`) in the same resolved profile -- a pairing the native-only platform-boundary validator rejects. Uses the real `datrix_common.config.unified_loader.load_system_config` + `datrix_common.config.dcfg.parser.parse_dcfg` resolution pipeline (never a hand-rolled regex scan of the DSL, which cannot follow profile inheritance correctly). It follows the same self-test-first shape as `check-docs-conformance.ps1`.
+Native-only observability providers conformance gate: scans every `datrix/examples/**/config/system.dcfg` (every declared profile, not just the default) for a portable observability provider (`prometheus`/`datadog` metrics, `jaeger`/`zipkin` tracing, `loki` logging, `grafana` visualization, `alertmanager` alerting) paired with a cloud deployment target (`provider = aws` or `azure`) in the same resolved profile -- a pairing the native-only platform-boundary validator rejects. Uses the real `datrix_common.config.unified_loader.load_system_config` resolution pipeline over datrix-language's disk config document source (`parse_dcfg`) (never a hand-rolled regex scan of the DSL, which cannot follow profile inheritance correctly). It follows the same self-test-first shape as `check-docs-conformance.ps1`.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -421,7 +444,7 @@ Application probe-path literal gate: no platform package may hardcode a route a 
 
 ## `gates\repo-hygiene\template-reachability-gate.ps1`
 
-Template reachability gate: every Jinja template a framework package ships is named by something that can render it. Every `.j2` below a `templates/` directory of every `datrix-*/src` tree is discovered from disk; a template counts as named when a Python string constant in any framework `src/` (`ast`, docstrings excluded) equals its path below `templates/` or its file name, when an f-string / `+` concatenation / `{placeholder}` constant matches it with at least one literal character left in the file-name part, when a template statically includes, imports or extends it (`jinja2.meta`), or when a compiled genDSL `FileDefinition` of any registered generator target names it (definition modules imported, IR walked). Exists because dead templates are reviewed and shipped while no generator can render them — two cache-access templates once sat beside the live one that way.
+Template reachability gate: every Jinja template a framework package ships is named by something that can render it. Every `.j2` below a `templates/` directory of every `datrix-*/src` tree is discovered from disk; a template counts as named when a Python string constant in any framework `src/` (`ast`, docstrings excluded) equals its path below `templates/` or its file name, when an f-string / `+` concatenation / `{placeholder}` constant matches it with at least one literal character left in the file-name part, when a template statically includes, imports or extends it (`jinja2.meta`), or when a compiled DAL generator `FileDefinition` of any registered generator target names it (definition modules imported, IR walked). Exists because dead templates are reviewed and shipped while no generator can render them — two cache-access templates once sat beside the live one that way.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -432,12 +455,12 @@ Template reachability gate: every Jinja template a framework package ships is na
 **Parameters:** `-BaseDir <path>`, `-SelfTest`, `-Dbg`
 
 **Assertions:**
-- Every shipped template is named by one of the four mechanisms above (a literal may also name a template by its bare file stem, the way a render plan composing `{dir}/{stem}.{ext}.j2` does); a genDSL template name that matches no template on disk is a dangling reference and fails too.
+- Every shipped template is named by one of the four mechanisms above (a literal may also name a template by its bare file stem, the way a render plan composing `{dir}/{stem}.{ext}.j2` does); a DAL generator template name that matches no template on disk is a dangling reference and fails too.
 - An unnamed template that a declared contract requires to exist is listed in `datrix/scripts/config/template-reachability-exemptions.json` (template path + written reason); dead output is otherwise deleted. An entry whose template is named or gone is stale and fails the gate.
 - A pattern names every variant it can spell (`f"pubsub_connection_{engine}.py.j2"` names every engine's template), so the gate proves each template is reachable by a name, not that every placeholder value is produced at runtime.
-- Non-vacuity self-test (every invocation): a planted workspace with a literal-named, a pattern-named, an included, a docstring-only and an unnamed template yields exactly the docstring-only and unnamed ones; the live genDSL walk must find template names; and the real workspace must hold templates.
+- Non-vacuity self-test (every invocation): a planted workspace with a literal-named, a pattern-named, an included, a docstring-only and an unnamed template yields exactly the docstring-only and unnamed ones; the live DAL generator walk must find template names; and the real workspace must hold templates.
 
-**Exit codes:** 0 = every template is named (or a successful `-SelfTest`), 1 = an unnamed template, a dangling genDSL name or a stale exemption was found, 2 = the self-test failed, a template does not parse, or the exemptions file is missing or malformed.
+**Exit codes:** 0 = every template is named (or a successful `-SelfTest`), 1 = an unnamed template, a dangling DAL generator name or a stale exemption was found, 2 = the self-test failed, a template does not parse, or the exemptions file is missing or malformed.
 
 ---
 
@@ -497,7 +520,7 @@ It does not regenerate and diff (a whole-system generation per language per run)
 - **Dotted references.** Every `datrix_*` dotted reference resolves through the shared resolver the example-snapshot gate uses.
 - **File citations** (`foo.py`, `a/b/foo.py`; a `.py.j2` template name is not a module citation). An anchored citation — at a framework repository (`datrix-codegen-x/...`, `datrix/scripts/...`), an import name (`datrix_codegen_x/...`) or an importable third-party package (`pygls/io_.py`) — must name a file that exists there. A bare or relative citation must name a `.py` file of the citing package or of a package in its runtime dependency closure (read from each `pyproject.toml`). **A module of any other package is cited by its anchored or dotted path**: a bare name is otherwise satisfied by any unrelated package that happens to own a file of that name, which is how comments in a language package kept citing an Azure `resource_mapper.py` long after Azure split it — the only `resource_mapper.py` left belonged to AWS.
 
-A citation that resolves none of those ways still passes when it names a file the generators emit: a `*.py.j2` template's output name, a genDSL output path (`=> "cdk/app.py"`), or a code string literal whose whole value is a `*.py` path (`"settings_loader.py"`). A longer string that only mentions a `.py` name — an error message's "Fix: edit x.py" — names a framework module, not an output, and excuses nothing. A citation inside a URL is skipped.
+A citation that resolves none of those ways still passes when it names a file the generators emit: a `*.py.j2` template's output name, a DAL generator output path (`=> "cdk/app.py"`) declared in a package's `.dal` generator resource or in a code string, or a code string literal whose whole value is a `*.py` path (`"settings_loader.py"`). A longer string that only mentions a `.py` name — an error message's "Fix: edit x.py" — names a framework module, not an output, and excuses nothing. A citation inside a URL is skipped.
 
 **The terminal state is zero.** No baseline, no exemption file. A failing citation is rewritten to the module's current home, to its anchored or dotted path, or to a description of the behaviour.
 
@@ -509,7 +532,7 @@ A citation that resolves none of those ways still passes when it names a file th
 
 **Parameters:** `-Dbg`, `-SelfTest`
 
-**Self-test (every invocation):** a planted three-package workspace (a core package and two packages depending on it) carries every passing shape — an own module, a dependency's module, anchored repository and import-name paths, template/genDSL/code-string emitted names, a template name, placeholders and globs, a URL, a resolving dotted reference, a `datrix_*` segment inside a longer chain, an instance attribute, a model field, a resolving package-relative reference — and every failing shape: a bare name owned only by a package outside the closure, a name owned by nobody, a name only an error message mentions, an anchored path to a missing file, a removed dotted module, a missing member and a missing package-relative reference. Exactly the failing lines must be reported, with the expected citation counts.
+**Self-test (every invocation):** a planted three-package workspace (a core package and two packages depending on it) carries every passing shape — an own module, a dependency's module, anchored repository and import-name paths, template/DAL generator/code-string emitted names, a template name, placeholders and globs, a URL, a resolving dotted reference, a `datrix_*` segment inside a longer chain, an instance attribute, a model field, a resolving package-relative reference — and every failing shape: a bare name owned only by a package outside the closure, a name owned by nobody, a name only an error message mentions, an anchored path to a missing file, a removed dotted module, a missing member and a missing package-relative reference. Exactly the failing lines must be reported, with the expected citation counts.
 
 **Exit codes:** 0 = every citation resolves (or a successful `-SelfTest`), 1 = at least one violation (each names `file:line`, the citation and the citing package's dependency closure), 2 = a failed self-test, no package found, or a scan that saw no citation of either shape.
 
@@ -550,7 +573,7 @@ configs are skipped) through `datrix_common.config.unified_loader.load_service_c
 ## `gates\repo-hygiene\example-config-load-gate.ps1`
 
 Example config load gate: every declared profile of every example `.dcfg` loads. Every model a
-ConfigDSL document validates into rejects unknown keys, so a key the model does not declare is an
+config document validates into rejects unknown keys, so a key the model does not declare is an
 error at load time rather than a value silently dropped. The gate loads every declared profile of
 every `.dcfg` under `datrix/examples` through the real loaders (`service`, `shared`, `system`,
 `identity`, `app`, `strings`, `extern`; the kind is read from the parsed declaration) and fails on

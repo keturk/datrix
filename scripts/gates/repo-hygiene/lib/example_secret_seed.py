@@ -42,11 +42,12 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
-from datrix_common.config.dcfg.parser import ConfigDSLParseError, parse_dcfg
-from datrix_common.config.dcfg.resolver import ConfigDSLResolutionError
+from datrix_common.config.dcfg.errors import DcfgResolutionError, DcfgSyntaxError
 from datrix_common.config.secrets.models import LogicalSecretDef
 from datrix_common.config.unified_loader import load_service_config
 from datrix_common.errors.configuration import ConfigValidationError
+from datrix_common.protocols.parser import ConfigDocumentSourceProtocol
+from datrix_language.parser.dcfg_documents import disk_config_documents
 
 from datrix_scripts.paths import SHOWCASE_DIR
 
@@ -115,25 +116,32 @@ def discover_examples() -> list[Path]:
     return sorted(path.parent for path in EXAMPLES_ROOT.rglob("system.dtrx"))
 
 
-def service_config_paths(example_dir: Path) -> list[Path]:
-    """The example's service-kind ``.dcfg`` files, by parsing each one's kind."""
+def service_config_paths(
+    example_dir: Path, documents: ConfigDocumentSourceProtocol
+) -> list[Path]:
+    """The example's service-kind ``.dcfg`` files, by reading each one's kind
+    through *documents*."""
     config_dir = example_dir / "config"
     if not config_dir.is_dir():
         return []
     services: list[Path] = []
     for path in sorted(config_dir.glob("*.dcfg")):
-        declaration = parse_dcfg(path.read_text(encoding="utf-8"), str(path))
-        if declaration.kind == _SERVICE_KIND:
-            services.append(path)
+        absolute = path.resolve()
+        if documents.config_document(absolute).kind == _SERVICE_KIND:
+            services.append(absolute)
     return services
 
 
-def example_violations(example_dir: Path) -> list[str]:
+def example_violations(
+    example_dir: Path, documents: ConfigDocumentSourceProtocol
+) -> list[str]:
     """Fail-loud messages for every unseeded handle in one example's services."""
     example_id = example_dir.relative_to(EXAMPLES_ROOT).as_posix()
     messages: list[str] = []
-    for config_path in service_config_paths(example_dir):
-        loaded = load_service_config(config_path, example_dir, DEPLOY_TEST_PROFILE)
+    for config_path in service_config_paths(example_dir, documents):
+        loaded = load_service_config(
+            config_path, example_dir, DEPLOY_TEST_PROFILE, documents=documents
+        )
         secrets = loaded.profile.secrets
         if secrets is None:
             continue
@@ -190,11 +198,13 @@ def check_example_secret_seeds() -> int:
             EXAMPLES_ROOT,
         )
         return EXIT_USAGE
+    # One source for the whole run: every .dcfg is read and parsed once.
+    documents = disk_config_documents()
     violations: list[str] = []
     services_checked = 0
     for example_dir in examples:
-        services_checked += len(service_config_paths(example_dir))
-        violations.extend(example_violations(example_dir))
+        services_checked += len(service_config_paths(example_dir, documents))
+        violations.extend(example_violations(example_dir, documents))
     if services_checked == 0:
         logger.error(
             "EXAMPLE-SECRET-SEED GATE CANNOT RUN: %d example(s) but zero service "
@@ -270,8 +280,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return check_example_secret_seeds()
     except (
-        ConfigDSLParseError,
-        ConfigDSLResolutionError,
+        DcfgSyntaxError,
+        DcfgResolutionError,
         ConfigValidationError,
         OSError,
     ) as exc:
