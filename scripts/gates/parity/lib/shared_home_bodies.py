@@ -32,8 +32,6 @@ from __future__ import annotations
 
 import argparse
 import ast
-import copy
-import hashlib
 import json
 import logging
 import shutil
@@ -46,8 +44,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from behaviour_parity import collect_function_sources
-from datrix_scripts.behaviour_skeleton import FunctionSource, SkeletonError
+from datrix_scripts.behaviour_skeleton import SkeletonError
+from datrix_scripts.body_digest import (
+    MIN_BODY_LINES,
+    MIN_BODY_NODES,
+    NormalizedFunction,
+    measure_body,
+    normalized_digest,
+    qualifying_functions,
+)
+from datrix_scripts.function_sources import collect_function_sources
 from datrix_scripts.registered_targets import (
     DATRIX_DIR,
     WORKSPACE_ROOT,
@@ -64,9 +70,6 @@ EXIT_USAGE: Final[int] = 2
 HOME_PACKAGES: Final[frozenset[str]] = frozenset(
     {"datrix_codegen_common", "datrix_codegen_kernel", "datrix_common"}
 )
-#: The floor that removes Protocol ``...`` stubs and one-line accessors.
-MIN_BODY_LINES: Final[int] = 8
-MIN_BODY_NODES: Final[int] = 40
 
 BASELINE_PATH: Final[Path] = DATRIX_DIR / "scripts" / "config" / "shared-home-body-baseline.toml"
 _BASELINE_ENTRY_KEYS: Final[frozenset[str]] = frozenset({"package", "count", "seed", "reason"})
@@ -94,7 +97,6 @@ _BASELINE_HEADER: Final[str] = (
     '#   reason = "what the remaining duplicates are and why they remain"\n'
 )
 
-_LOCAL_TOKEN_PREFIX: Final[str] = "v"
 HIT_LINE_PREFIX: Final[str] = "SHARED-HOME BODY HIT:"
 _SYMBOL_SEPARATOR: Final[str] = ","
 
@@ -111,160 +113,9 @@ class BaselineRiseError(GateError):
 
 
 # ---------------------------------------------------------------------------
-# Normalization
+# Comparison (normalization and enumeration: datrix_scripts.body_digest and
+# datrix_scripts.function_sources)
 # ---------------------------------------------------------------------------
-
-
-def _has_docstring(body: Sequence[ast.stmt]) -> bool:
-    if not body or not isinstance(body[0], ast.Expr):
-        return False
-    return isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str)
-
-
-def _body_without_docstring(body: Sequence[ast.stmt]) -> list[ast.stmt]:
-    return list(body[1:] if _has_docstring(body) else body)
-
-
-def _local_names(function: _FunctionNode) -> frozenset[str]:
-    """Every name the function binds anywhere (itself, parameters, stores,
-    comprehension targets, ``except ... as``, nested defs, match captures)."""
-    names: set[str] = {function.name}
-    for node in ast.walk(function):
-        if isinstance(node, ast.arg):
-            names.add(node.arg)
-        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
-            names.add(node.id)
-        elif isinstance(node, ast.ExceptHandler) and node.name is not None:
-            names.add(node.name)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            names.add(node.name)
-        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name is not None:
-            names.add(node.name)
-        elif isinstance(node, ast.MatchMapping) and node.rest is not None:
-            names.add(node.rest)
-    return frozenset(names)
-
-
-class _BodyNormalizer(ast.NodeTransformer):
-    """Rewrites one function into its comparison form (see the module docstring)."""
-
-    def __init__(self, local_names: frozenset[str]) -> None:
-        self._local_names = local_names
-        self._tokens: dict[str, str] = {}
-
-    def _token(self, name: str) -> str:
-        if name not in self._tokens:
-            self._tokens[name] = f"{_LOCAL_TOKEN_PREFIX}{len(self._tokens)}"
-        return self._tokens[name]
-
-    def _rename(self, name: str) -> str:
-        return self._token(name) if name in self._local_names else name
-
-    def visit_Name(self, node: ast.Name) -> ast.Name:
-        return ast.Name(id=self._rename(node.id), ctx=node.ctx)
-
-    def visit_arg(self, node: ast.arg) -> ast.arg:
-        return ast.arg(arg=self._token(node.arg), annotation=None, type_comment=None)
-
-    def visit_Constant(self, node: ast.Constant) -> ast.Constant:
-        return ast.Constant(value=type(node.value).__name__)
-
-    def visit_AnnAssign(self, node: ast.AnnAssign) -> ast.Assign | None:
-        if node.value is None:
-            return None
-        return ast.Assign(targets=[self.visit(node.target)], value=self.visit(node.value), type_comment=None)
-
-    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> ast.ExceptHandler:
-        self.generic_visit(node)
-        node.name = None if node.name is None else self._rename(node.name)
-        return node
-
-    def visit_MatchAs(self, node: ast.MatchAs) -> ast.MatchAs:
-        self.generic_visit(node)
-        node.name = None if node.name is None else self._rename(node.name)
-        return node
-
-    def visit_MatchStar(self, node: ast.MatchStar) -> ast.MatchStar:
-        node.name = None if node.name is None else self._rename(node.name)
-        return node
-
-    def visit_MatchMapping(self, node: ast.MatchMapping) -> ast.MatchMapping:
-        self.generic_visit(node)
-        node.rest = None if node.rest is None else self._rename(node.rest)
-        return node
-
-    def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
-        node.name = self._rename(node.name)
-        node.decorator_list = []
-        self.generic_visit(node)
-        return node
-
-    def _normalize_function(self, node: _FunctionNode) -> _FunctionNode:
-        node.name = self._rename(node.name)
-        node.decorator_list = []
-        node.returns = None
-        self.generic_visit(node)
-        return node
-
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
-        normalized = self._normalize_function(node)
-        assert isinstance(normalized, ast.FunctionDef)
-        return normalized
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
-        normalized = self._normalize_function(node)
-        assert isinstance(normalized, ast.AsyncFunctionDef)
-        return normalized
-
-
-def normalized_digest(function: _FunctionNode) -> str:
-    """The SHA-256 of *function*'s normalized AST (never mutates *function*)."""
-    working = copy.deepcopy(function)
-    working.body = _body_without_docstring(working.body)
-    normalized = _BodyNormalizer(_local_names(working)).visit(working)
-    dumped = ast.dump(normalized, annotate_fields=True, include_attributes=False)
-    return hashlib.sha256(dumped.encode("utf-8")).hexdigest()
-
-
-def measure_body(function: _FunctionNode) -> tuple[int, int]:
-    """``(lines, nodes)`` of the docstring-free body: the span from the first
-    body statement to the function's last line, and the AST node count."""
-    body = _body_without_docstring(function.body)
-    if not body:
-        return 0, 0
-    if function.end_lineno is None:
-        raise GateError(
-            f"Function {function.name!r} at line {function.lineno} carries no end position; expected "
-            f"ast.parse() to populate end_lineno (Python >= 3.8). Fix: run the gate under the repo venv."
-        )
-    lines = function.end_lineno - body[0].lineno + 1
-    nodes = sum(1 for statement in body for _ in ast.walk(statement))
-    return lines, nodes
-
-
-# ---------------------------------------------------------------------------
-# Enumeration and comparison
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class NormalizedFunction:
-    """One function that cleared the floor, ready for comparison."""
-
-    package: str
-    qualified_name: str
-    file_path: Path
-    line_number: int
-    digest: str
-    is_public: bool
-
-    @property
-    def bare_name(self) -> str:
-        return self.qualified_name.rsplit(".", 1)[-1]
-
-    @property
-    def identity(self) -> tuple[Path, int]:
-        return self.file_path, self.line_number
 
 
 @dataclass(frozen=True)
@@ -273,30 +124,6 @@ class BodyHit:
 
     copy: NormalizedFunction
     home: NormalizedFunction
-
-
-def _is_public(qualified_name: str) -> bool:
-    return not any(part.startswith("_") for part in qualified_name.split("."))
-
-
-def qualifying_functions(sources: Sequence[FunctionSource]) -> list[NormalizedFunction]:
-    """Every function in *sources* at or above the floor, normalized."""
-    qualifying: list[NormalizedFunction] = []
-    for source in sources:
-        lines, nodes = measure_body(source.node)
-        if lines < MIN_BODY_LINES or nodes < MIN_BODY_NODES:
-            continue
-        qualifying.append(
-            NormalizedFunction(
-                package=source.package,
-                qualified_name=source.qualified_name,
-                file_path=source.file_path,
-                line_number=source.line_number,
-                digest=normalized_digest(source.node),
-                is_public=_is_public(source.qualified_name),
-            )
-        )
-    return qualifying
 
 
 def find_hits(
@@ -391,6 +218,16 @@ def load_baseline(path: Path = BASELINE_PATH) -> dict[str, PackageBaseline]:
             a duplicate package, a negative/non-integer count, ``count > seed``
             or an empty ``reason`` -- naming the file and the offender.
     """
+    raw = _read_baseline_toml(path)
+    entries: dict[str, PackageBaseline] = {}
+    for index, entry in enumerate(raw.get(_BASELINE_TABLE_KEY, [])):
+        package, baseline = _baseline_entry(entry, f"{path}: [[{_BASELINE_TABLE_KEY}]] entry {index}", entries)
+        entries[package] = baseline
+    return entries
+
+
+def _read_baseline_toml(path: Path) -> dict[str, object]:
+    """The baseline file's TOML table, refusing an unreadable file or an unknown top-level key."""
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -403,31 +240,34 @@ def load_baseline(path: Path = BASELINE_PATH) -> dict[str, PackageBaseline]:
     unknown = sorted(set(raw) - {_BASELINE_TABLE_KEY})
     if unknown:
         raise GateError(f"{path}: unrecognized top-level key(s) {unknown}; expected only [[{_BASELINE_TABLE_KEY}]].")
-    entries: dict[str, PackageBaseline] = {}
-    for index, entry in enumerate(raw.get(_BASELINE_TABLE_KEY, [])):
-        where = f"{path}: [[{_BASELINE_TABLE_KEY}]] entry {index}"
-        if not isinstance(entry, dict) or set(entry) != _BASELINE_ENTRY_KEYS:
-            raise GateError(
-                f"{where} must carry exactly {sorted(_BASELINE_ENTRY_KEYS)}; got "
-                f"{sorted(entry) if isinstance(entry, dict) else entry!r}. Fix: add or remove the key(s)."
-            )
-        package = entry["package"]
-        reason = entry["reason"]
-        if not isinstance(package, str) or not package:
-            raise GateError(f"{where}: package must be a non-empty import name; got {package!r}.")
-        if package in entries:
-            raise GateError(f"{where}: package {package!r} appears twice. Fix: keep one entry per package.")
-        if not isinstance(reason, str) or not reason.strip():
-            raise GateError(f"{where} ({package}): reason is empty. Fix: write what the remaining duplicates are.")
-        count = _require_count(entry["count"], where, "count")
-        seed = _require_count(entry["seed"], where, "seed")
-        if count > seed:
-            raise GateError(
-                f"{where} ({package}): count {count} exceeds seed {seed}. Fix: a count above the first "
-                f"measurement means a copy was added; remove it instead of raising the pin."
-            )
-        entries[package] = PackageBaseline(count=count, seed=seed, reason=reason)
-    return entries
+    return raw
+
+
+def _baseline_entry(
+    entry: object, where: str, entries: Mapping[str, PackageBaseline]
+) -> tuple[str, PackageBaseline]:
+    """One validated ``[[baseline]]`` entry (see ``load_baseline`` for what is refused)."""
+    if not isinstance(entry, dict) or set(entry) != _BASELINE_ENTRY_KEYS:
+        raise GateError(
+            f"{where} must carry exactly {sorted(_BASELINE_ENTRY_KEYS)}; got "
+            f"{sorted(entry) if isinstance(entry, dict) else entry!r}. Fix: add or remove the key(s)."
+        )
+    package = entry["package"]
+    reason = entry["reason"]
+    if not isinstance(package, str) or not package:
+        raise GateError(f"{where}: package must be a non-empty import name; got {package!r}.")
+    if package in entries:
+        raise GateError(f"{where}: package {package!r} appears twice. Fix: keep one entry per package.")
+    if not isinstance(reason, str) or not reason.strip():
+        raise GateError(f"{where} ({package}): reason is empty. Fix: write what the remaining duplicates are.")
+    count = _require_count(entry["count"], where, "count")
+    seed = _require_count(entry["seed"], where, "seed")
+    if count > seed:
+        raise GateError(
+            f"{where} ({package}): count {count} exceeds seed {seed}. Fix: a count above the first "
+            f"measurement means a copy was added; remove it instead of raising the pin."
+        )
+    return package, PackageBaseline(count=count, seed=seed, reason=reason)
 
 
 def write_baseline(path: Path, entries: Mapping[str, PackageBaseline]) -> None:
@@ -839,24 +679,37 @@ def _log_hits(hits: Sequence[BodyHit], *, show: bool, symbols: frozenset[str] | 
     logger.info("SHARED-HOME BODY HITS: %d hit line(s) shown", len(selected))
 
 
+def _symbols(argument: str | None) -> frozenset[str] | None:
+    if argument is None:
+        return None
+    return frozenset(part.strip() for part in argument.split(_SYMBOL_SEPARATOR) if part.strip())
+
+
+def _write_updated_baseline(counts: Mapping[str, int]) -> int:
+    previous = load_baseline(BASELINE_PATH) if BASELINE_PATH.exists() else None
+    try:
+        write_baseline(BASELINE_PATH, updated_baseline(counts, previous))
+    except BaselineRiseError as exc:
+        logger.error("SHARED-HOME BODY BASELINE: %s", exc)
+        return EXIT_FAIL
+    logger.info(
+        "SHARED-HOME BODY BASELINE: written to %s (%d package(s) with duplicates)",
+        BASELINE_PATH.name,
+        sum(1 for c in counts.values() if c),
+    )
+    return EXIT_OK
+
+
 def _run_scan(args: argparse.Namespace) -> int:
     hits = measure(WORKSPACE_ROOT)
     counts = count_by_package(hits)
-    symbols = (
-        None
-        if args.symbol is None
-        else frozenset(part.strip() for part in args.symbol.split(_SYMBOL_SEPARATOR) if part.strip())
-    )
-    _log_hits(hits, show=args.show_hits, symbols=symbols)
+    _log_hits(hits, show=args.show_hits, symbols=_symbols(args.symbol))
     if args.update_baseline:
-        previous = load_baseline(BASELINE_PATH) if BASELINE_PATH.exists() else None
-        try:
-            write_baseline(BASELINE_PATH, updated_baseline(counts, previous))
-        except BaselineRiseError as exc:
-            logger.error("SHARED-HOME BODY BASELINE: %s", exc)
-            return EXIT_FAIL
-        logger.info("SHARED-HOME BODY BASELINE: written to %s (%d package(s) with duplicates)", BASELINE_PATH.name, sum(1 for c in counts.values() if c))
-        return EXIT_OK
+        return _write_updated_baseline(counts)
+    return _check_against_baseline(counts)
+
+
+def _check_against_baseline(counts: Mapping[str, int]) -> int:
     baseline = load_baseline(BASELINE_PATH)
     known = frozenset(discover_all_package_locations(WORKSPACE_ROOT))
     for package in sorted(set(counts) | set(baseline)):

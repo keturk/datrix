@@ -255,6 +255,14 @@ from datrix_scripts.behaviour_skeleton import (
     plumbing_parameter_names,
     skeleton_shape,
 )
+from datrix_scripts.function_sources import (
+    CONTAINER_BODY_ATTRS,
+    collect_function_sources,
+    collect_module_and_method_defs,
+    decorated_source_segment,
+    dotted_package_for_file,
+    qualified_def_name,
+)
 from datrix_scripts.registered_targets import (
     AXIS_LANGUAGES,
     AXIS_PLATFORMS,
@@ -295,10 +303,6 @@ _SHARED_CODEGEN_LAYER_PREFIX: Final[str] = "datrix_codegen_common."
 #: ``typing.Literal``'s subscript holds VALUES, not types; its arguments are
 #: never resolved as annotations.
 _LITERAL_QUALIFIED_NAMES: Final[frozenset[str]] = frozenset({"typing.Literal", "typing_extensions.Literal"})
-#: ``ast.stmt`` attribute names whose value is a statement list this scanner
-#: descends into to find a def nested inside a non-function, non-class
-#: container (If/While/For/With/Try main body + else + finally).
-_CONTAINER_BODY_ATTRS: Final[tuple[str, ...]] = ("body", "orelse", "finalbody")
 _NAME_SEGMENT_SEPARATOR: Final[str] = "_"
 #: Bound on ``_resolve_static_reexport``'s recursion -- a re-export chases at
 #: most one or two package ``__init__`` hops in practice; this only guards
@@ -801,7 +805,7 @@ def _resolve_static_reexport(qualified_name: str, *, _hops: int = 0) -> str:
     module = parse_module_or_raise(file_path)
     if _defines_locally(module, attr_name):
         return qualified_name
-    package = _dotted_package_for_file(src_dir, file_path)
+    package = dotted_package_for_file(src_dir, file_path)
     reexported = build_import_table(module, package).get(attr_name)
     if reexported is None or reexported == qualified_name:
         return qualified_name
@@ -951,7 +955,7 @@ def coordinate_index_from_seeds(
 
 
 def _module_name_for(src_dir: Path, py_file: Path) -> str:
-    package = _dotted_package_for_file(src_dir, py_file)
+    package = dotted_package_for_file(src_dir, py_file)
     return package if py_file.stem == _PACKAGE_INIT_STEM else f"{package}.{py_file.stem}"
 
 
@@ -1134,7 +1138,7 @@ class ReferenceGraph:
 
 def _collect_class_defs(body: list[ast.stmt]) -> list[ast.ClassDef]:
     """Every class reachable through non-function statement containers,
-    nested classes included -- the same scope ``_collect_module_and_method_defs``
+    nested classes included -- the same scope ``collect_module_and_method_defs``
     collects methods from."""
     found: list[ast.ClassDef] = []
     for stmt in body:
@@ -1144,7 +1148,7 @@ def _collect_class_defs(body: list[ast.stmt]) -> list[ast.ClassDef]:
             continue
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        for attr in _CONTAINER_BODY_ATTRS:
+        for attr in CONTAINER_BODY_ATTRS:
             nested_body = getattr(stmt, attr, None)
             if nested_body:
                 found.extend(_collect_class_defs(nested_body))
@@ -1157,13 +1161,13 @@ def _module_info(
     module_name: str, file_path: Path, module: ast.Module, import_table: dict[str, str]
 ) -> tuple[_ModuleInfo, list[tuple[_FunctionDefNode, str | None]]]:
     """One module's ``_ModuleInfo`` plus its collected definitions."""
-    defs = _collect_module_and_method_defs(module.body, None)
+    defs = collect_module_and_method_defs(module.body, None)
     resolved = file_path.resolve()
     functions = {node.name: (resolved, node.name) for node, owner in defs if owner is None}
     methods_by_class: dict[str, dict[str, BuilderIdentity]] = {}
     for node, owner in defs:
         if owner is not None:
-            methods_by_class.setdefault(owner, {})[node.name] = (resolved, _qualified_def_name(node, owner))
+            methods_by_class.setdefault(owner, {})[node.name] = (resolved, qualified_def_name(node, owner))
     bases_by_class: dict[str, list[ast.expr]] = {}
     attributes_by_class: dict[str, dict[str, ast.expr]] = {}
     for class_def in _collect_class_defs(module.body):
@@ -1241,7 +1245,7 @@ def platform_reference_graph(src_dirs: Sequence[Path]) -> ReferenceGraph:
         for py_file in sorted(src_dir.rglob("*.py")):
             module = parse_module_or_raise(py_file)
             module_name = _module_name_for(src_dir, py_file)
-            import_table = build_import_table(module, _dotted_package_for_file(src_dir, py_file))
+            import_table = build_import_table(module, dotted_package_for_file(src_dir, py_file))
             info, defs = _module_info(module_name, py_file, module, import_table)
             modules[module_name] = info
             definitions.extend((info, node, owner) for node, owner in defs)
@@ -1778,130 +1782,10 @@ def _ladder_role_key_for(fn: FunctionSource, tokens: frozenset[str]) -> RoleKey:
 
 
 # ---------------------------------------------------------------------------
-# Function collection (module-level + class-method defs only)
+# Function collection (module-level + class-method defs only): the walker is
+# datrix_scripts.function_sources, shared with the shared-home body gate and
+# the duplicate-body report.
 # ---------------------------------------------------------------------------
-
-
-def _collect_module_and_method_defs(
-    body: list[ast.stmt], enclosing_class: str | None
-) -> list[tuple[_FunctionDefNode, str | None]]:
-    """Recursively collect every module-level or class-method function def
-    reachable through non-function statement containers (If/While/For/With/
-    Try), pairing each with its nearest enclosing class name.
-
-    Never descends into a function's own body -- a nested function is a
-    closure, not a declaration this scanner tracks. A class nested inside
-    another class resets ``enclosing_class`` to its own name (single-level
-    qualification, ``ClassName.method_name``).
-
-    Args:
-        body: A statement list (a module body or a class body).
-        enclosing_class: The nearest enclosing class's name, or ``None``.
-
-    Returns:
-        ``(node, enclosing_class)`` pairs, in source order.
-    """
-    found: list[tuple[_FunctionDefNode, str | None]] = []
-    for stmt in body:
-        if isinstance(stmt, ast.ClassDef):
-            found.extend(_collect_module_and_method_defs(stmt.body, stmt.name))
-            continue
-        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            found.append((stmt, enclosing_class))
-            continue
-        for attr in _CONTAINER_BODY_ATTRS:
-            nested_body = getattr(stmt, attr, None)
-            if nested_body:
-                found.extend(_collect_module_and_method_defs(nested_body, enclosing_class))
-        for handler in getattr(stmt, "handlers", ()):
-            found.extend(_collect_module_and_method_defs(handler.body, enclosing_class))
-    return found
-
-
-def _decorated_source_segment(source_lines: list[str], node: _FunctionDefNode) -> str:
-    """Verbatim source text of *node*, decorators included: whole source
-    lines from the first decorator's line (or the ``def`` line) through the
-    function's last line.
-
-    Args:
-        source_lines: The file's source, ``splitlines(keepends=True)``.
-        node: The function/method AST node.
-
-    Returns:
-        The decorator(s) + def + body, as literal source text.
-
-    Raises:
-        SkeletonError: If ``node.end_lineno`` is unavailable.
-    """
-    if node.end_lineno is None:
-        raise SkeletonError(
-            f"AST node for {node.name!r} at line {node.lineno} has no end_lineno -- "
-            f"expected ast.parse() to populate it (requires Python >= 3.8)."
-        )
-    start_line = node.decorator_list[0].lineno if node.decorator_list else node.lineno
-    return "".join(source_lines[start_line - 1 : node.end_lineno])
-
-
-def _dotted_package_for_file(src_dir: Path, file_path: Path) -> str:
-    """The dotted package *file_path* lives in, for resolving its relative
-    imports: ``pkg/sub/mod.py`` and ``pkg/sub/__init__.py`` alike live in
-    ``pkg.sub`` (a package's ``__init__`` IS its package).
-
-    Args:
-        src_dir: The package's src root (e.g. ``.../src/datrix_codegen_python``).
-        file_path: A ``.py`` file under *src_dir*.
-
-    Returns:
-        The dotted package path.
-    """
-    relative = file_path.relative_to(src_dir)
-    return ".".join([src_dir.name, *relative.parts[:-1]])
-
-
-def _qualified_def_name(node: _FunctionDefNode, enclosing_class: str | None) -> str:
-    return f"{enclosing_class}.{node.name}" if enclosing_class else node.name
-
-
-def collect_function_sources(src_dir: Path, package: str) -> list[FunctionSource]:
-    """AST-walk every ``.py`` file under *src_dir* for module-level and
-    class-method function/method definitions, building one ``FunctionSource``
-    per declaration with its decorated source text and its own file's import
-    table.
-
-    Args:
-        src_dir: A package's source root (e.g. a language's
-            ``src/datrix_codegen_python`` directory).
-        package: The label recorded on every returned ``FunctionSource`` (a
-            registered language/platform name, or a folded label).
-
-    Returns:
-        Every declaration found, in file-then-source order. Empty if
-        *src_dir* does not exist.
-
-    Raises:
-        SkeletonError: If a ``.py`` file under *src_dir* cannot be parsed --
-            propagates unmodified, never caught here.
-    """
-    sources: list[FunctionSource] = []
-    if not src_dir.is_dir():
-        return sources
-    for py_file in sorted(src_dir.rglob("*.py")):
-        module = parse_module_or_raise(py_file)
-        import_table = build_import_table(module, _dotted_package_for_file(src_dir, py_file))
-        source_lines = py_file.read_text(encoding="utf-8-sig").splitlines(keepends=True)
-        for node, enclosing_class in _collect_module_and_method_defs(module.body, None):
-            sources.append(
-                FunctionSource(
-                    package=package,
-                    file_path=py_file,
-                    line_number=node.lineno,
-                    qualified_name=_qualified_def_name(node, enclosing_class),
-                    node=node,
-                    source_text=_decorated_source_segment(source_lines, node),
-                    import_table=import_table,
-                )
-            )
-    return sources
 
 
 def collect_bare_names(src_dir: Path) -> frozenset[str]:
@@ -1922,7 +1806,7 @@ def collect_bare_names(src_dir: Path) -> frozenset[str]:
     names: set[str] = set()
     for py_file in sorted(src_dir.rglob("*.py")):
         module = parse_module_or_raise(py_file)
-        names.update(node.name for node, _ in _collect_module_and_method_defs(module.body, None))
+        names.update(node.name for node, _ in collect_module_and_method_defs(module.body, None))
     return frozenset(names)
 
 
@@ -3335,7 +3219,7 @@ def _function_source(code: str, *, package: str, file_path: Path) -> FunctionSou
         line_number=node.lineno,
         qualified_name=node.name,
         node=node,
-        source_text=_decorated_source_segment(dedented.splitlines(keepends=True), node),
+        source_text=decorated_source_segment(dedented.splitlines(keepends=True), node),
         import_table=build_import_table(module, package),
     )
 

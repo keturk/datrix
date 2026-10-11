@@ -24,7 +24,7 @@ service library.NotificationService('config/notification-service.dcfg') : versio
     enqueue library.BookService.SendBookNotification(UUID bookId, Email recipientEmail, String message) {
         Log.info("Sending book notification", { bookId: bookId, email: recipientEmail });
 
-        Email.send({
+        Email.sendTemplate({
             to: recipientEmail,
             subject: "Book Notification",
             template: "book-notification",

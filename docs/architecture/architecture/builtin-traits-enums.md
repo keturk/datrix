@@ -60,6 +60,7 @@ The generic **`geo`** extension (activated with `use extension geo;`) provides r
 |--------|---------|---------|
 | **GeoTile** | `GeoTile.gridForBounds(minLon, minLat, maxLon, maxLat, tileSizeDeg, pixelWidth, pixelHeight)` | Split a geographic bounding box into a grid of tile descriptors. Returns `Array<GeoTileSpec>`. Pure computation (no I/O, no dependencies). |
 | **GeoTiff** | `GeoTiff.parseElevationGrid(data, bounds, resolutionM)` | Parse GeoTIFF binary data into an elevation grid. Returns `GeoElevationGrid`. Local computation using Python `struct` module (no external dependencies). Phase 1: uncompressed, single-band float32/int16 only. |
+| **GeoTiff** | `GeoTiff.write(raster, options?)` | Encode a `GeoRaster` (1/3/4 bands, uint8/int16/float32, `GeoBounds`, EPSG, nodata) as a georeferenced GeoTIFF, uncompressed or DEFLATE (`GeoTiffWriteOptions.compress`). Returns `Bytes`. Standard library only. |
 
 **Extension value structs** (registered via `geo` extension, available as DSL types when `use extension geo;` is declared):
 
@@ -68,6 +69,8 @@ The generic **`geo`** extension (activated with `use extension geo;`) provides r
 | **GeoBounds** | `Number minLon, minLat, maxLon, maxLat` | Geographic bounding box |
 | **GeoTileSpec** | `String tileId, bbox, imageSize; GeoBounds bounds; Int pixelWidth, pixelHeight; Number resolutionM` | Tile descriptor for raster download |
 | **GeoElevationGrid** | `Int width, height; Array<Number> values; Number noDataValue` | Parsed elevation raster data |
+| **GeoRaster** | `Int width, height, bands; String dataType; Array<Number> data; GeoBounds bounds; Int? epsg; Number? noData` | Raster input of `GeoTiff.write` |
+| **GeoTiffWriteOptions** | `Boolean? compress` | Encoder options of `GeoTiff.write` |
 
 These raster builtins are distinct from the **`postgis`** extension (`GeoShape.*`, `GeoSql.*`) which provides PostGIS-coupled spatial operations. The core **`Geo.*`** stdlib (distance, tile coordinates) requires no extension.
 

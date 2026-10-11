@@ -67,6 +67,10 @@
  Print every feature tag in each named package with its test count, and the tests
  carrying no tag. Runs no test. Exits non-zero when any test is untagged or a test
  module fails to collect. With -Specific, lists only the named files/directories.
+ Then compares each package's tags with the vocabulary table in
+ datrix-common/docs/contributing/test-guidelines/feature-tags.md (test\lib\tag_vocabulary.py)
+ and lists every tag in use the table does not name, with where it is first applied --
+ report only; the exit code stays the listing's.
 
 .PARAMETER Rerun
  Re-run tests only for projects whose latest timestamped test log reports a failure.
@@ -451,6 +455,12 @@ try {
   $ErrorActionPreference = $ErrorActionPreference_Saved
   if ($projectExit -ne 0 -and $listExit -eq 0) { $listExit = $projectExit }
  }
+ # The tags in use, compared with the documented vocabulary (feature-tags.md): report only,
+ # the exit code stays the listing's. Static AST read; runs no test.
+ Write-Host ""
+ Write-Host "=== Tag vocabulary ===" -ForegroundColor Cyan
+ $vocabularyPackages = @($projectsToTest)
+ & python (Join-Path $scriptDir "lib\tag_vocabulary.py") @vocabularyPackages 2>&1 | Write-Host
  exit $listExit
  }
 
