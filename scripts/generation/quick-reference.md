@@ -45,7 +45,7 @@ Refreshes one committed example snapshot (`<example>/generated/<language>-<platf
 
 ### `generation\refresh-seed-datasets.ps1`
 
-Regenerates the seven builtin SeedDSL reference datasets (`Seed.countries()`, `Seed.currencies()`, …) in `datrix-codegen-kernel/src/datrix_codegen_kernel/seed_data/` from their authoritative sources. Needs the network. Every file records its source, URL, version, retrieval date, licence and transform; afterwards the script compares the files with `SEED_DATASETS` and exits 1 while the schema constants differ, printing what they must carry.
+Regenerates the seven builtin seed reference datasets (`Seed.countries()`, `Seed.currencies()`, …) in `datrix-codegen-kernel/src/datrix_codegen_kernel/seed_data/` from their authoritative sources. Needs the network. Every file records its source, URL, version, retrieval date, licence and transform; afterwards the script compares the files with `SEED_DATASETS` and exits 1 while the schema constants differ, printing what they must carry.
 
 | Mode | Command | Description |
 |------|---------|-------------|

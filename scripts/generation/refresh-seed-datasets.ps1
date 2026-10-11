@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Regenerate the builtin SeedDSL reference datasets from their authoritative sources.
+ Regenerate the builtin seed reference datasets from their authoritative sources.
 
 .DESCRIPTION
  Downloads each pinned (or hash-recorded) source, applies the documented transform and

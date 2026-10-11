@@ -7,8 +7,8 @@ existence checks, docker-compose service-entry cross-check, and the
 critical-blocker / warning rollup — and emits the per-service deep-dive
 prompt files from the skill's Phase 6 template.
 
-The .dtrx source is parsed with the real pipeline (TreeSitterParser +
-SemanticAnalyzer), never with regexes. Service directory naming reuses
+The .dtrx source is parsed and analyzed by the generation pipeline's own front
+stages (``resolve_application``), never with regexes. Service directory naming reuses
 ``datrix_common.paths.ServicePaths`` — the same transform the generators use.
 
 Usage:
@@ -46,15 +46,11 @@ for _sub in ("datrix-common/src", "datrix-language/src"):
         sys.path.insert(0, str(_pkg_path))
 
 import yaml  # noqa: E402
-from datrix_common.config_resolution import (  # noqa: E402
-    ConfigResolutionError,
-    resolve_service_configs,
-)
+from datrix_cli.commands._app_spec import resolve_application  # noqa: E402
+from datrix_common.config_resolution import ConfigResolutionError  # noqa: E402
 from datrix_common.datrix_model.containers import Application  # noqa: E402
 from datrix_common.paths import ServicePaths  # noqa: E402
-from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser  # noqa: E402
 from datrix_language.registration import register_all  # noqa: E402
-from datrix_semantic.analyzer import SemanticAnalyzer  # noqa: E402
 
 from datrix_scripts.evaluate_reports import QUICK_REPORT_FILENAME, render_project_quick_report  # noqa: E402
 
@@ -73,7 +69,8 @@ MANIFEST_SUBDIR = ".datrix/manifests"
 PROJECT_SCAN_FILENAME = "project-scan.json"
 EVAL_SUBDIR = "eval"
 TMP_SUBDIR = ".tmp"
-MAX_REPORTED_PARSE_ERRORS = 5
+#: Spliced into resolve_application's error messages: what needed the application.
+_SCAN_PURPOSE = "the evaluate-generated scan"
 
 #: Manifest entries not under a service directory are grouped under this key.
 PROJECT_LEVEL_KEY = "_project"
@@ -307,9 +304,10 @@ def write_json_file(path: Path, payload: dict[str, object]) -> None:
 def parse_application(source_path: Path, profile: str = DEFAULT_CONFIG_PROFILE) -> Application:
     """Parse a .dtrx file with the real pipeline and return the validated app.
 
-    Mirrors the CLI generation pipeline's front stages (and the sibling
-    visualize.py): parse, resolve ConfigDSL for the given profile, then run
-    semantic analysis.
+    Runs the CLI generation pipeline's own front stages
+    (``datrix_cli.commands._app_spec.resolve_application``): parse, attach the
+    config document source, resolve system/service/infrastructure ``.dcfg`` for
+    the given profile, inject system entities, then run semantic analysis.
 
     Raises:
         ScanInputError: If the source is missing, config resolution fails, or
@@ -330,24 +328,20 @@ def parse_application(source_path: Path, profile: str = DEFAULT_CONFIG_PROFILE) 
             "Pass an existing system.dtrx (or service .dtrx) path via --source."
         )
     register_all()
-    parser = TreeSitterParser()
-    ast = parser.parse_file(source_path)
     try:
-        resolve_service_configs(ast, source_path.parent, profile)
+        return resolve_application(
+            source_path.parent, source_path, profile, purpose=_SCAN_PURPOSE
+        )
     except ConfigResolutionError as exc:
         raise ScanInputError(
             f"Config resolution for {source_path} (profile '{profile}') failed: {exc}. "
             "Pass the profile the project was generated with via --profile "
             "(generate.ps1 default: test)."
         ) from exc
-    result = SemanticAnalyzer().analyze(ast)
-    if not result.is_valid:
-        summary = "; ".join(str(err) for err in result.errors[:MAX_REPORTED_PARSE_ERRORS])
+    except ValueError as exc:
         raise ScanInputError(
-            f"Semantic analysis of {source_path} failed with {len(result.errors)} error(s): "
-            f"{summary}. Fix the DSL source (see syntax-checker.ps1) before scanning."
-        )
-    return result.app
+            f"{exc}\nFix the DSL source (see syntax-checker.ps1) before scanning."
+        ) from exc
 
 
 def build_service_records(app: Application) -> list[ServiceRecord]:

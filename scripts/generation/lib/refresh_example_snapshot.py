@@ -90,11 +90,13 @@ def derive_platform(
         container_scaffold_generator_names_for,
         declaration_for_provider,
     )
+    from datrix_language.parser.dcfg_documents import disk_config_documents
 
     unified = load_system_config(
         config_path=source_dir / "config" / "system.dcfg",
         project_root=source_dir,
         profile=profile,
+        documents=disk_config_documents(),
     )
     deployment = unified.system.deployment
     provider = deployment.provider.value

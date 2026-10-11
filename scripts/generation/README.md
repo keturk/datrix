@@ -14,7 +14,7 @@ Every wrapper runs its Python from `lib/`. Command-by-command reference:
 |--------|-------------|
 | `rebuild-parser.ps1` | Rebuild the Tree-sitter parser from `grammar.js` |
 | `refresh-example-snapshot.ps1` | Regenerate one committed example snapshot |
-| `refresh-seed-datasets.ps1` | Regenerate the builtin SeedDSL reference datasets |
+| `refresh-seed-datasets.ps1` | Regenerate the builtin seed reference datasets |
 | `status-generation.ps1` | Generation status from the latest `generate-results-*.log` |
 | `triage-failures.ps1` | Group test/generation/deploy log failures by likely root cause |
 | `compare-generated.ps1` | Feature-level comparison of `.generated` against `.generated_saved` |

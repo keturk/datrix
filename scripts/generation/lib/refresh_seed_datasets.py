@@ -1,4 +1,4 @@
-"""Regenerate the builtin SeedDSL reference datasets from their authoritative sources.
+"""Regenerate the builtin seed reference datasets from their authoritative sources.
 
 Invoked by ``refresh-seed-datasets.ps1``. Needs the network (it is a script, not a
 test). Each dataset is built from a pinned or hash-recorded source whose terms
