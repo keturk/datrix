@@ -26,3 +26,24 @@ def framework_repos(workspace_root: Path) -> list[Path]:
         if child.name.startswith(FRAMEWORK_REPO_PREFIX) and (child / GIT_DIR_NAME).exists():
             repos.append(child)
     return repos
+
+
+def select_framework_repos(workspace_root: Path, wanted: list[str] | None) -> list[Path]:
+    """Return the framework repos named in *wanted*, or every one when *wanted* is None.
+
+    Raises:
+        ValueError: If a requested name is not a framework repo in the workspace, naming
+            the unknown names and every known one.
+    """
+    repos = framework_repos(workspace_root)
+    if wanted is None:
+        return repos
+    requested = set(wanted)
+    selected = [repo for repo in repos if repo.name in requested]
+    missing = sorted(requested - {repo.name for repo in selected})
+    if missing:
+        raise ValueError(
+            f"No framework repo named {', '.join(missing)} under {workspace_root}. "
+            f"Known: {', '.join(repo.name for repo in repos)}. Pass one of the known names."
+        )
+    return selected

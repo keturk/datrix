@@ -23,8 +23,8 @@
  Modules or packages to watch (required, one or more).
 
 .EXAMPLE
- .\dev\who-imports.ps1 -Root datrix_codegen_kernel.gendsl -Target datrix_codegen_common
- Does the kernel's genDSL load the language layer, and through which import?
+ .\dev\who-imports.ps1 -Root datrix_codegen_kernel.dgen -Target datrix_codegen_common
+ Does the kernel's DAL generator load the language layer, and through which import?
 #>
 
 [CmdletBinding()]

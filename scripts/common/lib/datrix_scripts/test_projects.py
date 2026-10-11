@@ -65,12 +65,14 @@ def resolve_provider(project_dir: Path, profile: str = DEFAULT_PROFILE) -> str:
     else:
         from datrix_common.config.unified_loader import load_system_config
         from datrix_common.errors.base import DatrixError
+        from datrix_language.parser.dcfg_documents import disk_config_documents
 
         try:
             unified = load_system_config(
                 config_path=config_path,
                 project_root=project_dir,
                 profile=profile,
+                documents=disk_config_documents(),
             )
             provider = str(unified.system.deployment.provider)
         except DatrixError as exc:

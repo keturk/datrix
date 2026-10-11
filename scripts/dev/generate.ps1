@@ -40,7 +40,7 @@
  Can be abbreviated as -R.
 
 .PARAMETER ConfigProfile
-  ConfigDSL profile that selects the deployment target (e.g. test, development, staging, production, pilot).
+  Config (.dcfg) profile that selects the deployment target (e.g. test, development, staging, production, pilot).
   This is the ONLY flag that changes what is generated. When omitted, datrix generate uses its default profile 'test',
   which typically extends the docker-compose base -- so omitting it on an Azure project yields docker output.
   Pass the profile that targets your runtime (e.g. -ConfigProfile pilot) to generate the Azure variant.

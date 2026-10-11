@@ -92,7 +92,7 @@ reports *that* a forbidden edge exists (statically); this shows *which chain* re
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Trace a target** | `.\dev\who-imports.ps1 -Root datrix_codegen_kernel.gendsl -Target datrix_codegen_common` | Does the kernel load the language layer, and through which import? |
+| **Trace a target** | `.\dev\who-imports.ps1 -Root datrix_codegen_kernel.dgen -Target datrix_codegen_common` | Does the kernel load the language layer, and through which import? |
 
 **Parameters:** `-Root <module,...>` (required), `-Target <module,...>` (required). **Exit codes:** 0 = every root imported (a target that never loaded is listed as such), 2 = a root failed to import (its error is printed).
 
@@ -329,7 +329,7 @@ It is a repo-level validation **script**, not a pytest suite.
 
 | Section | Source | What the scan adds |
 |---|---|---|
-| Dead code: never used / used only by tests | two-pass Vulture (`common/lib/datrix_scripts/dead_code_report.py`) | Each finding is checked against the code index across the whole workspace, so a use in another package refutes it. It is dropped if a Jinja template, a Python string (a `getattr` name, a dotted resolver path, genDSL text) or a `pyproject.toml` entry point names it. Unused imports are left to ruff. Classes and functions rank above fields. |
+| Dead code: never used / used only by tests | two-pass Vulture (`common/lib/datrix_scripts/dead_code_report.py`) | Each finding is checked against the code index across the whole workspace, so a use in another package refutes it. It is dropped if a Jinja template, a Python string (a `getattr` name, a dotted resolver path, DAL generator text) or a `pyproject.toml` entry point names it. Unused imports are left to ruff. Classes and functions rank above fields. |
 | Too complex | cyclomatic + cognitive (`common/lib/datrix_scripts/complexity.py`) | Merged, highest first |
 | Duplicated blocks | Pylint R0801 (`common/lib/datrix_scripts/duplicate.py`) | Largest first |
 | Docs drift | `dev/lib/check_docs.py` checks over each package's `docs/` | — |

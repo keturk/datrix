@@ -104,7 +104,7 @@ Whole-suite runs (a bare package, `-All`, `-Rerun`, a tier switch) are Jon's; ag
 .\dev\generate.ps1 -TestSet foundation -L python
 ```
 
-### Lint/Format ConfigDSL
+### Lint/Format Config Documents (`.dcfg`)
 ```powershell
 # Check all .dcfg files (no writes)
 .\scan\config-linter.ps1 -All -Check

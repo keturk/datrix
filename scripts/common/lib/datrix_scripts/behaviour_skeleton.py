@@ -2075,7 +2075,7 @@ def _run_adapter_checks() -> bool:
 
     kernel_callee = _function_source_from_code(
         """
-        from datrix_codegen_kernel.gendsl.sub_generators import build_sub_generator_specs
+        from datrix_codegen_kernel.dgen.sub_generators import build_sub_generator_specs
 
         def build_specs(language_id, micro_cls):
             return build_sub_generator_specs(language_id, migration_micro_cls=micro_cls)

@@ -288,10 +288,18 @@ def check_implement_finding_test_runs_reads_foreground_test_ps1_results_only() -
             _shell_result("g", "[FAIL] Tests failed for datrix-alpha\n[PASS] Tests passed for datrix-alpha"),
             _shell_call("h", 'powershell -File "test-single.ps1" "t.py::x"'), _shell_result("h", "ok"),
             _shell_call("f", f"{_TEST_PS1} -Specific a.py || exit 1"), _shell_result("f", "12 passed, 0 failed"),
+            _shell_call("i", f"{_TEST_PS1} -Tag x 2>&1 | tail -6"),
+            _shell_result("i", "[PASS] : datrix-alpha\n\nTotal: 1 | Passed: 1 | Failed: 0"),
+            _shell_call("j", f"{_TEST_PS1} -Tag x 2>&1 | tail -6"),
+            _shell_result("j", "[FAIL] : datrix-alpha\n\nTotal: 2 | Passed: 1 | Failed: 1"),
+            _shell_call("k", f"({_TEST_PS1} -Tag x; {_TEST_PS1} -Tag y) 2>&1 | tail -3"),
+            _shell_result("k", "Total: 1 | Passed: 1 | Failed: 0"),
+            _shell_call("l", f"{_TEST_PS1} -Tag x 2>&1 | head -3"), _shell_result("l", "Running datrix-alpha"),
         ]) + "\n")
         runs = test_runs(log)
-        assert [run.passed for run in runs] == [False, False, False, True], runs
-        assert runs[-1].command.endswith("-Specific a.py || exit 1"), runs
+        assert [run.passed for run in runs] == [False, False, False, True, True, False, False, False], runs
+        assert runs[3].command.endswith("-Specific a.py || exit 1"), runs
+        assert "piped" in runs[-1].failure and "exited non-zero" in runs[0].failure, runs
 
 
 def check_implement_finding_close_deletes_only_an_unreferenced_finding_with_a_passing_last_test_run() -> None:
@@ -308,7 +316,7 @@ def check_implement_finding_close_deletes_only_an_unreferenced_finding_with_a_pa
         _write(log, "\n".join([_shell_call("p", f"{_TEST_PS1} -Tag x"), _shell_result("p", "4 passed"),
                                _shell_call("f", f"{_TEST_PS1} -Tag x"), _shell_result("f", "1 failed")]) + "\n")
         result = _close(root, finding, log)
-        assert result.returncode == EXIT_KEPT and "last test run failed" in result.stdout, result.stdout
+        assert result.returncode == EXIT_KEPT and "last test run did not pass (its output reports failed" in result.stdout, result.stdout
         _write(log, _shell_call("p", f"{_TEST_PS1} -Tag x") + "\n" + _shell_result("p", "4 passed") + "\n")
         result = _close(root, finding, log)
         assert result.returncode == EXIT_DELETED and not finding.exists(), (result.returncode, result.stdout)

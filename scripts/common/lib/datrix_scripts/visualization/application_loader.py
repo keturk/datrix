@@ -54,8 +54,8 @@ def load_application(source_path: Path, profile: str) -> Application:
 
     Args:
         source_path: A ``.dtrx`` file, or a directory holding ``system.dtrx``.
-            Its directory is the ConfigDSL resolution root.
-        profile: ConfigDSL profile to resolve (e.g. ``test``, ``staging``).
+            Its directory is the ``.dcfg`` resolution root.
+        profile: Config profile to resolve (e.g. ``test``, ``staging``).
 
     Returns:
         The validated, sealed Application.

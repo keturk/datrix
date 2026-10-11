@@ -22,7 +22,7 @@ through while it reported clean:
   covered now, case-insensitively.
 * **Design-doc shape.** The design-side pattern required the literal word
   ``doc`` (``design doc 046``), so the shape people actually write --
-  ``design 048``, ``design-019``, ``design 021 Section 5`` -- passed straight
+  ``design 048``, ``design-019``, ``design NNN Section 5`` -- passed straight
   through, and fifteen of them accumulated across five packages while this
   gate reported clean. The word ``doc`` is optional now.
 * **Coverage.** A hand-authored list of five trees silently excluded ten

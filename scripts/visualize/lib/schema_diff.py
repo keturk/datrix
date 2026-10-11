@@ -60,6 +60,7 @@ def _load_application(path: Path) -> object:
             "Use .dtrx files for both --before and --after."
         )
 
+    from datrix_language.parser.dcfg_documents import disk_config_documents
     from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
     from datrix_semantic.analyzer import SemanticAnalyzer
 
@@ -75,6 +76,9 @@ def _load_application(path: Path) -> object:
             raise FileNotFoundError(f"No system.dtrx found in {path}")
 
     ast = parser.parse_file(actual_path)
+    # Semantic analysis reads an app's strings files through this source, as
+    # the generation pipeline's attach_config_documents stage provides.
+    ast.config_documents = disk_config_documents()
     analyzer = SemanticAnalyzer()
     result = analyzer.analyze(ast)
     return result.app

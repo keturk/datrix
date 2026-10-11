@@ -1,4 +1,4 @@
-// SYNTHETIC NON-VACUITY CONTROL FIXTURE -- never parsed by the real ConfigDSL
+// SYNTHETIC NON-VACUITY CONTROL FIXTURE -- never parsed by the real .dcfg
 // pipeline, never a real example. Exists only so each dead-surface conformance
 // spec's must_not_contain assertion can prove its pattern is not vacuous (the
 // runner requires the forbidden pattern to appear in the negative_control tree,

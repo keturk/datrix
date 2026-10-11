@@ -706,16 +706,16 @@ def check_code_scan_sees_names_used_through_strings() -> None:
         '    """\n'
         '    generator g : g {\n'
         '      domain d {\n'
-        '        each item where call ns.mod.by_gendsl_call(item) {\n'
-        '          context Ctx from ns.mod.by_gendsl_context;\n'
+        '        each item where call ns.mod.by_dgen_call(item) {\n'
+        '          context Ctx from ns.mod.by_dgen_context;\n'
         '        }\n'
         '      }\n'
         '    }\n'
         '    """\n'
     )
     names = _string_names(source)
-    assert {"by_attr", "by_path", "by_template", "resolver_ref", "by_gendsl_call",
-            "by_gendsl_context"} <= names, names
+    assert {"by_attr", "by_path", "by_template", "resolver_ref", "by_dgen_call",
+            "by_dgen_context"} <= names, names
     assert "lonely_word" not in names, f"docstring prose must not count as a use: {names}"
     with _workspace(_SCAN_EXTRA) as session:
         session.refresh()

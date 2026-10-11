@@ -31,11 +31,11 @@ count = 1
 reason = "Angular's own ClientTargetCapabilityDeclaration columns: _SUPPORTED_GROUPS (its supported builtin-group stance), _ANGULAR_UNSUPPORTED_UI_GROUPS (its unsupported stance, each with Angular's own reason) and _ANGULAR_VALUE_STRUCT_REALIZATIONS (how Angular holds each runtime value struct, keyed by CLIENT_RUNTIME_VALUE_STRUCTS). A client target states what it realizes on its own declaration, checked at plugin registration, never in a shared table; the key set coincides with Flutter's declaration because the targets realize the same groups and structs. The server-only groups are read from SERVER_ONLY_BUILTIN_GROUPS, not restated."
 
 [[baseline]]
-file = "datrix-codegen-angular/src/datrix_codegen_angular/gendsl/api.py"
+file = "datrix-codegen-angular/src/datrix_codegen_angular/dgen/api.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-aws/src/datrix_codegen_aws/gendsl/registrations.py"
+file = "datrix-codegen-aws/src/datrix_codegen_aws/dgen/registrations.py"
 count = 1
 
 [[baseline]]
@@ -139,7 +139,7 @@ file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/skeleton/nosq
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-component/src/datrix_codegen_component/gendsl/registrations.py"
+file = "datrix-codegen-component/src/datrix_codegen_component/dgen/registrations.py"
 count = 1
 
 [[baseline]]
@@ -314,7 +314,7 @@ file = "datrix-codegen-sql/src/datrix_codegen_sql/dialects/reflector_registry.py
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-sql/src/datrix_codegen_sql/gendsl/registrations.py"
+file = "datrix-codegen-sql/src/datrix_codegen_sql/dgen/registrations.py"
 count = 2
 
 [[baseline]]

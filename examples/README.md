@@ -195,7 +195,7 @@ example-name/
 ├── service-1.dtrx           # First microservice
 ├── service-2.dtrx           # Second microservice
 ├── service-3.dtrx           # Third microservice
-└── config/                  # ConfigDSL files
+└── config/                  # .dcfg config documents
     ├── system.dcfg
     ├── service-1.dcfg
     └── service-2.dcfg
@@ -270,7 +270,7 @@ The parser will:
 1. Start from `system.dtrx`
 2. Follow all `include` statements recursively
 3. Collect all services from included files
-4. Load ConfigDSL configuration from the referenced `.dcfg` files
+4. Load configuration from the referenced `.dcfg` config documents
 5. Validate the `system { }` block and resolve references
 
 ## Usage

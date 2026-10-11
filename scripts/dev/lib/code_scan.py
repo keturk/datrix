@@ -71,17 +71,17 @@ VERDICT_TEST_SUPPORT = "test support used by tests"
 VERDICT_UNMATCHED = "unmatched"
 COGNITIVE_MISSING_NOTE = "cognitive_complexity is not installed, so only cyclomatic complexity was checked."
 # Names used through strings, where neither Vulture nor the index looks: Jinja files,
-# genDSL/Jinja source kept in Python string literals, getattr names and dotted resolver
+# DAL generator/Jinja source kept in Python string literals, getattr names and dotted resolver
 # paths, and manifest entry points. A finding named in any of them is dropped.
 TEMPLATE_SUFFIXES = ("*.j2", "*.jinja", "*.jinja2")
 _TEMPLATE_MARKERS = ("{{", "{%", "#{")
 _WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _NAME_OR_DOTTED_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
-# genDSL text names its context builders (`context Ctx from ns.module.builder;`) and its
+# DAL generator text names its context builders (`context Ctx from ns.module.builder;`) and its
 # predicates (`where call ns.module.predicate(x)`) by a namespace-aliased dotted path, and
 # carries no template marker when the definition interpolates nothing. The last segment is
 # the function the executor resolves.
-_GENDSL_RESOLVER_RE = re.compile(
+_DGEN_RESOLVER_RE = re.compile(
     r"\bcontext\s+[A-Za-z_][A-Za-z0-9_]*\s+from\s+((?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*)"
     r"|\bcall\s+((?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*)\s*\(")
 # Definitions first, data last: an unused class or function is the finding worth reading.
@@ -372,7 +372,7 @@ def _string_names(source: str) -> set[str]:
             names.update(_WORD_RE.findall(text))
         else:
             names.update((context_ref or call_ref).rsplit(".", 1)[-1]
-                         for context_ref, call_ref in _GENDSL_RESOLVER_RE.findall(text))
+                         for context_ref, call_ref in _DGEN_RESOLVER_RE.findall(text))
     return names
 
 

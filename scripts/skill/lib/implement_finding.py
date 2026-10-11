@@ -43,14 +43,21 @@ _TEST_COMMAND = re.compile(r"(?<![\w-])test\.ps1", re.IGNORECASE)
 _NOT_A_TEST_RUN = re.compile(r"-(?:ListTags|SelfTest)\b", re.IGNORECASE)
 # test.ps1 prints "[FAIL] Tests failed for <pkg>" and "Failed: N"; pytest prints "N failed" / "N errors".
 _FAILURE_TEXT = re.compile(r"\[FAIL\]|\bFailed: [1-9]|\b[1-9]\d* (?:failed|errors?)\b", re.IGNORECASE)
-# A pipe hands the shell the exit code of the filter, not of test.ps1, so a piped run proves nothing.
+# A pipe hands the shell the exit code of the filter, not of test.ps1, so a piped run's exit code proves
+# nothing; it passes only on test.ps1's own closing verdict, which a tail keeps and a head or grep drops.
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")
+# test.ps1's last summary line: "Total: N | Passed: N | Failed: N" (package counts).
+_SUMMARY = re.compile(r"^\s*Total: (\d+) \| Passed: (\d+) \| Failed: (\d+)\s*$", re.MULTILINE)
 
 
 @dataclass(frozen=True)
 class TestRun:
     command: str
-    passed: bool
+    failure: str
+
+    @property
+    def passed(self) -> bool:
+        return not self.failure
 
 
 def finding_files(directory: Path, count: int) -> list[Path]:
@@ -102,11 +109,35 @@ def _test_command(block: dict[str, object]) -> str:
     return command
 
 
+def _verdicts_all_pass(command: str, output: str) -> bool:
+    """Whether ``output`` keeps test.ps1's summary line for every invocation in ``command``, each one
+    with every package passed -- the verdict a piped run's exit code cannot give."""
+    verdicts = _SUMMARY.findall(output)
+    if len(verdicts) < len(_TEST_COMMAND.findall(command)):
+        return False
+    return all(int(total) == int(passed) and int(failed) == 0 for total, passed, failed in verdicts)
+
+
+def _failure_reason(command: str, block: dict[str, object]) -> str:
+    """Why a test run did not pass; empty when it passed."""
+    output = _result_text(block)
+    if block.get("is_error"):
+        return "it exited non-zero"
+    if _FAILURE_TEXT.search(output):
+        return "its output reports failed or erroring tests"
+    if _PIPE.search(command) and not _verdicts_all_pass(command, output):
+        return ("its output was piped through a filter that hides test.ps1's exit code, and the output "
+                "kept no all-passed 'Total: N | Passed: N | Failed: 0' summary for each test.ps1 call")
+    return ""
+
+
 def test_runs(session_log: Path) -> list[TestRun]:
     """Every foreground ``test.ps1`` run in a step's stream log, in order, with whether it passed.
 
-    A run passed when its command pipes nothing, its tool result is not an error (a non-zero exit),
-    and its output reports no failed or erroring test.
+    A run passed when its tool result is not an error (a non-zero exit), its output reports no failed
+    or erroring test, and -- when its output is piped through a filter, which replaces test.ps1's exit
+    code with the filter's -- the output still carries test.ps1's summary line for every invocation,
+    each reporting every package passed.
     """
     if not session_log.is_file():
         raise AssistError(f"Session log '{session_log}' does not exist. Pass the step's .stream.jsonl.")
@@ -126,9 +157,7 @@ def test_runs(session_log: Path) -> list[TestRun]:
         for block in _blocks(event, "tool_result"):
             command = pending.pop(str(block.get("tool_use_id")), "")
             if command:
-                passed = (not block.get("is_error") and not _PIPE.search(command)
-                          and not _FAILURE_TEXT.search(_result_text(block)))
-                runs.append(TestRun(command, passed))
+                runs.append(TestRun(command, _failure_reason(command, block)))
     return runs
 
 
@@ -142,7 +171,7 @@ def close_finding(finding: Path, session_log: Path | None) -> tuple[str, int]:
         if not runs:
             reasons.append("the fix session ran no foreground test.ps1, so the fix is not proven")
         elif not runs[-1].passed:
-            reasons.append(f"the fix session's last test run failed: {runs[-1].command}")
+            reasons.append(f"the fix session's last test run did not pass ({runs[-1].failure}): {runs[-1].command}")
     if reasons:
         return "\n".join([f"Not deleted: {finding}", *(f"  - {reason}" for reason in reasons)]), EXIT_KEPT
     finding.unlink()
