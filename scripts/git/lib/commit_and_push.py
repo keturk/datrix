@@ -160,6 +160,9 @@ class ChangeEntry:
     rejects a path matching nothing). Two records carry such a path: a staged rename
     (``old -> new``), whose old path is committed so its deletion lands with the new
     one, and a staged deletion (index status ``D``), which is already fully staged.
+    The converse is a path staged as new and then deleted from disk (``AD``, ``RD``,
+    ``CD``): it is only ever named to ``git add``, which unstages it, and never to
+    ``git commit``, since neither HEAD nor the index knows it after that add.
     """
 
     path: str
@@ -395,10 +398,17 @@ def survey(repo_path: Path) -> list[ChangeEntry]:
         if not record:
             continue
         status, path = record[:2], record[3:]
+        # Staged as new (added, renamed or copied to) but since deleted from disk:
+        # ``git add -A`` drops the path from the index, and HEAD never had it, so
+        # naming it to ``git commit`` afterwards would match nothing.
+        vanishes = status[0] in "ARC" and status[1] == "D"
+        new_paths = () if vanishes else (path,)
         if status[0] in "RC" and index < len(records):
             source = records[index]
             index += 1
-            entries.append(ChangeEntry(path, (path, source), (path,)))
+            entries.append(ChangeEntry(path, (*new_paths, source), (path,)))
+        elif status[0] == "A" and vanishes:
+            entries.append(ChangeEntry(path, (), (path,)))
         elif status[0] == "D":
             entries.append(ChangeEntry(path, (path,), ()))
         else:
@@ -1097,6 +1107,11 @@ def commit_group(repo_path: Path, group: ChangeGroup, message: str) -> str | Non
             raise ScriptError(
                 f"{name}: git add failed for '{group.name}' ({add.returncode}): {add.stderr or add.stdout}"
             )
+    # A set made only of paths staged as new and since deleted nets to no change once
+    # the add has unstaged them, and an empty pathspec file would make ``git commit``
+    # take the whole index.
+    if not group.stage_paths:
+        return None
     commit = run_git_with_files(
         repo_path,
         ["commit", "-F", "{message}", "--pathspec-from-file={specs}"],
