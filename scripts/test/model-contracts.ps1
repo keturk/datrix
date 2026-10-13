@@ -1,0 +1,94 @@
+#!/usr/bin/env pwsh
+<#
+.SYNOPSIS
+ Inspect and migrate schema-derived model contracts (datrix_testing.model_contracts).
+
+.DESCRIPTION
+ Activates the Datrix virtual environment and runs datrix_testing.model_contracts.cli.
+ A package's runner module, tests/test_model_contracts.py, proves every schema fact of
+ every model the package declares -- each required field, default, bound, pattern and
+ the unknown-key refusal -- as one pytest item, by mutating a sample the real loader fed
+ the model while it loaded a committed .dcfg fixture. This tool shows those facts and
+ retires the test functions that restate them.
+
+   facts      Print the model set, each sampled model's items with the fixture its sample
+              came from, the models no fixture reaches and the code-built ones. Writes nothing.
+   inventory  Resolve every schema-shaped test of the package (a test whose whole body is
+              pytest.raises around one construction, or one construction and default
+              asserts) to the model, field and fact it restates, and whether an item proves
+              it. Writes the report under D:\datrix\.tmp\case-proposals\.
+   migrate    Write a proposal there: every test an item proves is proposed for deletion,
+              every other one stays code with its reason. Never writes into a repository.
+   accept     Delete the tests an approved proposal proposes, by AST, with the module-local
+              dead code they leave, and lower the package's pins. Refused unless Jon's
+              approval names the proposal's current sha256 and every security test it
+              deletes, and unless every deleted test is still proven by an item the package
+              collects now.
+
+.PARAMETER Command
+ facts, inventory, migrate or accept.
+
+.PARAMETER Arguments
+ The command's positional arguments:
+   facts     <package> [<Model>]
+   inventory <package>
+   migrate   <package>
+   accept    <proposal>
+
+.EXAMPLE
+ .\model-contracts.ps1 facts datrix-codegen-docker
+
+.EXAMPLE
+ .\model-contracts.ps1 facts datrix-common ExternOAuth2ClientCredentialsConfig
+
+.EXAMPLE
+ .\model-contracts.ps1 migrate datrix-codegen-aws
+
+.EXAMPLE
+ .\model-contracts.ps1 accept D:\datrix\.tmp\case-proposals\datrix-codegen-aws.model-contracts.proposal.json
+#>
+
+[CmdletBinding()]
+param(
+ [Parameter(Position=0, Mandatory=$true)]
+ [ValidateSet("facts", "inventory", "migrate", "accept")]
+ [string]$Command,
+
+ [Parameter(Position=1, ValueFromRemainingArguments=$true)]
+ [string[]]$Arguments = @(),
+
+ [switch]$Dbg
+)
+
+$ErrorActionPreference = "Stop"
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
+$PythonModule = "datrix_testing.model_contracts.cli"
+Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
+. (Join-Path $commonDir "venv.ps1")
+
+function Invoke-Cleanup {
+ Disable-DatrixVenv
+}
+
+Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
+
+try {
+ $venvActivated = Ensure-DatrixVenv
+ if (-not $venvActivated) {
+  Write-Error "Failed to activate virtual environment"
+  exit 1
+ }
+ $PythonExe = Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"
+ $pythonArgs = @("-m", $PythonModule, $Command) + $Arguments
+ if ($Dbg) { Write-Host "Running: $PythonExe $($pythonArgs -join ' ')" }
+ & $PythonExe @pythonArgs
+ exit $LASTEXITCODE
+} catch {
+ Write-Error "Error: $_"
+ Invoke-Cleanup
+ exit 2
+} finally {
+ Invoke-Cleanup
+}
