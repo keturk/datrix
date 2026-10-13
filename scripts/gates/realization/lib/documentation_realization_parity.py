@@ -827,15 +827,17 @@ def collect_attached_runs(fixture_root: Path) -> tuple[AttachedRun, ...]:
     fixture's own comments) then attach against a freshly built index --
     and walks the resulting model with ``Node.walk()``.
 
-    Floating runs attach to nothing by design (Decision 39, detached
-    comments) and are therefore absent here: the invariant is about runs
-    that WERE attached and then reached no artifact.
+    Floating source-only runs attach to nothing by design (Decision 39,
+    detached comments) and are therefore absent here; a published run that
+    attaches to nothing is refused by the parser, as it is here. The
+    invariant is about runs that WERE attached and then reached no artifact.
     """
     from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
     from datrix_language.transformers.cst_utils import TransformContext
     from datrix_language.transformers.doc_comments import (
         attach_documentation,
         build_comment_index,
+        reject_unattached_documentation,
     )
     from datrix_language.transformers.transformer import ASTTransformer
 
@@ -853,6 +855,7 @@ def collect_attached_runs(fixture_root: Path) -> tuple[AttachedRun, ...]:
         app = transformer.transform(tree, require_system=False, inject_builtins=False)
         index = build_comment_index(tree.root_node, source, str(dtrx_file))
         attach_documentation(app, index)
+        reject_unattached_documentation(index)
         for node in app.walk():
             if node.doc is None:
                 continue
