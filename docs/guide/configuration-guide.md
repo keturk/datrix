@@ -1654,13 +1654,14 @@ production:
 
 ## Jobs Configuration
 
-**File:** the path named by the service's `jobs('<path>')` block; a job's schedule, timeout and
-retry are keys of that file, never modifiers in the DSL
+**File:** the service's own config document (the path its `service` declaration names), under
+`jobs`; a job's schedule, timeout and retry are keys there, never modifiers in the DSL. The
+`jobs { }` block names no path: a parenthesised path on it is refused.
 
 **Referenced in:** the `jobs` block
 
 ```datrix context=service
-jobs('config/order-service/jobs.dcfg') {
+jobs {
     job ProcessOrders {
         Log.info("processing orders");
     }

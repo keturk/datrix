@@ -450,7 +450,7 @@ Hash caches and counters are defined with a key prefix and, for a hash, a TTL in
 ## Background Jobs
 
 ```datrix context=service
-jobs('config/order-service/jobs.dcfg') {
+jobs {
     job CleanupExpired {
         let Array<db.Order> pending = db.Order.where(status: OrderStatus.Pending).all();
         foreach order in pending {

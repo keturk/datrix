@@ -668,7 +668,7 @@ Example mapping on Azure (`runtime: azure-app-service, provider: azure`):
 |---------------|----------------|
 | `rest_api` or `graphql_api` | App Service Web App (Linux, one per service with an HTTP surface) |
 | `subscribe` (event consumer) | Azure Function — Service Bus or Event Hubs trigger |
-| `jobs()` (scheduled) | Azure Function — timer trigger (NCRONTAB schedule) |
+| `jobs { }` (scheduled) | Azure Function — timer trigger (NCRONTAB schedule) |
 | `enqueue` consumer | Azure Function — Service Bus queue trigger |
 | `serverless { … }` block handlers | Azure Function — per-handler trigger type |
 | `pubsub` block | Service Bus namespace or Event Hubs namespace (by engine) |
@@ -681,9 +681,9 @@ Example mapping on Azure (`runtime: azure-app-service, provider: azure`):
 | `gateway` block (`type: managed`) | API Management |
 | `search` block | Azure AI Search |
 
-All async handlers for a service — service-level `subscribe`, `jobs()`, `enqueue` consumers, and `serverless` block handlers — are grouped into a single **Function App per service**. The per-service compute shape follows from what the service declares: an HTTP surface (`rest_api`/`graphql_api`) → Web App; any async handler → Function App; both declared → both; neither declared → generation error.
+All async handlers for a service — service-level `subscribe`, `jobs { }`, `enqueue` consumers, and `serverless` block handlers — are grouped into a single **Function App per service**. The per-service compute shape follows from what the service declares: an HTTP surface (`rest_api`/`graphql_api`) → Web App; any async handler → Function App; both declared → both; neither declared → generation error.
 
-The same construct-to-primitive mapping applies on other platforms (AWS: `rest_api`/`graphql_api` → App Runner or ECS Fargate; `subscribe`/`jobs()`/`enqueue` → Lambda; Docker Compose: services → containers). See [datrix-codegen-azure/docs/architecture.md](../../../datrix-codegen-azure/docs/architecture.md) for the full Azure construct mapping and shape-derivation rules.
+The same construct-to-primitive mapping applies on other platforms (AWS: `rest_api`/`graphql_api` → App Runner or ECS Fargate; `subscribe`/`jobs { }`/`enqueue` → Lambda; Docker Compose: services → containers). See [datrix-codegen-azure/docs/architecture.md](../../../datrix-codegen-azure/docs/architecture.md) for the full Azure construct mapping and shape-derivation rules.
 
 **No silent ignore:**
 

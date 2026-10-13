@@ -979,7 +979,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     }
 
     // This job runs in-process inside the service container
-    jobs('config/order-service.dcfg') {
+    jobs {
         job QuickCleanup {
             Log.info("quick cleanup");  // lightweight task, runs alongside the API
         }
@@ -1080,7 +1080,7 @@ Refactoring is a cut-and-paste operation:
 
 ```datrix context=service
 // Before: runs in the service container
-jobs('config/order-service.dcfg') {
+jobs {
     job DailyReport { Log.info("daily report"); }    // <-- cut this
 }
 ```
@@ -1177,12 +1177,13 @@ rest_api OrderAPI : basePath('/api/v1/orders') {
 ## Background Jobs
 
 Define scheduled background jobs. A job declaration is a name and a body; its schedule, timeout
-and retry live in the config file the `jobs('<path>')` block names.
+and retry live under `jobs` in the service's config document. The `jobs { }` block names no
+path of its own.
 
 ### Scheduled Jobs
 
 ```datrix context=service
-jobs('config/order-service.dcfg') {
+jobs {
     job CleanupExpiredOrders {
         let Array<db.Order> pending = db.Order.where(status: OrderStatus.Pending).all();
         let Integer cancelled = 0;
@@ -1895,7 +1896,7 @@ consumer of an event with no tenant, a scheduled job. Write `@crossTenant` on on
 declare it intentionally unscoped:
 
 ```datrix context=service
-jobs('config/order-service.dcfg') {
+jobs {
     @crossTenant
     job SweepStaleOrders {
         let Array<db.Order> stale = db.Order.where(status: OrderStatus.Submitted).all();
@@ -1917,7 +1918,7 @@ batch operations) fails generation. To write for one tenant inside a declared bo
 over rows that already carry a tenant, or scope a region explicitly:
 
 ```datrix context=service
-jobs('config/billing-service.dcfg') {
+jobs {
     @crossTenant
     job GenerateMonthlyInvoices {
         let Array<db.Customer> customers = db.Customer.all();
