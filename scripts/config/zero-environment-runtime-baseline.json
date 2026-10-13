@@ -147,6 +147,10 @@
           "reason": "Emits the deploy-test harness, not service runtime."
         },
         {
+          "template": "templates/project/_deploy-test-storage.js.j2",
+          "reason": "Emits the deploy-test harness, not service runtime: its fixture seeding reads the storage server's secret key from the .env variable the server reads it from, with compose's own shell-then-.env precedence."
+        },
+        {
           "template": "templates/project/_deploy-test-test-phases.js.j2",
           "reason": "Emits the deploy-test harness, not service runtime."
         },
