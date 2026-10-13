@@ -38,6 +38,7 @@ config strings ecommerce.Storefront locale "tr-TR" {
     framework.empty        = "Henüz bir şey yok";
     framework.loading      = "Yükleniyor";
     framework.retry        = "Tekrar dene";
+    framework.refreshFailed = "Yenilenemedi. Daha önce yüklenen veriler gösteriliyor.";
     framework.confirm      = "Onayla";
     framework.cancel       = "Vazgeç";
     framework.forbidden    = "Bu sayfaya erişiminiz yok";
