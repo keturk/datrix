@@ -592,3 +592,28 @@ any parse, resolution or validation error.
 - Non-vacuity self-test (every invocation): a planted temp `.dcfg` with an unknown nested key is reported with the key named and the value not echoed, and its clean twin loads.
 
 **Exit codes:** 0 = every profile loads (or a successful `-SelfTest`), 1 = at least one profile failed to load, 2 = the self-test failed, zero `.dcfg` files exist on disk, or a file does not parse.
+
+---
+
+## `gates\repo-hygiene\docs-fence-gate.ps1`
+
+Docs fence gate: every `datrix` fence under `datrix/docs` states a fact that holds. The showcase
+repo hosts no test suite, so its docs tree is checked here through the same collector, stages and
+comparison a package's case runner applies to its own `docs/` (`CaseSuite(..., docs_root=...)`;
+the shared entry point is `datrix_testing.cases.runner.fence_failures`): an example parses, a
+`context=` fragment parses in its construct, a whole application analyzes clean or to exactly the
+codes its `expect=` names, and `rejected` syntax stays rejected.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\gates\repo-hygiene\docs-fence-gate.ps1` | Check every `datrix` fence under `datrix/docs` |
+| **Debug** | `.\gates\repo-hygiene\docs-fence-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\gates\repo-hygiene\docs-fence-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real check |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Assertions:**
+- Every fence under `datrix/docs` passes as its info string says; a refused fence (an unknown info string, a `dtrx` fence, a `datrix-grammar` fence with no `<placeholder>`, a string that looks like a raw secret) fails the gate.
+- Non-vacuity self-test (every invocation): a planted fence that does not parse is reported with its file and line, and its fixed twin passes.
+
+**Exit codes:** 0 = every fence holds (or a successful `-SelfTest`), 1 = at least one fence fails or is refused, 2 = the self-test failed.
