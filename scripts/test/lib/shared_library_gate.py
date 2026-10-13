@@ -524,6 +524,37 @@ def check_structured_log_writer_index_schema() -> None:
         assert "ImportError" in error_content
 
 
+_SLW_JUNIT_CASES = """\
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="parallel" tests="4" errors="0" failures="1" skipped="0" time="1.0">
+    <testcase classname="tests.test_cases" name="test_case[compose::compose.basic.port]" time="0.1"/>
+    <testcase classname="tests.test_cases" name="test_case[compose::compose.basic.image]" time="0.1">
+      <failure type="Failed" message="Case compose.basic.image">observed: a</failure>
+    </testcase>
+    <testcase classname="tests.unit.test_compose" name="test_case_insensitive_keys" time="0.1"/>
+    <testcase classname="tests.unit.test_cases_helpers" name="test_case[x]" time="0.1"/>
+  </testsuite>
+</testsuites>
+"""
+
+
+def check_structured_log_writer_counts_case_items_apart() -> None:
+    """index.json ``case_items`` counts the runner module's ``test_case[...]`` items -- and only
+    them -- by outcome, beside the overall counts."""
+    with TemporaryDirectory(prefix="slw-cases-") as tmp:
+        root = Path(tmp)
+        xml_path = root / "junit.xml"
+        xml_path.write_text(_SLW_JUNIT_CASES, encoding="utf-8")
+        run_dir = root / "run"
+        run_dir.mkdir()
+        index = json.loads(StructuredLogWriter("p", run_dir).write([xml_path], _TIMESTAMP).read_text(encoding="utf-8"))
+        assert index["counts"] == {"passed": 3, "failed": 1, "error": 0, "skipped": 0}, index["counts"]
+        assert index["case_items"] == {"total": 2, "passed": 1, "failed": 1, "error": 0, "skipped": 0}, (
+            f"case_items={index.get('case_items')!r}: a test named test_case* in another module is no case item"
+        )
+
+
 def check_structured_log_writer_wall_clock_duration() -> None:
     """duration_seconds is WALL CLOCK (sum of testsuite-level ``time`` attrs —
     one per sequential session), never the per-testcase sum, which under xdist
@@ -4966,6 +4997,7 @@ def harness_self_test() -> bool:
 _ALL_CHECKS: list[CheckFunc] = [
     # datrix_scripts.structured_log_writer
     check_structured_log_writer_index_schema,
+    check_structured_log_writer_counts_case_items_apart,
     check_structured_log_writer_wall_clock_duration,
     check_structured_log_writer_two_phase_merge,
     check_structured_log_writer_incomplete_on_bad_xml,

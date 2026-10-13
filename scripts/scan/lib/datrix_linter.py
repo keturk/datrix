@@ -283,7 +283,7 @@ class DatrixLinter:
         # ── Report diagnostics ────────────────────────────────────────────────
         from datrix_semantic.result import Severity
 
-        skipped_codes = {"SVC006", "SVC007"} if not self.resolve_configs else set()
+        skipped_codes = {"SVC007"} if not self.resolve_configs else set()
         for diag in analysis.diagnostics:
             if diag.code in skipped_codes:
                 continue
