@@ -43,8 +43,9 @@ and ignored under pressure; a block is paid only when it fires. These are enforc
     pins share; a test of a migrated shape is reported once (not again as a literal fact); skipped when
     that module is not importable.
   * SCHEMA-SHAPED TEST. In a package whose `tests/` carries the model contract runner
-    `test_model_contracts.py`, a required-field, default, bound, pattern or unknown-key fact of a
-    model is proven by a derived runner item, never a test function. A `test_*` function the edit adds
+    `test_model_contracts.py`, a required-field, default, bound, pattern, declared-constraint
+    (`NonBlankStr`) or unknown-key fact of a model is proven by a derived runner item, never a test
+    function. A `test_*` function the edit adds
     (by name) whose shape `datrix_testing.model_contracts.inventory` marks *raises* or *default*, and
     that `python -m datrix_testing.model_contracts.cli resolve` (the shared venv) resolves to schema
     facts, is refused, naming the model, the facts and the items that prove them. A test of a
@@ -131,22 +132,34 @@ def _read(path: str) -> str | None:
         return None
 
 
+def _mock_import_violations(node: ast.Import) -> list[Violation]:
+    return [("mock", f"import {alias.name}") for alias in node.names if alias.name in _MOCK_MODULES]
+
+
+def _mock_from_import_violations(node: ast.ImportFrom) -> list[Violation]:
+    module = node.module or ""
+    if module in _MOCK_MODULES:
+        return [("mock", f"from {module} import ...")]
+    if module == "types" and any(alias.name == "SimpleNamespace" for alias in node.names):
+        return [("mock", "from types import SimpleNamespace")]
+    return []
+
+
+def _mocker_fixture_violations(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[Violation]:
+    if any(arg.arg == "mocker" for arg in node.args.args + node.args.kwonlyargs):
+        return [("mock", f"{node.name}(mocker)")]
+    return []
+
+
 def _mock_violations(tree: ast.AST) -> list[Violation]:
     found: list[Violation] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name in _MOCK_MODULES:
-                    found.append(("mock", f"import {alias.name}"))
+            found.extend(_mock_import_violations(node))
         elif isinstance(node, ast.ImportFrom):
-            module = node.module or ""
-            if module in _MOCK_MODULES:
-                found.append(("mock", f"from {module} import ..."))
-            elif module == "types" and any(alias.name == "SimpleNamespace" for alias in node.names):
-                found.append(("mock", "from types import SimpleNamespace"))
+            found.extend(_mock_from_import_violations(node))
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if any(arg.arg == "mocker" for arg in node.args.args + node.args.kwonlyargs):
-                found.append(("mock", f"{node.name}(mocker)"))
+            found.extend(_mocker_fixture_violations(node))
     return found
 
 
