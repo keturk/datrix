@@ -314,7 +314,12 @@ The upsert conflict target is determined by:
 2. **Single-field `unique` constraint** — Preferred for natural key upserts (e.g., `slug`)
 3. **Composite unique index** — `index(field1, field2) : unique`
 
-Use `on(...)` for explicit conflict key specification when inference is ambiguous:
+On a Tenantable entity every unique key is unique within each tenant, so it includes
+`tenantId`: a `: unique` field `slug` is the conflict key `(tenantId, slug)`.
+
+Use `on(...)` for explicit conflict key specification when inference is ambiguous. On a
+relational component it must name exactly one unique key of the table (any order), or
+analysis refuses it:
 
 ```dseed
 reference {
