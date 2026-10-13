@@ -148,6 +148,28 @@ Lightweight single-test runner for checkpoint-based debugging. Runs exactly what
 
 ---
 
+## `test\cases.ps1`
+
+The authoring tool for declarative test cases (`datrix_testing.cases.cli`). A **case** is one row of a package's `tests/cases/<area>.cases.yaml`: a stage run on a committed named input, one value read by an observer through a selector, and an expectation a person wrote. The package's one runner module, `tests/test_cases.py`, runs every row as a pytest item carrying the row's feature tags, so `test.ps1 <pkg> -Tag <tag>` selects cases exactly as it selects tests. Rules and the case format: `datrix-common/docs/contributing/test-guidelines/unit-test-guidelines.md` §4, "Decision facts as cases".
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Check a package** | `.\test\cases.ps1 check datrix-codegen-docker` | Layout, schema (secret refusal included), registered stages and observers (an unregistered one names the packages registering it), inputs, selectors and expectation shapes, duplicate ids and facts, tags in the vocabulary, and every selector resolved on its input. Exit 1 on any problem |
+| **Observe a value** | `.\test\cases.ps1 observe basic generate surface "{path: docker-compose.yml, unit: keys, key: [services]}" -Package datrix-codegen-docker` | Run the stage, print the value with its shape and parsed context. Writes nothing |
+| **Observe a fixture line** | `.\test\cases.ps1 observe -Package datrix-language -At tests/fixtures/cases/lsp-shop/system.dtrx:14` | What each annotation kind would observe on that line: the diagnostics firing there (by variant), the code the package's `transpile` stage emits for the function declared there, the `lsp` hover and definition at the line's `$0` cursor; a kind that does not apply says why. Writes nothing |
+| **Add one case** | `.\test\cases.ps1 new datrix-codegen-docker compose -Id compose.basic.services -Tags compose -Input basic -Stage generate -Observer surface -Selector "{path: docker-compose.yml, unit: keys, key: [services]}" -Expectation "[api, postgres]" -Reason "..."` | Append a row you wrote; refused when it breaks the schema, repeats an id or fact, does not resolve, or while the approval gate is armed for the package. Omit `-Expectation` for an `absent` case |
+| **Propose a migration** | `.\test\cases.ps1 migrate datrix-codegen-typescript` | Inventory the package's counted substring assertions and write `D:\datrix\.tmp\case-proposals\<package>-substring.proposal.json` (one disposition per record: case, drop R-dup/R-path/R-syntax, or unplaced with the reason) |
+| **Propose for named modules** | `.\test\cases.ps1 migrate datrix-codegen-typescript unit/auth/test_x.py` | Every assertion of the named modules (an existing decision module is converted only on request) |
+| **Propose fixture annotations** | `.\test\cases.ps1 migrate datrix-semantic unit/validators/test_x.py -Annotations` | For the named modules' diagnostic-code, transpiled-expression and language-server-answer tests, propose the annotation on the fixture line that provokes each fact (`// @expect`, `// @emits`, `// @hover`, …) or, for an inline source provoking exactly one variant, a per-code fixture `tests/fixtures/diagnostics/<CODE>.<variant>.dtrx`; writes `D:\datrix\.tmp\case-proposals\<package>-annotations.proposal.json` |
+| **Accept an approved proposal** | `.\test\cases.ps1 accept D:\datrix\.tmp\case-proposals\<name>.proposal.json` | Requires Jon's `<name>.cases.approved` in the approval-gate directory (proposal name, sha256, and every security or `not in` row id). Writes the rows, removes the replaced code by AST, lowers the package's pins |
+| **Accept some rows** | `.\test\cases.ps1 accept <proposal> <case id> <case id>` | Only those rows, and only their records' code |
+
+**Parameters:** `-Command` (positional: `observe`, `new`, `migrate`, `accept`, `check`), the command's positional arguments, `-Package`, `-At` (observe), `-Annotations` (migrate), `-Id`, `-Tags`, `-Input`, `-Stage`, `-Observer`, `-Selector`, `-Expectation`, `-Reason` (new), `-Dbg`
+
+**Exit codes:** 0 = done and clean, 1 = refused or problems found, 2 = usage error (unknown package, missing field).
+
+---
+
 ## `test\cleanup.ps1`
 
 Lists/deletes `.test_results` folders (containing timestamped test result directories) under each datrix project and `.generated/`.
