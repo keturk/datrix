@@ -131,6 +131,10 @@ Test results are saved to structured directories under `<project>/.test_results/
   for a phase that was skipped (`"Serial": "skipped (0 serial items)"`)
 - `runner_errors` (only when present) — evidence the runner could not trust, such as parallel
   workers disagreeing on what they deselected; any one makes `result` `FAILED`
+- `case_items` — the declarative-case items among the results, counted apart from code tests:
+  `{"total", "passed", "failed", "error", "skipped"}`. A case item is a `test_case[<area>::<case-id>]`
+  item of the package's runner module `tests/test_cases.py` (`datrix_testing.cases`); they are also
+  inside `counts`
 
 **`summary.txt`** provides a human-readable overview with cluster summaries.
 
