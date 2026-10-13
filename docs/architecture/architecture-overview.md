@@ -1965,9 +1965,8 @@ and it had one latent defect.
     list, count, write or tenant-scoped `fn` call (TEN014); and a block names only `<row>.id` of
     a non-Tenantable row the body created (the new tenant root) or `<row>.tenantId` of a
     Tenantable row it loaded by a unique key, `<row>` being a `let` local assigned once (TEN015).
-  - A `unique` field of a Tenantable entity is unique within each tenant
-    (`UNIQUE (tenant_id, field)`), so an onboarding read by it returns one row but cannot prove
-    that only one tenant holds the key. Keying it on a value only the caller can present (its
+  - A unique key spans exactly the fields it declares, so an onboarding read by one returns one
+    row, but the read reaches across tenants. Keying it on a value only the caller can present (its
     verified identity, a hashed secret) is the author's; the shape rules bound what a body can
     disclose or write to one row per read -- no list, count or sweep.
 

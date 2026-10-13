@@ -1816,7 +1816,9 @@ entity Organization extends BaseEntity {
 
 entity User extends BaseEntity with Tenantable {
     String(100) name;
-    Email email : unique;    // becomes UNIQUE (tenant_id, email)
+    Email email;
+
+    index(tenantId, email) : unique;   // unique within each tenant
 }
 
 entity Order extends BaseEntity with Tenantable {

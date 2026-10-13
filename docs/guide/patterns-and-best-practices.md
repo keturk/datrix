@@ -916,7 +916,9 @@ entity Organization extends BaseEntity {
 // `with Tenantable` (a builtin trait, no import) adds the UUID tenantId field
 entity User extends BaseEntity with Tenantable {
     String(100) name;
-    Email email : unique;   // becomes UNIQUE (tenant_id, email)
+    Email email;
+
+    index(tenantId, email) : unique;   // unique within each tenant
 }
 
 entity Project extends BaseEntity with Tenantable {
