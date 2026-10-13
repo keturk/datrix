@@ -170,6 +170,24 @@ The authoring tool for declarative test cases (`datrix_testing.cases.cli`). A **
 
 ---
 
+## `test\model-contracts.ps1`
+
+The schema-derived model contract tool (`datrix_testing.model_contracts.cli`). A package whose `src/` declares a `.dcfg` model carries one runner module, `tests/test_model_contracts.py`: one pytest item per (model, fact) -- each required field, default, bound, pattern and the unknown-key refusal, read off `model_fields` -- proven by mutating a sample the real loader fed the model while it loaded a committed `.dcfg` fixture, plus `test_every_model_has_a_fixture_sample`, which names every model a document can reach that no fixture does. Items carry `dcfg`, `model-contracts` and the fixture's `// @tags`, so `test.ps1 <pkg> -Tag model-contracts` runs them. Rules: `datrix-common/docs/contributing/test-guidelines/unit-test-guidelines.md`, "Model facts are derived".
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Show the facts** | `.\test\model-contracts.ps1 facts datrix-codegen-docker` | The model set, each sampled model's items and the fixture its sample came from, then `UNSAMPLED` (the fixture backlog), `CODE-BUILT` (no document can reach the model) and `REFUSED` (negative fixtures) lines. Writes nothing |
+| **One model** | `.\test\model-contracts.ps1 facts datrix-common ExternOAuth2ClientCredentialsConfig` | That model's item ids and sample source |
+| **Inventory** | `.\test\model-contracts.ps1 inventory datrix-codegen-aws` | Resolve every schema-shaped test (a `pytest.raises` around one construction, or one construction and default asserts) to the model, field and fact it restates: `covered` (an item proves it), `uncovered` (no fixture sample yet), `validator` (a validator's rule, stays code), `mixed`, `not-a-model`. Writes `D:\datrix\.tmp\case-proposals\<package>.model-contracts.inventory.txt` |
+| **Propose** | `.\test\model-contracts.ps1 migrate datrix-codegen-aws` | Write `D:\datrix\.tmp\case-proposals\<package>.model-contracts.proposal.json`: `delete` for every covered test, `stays` with the reason for every other one |
+| **Accept** | `.\test\model-contracts.ps1 accept D:\datrix\.tmp\case-proposals\<package>.model-contracts.proposal.json` | Requires Jon's `<proposal name>.cases.approved` (proposal name, sha256, and the `<module>::<test>` key of every security test it deletes). Re-resolves every test, refuses a deletion no current item proves, removes the tests by AST with the dead code they leave, lowers the pins |
+
+**Parameters:** `-Command` (positional: `facts`, `inventory`, `migrate`, `accept`), the command's positional arguments, `-Dbg`
+
+**Exit codes:** 0 = done, 1 = refused (an unapproved or stale proposal, a capture or discovery error), 2 = usage error (unknown package).
+
+---
+
 ## `test\cleanup.ps1`
 
 Lists/deletes `.test_results` folders (containing timestamped test result directories) under each datrix project and `.generated/`.
