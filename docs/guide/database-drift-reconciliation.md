@@ -303,13 +303,15 @@ You're developing a feature in a shared staging database:
 
 Suppose you have an order service in staging:
 
-```dtrx
-service ecommerce.OrderService : version('1.0.0') {
-  entity Order {
-    orderId: UUID @pk;
-    customerId: UUID;
-    createdAt: Timestamp;
-    total: Decimal;
+```datrix
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
+  rdbms db {
+    entity Order {
+      UUID orderId : primaryKey = uuid();
+      UUID customerId;
+      DateTime createdAt : server = DateTime.now();
+      Decimal total;
+    }
   }
 }
 ```
@@ -331,13 +333,13 @@ Now `L ≠ R` (live has status, recorded doesn't). You have two choices:
 
 2. **Remove it via `--to-desired`** if the spec is authoritative:
    First, add status to the spec:
-   ```dtrx
+   ```datrix context=rdbms
    entity Order {
-     orderId: UUID @pk;
-     customerId: UUID;
-     createdAt: Timestamp;
-     total: Decimal;
-     status: String; // added
+     UUID orderId : primaryKey = uuid();
+     UUID customerId;
+     DateTime createdAt : server = DateTime.now();
+     Decimal total;
+     String(50) status; // added
    }
    ```
    

@@ -32,7 +32,7 @@ This guide covers common patterns, best practices, and anti-patterns based on re
 
 **Solution:** Create abstract base entity.
 
-```dtrx
+```datrix context=rdbms
 abstract entity BaseEntity {
     UUID id : primaryKey, server = uuid();
     DateTime createdAt : server = DateTime.now();
@@ -59,28 +59,34 @@ entity User extends BaseEntity {
 
 **Solution:** Use the **builtin** `SoftDeletable` trait (opt-in with `with SoftDeletable`—do not redefine the trait). It supplies `deletedAt`, `deletedBy`, and a computed `isDeleted`. See [Architecture Overview — Builtin traits](../architecture/architecture/builtin-traits-enums.md#builtin-traits-and-enums).
 
-```dtrx
-entity Order extends BaseEntity with SoftDeletable {
-    // entity fields
+```datrix context=service
+rdbms db {
+    entity Order with SoftDeletable {
+        UUID id : primaryKey, server = uuid();
+        Money total;
+    }
 }
 
-// In API (conceptual)
-delete deleteOrder(UUID id) {
-    let order = db.Order.findOrFail(id);
-    order.deletedAt = DateTime.now();
-    order.deletedBy = Request.userId();
-    db.Order.save(order);
-}
+rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
+    @path('/:id')
+    delete(UUID id) : auth(required, providers: [identity]) -> Void {
+        let Order order = Order.findOrFail(id);
+        order.deletedAt = DateTime.now();
+        order.deletedBy = Auth.subject;
+        order.save();
+    }
 
-// Exclude soft-deleted in queries
-get listOrders() -> List<Order> {
-    return db.Order.filter(deletedAt == null);
+    // Exclude soft-deleted rows in queries
+    @path('/active')
+    get() : auth(required, providers: [identity]) -> Array<Order> {
+        return Order.where(deletedAt: null).all();
+    }
 }
 ```
 
 **Cascade soft deletes:**
 
-```dtrx
+```datrix context=rdbms
 entity Post extends BaseEntity with SoftDeletable {
     hasMany Comment as comments : onSoftDelete(cascade);
 }
@@ -100,7 +106,7 @@ entity Comment extends BaseEntity with SoftDeletable {
 
 **Solution:** Use Auditable trait.
 
-```dtrx
+```datrix context=rdbms
 trait Auditable {
     String? createdBy;
     String? updatedBy;
@@ -110,11 +116,11 @@ entity Order extends BaseEntity with Auditable {
     Money total;
 
     beforeCreate {
-        this.createdBy = Request.userId();
+        this.createdBy = Auth.subject;
     }
 
     beforeUpdate {
-        this.updatedBy = Request.userId();
+        this.updatedBy = Auth.subject;
     }
 }
 ```
@@ -127,35 +133,44 @@ entity Order extends BaseEntity with Auditable {
 
 **Solution:** Use version field.
 
-```dtrx
-trait Versionable {
-    Integer version = 0;
+```datrix context=service
+exceptions {
+    ConflictError : status(409), message("The record was modified by another user");
 }
 
-entity Order extends BaseEntity with Versionable {
+struct OrderUpdate {
+    Integer expectedVersion;
     Money total;
+}
 
-    beforeUpdate {
-        version = version + 1;
+rdbms db {
+    trait Versionable {
+        Integer version = 0;
+    }
+
+    entity Order with Versionable {
+        UUID id : primaryKey, server = uuid();
+        Money total;
+
+        beforeUpdate {
+            version = version + 1;
+        }
     }
 }
 
-// In update endpoint
-patch updateOrder(UUID id, Integer expectedVersion, OrderUpdate data) -> Order {
-    let order = db.Order.findOrFail(id);
+rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
+    @path('/:id')
+    patch(UUID id, OrderUpdate data) : auth(required, providers: [identity]) -> Order {
+        let Order order = Order.findOrFail(id);
 
-    if (order.version != expectedVersion) {
-        throw ConflictError(
-            "Order was modified by another user. " +
-            "Expected version: " + expectedVersion +
-            ", current version: " + order.version
-        );
+        if (order.version != data.expectedVersion) {
+            throw ConflictError();
+        }
+
+        order.total = data.total;
+        order.save();  // version incremented by beforeUpdate
+        return order;
     }
-
-    // Apply updates
-    order.total = data.total;
-    db.Order.save(order);  // version auto-incremented
-    return order;
 }
 ```
 
@@ -167,34 +182,23 @@ patch updateOrder(UUID id, Integer expectedVersion, OrderUpdate data) -> Order {
 
 **Solution:** Self-referential relationships with tree helpers.
 
-```dtrx
+```datrix context=rdbms
 entity Category extends BaseEntity {
     String(100) name;
     belongsTo Category as parent;
     hasMany Category as children;
 
-    // Tree helpers automatically generated:
-    // - get_ancestors()
-    // - get_descendants()
-    // - get_roots()
-    // - list_by_parent_id()
-}
-
-// Get category with ancestors
-get getCategory(UUID id) -> CategoryResponse {
-    let category = db.Category.findOrFail(id);
-    let ancestors = category.get_ancestors();
-
-    return CategoryResponse {
-        category: category,
-        breadcrumb: ancestors.map(c => c.name)
-    };
+    // The generated service layer gains tree helpers:
+    // get_ancestors, get_descendants, get_roots, list_by_parent_id
 }
 ```
 
+The helpers belong to the generated service code (Python: `get_ancestors()` and friends on the
+category service; TypeScript: TypeORM tree repositories), not to DSL expressions.
+
 **Disable tree helpers if not needed:**
 
-```dtrx
+```datrix context=rdbms
 entity Employee extends BaseEntity {
     belongsTo Employee as manager;
     hasMany Employee as directReports : noTree;  // Plain one-to-many
@@ -211,9 +215,9 @@ entity Employee extends BaseEntity {
 
 **Solution:** Use `resource` keyword.
 
-```dtrx
+```datrix context=service
 rest_api OrderAPI : basePath('/api/v1') {
-    resource db.Order;  // Full CRUD
+    resource db.Order : auth(required, providers: [identity]);  // Full CRUD
 }
 
 // Generates:
@@ -232,10 +236,10 @@ rest_api OrderAPI : basePath('/api/v1') {
 
 **Solution:** Use `: only(...)` modifier.
 
-```dtrx
+```datrix context=service
 rest_api OrderAPI : basePath('/api/v1') {
-    resource db.Order : only(create, list, get);      // No update/delete
-    resource db.OrderItem : only(list, get);          // Read-only
+    resource db.Order : only(create, list, get), auth(required, providers: [identity]);  // No update/delete
+    resource db.OrderItem : only(list, get), auth(public);                               // Read-only
 }
 ```
 
@@ -247,13 +251,13 @@ rest_api OrderAPI : basePath('/api/v1') {
 
 **Solution:** Custom endpoints with explicit paths.
 
-```dtrx
+```datrix context=service
 rest_api OrderAPI : basePath('/api/v1/orders') {
     resource db.Order : auth(required, providers: [identity]);
 
     @path('/:id/cancel')
-    post(UUID id, String? reason) : auth(required, providers: [identity]) -> Order {
-        let order = db.Order.findOrFail(id);
+    post(UUID id, CancelRequest request) : auth(required, providers: [identity]) -> db.Order {
+        let db.Order order = db.Order.findOrFail(id);
 
         if (order.status == OrderStatus.Cancelled) {
             throw ValidationError("Order is already cancelled");
@@ -264,17 +268,17 @@ rest_api OrderAPI : basePath('/api/v1/orders') {
         }
 
         order.status = OrderStatus.Cancelled;
-        db.Order.save(order);
+        order.save();
 
-        dispatch OrderCancelled(id, reason ?? "No reason provided");
+        dispatch OrderCancelled(id, request.reason ?? "No reason provided");
         return order;
     }
 
     @path('/:id/approve')
-    post(UUID id) : auth(required, providers: [identity], roles: [admin]) -> Order {
-        let order = db.Order.findOrFail(id);
+    post(UUID id) : auth(required, providers: [identity], roles: [admin]) -> db.Order {
+        let db.Order order = db.Order.findOrFail(id);
         order.status = OrderStatus.Confirmed;
-        db.Order.save(order);
+        order.save();
         return order;
     }
 }
@@ -288,9 +292,9 @@ rest_api OrderAPI : basePath('/api/v1/orders') {
 
 **Solution:** Custom search endpoint with filters.
 
-```dtrx
-rest_api ProductAPI : basePath('/api/v1') {
-    resource db.Product;
+```datrix context=service
+rest_api ProductAPI : basePath('/api/v1'), rdbms(db) {
+    resource Product : auth(public);
 
     @path('/products/search')
     get search(
@@ -298,46 +302,34 @@ rest_api ProductAPI : basePath('/api/v1') {
         UUID? categoryId,               // Filter by category
         Money? minPrice,                // Price range
         Money? maxPrice,
-        Boolean? inStock,               // Availability
-        String? sortBy,                 // Sort field
-        String? sortOrder               // Sort direction
-    ) -> List<Product> {
-        let query = db.Product.query();
+        Boolean? inStock                // Availability
+    ) : auth(public) -> Array<Product> {
+        let Array<Product> matches = Product.where(isActive: true).orderBy(createdAt: desc).limit(100).all();
 
         // Text search
         if (q != null) {
-            query = query.where(
-                name.contains(q) || description.contains(q)
-            );
+            matches = matches.filter(p => p.name.contains(q) || p.description.contains(q));
         }
 
         // Category filter
         if (categoryId != null) {
-            query = query.where(categoryId == categoryId);
+            matches = matches.filter(p => p.categoryId == categoryId);
         }
 
         // Price range
         if (minPrice != null) {
-            query = query.where(price >= minPrice);
+            matches = matches.filter(p => p.price >= minPrice);
         }
         if (maxPrice != null) {
-            query = query.where(price <= maxPrice);
+            matches = matches.filter(p => p.price <= maxPrice);
         }
 
         // In stock filter
         if (inStock == true) {
-            query = query.where(stockQuantity > 0);
+            matches = matches.filter(p => p.stockQuantity > 0);
         }
 
-        // Sorting
-        if (sortBy != null) {
-            let order = sortOrder == "desc" ? desc : asc;
-            query = query.orderBy(sortBy, order);
-        } else {
-            query = query.orderBy(createdAt, desc);  // Default sort
-        }
-
-        return query.limit(100);
+        return matches;
     }
 }
 ```
@@ -352,16 +344,12 @@ rest_api ProductAPI : basePath('/api/v1') {
 (its `offset` and `limit`, always counted in rows); the generated route binds it from the backend's own
 query pair and bounds the size at `MAX_PAGE_SIZE`.
 
-```dtrx
-@path('/orders')
-get listOrders(PageRequest page, OrderStatus? status) -> Page<db.Order> {
-    let JSON query = db.Order.where(customerId: Auth.user().id);
-
-    if (status != null) {
-        query = query.where(status: status);
+```datrix context=service
+rest_api OrderAPI : basePath('/api/v1') {
+    @path('/orders')
+    get listOrders(PageRequest page) : auth(required, providers: [identity]) -> Page<db.Order> {
+        return db.Order.where(customerId: Auth.userId()).orderBy(createdAt: desc).page(page);
     }
-
-    return query.orderBy(createdAt: desc).page(page);
 }
 ```
 
@@ -378,19 +366,22 @@ from, and `offset`/`limit` are the window the server applied.
 
 **Solution:** Version in basePath.
 
-```dtrx
+```datrix context=service
 // Current version
 rest_api OrderAPIV1 : basePath('/api/v1/orders') {
-    resource db.Order;
+    resource db.Order : auth(required, providers: [identity]);
 }
 
 // New version with breaking changes
 rest_api OrderAPIV2 : basePath('/api/v2/orders') {
-    resource db.Order : only(create, list, get);  // Removed update/delete
+    resource db.Order : only(create, list, get), auth(required, providers: [identity]);  // Removed update/delete
 
     @path('/:id/update-status')
-    post updateStatus(UUID id, OrderStatus status) -> Order {
-        // New way to update orders
+    post updateStatus(UUID id, StatusChange change) : auth(required, providers: [identity]) -> db.Order {
+        let db.Order order = db.Order.findOrFail(id);
+        order.status = change.status;
+        order.save();
+        return order;
     }
 }
 ```
@@ -409,8 +400,11 @@ rest_api OrderAPIV2 : basePath('/api/v2/orders') {
 
 **Solution:** Dispatch events in lifecycle hooks.
 
-```dtrx
+```datrix context=rdbms
 entity Order {
+    UUID id : primaryKey, server = uuid();
+    UUID customerId;
+    Money total;
     OrderStatus status;
 
     afterCreate {
@@ -418,8 +412,8 @@ entity Order {
     }
 
     afterUpdate {
-        if (status != $old.status) {
-            dispatch OrderStatusChanged(id, $old.status, status);
+        if (isChanged(status)) {
+            dispatch OrderStatusChanged(id, oldValue(status), status);
         }
     }
 
@@ -437,40 +431,31 @@ entity Order {
 
 **Solution:** Subscribe to topics.
 
-```dtrx
+```datrix
 // In NotificationService
-service notification.NotificationService : version('1.0.0') {
-    pubsub mq('config/notification-service/pubsub.dcfg') {
-    }
+service notification.NotificationService('config/notification-service.dcfg') : version('1.0.0') {
+    uses OrderService : subscribe;
 
     subscribe ecommerce.OrderService.mq.OrderEvents {
-        on OrderCreated(UUID orderId, UUID customerId, Money total) {
-            let customer = UserService.getUser(customerId);
-
-            Email.send(
-                to: customer.email,
+        on OrderCreated(UUID orderId, Email customerEmail, Money total) {
+            Email.send({
+                to: customerEmail,
                 subject: "Order Confirmation",
-                body: "Your order #" + orderId + " has been placed."
-            );
-
-            Log.info("Order confirmation email sent", {
-                orderId: orderId,
-                customerId: customerId
+                body: #"Your order #{orderId} has been placed."
             });
+
+            Log.info("Order confirmation email sent", { orderId: orderId });
         }
 
-        on OrderShipped(UUID orderId, DateTime shippedAt) {
-            let order = OrderService.getOrder(orderId);
-            let customer = UserService.getUser(order.customerId);
-
-            SMS.send(
-                to: customer.phone,
-                message: "Your order #" + orderId + " has shipped!"
-            );
+        on OrderShipped(UUID orderId, Phone customerPhone, DateTime shippedAt) {
+            SMS.send(customerPhone, #"Your order #{orderId} has shipped!");
         }
     }
 }
 ```
+
+The events carry the contact details the handler needs, so the subscriber never calls back into
+the publisher.
 
 ---
 
@@ -480,12 +465,15 @@ service notification.NotificationService : version('1.0.0') {
 
 **Solution:** Event-driven saga with compensating actions.
 
-```dtrx
+```datrix
 // Order Service
-service ecommerce.OrderService : version('1.0.0') {
-    pubsub mq('config/order-service/pubsub.dcfg') {
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
+    uses PaymentService : subscribe;
+    uses InventoryService : subscribe;
+
+    pubsub mq {
         topic OrderEvents {
-            publish OrderPlaced(UUID orderId, UUID customerId, List<OrderItem> items);
+            publish OrderPlaced(UUID orderId, UUID customerId, Money total);
             publish OrderConfirmed(UUID orderId);
             publish OrderCancelled(UUID orderId, String reason);
         }
@@ -493,33 +481,35 @@ service ecommerce.OrderService : version('1.0.0') {
 
     subscribe ecommerce.PaymentService.mq.PaymentEvents {
         on PaymentFailed(UUID orderId, String reason) {
-            let order = db.Order.findOrFail(orderId);
+            let db.Order order = db.Order.findOrFail(orderId);
             order.status = OrderStatus.Cancelled;
-            db.Order.save(order);
-            dispatch OrderCancelled(orderId, "Payment failed: " + reason);
+            order.save();
+            dispatch OrderCancelled(orderId, #"Payment failed: {reason}");
         }
     }
 
     subscribe ecommerce.InventoryService.mq.InventoryEvents {
         on InventoryReserved(UUID orderId) {
-            let order = db.Order.findOrFail(orderId);
+            let db.Order order = db.Order.findOrFail(orderId);
             order.status = OrderStatus.Confirmed;
-            db.Order.save(order);
+            order.save();
             dispatch OrderConfirmed(orderId);
         }
 
         on InventoryInsufficient(UUID orderId) {
-            let order = db.Order.findOrFail(orderId);
+            let db.Order order = db.Order.findOrFail(orderId);
             order.status = OrderStatus.Cancelled;
-            db.Order.save(order);
+            order.save();
             dispatch OrderCancelled(orderId, "Insufficient inventory");
         }
     }
 }
 
 // Payment Service
-service ecommerce.PaymentService : version('1.0.0') {
-    pubsub mq('config/payment-service/pubsub.dcfg') {
+service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0') {
+    uses OrderService : subscribe;
+
+    pubsub mq {
         topic PaymentEvents {
             publish PaymentSucceeded(UUID orderId, Money amount);
             publish PaymentFailed(UUID orderId, String reason);
@@ -527,11 +517,11 @@ service ecommerce.PaymentService : version('1.0.0') {
     }
 
     subscribe ecommerce.OrderService.mq.OrderEvents {
-        on OrderPlaced(UUID orderId, UUID customerId, List<OrderItem> items) {
-            let success = processPayment(customerId, calculateTotal(items));
+        on OrderPlaced(UUID orderId, UUID customerId, Money total) {
+            let Boolean charged = chargeCustomer(customerId, total);
 
-            if (success) {
-                dispatch PaymentSucceeded(orderId, calculateTotal(items));
+            if (charged) {
+                dispatch PaymentSucceeded(orderId, total);
             } else {
                 dispatch PaymentFailed(orderId, "Card declined");
             }
@@ -545,8 +535,10 @@ service ecommerce.PaymentService : version('1.0.0') {
 }
 
 // Inventory Service
-service ecommerce.InventoryService : version('1.0.0') {
-    pubsub mq('config/inventory-service/pubsub.dcfg') {
+service ecommerce.InventoryService('config/inventory-service.dcfg') : version('1.0.0') {
+    uses OrderService : subscribe;
+
+    pubsub mq {
         topic InventoryEvents {
             publish InventoryReserved(UUID orderId);
             publish InventoryInsufficient(UUID orderId);
@@ -554,10 +546,10 @@ service ecommerce.InventoryService : version('1.0.0') {
     }
 
     subscribe ecommerce.OrderService.mq.OrderEvents {
-        on OrderPlaced(UUID orderId, UUID customerId, List<OrderItem> items) {
-            let canReserve = checkAndReserve(items);
+        on OrderPlaced(UUID orderId, UUID customerId, Money total) {
+            let Boolean reserved = reserveStock(orderId);
 
-            if (canReserve) {
+            if (reserved) {
                 dispatch InventoryReserved(orderId);
             } else {
                 dispatch InventoryInsufficient(orderId);
@@ -566,11 +558,14 @@ service ecommerce.InventoryService : version('1.0.0') {
 
         on OrderCancelled(UUID orderId, String reason) {
             // Compensating action: release reserved inventory
-            releaseInventory(orderId);
+            releaseStock(orderId);
         }
     }
 }
 ```
+
+`chargeCustomer`, `refundPayment`, `reserveStock` and `releaseStock` are each service's own `fn`
+declarations, left out here to keep the saga's shape visible.
 
 ---
 
@@ -590,41 +585,40 @@ service ecommerce.InventoryService : version('1.0.0') {
 
 **Solution:** Store all events and rebuild state from events.
 
-```dtrx
-entity OrderEvent extends BaseEntity {
-    UUID orderId : index;
-    String eventType : index;
-    JSON eventData;
-    DateTime occurredAt : server = DateTime.now();
-}
+```datrix context=service
+enum OrderStatus { Pending, Confirmed, Shipped, Cancelled }
 
-entity Order {
-    afterUpdate {
-        db.OrderEvent.create({
-            orderId: id,
-            eventType: "OrderUpdated",
-            eventData: {
-                oldStatus: $old.status,
-                newStatus: status,
-                updatedBy: Request.userId()
+rdbms db {
+    entity OrderEvent {
+        UUID id : primaryKey, server = uuid();
+        UUID orderId : index;
+        String eventType : index;
+        OrderStatus newStatus;
+        DateTime occurredAt : server = DateTime.now();
+    }
+
+    entity Order {
+        UUID id : primaryKey, server = uuid();
+        OrderStatus status;
+
+        afterUpdate {
+            if (isChanged(status)) {
+                OrderEvent.create({ orderId: id, eventType: "StatusChanged", newStatus: status });
             }
-        });
+        }
     }
 }
 
 // Rebuild order state from events
-fn reconstructOrder(UUID orderId) -> Order {
-    let events = db.OrderEvent.filter(orderId == orderId)
-        .orderBy(occurredAt, asc);
+fn reconstructOrder(UUID orderId) -> db.Order {
+    let Array<db.OrderEvent> events = db.OrderEvent.where(orderId: orderId).orderBy(occurredAt: asc).all();
+    let db.Order order = db.Order.findOrFail(orderId);
 
-    let order = db.Order.findOrFail(orderId);
-
-    for (event in events) {
+    foreach event in events {
         // Apply each event to rebuild state
-        if (event.eventType == "OrderUpdated") {
-            order.status = event.eventData.newStatus;
+        if (event.eventType == "StatusChanged") {
+            order.status = event.newStatus;
         }
-        // ... handle other event types
     }
 
     return order;
@@ -637,21 +631,21 @@ fn reconstructOrder(UUID orderId) -> Order {
 
 **Problem:** Ingestion, webhooks, or scheduled work must deploy as **Lambda** or **Azure Functions** in production, but developers still want **in-process** execution in dev/test without maintaining two copies of the handler.
 
-**Solution:** Put **`subscribe`**, **`job`**, HTTP endpoints, or **`enqueue`** consumers inside **`serverless BlockName('config/<service>/serverless.dcfg') { … }`**. YAML profiles choose **`platform`**: `container` for local parity, `lambda` or `functions` for cloud.
+**Solution:** Put **`subscribe`**, **`job`**, HTTP endpoints, or **`enqueue`** consumers inside **`serverless BlockName { … }`**. The block's entry in the service `.dcfg` chooses **`platform`** per profile: `container` for local parity, `lambda` or `functions` for cloud.
 
 **Example:**
 
-```dtrx
-service NotificationService {
-    pubsub mq('config/notification-service/pubsub.dcfg') {
+```datrix
+service notification.NotificationService('config/notification-service.dcfg') : version('1.0.0') {
+    pubsub mq {
         topic UserEvents {
             publish UserRegistered(UUID userId, String email);
         }
     }
 
     // Serverless event handler
-    serverless eventHandlers('config/notification-service/event-handlers.dcfg') {
-        subscribe mq.UserEvents {
+    serverless eventHandlers {
+        subscribe notification.NotificationService.mq.UserEvents {
             on UserRegistered(UUID userId, String email) {
                 // Send welcome email
                 Log.info(#"Sending welcome email to {email}");
@@ -686,20 +680,31 @@ development:
 
 The semantic layer enforces the same reference rules as service-level blocks.
 
-**Shared serverless functions:** **`shared`** blocks may own **`serverless`** blocks when several services need the same serverless bundle. Pair with **`uses`** like other shared infrastructure:
+**Shared topics, service-owned handlers:** a **`shared`** block may own the topic several services
+publish to, but never a `serverless` block (`SLS007`): the handlers live in a service that `uses`
+the shared block:
 
-```dtrx
-shared Analytics {
-    pubsub mq('config/shared/analytics-pubsub.dcfg') { ... }
+```datrix
+system ecommerce.Platform('config/system.dcfg') : version('1.0.0') {}
 
-    serverless processors('config/shared/analytics-processors.dcfg') {
-        subscribe mq.AnalyticsEvents { ... }
+shared Analytics('config/analytics.dcfg') {
+    pubsub mq {
+        topic AnalyticsEvents {
+            publish PageViewed(String path);
+        }
     }
 }
 
-service OrderService {
-    uses Analytics;
-    // Can dispatch events to Analytics.mq topics
+service ecommerce.AnalyticsService('config/analytics-service.dcfg') : version('1.0.0') {
+    uses Analytics : subscribe;
+
+    serverless processors {
+        subscribe Analytics.mq.AnalyticsEvents {
+            on PageViewed(String path) {
+                Log.info(#"page {path} viewed");
+            }
+        }
+    }
 }
 ```
 
@@ -723,7 +728,7 @@ See [Writing Datrix Applications — Serverless blocks](./writing-datrix-applica
 
 **Solution:** Declare an `extern service` with the tool's API contract. Datrix generates typed clients in every consuming service.
 
-```dtrx
+```datrix
 extern service pricing.PricingEngine('config/pricing-engine.dcfg')
     : version('1.0.0') {
 
@@ -751,9 +756,9 @@ extern service pricing.PricingEngine('config/pricing-engine.dcfg')
     health : path('/health');
 }
 
-service ecommerce.OrderService {
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     uses PricingEngine;
-    // Generated client is available in OrderService's code
+    // A typed PricingEngine client is generated into OrderService
 }
 ```
 
@@ -814,19 +819,29 @@ config extern pricing.PricingEngine {
 
 **Wrong:**
 
-```dtrx
-rest_api PricingAPI : basePath('/api/v1') {
-    post calculatePrice(PricingRequest req) -> PricingResponse;
+```datrix
+extern service pricing.PricingEngine('config/pricing-engine.dcfg') {
+    struct PricingRequest { String productId; Int quantity; }
+    struct PricingResponse { Decimal totalPrice; }
+
+    rest_api PricingAPI : basePath('/api/v1') {
+        post calculatePrice(PricingRequest req) -> PricingResponse;
+    }
 }
 ```
 
 **Right:** Add `ensure` clauses so invalid input is caught at the call site before the HTTP request:
 
-```dtrx
-rest_api PricingAPI : basePath('/api/v1') {
-    post calculatePrice(PricingRequest req) -> PricingResponse {
-        ensure req.quantity > 0;
-        ensure req.productId != null;
+```datrix
+extern service pricing.PricingEngine('config/pricing-engine.dcfg') {
+    struct PricingRequest { String productId; Int quantity; }
+    struct PricingResponse { Decimal totalPrice; }
+
+    rest_api PricingAPI : basePath('/api/v1') {
+        post calculatePrice(PricingRequest req) -> PricingResponse {
+            ensure req.quantity > 0;
+            ensure req.productId != null;
+        }
     }
 }
 ```
@@ -841,9 +856,9 @@ rest_api PricingAPI : basePath('/api/v1') {
 
 **Solution:** Declare a `queue` on the owning service, `dispatch` from the handler, and run logic in a **worker** process generated for the consumer service.
 
-```dtrx
+```datrix context=service
 // OrderService — producer
-queues('config/order-service/queue.dcfg') {
+queues {
     queue ProcessPayment(UUID orderId, Money amount, String currency) {
         ensure amount > 0;
     }
@@ -856,7 +871,7 @@ queues('config/order-service/queue.dcfg') {
 
 **Problem:** Service A creates work that Service B must execute exactly once.
 
-**Solution:** Service A owns `queue.dcfg` and `queues { }`; Service B lists A in `discovery` and implements `enqueue A.TaskName(…) { … }`.
+**Solution:** Service A owns the `queues { }` block (and its broker settings in A's `.dcfg`); Service B lists A in `discovery` and implements `enqueue A.TaskName(…) { … }`.
 
 ### Pattern: FIFO queue for ordered processing
 
@@ -892,62 +907,50 @@ queues('config/order-service/queue.dcfg') {
 
 **Solution:** Use Tenantable trait and tenant configuration.
 
-```dtrx
-from datrix.builtin import Tenantable;
-
+```datrix context=rdbms
 entity Organization extends BaseEntity {
     String(100) name : unique;
     Boolean isActive = true;
 }
 
+// `with Tenantable` (a builtin trait, no import) adds the UUID tenantId field
 entity User extends BaseEntity with Tenantable {
     String(100) name;
-    Email email : unique;
-    UUID organizationId;  // Tenant identifier
-
-    belongsTo Organization;
+    Email email : unique;   // becomes UNIQUE (tenant_id, email)
 }
 
 entity Project extends BaseEntity with Tenantable {
     String(200) name;
-    UUID organizationId;  // Tenant identifier
-
-    belongsTo Organization;
     hasMany Task as tasks;
 }
 
 entity Task extends BaseEntity with Tenantable {
     String(200) title;
-    UUID projectId;
-    UUID organizationId;  // Tenant identifier
-
     belongsTo Project;
 }
 
-// All queries automatically filtered by organizationId
+// All queries on these entities are filtered by tenantId
 ```
 
 **Config:**
 
 ```dcfg
-# config/project-service.dcfg
-config service ProjectService {
-    profile production {
-        platform: ecs-fargate
-        tenancy {
-            identifier {
-                source: jwt
-                name: organizationId
-            }
-            enforcement: strict
-        }
+config service projects.ProjectService {
+  base {
+    tenancy {
+      identifier {
+        source = "jwt";
+        name = "tenant_id";
+      }
+      enforcement = "strict";
     }
+  }
 }
 ```
 
 **Generated behavior:**
 - Middleware extracts tenant ID from JWT
-- All DB queries automatically add `WHERE organization_id = ?`
+- All DB queries automatically add `WHERE tenant_id = ?`
 - Attempting to access other tenant's data = error
 
 ---
@@ -958,7 +961,7 @@ config service ProjectService {
 
 **Solution:** Store tenant-level config in Organization entity.
 
-```dtrx
+```datrix context=service
 enum PlanType {
     Free,
     Starter,
@@ -966,32 +969,45 @@ enum PlanType {
     Enterprise
 }
 
-entity Organization extends BaseEntity {
-    String(100) name;
-    PlanType plan = PlanType.Free;
-    Integer userLimit : min(1);
-    Integer projectLimit : min(1);
-    Integer storageLimit : min(0);  // In GB
-    Boolean featureAdvancedReports = false;
-    Boolean featureApiAccess = false;
+exceptions {
+    LimitExceededError : status(403), message("The plan's project limit is reached; upgrade to create more projects");
 }
 
-// Check tenant limits
-post createProject(String name) -> Project {
-    let org = db.Organization.findOrFail(Request.tenantId());
+struct NewProject {
+    UUID organizationId;
+    String(200) name;
+}
 
-    let currentProjects = db.Project.filter(organizationId == org.id).count();
-    if (currentProjects >= org.projectLimit) {
-        throw LimitExceededError(
-            "Project limit reached for " + org.plan + " plan. " +
-            "Upgrade to create more projects."
-        );
+rdbms db {
+    entity Organization {
+        UUID id : primaryKey, server = uuid();
+        String(100) name;
+        PlanType plan = PlanType.Free;
+        Integer userLimit;
+        Integer projectLimit;
+        Integer storageLimitGb;
+        Boolean featureAdvancedReports = false;
+        Boolean featureApiAccess = false;
     }
 
-    return db.Project.create({
-        name: name,
-        organizationId: org.id
-    });
+    entity Project with Tenantable {
+        UUID id : primaryKey, server = uuid();
+        String(200) name;
+    }
+}
+
+rest_api ProjectAPI : basePath('/api/v1/projects'), rdbms(db) {
+    // Check tenant limits
+    @path('/')
+    post(NewProject input) : auth(required, providers: [identity]) -> Project {
+        let Organization org = Organization.findOrFail(input.organizationId);
+
+        if (Project.where(tenantId: org.id).count() >= org.projectLimit) {
+            throw LimitExceededError();
+        }
+
+        return Project.create({ name: input.name });
+    }
 }
 ```
 
@@ -1008,12 +1024,15 @@ role-gated `auth(required)` endpoints whose every provider is workforce-only, se
 functions, pub/sub and queue consumers, and jobs — never on a public, optional, or customer-
 facing route, and never reachable from one through a helper call.
 
-```dtrx
-@crossTenant
-post(UUID orgId) : auth(required, providers: [identity], roles: [SupportAgent]) -> Void {
-    let org = db.Organization.findOrFail(orgId);
-    tenant(org.id) {
-        applyEmergencyCredit(org.id, Money.of(50));
+```datrix context=service
+rest_api SupportAPI : basePath('/internal/support') {
+    @crossTenant
+    @path('/organizations/:orgId/credit')
+    post(UUID orgId) : auth(required, providers: [workforce], roles: [SupportAgent]) -> Void {
+        let db.Organization org = db.Organization.findOrFail(orgId);
+        tenant(org.id) {
+            applyEmergencyCredit(org.id);
+        }
     }
 }
 ```
@@ -1039,9 +1058,9 @@ post(UUID orgId) : auth(required, providers: [identity], roles: [SupportAgent]) 
 
 **Solution:** Check cache first, query DB on miss, populate cache.
 
-```dtrx
+```datrix context=service
 cache redis {
-    hash ProductCache on db.Product ttl(1h) {
+    hash ProductCache : prefix('product:'), ttl(3600) {
         UUID productId : primaryKey;
         String name;
         Money price;
@@ -1049,25 +1068,28 @@ cache redis {
     }
 }
 
-get getProduct(UUID id) -> Product {
-    // Check cache first
-    let cached = ProductCache.get(id);
-    if (cached != null) {
-        return cached;
+rest_api ProductAPI : basePath('/api/v1/products') {
+    @path('/:id')
+    get(UUID id) : auth(public) -> db.Product {
+        // Check cache first
+        let redis.ProductCache? cached = redis.ProductCache.get(id);
+        if (cached != null) {
+            return db.Product.findOrFail(cached.productId);
+        }
+
+        // Cache miss — query database
+        let db.Product product = db.Product.findOrFail(id);
+
+        // Populate cache
+        redis.ProductCache.set(id, {
+            productId: product.id,
+            name: product.name,
+            price: product.price,
+            stockQuantity: product.stockQuantity
+        });
+
+        return product;
     }
-
-    // Cache miss — query database
-    let product = db.Product.findOrFail(id);
-
-    // Populate cache
-    ProductCache.set(id, {
-        productId: product.id,
-        name: product.name,
-        price: product.price,
-        stockQuantity: product.stockQuantity
-    });
-
-    return product;
 }
 ```
 
@@ -1079,27 +1101,33 @@ get getProduct(UUID id) -> Product {
 
 **Solution:** Invalidate cache on write.
 
-```dtrx
+```datrix context=rdbms
 entity Product {
+    UUID id : primaryKey, server = uuid();
+    String(200) name;
+    Money price;
+    Integer stockQuantity;
+
     afterUpdate {
-        ProductCache.delete(id);  // Invalidate cache
+        redis.ProductCache.delete(id);  // Invalidate cache
     }
 
     afterDelete {
-        ProductCache.delete(id);
+        redis.ProductCache.delete(id);
     }
 }
+```
 
-// Or refresh cache immediately
-entity Product {
-    afterUpdate {
-        ProductCache.set(id, {
-            productId: id,
-            name: name,
-            price: price,
-            stockQuantity: stockQuantity
-        });
-    }
+Or refresh the entry immediately instead of deleting it:
+
+```datrix context=entity
+afterUpdate {
+    redis.ProductCache.set(id, {
+        productId: id,
+        name: name,
+        price: price,
+        stockQuantity: stockQuantity
+    });
 }
 ```
 
@@ -1111,33 +1139,41 @@ entity Product {
 
 **Solution:** Use counter cache.
 
-```dtrx
+```datrix context=service
+struct MetricsResponse {
+    Integer ordersToday;
+    Date date;
+}
+
 cache redis {
     counter ProductViewCount : prefix('product:views');
     counter DailyOrders : prefix('metrics:orders:daily');
 }
 
-get getProduct(UUID id) -> Product {
-    ProductViewCount.increment(id);
-    return db.Product.findOrFail(id);
-}
+rdbms db {
+    entity Order {
+        UUID id : primaryKey, server = uuid();
 
-// Update daily metrics
-entity Order {
-    afterCreate {
-        DailyOrders.increment(utcToday().toString());
+        // Update daily metrics
+        afterCreate {
+            redis.DailyOrders.increment(utcToday().toString());
+        }
     }
 }
 
-// Read metrics
-get getMetrics() -> MetricsResponse {
-    let today = utcToday().toString();
-    let ordersToday = DailyOrders.get(today);
+rest_api MetricsAPI : basePath('/api/v1') {
+    @path('/products/:id')
+    get(UUID id) : auth(public) -> db.Product {
+        redis.ProductViewCount.increment(id);
+        return db.Product.findOrFail(id);
+    }
 
-    return MetricsResponse {
-        ordersToday: ordersToday,
-        date: utcToday()
-    };
+    // Read metrics
+    @path('/metrics')
+    get() : auth(required, providers: [workforce], roles: [analyst]) -> MetricsResponse {
+        let Integer ordersToday = redis.DailyOrders.get(utcToday().toString());
+        return { ordersToday: ordersToday, date: utcToday() };
+    }
 }
 ```
 
@@ -1151,53 +1187,45 @@ get getMetrics() -> MetricsResponse {
 
 **Solution:** Throw specific errors with helpful messages.
 
-```dtrx
-post createOrder(UUID customerId, List<OrderItem> items) -> Order {
-    // Validate customer
-    let customer = db.User.findBy({ id: customerId });
-    if (customer == null) {
-        throw NotFoundError(
-            "Customer not found with ID: " + customerId +
-            ". Please provide a valid customer ID."
-        );
-    }
+```datrix context=service
+rest_api OrderAPI : basePath('/api/v1/orders') {
+    @path('/')
+    post(OrderRequest request) : auth(required, providers: [identity]) -> db.Order {
+        // Validate customer
+        let db.User customer = db.User.findOrFail(request.customerId);
 
-    if (!customer.isActive) {
-        throw ValidationError(
-            "Customer account is inactive. " +
-            "Please reactivate the account before placing orders."
-        );
-    }
-
-    // Validate items
-    if (items.length == 0) {
-        throw ValidationError(
-            "Order must contain at least one item. " +
-            "Please add items to the order."
-        );
-    }
-
-    for (item in items) {
-        let product = db.Product.findBy({ id: item.productId });
-        if (product == null) {
-            throw NotFoundError(
-                "Product not found: " + item.productId +
-                ". Available products: " + db.Product.all().map(p => p.id).join(", ")
-            );
-        }
-
-        if (product.stockQuantity < item.quantity) {
+        if (!customer.isActive) {
             throw ValidationError(
-                "Insufficient stock for " + product.name +
-                ". Requested: " + item.quantity +
-                ", available: " + product.stockQuantity
+                "Customer account is inactive. " +
+                "Please reactivate the account before placing orders."
             );
         }
-    }
 
-    // Create order...
+        // Validate items
+        if (request.items.length() == 0) {
+            throw ValidationError(
+                "Order must contain at least one item. " +
+                "Please add items to the order."
+            );
+        }
+
+        foreach item in request.items {
+            let db.Product product = db.Product.findOrFail(item.productId);
+
+            if (product.stockQuantity < item.quantity) {
+                throw ValidationError(
+                    #"Insufficient stock for {product.name}. Requested: {item.quantity}, available: {product.stockQuantity}"
+                );
+            }
+        }
+
+        return db.Order.create({ customerId: customer.id });
+    }
 }
 ```
+
+`findOrFail` already answers a missing row with a not-found error that names the entity and the
+key; there is no need to repeat that check by hand.
 
 ---
 
@@ -1207,12 +1235,12 @@ post createOrder(UUID customerId, List<OrderItem> items) -> Order {
 
 **Solution:** Log errors with context.
 
-```dtrx
-post processPayment(UUID orderId, PaymentDetails payment) -> PaymentResult {
-    let order = db.Order.findOrFail(orderId);
+```datrix context=service
+fn processPayment(UUID orderId, PaymentDetails payment) -> PaymentResult {
+    let db.Order order = db.Order.findOrFail(orderId);
 
     try {
-        let result = PaymentGateway.charge(payment, order.total);
+        let PaymentResult result = chargeCard(payment, order.total);
 
         Log.info("Payment processed", {
             orderId: orderId,
@@ -1221,12 +1249,11 @@ post processPayment(UUID orderId, PaymentDetails payment) -> PaymentResult {
         });
 
         return result;
-    } catch (error) {
+    } catch (Exception error) {
         Log.error("Payment failed", {
             orderId: orderId,
             amount: order.total,
-            error: error.message,
-            customerId: order.customerId
+            error: error.message
         });
 
         dispatch PaymentFailed(orderId, error.message);
@@ -1245,7 +1272,7 @@ post processPayment(UUID orderId, PaymentDetails payment) -> PaymentResult {
 
 **Solution:** Use field modifiers.
 
-```dtrx
+```datrix context=rdbms
 entity Product {
     String(200) name : trim;                        // Trim whitespace
     String(50) sku : unique, uppercase;             // Unique, uppercase
@@ -1265,7 +1292,7 @@ entity Product {
 
 **Solution:** Use validation blocks.
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     Money subtotal;
     Money discount;
@@ -1273,23 +1300,17 @@ entity Order {
     Money total;
 
     validate {
-        if (discount > subtotal) {
-            throw ValidationError(
-                "Discount ($" + discount + ") cannot exceed subtotal ($" + subtotal + ")"
-            );
-        }
+        if (discount > subtotal)
+            ValidationError("Discount cannot exceed the subtotal");
 
-        let expectedTotal = subtotal - discount + tax;
-        if (total != expectedTotal) {
-            throw ValidationError(
-                "Total is incorrect. " +
-                "Expected: $" + expectedTotal +
-                ", got: $" + total
-            );
-        }
+        if (total != subtotal - discount + tax)
+            ValidationError("Total must equal subtotal - discount + tax");
     }
 }
 ```
+
+A `validate` block is a list of `if (condition) ValidationError("message");` rules, each message a
+plain string literal; every rule is evaluated and the failures are reported together.
 
 ---
 
@@ -1299,17 +1320,16 @@ entity Order {
 
 **Solution:** Validate in hooks or custom endpoints.
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     OrderStatus status;
     DateTime? shippedAt;
 
     beforeUpdate {
         // Can only ship confirmed orders
-        if (status == OrderStatus.Shipped && $old.status != OrderStatus.Confirmed) {
+        if (status == OrderStatus.Shipped && oldValue(status) != OrderStatus.Confirmed) {
             throw ValidationError(
-                "Cannot ship order with status: " + $old.status +
-                ". Order must be confirmed first."
+                #"Cannot ship order with status: {oldValue(status)}. Order must be confirmed first."
             );
         }
 
@@ -1408,19 +1428,18 @@ def test_order_workflow(client):
 
 **Solution:** Use eager loading (implemented by generators).
 
-```dtrx
+```datrix context=rdbms
 // In .dtrx, just define relationships
 entity Post {
+    UUID id : primaryKey, server = uuid();
     belongsTo User as author;
     belongsTo Category;
     hasMany Comment as comments;
 }
-
-// Generated code includes eager loading
-get getPost(UUID id) -> Post {
-    return db.Post.with(['author', 'category', 'comments']).findOrFail(id);
-}
 ```
+
+The generated data access layer loads the related rows a read needs, so the DSL carries no
+loading hints.
 
 ---
 
@@ -1432,7 +1451,7 @@ get getPost(UUID id) -> Post {
 - **Compute** if calculation is cheap and value changes often
 - **Store** if calculation is expensive or value rarely changes
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     Money subtotal;
     Money tax;
@@ -1453,20 +1472,15 @@ entity Order {
 
 **Solution:** Add indexes on frequently queried fields.
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     UUID customerId : index;           // Frequently filtered
     OrderStatus status : index;        // Frequently filtered
     DateTime createdAt : sortable;     // Frequently sorted
     String orderNumber : unique, index; // Unique constraint + index
-}
 
-// Composite index
-entity Order {
-    UUID customerId;
-    OrderStatus status;
-
-    index(customerId, status);  // Query by customer + status together
+    // Composite index: query by customer + status together
+    index(customerId, status);
 }
 ```
 
@@ -1481,32 +1495,28 @@ entity Order {
 **Solution:** Use profiles.
 
 ```dcfg
-# config/system.dcfg
 config system ecommerce.System {
-    profile test {
-        deployment { runtime: docker-compose, provider: local }
-        defaultTimeout: 10000
+  base {
+    deployment {
+      runtime = "docker-compose";
+      provider = "local";
     }
+    defaultTimeout = 30000;
+  }
 
-    profile development {
-        deployment { runtime: docker-compose, provider: local }
-        defaultTimeout: 30000
-    }
+  profile test as "test" extends base {
+    defaultTimeout = 10000;
+  }
 
-    profile staging {
-        deployment { runtime: ecs-fargate, provider: aws, registry: ecr }
-        region: us-east-1
+  profile production as "prod" extends base {
+    deployment {
+      runtime = "ecs-fargate";
+      provider = "aws";
     }
+    region = "us-east-1";
+    defaultTimeout = 90000;
+  }
 }
-  defaultTimeout: 60000
-
-production:
-  hosting: aws
-  region: us-east-1
-  defaultTimeout: 90000
-  network:
-    vpcId: vpc-prod
-    appSubnets: [subnet-1, subnet-2, subnet-3]
 ```
 
 ---
@@ -1517,25 +1527,26 @@ production:
 
 **Solution:** Store feature flags in config or database.
 
-```dtrx
-entity FeatureFlag extends BaseEntity {
-    String(100) name : unique;
-    Boolean isEnabled = false;
-    String? description;
+```datrix context=service
+rdbms db {
+    entity FeatureFlag {
+        UUID id : primaryKey, server = uuid();
+        String(100) name : unique;
+        Boolean isEnabled = false;
+        String? description;
+    }
 }
 
 fn isFeatureEnabled(String name) -> Boolean {
-    let flag = db.FeatureFlag.findBy({ name: name });
-    return flag != null && flag.isEnabled;
+    return db.FeatureFlag.where(name: name, isEnabled: true).count() > 0;
 }
 
 // Use in code
-post processOrder(UUID orderId) -> Order {
+fn processOrder(UUID orderId) -> Void {
     if (isFeatureEnabled("advanced-fraud-detection")) {
         runFraudDetection(orderId);
     }
-
-    // Continue processing...
+    Log.info(#"order {orderId} processed");
 }
 ```
 
@@ -1547,14 +1558,9 @@ post processOrder(UUID orderId) -> Order {
 
 **Solution:** Implement health check endpoint (auto-generated).
 
-```dtrx
-// Health check endpoint automatically generated at /health
-
-// Custom health checks in generated code:
-// - Database connectivity
-// - Cache connectivity
-// - External service availability
-```
+Nothing is declared in the DSL: every generated service serves `/health`, and its readiness
+checks cover database connectivity, cache connectivity and the external services it calls. The
+path and probe timings are `healthCheck` keys of the service `.dcfg`.
 
 ---
 
@@ -1564,7 +1570,7 @@ post processOrder(UUID orderId) -> Order {
 
 **Problem:**
 
-```dtrx
+```datrix context=rdbms
 entity User {
     UUID id : primaryKey = uuid();
     DateTime createdAt = DateTime.now();
@@ -1584,7 +1590,7 @@ entity Product {
 
 **Solution:**
 
-```dtrx
+```datrix context=rdbms
 abstract entity BaseEntity {
     UUID id : primaryKey, server = uuid();
     DateTime createdAt : server = DateTime.now();
@@ -1606,7 +1612,7 @@ entity Product extends BaseEntity {
 
 **Problem:**
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     UUID customerId;  // No index!
     OrderStatus status;  // No index!
@@ -1617,7 +1623,7 @@ entity Order {
 
 **Solution:**
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     UUID customerId : index;
     OrderStatus status : index;
@@ -1632,14 +1638,14 @@ entity Order {
 
 **Problem:**
 
-```dtrx
-post createOrder(...) -> Order {
-    let order = db.Order.create({...});
+```datrix context=service
+fn createOrder(UUID customerId, Money total) -> db.Order {
+    let db.Order order = db.Order.create({ customerId: customerId, total: total });
 
     // Directly calling other services — tight coupling!
-    NotificationService.sendEmail(order.customerId, "Order created");
-    InventoryService.reserveStock(order.items);
-    PaymentService.capturePayment(order.paymentId);
+    NotificationService.NotificationAPI.post.orderCreated(order.id);
+    InventoryService.InventoryAPI.post.reserveStock(order.id);
+    PaymentService.PaymentAPI.post.capturePayment(order.id);
 
     return order;
 }
@@ -1647,8 +1653,12 @@ post createOrder(...) -> Order {
 
 **Solution:**
 
-```dtrx
+```datrix context=rdbms
 entity Order {
+    UUID id : primaryKey, server = uuid();
+    UUID customerId;
+    Money total;
+
     afterCreate {
         dispatch OrderCreated(id, customerId, total);
     }
@@ -1664,7 +1674,7 @@ entity Order {
 
 **Problem:**
 
-```dtrx
+```datrix context=rdbms
 entity Product {
     String? name;  // Should never be null!
     Money? price;  // Should never be null!
@@ -1673,10 +1683,14 @@ entity Product {
 
 **Solution:**
 
-```dtrx
+```datrix context=rdbms
 entity Product {
-    String(200) name : trim;   // Required, validated
-    Money price : min(0);      // Required, positive
+    String(200) name : trim;   // Required, trimmed
+    Money price;               // Required; Money is never negative
+
+    validate {
+        if (name.trim().isEmpty()) ValidationError("Name is required");
+    }
 }
 ```
 
@@ -1686,33 +1700,35 @@ entity Product {
 
 **Problem:**
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     // Computed field that queries database — BAD!
-    Integer itemCount := db.OrderItem.filter(orderId == id).count();
+    Integer itemCount := db.OrderItem.where(orderId: id).count();
 }
 ```
 
 **Solution:**
 
-```dtrx
+```datrix context=rdbms
 entity Order {
-    Integer itemCount = 0;  // Stored field
-
-    // Update when items change
+    UUID id : primaryKey, server = uuid();
+    Integer itemCount = 0;  // Stored field, updated when items change
 }
 
 entity OrderItem {
+    UUID id : primaryKey, server = uuid();
+    belongsTo Order;
+
     afterCreate {
-        let order = db.Order.findOrFail(orderId);
+        let Order order = Order.findOrFail(orderId);
         order.itemCount = order.itemCount + 1;
-        db.Order.save(order);
+        order.save();
     }
 
     afterDelete {
-        let order = db.Order.findOrFail(orderId);
+        let Order order = Order.findOrFail(orderId);
         order.itemCount = order.itemCount - 1;
-        db.Order.save(order);
+        order.save();
     }
 }
 ```
@@ -1723,27 +1739,32 @@ entity OrderItem {
 
 **Problem:**
 
-```dtrx
+```datrix context=service
 cache redis {
-    hash ProductCache on db.Product ttl(1h) { ... }
+    hash ProductCache : prefix('product:'), ttl(3600) {
+        UUID productId : primaryKey;
+        String name;
+    }
 }
 
-entity Product {
-    // No cache invalidation on update — stale data!
+rdbms db {
+    entity Product {
+        UUID id : primaryKey, server = uuid();
+        String name;
+        // No cache invalidation on update — stale data!
+    }
 }
 ```
 
 **Solution:**
 
-```dtrx
-entity Product {
-    afterUpdate {
-        ProductCache.delete(id);  // Invalidate cache
-    }
+```datrix context=entity
+afterUpdate {
+    redis.ProductCache.delete(id);  // Invalidate cache
+}
 
-    afterDelete {
-        ProductCache.delete(id);
-    }
+afterDelete {
+    redis.ProductCache.delete(id);
 }
 ```
 
@@ -1753,14 +1774,17 @@ entity Product {
 
 **Problem:**
 
-```dtrx
-entity User {
-    String name;
-    UUID organizationId;  // Manual tenant field
+```datrix context=service
+rdbms db {
+    entity User {
+        UUID id : primaryKey, server = uuid();
+        String name;
+        UUID organizationId;  // Manual tenant field
+    }
 }
 
 // Must remember to filter by organizationId in every query — error-prone!
-get listUsers() -> List<User> {
+fn listUsers() -> Array<db.User> {
     // Forgot to filter by organizationId — data leak!
     return db.User.all();
 }
@@ -1768,17 +1792,17 @@ get listUsers() -> List<User> {
 
 **Solution:**
 
-```dtrx
-from datrix.builtin import Tenantable;
-
-entity User extends BaseEntity with Tenantable {
-    String name;
-    UUID organizationId;  // Tenant field
+```datrix context=service
+rdbms db {
+    entity User with Tenantable {
+        UUID id : primaryKey, server = uuid();
+        String name;
+    }
 }
 
 // Automatic tenant filtering in all queries
-get listUsers() -> List<User> {
-    return db.User.all();  // Automatically filtered by tenant
+fn listUsers() -> Array<db.User> {
+    return db.User.all();  // Automatically filtered by tenantId
 }
 ```
 
@@ -1790,7 +1814,7 @@ get listUsers() -> List<User> {
 - ✅ Use abstract base entities for common fields
 - ✅ Apply traits for cross-cutting concerns
 - ✅ Add indexes on foreign keys and frequently queried fields
-- ✅ Use server-managed fields (`@` prefix)
+- ✅ Use server-managed fields (the `server` modifier: `DateTime createdAt : server = DateTime.now();`)
 - ✅ Leverage computed fields for derived values
 - ✅ Implement soft delete with SoftDeletable trait
 - ✅ Add audit trail with Auditable trait

@@ -26,14 +26,23 @@ tests/
 A `test` block is a **service member** (alongside `rdbms`, `rest_api`, `pubsub`, etc.):
 
 ```datrix
-service library.BookService : version('1.0.0') {
-    rdbms db('config/book-service/datasources.dcfg') {
-        entity Book extends BaseEntity {
+service library.BookService('config/book-service.dcfg') : version('1.0.0') {
+    enum BookStatus { Available, CheckedOut, Overdue }
+
+    pubsub mq {
+        topic BookEvents {
+            publish BookCreated(UUID bookId, String title);
+        }
+    }
+
+    rdbms db {
+        entity Book {
+            UUID id : primaryKey, server = uuid();
             String(200) title;
             DateTime dueDate;
             BookStatus status = BookStatus.Available;
 
-            String displayTitle := "[{status}] {title}";
+            String displayTitle := #"[{status}] {title}";
 
             validate {
                 if (title.trim().isEmpty()) ValidationError("Title is required");
@@ -51,7 +60,7 @@ service library.BookService : version('1.0.0') {
     }
 
     test("overdue books are flagged on update") {
-        #Book book = db.Book.create({
+        let db.Book book = db.Book.create({
             dueDate: today().subtractDays(1),
             status: BookStatus.Available
         });
@@ -61,7 +70,7 @@ service library.BookService : version('1.0.0') {
     }
 
     test("future books stay available on update") {
-        #Book book = db.Book.create({
+        let db.Book book = db.Book.create({
             dueDate: today().addDays(7),
             status: BookStatus.Available
         });
@@ -71,7 +80,7 @@ service library.BookService : version('1.0.0') {
     }
 
     test("computed displayTitle is correct") {
-        #Book book = db.Book.create({
+        let db.Book book = db.Book.create({
             title: "Domain-Driven Design",
             status: BookStatus.Available
         });
@@ -83,7 +92,7 @@ service library.BookService : version('1.0.0') {
     }
 
     test("afterCreate emits BookCreated") {
-        #Book book = db.Book.create({ title: "New Book" });
+        let db.Book book = db.Book.create({ title: "New Book" });
         assert emitted(BookCreated(book.id, book.title));
     }
 }
@@ -97,7 +106,7 @@ service library.BookService : version('1.0.0') {
 
 The only new statement type. Boolean assertion that fails the test if the expression evaluates to false.
 
-```datrix
+```datrix context=fn
 assert book.status == BookStatus.Overdue;
 assert book.displayTitle == "[Available] Domain-Driven Design";
 assert order.total > 0;
@@ -109,7 +118,7 @@ Multiple assertions per test are allowed.
 
 Test-context builtin. Verifies that a call raises an error. The first argument is a lambda (deferred evaluation) so the call can be caught.
 
-```datrix
+```datrix context=fn
 assert throws(() => db.Book.create({ title: "" }), ValidationError("Title is required"));
 ```
 
@@ -117,7 +126,7 @@ assert throws(() => db.Book.create({ title: "" }), ValidationError("Title is req
 
 Test-context builtin. Verifies that an event was emitted during the test.
 
-```datrix
+```datrix context=fn
 assert emitted(BookCreated(book.id, book.title));
 ```
 

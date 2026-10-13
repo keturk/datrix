@@ -218,20 +218,32 @@ Datrix supports full-text search through two paths: **config-driven** (existing,
 **DSL-level `search` block** — Declares search indexes with field mappings, analyzers, boost weights, facet/sortable flags, and entity sync rules directly in `.dtrx` files:
 
 ```datrix
-service CatalogService {
-    rdbms db('config/rdbms.dcfg') {
-        entity Product { ... }
+service shop.CatalogService('config/catalog-service.dcfg') : version('1.0.0') {
+    rdbms db {
+        entity Product {
+            UUID id : primaryKey = uuid();
+            String(200) name;
+            Text description;
+            String(50) category;
+            Decimal price;
+        }
     }
-    search es('config/search.dcfg') {
-        index ProductSearch syncs Product {
-            field name : text, boost(3.0), analyzer("standard")
-            field description : text, boost(1.0), analyzer("english")
-            field category : keyword, facet
-            field price : float, sortable
+    search es {
+        index ProductSearch syncs db.Product {
+            name: text, boost(3.0), analyzer(autocomplete);
+            description: text, boost(1.0);
+            category: keyword, facet;
+            price: float, sortable;
         }
         analyzer autocomplete {
-            tokenizer: edge_ngram(minGram: 2, maxGram: 20)
-            filter: [lowercase]
+            tokenizer("edge_ngram");
+            filters: "lowercase";
+        }
+        sync db.Product -> ProductSearch {
+            name -> name;
+            description -> description;
+            category -> category;
+            price -> price;
         }
     }
 }
@@ -296,33 +308,38 @@ Datrix supports CDN configuration through `cdn` blocks in services and shared co
 **DSL syntax:**
 
 ```datrix
-service frontend.WebService : version('1.0.0') {
-    storage mediaStore('config/storage.dcfg') {
-        bucket StaticAssets { ... }
-        bucket UserUploads { ... }
+service frontend.WebService('config/web-service.dcfg') : version('1.0.0') {
+    storage mediaStore {
+        folder StaticAssets : path('static/');
+        folder UserUploads : path('uploads/');
     }
-    rest_api WebAPI : basePath('/api/v1') { ... }
+    rest_api WebAPI : basePath('/api/v1') {
+        @path('/health')
+        get() : auth(public) -> String {
+            return "ok";
+        }
+    }
 
-    cdn WebCDN('config/cdn.dcfg') {
+    cdn WebCDN {
         origin StaticAssets {
-            source: mediaStore.StaticAssets
-            cacheTtl: 86400
-            pathPattern: '/static/*'
+            source: mediaStore.StaticAssets;
+            cacheTtl: 86400;
+            pathPattern: '/static/*';
         }
         origin UserMedia {
-            source: mediaStore.UserUploads
-            cacheTtl: 3600
-            pathPattern: '/media/*'
+            source: mediaStore.UserUploads;
+            cacheTtl: 3600;
+            pathPattern: '/media/*';
         }
         origin API {
-            source: WebAPI
-            cacheTtl: 60
-            pathPattern: '/api/*'
-            forwardHeaders: ['Authorization']
-            forwardQueryStrings: true
+            source: WebAPI;
+            cacheTtl: 60;
+            pathPattern: '/api/*';
+            forwardHeaders: ['Authorization'];
+            forwardQueryStrings: true;
         }
-        defaultOrigin: API
-        customDomain: 'cdn.example.com'
+        defaultOrigin: API;
+        customDomain: 'cdn.example.com';
     }
 }
 ```
@@ -337,7 +354,7 @@ service frontend.WebService : version('1.0.0') {
 
 **Cache invalidation utilities:** When CDN is configured on AWS or Azure, language code generators (Python, TypeScript) emit platform-specific cache invalidation helper modules.
 
-**Origin types:** CDN origins can reference `storage` bucket sources (S3, Blob Storage) or `rest_api` endpoints (ALB, Container Apps). Each origin specifies its own cache TTL, path pattern, and header forwarding rules.
+**Origin types:** CDN origins can reference `storage` folder sources (S3, Blob Storage) or `rest_api` endpoints (ALB, Container Apps). Each origin specifies its own cache TTL, path pattern, and header forwarding rules.
 
 **Custom domains and SSL:** When `customDomain` is set in CDN config, the platform generators provision SSL certificates automatically — ACM certificates in `us-east-1` for CloudFront (with DNS validation), or Front Door managed certificates for Azure.
 
@@ -348,27 +365,41 @@ Datrix supports serverless deployment of handler logic through `serverless` bloc
 **DSL syntax:**
 
 ```datrix
-service examples.OrderService('config/order-service.dcfg') {
-    rdbms db('config/rdbms.dcfg') { ... }
-    pubsub mq('config/pubsub.dcfg') { ... }
+service examples.OrderService('config/order-service.dcfg') : version('1.0.0') {
+    pubsub mq {
+        topic OrderEvents {
+            publish OrderPlaced(UUID orderId, Decimal amount);
+            publish OrderCancelled(UUID orderId);
+        }
+    }
 
     serverless eventHandlers {
-        subscribe mq.OrderEvents {
-            on OrderPlaced(UUID orderId, Decimal amount) { ... }
-            on OrderCancelled(UUID orderId) { ... }
+        subscribe examples.OrderService.mq.OrderEvents {
+            on OrderPlaced(UUID orderId, Decimal amount) {
+                Log.info(#"order {orderId} placed");
+            }
+            on OrderCancelled(UUID orderId) {
+                Log.info(#"order {orderId} cancelled");
+            }
         }
 
-        @path('/webhooks/stripe')
-        @name('StripeWebhook')
-        post(JSON payload) -> Void { ... }
+        @path('/webhooks/payments')
+        @name('PaymentWebhook')
+        post(JSON payload) : auth(webhook), verify(sharedSecret, secretRef: paymentsWebhookSecret) {
+            Log.info("payment webhook received");
+        }
     }
 
     serverless scheduledTasks {
-        job DailyOrderReport { ... }
+        job DailyOrderReport {
+            Log.info("daily order report");
+        }
     }
 
     serverless queueWorkers {
-        enqueue examples.OrderService.ProcessShipment(UUID orderId) { ... }
+        enqueue examples.ShippingService.ProcessShipment(UUID orderId) {
+            Log.info(#"shipping order {orderId}");
+        }
     }
 }
 ```
@@ -422,7 +453,7 @@ Datrix supports an ingestion pattern that decouples *acquiring* records from *lo
 
 **DSL syntax (storage-backed, replayable topic):**
 
-```datrix
+```datrix context=service
 storage catalogArchive {
     folder raw      : path('raw/');         // source payloads
     folder batches  : path('batches/');     // normalized record batches (system-of-record)
@@ -465,12 +496,12 @@ pubsub feedBus {
 
 ### Managed API Gateway (Stable)
 
-Datrix supports managed API gateway infrastructure through a `gateway` block at the application level and a unified `gateway.yaml` configuration. When `type: managed` (cloud only), the AWS and Azure generators emit cloud-managed API gateway resources with throttling, API keys, usage plans, request validation, response caching, WAF integration, and custom domain/TLS management.
+Datrix supports managed API gateway infrastructure through a `gateway` block in a service and a unified `gateway.yaml` configuration. When `type: managed` (cloud only), the AWS and Azure generators emit cloud-managed API gateway resources with throttling, API keys, usage plans, request validation, response caching, WAF integration, and custom domain/TLS management.
 
-**DSL syntax (application-level `gateway` block):**
+**DSL syntax (service-level `gateway` block):**
 
 ```datrix
-application ecommerce.Ecommerce {
+service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0') {
     gateway : type('managed') {
         throttle(1000, 2000);       // 1000 steady-state, 2000 burst per second
 
@@ -484,9 +515,6 @@ application ecommerce.Ecommerce {
         waf : enabled;
         domain('api.ecommerce-app.com');
     }
-
-    service ecommerce.UserService { ... }
-    service ecommerce.OrderService { ... }
 }
 ```
 
@@ -514,25 +542,27 @@ Gateway configuration can also be specified entirely in `gateway.yaml` (profile-
 
 ### Geo Spatial Operations (Stable)
 
-Datrix supports spatial types and PostGIS spatial queries through the `geo` extension. The `geo` extension separates concerns across three namespaces: `Geo.*` (standard library coordinate math, always available), `GeoShape.*` (value-level shape operations, extension required), and `GeoSql.*` (SQL query expressions lowered to PostGIS, extension required).
+Datrix supports spatial types and PostGIS spatial queries through the `postgis` extension. Spatial work is split across three namespaces: `Geo.*` (standard library coordinate math, always available), `GeoShape.*` (value-level shape operations, `postgis` extension required), and `GeoSql.*` (SQL query expressions lowered to PostGIS, `postgis` extension required). Raster and tile operations (`GeoTile`, `GeoTiff`) belong to the separate `geo` extension.
 
 **DSL syntax:**
 
 ```datrix
-system ecommerce.System : version('1.0.0') {
-    use extension geo;
+system ecommerce.System('config/system.dcfg') : version('1.0.0') {
+    use extension postgis;
 }
 
-service ecommerce.WarehouseService('config/warehouse.dcfg') {
-    rdbms db('config/rdbms.dcfg') {
+service ecommerce.WarehouseService('config/warehouse.dcfg') : version('1.0.0') {
+    rdbms db {
         entity Warehouse {
-            Text name
-            Geometry boundary
-            Geometry centerPoint
+            UUID id : primaryKey = uuid();
+            Text name;
+            Geometry boundary;
+            Geometry centerPoint;
         }
     }
-    rest_api WarehouseAPI : basePath('/api/v1') {
-        get nearbyWarehouses(Number lat, Number lng, Number radiusNm) -> Warehouse[] {
+    rest_api WarehouseAPI : basePath('/api/v1'), rdbms(db) {
+        @path('/warehouses/nearby')
+        get(Float lat, Float lng, Float radiusNm) : auth(public) -> Array<Warehouse> {
             return Warehouse
                 .where(GeoSql.withinDistanceNm(centerPoint, lat, lng, radiusNm))
                 .orderBy(GeoSql.distanceNm(centerPoint, lat, lng))
@@ -617,7 +647,7 @@ The parser and transformer produce an `IdentityBlock` AST node containing one `P
 - Identity fields (typed field declarations that become `Auth.identity.*` accessors at runtime)
 - Group-to-role mappings (`group "<local>" as <role>`)
 
-Every externally reachable surface carries an explicit `auth(...)` contract (modes: `public`, `optional`, `required`, `service`, `webhook`); `auth(webhook)` endpoints additionally require a `verify(...)` contract that authenticates the external sender. Surfaces without an explicit `auth(...)` contract fail validation (IDN011). There is no block-level auth default: a `rest_api` or `graphql_api` header accepts only `basePath(...)`, `rdbms(...)` and `nosql(...)`, so every surface declares its own `auth(...)`.
+Every externally reachable surface carries an explicit `auth(...)` contract (modes: `public`, `optional`, `required`, `service`, `webhook`); `auth(webhook)` endpoints additionally require a `verify(...)` contract that authenticates the external sender. Surfaces without an explicit `auth(...)` contract are refused when the source is transformed. There is no block-level auth default: a `rest_api` or `graphql_api` header accepts only `basePath(...)`, `rdbms(...)` and `nosql(...)`, so every surface declares its own `auth(...)`.
 
 **Semantic validators:** IDN001–IDN031 (identity block / surface rules, including the API-key provider rules IDN020–IDN027, the closed `auth(...)` key set IDN028, the principal-read rule IDN029 for bodies under `auth(public)` / `auth(webhook)`, IDN030 for an `auth(...)` / `verify(...)` declaration that cannot be lowered to a contract, and IDN031 for an `Auditable` entity under a `subjectText` local identity), IDC001–IDC003 (config file rules). See [semantic-validators.md](../../../../datrix-semantic/docs/architecture/semantic-validators.md#identity-validation-idn001idn031).
 

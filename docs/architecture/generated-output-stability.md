@@ -37,12 +37,26 @@ Every remaining check has a verdict that does not require knowing the author's i
 | Generation is deterministic — same code, N runs, one outcome | `datrix/scripts/gates/realization/generation-determinism-gate.ps1 -Language <name>` |
 | Every language emits the same set of domain roles for the same example | `datrix/scripts/gates/parity/artifact-role-parity-gate.ps1`, read from the **live** generated corpus (below) |
 | Every language realizes every structural domain or carries a counted gap row for it, and realizes what it declares | `supported-domain-parity-gate.ps1`; the testkit's domain self-consistency gate inside each language package (declaration ↔ registration ↔ fixture output) |
-| A specific generator decision is preserved or ported | A test beside that code in the owning package, asserting the rendered output for a fixture |
+| A specific generator decision is preserved or ported | A case row or a test in the owning package, asserting one value of the generation of a committed fixture |
 
 The last row is the replacement for "byte-identical output on the reference example": a claim
-about *one* decision is proven by *one* test that renders the construct and asserts the bytes
-that matter. A test proves the invariant forever and fails the next person who breaks it; a
-corpus-wide hash proved it once and evaporated at the next bless.
+about *one* decision is proven by *one* case or test that reads the construct and asserts the
+value that matters. A case or test proves the invariant forever and fails the next person who
+breaks it; a corpus-wide hash proved it once and evaporated at the next bless.
+
+### Declarative cases do not reintroduce a baseline
+
+A declarative case (`datrix_testing.cases`; [unit-test-guidelines §4](../../../datrix-common/docs/contributing/test-guidelines/unit-test-guidelines.md#decision-facts-as-cases))
+is a stored expectation, so it holds to the same rule by construction:
+
+- **Every expectation is authored.** A person writes it, or `migrate` carries over the literal of
+  the old assertion a person wrote. No command writes an expectation from an observation: `observe`
+  prints a value, `new` takes the expectation from its arguments, and `absent` carries none.
+- **No whole-output observation.** Every observer reads one selected value, never a file or a whole
+  render context; a `paths` glob must carry a literal directory prefix, so no case is a path manifest.
+- **No bulk update.** No mode rewrites existing rows. A changed observation is a failing case showing
+  the observed and expected values side by side, and a changed expectation is a person editing a row,
+  reviewed in the git diff.
 
 ## The artifact-role gate reads the live corpus
 

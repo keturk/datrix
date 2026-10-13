@@ -99,13 +99,13 @@ A complete example showing an `extern service` declaration alongside a consuming
 
 ### Spec (`specs/system.dtrx`)
 
-```dtrx
-system ecommerce('config/system.dcfg') {}
+```datrix
+system ecommerce.System('config/system.dcfg') : version('1.0.0') {}
 ```
 
 ### Spec (`specs/pricing-engine.dtrx`)
 
-```dtrx
+```datrix
 extern service pricing.PricingEngine('config/pricing-engine.dcfg')
     : version('1.0.0'), description('External pricing engine') {
 
@@ -137,21 +137,29 @@ extern service pricing.PricingEngine('config/pricing-engine.dcfg')
 
 ### Spec (`specs/order-service.dtrx`)
 
-```dtrx
-service ecommerce.OrderService('config/order-service.dcfg') {
+```datrix
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     uses PricingEngine;
 
-    rdbms db('config/order-service/datasources.dcfg') {
-        entity Order extends BaseEntity {
+    struct CreateOrderInput {
+        UUID customerId;
+        Money total;
+    }
+
+    rdbms db {
+        entity Order {
+            UUID id : primaryKey = uuid();
             UUID customerId;
             Money total;
         }
     }
 
-    rest_api OrderAPI : basePath('/api/v1/orders') {
-        post createOrder(UUID customerId, String productId, Int quantity) -> Order {
-            // PricingRequest and PricingResponse types are available here
-            // Generated PricingEngineClient is used for the HTTP call
+    // PricingRequest and PricingResponse are in scope through `uses PricingEngine`,
+    // and a typed PricingEngineClient is generated into this service's clients/.
+    rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
+        @path('/')
+        post(CreateOrderInput input) : auth(public) -> Order {
+            return Order.create({ customerId: input.customerId, total: input.total });
         }
     }
 }

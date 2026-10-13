@@ -565,7 +565,7 @@ base:
 
 **Referenced in:** `system` block (declaration-level config path)
 
-```dtrx
+```datrix
 system ecommerce.System('config/system.dcfg') : version('1.0.0') {
 }
 ```
@@ -749,13 +749,14 @@ deployment:
 
 ## Service Configuration
 
-**File:** `config/<service-name>/<service-name>.dcfg`
+**File:** `config/<service-name>.dcfg`
 
-**Referenced in:** Service block
+**Referenced in:** the `service` header (declaration-level config path). It is the service's only
+config file: registration, resilience, integrations, jobs and the connection of every
+infrastructure block are sections of it.
 
-```dtrx
-service ecommerce.OrderService : version('1.0.0') {
-    config('config/order-service/order-service.dcfg');
+```datrix
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
 }
 ```
 
@@ -918,15 +919,17 @@ tenancy:
 
 ## Datasources Configuration
 
-**File:** `config/<service-name>/datasources.dcfg`
+**File:** the service's `.dcfg`, one entry per block keyed by the block's kind and name
+(`rdbms db { ... }`, `cache redis { ... }`, `pubsub mq { ... }`)
 
-**Referenced in:** `rdbms`, `cache`, `pubsub`, `nosql` blocks
+**Referenced in:** `rdbms`, `cache`, `pubsub`, `nosql` blocks, by name only; a block names no
+config file of its own
 
-```dtrx
-service OrderService {
-    rdbms db('config/order-service/datasources.dcfg') { ... }
-    cache redis('config/order-service/datasources.dcfg') { ... }
-    pubsub mq('config/order-service/datasources.dcfg') { ... }
+```datrix
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
+    rdbms db { }
+    cache redis { }
+    pubsub mq { }
 }
 ```
 
@@ -1061,7 +1064,7 @@ dropped field.
 
 **Aurora Serverless v2 example:**
 
-```dtrx
+```dcfg
 service orderService {
   flavor = "ecs-fargate";
   replicas = 2;
@@ -1164,15 +1167,9 @@ nosql orders {
 
 ## Service Registration
 
-**File:** `config/<service-name>/registration.dcfg`
+**File:** the service's `.dcfg`, as a `registration { }` section
 
-**Referenced in:** Service block
-
-```dtrx
-service OrderService {
-    registration('config/order-service/registration.dcfg');
-}
-```
+**Referenced in:** no DSL statement; the section belongs to the service's config file
 
 ### Example
 
@@ -1325,7 +1322,7 @@ resilience from sharedResilience();
 resilience.config.ProductService.timeout = "1h";
 ```
 
-Each `config` key must be the dependency exactly as the service spells it in `uses` or `discovery` (`uses catalog.ProductService;` → `catalog.ProductService`). A key that names no dependency fails generation and lists the valid keys; it is never silently dropped.
+Each `config` key must be the dependency exactly as the service spells it in `uses` or `discovery` (`uses ProductService;` → `ProductService`). A key that names no dependency fails generation and lists the valid keys; it is never silently dropped.
 
 ### Bulkhead
 
@@ -1439,15 +1436,9 @@ Use `readyOnDegraded = false` to make a degraded dependency block rollout readin
 
 ## Gateway Configuration
 
-**File:** `config/gateway.dcfg`
+**File:** the system `.dcfg`, as a `gateway { }` section
 
-**Referenced in:** System block
-
-```dtrx
-system {
-    gateway('config/gateway.dcfg');
-}
-```
+**Referenced in:** no DSL statement; the section belongs to the system's config file
 
 ### Complete Example
 
@@ -1519,15 +1510,9 @@ surface.
 
 ## Registry Configuration
 
-**File:** `config/registry.dcfg`
+**File:** the system `.dcfg`
 
-**Referenced in:** System block
-
-```dtrx
-system {
-    registry('config/registry.dcfg');
-}
-```
+**Referenced in:** no DSL statement
 
 ### Example
 
@@ -1552,15 +1537,9 @@ production:
 
 ## Observability Configuration
 
-**File:** `config/observability.dcfg`
+**File:** the system `.dcfg`, as an `observability { }` section
 
-**Referenced in:** System block
-
-```dtrx
-system {
-    observability('config/observability.dcfg');
-}
-```
+**Referenced in:** no DSL statement; the section belongs to the system's config file
 
 ### Complete Example
 
@@ -1635,13 +1614,13 @@ production:
 
 ## Storage Configuration
 
-**File:** `config/<service-name>/storage.yaml`
+**File:** the service's `.dcfg`, as a `storage <name> { }` entry keyed by the block name
 
-**Referenced in:** Storage blocks
+**Referenced in:** `storage` blocks, by name only
 
-```dtrx
-service OrderService {
-    storage files config('config/order-service/storage.dcfg') { ... }
+```datrix context=service
+storage files {
+    folder invoices : path('invoices/');
 }
 ```
 
@@ -1675,12 +1654,17 @@ production:
 
 ## Jobs Configuration
 
-**File:** `config/<service-name>/jobs.yaml`
+**File:** the path named by the service's `jobs('<path>')` block; a job's schedule, timeout and
+retry are keys of that file, never modifiers in the DSL
 
-**Referenced in:** Job blocks
+**Referenced in:** the `jobs` block
 
-```dtrx
-job ProcessOrders cron('0 * * * *') config('config/jobs.dcfg') { ... }
+```datrix context=service
+jobs('config/order-service/jobs.dcfg') {
+    job ProcessOrders {
+        Log.info("processing orders");
+    }
+}
 ```
 
 ### Example
@@ -1718,7 +1702,7 @@ production:
 
 ## Serverless configuration {#serverless-configuration}
 
-**File:** one YAML per `serverless` block (path in the DSL, e.g. `serverless handlers('config/my-service/handlers.dcfg')`).
+**File:** the service's `.dcfg`, as a `serverless <name> { }` entry keyed by the block name (a `serverless handlers { ... }` block in the DSL names no config file of its own).
 
 **Resolved in:** infrastructure config resolution (`resolve_infrastructure_configs`) onto **`ServerlessBlock.config`** as the active profile’s **`ServerlessProfileConfig`**.
 
@@ -1837,15 +1821,10 @@ production:
 
 ## Integrations Configuration
 
-**File:** `config/<service-name>/integrations.yaml`
+**File:** the service's `.dcfg`, as an `integrations { }` section
 
-**Referenced in:** Service block
-
-```dtrx
-service OrderService {
-    integrations('config/order-service/integrations.dcfg');
-}
-```
+**Referenced in:** no DSL statement; an `integrations(...)`-style statement in a service is
+rejected as removed syntax
 
 ### Example
 
@@ -1894,9 +1873,11 @@ production:
 
 **Referenced in:** Extern service block
 
-```dtrx
+```datrix
 extern service pricing.PricingEngine('config/pricing-engine.dcfg') {
-    // ...
+    struct PriceQuote {
+        Decimal amount;
+    }
 }
 ```
 

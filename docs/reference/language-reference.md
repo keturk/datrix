@@ -6,22 +6,19 @@ Datrix is a domain-specific language for defining microservice architectures. A 
 
 ## File Structure
 
-Every Datrix application is organized around three top-level blocks:
+Every Datrix application is organized around a few top-level blocks. The entry point,
+`system.dtrx`, starts with one `include '<file>.dtrx';` line per other file (paths are relative
+to the including file) and declares the system:
 
-```dtrx
-// system.dtrx — entry point (paths are relative to this file)
-include 'common.dtrx';
-include 'order-service.dtrx';
-
+```datrix
 system ecommerce.Platform('config/system.dcfg') : version('1.0.0') {
-    gateway ecommerce.Gateway;
-    observability ecommerce.Observability;
+    use extension geo;
 }
 ```
 
 | Block | Cardinality | Purpose |
 |-------|-------------|---------|
-| `system` | Exactly one per application | Global infrastructure: gateway, observability, service registry |
+| `system` | Exactly one per application | Application identity, `discovery`, `use extension`; deployment, gateway and observability settings live in its `.dcfg` |
 | `module` | Multiple | Shared code: traits, abstract entities, enums, structs, constants, `exceptions`, `scalar` |
 | `service` | Multiple | Business logic + owned infrastructure (`rdbms`, `pubsub`, **`queues`**, APIs, `enqueue`, …) |
 | `extern service` | Multiple | Contract for an external library/tool — generates typed clients, no implementation code |
@@ -51,7 +48,7 @@ for an `entity` or one of its fields — the **database comment** (`COMMENT ON T
 next engineer reading the DSL, not for whoever reads `/docs`, so nothing is exported unless
 you marked it.
 
-```dtrx
+```datrix context=rdbms
 /// A purchasable product listed in the storefront catalog.
 entity Product {
     UUID id : primaryKey, server = uuid();
@@ -89,7 +86,7 @@ in either channel, never does.
 
 A service is the unit of deployment. Everything inside a service block belongs to that service.
 
-```dtrx
+```datrix
 service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
 
     discovery {
@@ -97,12 +94,27 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
         PaymentService { loadBalance: roundRobin, healthyOnly: true }
     }
 
-    rdbms db { ... }
-    cache redis { ... }
-    pubsub mq { ... }
-    queues { ... }
+    rdbms db {
+        entity Order {
+            UUID id : primaryKey, server = uuid();
+            Money total;
+        }
+    }
+    cache redis {
+        counter OrderViews : prefix('order:views');
+    }
+    pubsub mq {
+        topic OrderEvents {
+            publish OrderPlaced(UUID orderId);
+        }
+    }
+    queues {
+        queue ProcessPayment(UUID orderId, Money amount);
+    }
 
-    rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) { ... }
+    rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
+        resource Order : auth(required, providers: [identity]);
+    }
 }
 ```
 
@@ -112,9 +124,9 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
 
 Entities define your data model with fields, types, relationships, validation, and lifecycle hooks.
 
-```dtrx
+```datrix context=rdbms
 entity Order extends BaseEntity with Auditable {
-    UUID customerId -> db.Customer : index;
+    belongsTo Customer : index;
     String(200) description : trim;
     Money total;
     OrderStatus status = OrderStatus.Pending;
@@ -134,7 +146,7 @@ Key features:
 - **Relationships**: `belongsTo`, `hasMany`, `hasOne`, and **`manyToMany`** define entity relationships. `manyToMany` generates a junction table and requires a matching inverse on the target entity (see [Many-to-Many](../../../datrix-language/docs/reference/datrix-syntax-reference.md) in the syntax reference). `onSoftDelete` cascades soft-deletes to children (valid on `hasMany`/`hasOne` only, requires `SoftDeletable` on both entities). See **Self-Referential Tree Helpers** below for tree behavior and the `noTree` modifier.
 - **Computed fields**: `:=` defines derived values
 - **Lifecycle hooks**: `afterCreate`, `afterUpdate`, `afterDelete` trigger side effects
-- **Validation modifiers**: `: trim`, `: unique`, `: index`, `: nullable`
+- **Validation modifiers**: `: trim`, `: unique`, `: index` (a nullable field is written with a `?` suffix on its type: `String? note`)
 - **Default values**: `= OrderStatus.Pending`, `= DateTime.now()`, `= uuid()`
 
 ### Self-Referential Tree Helpers
@@ -149,19 +161,19 @@ Datrix provides a rich type system that maps to concrete types in each target la
 
 ### Primitives
 
-`String`, `Text`, `Integer`, `Float`, `Boolean`, `Decimal`, `Bytes`
+`String`, `Text`, `Integer` (also spelled `Int`), `Short`, `Long`, `Float`, `Boolean`, `Decimal`, `Bytes`
 
 ### Domain Types
 
-`UUID`, `Email`, `URL`, `Phone`, `IPAddress`, `JSON`, `Slug`, `Money`, `Percentage`, `Color`, `CountryCode`, `LanguageCode`, `CurrencyCode`, `PostalCode`, `Latitude`, `Longitude`, `CreditCard`, `IBAN`, `Password`
+`UUID`, `Email`, `URL`, `Phone`, `IPAddress`, `CIDR`, `MAC`, `JSON`, `Slug`, `Money`, `Percentage`, `Color`, `CountryCode`, `LanguageCode`, `CurrencyCode`, `PostalCode`, `Latitude`, `Longitude`, `CreditCard`, `IBAN`, `Password`
 
 ### Temporal Types
 
-`DateTime`, `DateTime` (UTC), `Date`, `Time`, `Duration`, `Timestamp`
+`DateTime` (UTC), `Date`, `Time`, `Duration`, `Timestamp`, `TimestampMs`
 
 ### Collections
 
-`List<T>`, `Map<K, V>`, `Set<T>`
+`Array<T>`, `Map<K, V>`, `Set<T>`
 
 ### Sized Types
 
@@ -175,7 +187,7 @@ Datrix provides a rich type system that maps to concrete types in each target la
 
 ## Enums
 
-```dtrx
+```datrix context=service
 enum OrderStatus {
     Pending,
     Confirmed,
@@ -191,16 +203,14 @@ Enums are first-class types used in fields, parameters, and event payloads.
 
 ## REST APIs
 
-```dtrx
+```datrix context=service
 rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
     resource Order : auth(required, providers: [identity]);
     resource OrderItem : only(list, get), auth(required, providers: [identity], roles: [admin]);
 
     @path('/search')
-    get(String? query, OrderStatus? status) : auth(required, providers: [identity]) -> List<Order> {
-        return Order.filter(
-            title.contains(query) && status == status
-        );
+    get(String text, OrderStatus wanted) : auth(required, providers: [identity]) -> Array<Order> {
+        return Order.where(status: wanted).all().filter(o => o.description.contains(text));
     }
 }
 ```
@@ -213,21 +223,23 @@ rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
 
 #### Syntax
 
-```dtrx
+```datrix context=service
 rest_api MemberAPI : basePath("/api/v1/members"), rdbms(memberDb) {
-    get(UUID id) -> Member {
+    @path('/:id')
+    get(UUID id) : auth(public) -> Member {
         return Member.findOrFail(id);
     }
 }
 
-graphql_api MemberGraphQL : basePath("/graphql"), rdbms(memberDb) {
+graphql_api MemberGraphQL : basePath("/graphql"), rdbms(memberDb), auth(public) {
     query member(UUID id) -> Member {
         return Member.findOrFail(id);
     }
 }
 
 rest_api CatalogAPI : basePath("/api/v1/catalog"), nosql(catalogStore) {
-    get(String sku) -> ProductDocument {
+    @path('/:sku')
+    get(String sku) : auth(public) -> ProductDocument {
         return ProductDocument.findOrFail(sku);
     }
 }
@@ -254,16 +266,17 @@ For a storage-entity reference inside a service-owned REST or GraphQL API:
 
 **API Default:**
 
-```dtrx
-service MemberService {
+```datrix
+service club.MemberService('config/member-service.dcfg') : version('1.0.0') {
     rdbms memberDb {
         entity Member {
-            id: UUID primaryKey
+            UUID id : primaryKey = uuid();
         }
     }
 
     rest_api MemberAPI : basePath("/members"), rdbms(memberDb) {
-        get(UUID id) -> Member {
+        @path('/:id')
+        get(UUID id) : auth(public) -> Member {
             return Member.findOrFail(id);
         }
     }
@@ -274,18 +287,19 @@ service MemberService {
 
 **Explicit Override:**
 
-```dtrx
-service MemberService {
+```datrix
+service club.MemberService('config/member-service.dcfg') : version('1.0.0') {
     rdbms memberDb {
-        entity Member { id: UUID primaryKey }
+        entity Member { UUID id : primaryKey = uuid(); }
     }
 
     rdbms auditDb {
-        entity AuditEntry { id: UUID primaryKey }
+        entity AuditEntry { UUID id : primaryKey = uuid(); }
     }
 
     rest_api MemberAPI : basePath("/members"), rdbms(memberDb) {
-        getAudit(UUID id) -> auditDb.AuditEntry {
+        @path('/audit/:id')
+        get(UUID id) : auth(required, providers: [identity], roles: [auditor]) -> auditDb.AuditEntry {
             return auditDb.AuditEntry.findOrFail(id);
         }
     }
@@ -296,9 +310,10 @@ service MemberService {
 
 **No Default (Error):**
 
-```dtrx
+```datrix context=service
 rest_api MemberAPI : basePath("/members") {
-    get(UUID id) -> Member {
+    @path('/:id')
+    get(UUID id) : auth(public) -> Member {
         return Member.findOrFail(id);
     }
 }
@@ -308,9 +323,10 @@ This is invalid when `Member` is a storage entity. The user must either declare 
 
 **Mixed Defaults Conflict:**
 
-```dtrx
+```datrix context=service
 rest_api SearchAPI : basePath("/search"), rdbms(sqlDb), nosql(documentStore) {
-    get(UUID id) -> Product {
+    @path('/:id')
+    get(UUID id) : auth(public) -> Product {
         return Product.findOrFail(id);
     }
 }
@@ -328,7 +344,7 @@ If both `sqlDb.Product` and `documentStore.Product` exist, bare `Product` is inv
 
 ## Event-Driven Messaging
 
-```dtrx
+```datrix
 service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     pubsub mq {
         topic OrderEvents {
@@ -351,10 +367,14 @@ Topics, events, publishers, and subscribers are defined declaratively. The compi
 
 Events can declare value-level invariants using `ensure` clauses:
 
-```dtrx
-publish OrderCreated(UUID orderId, Decimal totalAmount, Int itemCount) {
-    ensure totalAmount > 0;
-    ensure itemCount > 0;
+```datrix context=service
+pubsub mq {
+    topic OrderEvents {
+        publish OrderCreated(UUID orderId, Decimal totalAmount, Int itemCount) {
+            ensure totalAmount > 0;
+            ensure itemCount > 0;
+        }
+    }
 }
 ```
 
@@ -372,7 +392,7 @@ The **`serverless`** block groups **`subscribe`**, **`job`**, HTTP endpoints (`@
 
 **Producer** (same service owns the queue declaration and service `.dcfg`):
 
-```dtrx
+```datrix context=service
 queues {
     queue ProcessPayment(UUID orderId, Money amount, String currency) {
         ensure amount > 0;
@@ -385,7 +405,7 @@ queues {
 
 **Consumer** (another service; add producer to `discovery`):
 
-```dtrx
+```datrix context=service
 enqueue OrderService.ProcessPayment(UUID orderId, Money amount, String currency) {
     Log.info("Processing payment", { orderId: orderId });
 }
@@ -393,7 +413,7 @@ enqueue OrderService.ProcessPayment(UUID orderId, Money amount, String currency)
 
 **Dispatch** (same verb as pubsub — semantic resolution):
 
-```dtrx
+```datrix context=fn
 dispatch ProcessPayment(orderId, amount, currency);
 ```
 
@@ -411,9 +431,9 @@ Cross-service `enqueue` requires the producing service in `discovery { }` and a 
 
 ## Caching
 
-```dtrx
+```datrix context=service
 cache redis {
-    hash OrderCache on db.Order ttl(30m) {
+    hash OrderCache : prefix('order:'), ttl(1800) {
         UUID orderId : primaryKey;
         String customerName;
         OrderStatus status;
@@ -423,36 +443,48 @@ cache redis {
 }
 ```
 
-Hash caches and counters are defined with TTL and key strategies.
+Hash caches and counters are defined with a key prefix and, for a hash, a TTL in seconds.
 
 ---
 
 ## Background Jobs
 
-```dtrx
-job CleanupExpired cron('0 */6 * * *') {
-    let expired = db.Order.filter(status == OrderStatus.Pending && createdAt < DateTime.now() - 24h);
-    for (order in expired) {
-        order.status = OrderStatus.Cancelled;
-        db.Order.save(order);
+```datrix context=service
+jobs('config/order-service/jobs.dcfg') {
+    job CleanupExpired {
+        let Array<db.Order> pending = db.Order.where(status: OrderStatus.Pending).all();
+        foreach order in pending {
+            if (order.createdAt < DateTime.now().subtractHours(24)) {
+                order.status = OrderStatus.Cancelled;
+                order.save();
+            }
+        }
     }
 }
 ```
+
+The schedule (`schedule = "0 */6 * * *"`), timeout and retry of `CleanupExpired` are keys of the
+jobs config file, never part of the declaration.
 
 ---
 
 ## CQRS
 
-```dtrx
+```datrix context=service
 cqrs {
     view DashboardView {
+        UUID id : primaryKey;
         Int totalOrders;
         Money totalRevenue;
         Int pendingCount;
     }
 
-    query GetDashboard -> DashboardView { ... }
-    command PlaceOrder(UUID customerId, List<OrderItem> items) -> Order { ... }
+    query GetDashboard(UUID id) -> DashboardView {
+        return DashboardView.findOrFail(id);
+    }
+    command PlaceOrder(UUID customerId, Money total) -> db.Order {
+        return db.Order.create({ customerId: customerId, total: total });
+    }
 }
 ```
 
@@ -460,19 +492,21 @@ cqrs {
 
 ## Storage
 
-```dtrx
-storage images(bucket: 'product-images') {
-    upload(Bytes file, String filename) -> URL;
-    download(String key) -> Bytes;
-    delete(String key);
+```datrix context=service
+storage images {
+    folder products : path('products/'), allowed(['image/jpeg', 'image/png']), maxSize('5mb');
 }
 ```
+
+A storage block declares folders; the bucket, provider and credentials handles are keys of the
+block's entry in the service `.dcfg`. Code reaches a folder through the block
+(`images.products.upload(...)`, `download`, `delete`, `exists`, `list`, ...).
 
 ---
 
 ## Service Discovery and Resilience
 
-```dtrx
+```datrix context=service
 discovery {
     PaymentService { loadBalance: roundRobin, healthyOnly: true }
 }
@@ -513,7 +547,7 @@ Datrix provides built-in objects for common operations, available without import
 
 ## Imports and Modules
 
-```dtrx
+```datrix
 // Import from a module
 from ecommerce.common import BaseEntity, Auditable;
 
@@ -540,23 +574,37 @@ Modules provide reusable traits, abstract entities, enums, and structs that can 
 
 **Decorators** (`@name`) apply to DSL functions and to REST endpoints (for example `@retry`, `@rateLimit` on a `rest_api` operation). They are **not** used for server-managed entity fields — those use the **`server`** modifier on the field instead (see below).
 
-```dtrx
-@rateLimit(requests: 100, window: 60)
-@cache(ttl: 60)
-@path('/:id')
-get(UUID id) : auth(required, providers: [identity]) -> Order { ... }
+```datrix context=service
+rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
+    @rateLimit(requests: 100, window: 60)
+    @cache(ttl: 60)
+    @path('/:id')
+    get(UUID id) : auth(required, providers: [identity]) -> Order {
+        return Order.findOrFail(id);
+    }
+}
 ```
 
 Rate limiting (`@rateLimit(requests: N, window: S)`, `S` in whole seconds, at most one per endpoint), response caching (`@cache(ttl: S)`), deprecation (`@deprecated`) and a binary route's response media type (`@produces('<type>/<subtype>')`, only on a route returning `Bytes`/`Bytes?`) are decorators; authorization is never a decorator.
 
 **Modifiers** (`: name, …`) apply to fields and declarations. **`server`** marks a field as server-managed (populate from server defaults / hooks, excluded from client create/update payloads):
 
-```dtrx
-String email : unique, index, trim;
-UUID id : primaryKey, server = uuid();
-DateTime createdAt : server = DateTime.now();
-UUID authorId -> db.Author : cascade(delete);
-resource db.Order : only(list, get), auth(required, providers: [identity], roles: [admin]);
+```datrix context=service
+rdbms db {
+    entity Author {
+        UUID id : primaryKey, server = uuid();
+        String email : unique, index, trim;
+        DateTime createdAt : server = DateTime.now();
+    }
+    entity Book {
+        UUID id : primaryKey, server = uuid();
+        belongsTo Author : index, onDelete(cascade);
+    }
+}
+
+rest_api CatalogAPI : basePath('/api/v1'), rdbms(db) {
+    resource db.Book : only(list, get), auth(required, providers: [identity], roles: [admin]);
+}
 ```
 
 ---
@@ -565,9 +613,9 @@ resource db.Order : only(list, get), auth(required, providers: [identity], roles
 
 `test` blocks at the service level verify business logic through real execution. They complement auto-generated tests (which verify structure and wiring) by exercising lifecycle hooks, computed fields, validation rules, and event emission.
 
-```dtrx
+```datrix context=service
 test("overdue books are flagged on update") {
-    #Book book = db.Book.create({
+    let db.Book book = db.Book.create({
         dueDate: today().subtractDays(1),
         status: BookStatus.Available
     });
@@ -581,7 +629,7 @@ test("validation rejects empty title") {
 }
 
 test("afterCreate dispatches BookCreated") {
-    #Book book = db.Book.create({ title: "New Book" });
+    let db.Book book = db.Book.create({ title: "New Book" });
     assert emitted(BookCreated(book.id, book.title));
 }
 ```
@@ -602,14 +650,14 @@ Transpiles to pytest (Python) or Jest (TypeScript) under `tests/spec/` / `test/s
 
 Declare domain-specific errors with HTTP status codes on **`module`** or **`service`**. Each entry can include `status(N)`, optional `message("…")`, and optional structured fields in `{ … }`.
 
-```dtrx
+```datrix
 module ecommerce.common {
     exceptions {
         InvalidCurrencyError : status(400), message("Unsupported currency code");
     }
 }
 
-service ecommerce.OrderService : version('1.0.0') {
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     exceptions {
         OrderExpiredError : status(410), message("Order has expired and cannot be modified");
         InsufficientStockError : status(409), message("Not enough stock available") {
@@ -628,7 +676,7 @@ Semantics: `status(N)` is required on every declared exception. Optional `messag
 
 Define constrained aliases on top of existing primitive or domain types inside **`module`** or **`service`**. Use the new scalar name as a field type elsewhere in the module/service.
 
-```dtrx
+```datrix
 module catalog.common {
     scalar Price : Float {
         min(0);
@@ -655,8 +703,8 @@ Use `extern service` when you need functionality that Datrix doesn't cover nativ
 
 ### Declaration Syntax
 
-```dtrx
-extern service <qualified.Name>('<config-path>') : <attributes> {
+```datrix-grammar
+extern service <qualified-name>['(' '<config-path>' ')'] [: <attributes>] {
     <members>
 }
 ```
@@ -689,11 +737,16 @@ Infrastructure blocks (`rdbms`, `cache`, `pubsub`, `nosql`, `queues`, etc.) are 
 
 Extern service endpoints are **signature-only** — they declare the HTTP method, parameters, and return type, but no implementation body:
 
-```dtrx
-rest_api PricingAPI : basePath('/api/v1') {
-    post calculatePrice(PricingRequest req) -> PricingResponse;
-    get getPrice(String productId) -> PricingResponse;
-    delete clearCache();
+```datrix
+extern service pricing.PricingEngine('config/pricing-engine.dcfg') {
+    struct PricingRequest { String productId; Int quantity; }
+    struct PricingResponse { Decimal totalPrice; }
+
+    rest_api PricingAPI : basePath('/api/v1') {
+        post calculatePrice(PricingRequest req) -> PricingResponse;
+        get getPrice(String productId) -> PricingResponse;
+        delete clearCache();
+    }
 }
 ```
 
@@ -705,14 +758,19 @@ An endpoint with no `@path('...')` is called at the **kebab-case of its name** b
 
 Extern endpoints can declare **precondition contracts** using `ensure` clauses:
 
-```dtrx
-rest_api PricingAPI : basePath('/api/v1') {
-    post calculatePrice(PricingRequest req) -> PricingResponse {
-        ensure req.quantity > 0;
-        ensure req.productId != null;
-    }
-    get getPrice(String productId) -> PricingResponse {
-        ensure productId != null;
+```datrix
+extern service pricing.PricingEngine('config/pricing-engine.dcfg') {
+    struct PricingRequest { String productId; Int quantity; }
+    struct PricingResponse { Decimal totalPrice; }
+
+    rest_api PricingAPI : basePath('/api/v1') {
+        post calculatePrice(PricingRequest req) -> PricingResponse {
+            ensure req.quantity > 0;
+            ensure req.productId != null;
+        }
+        get getPrice(String productId) -> PricingResponse {
+            ensure productId != null;
+        }
     }
 }
 ```
@@ -721,27 +779,28 @@ Ensure clauses generate **client-side validation** functions that run before mak
 
 ### Authentication
 
-```dtrx
-auth : apiKey(header: 'X-API-Key');     // API key in header
-auth : bearer();                         // Bearer token
-auth : serviceJwt();                     // Service-to-service JWT
-auth : oauth2ClientCredentials;          // Client-credentials access token; token URL, credential env-var names and scopes come from the extern service config (auth.oauth2ClientCredentials)
-auth : none;                             // No authentication
+One `auth` declaration per extern service, in one of these forms:
+
+```datrix-grammar
+auth : apiKey(header: '<header-name>');   // API key in header
+auth : bearer();                          // Bearer token
+auth : serviceJwt();                      // Service-to-service JWT
+auth : oauth2ClientCredentials;           // Client-credentials access token; token URL, credential env-var names and scopes come from the extern service config (auth.oauth2ClientCredentials)
+auth : none;                              // No authentication
 ```
 
-### Health Check
+### Health Check and Error Declarations
 
-```dtrx
-health : path('/health');
-```
+```datrix
+extern service pricing.PricingEngine('config/pricing-engine.dcfg') {
+    errors {
+        PricingNotFound(String message);
+        InvalidQuantity(String message, Int quantity);
+        InternalError();
+    }
 
-### Error Declarations
-
-```dtrx
-errors {
-    PricingNotFound(String message);
-    InvalidQuantity(String message, Int quantity);
-    InternalError();
+    auth : apiKey(header: 'X-API-Key');
+    health : path('/health');
 }
 ```
 
@@ -751,10 +810,9 @@ Errors generate typed exception classes in the consuming service's client code.
 
 A Datrix service consumes an extern service with `uses`:
 
-```dtrx
-service ecommerce.OrderService : version('1.0.0') {
+```datrix
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     uses PricingEngine;
-    // ...
 }
 ```
 
@@ -766,7 +824,7 @@ Structs and enums declared inside an extern service are importable by consuming 
 
 ### Complete Example
 
-```dtrx
+```datrix
 extern service pricing.PricingEngine('config/pricing-engine.dcfg')
     : version('1.0.0'), description('External pricing service') {
 
@@ -803,11 +861,15 @@ extern service pricing.PricingEngine('config/pricing-engine.dcfg')
 }
 
 // Consuming service
-service ecommerce.OrderService : version('1.0.0') {
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     uses PricingEngine;
 
+    // PricingRequest, PricingResponse and PricingTier are in scope here
     rest_api OrderAPI : basePath('/api/v1/orders') {
-        // Can use PricingRequest, PricingResponse types here
+        @path('/tiers')
+        get() : auth(public) -> Array<PricingTier> {
+            return [PricingTier.STANDARD, PricingTier.PREMIUM, PricingTier.ENTERPRISE];
+        }
     }
 }
 ```
@@ -833,23 +895,27 @@ See [Configuration Guide — Extern Service Configuration](../guide/configuratio
 
 Datrix includes a full expression language for business logic inside hooks, jobs, API functions, event handlers, and test blocks:
 
-```dtrx
-// Variables and assignment
-let total = order.items.map(i => i.price * i.quantity).reduce((a, b) => a + b, 0);
+```datrix context=fn
+// Variables are declared with their type
+let Decimal total = 0;
+
+// Iteration
+foreach item in order.items {
+    item.subtotal = item.price * item.quantity;
+    total = total + item.subtotal;
+}
+
+// Lambdas
+let Array<Decimal> subtotals = order.items.map(i => i.price * i.quantity);
 
 // Conditionals
 if (total > 1000) {
     order.discount = total * 0.1;
 }
 
-// Iteration
-for (item in order.items) {
-    item.subtotal = item.price * item.quantity;
-}
-
-// Transactions
-transaction {
-    db.Order.save(order);
+// Transactions name the block they scope
+transaction(db) {
+    order.save();
     db.Inventory.decrementStock(order.items);
 }
 ```

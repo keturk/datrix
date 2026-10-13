@@ -321,22 +321,25 @@ Adding a new target language updates **one** codegen package with core maps plus
 Projects enable packs in **`system.dtrx`** with:
 
 ```datrix
-use extension geo;
+system shop.Store('config/system.dcfg') : version('1.0.0') {
+    use extension geo;
+}
 ```
 
 (`use extension` must appear inside the `system { }` block; see `datrix_language` transformer validation.)
 
 ### Application containers
 
-A `.dtrx` application is built from **five** top-level container kinds (plus `include` / `import`):
+A `.dtrx` application is built from **six** top-level container kinds (plus `include` / `import`):
 
 | Container | Purpose | Typical members |
 |-----------|---------|-----------------|
-| **`system { }`** | Application metadata | `config`, `discovery`, `use extension` |
+| **`system { }`** | Application metadata; the config path is in its header | `discovery`, `use extension` |
 | **`module { }`** | Shared types and functions | `entity`, `enum`, `trait`, `struct`, `scalar`, `const`, `fn`, `exceptions`, `import` |
-| **`service { }`** | Deployable microservice | Everything in **module** scope **plus** infrastructure (`rdbms`, `nosql`, `cache`, `pubsub`, `storage`, `queues`, `search`, `cdn`), APIs, jobs, CQRS, **`subscribe`** (service-level), **`uses`**, `enqueue`, `test`, service `config` / `discovery` |
-| **`shared { }`** | **Cross-service infrastructure** | `rdbms`, `nosql`, `cache`, `pubsub`, `storage`, `queues`, `search`, `cdn` only — **no** APIs, jobs, CQRS, or `subscribe` |
+| **`service { }`** | Deployable microservice | Everything in **module** scope **plus** infrastructure (`rdbms`, `nosql`, `cache`, `pubsub`, `storage`, `queues`, `search`, `cdn`), APIs, jobs, CQRS, **`subscribe`** (service-level), **`uses`**, `enqueue`, `test`, `discovery` (the config path is in its header) |
+| **`shared { }`** | **Cross-service infrastructure** | `rdbms`, `nosql`, `cache`, `pubsub`, `storage`, `queues`, `search`, `cdn` only — **no** APIs, jobs, CQRS, serverless handlers (`SLS007`), or service-level `subscribe` |
 | **`extern service { }`** | **External library/tool contract** | `struct`, `enum`, `rest_api` (signature-only endpoints), `errors`, `auth`, `health` — **no** infrastructure blocks, no implementation bodies |
+| **`app { }`** | **Client application** (the frontend targets are named in the system config) | `uses`, `login`, `theme`, `style`, `layout`, `page`, `component`, `form`, `table`, `state`, `fn`, `test` |
 
 **Messaging:** Topics and **`publish`** events live under **`pubsub`** blocks (whether owned by a service or a **`shared`** block). **`subscribe { … }`** is always a **direct child of `service { }`**, not nested inside `pubsub`. Services declare which other containers they depend on with **`uses SharedOrServiceName : modifiers;`**. Infrastructure blocks navigate to their owner via **`block.container()`** (`Service` or `Shared`). See [datrix-language — Service blocks reference](../../../../datrix-language/docs/reference/datrix-service-blocks.md).
 
@@ -352,7 +355,7 @@ An `extern service` declares a **contract** for an external HTTP service that Da
 
 **DSL syntax:**
 
-```dtrx
+```datrix
 extern service pricing.PricingEngine('config/pricing-engine.dcfg') : version('1.0.0') {
     struct PricingRequest { String productId; Integer quantity; String currency; }
     struct PricingResponse { Decimal price; Decimal tax; String currency; }
@@ -372,7 +375,7 @@ extern service pricing.PricingEngine('config/pricing-engine.dcfg') : version('1.
 
 **Consumption:** A generated service uses an extern service via the same `uses` declaration used for inter-service dependencies:
 
-```dtrx
+```datrix
 service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     uses PricingEngine;
     // Generated code receives a typed HTTP client for PricingEngine

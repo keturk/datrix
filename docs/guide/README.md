@@ -134,19 +134,21 @@ Each guide document follows this structure:
 
 **Code Examples**
 
-```dtrx
+```datrix
 // .dtrx specification files use this syntax
-service example.MyService : version('1.0.0') {
-    // ...
+service example.MyService('config/my-service.dcfg') : version('1.0.0') {
+    enum Status { Active, Retired }
 }
 ```
 
 ```dcfg
-# .dcfg config documents use this syntax
 config system example.System {
-    profile test {
-        deployment { runtime: docker-compose, provider: local }
+  base {
+    deployment {
+      runtime = "docker-compose";
+      provider = "local";
     }
+  }
 }
 ```
 

@@ -107,28 +107,23 @@ Every Datrix application starts with a **system block** that includes service an
 
 ### Entry Point: system.dtrx
 
-```dtrx
-// specs/system.dtrx
-include 'common/traits.dtrx';
-include 'common/entities.dtrx';
-include 'services/user-service.dtrx';
-include 'services/order-service.dtrx';
+`specs/system.dtrx` lists the other files, then declares the system:
 
+```text
+include 'common/traits.dtrx';          // Shared traits
+include 'common/entities.dtrx';        // Abstract entities
+include 'services/user-service.dtrx';  // Service definitions
+include 'services/order-service.dtrx';
+```
+
+```datrix
 system ecommerce.System('config/system.dcfg') : version('1.0.0') {
-    gateway ecommerce.Gateway;
-    observability ecommerce.Observability;
 }
 ```
 
 ### Includes
 
-Use `include` to compose your application from multiple files:
-
-```dtrx
-include 'common/traits.dtrx';          // Shared traits
-include 'common/entities.dtrx';        // Abstract entities
-include 'services/order-service.dtrx'; // Service definitions
-```
+Use `include '<path>';` lines, as above, to compose your application from multiple files.
 
 **Rules:**
 - Include paths are relative to the file containing the `include` statement
@@ -140,13 +135,13 @@ include 'services/order-service.dtrx'; // Service definitions
 
 Use `from ... import` to reference definitions from modules:
 
-```dtrx
+```datrix
 from ecommerce.common import Auditable, BaseEntity, SoftDeletable;
 
 service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     rdbms db {
         entity Order extends BaseEntity with Auditable {
-            // Fields here
+            Money total;
         }
     }
 }
@@ -156,12 +151,12 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
 
 ## System Block
 
-The **system block** defines global infrastructure shared by all services.
+The **system block** names the application and its config document; global infrastructure
+(gateway, observability, deployment) is configured in that document.
 
-```dtrx
+```datrix
 system ecommerce.System('config/system.dcfg') : version('1.0.0') {
-    gateway ecommerce.Gateway;
-    observability ecommerce.Observability;
+    discovery { }
 }
 ```
 
@@ -177,22 +172,21 @@ The declaration-level `.dcfg` path points to the system config document:
 
 ```dcfg
 config system ecommerce.System {
-    profile test {
-        deployment {
-            runtime: docker-compose
-            provider: local
-        }
-        defaultTimeout: 30000
+  base {
+    deployment {
+      runtime = "docker-compose";
+      provider = "local";
     }
+    defaultTimeout = 30000;
+  }
 
-    profile production {
-        deployment {
-            runtime: ecs-fargate
-            provider: aws
-            registry: ecr
-        }
-        region: us-east-1
+  profile production as "prod" extends base {
+    deployment {
+      runtime = "ecs-fargate";
+      provider = "aws";
     }
+    region = "us-east-1";
+  }
 }
 ```
 
@@ -208,16 +202,19 @@ A **service** is the unit of deployment. Everything inside a service block belon
 
 ### Basic Service
 
-```dtrx
+```datrix
 service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), description('Order management') {
     discovery { }  // Service discovery config
 
     rdbms db {
-        // Entities here
+        entity Order {
+            UUID id : primaryKey, server = uuid();
+            Money total;
+        }
     }
 
-    rest_api OrderAPI : basePath('/api/v1/orders') {
-        // API endpoints here
+    rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
+        resource Order : auth(required, providers: [identity]);
     }
 }
 ```
@@ -242,7 +239,7 @@ Services support these attributes:
 
 Declare dependencies on other services:
 
-```dtrx
+```datrix context=service
 discovery {
     UserService {
         loadBalance: roundRobin,
@@ -269,7 +266,7 @@ Entities define your data model. Each entity maps to:
 
 ### Basic Entity
 
-```dtrx
+```datrix context=service
 rdbms db {
     entity User {
         UUID id : primaryKey = uuid();
@@ -283,21 +280,21 @@ rdbms db {
 
 ### Field Definition
 
-```dtrx
+```datrix-grammar
 <Type> <fieldName> [: <modifiers>] [= <defaultValue>];
 ```
 
 **Examples:**
 
-```dtrx
+```datrix context=entity
 String(200) title : trim;                   // Required string, trimmed
 String? description;                        // Nullable string
 Email email : unique, index;                // Email with unique constraint
 Boolean isActive = true;                    // Boolean with default
-UUID authorId -> db.Author : index;         // Foreign key with index
-Money totalAmount : min(0);                 // Money field, must be >= 0
+belongsTo Author : index;                   // Foreign key (authorId) with index
+Money totalAmount;                          // Money field, never negative
 DateTime? publishedAt;                      // Nullable datetime
-List<String> tags;                          // Array/list field
+Array<String> tags;                         // Array field
 ```
 
 ### Field Modifiers
@@ -321,7 +318,7 @@ List<String> tags;                          // Array/list field
 
 Add the **`server`** modifier to a field’s modifier list to mark it as server-managed (not accepted in API input on create/update):
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     UUID id : primaryKey, server = uuid();        // Server generates on create
     DateTime createdAt : server = DateTime.now();           // Server sets on create
@@ -382,7 +379,6 @@ Datrix provides a rich type system that maps to appropriate types in each target
 
 | Datrix Type | Python | TypeScript | PostgreSQL |
 |-------------|--------|------------|------------|
-| `DateTime` | `datetime` | `Date` | `TIMESTAMP` |
 | `DateTime` | `datetime` (UTC) | `Date` | `TIMESTAMP` |
 | `Date` | `date` | `Date` | `DATE` |
 | `Time` | `time` | `string` | `TIME` |
@@ -391,8 +387,8 @@ Datrix provides a rich type system that maps to appropriate types in each target
 
 ### Collection Types
 
-```dtrx
-List<String> tags;              // Array of strings
+```datrix context=entity
+Array<String> tags;             // Array of strings
 Map<String, Integer> counts;    // Key-value map
 Set<String> categories;         // Unique set
 ```
@@ -408,7 +404,7 @@ were lost and cannot be recovered.
 
 Add `?` suffix to make a field nullable:
 
-```dtrx
+```datrix context=entity
 String? description;           // Nullable string
 DateTime? deletedAt;           // Nullable datetime
 UUID? parentId;                // Nullable UUID
@@ -424,7 +420,7 @@ Datrix supports four relationship types: `belongsTo`, `hasOne`, `hasMany`, and `
 
 ### BelongsTo (Many-to-One)
 
-```dtrx
+```datrix context=rdbms
 entity Post {
     UUID id : primaryKey = uuid();
     String(200) title;
@@ -445,15 +441,15 @@ entity User {
 
 **Cascade options:**
 
-```dtrx
-belongsTo User as author : cascade(delete);  // Cascade delete
-belongsTo User as author : restrict;         // Prevent delete if referenced
-belongsTo User as author : setNull;          // Set FK to null on delete
+```datrix context=entity
+belongsTo User as author : onDelete(cascade);   // Cascade delete
+belongsTo User as reviewer : onDelete(restrict); // Prevent delete if referenced (the default)
+belongsTo User as editor : onDelete(setNull);    // Set FK to null on delete (nullable FK)
 ```
 
 ### HasMany (One-to-Many)
 
-```dtrx
+```datrix context=rdbms
 entity User {
     UUID id : primaryKey = uuid();
     String(100) name;
@@ -472,7 +468,7 @@ entity Post {
 
 ### HasOne (One-to-One)
 
-```dtrx
+```datrix context=rdbms
 entity User {
     UUID id : primaryKey = uuid();
     String(100) name;
@@ -492,17 +488,17 @@ entity Profile {
 
 ### ManyToMany
 
-```dtrx
+```datrix context=rdbms
 entity Post {
     UUID id : primaryKey = uuid();
     String(200) title;
-    manyToMany Tag as tags through PostTag;
+    manyToMany Tag as tags;
 }
 
 entity Tag {
     UUID id : primaryKey = uuid();
     String(50) name : unique;
-    manyToMany Post as posts through PostTag;
+    manyToMany Post as posts;
 }
 ```
 
@@ -515,7 +511,7 @@ entity Tag {
 
 ### Self-Referential Relationships
 
-```dtrx
+```datrix context=rdbms
 entity Category {
     UUID id : primaryKey = uuid();
     String(100) name;
@@ -533,7 +529,7 @@ When an entity has both self-referential `belongsTo` and `hasMany`, Datrix gener
 
 **Disable tree helpers:**
 
-```dtrx
+```datrix context=entity
 hasMany Employee as directReports : noTree;  // Plain one-to-many
 ```
 
@@ -547,7 +543,7 @@ Traits are reusable field groups that can be mixed into entities.
 
 **Define traits in a module:**
 
-```dtrx
+```datrix
 // specs/common/traits.dtrx
 module ecommerce.common {
     trait Auditable {
@@ -570,13 +566,18 @@ module ecommerce.common {
 
 **Use traits with `with`:**
 
-```dtrx
+```datrix
 from ecommerce.common import Auditable, SoftDeletable, Timestamped;
 
-entity Order extends BaseEntity with Auditable, SoftDeletable {
-    UUID customerId;
-    Money totalAmount;
-    // Inherits: createdBy, updatedBy, lastModifiedAt, deletedAt, deletedBy
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
+    rdbms db {
+        entity Order with Auditable, SoftDeletable {
+            UUID id : primaryKey, server = uuid();
+            UUID customerId;
+            Money totalAmount;
+            // Inherits: createdBy, updatedBy, lastModifiedAt, deletedAt, deletedBy
+        }
+    }
 }
 ```
 
@@ -584,7 +585,7 @@ entity Order extends BaseEntity with Auditable, SoftDeletable {
 
 Abstract entities provide base fields and cannot be instantiated directly.
 
-```dtrx
+```datrix
 module ecommerce.common {
     abstract entity BaseEntity with Timestamped {
         UUID id : primaryKey, server = uuid();
@@ -595,7 +596,7 @@ module ecommerce.common {
 
 **Extend abstract entities:**
 
-```dtrx
+```datrix context=rdbms
 entity User extends BaseEntity {
     String(100) name;
     Email email : unique;
@@ -613,7 +614,7 @@ entity User extends BaseEntity {
 
 **Example hierarchy:**
 
-```dtrx
+```datrix context=rdbms
 abstract entity BaseEntity {
     UUID id : primaryKey, server = uuid();
 }
@@ -624,6 +625,7 @@ abstract entity DomainEntity extends BaseEntity with Timestamped {
 
 entity User extends DomainEntity with Auditable, SoftDeletable {
     // Gets: id, createdAt, updatedAt, createdBy, updatedBy, lastModifiedAt, deletedAt, deletedBy
+    String(100) name;
 }
 ```
 
@@ -635,7 +637,7 @@ entity User extends DomainEntity with Auditable, SoftDeletable {
 
 Enums define a fixed set of values.
 
-```dtrx
+```datrix context=service
 enum OrderStatus {
     Pending,
     Confirmed,
@@ -644,8 +646,11 @@ enum OrderStatus {
     Cancelled
 }
 
-entity Order {
-    OrderStatus status = OrderStatus.Pending;  // Enum field with default
+rdbms db {
+    entity Order {
+        UUID id : primaryKey, server = uuid();
+        OrderStatus status = OrderStatus.Pending;  // Enum field with default
+    }
 }
 ```
 
@@ -658,7 +663,7 @@ entity Order {
 
 Structs are value objects (embedded types, not separate tables).
 
-```dtrx
+```datrix context=service
 struct Address {
     String(100) street;
     String(100) city;
@@ -667,11 +672,13 @@ struct Address {
     CountryCode country;
 }
 
-entity Customer {
-    UUID id : primaryKey = uuid();
-    String(100) name;
-    Address shippingAddress;    // Embedded struct
-    Address? billingAddress;    // Nullable struct
+rdbms db {
+    entity Customer {
+        UUID id : primaryKey = uuid();
+        String(100) name;
+        Address shippingAddress;    // Embedded struct
+        Address? billingAddress;    // Nullable struct
+    }
 }
 ```
 
@@ -690,7 +697,7 @@ Datrix generates complete REST APIs with automatic CRUD operations.
 
 ### Resource-Based API
 
-```dtrx
+```datrix context=service
 rest_api OrderAPI : basePath('/api/v1') {
     resource db.Order : auth(required, providers: [identity]);                        // Full CRUD
     resource db.OrderItem : only(list, get), auth(required, providers: [identity]);   // Read-only
@@ -709,44 +716,46 @@ rest_api OrderAPI : basePath('/api/v1') {
 
 ### Limiting Operations
 
-```dtrx
-resource db.Order : only(create, list, get), auth(required, providers: [identity]);   // No update/delete
-resource db.OrderItem : only(list, get), auth(required, providers: [identity]);       // Read-only
+```datrix context=service
+rest_api OrderAPI : basePath('/api/v1') {
+    resource db.Order : only(create, list, get), auth(required, providers: [identity]);   // No update/delete
+    resource db.OrderItem : only(list, get), auth(required, providers: [identity]);       // Read-only
+}
 ```
 
 ### Access Control
 
 Every resource and endpoint declares an `auth(...)` modifier; there is no default access level.
 
-```dtrx
-resource db.Order : auth(required, providers: [identity]);                       // Requires auth
-resource db.Warehouse : auth(required, providers: [identity], roles: [admin]);   // Admin-only
-resource db.Product : only(list, get), auth(public);                              // No auth required
+```datrix context=service
+rest_api StoreAPI : basePath('/api/v1') {
+    resource db.Order : auth(required, providers: [identity]);                       // Requires auth
+    resource db.Warehouse : auth(required, providers: [identity], roles: [admin]);   // Admin-only
+    resource db.Product : only(list, get), auth(public);                              // No auth required
+}
 ```
 
 The full set of modes (`public`, `optional`, `required`, `service`, `webhook`) and their arguments is in the [access-levels reference](../../../datrix-language/docs/reference/access-levels.md).
 
 ### Custom Endpoints
 
-```dtrx
-rest_api OrderAPI : basePath('/api/v1/orders') {
-    resource db.Order : auth(required, providers: [identity]);
+```datrix context=service
+rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
+    resource Order : auth(required, providers: [identity]);
 
     @path('/search')
-    get(String? query, OrderStatus? status) : auth(required, providers: [identity]) -> List<Order> {
-        return db.Order.filter(
-            title.contains(query) && status == status
-        ).limit(50);
+    get(OrderStatus wanted) : auth(required, providers: [identity]) -> Array<Order> {
+        return Order.where(status: wanted).limit(50).all();
     }
 
     @path('/:id/cancel')
     post(UUID id) : auth(required, providers: [identity]) -> Order {
-        let order = db.Order.findOrFail(id);
+        let Order order = Order.findOrFail(id);
         if (order.status != OrderStatus.Pending) {
-            throw ValidationError("Cannot cancel order with status: " + order.status);
+            throw ValidationError(#"Cannot cancel order with status: {order.status}");
         }
         order.status = OrderStatus.Cancelled;
-        db.Order.save(order);
+        order.save();
         return order;
     }
 }
@@ -761,33 +770,39 @@ A Datrix service calls another service's REST endpoint as a **typed RPC** — ne
 
 **Provider — name and expose a service-facing endpoint:**
 
-```dtrx
+```datrix context=service
 rest_api ProductAPI : basePath('/api/v1'), rdbms(db) {
 
     // External, user-facing: no name, not cross-service-callable
     @path('/products/sku/:sku')
-    get(String sku) : auth(required, providers: [identity]) -> db.Product { ... }
+    get(String sku) : auth(required, providers: [identity]) -> db.Product {
+        return db.Product.where(sku: sku).first();
+    }
 
     // Service-facing: auth(service, ...) ⇒ a name is mandatory; callable as
     //   ProductService.ProductAPI.get.productBySku(sku)
     @path('/service/products/sku/:sku')
-    get productBySku(String sku) : auth(service, providers: [internal]), hidden -> db.Product { ... }
+    get productBySku(String sku) : auth(service, providers: [internal]), hidden -> db.Product {
+        return db.Product.where(sku: sku).first();
+    }
 
     // Idempotent read — opts the call into bounded, breaker-aware retry
     @path('/service/products/nearby')
-    get productsInWarehouse(UUID warehouseId) : auth(service, providers: [internal]), idempotent -> List<db.Product> { ... }
+    get productsInWarehouse(UUID warehouseId) : auth(service, providers: [internal]), idempotent -> Array<db.Product> {
+        return db.Product.where(warehouseId: warehouseId).all();
+    }
 }
 ```
 
 **Consumer — call by method + name, with typed arguments:**
 
-```dtrx
-let Product p           = ProductService.ProductAPI.get.productBySku(sku);
-let List<Product> stock = ProductService.ProductAPI.get.productsInWarehouse(warehouseId);
+```datrix context=fn
+let Product p            = ProductService.ProductAPI.get.productBySku(sku);
+let Array<Product> stock = ProductService.ProductAPI.get.productsInWarehouse(warehouseId);
 
 // Resource (auto-CRUD) endpoints address block + database + entity + operation:
-let Product one         = ProductService.ProductAPI.db.Product.get(id);
-let List<Product> all   = ProductService.ProductAPI.db.Product.list(limit: 20);
+let Product one          = ProductService.ProductAPI.db.Product.get(id);
+let Array<Product> all   = ProductService.ProductAPI.db.Product.list(limit: 20);
 ```
 
 The call requires a matching `uses ProductService;` / discovery dependency. Arguments are checked against the provider endpoint's declared parameters (positional first, named after) at generation time — a typo, an undeclared dependency, an unresolved endpoint, an argument type mismatch, or a target that is not `auth(service, ...)` is a generation error, not a runtime 404/422/500. The call's static type is the provider's declared return type, decoded into a generated, validated response struct (only `-> JSON` endpoints stay untyped), so no defensive shape-checking is needed. The old string-path (`Service.Api.get('/route', ...)`), interpolated-path, and pathless positional call forms are removed.
@@ -822,7 +837,7 @@ GET /orders?search=laptop
 
 ## Shared infrastructure (`shared { }`)
 
-Use a **top-level** `shared QualifiedName { … }` block when **several services** must share the same broker topics, reference tables, buckets, caches, or queues. Allowed members mirror service infrastructure: **`rdbms`**, **`nosql`**, **`cache`**, **`pubsub`**, **`storage`**, **`queues`**. There are **no** REST/GraphQL APIs, jobs, CQRS, or `subscribe` inside `shared` — consumers always **`subscribe`** from a **service**, with a **qualified** topic name and a matching **`uses`** declaration.
+Use a **top-level** `shared Name('<config-path>') { … }` block (a simple name: `uses` cannot reach a dotted one) when **several services** must share the same broker topics, reference tables, buckets, caches, or queues. Allowed members mirror service infrastructure: **`rdbms`**, **`nosql`**, **`cache`**, **`pubsub`**, **`storage`**, **`queues`**. There are **no** REST/GraphQL APIs, jobs, CQRS, or `subscribe` inside `shared` — consumers always **`subscribe`** from a **service**, with a **qualified** topic name and a matching **`uses`** declaration.
 
 **Authoring checklist**
 
@@ -841,7 +856,7 @@ Datrix supports publish/subscribe messaging with type-safe events.
 
 ### Defining Events
 
-```dtrx
+```datrix context=service
 pubsub mq {
     topic OrderEvents {
         publish OrderCreated(UUID orderId, Money total, UUID customerId);
@@ -855,9 +870,10 @@ pubsub mq {
 
 **In lifecycle hooks:**
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     UUID id : primaryKey = uuid();
+    UUID customerId;
     Money total;
     OrderStatus status;
 
@@ -866,7 +882,7 @@ entity Order {
     }
 
     afterUpdate {
-        if (status == OrderStatus.Shipped && $old.status != OrderStatus.Shipped) {
+        if (isChanged(status) && status == OrderStatus.Shipped) {
             dispatch OrderShipped(id, DateTime.now());
         }
     }
@@ -875,13 +891,16 @@ entity Order {
 
 **In custom endpoints:**
 
-```dtrx
-post cancelOrder(UUID id) -> Order {
-    let order = db.Order.findOrFail(id);
-    order.status = OrderStatus.Cancelled;
-    db.Order.save(order);
-    dispatch OrderCancelled(id, "User requested cancellation");
-    return order;
+```datrix context=service
+rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
+    @path('/:id/cancel')
+    post(UUID id) : auth(required, providers: [identity]) -> Order {
+        let Order order = Order.findOrFail(id);
+        order.status = OrderStatus.Cancelled;
+        order.save();
+        dispatch OrderCancelled(id, "User requested cancellation");
+        return order;
+    }
 }
 ```
 
@@ -889,7 +908,7 @@ post cancelOrder(UUID id) -> Order {
 
 **Same service:**
 
-```dtrx
+```datrix
 service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     pubsub mq {
         topic OrderEvents {
@@ -897,7 +916,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
         }
     }
 
-    subscribe OrderEvents {
+    subscribe ecommerce.OrderService.mq.OrderEvents {
         on OrderCreated(UUID orderId, Money total, UUID customerId) {
             Log.info("Order created", { orderId: orderId, total: total });
             // Update metrics, send notifications, etc.
@@ -908,33 +927,26 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
 
 **Different service:**
 
-```dtrx
+```datrix
 // In notification-service.dtrx
 service notification.NotificationService('config/notification-service.dcfg') : version('1.0.0') {
-    pubsub mq {
-    }
+    uses OrderService : subscribe;
 
     subscribe ecommerce.OrderService.mq.OrderEvents {
-        on OrderCreated(UUID orderId, Money total, UUID customerId) {
-            let customer = UserService.getUser(customerId);
-            Email.send(
-                to: customer.email,
+        on OrderCreated(UUID orderId, Money total, Email customerEmail) {
+            Email.send({
+                to: customerEmail,
                 subject: "Order Confirmation",
-                body: "Your order " + orderId + " has been created."
-            );
+                body: #"Your order {orderId} has been created."
+            });
         }
     }
 }
 ```
 
-### Event Modifiers
-
-```dtrx
-topic OrderEvents {
-    publish OrderCreated(...) : async;       // Async, fire-and-forget
-    publish OrderShipped(...) : persist;     // Persist to event store
-}
-```
+An event is a `publish Name(...)` declaration, optionally with `{ ensure ...; }` contracts (see the
+[Event Contracts guide](./event-contracts.md)); it takes no modifiers. Delivery guarantees and
+retention are broker settings in the `.dcfg`.
 
 ### Serverless blocks
 
@@ -944,13 +956,14 @@ Use one or more **`serverless BlockName { … }`** sections when handlers should
 
 #### Complete example
 
-```dtrx
-service OrderService('config/order-service.dcfg') {
+```datrix
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     rdbms db {
         entity Order {
-            Decimal amount
-            String currency
-            String status
+            UUID id : primaryKey, server = uuid();
+            Decimal amount;
+            String currency;
+            String status;
         }
     }
 
@@ -961,26 +974,26 @@ service OrderService('config/order-service.dcfg') {
         }
     }
 
-    rest_api : basePath('/api/v1') {
-        resource db.Order;
+    rest_api OrderAPI : basePath('/api/v1') {
+        resource db.Order : auth(required, providers: [identity]);
     }
 
     // This job runs in-process inside the service container
     jobs('config/order-service.dcfg') {
         job QuickCleanup {
-            // lightweight task, runs alongside the API
+            Log.info("quick cleanup");  // lightweight task, runs alongside the API
         }
     }
 
     // Event handlers deployed as Lambda/Azure Functions
     serverless eventHandlers {
 
-        subscribe mq.OrderEvents {
+        subscribe ecommerce.OrderService.mq.OrderEvents {
             on OrderPlaced(UUID orderId, Decimal amount) {
                 // Can access db.Order — same service scope
-                #Order order = db.Order.findOrFail(orderId);
+                let db.Order order = db.Order.findOrFail(orderId);
                 if (amount > 10000) {
-                    Log.warn(#"Large order detected: {orderId} amount={amount}");
+                    Log.warn(#"Large order detected: {order.id} amount={amount}");
                 }
             }
 
@@ -990,16 +1003,16 @@ service OrderService('config/order-service.dcfg') {
         }
 
         // HTTP endpoint — standalone Lambda behind API Gateway
-        @path('/webhooks/stripe')
-        post(JSON payload) -> Void {
-            // Process webhook
+        @path('/webhooks/payments')
+        post(JSON payload) : auth(webhook), verify(sharedSecret, secretRef: paymentsWebhookSecret) {
+            Log.info("payment webhook received");
         }
     }
 
     // Scheduled tasks — separate config, separate deployment
     serverless scheduledTasks {
         job DailyOrderReport {
-            #Array<Order> orders = db.Order.where(status: "completed").all();
+            let Array<db.Order> orders = db.Order.where(status: "completed").all();
             Log.info(#"Daily report: {orders.length()} completed orders");
         }
     }
@@ -1008,30 +1021,40 @@ service OrderService('config/order-service.dcfg') {
 
 #### Configuration
 
-Serverless handler settings live in the service `.dcfg` profile:
+Serverless handler settings live under the block's name in the service `.dcfg`; the `flavor`
+must be the one the profile's deployment provider realizes (`lambda` on AWS, `functions` on
+Azure, `container` locally):
 
 ```dcfg
-config service OrderService {
-    profile production {
-        serverless eventHandlers {
-            platform: lambda
-            defaults {
-                timeout: 300
-                memory: 512
-            }
-            handler OrderPlaced {
-                timeout: 60
-                memory: 256
-                reservedConcurrency: 50
-            }
-        }
+config service ecommerce.OrderService {
+  base {
+    serverless eventHandlers {
+      flavor = "container";
+      defaults {
+        timeout = 300;
+        memory = 512;
+      }
+      handlers {
+      }
     }
+  }
 
-    profile development {
-        serverless eventHandlers {
-            platform: container
+  profile production as "prod" extends base {
+    replace serverless eventHandlers {
+      flavor = "lambda";
+      defaults {
+        timeout = 300;
+        memory = 512;
+      }
+      handlers {
+        OrderPlaced {
+          timeout = 60;
+          memory = 256;
+          reservedConcurrency = 50;
         }
+      }
     }
+  }
 }
 ```
 
@@ -1045,43 +1068,27 @@ A service can have multiple `serverless` blocks to group handlers by concern:
 
 Each block can have different timeout/memory settings or even different platforms per profile.
 
-#### Serverless in shared blocks
+#### Serverless and shared blocks
 
-Shared blocks can also contain serverless handlers for cross-service functions:
-
-```dtrx
-shared IngestionPipeline('config/ingestion-pipeline.dcfg') {
-    pubsub mq {
-        topic IngestionEvents {
-            publish SourceIngested(UUID runId, String source, Integer recordCount);
-        }
-    }
-
-    serverless ingestionHandlers {
-        subscribe mq.IngestionEvents {
-            on SourceIngested(UUID runId, String source, Integer recordCount) {
-                Log.info(#"Ingested {recordCount} records from {source}");
-            }
-        }
-    }
-}
-```
-
-Services that `uses IngestionPipeline` can dispatch events that trigger the shared function.
+A `shared` block may own the topic, but never a `serverless` block (`SLS007`): the handlers that
+react to a shared topic live in a service that `uses` the shared block (see
+[datrix-grammar — Shared block usage](../../../datrix-language/docs/reference/datrix-grammar.md#shared-block-usage)).
 
 #### Moving between in-process and serverless
 
 Refactoring is a cut-and-paste operation:
 
-```dtrx
+```datrix context=service
 // Before: runs in the service container
 jobs('config/order-service.dcfg') {
-    job DailyReport { ... }    // <-- cut this
+    job DailyReport { Log.info("daily report"); }    // <-- cut this
 }
+```
 
+```datrix context=service
 // After: deploys as Lambda/Azure Function
 serverless tasks {
-    job DailyReport { ... }    // <-- paste here, unchanged
+    job DailyReport { Log.info("daily report"); }    // <-- paste here, unchanged
 }
 ```
 
@@ -1113,9 +1120,9 @@ Datrix generates caching code with Redis/Valkey/Memcached.
 
 Cache entity data with TTL:
 
-```dtrx
+```datrix context=service
 cache redis {
-    hash OrderCache on db.Order ttl(30m) {
+    hash OrderCache : prefix('order:'), ttl(1800) {
         UUID orderId : primaryKey;
         String customerName;
         Money total;
@@ -1124,25 +1131,23 @@ cache redis {
 }
 ```
 
-**Generated methods:**
-- `OrderCache.set(orderId, data)` — Set cache entry
-- `OrderCache.get(orderId)` — Get cache entry
-- `OrderCache.delete(orderId)` — Delete cache entry
-- `OrderCache.exists(orderId)` — Check if exists
+**Generated methods** (reached through the block: `redis.OrderCache`):
+- `redis.OrderCache.set(orderId, data)` — Set cache entry
+- `redis.OrderCache.get(orderId)` — Get cache entry
+- `redis.OrderCache.delete(orderId)` — Delete cache entry
+- `redis.OrderCache.exists(orderId)` — Check if exists
 
-**Auto-invalidation:**
+**Invalidation on write:**
 
-```dtrx
-entity Order {
-    afterUpdate {
-        OrderCache.delete(id);  // Invalidate cache on update
-    }
+```datrix context=entity
+afterUpdate {
+    redis.OrderCache.delete(id);  // Invalidate cache on update
 }
 ```
 
 ### Counters
 
-```dtrx
+```datrix context=service
 cache redis {
     counter OrderViewCount : prefix('order:views');
     counter DailyOrders : prefix('metrics:orders:daily');
@@ -1150,17 +1155,20 @@ cache redis {
 ```
 
 **Generated methods:**
-- `OrderViewCount.increment(key)` — Increment counter
-- `OrderViewCount.decrement(key)` — Decrement counter
-- `OrderViewCount.get(key)` — Get current value
-- `OrderViewCount.reset(key)` — Reset to zero
+- `redis.OrderViewCount.increment(key)` — Increment counter
+- `redis.OrderViewCount.decrement(key)` — Decrement counter
+- `redis.OrderViewCount.get(key)` — Get current value
+- `redis.OrderViewCount.reset(key)` — Reset to zero
 
 **Usage:**
 
-```dtrx
-get getOrder(UUID id) -> Order {
-    OrderViewCount.increment(id);
-    return db.Order.findOrFail(id);
+```datrix context=service
+rest_api OrderAPI : basePath('/api/v1/orders') {
+    @path('/:id')
+    get(UUID id) : auth(required, providers: [identity]) -> db.Order {
+        redis.OrderViewCount.increment(id);
+        return db.Order.findOrFail(id);
+    }
 }
 ```
 
@@ -1168,64 +1176,56 @@ get getOrder(UUID id) -> Order {
 
 ## Background Jobs
 
-Define scheduled or one-off background jobs.
+Define scheduled background jobs. A job declaration is a name and a body; its schedule, timeout
+and retry live in the config file the `jobs('<path>')` block names.
 
-### Cron Jobs
+### Scheduled Jobs
 
-```dtrx
-job CleanupExpiredOrders cron('0 2 * * *') {  // Daily at 2 AM
-    let expired = db.Order.filter(
-        status == OrderStatus.Pending &&
-        createdAt < DateTime.now() - 24h
-    );
+```datrix context=service
+jobs('config/order-service.dcfg') {
+    job CleanupExpiredOrders {
+        let Array<db.Order> pending = db.Order.where(status: OrderStatus.Pending).all();
+        let Integer cancelled = 0;
 
-    for (order in expired) {
-        order.status = OrderStatus.Cancelled;
-        db.Order.save(order);
-        dispatch OrderCancelled(order.id, "Expired");
+        foreach order in pending {
+            if (order.createdAt < DateTime.now().subtractHours(24)) {
+                order.status = OrderStatus.Cancelled;
+                order.save();
+                dispatch OrderCancelled(order.id, "Expired");
+                cancelled = cancelled + 1;
+            }
+        }
+
+        Log.info("Cleanup completed", { count: cancelled });
     }
 
-    Log.info("Cleanup completed", { count: expired.length });
-}
-```
-
-### Interval Jobs
-
-```dtrx
-job UpdateMetrics interval(5m) {
-    let todayOrders = db.Order.filter(
-        createdAt >= utcToday()
-    ).count();
-
-    DailyOrders.set(utcToday().toString(), todayOrders);
+    job UpdateMetrics {
+        let Integer todayOrders = db.Order.where(createdAt: utcToday()).count();
+        redis.DailyOrders.set(utcToday().toString(), todayOrders);
+    }
 }
 ```
 
 ### Job Configuration
 
-Jobs can reference configuration for timeouts and retries:
-
-```dtrx
-jobs('config/order-service.dcfg') {
-    job ProcessPayments cron('0 * * * *') {
-    // Job logic
-    }
-}
-```
-
 **config/order-service.dcfg:**
 
 ```dcfg
-config service OrderService {
-    profile test {
-        jobs {
-            ProcessPayments {
-                schedule: "0 * * * *"
-                timeout: 5m
-                retry { maxAttempts: 3, backoff: exponential }
-            }
+config service ecommerce.OrderService {
+  base {
+    jobs {
+      jobs {
+        CleanupExpiredOrders {
+          schedule = "0 2 * * *";
+          timeout = "300s";
         }
+        UpdateMetrics {
+          schedule = "*/5 * * * *";
+          timeout = "60s";
+        }
+      }
     }
+  }
 }
 ```
 
@@ -1237,10 +1237,10 @@ Datrix supports Command Query Responsibility Segregation (CQRS) with materialize
 
 ### Views
 
-```dtrx
+```datrix context=service
 cqrs {
-    view OrderSummary {
-        UUID orderId;
+    view OrderSummaryView {
+        UUID orderId : primaryKey;
         String customerName;
         Money totalAmount;
         Integer itemCount;
@@ -1248,6 +1248,7 @@ cqrs {
     }
 
     view DashboardView {
+        UUID id : primaryKey;
         Integer totalOrders;
         Money totalRevenue;
         Integer pendingCount;
@@ -1258,43 +1259,49 @@ cqrs {
 
 ### Projections
 
-```dtrx
+A projection reacts to events and keeps a view current. The view it updates is found by name: a
+projection named `<Name>Projection` updates the view `<Name>View` of the same `cqrs` block, and a
+projection with no such view is an error (`CQRS003`):
+
+```datrix context=service
 cqrs {
-    view OrderSummary {
-        UUID orderId;
+    view OrderSummaryView {
+        UUID orderId : primaryKey;
         String customerName;
         Money totalAmount;
         OrderStatus status;
     }
 
-    projection BuildOrderSummary on db.Order {
-        return OrderSummary {
-            orderId: id,
-            customerName: UserService.getUser(customerId).name,
-            totalAmount: total,
-            status: status
-        };
+    projection OrderSummaryProjection {
+        on OrderCreated(UUID orderId, Money total, String customerName) {
+            OrderSummaryView.upsert(orderId, {
+                orderId: orderId,
+                customerName: customerName,
+                totalAmount: total,
+                status: OrderStatus.Pending
+            });
+        }
     }
 }
 ```
 
 ### Commands
 
-```dtrx
+```datrix context=service
 cqrs {
-    command PlaceOrder(
-        UUID customerId,
-        List<OrderItem> items
-    ) -> Order {
-        let total = items.map(i => i.price * i.quantity).reduce((a, b) => a + b, 0);
+    command PlaceOrder(PlaceOrderInput input) -> db.Order {
+        let Money total = 0;
+        foreach item in input.items {
+            total = total + item.price * item.quantity;
+        }
 
-        let order = db.Order.create({
-            customerId: customerId,
+        let db.Order order = db.Order.create({
+            customerId: input.customerId,
             total: total,
             status: OrderStatus.Pending
         });
 
-        for (item in items) {
+        foreach item in input.items {
             db.OrderItem.create({
                 orderId: order.id,
                 productId: item.productId,
@@ -1303,7 +1310,7 @@ cqrs {
             });
         }
 
-        dispatch OrderCreated(order.id, total, customerId);
+        dispatch OrderCreated(order.id, total, input.customerName);
         return order;
     }
 }
@@ -1311,62 +1318,47 @@ cqrs {
 
 ### Queries
 
-```dtrx
+```datrix context=service
 cqrs {
-    query GetOrderSummary(UUID orderId) -> OrderSummary {
-        let order = db.Order.findOrFail(orderId);
-        return OrderSummary {
-            orderId: order.id,
-            customerName: UserService.getUser(order.customerId).name,
-            totalAmount: order.total,
-            status: order.status
-        };
+    query GetOrderSummary(UUID orderId) -> OrderSummaryView {
+        return OrderSummaryView.findOrFail(orderId);
     }
 
-    query GetDashboard -> DashboardView {
-        return DashboardView {
-            totalOrders: db.Order.count(),
-            totalRevenue: db.Order.sum(total),
-            pendingCount: db.Order.filter(status == OrderStatus.Pending).count(),
-            shippedCount: db.Order.filter(status == OrderStatus.Shipped).count()
-        };
+    query GetDashboard(UUID id) -> DashboardView {
+        return DashboardView.findOrFail(id);
     }
 }
 ```
+
+A query reads views (or entities); keeping the view current is the projection's job, so a query
+never aggregates on the request path.
 
 ---
 
 ## Storage
 
-Define file/object storage operations (S3-compatible).
+Declare file/object storage (S3-compatible) as a block of folders; the bucket and provider are
+keys of the block's entry in the service `.dcfg`.
 
-```dtrx
+```datrix context=service
 storage files {
-    upload(Bytes file, String filename) -> URL;
-    download(String key) -> Bytes;
-    delete(String key);
-    list(String? prefix) -> List<String>;
+    folder productImages : path('products/'), allowed(['image/jpeg', 'image/png']), maxSize('5mb');
 }
 ```
 
-**Generated interface:**
-
-```python
-class FileStorage:
-    def upload(self, file: bytes, filename: str) -> str: ...
-    def download(self, key: str) -> bytes: ...
-    def delete(self, key: str) -> None: ...
-    def list(self, prefix: str | None = None) -> list[str]: ...
-```
+Each folder offers `upload`, `download`, `delete`, `exists`, `list` and `getMetadata`, reached as
+`files.productImages.upload(...)`; `upload` returns a `StorageRef`.
 
 **Usage in endpoints:**
 
-```dtrx
-@path('/upload')
-post uploadProductImage(Bytes image, String filename) -> URL {
-    let url = files.upload(image, filename);
-    Log.info("Image uploaded", { url: url });
-    return url;
+```datrix context=service
+rest_api ProductAPI : basePath('/api/v1/products') {
+    @path('/images')
+    post uploadProductImage(Bytes image, String filename) : auth(required, providers: [identity], roles: [catalogEditor]) -> StorageRef {
+        let StorageRef ref = files.productImages.upload(filename, image, "image/png");
+        Log.info("Image uploaded", { key: ref.key });
+        return ref;
+    }
 }
 ```
 
@@ -1378,7 +1370,7 @@ post uploadProductImage(Bytes image, String filename) -> URL {
 
 Use modifiers for built-in validation:
 
-```dtrx
+```datrix context=rdbms
 entity Product {
     String(200) name : trim;                        // Trim whitespace
     String(50) sku : unique, uppercase;             // Unique, uppercase
@@ -1393,10 +1385,11 @@ entity Product {
 
 Computed fields are derived from other fields and recalculated on access:
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     Money subtotal;
     Percentage taxRate;
+    OrderStatus status;
     Money tax := subtotal * (taxRate / 100);
     Money total := subtotal + tax;
 
@@ -1416,22 +1409,23 @@ entity Order {
 
 Define custom validation logic:
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     Money subtotal;
     Money discount;
     Money total;
 
     validate {
-        if (discount > subtotal) {
-            throw ValidationError("Discount cannot exceed subtotal");
-        }
-        if (total != subtotal - discount) {
-            throw ValidationError("Total must equal subtotal minus discount");
-        }
+        if (discount > subtotal)
+            ValidationError("Discount cannot exceed subtotal");
+        if (total != subtotal - discount)
+            ValidationError("Total must equal subtotal minus discount");
     }
 }
 ```
+
+Each rule is `if (condition) ValidationError("message");` with a plain string message; every rule
+is evaluated and the failures are reported together.
 
 ---
 
@@ -1452,7 +1446,7 @@ Hooks run automatically when entity events occur.
 
 ### Hook Examples
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     UUID id : primaryKey = uuid();
     UUID customerId;
@@ -1472,7 +1466,7 @@ entity Order {
         dispatch OrderCreated(id, total, customerId);
 
         // Update metrics
-        DailyOrders.increment(utcToday().toString());
+        redis.DailyOrders.increment(utcToday().toString());
     }
 
     beforeUpdate {
@@ -1482,33 +1476,34 @@ entity Order {
 
     afterUpdate {
         // Invalidate cache
-        OrderCache.delete(id);
+        redis.OrderCache.delete(id);
 
         // Check for status change
-        if (status != $old.status) {
-            dispatch OrderStatusChanged(id, $old.status, status);
+        if (isChanged(status)) {
+            dispatch OrderStatusChanged(id, oldValue(status), status);
         }
     }
 
     afterDelete {
         // Cleanup
-        OrderCache.delete(id);
+        redis.OrderCache.delete(id);
         dispatch OrderDeleted(id);
     }
 }
 ```
 
-### Special Variables
+### Previous Values
 
-| Variable | Available In | Purpose |
-|----------|--------------|---------|
-| `$old` | `afterUpdate` | Access previous field values |
+| Call | Available In | Purpose |
+|------|--------------|---------|
+| `isChanged(field)` | `beforeUpdate`, `afterUpdate` | Whether the update changed the field |
+| `oldValue(field)` | `beforeUpdate`, `afterUpdate` | The field's value before the update |
 
 **Example:**
 
-```dtrx
+```datrix context=entity
 afterUpdate {
-    if (status == OrderStatus.Shipped && $old.status != OrderStatus.Shipped) {
+    if (isChanged(status) && status == OrderStatus.Shipped) {
         dispatch OrderShipped(id, DateTime.now());
     }
 }
@@ -1522,8 +1517,8 @@ afterUpdate {
 
 Register dependencies on other services:
 
-```dtrx
-service ecommerce.OrderService : version('1.0.0') {
+```datrix
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     discovery {
         UserService {
             loadBalance: roundRobin,
@@ -1553,33 +1548,41 @@ Configure circuit breaker, retry, timeout, and bulkhead patterns:
 **config/order-service.dcfg:**
 
 ```dcfg
-config service OrderService {
-    profile test {
-        resilience {
-            circuitBreaker {
-                failureThreshold: 5
-                timeout: 60000
-            }
-            retry {
-                maxAttempts: 3
-                backoff { type: exponential }
-            }
+config service ecommerce.OrderService {
+  base {
+    resilience {
+      defaults {
+        timeout = "10s";
+        retry {
+          maxAttempts = 3;
+          backoff {
+            type = "exponential";
+            initial = "1s";
+            multiplier = 2;
+            max = "10s";
+          }
         }
+      }
+      config {
+        PaymentService {
+          timeout = "30s";
+          circuitBreaker {
+            failureThreshold = 5;
+            timeout = "60s";
+          }
+          bulkhead {
+            maxConcurrent = 10;
+            maxWait = "500ms";
+          }
+        }
+      }
     }
+  }
 }
-      initialDelay: 1000   # 1 second
-      maxDelay: 10000      # 10 seconds
-      multiplier: 2
-
-  timeout:
-    default: 30000         # 30 seconds
-    read: 10000            # 10 seconds
-    connect: 5000          # 5 seconds
-
-  bulkhead:
-    maxConcurrent: 10
-    maxWaiting: 5
 ```
+
+`defaults` applies to every call to another service; `config` overrides it per dependency, keyed
+by the service name as the `uses` line spells it.
 
 > **📖 Reference:** See [Configuration Guide § Resilience](./configuration-guide.md#resilience-configuration) for complete resilience config options.
 
@@ -1649,7 +1652,7 @@ Extern services are **not** for communication between Datrix-generated services 
 
 An extern service is a top-level `.dtrx` block that describes the external service's API:
 
-```dtrx
+```datrix
 extern service pricing.PricingEngine('config/pricing-engine.dcfg')
     : version('1.0.0'), description('External pricing engine') {
 
@@ -1702,14 +1705,16 @@ Key differences from a regular `service`:
 
 A Datrix service consumes an extern service with `uses`, just like `shared` blocks:
 
-```dtrx
-service ecommerce.OrderService('config/order-service.dcfg') {
+```datrix
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     uses PricingEngine;
 
+    // PricingRequest, PricingResponse and PricingTier are in scope here, and a typed
+    // PricingEngine client (with its auth and contracts) is generated into this service.
     rest_api OrderAPI : basePath('/api/v1/orders') {
-        post createOrder(CreateOrderRequest req) -> OrderResponse {
-            // PricingRequest/PricingResponse types are available
-            // Generated client handles the HTTP call + auth
+        @path('/tiers')
+        get() : auth(public) -> Array<PricingTier> {
+            return [PricingTier.STANDARD, PricingTier.PREMIUM, PricingTier.ENTERPRISE];
         }
     }
 }
@@ -1803,30 +1808,26 @@ Datrix supports multi-tenant applications with tenant isolation at the data laye
 
 ### Defining Tenantable Entities
 
-```dtrx
-from datrix.builtin import Tenantable;
-
-entity Organization extends BaseEntity with Tenantable {
+```datrix context=rdbms
+entity Organization extends BaseEntity {
     String(100) name : unique;
     String slug : unique, lowercase;
 }
 
 entity User extends BaseEntity with Tenantable {
     String(100) name;
-    Email email : unique;
-    UUID organizationId;  // Tenant identifier
+    Email email : unique;    // becomes UNIQUE (tenant_id, email)
 }
 
 entity Order extends BaseEntity with Tenantable {
-    UUID customerId;
+    UUID customerId : index; // becomes INDEX (tenant_id, customer_id)
     Money total;
-    UUID organizationId;  // All Tenantable entities need this
 }
 ```
 
-**The `Tenantable` trait adds:**
-- `UUID organizationId` field (or your configured tenant ID field)
-- Automatic tenant filtering on all queries
+**The builtin `Tenantable` trait (no import needed) adds:**
+- A `UUID tenantId` field
+- Automatic tenant filtering on all queries, and tenant-scoped indexes and unique constraints
 - Validation ensuring tenant context is present
 
 ### Configuring Tenancy
@@ -1834,18 +1835,16 @@ entity Order extends BaseEntity with Tenantable {
 **config/order-service.dcfg:**
 
 ```dcfg
-config service OrderService {
-    profile test {
-        platform: compose
-        replicas: 1
-        tenancy {
-            identifier {
-                source: header
-                name: X-Tenant-Id
-            }
-            enforcement: strict
-        }
+config service ecommerce.OrderService {
+  base {
+    tenancy {
+      identifier {
+        source = "header";
+        name = "X-Tenant-Id";
+      }
+      enforcement = "strict";
     }
+  }
 }
 ```
 
@@ -1869,7 +1868,7 @@ config service OrderService {
 @router.get("/orders")
 async def list_orders(tenant_id: UUID = Depends(get_tenant_id)):
     # tenant_id automatically injected
-    # Query automatically filtered: WHERE organization_id = tenant_id
+    # Query automatically filtered: WHERE tenant_id = :tenant_id
     return await Order.find_all()
 ```
 
@@ -1893,13 +1892,15 @@ read across every tenant instead — a service-to-service route, a role-gated st
 consumer of an event with no tenant, a scheduled job. Write `@crossTenant` on one of these to
 declare it intentionally unscoped:
 
-```dtrx
-@crossTenant
-job SweepStaleOrders {
-    let Array<Order> stale = Order.where(status: Submitted).all();
-    foreach order in stale {
-        order.status = OrderStatus.Expired;
-        order.save();
+```datrix context=service
+jobs('config/order-service.dcfg') {
+    @crossTenant
+    job SweepStaleOrders {
+        let Array<db.Order> stale = db.Order.where(status: OrderStatus.Submitted).all();
+        foreach order in stale {
+            order.status = OrderStatus.Expired;
+            order.save();
+        }
     }
 }
 ```
@@ -1913,13 +1914,15 @@ A top-level read in such a body is unscoped; a top-level write (`create`, `updat
 batch operations) fails generation. To write for one tenant inside a declared body, either loop
 over rows that already carry a tenant, or scope a region explicitly:
 
-```dtrx
-@crossTenant
-job GenerateMonthlyInvoices {
-    let Array<Customer> customers = db.Customer.all();
-    foreach customer in customers {
-        tenant(customer.id) {
-            generateInvoicesForPeriod(previousBillingPeriod());
+```datrix context=service
+jobs('config/billing-service.dcfg') {
+    @crossTenant
+    job GenerateMonthlyInvoices {
+        let Array<db.Customer> customers = db.Customer.all();
+        foreach customer in customers {
+            tenant(customer.id) {
+                generateInvoicesForPeriod(previousBillingPeriod());
+            }
         }
     }
 }
@@ -1932,10 +1935,12 @@ be an identifier or a property chain the body already holds — never a literal 
 A trusted service route may also name its tenant with a declared path or query parameter instead
 of a request-body field:
 
-```dtrx
-@path('/usage/:orgId')
-get serviceUsage(UUID orgId) : auth(service, providers: [internal]) -> UsageReport {
-    return db.Organization.findOrFail(orgId).usageReport();
+```datrix context=service
+rest_api UsageAPI : basePath('/internal') {
+    @path('/usage/:orgId')
+    get serviceUsage(UUID orgId) : auth(service, providers: [internal]) -> UsageReport {
+        return db.Organization.findOrFail(orgId).usageReport();
+    }
 }
 ```
 
@@ -1947,7 +1952,7 @@ get serviceUsage(UUID orgId) : auth(service, providers: [internal]) -> UsageRepo
 
 ### 1. Use Abstract Entities for Common Fields
 
-```dtrx
+```datrix context=rdbms
 abstract entity BaseEntity {
     UUID id : primaryKey, server = uuid();
     DateTime createdAt : server = DateTime.now();
@@ -1955,28 +1960,25 @@ abstract entity BaseEntity {
 }
 
 // All entities extend BaseEntity
-entity User extends BaseEntity { ... }
-entity Order extends BaseEntity { ... }
+entity User extends BaseEntity { String(100) name; }
+entity Order extends BaseEntity { Money total; }
 ```
 
 ### 2. Apply Traits for Cross-Cutting Concerns
 
-```dtrx
+```datrix context=rdbms
 trait Auditable {
     String? createdBy;
     String? updatedBy;
 }
 
-trait SoftDeletable {
-    DateTime? deletedAt;
-}
-
-entity Order extends BaseEntity with Auditable, SoftDeletable { ... }
+// SoftDeletable is a builtin trait: use it, never redefine it
+entity Order extends BaseEntity with Auditable, SoftDeletable { Money total; }
 ```
 
 ### 3. Use Server-Managed Fields
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     UUID id : primaryKey, server = uuid();        // Server generates
     DateTime createdAt : server = DateTime.now();           // Server sets
@@ -1987,7 +1989,7 @@ entity Order {
 
 ### 4. Leverage Computed Fields
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     Money subtotal;
     Percentage taxRate;
@@ -1998,23 +2000,21 @@ entity Order {
 
 ### 5. Emit Events in Hooks
 
-```dtrx
-entity Order {
-    afterCreate {
-        dispatch OrderCreated(id, total, customerId);
-    }
+```datrix context=entity
+afterCreate {
+    dispatch OrderCreated(id, total, customerId);
+}
 
-    afterUpdate {
-        if (status != $old.status) {
-            dispatch OrderStatusChanged(id, $old.status, status);
-        }
+afterUpdate {
+    if (isChanged(status)) {
+        dispatch OrderStatusChanged(id, oldValue(status), status);
     }
 }
 ```
 
 ### 6. Index Foreign Keys and Frequently Queried Fields
 
-```dtrx
+```datrix context=rdbms
 entity Order {
     UUID customerId : index;               // Frequently queried
     OrderStatus status : index;            // Frequently filtered
@@ -2024,7 +2024,7 @@ entity Order {
 
 ### 7. Use Enums for Fixed Value Sets
 
-```dtrx
+```datrix context=service
 enum OrderStatus {
     Pending,
     Confirmed,
@@ -2033,32 +2033,35 @@ enum OrderStatus {
     Cancelled
 }
 
-entity Order {
-    OrderStatus status = OrderStatus.Pending;
+rdbms db {
+    entity Order {
+        UUID id : primaryKey, server = uuid();
+        OrderStatus status = OrderStatus.Pending;
+    }
 }
 ```
 
 ### 8. Separate Concerns with Modules
 
-```dtrx
+Each file holds one concern: `specs/common/traits.dtrx` the shared traits, `specs/common/entities.dtrx`
+the shared abstract entities, and one file per service:
+
+```datrix
 // specs/common/traits.dtrx — Shared traits
 module ecommerce.common {
-    trait Auditable { ... }
-}
-
-// specs/common/entities.dtrx — Shared abstract entities
-module ecommerce.common {
-    abstract entity BaseEntity { ... }
+    trait Auditable { String? createdBy; }
 }
 
 // specs/services/order-service.dtrx — Service-specific
-service ecommerce.OrderService { ... }
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
+    enum OrderStatus { Pending, Shipped }
+}
 ```
 
 ### 9. Configure Resilience for External Dependencies
 
-```dtrx
-service OrderService {
+```datrix
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     discovery {
         PaymentService {
             loadBalance: roundRobin,
@@ -2072,14 +2075,22 @@ service OrderService {
 
 ### 10. Use Cache Invalidation in Hooks
 
-```dtrx
+```datrix context=service
 cache redis {
-    hash OrderCache on db.Order ttl(30m) { ... }
+    hash OrderCache : prefix('order:'), ttl(1800) {
+        UUID orderId : primaryKey;
+        Money total;
+    }
 }
 
-entity Order {
-    afterUpdate {
-        OrderCache.delete(id);  // Invalidate cache on update
+rdbms db {
+    entity Order {
+        UUID id : primaryKey, server = uuid();
+        Money total;
+
+        afterUpdate {
+            redis.OrderCache.delete(id);  // Invalidate cache on update
+        }
     }
 }
 ```
@@ -2090,79 +2101,103 @@ entity Order {
 
 ### Pattern: Soft Delete
 
-```dtrx
-trait SoftDeletable {
-    DateTime? deletedAt;
-    String? deletedBy;
+```datrix context=service
+rdbms db {
+    // SoftDeletable is builtin: it supplies deletedAt, deletedBy and isDeleted
+    entity Order with SoftDeletable {
+        UUID id : primaryKey, server = uuid();
+        Money total;
+    }
 }
 
-entity Order extends BaseEntity with SoftDeletable {
-    // Fields
-}
-
-// In API
-delete deleteOrder(UUID id) {
-    let order = db.Order.findOrFail(id);
-    order.deletedAt = DateTime.now();
-    order.deletedBy = Request.userId();
-    db.Order.save(order);
+rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
+    @path('/:id')
+    delete(UUID id) : auth(required, providers: [identity]) -> Void {
+        let Order order = Order.findOrFail(id);
+        order.deletedAt = DateTime.now();
+        order.deletedBy = Auth.subject;
+        order.save();
+    }
 }
 ```
 
 ### Pattern: Optimistic Locking
 
-```dtrx
-entity Order {
-    Integer version = 0;
+```datrix context=service
+exceptions {
+    ConflictError : status(409), message("Order was modified by another user");
+}
 
-    beforeUpdate {
-        version = version + 1;
+struct OrderUpdate {
+    Integer version;
+    Money total;
+}
+
+rdbms db {
+    entity Order {
+        UUID id : primaryKey, server = uuid();
+        Money total;
+        Integer version = 0;
+
+        beforeUpdate {
+            version = version + 1;
+        }
     }
 }
 
-// In update logic
-patch updateOrder(UUID id, OrderUpdate data) -> Order {
-    let order = db.Order.findOrFail(id);
-    if (order.version != data.version) {
-        throw ConflictError("Order was modified by another user");
+rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
+    @path('/:id')
+    patch(UUID id, OrderUpdate data) : auth(required, providers: [identity]) -> Order {
+        let Order order = Order.findOrFail(id);
+        if (order.version != data.version) {
+            throw ConflictError();
+        }
+        order.total = data.total;
+        order.save();
+        return order;
     }
-    // Apply updates
-    db.Order.save(order);
-    return order;
 }
 ```
 
 ### Pattern: Idempotent Operations
 
-```dtrx
-entity PaymentTransaction {
-    String idempotencyKey : unique;
+```datrix context=service
+enum PaymentStatus { Pending, Settled, Failed }
+
+struct PaymentRequest {
+    String idempotencyKey;
     Money amount;
-    PaymentStatus status;
 }
 
-post processPayment(String idempotencyKey, Money amount) -> PaymentTransaction {
-    let existing = db.PaymentTransaction.findBy({ idempotencyKey: idempotencyKey });
-    if (existing != null) {
-        return existing;  // Already processed
+rdbms db {
+    entity PaymentTransaction {
+        UUID id : primaryKey, server = uuid();
+        String idempotencyKey : unique;
+        Money amount;
+        PaymentStatus status;
     }
+}
 
-    let transaction = db.PaymentTransaction.create({
-        idempotencyKey: idempotencyKey,
-        amount: amount,
-        status: PaymentStatus.Pending
-    });
+rest_api PaymentAPI : basePath('/api/v1/payments'), rdbms(db) {
+    @path('/')
+    post(PaymentRequest request) : auth(required, providers: [identity]) -> PaymentTransaction {
+        let PaymentTransaction? existing = PaymentTransaction.where(idempotencyKey: request.idempotencyKey).first();
+        if (existing != null) {
+            return existing;  // Already processed
+        }
 
-    // Process payment
-    // ...
-
-    return transaction;
+        return PaymentTransaction.create({
+            idempotencyKey: request.idempotencyKey,
+            amount: request.amount,
+            status: PaymentStatus.Pending
+        });
+    }
 }
 ```
 
 ### Pattern: Saga Pattern (Event-Driven)
 
-```dtrx
+```datrix
 // Order Service
 service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     pubsub mq {
@@ -2175,14 +2210,20 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
 
 // Payment Service
 service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0') {
+    uses OrderService : subscribe;
+
     pubsub mq {
+        topic PaymentEvents {
+            publish PaymentReserved(UUID orderId, Money total);
+            publish PaymentFailed(UUID orderId, String reason);
+        }
     }
 
     subscribe ecommerce.OrderService.mq.OrderEvents {
         on OrderPlaced(UUID orderId, UUID customerId, Money total) {
-            // Reserve payment
-            let success = PaymentService.reservePayment(customerId, total);
-            if (success) {
+            // Reserve payment with the service's own fn
+            let Boolean reserved = reservePayment(customerId, total);
+            if (reserved) {
                 dispatch PaymentReserved(orderId, total);
             } else {
                 dispatch PaymentFailed(orderId, "Insufficient funds");
@@ -2193,15 +2234,20 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
 
 // Inventory Service
 service ecommerce.InventoryService('config/inventory-service.dcfg') : version('1.0.0') {
+    uses OrderService : subscribe;
+
     pubsub mq {
+        topic InventoryEvents {
+            publish InventoryReserved(UUID orderId);
+            publish InventoryFailed(UUID orderId, String reason);
+        }
     }
 
     subscribe ecommerce.OrderService.mq.OrderEvents {
         on OrderPlaced(UUID orderId, UUID customerId, Money total) {
-            // Reserve inventory
-            let items = OrderService.getOrderItems(orderId);
-            let success = InventoryService.reserveItems(items);
-            if (success) {
+            // Reserve inventory with the service's own fn
+            let Boolean reserved = reserveStock(orderId);
+            if (reserved) {
                 dispatch InventoryReserved(orderId);
             } else {
                 dispatch InventoryFailed(orderId, "Out of stock");

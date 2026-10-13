@@ -2,7 +2,7 @@
 
 **Last Updated:** April 24, 2026
 
-Event contracts enforce **value-level invariants** on event payloads using `ensure` clauses. They complement the structural validation already performed by the semantic analyzer (EVT001-EVT006) by catching semantically invalid data **before** it propagates to subscribers.
+Event contracts enforce **value-level invariants** on event payloads using `ensure` clauses. They complement the structural validation already performed by the semantic analyzer (EVT002-EVT004, REF004-REF005, TYP001) by catching semantically invalid data **before** it propagates to subscribers.
 
 ---
 
@@ -30,8 +30,8 @@ Service B receives `totalAmount = -50.00`, processes it, and corrupts downstream
 Ensure clauses live inside the `publish` event declaration body:
 
 ```datrix
-service ecommerce.OrderService : version('1.0.0') {
-    pubsub mq('config/pubsub.dcfg') {
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
+    pubsub mq {
         topic OrderEvents {
             publish OrderPlaced(UUID orderId, Decimal totalAmount, Int itemCount) {
                 ensure totalAmount > 0;
@@ -47,15 +47,21 @@ service ecommerce.OrderService : version('1.0.0') {
     }
 
     subscribe ecommerce.OrderService.mq.OrderEvents {
-        on OrderPlaced(orderId, totalAmount, itemCount) { ... }
+        on OrderPlaced(UUID orderId, Decimal totalAmount, Int itemCount) {
+            Log.info(#"order {orderId} placed with {itemCount} items");
+        }
     }
 }
 ```
 
 Events without contracts keep the existing semicolon-terminated syntax:
 
-```datrix
-publish OrderShipped(UUID orderId, DateTime shippedAt);
+```datrix context=service
+pubsub mq {
+    topic OrderEvents {
+        publish OrderShipped(UUID orderId, DateTime shippedAt);
+    }
+}
 ```
 
 ---
@@ -169,23 +175,25 @@ Contract test files verify:
 
 ## Shared topics and qualified `subscribe`
 
-When a **`topic`** lives under **`shared IngestionEvents { pubsub mq('…') { topic IngestionEvents { … }}}`**, every consuming service uses a **qualified** topic name and declares **`uses`**:
+When a **`topic`** lives under **`shared IngestionEvents(…) { pubsub mq { topic IngestionEvents { … }}}`**, every consuming service uses a **qualified** topic name and declares **`uses`**:
 
 ```datrix
-shared IngestionEvents {
-    pubsub mq('config/ingestion-pubsub.dcfg') {
+system analysis.Platform('config/system.dcfg') : version('1.0.0') {}
+
+shared IngestionEvents('config/ingestion.dcfg') {
+    pubsub mq {
         topic IngestionEvents {
             publish SupplementalSourceIngested(String source, String layer, DateTime timestamp);
         }
     }
 }
 
-service analysis.AnalysisService : version('1.0') {
+service analysis.AnalysisService('config/analysis-service.dcfg') : version('1.0.0') {
     uses IngestionEvents : subscribe;
 
     subscribe IngestionEvents.mq.IngestionEvents {
         on SupplementalSourceIngested(String source, String layer, DateTime timestamp) {
-            // handler
+            Log.info(#"ingested {layer} from {source}");
         }
     }
 }
@@ -203,7 +211,7 @@ Event contracts build on existing Datrix infrastructure:
 |-----------|------|
 | **Expression AST** | 16 expression node types in `datrix_common.datrix_model.expressions` — `ensure` clauses use the full expression language |
 | **Event model** | `PubsubBlock` > `Topic` > `Event` > `Parameter` — ensure clauses attach directly to `Event` via `ensure_clauses: tuple[EnsureClause, ...]` |
-| **Event validator** | EVT001-EVT006 validate structural event correctness (subscriptions are on **`Service.subscriptions`**, not `PubsubBlock`) — contract validation (CTR001-CTR003) runs after and extends this |
+| **Event validator** | EVT002-EVT004 validate structural event correctness (subscriptions are on **`Service.subscriptions`**, not `PubsubBlock`) — contract validation (CTR001-CTR003) runs after and extends this |
 | **Transpilers** | Visitor-based `PythonTranspiler` and `TypeScriptTranspiler` — contract validation functions are transpiled from `ensure` expressions |
 
 ---

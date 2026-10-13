@@ -21,6 +21,8 @@ Open-world targets, derived conformance: [Decision 15](../architecture-overview.
 
 (The check commands are `powershell -File "d:/datrix/datrix/scripts/scan/check-import-boundaries.ps1" <flag>`.)
 
+**A new target's declarative cases register from its own `tests/`.** The case format, runner and registries (`datrix_testing.cases`) name no target. A new language, platform or frontend covers its facts as case rows by registering, from its own `tests/conftest.py`, what only it has: a stage (`register_stage`), an observer (`register_observer`), the parser family of an artifact kind no shipped family reads (`register_surface_family`) and its typed builders (`register_builder`). A registration is visible in that package's session only; no edit to `datrix-testing`, the runner or the case schema is ever needed. `cases.ps1 check` names the package registering a stage or observer a case uses when the case's own package does not ([unit-test-guidelines §4](../../../../datrix-common/docs/contributing/test-guidelines/unit-test-guidelines.md#decision-facts-as-cases)).
+
 ## Open-World Identity, Flavors, Runtimes
 
 [Decision 22](../architecture-overview.md#decision-22-open-world-identity-providers-and-infrastructure-flavors-adopted) — Adopted.

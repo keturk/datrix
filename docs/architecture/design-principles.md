@@ -249,17 +249,18 @@ Storage blocks are `rdbms` and `nosql`. Each entity belongs to exactly one stora
 
 **Example (stable resolution):**
 
-```dtrx
-service MemberService {
+```datrix
+service club.MemberService('config/member-service.dcfg') : version('1.0.0') {
     rdbms memberDb {
         entity Member {
-            id: UUID primaryKey
+            UUID id : primaryKey = uuid();
         }
     }
 
     // This API works because of the rdbms(memberDb) default
     rest_api MemberAPI : basePath("/members"), rdbms(memberDb) {
-        get(UUID id) -> Member {
+        @path('/:id')
+        get(UUID id) : auth(public) -> Member {
             return Member.findOrFail(id);
         }
     }
@@ -268,14 +269,14 @@ service MemberService {
 
 Adding a second storage block does not break the API:
 
-```dtrx
-    rdbms auditDb {
-        entity AuditEntry {
-            id: UUID primaryKey
-        }
+```datrix context=service
+rdbms auditDb {
+    entity AuditEntry {
+        UUID id : primaryKey = uuid();
     }
+}
 
-    // MemberAPI still resolves Member to memberDb.Member (not ambiguous)
+// MemberAPI still resolves Member to memberDb.Member (not ambiguous)
 ```
 
 ---
@@ -381,7 +382,7 @@ Adding a second storage block does not break the API:
 - **NoSQL parity:** NoSQL blocks support `entity`, `abstract_entity`, `trait`, `enum`, `alert` — same as RDBMS
 
 **Example:**
-```datrix
+```datrix context=service
 trait Searchable {
     String(500) description;
     String(50) category;
@@ -390,12 +391,12 @@ trait Searchable {
     index(category, description);
 
     validate {
-        if (description.length < 10)
+        if (description.length() < 10)
             ValidationError("Description too short");
     }
 }
 
-nosql analytics('config.dcfg') {
+nosql analytics {
     // NoSQL supports traits, abstract entities, enums — same as RDBMS
     trait Timestamped {
         DateTime createdAt = DateTime.now();
@@ -403,6 +404,7 @@ nosql analytics('config.dcfg') {
     }
 
     entity UserActivity with Timestamped, Searchable {
+        UUID id : primaryKey = uuid();
         UUID userId : index;
         JSON payload;
     }
@@ -424,20 +426,20 @@ nosql analytics('config.dcfg') {
 **Application:**
 ```datrix
 // Same DSL works for all platforms (excerpt from examples/01-foundation/book-service-base.dtrx)
-service library.BookService : version('1.0.0') {
- rdbms db('config/book-service/datasources.dcfg') {
- abstract entity BaseEntity {
- UUID id : primaryKey, server = uuid();
- DateTime createdAt : server = DateTime.now();
- DateTime updatedAt : server = DateTime.now();
- }
- entity Book extends BaseEntity {
- String(200) title;
- String(20) isbn;
- String(100) author;
- Int publicationYear;
- }
- }
+service library.BookService('config/book-service.dcfg') : version('1.0.0') {
+    rdbms db {
+        abstract entity BaseEntity {
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
+        }
+        entity Book extends BaseEntity {
+            String(200) title;
+            String(20) isbn;
+            String(100) author;
+            Int publicationYear;
+        }
+    }
 }
 
 // Deployment target selection via config (system .dcfg: deployment), not CLI flags.
@@ -463,11 +465,11 @@ service library.BookService : version('1.0.0') {
 **Application:**
 
 **Inheritance:** (inside an rdbms block; see [examples/01-foundation](../../examples/01-foundation/))
-```datrix
+```datrix context=rdbms
 abstract entity BaseEntity {
- UUID id : primaryKey, server = uuid();
- DateTime createdAt : server = DateTime.now();
- DateTime updatedAt : server = DateTime.now();
+    UUID id : primaryKey, server = uuid();
+    DateTime createdAt : server = DateTime.now();
+    DateTime updatedAt : server = DateTime.now();
 }
 
 // Inherit everywhere - no repetition
@@ -477,17 +479,20 @@ entity Product extends BaseEntity { }
 ```
 
 **Struct Reuse:** (structs and entities inside service blocks; see [examples/02-features/02-service-architecture/modules-imports](../../examples/02-features/02-service-architecture/modules-imports/))
-```datrix
+```datrix context=service
 struct Address {
- String street;
- String city;
- String state;
- String zipCode;
+    String street;
+    String city;
+    String state;
+    String zipCode;
 }
 
-entity User extends BaseEntity {
- Address shippingAddress; // Reuse
- Address billingAddress; // Reuse
+rdbms db {
+    entity User {
+        UUID id : primaryKey = uuid();
+        Address shippingAddress; // Reuse
+        Address billingAddress; // Reuse
+    }
 }
 ```
 
@@ -498,9 +503,9 @@ entity User extends BaseEntity {
 **Principle:** Each service owns its infrastructure and business logic. The DSL makes service boundaries explicit.
 
 **Application:**
-- Each service declares its own data stores via named blocks: `rdbms db('path')`, `cache redis('path')`, `nosql docdb('path')`, `storage store('path')`, `pubsub mq('path')`, `search es('path')`
-- Config is externalized and profile-based (YAML/JSON). Top-level keys are profile names (`development`, `production`); the generator selects the key from the system profile
-- One statement per concern: registration, resilience, and each integration type are separate config statements; deployment-related settings (replicas, resources, healthCheck) live in service-config YAML, not in the DSL
+- Each service declares its own data stores via named blocks: `rdbms db`, `cache redis`, `nosql docdb`, `storage store`, `pubsub mq`, `search es`; each block's connection lives in the service `.dcfg`, keyed by the block name
+- Config is externalized and profile-based. Top-level keys are profile names (`development`, `production`); the generator selects the key from the system profile
+- Registration, resilience and each integration type are sections of the service config, never DSL statements; deployment-related settings (replicas, resources, healthCheck) live there too
 
 ---
 
@@ -509,13 +514,13 @@ entity User extends BaseEntity {
 **Principle:** All data blocks require a user-chosen block name, enabling block-qualified access from outside the block.
 
 **Named Block Syntax:**
-```datrix
-rdbms db('config/datasources.dcfg') { ... }
-nosql docdb('config/nosql.dcfg') { ... }
-cache redis('config/cache.dcfg') { ... }
-storage store('config/storage.dcfg') { ... }
-pubsub mq('config/pubsub.dcfg') { ... }
-search es('config/search.dcfg') { ... }
+```datrix context=service
+rdbms db { }
+nosql docdb { }
+cache redis { }
+storage store { }
+pubsub mq { }
+search es { }
 ```
 
 **Access Rules:**
@@ -534,32 +539,32 @@ search es('config/search.dcfg') { ... }
 **Application:**
 
 **Simple entity (minimal syntax; inside rdbms block):**
-```datrix
+```datrix context=rdbms
 entity User extends BaseEntity {
- String(100) name;
- Email email;
+    String(100) name;
+    Email email;
 }
 ```
 
 **Complex entity (when needed):**
-```datrix
+```datrix context=rdbms
 entity User extends BaseEntity {
- Email email : unique;
- Password passwordHash;
- String(100) firstName;
- String(100) lastName;
- UserRole role = UserRole.Customer;
+    Email email : unique;
+    Password passwordHash;
+    String(100) firstName;
+    String(100) lastName;
+    UserRole role = UserRole.Customer;
 
- String fullName := "{firstName} {lastName}";
+    String fullName := #"{firstName} {lastName}";
 
- validate {
- if (firstName.trim().isEmpty())
- ValidationError("First name is required");
- }
+    validate {
+        if (firstName.trim().isEmpty())
+            ValidationError("First name is required");
+    }
 
- afterCreate {
- dispatch UserRegistered(id, email);
- }
+    afterCreate {
+        dispatch UserRegistered(id, email);
+    }
 }
 ```
 

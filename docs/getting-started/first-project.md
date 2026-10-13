@@ -30,15 +30,12 @@ my-library/
 ├── book-service.dtrx
 └── config/
     ├── system.dcfg
-    ├── registry.dcfg
-    ├── gateway.dcfg
-    ├── observability.dcfg
-    └── book-service/
-        ├── book-service.dcfg
-        ├── registration.dcfg
-        ├── resilience.dcfg
-        └── datasources.dcfg
+    └── book-service.dcfg
 ```
+
+The system config holds the deployment, registry, gateway and observability settings; the
+service config holds registration, resilience and the connection of each infrastructure block
+(here `bookDb`). Neither `.dtrx` file names any other config file.
 
 Copy the `.dcfg` files from [`examples/02-features/01-core-data-modeling/rest-api/config/`](../../examples/02-features/01-core-data-modeling/rest-api/config/) so paths and profile keys match what the generators expect.
 
@@ -46,14 +43,11 @@ Copy the `.dcfg` files from [`examples/02-features/01-core-data-modeling/rest-ap
 
 ## Step 2: Entry point (`system.dtrx`)
 
-```datrix
-include 'book-service.dtrx';
+`system.dtrx` starts with `include 'book-service.dtrx';`, which pulls in the service file from
+Step 3, followed by the system block:
 
-system library.System : version('1.0.0') {
-    config('config/system.dcfg');
-    registry('config/registry.dcfg');
-    gateway('config/gateway.dcfg');
-    observability('config/observability.dcfg');
+```datrix
+system library.System('config/system.dcfg') : version('1.0.0') {
 }
 ```
 
@@ -64,12 +58,9 @@ system library.System : version('1.0.0') {
 This matches the reference example (comments optional in your own tree):
 
 ```datrix
-service library.BookService : version('1.0.0'), description('Book management service') {
+service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('Book management service') {
 
-    config('config/book-service/book-service.dcfg');
-    registration('config/book-service/registration.dcfg');
     discovery { }
-    resilience('config/book-service/resilience.dcfg');
 
     enum BookStatus {
         Available,
@@ -85,7 +76,7 @@ service library.BookService : version('1.0.0'), description('Book management ser
         Audiobook
     }
 
-    rdbms bookDb('config/book-service/datasources.dcfg') {
+    rdbms bookDb {
 
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();
@@ -103,8 +94,8 @@ service library.BookService : version('1.0.0'), description('Book management ser
         }
     }
 
-    rest_api BookServiceAPI : basePath("/api/v1") {
-        resource bookDb.Book;
+    rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
+        resource bookDb.Book : auth(public);
     }
 }
 ```
@@ -202,7 +193,7 @@ curl -X POST "http://127.0.0.1:<port>/api/v1/books" \
 
 ## Troubleshooting
 
-**Validation or path errors** — `include` and `config('...')` paths are relative to the **file** that contains them; keep `config/` aligned with those strings.
+**Validation or path errors** — `include` paths and the config path in a `system` or `service` header are relative to the **file** that contains them; keep `config/` aligned with those strings.
 
 **Imports / module not found** — Run from the generated service root and install the package (`pip install -e .`) so `library_book_service` is on `PYTHONPATH`.
 
