@@ -684,6 +684,7 @@ For each invariant / numbered decision (D#/G#) in phase `P`'s `design_contract`:
 2. **Any surface in the design's set that is unguarded / unconverted is a CONFORMANCE FAILURE** — even if every task is COMPLETED and every test run is GREEN. A half-implemented invariant (guarded on the easy surface, silently dropped on the rest) is exactly the escape mode this step is built to catch.
 3. **Verify every task's `design_acceptance_property` was actually proven** (its check + output is in its How-Solved). A COMPLETED task whose property is unproven is a conformance failure — reopen it.
 4. **Check the conformance gaps recorded in Step 1d** (design-named surfaces with no covering task). Any unresolved gap is a phase-level failure.
+5. **Check the declarative cases of every package the phase touched** that carries the case runner (`tests/test_cases.py`): `powershell -File "d:/datrix/datrix/scripts/test/cases.ps1" check {package}` (layout, schema, registered stages and observers, duplicate ids and facts, tags in the vocabulary, every selector resolved on its input). Exit 1 is a conformance failure; paste the command + output.
 
 A conformance failure is handled like a red package: fix it to conformance within the phase (spawn a follow-up task for an out-of-scope root cause), or carry it to Step C's halt-and-ask. **NO declaring the phase done with a known unenforced design surface.** Report each conformance failure explicitly — never let it pass silently under green tests.
 

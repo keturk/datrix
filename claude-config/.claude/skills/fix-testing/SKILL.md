@@ -26,7 +26,7 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 ## Package Specifics
 
 - **Scope:** `datrix-testing` — the shared test harness: real-AST factories, fixtures, assertions, `.dtrx` parsing helpers, determinism and semantic-baseline harnesses.
-- **Fix target:** Source code or test code.
+- **Fix target:** Source code or test code. A failing declarative case (`tests/test_cases.py::test_case[<area>::<case-id>]`) is fixed in product code, or by a person correcting the authored expectation in review — never by writing a code test for the same fact (`guard-code-standards.py` refuses one).
 - **Boundary:** depends on `datrix-common`, `datrix-semantic`, and `datrix-codegen-kernel`. It is a `dev` extra of every package, never a runtime dependency. The `pytest11` feature-tag plugin lives in `datrix-common`, not here — a feature-tag collection failure is a `/fix-common` handoff.
 - **Real objects only:** the harness exists so tests use real ASTs. Never add a mock, `SimpleNamespace`, or fake to a factory or fixture.
 - **CAUTION:** Every package's test suite imports this harness. A changed factory default, fixture shape, or assertion helper can move tests in any package. Flag any public-contract change and run the changed behaviour's feature tags in every consuming package it reaches (never a whole suite).

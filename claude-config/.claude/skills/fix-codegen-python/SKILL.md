@@ -27,7 +27,7 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 
 - **Scope:** Python codegen ONLY. Do NOT cross into TypeScript codegen packages.
 - **Package:** `datrix-codegen-python` — Python codegen.
-- **Fix target:** Generator source code, templates, transpiler, or test code — never generated output.
+- **Fix target:** Generator source code, templates, transpiler, or test code — never generated output. A failing declarative case (`tests/test_cases.py::test_case[<area>::<case-id>]`: a row, or an annotation such as `// @emits <expression>` on a fixture line) is fixed in product code, or by a person correcting the authored expectation or annotation in review — never by writing a code test for the same fact (`guard-code-standards.py` refuses one).
 
 ### Additional Test-to-Source Mapping
 

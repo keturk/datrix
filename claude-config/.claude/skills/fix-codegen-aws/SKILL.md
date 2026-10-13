@@ -26,4 +26,4 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 ## Package Specifics
 
 - **Scope:** `datrix-codegen-aws` — AWS infrastructure codegen.
-- **Fix target:** Generator source code, templates, or test code — never generated output.
+- **Fix target:** Generator source code, templates, or test code — never generated output. A failing declarative case (`tests/test_cases.py::test_case[<area>::<case-id>]`) is fixed in product code, or by a person correcting the authored expectation in review — never by writing a code test for the same fact (`guard-code-standards.py` refuses one).

@@ -26,7 +26,7 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 ## Package Specifics
 
 - **Scope:** `datrix-semantic` — semantic analysis: `SemanticAnalyzer` and its declared phase pipeline, every domain validator, synthesis, auth-contract lowering.
-- **Fix target:** Source code or test code.
+- **Fix target:** Source code or test code. A failing declarative case (`tests/test_cases.py::test_case[<area>::<case-id>]`: a row, or an annotation such as `// @expect <CODE>.<variant>` on a fixture line, per-code fixtures under `tests/fixtures/diagnostics/` included) is fixed in product code, or by a person correcting the authored expectation or annotation in review — never by writing a code test for the same fact (`guard-code-standards.py` refuses one).
 - **Boundary:** depends on `datrix-common` only. A fix must never import the parser (`datrix_language`), the CLI, or a codegen package. Test inputs are built with `datrix-testing` factories, not by parsing through the language package.
 - **Validators fail closed:** a failing validator test is evidence about the validator or the input, not permission to relax the rule. Never weaken, skip, or exempt a validation — especially an auth-contract or permission check — to turn a test green (execution-contract §13).
 - **CAUTION:** Consumed by `datrix-language`, `datrix-cli`, `datrix-testing`, and `datrix-codegen-azure`. A changed diagnostic code, message, or validation outcome reaches every one of them. Flag any public-contract change and run the changed behaviour's feature tags in every consuming package it reaches (never a whole suite).

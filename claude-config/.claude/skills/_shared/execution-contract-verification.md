@@ -56,7 +56,9 @@ Each rung costs roughly an order of magnitude more than the one above it, and re
 
 1. **Read the source / template / config** that produces the artifact.
 2. **Parse the emitted artifact** and compute over it (set difference, key census, structural query).
-3. **Targeted test** in the owning package (`test.ps1 <pkg> -Specific "…"`).
+3. **Targeted test** in the owning package (`test.ps1 <pkg> -Specific "…"`); for a declarative
+   case (a row, an annotation on a fixture line, a docs fence), `test.ps1 <pkg> -Tag <tag>`
+   selecting its case items (or `-Specific "tests/test_cases.py"`).
 4. **A repo static gate** — the scans and parity gates listed in 12.5.
 5. **The tagged tests of the changed behaviour** in every package the change reaches
    (`test.ps1 <pkg-a> <pkg-b> -Tag <tag>`; `_shared/verification-strategy.md`). There is no

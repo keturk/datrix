@@ -190,7 +190,9 @@ Full text: `execution-contract-spend.md` §10–§11.
   **If the guard didn't fire, that is not the rule — this is.**
 - **Name the question before any test run.** Say what failure this run could show that your
   evidence cannot; if a grep, a read, or an already-green targeted run answered it, run nothing.
-  To prove a fix generalises, write a test — never sweep the corpus.
+  To prove a fix generalises, write a case (an annotation on the fixture line for a diagnostic,
+  transpiled-expression, parse or language-server fact; a row otherwise), or a test when the fact
+  is an invariant over a set — never sweep the corpus.
 - **Economical means read NARROWLY, never read LESS.** The test is *"is this question
   load-bearing?"* — if the answer changes what you do next, buy it at any price. **A check
   costs a bounded amount; the defect it would have caught costs an unbounded one.**
@@ -258,7 +260,10 @@ Type hints on all fns. No `Any` (exception: Pydantic `@model_validator(mode="bef
 param). Logging: `logging.getLogger(__name__)`, %-style. Cognitive complexity ≤15; max 3
 nesting; early returns. DRY — search existing fns first. Named constants only. Error msgs:
 what went wrong + expected + valid options + fix suggestion. Testing: real objects only, no
-`unittest.mock`/`SimpleNamespace`/fakes.
+`unittest.mock`/`SimpleNamespace`/fakes; in a package whose `tests/` carries `test_cases.py`, a
+literal fact about a stage result is never a test function: a diagnostic, a transpiled expression
+or a language-server answer at one fixture line is an annotation on that line (`// @expect …`),
+anything else a case row (`cases.ps1 new`).
 
 **Anti-patterns:** No placeholders/TODOs. No silent fallbacks (`dict.get(key, None)`). No
 default type mappings (`get(t, "Any")`). No `except: pass`. No raw string concat for code. No

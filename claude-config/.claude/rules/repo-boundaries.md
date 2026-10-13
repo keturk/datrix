@@ -153,9 +153,19 @@ full suites himself.
 Every test carries at least one feature tag, and a test you add carries one too
 (`datrix-common/docs/contributing/test-guidelines/feature-tags.md`). A behaviour no tagged
 test covers is untested: write the test in the owning package and tag it — a test proves the
-invariant forever; a sweep proves it once and evaporates. If a task file's `## Targeted Tests`
-names a bare full suite, the task file is defective: run the tests of the code you changed and
-say so.
+invariant forever; a sweep proves it once and evaporates. The fact decides the carrier:
+
+| Carrier | The fact |
+|---|---|
+| `annotation` — a `// @expect`, `@expect-none`, `@emits`, `@hover`, `@complete` or `@definition` comment on the fixture line that provokes it | a fact about one line of a committed `.dtrx` (or `.dseed`) fixture: the diagnostic reported there, the code a function declared there emits, the language server's answer at a `$0` cursor there. A new diagnostic variant also gets its per-code fixture, `tests/fixtures/diagnostics/<CODE>.<variant>.dtrx`, provoking that variant and nothing else |
+| `row` — a declarative case (`cases.ps1 new`), in a package whose `tests/` carries `test_cases.py` | any other literal fact about a stage result: one value of a generation, an analysis, a parsed unit, compared with a literal |
+| `code` — a test function | an invariant over a set (consumed − produced, parity, path containment), an exception path, an algorithm's edge cases |
+
+An annotation and a case row carry their own feature tags (an annotation through its fixture's
+`// @tags` header), and `-Tag` selects case items exactly as it selects
+tests (`test.ps1 <pkg> -Tag <tag>` runs the tagged rows of `tests/test_cases.py` with the tagged
+tests). If a task file's `## Targeted Tests` names a bare full suite, the task file is defective:
+run the tests of the code you changed and say so.
 
 Enforced by `guard-full-suite-runs.py`, for every agent including the main session, with no
 override and no ticket. Every blocked attempt is appended to

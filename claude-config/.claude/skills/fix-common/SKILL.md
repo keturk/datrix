@@ -25,5 +25,5 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 
 ## Package Specifics
 
-- **Scope:** shared framework library — fix source code or test code.
+- **Scope:** shared framework library — fix source code or test code. A failing declarative case (`tests/test_cases.py::test_case[<area>::<case-id>]`) is fixed in product code, or by a person correcting the authored expectation in review — never by writing a code test for the same fact (`guard-code-standards.py` refuses one).
 - **CAUTION:** Changes to datrix-common can affect ALL downstream packages (every generator consumes it). Be especially careful with API changes; per CLAUDE.md's cross-surface impact rule, flag any public-contract change and run the changed behaviour's feature tags in every consuming package it reaches (never a whole suite).

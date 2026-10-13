@@ -25,6 +25,13 @@ the union. A "union" assembled from every tag across a dozen tasks IS a full-sui
 instalments: it cost hours in a phase-49 gate and answered nothing the per-task runs had not.
 Drop a package from a tag run when its code does not reach the change.
 
+**Declarative cases ride the same runs.** A task whose facts are case rows names, under
+`## Targeted Tests`, the package's runner `tests/test_cases.py` with the cases' tag (never a
+`test_*.py` to create for a literal fact); the wave and phase gates run those rows through the
+same `-Tag` runs as the tests, and nothing else. While the test-rebuild approval gate is armed,
+a case id written into a `.cases.yaml` must belong to a proposal Jon approved
+(`guard-approved-test-plan.py`; it reaches the file through `cases.ps1 accept`).
+
 **Never run `complete.ps1`** on a task whose agent returned BLOCKED, whose `## How Solved`
 contains `BLOCKED` / `partial` / `out of scope` / `workaround` / `dual path` /
 `not yet wired` or any unmet-criterion statement, or whose design-acceptance property is
@@ -126,8 +133,11 @@ A log naming twenty failing examples is a queue, not a batch. Pick ONE example, 
   ask in one line and wait.
 - **Never generate another example before the current one is fixed** — not to check whether
   it's related, not to see if a fix generalises, not as a mid-fix regression check.
-- **To prove a fix generalises, write a test** in the owning `datrix-codegen-*` package. A
-  test proves the invariant forever; a corpus sweep proves it once and evaporates.
+- **To prove a fix generalises, write a case or a test** in the owning `datrix-codegen-*`
+  package (an annotation on the fixture line for a diagnostic or an emitted expression, a case row
+  for another literal fact where the package carries `tests/test_cases.py`, a
+  test for an invariant over a set). Either proves the invariant forever; a corpus sweep proves
+  it once and evaporates.
 - **No-regression checks run centrally, ONCE**, after the work is done and only over what
   you were asked to touch — never inside each fix iteration, never pasted into every
   dispatched agent's acceptance criteria.

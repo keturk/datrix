@@ -189,6 +189,55 @@ with Repo() as repo:
     check("the NotebookEdit tool is ignored", run({"tool_name": "NotebookEdit",
                                                   "tool_input": {"file_path": mod}})[0], ALLOW)
 
+    print("== literal-fact tests where the package carries the case runner ==")
+    literal = ("\n\ndef test_port(index: dict[str, str]) -> None:\n    assert index['compose.yml'] == '8080'\n"
+               "    assert 'debug' not in index\n")
+    uncased = repo.file("tests/unit/test_facts.py", "def test_kept(index: dict) -> None:\n    assert index == {}\n")
+    check("no case runner: a literal-fact test stays allowed", edit(uncased, "    assert index == {}\n",
+                                                                     "    assert index == {}\n" + literal), ALLOW)
+    repo.file("tests/test_cases.py", "def test_case(case: object) -> None:\n    case.run()\n")
+    facts = repo.file("tests/unit/test_more_facts.py", "def test_kept(index: dict) -> None:\n    assert index == {}\n")
+    check("a literal-fact test added beside the case runner", edit(facts, "    assert index == {}\n",
+                                                                   "    assert index == {}\n" + literal), BLOCK)
+    check("a NEW module holding one", write(os.path.join(repo.root, "tests", "unit", "test_new_facts.py"),
+                                            literal.lstrip()), BLOCK)
+    check("a test with a loop is not a literal fact", edit(facts, "    assert index == {}\n",
+                                                           "    assert index == {}\n\n\ndef test_all(index: dict) -> None:\n"
+                                                           "    for key in index:\n        assert key in 'ab'\n"), ALLOW)
+    check("a set comparison is not a literal fact", edit(facts, "    assert index == {}\n",
+                                                         "    assert index == {}\n\n\ndef test_set(index: dict) -> None:\n"
+                                                         "    assert set(index) == {'a'}\n"), ALLOW)
+    legacy = repo.file("tests/unit/test_legacy.py",
+                       "def test_port(index: dict) -> None:\n    assert index['a'] == '8080'\n")
+    check("editing a legacy literal-fact test is not adding one", edit(legacy, "'8080'", "'8081'"), ALLOW)
+    code, err = run({"tool_name": "Edit", "tool_input": {"file_path": facts, "old_string": "    assert index == {}\n",
+                                                         "new_string": "    assert index == {}\n" + literal}})
+    check("the refusal names the test and the cases.ps1 new form",
+          all(s in err for s in ("[literal-fact] def test_port", "cases.ps1 new", "`absent` case")), True)
+
+    print("== migrated test shapes where the package carries the case runner ==")
+    migrated = {
+        "a diagnostic-code test": ("\n\ndef test_fires(result: object) -> None:\n"
+                                   "    assert diagnostic_codes(result) == ('ENT003',)\n", "diagnostic-code"),
+        "a transpiled-literal test": ("\n\ndef test_emits(transpiler: object, node: object) -> None:\n"
+                                      "    emitted = transpiler.transpile_expression(node).code\n"
+                                      "    assert emitted == 'amount * 2'\n", "transpiled-literal"),
+        "an lsp-at-a-Position test": ("\n\ndef test_offers(document: str) -> None:\n"
+                                      "    items = complete(document, Position(line=0, character=3), app=None, "
+                                      "symbol_index=None)\n"
+                                      "    assert [item.label for item in items] == ['String']\n", "lsp-position"),
+    }
+    for label, (sample, shape) in migrated.items():
+        check(f"{label} added beside the case runner", edit(facts, "    assert index == {}\n",
+                                                            "    assert index == {}\n" + sample), BLOCK)
+        code, err = run({"tool_name": "Edit", "tool_input": {"file_path": facts, "old_string": "    assert index == {}\n",
+                                                             "new_string": "    assert index == {}\n" + sample}})
+        check(f"{label}: refused once, as its migrated shape, naming the annotation",
+              f"({shape})" in err and "[literal-fact]" not in err and "// @" in err, True)
+    check("a code-constant check is no migrated shape", edit(facts, "    assert index == {}\n",
+                                                             "    assert index == {}\n\n\ndef test_const() -> None:\n"
+                                                             "    assert len(error_codes.SYS001) == 6\n"), ALLOW)
+
     print("== the message names what was added ==")
     code, err = run({"tool_name": "Edit", "tool_input": {
         "file_path": mod, "old_string": "    return 1",

@@ -26,6 +26,6 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 ## Package Specifics
 
 - **Scope:** `datrix-codegen-typescript-core` — the shared TypeScript language core: transpiler core and visitors, language profile, type maps and resolver, TypeScript naming and path facts, web-client mechanics. A library with no entry point.
-- **Fix target:** Source code or test code — never generated output.
+- **Fix target:** Source code or test code — never generated output. A failing declarative case (`tests/test_cases.py::test_case[<area>::<case-id>]`: a row, or an annotation such as `// @emits <expression>` on a fixture line) is fixed in product code, or by a person correcting the authored expectation or annotation in review — never by writing a code test for the same fact (`guard-code-standards.py` refuses one).
 - **Boundary:** depends on `datrix-common`, `datrix-codegen-kernel`, and `datrix-codegen-common` only (import-linter contract + fresh-subprocess test that imports each module first). A fix must never import `datrix_codegen_typescript` (the backend) or any frontend target such as `datrix_codegen_angular` — those depend on this package, not the reverse.
 - **CAUTION:** Consumed by the TypeScript backend (`datrix-codegen-typescript`) and every frontend target that emits TypeScript (`datrix-codegen-angular` today). Flag any public-contract change and run the changed behaviour's feature tags in every consuming package it reaches (never a whole suite).

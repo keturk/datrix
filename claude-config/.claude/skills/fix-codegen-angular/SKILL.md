@@ -27,7 +27,7 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 
 - **Scope:** Angular frontend-client codegen ONLY. Do NOT cross into the backend language codegen packages (`datrix-codegen-typescript`, `-python`, or any other registered language) or into the sibling frontend target `datrix-codegen-flutter`.
 - **Package:** `datrix-codegen-angular` — frontend API client generation (models, enums, injectable HTTP clients, route/provider manifest).
-- **Fix target:** Generator source code, DAL generator definitions, Jinja2 templates, or test code — never generated output.
+- **Fix target:** Generator source code, DAL generator definitions, Jinja2 templates, or test code — never generated output. A failing declarative case (`tests/test_cases.py::test_case[<area>::<case-id>]`) is fixed in product code, or by a person correcting the authored expectation in review — never by writing a code test for the same fact (`guard-code-standards.py` refuses one).
 
 ### This is a frontend TARGET, not a language
 

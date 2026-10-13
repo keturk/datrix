@@ -170,9 +170,15 @@ Six hard rules. They are not style preferences — they are the difference betwe
 5. **Never re-generate an example you already fixed.** No mid-run regression sweeps, no "let me just re-check the earlier ones", no final pass over the passing set. If a shared generation path changed and Jon wants a corpus-wide regression check, that is his call to make explicitly — it is not part of this skill.
 6. **Never run group generation** — `-All`, `-Domains`, `-TestSet` are hard-blocked by `PreToolUse` → `validate-script-invocation.py` and cannot be overridden.
 
-To prove a fix generalises — to another language, another example, or another shape — **write a test**
-in the owning package. It proves the invariant permanently; a regeneration proves it once and
-evaporates, at a fraction of the coverage and several times the price.
+To prove a fix generalises — to another language, another example, or another shape — **write a case
+or a test** in the owning package. It proves the invariant permanently; a regeneration proves it once
+and evaporates, at a fraction of the coverage and several times the price. The carrier follows the
+fact (`.claude/skills/_shared/verification-strategy.md`, "Case or test"): a fact about one
+fixture line (a diagnostic, an emitted expression) is an annotation on that line (`// @expect …`,
+`// @emits …`); any other literal fact about a
+stage result is a case row (`cases.ps1 new <package> <area> -Id … -Tags … -Input … -Stage …
+-Observer … -Selector "{…}" -Expectation … -Reason "…"`) where the package carries
+`tests/test_cases.py`; an invariant over a set, an exception path or an algorithm is a test.
 
 ### Step 1: Triage the Log and Build the Queue (scripted — never read the whole log)
 

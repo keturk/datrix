@@ -164,7 +164,7 @@ Once tests pass:
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} -Specific "{test-file-1},{test-file-2}"
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} {consumer1} {consumer2} -Tag {tag-1},{tag-2}
    ```
-   A changed behaviour with no tagged test gets a new, tagged test first. A dispatched subagent reports {PACKAGE}, every other package it changed, the surface it changed and its tags, and the dispatcher runs the tag run once over the union.
+   A changed behaviour with no tagged test gets a new, tagged one first, in the carrier its fact takes (`d:\datrix\.claude\skills\_shared\verification-strategy.md`, "Case or test"): a fact about one fixture line (a diagnostic, a transpiled expression) is an annotation on that line (`// @expect …`, `// @emits …`); any other literal fact about a stage result is a case row (`cases.ps1 new <package> <area> -Id … -Tags … -Input … -Stage … -Observer … -Selector "{…}" -Expectation … -Reason "…"`) where {PACKAGE} carries `tests/test_cases.py`; an invariant over a set, an exception path or an algorithm is a test. A dispatched subagent reports {PACKAGE}, every other package it changed, the surface it changed and its tags, and the dispatcher runs the tag run once over the union.
 
 2. Run debug artifact check:
    ```

@@ -28,6 +28,20 @@ and ignored under pressure; a block is paid only when it fires. These are enforc
     (the `cognitive_complexity` package, as `metrics/complexity.ps1` measures it) is above 15. Judged
     by function: a function already over the limit never blocks an edit; one the edit takes over it
     does. Skipped when the package is not importable.
+  * LITERAL-FACT TEST. In a package whose `tests/` carries the case runner `test_cases.py`, a literal
+    fact about a stage result is a case row (`cases.ps1 new`), never a test function. A `test_*`
+    function of the literal-fact shape -- every assertion compares one value with a string literal by
+    `==`, `in` or `not in`, with no loop, comprehension or `pytest.raises` -- that the edit adds (by
+    name) is refused. The shape is judged by
+    `datrix_testing.conformance.assertion_inventory.literal_fact_tests`, the one definition the
+    test-shape pin and the migration tool share; skipped when that module is not importable.
+  * MIGRATED TEST SHAPE. In the same packages, a fact a fixture line carries -- a diagnostic code of an
+    analysis, the code a transpiler emits for one expression, a language server's answer at a `Position`,
+    compared with a literal -- is an annotation on that line, never a test function. A `test_*` function
+    of one of those shapes that the edit adds is refused, naming its carrier. The shapes are judged by
+    `datrix_testing.conformance.assertion_inventory.migrated_shape_tests`, the definition the test-shape
+    pins share; a test of a migrated shape is reported once (not again as a literal fact); skipped when
+    that module is not importable.
 
 HOW IT DECIDES -- A DELTA, NEVER A SCAN. The file as it would exist after the edit is parsed and so
 is the file as it exists now; a violation is reported only when the edit ADDS one (a multiset
@@ -48,9 +62,11 @@ import ast
 import collections
 import io
 import json
+import os
 import re
 import sys
 import tokenize
+from collections.abc import Callable, Iterable
 from typing import Final
 
 _FRAMEWORK_RE: Final = re.compile(r"^d:/datrix/datrix[^/]*/")
@@ -70,6 +86,11 @@ _APP_RECEIVER_RE: Final = re.compile(r"^(self\.)?_?(app|application)$")
 _SERVICES_ITER_RE: Final = re.compile(r"^(self\.)?_?(app|application)\.services\.values\(\)$")
 # Generator sources, where an entity's owning service must survive iteration.
 _GENERATOR_PATH_RE: Final = re.compile(r"/src/.*/(micro_)?generators/")
+# A package's test tree, and the case runner whose presence makes a literal fact a case row.
+_PACKAGE_TESTS_RE: Final = re.compile(r"^(d:/datrix/datrix[^/]*)/tests/")
+_CASE_RUNNER: Final = "tests/test_cases.py"
+# The shared test library; the classifier's import chain is stdlib only.
+_TESTING_SRC: Final = "d:/datrix/datrix-testing/src"
 
 Violation = tuple[str, str]
 FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
@@ -284,7 +305,53 @@ def _complexity_violations(functions: list[tuple[str, FunctionNode]]) -> list[Vi
     return found
 
 
-def _violations(text: str, is_test: bool, is_generator: bool = False) -> collections.Counter[Violation] | None:
+def _literal_fact_classifier() -> Callable[[ast.Module], Iterable[FunctionNode]] | None:
+    """The shared literal-fact classifier, or None when the test library is not importable."""
+    if _TESTING_SRC not in sys.path:
+        sys.path.insert(0, _TESTING_SRC)
+    try:
+        from datrix_testing.conformance.assertion_inventory import literal_fact_tests
+    except ImportError:
+        return None
+    return literal_fact_tests
+
+
+def carries_cases(path: str) -> bool:
+    """Whether the package holding the test at ``path`` carries the case runner."""
+    match = _PACKAGE_TESTS_RE.match(path)
+    return bool(match) and os.path.isfile(f"{match.group(1)}/{_CASE_RUNNER}")
+
+
+def _migrated_shape_classifier() -> Callable[[ast.Module], Iterable[tuple[FunctionNode, str]]] | None:
+    """The shared migrated-shape classifier, or None when the test library is not importable."""
+    if _TESTING_SRC not in sys.path:
+        sys.path.insert(0, _TESTING_SRC)
+    try:
+        from datrix_testing.conformance.assertion_inventory import migrated_shape_tests
+    except ImportError:
+        return None
+    return migrated_shape_tests
+
+
+def _case_violations(tree: ast.Module) -> list[Violation]:
+    """Tests whose fact a case carries: a migrated shape (its fixture line's annotation), else a
+    literal fact (a case row). A test of a migrated shape is reported once, with its carrier."""
+    found: list[Violation] = []
+    migrated: set[str] = set()
+    shapes = _migrated_shape_classifier()
+    if shapes is not None:
+        for function, shape in shapes(tree):
+            migrated.add(function.name)
+            found.append(("migrated-shape", f"def {function.name} ({shape})"))
+    literal = _literal_fact_classifier()
+    if literal is not None:
+        found += [("literal-fact", f"def {f.name}") for f in literal(tree) if f.name not in migrated]
+    return found
+
+
+def _violations(
+    text: str, is_test: bool, is_generator: bool = False, cases: bool = False
+) -> collections.Counter[Violation] | None:
     """The violations in ``text``, or None when it cannot be parsed (so the caller cannot judge)."""
     try:
         tree = ast.parse(text)
@@ -296,6 +363,8 @@ def _violations(text: str, is_test: bool, is_generator: bool = False) -> collect
             found += _flattened_entity_violations(tree)
         if is_test:
             found += _mock_violations(tree)
+        if cases:
+            found += _case_violations(tree)
     except (SyntaxError, ValueError, tokenize.TokenError, IndentationError):
         return None
     return collections.Counter(found)
@@ -366,6 +435,27 @@ _REMEDY: Final = {
         "function: guard clauses and early returns for the edge cases, and a named helper per branch or "
         "loop body. Only a function this edit takes over the limit is refused."
     ),
+    "literal-fact": (
+        "CLAUDE.md, Code Standards: in a package whose tests/ carries test_cases.py, a literal fact about a "
+        "stage result is a case row, never a test function (unit-test-guidelines.md section 4, 'Decision "
+        "facts as cases'). Add it with `datrix/scripts/test/cases.ps1 new <package> <area> -Id <area>.<slug> "
+        "-Tags <tags> -Input <named input> -Stage <stage> -Observer <kind> -Selector \"{...}\" -Expectation "
+        "<value> -Reason \"<the decision it protects>\"`. The observer kind follows the fact: a `not in` is "
+        "an `absent` case (no expectation), a field of a file's recorded render context a `context` case, a "
+        "parsed unit of a generated file a `surface` case, a file set a `paths` case, a diagnostic an "
+        "`analyze`-stage `diagnostics` case. A fact that is not one literal comparison -- an invariant over "
+        "a set, an exception path, an algorithm's edge cases -- stays a code test."
+    ),
+    "migrated-shape": (
+        "CLAUDE.md, Code Standards: in a package whose tests/ carries test_cases.py, a diagnostic, "
+        "transpiled-expression, parse or language-server fact is carried by the fixture line that provokes "
+        "it, never by a test function (unit-test-guidelines.md section 4, 'Fixture-carried facts'): "
+        "`// @expect <CODE>[.<variant>]` or `// @expect-none` on the line a diagnostic fires at, "
+        "`// @emits <expression>` on a function whose body is one return, a `$0` cursor with `// @hover`, "
+        "`// @complete` or `// @definition` for a language-server answer. Until the fixture carries it, the "
+        "same fact is a case row (`cases.ps1 new`, an `analyze`/`diagnostics` or `transpile`/`transpiled` "
+        "case). A fact that is not one literal comparison stays a code test."
+    ),
 }
 
 
@@ -392,8 +482,9 @@ def main() -> None:
 
     is_test = _is_test_file(path)
     is_generator = not is_test and bool(_GENERATOR_PATH_RE.search(path))
-    after_found = _violations(after, is_test, is_generator)
-    before_found = collections.Counter() if before is None else _violations(before, is_test, is_generator)
+    cases = is_test and carries_cases(path)
+    after_found = _violations(after, is_test, is_generator, cases)
+    before_found = collections.Counter() if before is None else _violations(before, is_test, is_generator, cases)
     if after_found is None or before_found is None:
         sys.exit(0)
 

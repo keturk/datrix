@@ -34,8 +34,25 @@ Every test carries one or more **feature tags** naming the behaviour it exercise
    you edited; `test.ps1 <pkg> -ListTags` prints a package's tags and runs nothing. Name
    only packages that carry the tag — a requested tag no test in a package carries fails
    that package, so a misspelling can never shrink a run silently.
-3. **A behaviour no tagged test covers is untested.** Write the test in the owning package,
-   tag it, and run it. A test proves the invariant forever; a sweep proves it once.
+3. **A behaviour no tagged test covers is untested.** Write the case or the test in the owning
+   package, tag it, and run it. A case or test proves the invariant forever; a sweep proves it
+   once. The fact decides the carrier ("Case or test" below).
+
+### Case or test
+
+| Carrier | The fact | How |
+|---|---|---|
+| `annotation` — a comment on the fixture line, in a package whose `tests/` carries `test_cases.py` | a fact about one line of a committed `.dtrx` (or `.dseed`) fixture: the diagnostic reported there (`// @expect <CODE>.<variant>`, `// @expect-none`), the code the function declared there emits (`@emits`), the language server's answer at the `$0` cursor there (`@hover`, `@complete`, `@definition`). A new diagnostic variant gets its per-code fixture, `tests/fixtures/diagnostics/<CODE>.<variant>.dtrx`, provoking it and nothing else | write the comment, with the fixture's `// @tags` and `// @reason` header; `cases.ps1 observe -At <file>:<line>` shows what it would observe first |
+| `row` — a declarative case, in a package whose `tests/` carries `test_cases.py` | any other literal fact about a stage result: one value of a generation or an analysis (a parsed unit, a context field, a path set, an absent token, a diagnostic's locations) compared with a literal | `datrix/scripts/test/cases.ps1 new <package> <area> -Id <area>.<slug> -Tags <tags> -Input <named input> -Stage <stage> -Observer <kind> -Selector "{...}" -Expectation <value> -Reason "<the decision>"` (`cases.ps1 observe` shows the value and its shape first) |
+| `code` — a test function | an invariant over a set (consumed − produced, parity, path containment), an exception path, an algorithm's edge cases | a tagged test in the owning package |
+
+A case row is run by `test.ps1 <pkg> -Specific "tests/test_cases.py"` or, like any test, by its
+tags: `test.ps1 <pkg> -Tag <tag>` selects the package's case items exactly as it selects its
+tests — that `-Tag` run is the targeted run for a case. `guard-code-standards.py` refuses a new
+literal-fact test function where the package carries the case runner, and a test comparing a
+diagnostic code, a transpiled expression or a language-server answer with a literal (that fact is
+an annotation). Format and observers: `datrix-common/docs/contributing/test-guidelines/unit-test-guidelines.md`
+§4, "Decision facts as cases" and "Fixture annotations".
 
 Batch: one `test.ps1` call covers several packages (`-Projects` is variadic) and runs them
 sequentially. Never run two `test.ps1` invocations at once — they contend for the shared

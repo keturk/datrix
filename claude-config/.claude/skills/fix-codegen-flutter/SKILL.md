@@ -27,7 +27,7 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 
 - **Scope:** Flutter mobile-target codegen ONLY. Do NOT cross into the backend language codegen packages (`datrix-codegen-typescript`, `-python`, or any other registered language) or into the sibling frontend target `datrix-codegen-angular`.
 - **Package:** `datrix-codegen-flutter` — Flutter (Dart) mobile-application generation from the shared client contract and UI contract (typed API clients, route manifests, and generated pages, forms, tables, layouts and the AppAuth-based login/session layer).
-- **Fix target:** Generator source code, DAL generator definitions, Jinja2 templates, or test code — never generated output.
+- **Fix target:** Generator source code, DAL generator definitions, Jinja2 templates, or test code — never generated output. A failing declarative case (`tests/test_cases.py::test_case[<area>::<case-id>]`) is fixed in product code, or by a person correcting the authored expectation in review — never by writing a code test for the same fact (`guard-code-standards.py` refuses one).
 - **Module layout and test-to-source mapping:** read `d:\datrix\datrix-codegen-flutter\docs\architecture.md` — the package's own architecture doc is the one home for its file inventory, and this skill does not restate it. A test file with no counterpart named there is a doc defect to fix in the same change.
 
 ### This is a frontend TARGET, not a language
