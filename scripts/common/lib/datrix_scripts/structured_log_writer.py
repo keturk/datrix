@@ -136,6 +136,26 @@ class Cluster:
     representative_id: int = 0
 
 
+#: The one runner module a package carries for its declarative cases, and its test function:
+#: every case item's id is ``tests/test_cases.py::test_case[<area>::<case-id>]``.
+CASE_RUNNER_FILE = "test_cases.py"
+CASE_ITEM_PREFIX = "test_case["
+_CASE_OUTCOMES = ("passed", "failed", "error", "skipped")
+
+
+def case_item_counts(test_cases: Sequence[TestCaseResult]) -> dict[str, int]:
+    """The declarative-case items among *test_cases*, counted apart from code tests:
+    ``total`` and one count per outcome."""
+    cases = [
+        tc
+        for tc in test_cases
+        if tc.function.startswith(CASE_ITEM_PREFIX) and tc.file.rsplit("/", 1)[-1] == CASE_RUNNER_FILE
+    ]
+    counts = {"total": len(cases)}
+    counts.update({outcome: sum(1 for tc in cases if tc.outcome == outcome) for outcome in _CASE_OUTCOMES})
+    return counts
+
+
 class StructuredLogWriter:
     """Post-processes JUnit XML into structured test result directories.
 
@@ -244,6 +264,7 @@ class StructuredLogWriter:
             "error": len(errors),
             "skipped": skipped_count,
         }
+        case_items = case_item_counts(test_cases)
 
         # Determine overall result. A runner error fails the run even when
         # every test passed: the runner could not vouch for what it ran.
@@ -277,6 +298,7 @@ class StructuredLogWriter:
             selection=selection,
             inputs=inputs,
             runner_errors=runner_errors,
+            case_items=case_items,
         )
 
         # Write summary.txt
@@ -1034,6 +1056,7 @@ class StructuredLogWriter:
         selection: dict[str, object] | None = None,
         inputs: dict[str, object] | None = None,
         runner_errors: Sequence[str] = (),
+        case_items: dict[str, int] | None = None,
     ) -> None:
         """Write the index.json file.
 
@@ -1057,6 +1080,8 @@ class StructuredLogWriter:
                 key is written at all.
             runner_errors: The run's runner errors; a ``runner_errors`` key is
                 written only when there is at least one.
+            case_items: The declarative-case items among the run's results,
+                counted apart (:func:`case_item_counts`); written as ``case_items``.
         """
         # Build failures array
         failures_json: list[dict[str, object]] = []
@@ -1138,6 +1163,8 @@ class StructuredLogWriter:
             index["inputs"] = inputs
         if runner_errors:
             index["runner_errors"] = list(runner_errors)
+        if case_items is not None:
+            index["case_items"] = case_items
 
         index_path = self._run_dir / "index.json"
         index_path.write_text(
