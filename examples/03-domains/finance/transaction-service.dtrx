@@ -539,7 +539,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
 
     }
 
-    jobs('config/transaction-service.dcfg') {
+    jobs {
         // Daily reconciliation job: summarize the day's transactions
         job ReconcileDailyTransactions {
             let DateTime today = DateTime.now();

@@ -375,7 +375,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
 
     }
 
-    jobs('config/fleet-service.dcfg') {
+    jobs {
 
         job CheckMaintenanceSchedule {
             let Array<Vehicle> vehicles = fleetDb.Vehicle

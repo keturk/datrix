@@ -552,7 +552,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
     }
 
     // Scheduled jobs for background processing
-    jobs('config/shipping-service.dcfg') {
+    jobs {
         // Periodically sync tracking info from carrier APIs
         job SyncCarrierTracking {
             let Array<Shipment> activeShipments = shippingDb.Shipment

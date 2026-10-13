@@ -460,7 +460,7 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
 
     }
 
-    jobs('config/firmware-service.dcfg') {
+    jobs {
 
         job ProcessRolloutBatch {
             let Array<FirmwareRollout> activeRollouts = firmwareDb.FirmwareRollout

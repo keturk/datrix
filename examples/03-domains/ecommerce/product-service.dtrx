@@ -631,7 +631,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
     }
 
     // Jobs block - defines scheduled/background tasks
-    jobs('config/product-service.dcfg') {
+    jobs {
         // Job to release inventory reservations that have expired
         job ReleaseExpiredReservations {
             let Array<InventoryReservation> expired = productDb.InventoryReservation

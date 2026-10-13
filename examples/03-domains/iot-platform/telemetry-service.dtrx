@@ -503,7 +503,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
 
     }
 
-    jobs('config/telemetry-service.dcfg') {
+    jobs {
 
         job CheckAlertRules {
             let Array<AlertRule> rules = alertDb.AlertRule

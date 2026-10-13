@@ -767,7 +767,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
     }
 
     // Scheduled background jobs
-    jobs('config/appointment-service.dcfg') {
+    jobs {
         // Send reminders for tomorrow's appointments
         job SendAppointmentReminders {
             let DateTime tomorrow = DateTime.now().addDays(1);

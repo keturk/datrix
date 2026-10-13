@@ -426,7 +426,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
 
     }
 
-    jobs('config/compliance-service.dcfg') {
+    jobs {
         // Check for large transactions that may have been missed by real-time processing
         job CheckLargeTransactions {
             let DateTime yesterday = DateTime.now().addDays(-1);

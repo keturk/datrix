@@ -723,7 +723,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         );
     }
 
-    jobs('config/order-service.dcfg') {
+    jobs {
         job CleanupExpiredIdempotencyKeys {
             let DateTime threshold = DateTime.now().addDays(-1);
             let Array<IdempotencyKey> expired = orderDb.IdempotencyKey
