@@ -44,14 +44,16 @@ Every test carries one or more **feature tags** naming the behaviour it exercise
 |---|---|---|
 | `annotation` — a comment on the fixture line, in a package whose `tests/` carries `test_cases.py` | a fact about one line of a committed `.dtrx` (or `.dseed`) fixture: the diagnostic reported there (`// @expect <CODE>.<variant>`, `// @expect-none`), the code the function declared there emits (`@emits`), the language server's answer at the `$0` cursor there (`@hover`, `@complete`, `@definition`). A new diagnostic variant gets its per-code fixture, `tests/fixtures/diagnostics/<CODE>.<variant>.dtrx`, provoking it and nothing else | write the comment, with the fixture's `// @tags` and `// @reason` header; `cases.ps1 observe -At <file>:<line>` shows what it would observe first |
 | `row` — a declarative case, in a package whose `tests/` carries `test_cases.py` | any other literal fact about a stage result: one value of a generation or an analysis (a parsed unit, a context field, a path set, an absent token, a diagnostic's locations) compared with a literal | `datrix/scripts/test/cases.ps1 new <package> <area> -Id <area>.<slug> -Tags <tags> -Input <named input> -Stage <stage> -Observer <kind> -Selector "{...}" -Expectation <value> -Reason "<the decision>"` (`cases.ps1 observe` shows the value and its shape first) |
-| `code` — a test function | an invariant over a set (consumed − produced, parity, path containment), an exception path, an algorithm's edge cases | a tagged test in the owning package |
+| `fixture` — a committed `.dcfg` fixture, in a package whose `tests/` carries `test_model_contracts.py` | a required field, a default, a bound, a pattern or the unknown-key refusal of a config model | a `.dcfg` fixture under the package's `tests/` whose load reaches the model; the model contract runner derives and proves every fact (`datrix/scripts/test/model-contracts.ps1 facts <package>` names the models no fixture reaches); run `test.ps1 <pkg> -Specific "tests/test_model_contracts.py"` |
+| `code` — a test function | an invariant over a set (consumed − produced, parity, path containment), an exception path, an algorithm's edge cases, a validator's rule relating fields | a tagged test in the owning package |
 
 A case row is run by `test.ps1 <pkg> -Specific "tests/test_cases.py"` or, like any test, by its
 tags: `test.ps1 <pkg> -Tag <tag>` selects the package's case items exactly as it selects its
 tests — that `-Tag` run is the targeted run for a case. `guard-code-standards.py` refuses a new
 literal-fact test function where the package carries the case runner, and a test comparing a
 diagnostic code, a transpiled expression or a language-server answer with a literal (that fact is
-an annotation). Format and observers: `datrix-common/docs/contributing/test-guidelines/unit-test-guidelines.md`
+an annotation), and, where the package carries the model contract runner, a test restating a
+model's schema fact. Format and observers: `datrix-common/docs/contributing/test-guidelines/unit-test-guidelines.md`
 §4, "Decision facts as cases" and "Fixture annotations".
 
 Batch: one `test.ps1` call covers several packages (`-Projects` is variadic) and runs them

@@ -263,7 +263,10 @@ what went wrong + expected + valid options + fix suggestion. Testing: real objec
 `unittest.mock`/`SimpleNamespace`/fakes; in a package whose `tests/` carries `test_cases.py`, a
 literal fact about a stage result is never a test function: a diagnostic, a transpiled expression
 or a language-server answer at one fixture line is an annotation on that line (`// @expect …`),
-anything else a case row (`cases.ps1 new`).
+anything else a case row (`cases.ps1 new`). A required-field, default, bound, pattern or unknown-key
+fact about a model is never a test function: the package's model contract runner
+(`tests/test_model_contracts.py`) proves it, and a model is covered by a committed `.dcfg` fixture
+that reaches it.
 
 **Anti-patterns:** No placeholders/TODOs. No silent fallbacks (`dict.get(key, None)`). No
 default type mappings (`get(t, "Any")`). No `except: pass`. No raw string concat for code. No

@@ -27,3 +27,4 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 
 - **Scope:** `datrix-codegen-docker` — Docker infrastructure codegen.
 - **Fix target:** Generator source code, templates, or test code — never generated output. A failing declarative case (`tests/test_cases.py::test_case[<area>::<case-id>]`) is fixed in product code, or by a person correcting the authored expectation in review — never by writing a code test for the same fact (`guard-code-standards.py` refuses one).
+- **Model contracts:** a failing `tests/test_model_contracts.py::test_model_contract[<Model>::<field>::<fact>]` item, or a model `test_every_model_has_a_fixture_sample` names, is a model or fixture defect: fix the model's declaration or the `.dcfg` fixture (add one whose load reaches the model) — never the runner, never with a new test. `datrix/scripts/test/model-contracts.ps1 facts <package> [<Model>]` shows each model's items and the fixture its sample came from.

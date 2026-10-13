@@ -42,6 +42,14 @@ and ignored under pressure; a block is paid only when it fires. These are enforc
     `datrix_testing.conformance.assertion_inventory.migrated_shape_tests`, the definition the test-shape
     pins share; a test of a migrated shape is reported once (not again as a literal fact); skipped when
     that module is not importable.
+  * SCHEMA-SHAPED TEST. In a package whose `tests/` carries the model contract runner
+    `test_model_contracts.py`, a required-field, default, bound, pattern or unknown-key fact of a
+    model is proven by a derived runner item, never a test function. A `test_*` function the edit adds
+    (by name) whose shape `datrix_testing.model_contracts.inventory` marks *raises* or *default*, and
+    that `python -m datrix_testing.model_contracts.cli resolve` (the shared venv) resolves to schema
+    facts, is refused, naming the model, the facts and the items that prove them. A test of a
+    validator's rule, or one stating more than schema facts, is allowed. Skipped when the inventory is
+    not importable or the venv cannot resolve the module.
 
 HOW IT DECIDES -- A DELTA, NEVER A SCAN. The file as it would exist after the edit is parsed and so
 is the file as it exists now; a violation is reported only when the edit ADDS one (a multiset
@@ -64,6 +72,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import sys
 import tokenize
 from collections.abc import Callable, Iterable
@@ -89,6 +98,15 @@ _GENERATOR_PATH_RE: Final = re.compile(r"/src/.*/(micro_)?generators/")
 # A package's test tree, and the case runner whose presence makes a literal fact a case row.
 _PACKAGE_TESTS_RE: Final = re.compile(r"^(d:/datrix/datrix[^/]*)/tests/")
 _CASE_RUNNER: Final = "tests/test_cases.py"
+# The model contract runner whose presence makes a schema fact a derived item.
+_MODEL_CONTRACT_RUNNER: Final = "tests/test_model_contracts.py"
+_TESTS_SEGMENT: Final = "/tests/"
+# The shared venv's interpreter, which resolves a test to the model facts it restates.
+_VENV_PYTHON: Final = "d:/datrix/.venv/Scripts/python.exe"
+_RESOLVE_MODULE: Final = "datrix_testing.model_contracts.cli"
+_RESOLVE_TIMEOUT_SECONDS: Final = 180
+# The dispositions of a test that restates only schema facts.
+_SCHEMA_FACT_DISPOSITIONS: Final = frozenset({"covered", "uncovered"})
 # The shared test library; the classifier's import chain is stdlib only.
 _TESTING_SRC: Final = "d:/datrix/datrix-testing/src"
 
@@ -333,6 +351,64 @@ def _migrated_shape_classifier() -> Callable[[ast.Module], Iterable[tuple[Functi
     return migrated_shape_tests
 
 
+def carries_model_contracts(path: str) -> bool:
+    """Whether the package holding the test at ``path`` carries the model contract runner."""
+    match = _PACKAGE_TESTS_RE.match(path)
+    return bool(match) and os.path.isfile(f"{match.group(1)}/{_MODEL_CONTRACT_RUNNER}")
+
+
+def _schema_shaped_names(text: str) -> set[str] | None:
+    """The qualified names of the schema-shaped tests of ``text``; None when it cannot be judged."""
+    if _TESTING_SRC not in sys.path:
+        sys.path.insert(0, _TESTING_SRC)
+    try:
+        from datrix_testing.model_contracts.inventory import schema_shaped_tests
+    except ImportError:
+        return None
+    try:
+        return {test.function for test in schema_shaped_tests(ast.parse(text))}
+    except (SyntaxError, ValueError):
+        return None
+
+
+def _resolved_schema_facts(path: str, text: str, names: set[str]) -> list[Violation]:
+    """The added tests among ``names`` the shared venv resolves to schema facts; [] when it cannot."""
+    match = _PACKAGE_TESTS_RE.match(path)
+    if not match or not os.path.isfile(_VENV_PYTHON):
+        return []
+    module = path.split(_TESTS_SEGMENT, 1)[1]
+    try:
+        completed = subprocess.run(
+            [_VENV_PYTHON, "-m", _RESOLVE_MODULE, "resolve", match.group(1), module],
+            input=text, capture_output=True, text=True, timeout=_RESOLVE_TIMEOUT_SECONDS, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if completed.returncode != 0:
+        return []
+    found: list[Violation] = []
+    for line in completed.stdout.splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if record["function"] in names and record["disposition"] in _SCHEMA_FACT_DISPOSITIONS:
+            proven = ", ".join(record["items"]) if record["disposition"] == "covered" else "no item yet: add a fixture"
+            found.append(("schema-shaped", f"def {record['function']} restates {record['model']} "
+                                           f"[{', '.join(record['facts'])}] (proven by: {proven})"))
+    return found
+
+
+def _schema_shaped_violations(path: str, before: str | None, after: str) -> list[Violation]:
+    """The schema-shaped tests this edit adds that restate model facts the runner proves."""
+    after_names = _schema_shaped_names(after)
+    before_names = set() if before is None else _schema_shaped_names(before)
+    if after_names is None or before_names is None:
+        return []
+    added = after_names - before_names
+    return _resolved_schema_facts(path, after, added) if added else []
+
+
 def _case_violations(tree: ast.Module) -> list[Violation]:
     """Tests whose fact a case carries: a migrated shape (its fixture line's annotation), else a
     literal fact (a case row). A test of a migrated shape is reported once, with its carrier."""
@@ -456,6 +532,15 @@ _REMEDY: Final = {
         "same fact is a case row (`cases.ps1 new`, an `analyze`/`diagnostics` or `transpile`/`transpiled` "
         "case). A fact that is not one literal comparison stays a code test."
     ),
+    "schema-shaped": (
+        "CLAUDE.md, Code Standards: a required-field, default, bound, pattern or unknown-key fact about a "
+        "model is never a test function: the package's model contract runner (tests/test_model_contracts.py) "
+        "derives it from the model and proves it on a committed .dcfg fixture sample "
+        "(unit-test-guidelines.md, 'Model facts are derived'). The fact is proven already, or will be once a "
+        "committed fixture reaches the model: write that fixture (`datrix/scripts/test/model-contracts.ps1 "
+        "facts <package>` lists the models no fixture reaches). A validator's rule stays a code test that "
+        "asserts the error's location and type after the `pytest.raises` block."
+    ),
 }
 
 
@@ -489,6 +574,8 @@ def main() -> None:
         sys.exit(0)
 
     added = after_found - before_found
+    if is_test and carries_model_contracts(path):
+        added.update(_schema_shaped_violations(path, before, after))
     if not added:
         sys.exit(0)
 

@@ -238,6 +238,38 @@ with Repo() as repo:
                                                              "    assert index == {}\n\n\ndef test_const() -> None:\n"
                                                              "    assert len(error_codes.SYS001) == 6\n"), ALLOW)
 
+    print("== schema-shaped tests where the package carries the model contract runner ==")
+    # The planted package's src/ names an installed import package, so the shared venv resolves the
+    # models it constructs; its tests/ holds no fixture, so no item proves a fact yet (uncovered).
+    model_test = repo.file("tests/unit/test_platform.py",
+                           "import pytest\nfrom pydantic import ValidationError\n\n"
+                           "from datrix_codegen_docker.config.docker import DockerPlatformConfig\n\n\n"
+                           "def test_kept() -> None:\n    assert DockerPlatformConfig().registry == ''\n")
+    raises_bound = ("\n\ndef test_retention_positive() -> None:\n"
+                    "    with pytest.raises(ValidationError):\n"
+                    "        DockerPlatformConfig.model_validate({'kafka_default_retention_ms': 0})\n")
+    check("no model contract runner: a schema-shaped test stays allowed",
+          edit(model_test, "== ''\n", "== ''\n" + raises_bound), ALLOW)
+    repo.file("src/datrix_codegen_docker/__init__.py", "")
+    repo.file("tests/test_model_contracts.py", "def test_model_contract(item: object) -> None:\n    item.check()\n")
+    check("a bound restated beside the model contract runner",
+          edit(model_test, "== ''\n", "== ''\n" + raises_bound), BLOCK)
+    check("an unknown key restated beside the runner", edit(model_test, "== ''\n", "== ''\n"
+          "\n\ndef test_unknown() -> None:\n    with pytest.raises(ValidationError):\n"
+          "        DockerPlatformConfig.model_validate({'registryy': 'x'})\n"), BLOCK)
+    check("a default restated beside the runner", edit(model_test, "== ''\n", "== ''\n"
+          "\n\ndef test_default() -> None:\n    config = DockerPlatformConfig.model_validate({})\n"
+          "    assert config.kafka_default_retention_ms is None\n"), BLOCK)
+    check("a test asserting a supplied value states no schema fact", edit(model_test, "== ''\n", "== ''\n"
+          "\n\ndef test_supplied() -> None:\n"
+          "    config = DockerPlatformConfig.model_validate({'kafka_default_retention_ms': 5})\n"
+          "    assert config.kafka_default_retention_ms == 5\n"), ALLOW)
+    code, err = run({"tool_name": "Edit", "tool_input": {"file_path": model_test, "old_string": "== ''\n",
+                                                         "new_string": "== ''\n" + raises_bound}})
+    check("the refusal names the model, the fact and the fixture remedy",
+          all(s in err for s in ("[schema-shaped] def test_retention_positive", "DockerPlatformConfig",
+                                 "kafka_default_retention_ms::bound_gt", "model-contracts.ps1 facts")), True)
+
     print("== the message names what was added ==")
     code, err = run({"tool_name": "Edit", "tool_input": {
         "file_path": mod, "old_string": "    return 1",
