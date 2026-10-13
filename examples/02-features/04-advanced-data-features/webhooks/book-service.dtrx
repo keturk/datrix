@@ -479,7 +479,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     }
 
     // 'jobs' block defines scheduled background tasks
-    jobs('config/book-service.dcfg') {
+    jobs {
         job CheckOverdueBooks {
             let Array<Book> checkedOut = catalog.Book.where(status: BookStatus.CheckedOut).all();
             let Int processed = 0;

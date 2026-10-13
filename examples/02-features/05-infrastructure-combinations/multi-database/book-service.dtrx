@@ -518,7 +518,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     }
 
     // 'jobs' block defines background tasks that run asynchronously
-    jobs('config/book-service.dcfg') {
+    jobs {
         // 'job' defines a named background task with inline logic
         // Jobs can query the database and dispatch events like any other block
         job CheckOverdueBooks {
