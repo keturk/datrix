@@ -1,0 +1,56 @@
+- id: response-bodies.cqrs.every-field-camel-case
+  tags: [parity, json-response]
+  input: cqrs
+  stage: parity
+  observer: response_body_wire_fields
+  selector: {facet: nonconformant-fields, excluding: [dependency_response]}
+  expectation: []
+  reason: Every body field a language emits serializes under the one declared rule, body_wire_name's camelCase; a dependency response decodes an upstream service's wire and is outside the population.
+- id: response-bodies.cqrs.publication-year
+  tags: [parity, json-response]
+  input: cqrs
+  stage: parity
+  observer: response_body_wire_fields
+  selector: {facet: wire-name, field: publicationYear, excluding: [dependency_response]}
+  expectation: [publicationYear]
+  reason: A multi-word entity and CQRS-view field is emitted as camelCase by every language, whatever each calls its attribute.
+- id: response-bodies.cqrs.created-at
+  tags: [parity, json-response]
+  input: cqrs
+  stage: parity
+  observer: response_body_wire_fields
+  selector: {facet: wire-name, field: createdAt, excluding: [dependency_response]}
+  expectation: [createdAt]
+  reason: A framework-added timestamp field reaches the wire as camelCase on every language, like a declared one.
+- id: response-bodies.cqrs.last-updated
+  tags: [parity, json-response, cqrs]
+  input: cqrs
+  stage: parity
+  observer: response_body_wire_fields
+  selector: {facet: wire-name, field: lastUpdated, excluding: [dependency_response]}
+  expectation: [lastUpdated]
+  reason: A CQRS view's multi-word field is emitted as camelCase on every language.
+- id: response-bodies.cqrs.display-title
+  tags: [parity, json-response]
+  input: cqrs
+  stage: parity
+  observer: response_body_wire_fields
+  selector: {facet: wire-name, field: displayTitle, excluding: [dependency_response]}
+  expectation: [displayTitle]
+  reason: A computed field is emitted under the same camelCase rule as a stored one on every language.
+- id: response-bodies.cqrs.membership-number
+  tags: [parity, json-response]
+  input: cqrs
+  stage: parity
+  observer: response_body_wire_fields
+  selector: {facet: wire-name, field: membershipNumber, excluding: [dependency_response]}
+  expectation: [membershipNumber]
+  reason: A second service's multi-word field is emitted as camelCase on every language.
+- id: response-bodies.cqrs.title
+  tags: [parity, json-response]
+  input: cqrs
+  stage: parity
+  observer: response_body_wire_fields
+  selector: {facet: wire-name, field: title, excluding: [dependency_response]}
+  expectation: [title]
+  reason: A single-word field keeps its name on the wire on every language, with or without a renaming mechanism.

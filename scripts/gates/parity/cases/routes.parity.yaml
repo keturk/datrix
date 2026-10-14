@@ -1,0 +1,304 @@
+- id: routes.rest-api.list-books
+  tags: [parity, rest-api]
+  input: rest-api
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/books'}
+  expectation: {status: '200', body: page, media-type: application/json}
+  reason: A resource's list route answers 200 with the page envelope as JSON on every language.
+- id: routes.rest-api.create-book
+  tags: [parity, rest-api]
+  input: rest-api
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: post, path: '/api/v1/books'}
+  expectation: {status: '201', body: object, media-type: application/json}
+  reason: A resource's create route answers 201 Created with the created object on every language.
+- id: routes.rest-api.get-book
+  tags: [parity, rest-api]
+  input: rest-api
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/books/{id}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A resource's get route answers 200 with one object on every language.
+- id: routes.rest-api.update-book
+  tags: [parity, rest-api]
+  input: rest-api
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: put, path: '/api/v1/books/{id}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A resource's update is a PUT answering 200 with the updated object on every language, never a PATCH on one.
+- id: routes.rest-api.delete-book
+  tags: [parity, rest-api]
+  input: rest-api
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: delete, path: '/api/v1/books/{id}'}
+  expectation: {status: '204', body: none, media-type: ''}
+  reason: A resource's delete answers 204 No Content with an empty body on every language.
+- id: routes.rest-api.route-set
+  tags: [parity, rest-api]
+  input: rest-api
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: routes}
+  expectation: ['DELETE /api/v1/books/{}', 'GET /api/v1/books', 'GET /api/v1/books/{}', 'POST /api/v1/books', 'PUT /api/v1/books/{}']
+  reason: A resource registers exactly the five CRUD routes on every language, and no language registers a route another lacks.
+- id: routes.rest-api.no-duplicate-route
+  tags: [parity, rest-api]
+  input: rest-api
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: duplicate-routes}
+  expectation: []
+  reason: No language registers one verb and path shape twice, which would leave the answering handler to registration order.
+- id: routes.cqrs.list-books
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/books'}
+  expectation: {status: '200', body: page, media-type: application/json}
+  reason: A resource limited to list and get still answers its list route with the page envelope on every language.
+- id: routes.cqrs.create-book
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: post, path: '/api/v1/books'}
+  expectation: {status: '201', body: object, media-type: application/json}
+  reason: A resource's create route, declared in its own role-guarded resource line, answers 201 with the created object on every language.
+- id: routes.cqrs.get-book
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/books/{id}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A resource's get route answers 200 with one object on every language.
+- id: routes.cqrs.update-book
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: put, path: '/api/v1/books/{id}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A resource's update is a PUT answering 200 with the updated object on every language.
+- id: routes.cqrs.delete-book
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: delete, path: '/api/v1/books/{id}'}
+  expectation: {status: '204', body: none, media-type: ''}
+  reason: A resource's delete answers 204 with an empty body on every language.
+- id: routes.cqrs.search-books
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/books/search'}
+  expectation: {status: '200', body: list, media-type: application/json}
+  reason: A custom route returning Array<T> answers a bare JSON array, never the page envelope, on every language.
+- id: routes.cqrs.filter-books
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/books/filter'}
+  expectation: {status: '200', body: list, media-type: application/json}
+  reason: A custom route with optional query parameters returning Array<T> answers a bare JSON array on every language.
+- id: routes.cqrs.book-catalog
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/books/catalog'}
+  expectation: {status: '200', body: list, media-type: application/json}
+  reason: A route returning an array of a CQRS view answers a bare JSON array on every language.
+- id: routes.cqrs.available-books
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/books/available'}
+  expectation: {status: '200', body: list, media-type: application/json}
+  reason: A route returning an array of a CQRS view answers a bare JSON array on every language.
+- id: routes.cqrs.books-by-category
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/books/category/{categoryId}'}
+  expectation: {status: '200', body: list, media-type: application/json}
+  reason: A route with a path parameter returning Array<T> answers a bare JSON array on every language, whatever each names the parameter.
+- id: routes.cqrs.books-by-tag
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/books/by-tag/{tagId}'}
+  expectation: {status: '200', body: list, media-type: application/json}
+  reason: A route with a path parameter returning Array<T> answers a bare JSON array on every language.
+- id: routes.cqrs.book-by-id-internal
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/books/internal/{id}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A hidden service-only route returning an entity answers 200 with one object on every language.
+- id: routes.cqrs.book-availability-internal
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/books/internal/availability/{id}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A hidden service-only route returning a struct answers 200 with one object on every language.
+- id: routes.cqrs.list-categories
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/categories'}
+  expectation: {status: '200', body: page, media-type: application/json}
+  reason: A second resource's list route answers the page envelope on every language.
+- id: routes.cqrs.create-category
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: post, path: '/api/v1/categories'}
+  expectation: {status: '201', body: object, media-type: application/json}
+  reason: A resource's create route answers 201 with the created object on every language.
+- id: routes.cqrs.get-category
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/categories/{id}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A resource's get route answers 200 with one object on every language.
+- id: routes.cqrs.update-category
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: put, path: '/api/v1/categories/{id}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A resource's update is a PUT answering 200 with the updated object on every language.
+- id: routes.cqrs.delete-category
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: delete, path: '/api/v1/categories/{id}'}
+  expectation: {status: '204', body: none, media-type: ''}
+  reason: A resource's delete answers 204 with an empty body on every language.
+- id: routes.cqrs.category-books
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/categories/{id}/books'}
+  expectation: {status: '200', body: page, media-type: application/json}
+  reason: A relationship's child-collection route answers the page envelope on every language.
+- id: routes.cqrs.create-loan
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: post, path: '/api/v1/loans'}
+  expectation: {status: '201', body: object, media-type: application/json}
+  reason: A custom POST route returning an entity answers 201 Created with the object on every language.
+- id: routes.cqrs.loans-by-member
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/loans/member/{memberId}'}
+  expectation: {status: '200', body: list, media-type: application/json}
+  reason: A custom route returning Array<T> answers a bare JSON array on every language.
+- id: routes.cqrs.list-members
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/members'}
+  expectation: {status: '200', body: page, media-type: application/json}
+  reason: An authenticated resource's list route answers the page envelope on every language.
+- id: routes.cqrs.create-member
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: post, path: '/api/v1/members'}
+  expectation: {status: '201', body: object, media-type: application/json}
+  reason: A resource's create route answers 201 with the created object on every language.
+- id: routes.cqrs.get-member
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/members/{id}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A resource's get route answers 200 with one object on every language.
+- id: routes.cqrs.update-member
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: put, path: '/api/v1/members/{id}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A resource's update is a PUT answering 200 with the updated object on every language.
+- id: routes.cqrs.delete-member
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: delete, path: '/api/v1/members/{id}'}
+  expectation: {status: '204', body: none, media-type: ''}
+  reason: A resource's delete answers 204 with an empty body on every language.
+- id: routes.cqrs.member-by-membership-number
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/members/by-membership/{membershipNumber}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A custom route returning one entity answers 200 with one object on every language.
+- id: routes.cqrs.member-by-id-internal
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/members/service/{id}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A hidden service-only route returning an entity answers 200 with one object on every language.
+- id: routes.cqrs.member-profile-internal
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/members/service/profile/{id}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A hidden service-only route returning a struct answers 200 with one object on every language.
+- id: routes.cqrs.route-set
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: routes}
+  expectation: ['DELETE /api/v1/books/{}', 'DELETE /api/v1/categories/{}', 'DELETE /api/v1/members/{}', 'GET /api/v1/books', 'GET /api/v1/books/available', 'GET /api/v1/books/by-tag/{}', 'GET /api/v1/books/catalog', 'GET /api/v1/books/category/{}', 'GET /api/v1/books/filter', 'GET /api/v1/books/internal/availability/{}', 'GET /api/v1/books/internal/{}', 'GET /api/v1/books/search', 'GET /api/v1/books/{}', 'GET /api/v1/categories', 'GET /api/v1/categories/{}', 'GET /api/v1/categories/{}/books', 'GET /api/v1/loans/member/{}', 'GET /api/v1/members', 'GET /api/v1/members/by-membership/{}', 'GET /api/v1/members/service/profile/{}', 'GET /api/v1/members/service/{}', 'GET /api/v1/members/{}', 'POST /api/v1/books', 'POST /api/v1/categories', 'POST /api/v1/loans', 'POST /api/v1/members', 'PUT /api/v1/books/{}', 'PUT /api/v1/categories/{}', 'PUT /api/v1/members/{}']
+  reason: Split resources, custom routes, CQRS views and hidden service routes register the same route set on every language.
+- id: routes.cqrs.no-duplicate-route
+  tags: [parity, rest-api, cqrs]
+  input: cqrs
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: duplicate-routes}
+  expectation: []
+  reason: Two resource lines on one entity never register the same verb and path shape twice on any language.

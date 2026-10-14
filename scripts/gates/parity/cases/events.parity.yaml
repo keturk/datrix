@@ -1,0 +1,48 @@
+- id: events.pubsub.published-events
+  tags: [parity, pubsub]
+  input: pubsub
+  stage: parity
+  observer: event_envelopes
+  selector: {facet: published-events}
+  expectation: [BookAdded, BookStatusChanged]
+  reason: Every language publishes each event the example's topic declares, so a census of producers finds the whole topic.
+- id: events.pubsub.book-added.envelope-keys
+  tags: [parity, pubsub]
+  input: pubsub
+  stage: parity
+  observer: event_envelopes
+  selector: {facet: envelope-keys, event: BookAdded}
+  expectation: [eventType, payload, publishedAt]
+  reason: Every language wraps an event in the one declared envelope (EVENT_ENVELOPE_*), so a consumer in any language reads a producer in any other.
+- id: events.pubsub.book-added.payload-keys
+  tags: [parity, pubsub]
+  input: pubsub
+  stage: parity
+  observer: event_envelopes
+  selector: {facet: payload-keys, event: BookAdded}
+  expectation: [bookId, title]
+  reason: An event's payload is keyed by its declared parameters' wire names (event_payload_wire_name), the same on every language.
+- id: events.pubsub.book-status-changed.envelope-keys
+  tags: [parity, pubsub]
+  input: pubsub
+  stage: parity
+  observer: event_envelopes
+  selector: {facet: envelope-keys, event: BookStatusChanged}
+  expectation: [eventType, payload, publishedAt]
+  reason: An event dispatched from a lifecycle hook uses the same declared envelope as any other on every language.
+- id: events.pubsub.book-status-changed.payload-keys
+  tags: [parity, pubsub]
+  input: pubsub
+  stage: parity
+  observer: event_envelopes
+  selector: {facet: payload-keys, event: BookStatusChanged}
+  expectation: [bookId, newStatus, oldStatus]
+  reason: Multi-word and enum-typed parameters reach the payload under their camelCase wire names on every language.
+- id: events.pubsub.consumed-keys-are-written
+  tags: [parity, pubsub]
+  input: pubsub
+  stage: parity
+  observer: event_envelopes
+  selector: {facet: unwritten-consumed-keys}
+  expectation: []
+  reason: No consumer or adapter reads an envelope key no producer writes, which would read undefined from every real event.

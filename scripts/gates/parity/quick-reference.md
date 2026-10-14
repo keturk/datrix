@@ -9,6 +9,146 @@ suites (the datrix showcase repo hosts none).
 >
 > **Base path:** `d:/datrix/datrix/scripts/`
 
+**A parity fact over generated artifacts is a row, never a new gate module.** A fact read through
+a conformance probe ("every language answers this route with this contract") is one row of
+`gates\parity\cases\<area>.parity.yaml`, read on every registered target by
+`parity-cases-gate.ps1`. A new gate module under this family is reserved for a source census (a
+check that reads package source or declarations, and imports no probe).
+
+---
+
+## `gates\parity\parity-cases-gate.ps1`
+
+Reads every parity row on every registered target of its axis and compares each reading with the
+row's authored expectation. A **parity row** is a case row (`datrix_testing.cases.model.Case`,
+the row kind `datrix_testing.cases.parity`): `stage: parity`, `observer` a method of
+`LanguageConformanceProbes` (read on every registered language) or `PlatformConformanceProbes`
+(read on every registered platform), `input` the fixture, `selector` the facet of the probe's
+return and its keys, `expectation` the authored value, `tags` (`parity` plus the behaviour tag),
+`reason`. The rows live in `gates\parity\cases\*.parity.yaml`; the probes a row may name, their
+facets and the reading of each are `gates\parity\lib\parity_observers.py` (`PROBE_READINGS`).
+
+| Probe | Fixture (`input`) | Facets (selector keys) |
+|---|---|---|
+| `route_wire_contracts` | a registered example, generated per language | `route` (`verb`, `path`): `{status, body, media-type}`; `routes`: every `VERB /path/{}`; `duplicate-routes` |
+| `response_body_wire_fields` | a registered example, generated per language | `wire-name` (`field`, `excluding`: schema kinds outside the population): the wire keys the field emits, whatever each language calls it; `nonconformant-fields` (`excluding`): fields whose wire key is not `body_wire_name`'s. A row never selects by schema kind: how a probe classifies a response class differs per language |
+| `event_envelopes` | a registered example, generated per language | `envelope-keys` (`event`), `payload-keys` (`event`), `published-events`, `unwritten-consumed-keys` |
+| `render_enum_classifier` | a registered example; the `enum` key names one of its enums, rendered by each language | `classifiers` (`enum`): the keyword classifiers defined; `no-match-raise` (`enum`): `{exception: declared or the name raised, message}` |
+| `realized_web_security_headers` | a header-set fixture: `web-security-domain` or `web-security-loopback` (the shared builder's set for neutral origins), rendered by each platform | `header` (`name`): the emitted value; `headers`: every emitted name |
+
+A registered example is a project name of `scripts\config\test-projects.json`. The web-security
+probe takes a header set rather than a generated tree, so its rows name one of the two header-set
+fixtures; every platform renders both topologies. Any row may carry `capability: <kind>:<id>`, the
+`capability_gaps` surface the fact belongs to.
+
+**Security posture.** A row is a case, so the strict schema, the raw-secret refusal on its values
+and the tag vocabulary apply at load. A row that guards a security control (web-security headers,
+framework headers, CORS, identity) carries a tag of `datrix_testing.cases.security.SECURITY_TAGS`
+(the `web-security-headers` rows do), which makes it a security case, and the test-rebuild approval
+gate covers `*.parity.yaml` exactly as it covers `*.cases.yaml`. Fixtures are committed examples
+generated under the test profile; every probe reads generated output only, contained under the
+generated root.
+
+**Two verdicts.** The authored one decides: a reading that differs from the expectation is a
+`DIVERGENCE` (every target agreeing on a wrong value fails); a selector that resolves on nothing
+(an unregistered route, an unpublished event) is `UNREADABLE`. The mutual one informs: a `DRIFT`
+line names every target's reading when the targets differ from each other, which says which
+target moved when the expectation is the stale side. A target whose capability declaration
+carries the row's `capability` surface is a `GAP`, which fails like a divergence. A target the
+probe does not apply to (a platform hosting no static site, a language registering no `enum`
+sub-generator) is `N/A`. Fixtures are generated once per (input, target) under
+`D:\datrix\.tmp\parity-cases\`, and each probe is called once per (target, fixture). A report line
+carries row ids, targets, readings and expectations only, never a fixture path or a fixture's or
+probe's error text (`-Dbg` shows that text).
+
+**Self-test, every invocation, before any row.** The three gate modules name no target
+(`self_test_gate_names_no_target`); two planted languages give two readings per row; one divergent
+planted language is exactly one failure, plus a `DRIFT` line; two planted languages agreeing on a
+wrong value both fail; a row selecting an unregistered route is unreadable on both; a planted gap
+fails as a `GAP`; a planted language whose probes lack the row's method stops the run (exit 2)
+naming the language and the method; a planted probe returning another type than its Protocol's
+stops the run naming the language; a single target is refused; a planted fixture path and a
+planted probe error carrying a canary never reach the report; and the tag selection refuses four
+tags and an unknown tag.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run tagged rows** | `.\gates\parity\parity-cases-gate.ps1 -Tag rest-api` | Read the rows carrying any of the tags (at most three, each carried by some row, never a selection keeping every row) |
+| **Run every row** | `.\gates\parity\parity-cases-gate.ps1` | The whole corpus; Jon's run (refused for agents by `guard-untargeted-scans.py`) |
+| **Self-test only** | `.\gates\parity\parity-cases-gate.ps1 -SelfTest` | Run only the self-test; read no row |
+| **Debug** | `.\gates\parity\parity-cases-gate.ps1 -Tag pubsub -Dbg` | Debug logging, including fixture and probe error text |
+
+**Parameters:** `-Tag <tag,...>`, `-SelfTest`, `-Dbg`
+
+**Exit codes:** 0 = every selected row holds on every target (or a successful `-SelfTest`), 1 = a
+divergence, an unreadable row or a gap, 2 = the self-test failed, a row file or row is malformed,
+a tag selection is refused, fewer than two targets can read a row, a target's probes are missing
+or incomplete, a fixture fails to build, a probe raised, or a probe returned another type than its
+Protocol's.
+
+---
+
+## `gates\parity\parity-cases.ps1`
+
+The parity rows' authoring tool.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Observe** | `.\gates\parity\parity-cases.ps1 observe rest-api route_wire_contracts "{facet: route, verb: get, path: /api/v1/books}"` | Build the fixture for every target and print each reading, with the expectation's form. Writes nothing |
+| **New** | `.\gates\parity\parity-cases.ps1 new routes -Id routes.rest-api.list-books -Tags parity,rest-api -Input rest-api -Probe route_wire_contracts -Selector "{facet: route, verb: get, path: /api/v1/books}" -Expectation "{status: '200', body: page, media-type: application/json}" -Reason "..."` | Validate one authored row against the checks and every committed row, read it on every target, append it to `cases\<area>.parity.yaml`. Refused while the approval gate is armed for the cases directory |
+| **Migrate** | `.\gates\parity\parity-cases.ps1 migrate pubsub event_envelopes -Area events -Tags pubsub` | Propose one row per selector the probe's return offers on any target, each with every target's reading and no expectation, under `D:\datrix\.tmp\case-proposals\`. `-Replaces <gate>` names the probe-backed gate the rows replace |
+| **Accept** | `.\gates\parity\parity-cases.ps1 accept D:\datrix\.tmp\case-proposals\parity-events-event-envelopes.proposal.json` | Move an approved proposal's rows in; refuses a proposal no `.cases.approved` covers at its current hash, and a row without an expectation. With `replaces`, also deletes that gate's wrapper, its `lib\` module and its section here |
+| **Check** | `.\gates\parity\parity-cases.ps1 check` | Every committed row parses, names a probe with readings, a fixture that probe accepts, a facet with exactly its keys and an expectation of its shape, carries documented tags; no id or (input, probe, selector) twice |
+
+**Parameters:** `-Id`, `-Tags`, `-Input`, `-Probe`, `-Selector`, `-Expectation`, `-Reason` (new);
+`-Area`, `-Tags`, `-Replaces` (migrate); `-Dbg`
+
+**Every expectation is authored.** `observe` and `migrate` print and propose readings and never
+write an expectation; `accept` refuses a row without one. A proposal is approved exactly as a case
+proposal (`<name>.cases.approved` in the approval-gate directory, from Jon's terminal), and while
+the gate is armed for `gates\parity\cases` a row reaches it only through `accept`.
+
+**Exit codes:** 0 = done and clean, 1 = refused or problems found, 2 = usage error.
+
+---
+
+## `gates\parity\response-body-transform-census-gate.ps1`
+
+The response-bodies parity rows (`cases\response-bodies.parity.yaml`) read each language's emitted
+response classes, so a transform applied after serialization (a global interceptor, a
+response-model setting that changes field names) is invisible to them. Each registered language
+declares the regular expressions that spell such a transform in its framework
+(`LanguageCapabilityDeclaration.response_body_transform_idioms`, required and non-empty); this gate
+generates the CQRS example (`datrix/examples/02-features/03-infrastructure-blocks/cqrs/`, profile
+`test`) once per registered language and greps the generated tree for them. Every hit must be a
+typed `transform_exemptions` entry in `scripts/config/response-body-transform-exemptions.json`
+(`{language, path_suffix, matched_text, reason}`) -- the TypeScript `MetricsInterceptor`
+registration (`APP_INTERCEPTOR` in `src/app.module.ts`), which never touches the body, is the one
+entry. An unexempted hit, an exemption that matches nothing, an exemption naming an unregistered
+language, and a language with no declaration each fail by name. The review file is refused if it
+carries any key other than `_comment` and `transform_exemptions`: a response-body field that
+diverges from the camelCase rule has no review shape. A census over generated text; it imports no
+conformance probe. Language set from the installed `datrix.languages` entry points.
+
+**Self-test, every invocation.** The gate names no target; a planted `useGlobalInterceptors(` line
+is reported at `src/main.ts:2` while a clean `useGlobalPipes(` line is not; an exemption covers the
+hit, an exemption covering nothing is stale, and one covering a hit is not; a language with no
+capability declaration is refused by name; the review file parses its real shape and refuses a
+per-schema-kind `exemptions` list, a non-object entry and a blank reason; fewer than two languages
+refuse the run.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\gates\parity\response-body-transform-census-gate.ps1` | Generate the CQRS example for every registered language and census its tree |
+| **Debug** | `.\gates\parity\response-body-transform-census-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\gates\parity\response-body-transform-census-gate.ps1 -SelfTest` | Run only the self-test; skip generation |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Exit codes:** 0 = every hit is reviewed and no entry is stale (or a successful `-SelfTest`), 1 = an
+unreviewed hit, a stale entry or a language with no declaration, 2 = the self-test failed, fewer than
+two languages are registered, or the review file is missing or malformed.
+
 ---
 
 ## `gates\parity\type-mapping-completeness.ps1`
@@ -374,28 +514,6 @@ Framework header parity gate: every registered language spells the framework-min
 
 ---
 
-## `gates\parity\web-security-header-parity-gate.ps1`
-
-Web security header parity gate: every registered platform realizing `static_web_hosting` emits the ONE declared security-header set from the one builder (`datrix_codegen_kernel.platform.web_security_headers.build_web_security_headers` — Content-Security-Policy, Strict-Transport-Security, X-Content-Type-Options, Referrer-Policy, Permissions-Policy). No platform spells a header name literally in its own source — each threads the shared builder's `WebSecurityHeaderSet.as_header_dict()` straight into its own rendering primitive — so this gate reads each platform's artifact through that platform's own conformance probes (`PlatformPlugin.declared_conformance_probes()`, `PlatformConformanceProbes.realized_web_security_headers(header_set)` in `datrix_codegen_kernel.parity.conformance_probes`): the probe DRIVES the platform's real generation composition for one shared fixture header set rather than the gate censusing source text, then parses the EMITTED artifact structurally (nginx `add_header` directives at server level, the CloudFront response-headers policy's CDK IR, the parsed `staticwebapp.config.json`). The gate names no platform and carries no per-platform table; its census is keyed by registered platform name, so two names sharing one package are each proven, and a registered platform with no probes, or a probe returning no header, fails by name. **Realization:** every header family the platform's own topology expects (read from `PlatformCapabilityDeclaration.static_web_hosting.origin` — a loopback platform correctly omits Strict-Transport-Security, never a per-platform declared hole) must be realized in the emitted artifact; there is no exemption path for this gate — a platform realizing `static_web_hosting` must realize its full topology-appropriate set, always. **CSP safety:** no emitted Content-Security-Policy value contains `unsafe-inline` or `unsafe-eval`, checked independently of family completeness. Every registered platform whose declaration carries `static_web_hosting` is censused; a platform whose static web hosting declares no `origin` is a defect that fails the run with exit 2, never skipped. Platform set from the installed `datrix.platforms` entry points; the declared header set read from datrix-common — never a table in the script.
-
-| Mode | Command | Description |
-|------|---------|-------------|
-| **Run gate** | `.\gates\parity\web-security-header-parity-gate.ps1` | Drive every realizing platform's real generation composition for the shared fixture; prints the family × platform realized/n-a/MISSING table |
-| **Debug** | `.\gates\parity\web-security-header-parity-gate.ps1 -Dbg` | Debug logging (per-platform census detail) |
-| **Self-test only** | `.\gates\parity\web-security-header-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real census |
-
-**Parameters:** `-Dbg`, `-SelfTest`
-
-**Assertions:**
-- Realization, per realizing platform and family: every family in that platform's own topology-derived expected set (`_topology_families`, keyed by `static_web_hosting.origin`) is realized in the emitted artifact; a realized family outside the declared vocabulary is also a violation.
-- CSP safety: no censused `Content-Security-Policy` value contains `unsafe-inline` or `unsafe-eval`, regardless of family completeness.
-- Registry: every declared family is realized by at least one registered platform.
-- Non-vacuity self-test (every invocation): **first**, the gate's own source is scanned with `datrix_scripts.registered_targets.target_references_in_module` and any import of a target package or target-name literal in a target-identity position fails it; two fully realizing planted platforms report no problem; a platform missing an expected family is exactly one problem naming the platform and family; a loopback platform legitimately omitting Strict-Transport-Security is NOT a violation, and its verdict records the topology-narrowed expected set; a realized header outside the declared vocabulary is exactly one problem; a planted `unsafe-inline`/`unsafe-eval` CSP sample is exactly one problem independent of family completeness; a family nobody realizes anywhere is reported as a dead contract; fixture probes whose platform name is not registered drive the real dispatch (a conformant artifact passes for both topologies, a weakened value fails, an empty result fails, a platform class with no probe member fails with the accessor's message); a single-platform set is refused; the **live** scan reads every real registered platform through its probes, finds every declared family realized somewhere, and passes `evaluate()` with zero violations.
-
-**Exit codes:** 0 = every realizing platform passes both rules (or a successful `-SelfTest`), 1 = a violation was found, 2 = the self-test failed, fewer than two platforms are registered or realize static web hosting, a platform has no (or incomplete) conformance probes, a probe returned no header, or a platform declares no static-hosting origin.
-
----
-
 ## `gates\parity\problem-type-parity-gate.ps1`
 
 Problem-type parity gate: every registered language answers errors with RFC 7807 `type` URNs from datrix-common's one registry (`datrix_common.datrix_model.problem_types` — `urn:datrix:error:<slug>`; a declared DSL exception derives its slug from its class name through the shared exception-declaration algorithm, a framework error uses a registered family) and is obligated to every framework family. The gate censuses every `.py` and `.j2` source under the `src/` tree of every package implementing each registered language (its backend plus each language core the backend requires) for **registry references**, never URN literals: `PROBLEM_<FAMILY>` in a template, `problem_type_for("<family>")` in Python, or a template naming `GENERIC_PROBLEM_FAMILY_BY_STATUS` (which realizes every generic family it carries). **Spelling:** any `urn:datrix:error:<slug>` literal in a language package is a hard problem with no exemption path — the registry renders every URN, and a literal is a second vocabulary. **Realization:** every registered language is obligated to reference every registered family. A (language, family) cell a language does not reference is an *unspelled cell*, printed on every run as `PINNED GAP language=<l> family=<f>` and counted against that language's pin in `scripts/config/problem-type-parity-baseline.toml` (`[languages]` table, `<language> = <count>`; a language absent from the table is pinned at zero; the loader refuses an unrecognized key, a negative count or a bool). A count above the pin fails (`EXCEED`: spell the family, never raise the pin); a count below the pin fails (`BELOW`: lower the pin in the same change); a pin naming an unregistered language is stale. The pin is seeded from a live run and lowered by hand; no script writes it. A family no language spells is a dead registry entry and fails outright, and is never pinned. Language set from the installed `datrix.languages` entry points; registry read from the packages — never a table in the script.
@@ -570,201 +688,3 @@ if fewer than 2 languages are registered.
 **Exit codes:** 0 = stance key sets identical and every `supported` group is fully mapped, 1 = a
 stance key-set divergence or an unmapped row in a `supported` group was found, 2 = the
 non-vacuity self-test failed or fewer than 2 languages are registered.
-
----
-
-## `gates\parity\body-wire-naming-conformance-gate.ps1`
-
-Cross-language response-body wire-naming conformance gate. Generates the real CQRS example project
-(`datrix/examples/02-features/03-infrastructure-blocks/cqrs/`) once per registered
-`datrix.languages` plugin and proves every emitted response-body schema serializes under ONE
-declared rule -- camelCase wire keys -- by reading each language's OWN generated response classes'
-EFFECTIVE wire names through that language's conformance probes (`LanguagePlugin.conformance_probes`,
-`LanguageConformanceProbes.response_body_wire_fields` in `datrix_codegen_kernel.parity.conformance_probes`;
-Python reads Pydantic's computed aliases, TypeScript its DTO property names), never the mere presence
-of a wire-renaming mechanism (a template with no
-alias generator but single-word fields, e.g. `problem_details.py.j2`, is not a divergence -- its
-effective wire name is unchanged either way).
-
-No language and no schema kind can be set aside: every in-population field that diverges fails,
-and the fix is in that language's template. `body-wire-naming-exemptions.json` holds only reviewed
-transform hits (below); the gate refuses the file if it carries any key other than `_comment` and
-`transform_exemptions`.
-
-**Response-body transform census.** The comparison above reads the emitted response classes, so a
-transform applied after serialization (a global interceptor, a response-model setting that changes
-field names) is invisible to it. Each registered language declares the regular expressions that
-spell such a transform in its framework
-(`LanguageCapabilityDeclaration.response_body_transform_idioms`, required and non-empty); the gate
-greps the same generated tree for them. Every hit must be a typed `transform_exemptions` entry in
-`body-wire-naming-exemptions.json` (`{language, path_suffix, matched_text, reason}`) -- the
-TypeScript `MetricsInterceptor` registration (`APP_INTERCEPTOR` in `src/app.module.ts`), which never
-touches the body, is the one entry. An unexempted hit, an exemption that matches nothing, and a
-language with no declaration each fail by name.
-
-Derives its target language set from `importlib.metadata.entry_points(group="datrix.languages")`
-at runtime -- never a hardcoded language-name literal.
-
-The gate names no language and carries no per-language extractor. A language whose probe returns no
-in-population response field for the generated CQRS example fails ("a census that finds nothing
-proves nothing"); schema kinds outside the measured population (dependency responses) are counted
-per distinct file and reported beside the verdict.
-
-**Built-in non-vacuity self-test, every invocation.** First scans the gate's own source with
-`datrix_scripts.registered_targets.target_references_in_module` (any import of a target package or
-target-name literal in a target-identity position fails it). Plants a `useGlobalInterceptors(` hit in a
-scratch tree and requires the transform census to report it at its coordinates (and to honour an
-exemption, flag a stale one, ignore a clean file and refuse an undeclared language). Proves the
-review file parses its real shape and refuses one carrying a per-schema-kind `exemptions` list.
-Proves the comparator flags a genuinely divergent field, does not flag a genuinely conformant one,
-does not flag a single-word field with no wire-renaming mechanism, and drives the real per-language
-evaluation with in-process fixture probes whose language name is not
-registered (a conformant probe passes, a planted divergence fails, an empty result fails, a
-dependency-only result fails and is counted, an out-of-population divergence is excluded and
-counted, a plugin with no probe member fails with the accessor's message). The Pydantic
-`serialization_alias` precedence is proven in the Python package's own tests
-(`datrix-codegen-python/tests/unit/conformance/`). Fails loud (exit 2) if fewer than 2 languages are registered.
-
-| Mode | Command | Description |
-|------|---------|--------------|
-| **Run gate** | `.\gates\parity\body-wire-naming-conformance-gate.ps1` | Generate the CQRS example for every registered language and compare effective wire names |
-| **Debug** | `.\gates\parity\body-wire-naming-conformance-gate.ps1 -Dbg` | Debug logging |
-| **Self-test only** | `.\gates\parity\body-wire-naming-conformance-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip real generation |
-
-**Parameters:** `-Dbg`, `-SelfTest`
-
-**Exit codes:** 0 = every registered language's response bodies serialize camelCase and no
-unreviewed response-body transform exists, 1 = a divergence or an unreviewed transform was found (or
-a registered language declares no conformance probes), 2 = the non-vacuity self-test failed or fewer
-than 2 languages are registered.
-
----
-
-## `gates\parity\route-wire-contract-parity-gate.ps1`
-
-Cross-language route wire-contract parity gate: two languages must answer the same route identically
-on the wire. Generates two example projects (the resource CRUD example `02-features/01-core-data-modeling/rest-api`
-and `02-features/03-infrastructure-blocks/cqrs`) once per registered `datrix.languages` plugin, reads
-every API route's contract out of the generated source through that language's own conformance probe
-(`LanguageConformanceProbes.route_wire_contracts` in `datrix_codegen_kernel.parity.conformance_probes`;
-Python reads each `APIRouter` decorator with `ast`, TypeScript each NestJS controller decorator with the
-shared C-family bracket scanner) and compares the languages route by route: the route set (verb + path
-shape; a path parameter's name is not on the wire and is ignored), the success status the framework
-answers when the handler returns normally (each framework's own default applied: NestJS answers a POST
-201), the success-body envelope (`none` / `object` / `list` / `page` / `binary`) and the media type.
-
-Static by construction: no backend is booted, no request is made, no toolchain runs. A mismatch names
-the example, verb, path and the per-language values only -- never a generated file or source text.
-
-The gate names no language and carries no per-language table. A language with no probe, a probe that
-finds no route, and fewer than 2 registered languages each fail loudly. A language that cannot realize a
-route declares it as a counted `capability_gaps` row, never as an exemption here.
-
-**Built-in non-vacuity self-test, every invocation.** Scans the gate's own source with
-`datrix_scripts.registered_targets.target_references_in_module`; proves identical contracts report nothing and
-a planted status, envelope, media-type, route-set (PUT against PATCH) and duplicate-route divergence each
-report by name; proves a report never names a generated file; drives the real per-language read with
-fixture probes (an empty result fails, a plugin with no probe member is refused) and the
-insufficient-target refusal.
-
-| Mode | Command | Description |
-|------|---------|--------------|
-| **Run gate** | `.\gates\parity\route-wire-contract-parity-gate.ps1` | Generate both examples for every registered language and compare route contracts |
-| **Debug** | `.\gates\parity\route-wire-contract-parity-gate.ps1 -Dbg` | Debug logging |
-| **Self-test only** | `.\gates\parity\route-wire-contract-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip real generation |
-
-**Parameters:** `-Dbg`, `-SelfTest`
-
-**Exit codes:** 0 = every registered language answers every route identically, 1 = a divergence was
-found (or a registered language declares no conformance probes or its probe finds no route), 2 = the
-non-vacuity self-test failed or fewer than 2 languages are registered.
-
----
-
-## `gates\parity\enum-classifier-conformance-gate.ps1`
-
-Cross-target enum-classifier conformance gate. Proves every registered
-`datrix.languages` plugin that emits enum types realizes `equalsKeyword`/`containsKeyword`
-identically for a fixture keyword-bearing enum: a hit returns the correct member, a miss without
-fallback raises the language's declared unrecognized-value exception (`LanguageProfile.errors`)
-with a message naming only the enum type (no input/keyword disclosure), and a miss with fallback
-returns the fallback. These classifiers are deliberately NOT `BUILTIN_REGISTRY` entries (the
-registry is keyed by fixed category names and a user enum is never one of those categories), so
-this gate is the coverage the closed registry would otherwise provide.
-
-Derives its target language set from `importlib.metadata.entry_points(group="datrix.languages")`
-at runtime, then narrows to enum-emitting languages from each plugin's own registered `"enum"`
-sub-generator domain — never a hardcoded language-name literal.
-
-How a language renders its enum file is that language's own conformance probe
-(`LanguageConformanceProbes.render_enum_classifier`, reached through `LanguagePlugin.conformance_probes`);
-how the classifier definitions are spelled in the rendered source is data on the capability
-declaration (`LanguageCapabilityDeclaration.enum_classifier_idioms`); the exception a miss must raise
-is read from the language's own transpiler profile, never from the probe. The gate names no language.
-A language with no probes, no declared idioms, or a probe that does not render exactly one source
-fails loud.
-
-**Built-in non-vacuity self-test, every invocation.** First scans the gate's own source with
-`datrix_scripts.registered_targets.target_references_in_module` (any import of a target package or
-target-name literal in a target-identity position fails it). Feeds the comparator a synthetic
-fully-conformant pair (must report zero violations) and a synthetic partially-broken pair (must
-report exactly the broken language), and the verdict over each result passes the first pair and
-fails the second with no exemption input. Then drives the real render-and-read path with
-in-process fixture probes whose language name is not registered (a conformant render passes; a
-missing classifier, a disclosing message and an undeclared exception each fail; zero or two
-rendered sources, a declaration with no idioms and a plugin with no probe member are each refused).
-Fails loud (exit 2) if fewer than 2 enum-emitting languages are registered.
-
-The gate is a hard zero: every enum-emitting registered language must be fully conformant. A
-language that is not fails the gate naming the missing classifier behaviour, and no exemption of
-any kind exists.
-
-| Mode | Command | Description |
-|------|---------|--------------|
-| **Run gate** | `.\gates\parity\enum-classifier-conformance-gate.ps1` | Compare every registered enum-emitting language's classifier conformance |
-| **Debug** | `.\gates\parity\enum-classifier-conformance-gate.ps1 -Dbg` | Debug logging |
-| **Self-test only** | `.\gates\parity\enum-classifier-conformance-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
-
-**Parameters:** `-Dbg`, `-SelfTest`
-
-**Exit codes:** 0 = every enum-emitting registered language is fully conformant, 1 = a
-conformance gap was found, 2 = the non-vacuity self-test failed or fewer than 2 enum-emitting
-languages are registered.
-
----
-
-## `gates\parity\event-envelope-parity-gate.ps1`
-
-Cross-language pubsub event-envelope parity gate. A topic may have producers and consumers in
-different languages, so every registered `datrix.languages` plugin must write one envelope shape and
-read the same shape back. The gate generates the shared pubsub example
-(`datrix/examples/02-features/02-service-architecture/pubsub/`, profile `test`) once per registered
-language and reads each language's own producers and consumers through its
-`LanguageConformanceProbes.event_envelopes` (reached through `LanguagePlugin.conformance_probes`).
-It fails when a language publishes no envelope (a census that finds nothing proves nothing), an
-envelope's keys are not exactly the declared `EVENT_ENVELOPE_*` keys
-(`datrix_codegen_kernel.generation.event_envelope`), a payload's keys are not exactly its event
-parameters' wire names (`event_payload_wire_name`), a consumer reads a key no producer writes, or
-two languages publish one event with different payload keys. The declared events and parameters are
-read from the example's own source.
-
-Derives its target language set from `importlib.metadata.entry_points(group="datrix.languages")`
-at runtime; the gate names no language.
-
-**Built-in non-vacuity self-test, every invocation.** Scans the gate's own source with
-`datrix_scripts.registered_targets.target_references_in_module`, then feeds the comparators a
-conformant fixture census (no violation), a snake_case envelope written and read (both reported), a
-snake_case payload, two languages disagreeing on one event's payload, and an empty census (each
-reported), and drives the real insufficient-target refusal with an empty and a one-language list.
-
-| Mode | Command | Description |
-|------|---------|--------------|
-| **Run gate** | `.\gates\parity\event-envelope-parity-gate.ps1` | Generate the pubsub example for every registered language and compare envelopes |
-| **Debug** | `.\gates\parity\event-envelope-parity-gate.ps1 -Dbg` | Debug logging |
-| **Self-test only** | `.\gates\parity\event-envelope-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip real generation |
-
-**Parameters:** `-Dbg`, `-SelfTest`
-
-**Exit codes:** 0 = one envelope shape across every registered language, 1 = a divergence or a
-language with no conformance probes, 2 = the non-vacuity self-test failed or fewer than 2 languages
-are registered.

@@ -7,7 +7,7 @@ and runs a non-vacuity self-test before it trusts a real result.
 
 | Family | Holds | Reference |
 |--------|-------|-----------|
-| `parity/` | Every registered language or platform realizes the same thing the same way: domains, behaviour, headers, problem types, wire contracts, artifact roles, manifests and dependencies | [parity/quick-reference.md](parity/quick-reference.md) |
+| `parity/` | Every registered language or platform realizes the same thing the same way: domains, behaviour, headers, problem types, wire contracts, artifact roles, manifests and dependencies. A fact read off generated artifacts through a conformance probe is a row of `parity/cases/*.parity.yaml`, read on every target by `parity-cases-gate.ps1`; a new gate module here is a source census | [parity/quick-reference.md](parity/quick-reference.md) |
 | `realization/` | A declared capability is actually realized: whole-system generation, determinism, shared-builder reachability, cache and RDBMS consumption, documentation, the standing conformance-spec corpus | [realization/quick-reference.md](realization/quick-reference.md) |
 | `ratchet/` | Counts that may only move one way (or only with their pin): generated-file construction, out-of-table dependency decisions, capability gaps, slow tests | [ratchet/quick-reference.md](ratchet/quick-reference.md) |
 | `repo-hygiene/` | What may be committed and what the repos and examples must satisfy: customer terms, design/task references, ignored sources, docs conformance, instruction surfaces, example registry and configs, hard-zero code shapes | [repo-hygiene/quick-reference.md](repo-hygiene/quick-reference.md) |

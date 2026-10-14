@@ -24,11 +24,9 @@ misses a code span that crosses a line-wrap or shares a line with prose,
 exactly the shape a false negative here would take).
 
 Every code fragment found is classified with `_suite_invocation.py` (the SAME
-module `guard-full-suite-runs.py` loads as a sibling) -- loaded here by path via
-`importlib.util.spec_from_file_location`, the precedent this repo already uses
-for exactly this situation: `ignored_source.py`'s `load_temp_dir_segment`
-loads `_repo_temp_dir_names.py` from the hooks directory so the gate and the
-hook it audits share one definition. A fragment classified whole-suite (bare
+module `guard-full-suite-runs.py` loads as a sibling) -- loaded here by path
+through `datrix_scripts.hook_modules.load_suite_invocation`, so the gate and
+the hook it audits share one definition. A fragment classified whole-suite (bare
 package, several packages, `-All`, `-Rerun`, a tier switch with none of
 `-Specific`/`-Keyword`/`-Tag`, or any `affected-gate.ps1` invocation other than
 `-SelfTest`) is a hit UNLESS an HTML comment
@@ -45,7 +43,6 @@ dependency module could not be loaded.
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import logging
 import re
 import sys
@@ -54,17 +51,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 
+from datrix_scripts.hook_modules import HookModuleError, load_suite_invocation
 from datrix_scripts.paths import SHOWCASE_DIR
 
 DATRIX_ROOT = SHOWCASE_DIR
 
 logger = logging.getLogger(__name__)
-
-#: Loaded by path (see `_load_module`), never imported as a package --
-#: `_suite_invocation.py` lives outside every installed `datrix-*` distribution,
-#: in the hooks directory the harness runs under system `python`.
-SUITE_INVOCATION_RELPATH = ("claude-config", ".claude", "hooks", "_suite_invocation.py")
-COMMAND_SHAPE_RELPATH = ("claude-config", ".claude", "hooks", "_command_shape.py")
 
 FORBIDDEN_EXAMPLE_MARKER = "<!-- forbidden-example -->"
 
@@ -76,10 +68,6 @@ SCAN_GLOBS: tuple[str, ...] = (
     "claude-config/.claude/rules/*.md",
     "claude-config/.claude/skills/**/*.md",
 )
-
-
-class InstructionSurfaceGateError(RuntimeError):
-    """The gate cannot run: a dependency module could not be loaded."""
 
 
 @dataclass(frozen=True)
@@ -98,49 +86,6 @@ class Hit:
 class ScanResult:
     hits: tuple[Hit, ...]
     exempted_count: int
-
-
-def _load_module(path: Path, name: str) -> ModuleType:
-    """Load a hooks-directory module by path -- the `ignored_source.py`
-    (`load_temp_dir_segment`) precedent, generalized to a module that itself
-    does `from _command_shape import ...`: that sibling import resolves only
-    if the hooks directory is on `sys.path`, so this loader inserts it (once,
-    idempotently) before executing the module.
-    """
-    hooks_dir = path.parent
-    if str(hooks_dir) not in sys.path:
-        sys.path.insert(0, str(hooks_dir))
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise InstructionSurfaceGateError(f"Could not build an import spec for {path}.")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def load_suite_invocation(datrix_root: Path) -> ModuleType:
-    """Load `_suite_invocation.py` -- the SAME classifier `guard-full-suite-runs.py`
-    imports as a sibling, so the hook and this gate never disagree about what a
-    whole-suite invocation looks like. Also loads its own dependency,
-    `_command_shape.py`, onto `sys.path` first (see `_load_module`).
-
-    Raises:
-        InstructionSurfaceGateError: either module is missing.
-    """
-    command_shape_path = datrix_root.joinpath(*COMMAND_SHAPE_RELPATH)
-    suite_invocation_path = datrix_root.joinpath(*SUITE_INVOCATION_RELPATH)
-    if not command_shape_path.is_file():
-        raise InstructionSurfaceGateError(
-            f"{command_shape_path} not found -- the instruction-surface gate shares its "
-            f"classification with guard-full-suite-runs.py and cannot fall back to a private copy. "
-            f"Restore _command_shape.py in the hooks directory."
-        )
-    if not suite_invocation_path.is_file():
-        raise InstructionSurfaceGateError(
-            f"{suite_invocation_path} not found -- restore the shared whole-suite classifier "
-            f"module (_suite_invocation.py) in the hooks directory before running this gate."
-        )
-    return _load_module(suite_invocation_path, "_suite_invocation")
 
 
 # ---------------------------------------------------------------------------
@@ -573,8 +518,8 @@ def main(argv: list[str]) -> int:
         format="%(levelname)s %(name)s: %(message)s",
     )
     try:
-        suite_invocation = load_suite_invocation(DATRIX_ROOT)
-    except InstructionSurfaceGateError as exc:
+        suite_invocation = load_suite_invocation()
+    except HookModuleError as exc:
         print(f"INSTRUCTION-SURFACE GATE CANNOT RUN: {exc}", file=sys.stderr)
         return 2
 

@@ -1,0 +1,16 @@
+- id: enums.product-category.classifiers
+  tags: [parity, enum-keywords]
+  input: enums
+  stage: parity
+  observer: render_enum_classifier
+  selector: {facet: classifiers, enum: ProductCategory}
+  expectation: [containsKeyword, equalsKeyword]
+  reason: Every enum-emitting language realizes both keyword classifiers for a keyword-bearing enum; they are not BUILTIN_REGISTRY rows, so nothing else compares them across languages.
+- id: enums.product-category.no-match-raise
+  tags: [parity, enum-keywords, input-validation]
+  input: enums
+  stage: parity
+  observer: render_enum_classifier
+  selector: {facet: no-match-raise, enum: ProductCategory}
+  expectation: {exception: declared, message: Unrecognized ProductCategory value.}
+  reason: A miss without fallback raises the language's own declared unrecognized-value exception with a fixed message naming only the enum, never the received value or a keyword.

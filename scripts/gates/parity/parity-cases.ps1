@@ -1,0 +1,144 @@
+#!/usr/bin/env pwsh
+<#
+.SYNOPSIS
+ Author, migrate and check parity rows (gates\parity\cases\*.parity.yaml).
+
+.DESCRIPTION
+ A parity row is a case row (datrix_testing.cases) whose stage is 'parity' and whose
+ observer is a conformance probe: one fact, read on every registered target of the
+ probe's axis by parity-cases-gate.ps1 and compared with the authored expectation.
+
+   observe  Build the fixture for every target and print each target's reading of a
+            selector. Writes nothing (fixtures go under D:\datrix\.tmp\parity-cases).
+   new      Validate one authored row, read it on every target, and append it to
+            cases\<area>.parity.yaml. Refused while the approval gate is armed for the
+            parity cases directory.
+   migrate  Propose one row per selector a probe's return offers, with every target's
+            reading beside it and no expectation, under D:\datrix\.tmp\case-proposals\.
+            -Replaces names the probe-backed gate the rows replace.
+   accept   Move an approved proposal's rows into cases\<area>.parity.yaml; refuses a
+            proposal no approval covers and a row without an expectation. A proposal
+            that replaces a gate also deletes the gate's wrapper, its lib\ module and its
+            quick-reference section.
+   check    Check every committed row.
+
+.PARAMETER Command
+ observe, new, migrate, accept or check.
+
+.PARAMETER Arguments
+ The command's positional arguments:
+   observe <input> <probe> <selector>
+   new     <area>                        (with the named fields)
+   migrate <input> <probe>               (with -Area; -Tags and -Replaces optional)
+   accept  <proposal>
+   check
+
+.PARAMETER Id
+ new: the row id, <area>.<slug>.
+
+.PARAMETER Tags
+ new, migrate: the feature tags, comma-separated (new: every tag the row carries, 'parity'
+ included; migrate: the behaviour tags added to 'parity').
+
+.PARAMETER CaseInput
+ new: the fixture (alias -Input): a registered example, or a header-set fixture.
+
+.PARAMETER Probe
+ new: the conformance probe method the row observes.
+
+.PARAMETER Selector
+ new: the selector, a YAML flow mapping ({facet: route, verb: get, path: /api/v1/books}).
+
+.PARAMETER Expectation
+ new: the expectation, a YAML flow value.
+
+.PARAMETER Reason
+ new: one sentence naming the decision the row protects.
+
+.PARAMETER Area
+ migrate: the area of the proposed rows (their file is cases\<area>.parity.yaml).
+
+.PARAMETER Replaces
+ migrate: the probe-backed gate the rows replace, by wrapper name without .ps1.
+
+.EXAMPLE
+ .\parity-cases.ps1 observe rest-api route_wire_contracts "{facet: route, verb: get, path: /api/v1/books}"
+
+.EXAMPLE
+ .\parity-cases.ps1 migrate pubsub event_envelopes -Area events -Tags pubsub
+
+.EXAMPLE
+ .\parity-cases.ps1 check
+#>
+
+[CmdletBinding()]
+param(
+ [Parameter(Position=0, Mandatory=$true)]
+ [ValidateSet("observe", "new", "migrate", "accept", "check")]
+ [string]$Command,
+
+ [Parameter(Position=1, ValueFromRemainingArguments=$true)]
+ [string[]]$Arguments = @(),
+
+ [string]$Id,
+ [string]$Tags,
+ [Alias("Input")]
+ [string]$CaseInput,
+ [string]$Probe,
+ [string]$Selector,
+ [string]$Expectation,
+ [string]$Reason,
+ [string]$Area,
+ [string]$Replaces,
+ [switch]$Dbg
+)
+
+$ErrorActionPreference = "Stop"
+
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$toolScript = Join-Path $scriptDir "lib\parity_cases_tool.py"
+
+$commonDir = Join-Path $scriptDir "..\..\common"
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
+. (Join-Path $commonDir "venv.ps1")
+
+function Invoke-Cleanup {
+ Disable-DatrixVenv
+}
+
+trap {
+ Invoke-Cleanup
+ break
+}
+
+function Get-CommandArguments {
+ $pythonArgs = @($Command) + $Arguments
+ switch ($Command) {
+  "new" {
+   foreach ($field in @(@("--id", $Id), @("--tags", $Tags), @("--input", $CaseInput), @("--probe", $Probe),
+                        @("--selector", $Selector), @("--expectation", $Expectation), @("--reason", $Reason))) {
+    if (-not $field[1]) { throw "new needs $($field[0] -replace '--', '-'): every field of a row comes from you." }
+    $pythonArgs += $field
+   }
+  }
+  "migrate" {
+   if (-not $Area) { throw "migrate needs -Area <area>: the file the proposed rows belong to." }
+   $pythonArgs += @("--area", $Area)
+   if ($Tags) { $pythonArgs += @("--tags", $Tags) }
+   if ($Replaces) { $pythonArgs += @("--replaces", $Replaces) }
+  }
+ }
+ return ,$pythonArgs
+}
+
+Ensure-DatrixVenv
+
+try {
+ Ensure-DatrixPackagesInstalled
+ $pythonArgs = @($toolScript) + (Get-CommandArguments)
+ if ($Dbg) { Write-Host "Running: python $($pythonArgs -join ' ')" }
+ python @pythonArgs
+ exit $LASTEXITCODE
+} finally {
+ Invoke-Cleanup
+}

@@ -1,0 +1,88 @@
+- id: web-security-headers.domain.header-set
+  tags: [parity, web-security-headers]
+  input: web-security-domain
+  stage: parity
+  observer: realized_web_security_headers
+  selector: {facet: headers}
+  expectation: [Content-Security-Policy, Permissions-Policy, Referrer-Policy, Strict-Transport-Security, X-Content-Type-Options]
+  reason: A domain-fronted static site carries the whole declared security-header set, HSTS included, and no hand-written header, on every platform.
+- id: web-security-headers.domain.content-security-policy
+  tags: [parity, web-security-headers]
+  input: web-security-domain
+  stage: parity
+  observer: realized_web_security_headers
+  selector: {facet: header, name: Content-Security-Policy}
+  expectation: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.fixture.example https://auth.fixture.example; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://auth.fixture.example; object-src 'none'"
+  reason: Every platform emits the shared builder's CSP unchanged -- no unsafe-inline or unsafe-eval, framing refused, script and style self-only.
+- id: web-security-headers.domain.strict-transport-security
+  tags: [parity, web-security-headers]
+  input: web-security-domain
+  stage: parity
+  observer: realized_web_security_headers
+  selector: {facet: header, name: Strict-Transport-Security}
+  expectation: max-age=31536000; includeSubDomains
+  reason: A domain-fronted site pins HTTPS for a year across subdomains on every platform.
+- id: web-security-headers.domain.x-content-type-options
+  tags: [parity, web-security-headers]
+  input: web-security-domain
+  stage: parity
+  observer: realized_web_security_headers
+  selector: {facet: header, name: X-Content-Type-Options}
+  expectation: nosniff
+  reason: Every platform forbids MIME sniffing of the site's assets.
+- id: web-security-headers.domain.referrer-policy
+  tags: [parity, web-security-headers]
+  input: web-security-domain
+  stage: parity
+  observer: realized_web_security_headers
+  selector: {facet: header, name: Referrer-Policy}
+  expectation: strict-origin-when-cross-origin
+  reason: Every platform sends only the origin cross-site and nothing on a downgrade.
+- id: web-security-headers.domain.permissions-policy
+  tags: [parity, web-security-headers]
+  input: web-security-domain
+  stage: parity
+  observer: realized_web_security_headers
+  selector: {facet: header, name: Permissions-Policy}
+  expectation: camera=(), geolocation=()
+  reason: Every platform denies the powerful features a site that uses no such builtin never needs.
+- id: web-security-headers.loopback.header-set
+  tags: [parity, web-security-headers]
+  input: web-security-loopback
+  stage: parity
+  observer: realized_web_security_headers
+  selector: {facet: headers}
+  expectation: [Content-Security-Policy, Permissions-Policy, Referrer-Policy, X-Content-Type-Options]
+  reason: A loopback site served over plain HTTP carries the declared set without HSTS, which is meaningless there, on every platform.
+- id: web-security-headers.loopback.content-security-policy
+  tags: [parity, web-security-headers]
+  input: web-security-loopback
+  stage: parity
+  observer: realized_web_security_headers
+  selector: {facet: header, name: Content-Security-Policy}
+  expectation: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.fixture.example https://auth.fixture.example; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://auth.fixture.example; object-src 'none'"
+  reason: A loopback site gets the same CSP as a domain-fronted one; the topology changes HSTS only.
+- id: web-security-headers.loopback.x-content-type-options
+  tags: [parity, web-security-headers]
+  input: web-security-loopback
+  stage: parity
+  observer: realized_web_security_headers
+  selector: {facet: header, name: X-Content-Type-Options}
+  expectation: nosniff
+  reason: A loopback site forbids MIME sniffing like any other on every platform.
+- id: web-security-headers.loopback.referrer-policy
+  tags: [parity, web-security-headers]
+  input: web-security-loopback
+  stage: parity
+  observer: realized_web_security_headers
+  selector: {facet: header, name: Referrer-Policy}
+  expectation: strict-origin-when-cross-origin
+  reason: A loopback site keeps the declared referrer policy on every platform.
+- id: web-security-headers.loopback.permissions-policy
+  tags: [parity, web-security-headers]
+  input: web-security-loopback
+  stage: parity
+  observer: realized_web_security_headers
+  selector: {facet: header, name: Permissions-Policy}
+  expectation: camera=(), geolocation=()
+  reason: A loopback site keeps the declared permissions policy on every platform.
