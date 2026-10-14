@@ -188,6 +188,24 @@ The schema-derived model contract tool (`datrix_testing.model_contracts.cli`). A
 
 ---
 
+## `test\tables.ps1`
+
+The table-contract tool (`datrix_testing.tables.cli`). A package that owns a table in `src/` -- the builtin registry for its language, a type map, an emit table, the file declarations of a DAL generator document -- registers a table contract for it from `tests/conftest.py` and carries one runner module, `tests/test_tables.py`: one pytest item per row (per row x axis cell of a matrix table), named `test_table[<table>::<row id>]`, proving the row's property through the real code path. Items carry the contract's tags, so `test.ps1 <pkg> -Tag <table tag>` runs a table's rows. Rules: `datrix-common/docs/contributing/test-guidelines/unit-test-guidelines.md`, "Table rows".
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Show the tables** | `.\test\tables.ps1 rows datrix-codegen-python` | Every registered table, its tags, tier and lookup names, and every item id. Writes nothing |
+| **One table** | `.\test\tables.ps1 rows datrix-codegen-python builtins` | That table's item ids |
+| **Inventory** | `.\test\tables.ps1 inventory datrix-codegen-python` | Resolve every per-row hand test (a test whose whole body looks a registered table's row up and compares it) to the rows it reads: `covered` (only presence checks of rows the table yields: an item proves it), `decision` (a row's value compared with a literal: a case row or code, never deleted), `uncovered` (a row no table yields). Writes `D:\datrix\.tmp\case-proposals\<package>.tables.inventory.txt` |
+| **Propose** | `.\test\tables.ps1 migrate datrix-codegen-python` | Write `D:\datrix\.tmp\case-proposals\<package>.tables.proposal.json`: `delete` for every covered test, `stays` with the reason for every other one |
+| **Accept** | `.\test\tables.ps1 accept D:\datrix\.tmp\case-proposals\<package>.tables.proposal.json` | Requires Jon's `<proposal name>.cases.approved` (proposal name, sha256, and the `<module>::<test>` key of every security test it deletes). Re-resolves every test, refuses a deletion no current item covers, removes the tests by AST with the dead code they leave, lowers the pins |
+
+**Parameters:** `-Command` (positional: `rows`, `inventory`, `migrate`, `accept`), the command's positional arguments, `-Dbg`
+
+**Exit codes:** 0 = done, 1 = refused (an unapproved or stale proposal, a package with no `tests/test_tables.py`, a malformed contract), 2 = usage error (unknown package).
+
+---
+
 ## `test\cleanup.ps1`
 
 Lists/deletes `.test_results` folders (containing timestamped test result directories) under each datrix project and `.generated/`.
