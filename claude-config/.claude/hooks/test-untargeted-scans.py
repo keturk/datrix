@@ -63,6 +63,17 @@ check("-ListRules is a read of the rule set",
       cmd('powershell -File "d:/datrix/datrix/scripts/scan/semgrep.ps1" -ListRules',
           "SCAN_QUESTION: which rules exist"), ALLOW)
 
+print("== the parity cases gate runs tagged or as its self-test ==")
+PARITY = '"d:/datrix/datrix/scripts/gates/parity/parity-cases-gate.ps1"'
+check("untagged parity cases run blocks", cmd(f"powershell -File {PARITY}"), BLOCK)
+check("untagged with -Dbg still blocks", cmd(f"powershell -File {PARITY} -Dbg"), BLOCK)
+check("a question marker does not lift it", cmd(f"powershell -File {PARITY}", "SCAN_QUESTION: all rows"), BLOCK)
+check("direct .ps1 form blocks", cmd(r".\scripts\gates\parity\parity-cases-gate.ps1"), BLOCK)
+check("tagged run", cmd(f"powershell -File {PARITY} -Tag rest-api"), ALLOW)
+check("self-test", cmd(f"powershell -File {PARITY} -SelfTest"), ALLOW)
+check("the authoring tool is not the gate", cmd('powershell -File "d:/datrix/datrix/scripts/gates/parity/parity-cases.ps1" check'), ALLOW)
+check("reading the gate", cmd("cat d:/datrix/datrix/scripts/gates/parity/parity-cases-gate.ps1"), ALLOW)
+
 print("== reading the scripts and unrelated commands stay allowed ==")
 check("grep the wrapper", cmd("grep -n Rule d:/datrix/datrix/scripts/scan/semgrep.ps1"), ALLOW)
 check("cat the wrapper", cmd("cat d:/datrix/datrix/scripts/scan/libcst.ps1"), ALLOW)

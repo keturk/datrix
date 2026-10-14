@@ -29,6 +29,11 @@ Neither marker lifts an `-All` run: sweeping every package is never a per-fix ac
 Subagents get no marker path at all -- a scan a subagent wants is a scan the main
 session decides on, once, at the gate.
 
+The parity cases gate (`parity-cases-gate.ps1`) is the same kind of act: with no `-Tag`
+it reads every parity row on every registered target, generating every fixture once per
+target -- the whole corpus, which is Jon's run. An agent runs it with `-Tag <tag>` (the
+behaviour it changed) or `-SelfTest`; no marker lifts an untagged run.
+
 Reading any of these scripts is never blocked: read-only segments are dropped before
 the command is inspected (`_command_shape`).
 
@@ -55,6 +60,9 @@ _SCANNER_RE = re.compile(
 _ALL_RE = re.compile(r"(?<![\w-])-All\b", re.IGNORECASE)
 _TARGETED_RE = re.compile(r"(?<![\w-])-(?:Rule|Pattern|Id)\b", re.IGNORECASE)
 _QUESTION_MARKER = "SCAN_QUESTION:"
+
+_PARITY_CASES_RE = re.compile(r"(?<![\w.-])parity-cases-gate\.ps1\b", re.IGNORECASE)
+_PARITY_SELECTED_RE = re.compile(r"(?<![\w-])-(?:Tag|SelfTest)\b", re.IGNORECASE)
 
 _EXECUTORS = frozenset({"powershell", "pwsh", "cmd", "bash", "sh", "zsh", "start"})
 
@@ -90,20 +98,37 @@ def _script_argument(segment: str) -> str:
     return ""
 
 
+def _script_run_by(segment: str) -> str:
+    """The ``.ps1`` script this segment EXECUTES, or "" when it executes none."""
+    token = leading_token(segment)
+    if token.endswith(".ps1"):
+        return token
+    if token in _EXECUTORS:
+        return _script_argument(segment)
+    return ""
+
+
 def _scanner_run_by(segment: str) -> str:
     """The scanner wrapper this segment EXECUTES, or "" when it executes none."""
-    token = leading_token(segment)
-    script = ""
-    if token.endswith(".ps1"):
-        script = token
-    elif token in _EXECUTORS:
-        script = _script_argument(segment)
-    match = _SCANNER_RE.search(script)
+    match = _SCANNER_RE.search(_script_run_by(segment))
     return match.group(1).lower() if match else ""
+
+
+def _check_parity_cases(segment: str) -> None:
+    if not _PARITY_CASES_RE.search(_script_run_by(segment)) or _PARITY_SELECTED_RE.search(segment):
+        return
+    sys.stderr.write(
+        "BLOCKED: `parity-cases-gate.ps1` with no `-Tag` reads every parity row on every registered "
+        "target, generating every fixture: the whole corpus, which is Jon's run.\n\n"
+        "Run the rows of the behaviour you changed, `parity-cases-gate.ps1 -Tag <tag>` (at most three "
+        "tags), or the gate's own `-SelfTest`."
+    )
+    sys.exit(2)
 
 
 def _check(command: str, description: str, is_subagent: bool) -> None:
     for segment in segments(executable_text(command)):
+        _check_parity_cases(segment)
         scanner = _scanner_run_by(segment)
         if not scanner:
             continue

@@ -25,6 +25,7 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 
 ## Package Specifics
 
+- **Table rows:** a failing `tests/test_tables.py::test_table[<table>::<row>]` item is a row defect or a code-path defect: fix the row (the registry, type-map or emit row, the DAL generator declaration) or the code that realizes it — never add a test or an exclusion. A builtin the target neither realizes nor declares a `builtin_group:<group>` capability gap for is a product defect to fix or a gap row to declare. `datrix/scripts/test/tables.ps1 rows <package>` lists the items.
 - **Scope:** Flutter mobile-target codegen ONLY. Do NOT cross into the backend language codegen packages (`datrix-codegen-typescript`, `-python`, or any other registered language) or into the sibling frontend target `datrix-codegen-angular`.
 - **Package:** `datrix-codegen-flutter` — Flutter (Dart) mobile-application generation from the shared client contract and UI contract (typed API clients, route manifests, and generated pages, forms, tables, layouts and the AppAuth-based login/session layer).
 - **Fix target:** Generator source code, DAL generator definitions, Jinja2 templates, or test code — never generated output. A failing declarative case (`tests/test_cases.py::test_case[<area>::<case-id>]`) is fixed in product code, or by a person correcting the authored expectation in review — never by writing a code test for the same fact (`guard-code-standards.py` refuses one).

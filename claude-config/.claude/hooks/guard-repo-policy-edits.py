@@ -1,4 +1,4 @@
-"""PreToolUse hook (Write|Edit): three repo policies that were prose rules, now blocks.
+"""PreToolUse hook (Write|Edit): four repo policies that were prose rules, now blocks.
 
 1. NO GITHUB ACTIONS. CLAUDE.md: "No GitHub Actions." A file under `.github/workflows/` is a
    CI pipeline this project does not use and must never grow. Third-party sources parked in
@@ -20,7 +20,17 @@
    planning skills. An unreadable record cannot prove a planning skill is active, and the block
    stays: a phase is cheap to ask for and expensive to unschedule.
 
-All three fail OPEN on anything the hook cannot evaluate (unparseable input, unreadable file).
+4. A PARITY FACT OVER GENERATED ARTIFACTS IS A PARITY ROW, NEVER A NEW GATE MODULE. A fact read
+   through a conformance probe ("every language answers this route with this contract") is one
+   row of `datrix/scripts/gates/parity/cases/<area>.parity.yaml`, read on every registered target
+   by `parity-cases-gate.ps1`; each probe-backed gate module rewrote the discovery, the fixture,
+   the comparison and the self-test, and compared targets only with each other. A Write creating a
+   new gate module (`datrix/scripts/gates/<family>/lib/*.py`) that imports
+   `datrix_codegen_kernel.parity.conformance_probes`, or a new gate wrapper whose `lib\\` module
+   does, is refused; a source-census gate imports no probe and passes. The parity runner's own
+   modules are the one carrier and pass.
+
+All four fail OPEN on anything the hook cannot evaluate (unparseable input, unreadable file).
 
 Exit codes:
   0 -- allow
@@ -46,6 +56,23 @@ _THIRD_PARTY_SEGMENTS: Final = ("/.tmp/", "/node_modules/", "/.venv/", "/site-pa
 _TASK_FILE_RE: Final = re.compile(r"(?:^|/)\.tasks/phase-(\d+)/task-[^/]+\.md$")
 _PHASE_DIR_RE: Final = re.compile(r"^(.*?/\.tasks/phase-\d+)/")
 _COMPLETED_HEADING_RE: Final = re.compile(r"^#\s+COMPLETED:\s+Task\b", re.MULTILINE)
+
+_GATE_LIB_RE: Final = re.compile(r"(?:^|/)datrix/scripts/gates/[^/]+/lib/[^/]+\.py$")
+_GATE_WRAPPER_RE: Final = re.compile(r"(?:^|/)datrix/scripts/gates/[^/]+/[^/]+\.ps1$")
+_PROBE_IMPORT_RE: Final = re.compile(
+    r"^[ \t]*(?:from|import)[ \t]+datrix_codegen_kernel\.parity\.conformance_probes\b"
+    r"|^[ \t]*from[ \t]+datrix_codegen_kernel\.parity[ \t]+import[ \t][^\n]*\bconformance_probes\b",
+    re.MULTILINE,
+)
+_WRAPPER_LIB_RE: Final = re.compile(r"lib[\\/]([A-Za-z0-9_]+\.py)")
+# The parity cases runner: the one carrier of probe-read parity facts.
+_PARITY_RUNNER_MODULES: Final = frozenset(
+    {
+        "datrix/scripts/gates/parity/lib/parity_cases.py",
+        "datrix/scripts/gates/parity/lib/parity_cases_tool.py",
+        "datrix/scripts/gates/parity/lib/parity_observers.py",
+    }
+)
 
 
 def _normalize(path: str) -> str:
@@ -138,6 +165,46 @@ def _check_new_phase(path: str, session_id: str) -> None:
     )
 
 
+def _is_parity_runner(path: str) -> bool:
+    lowered = path.lower()
+    return any(lowered.endswith(module) for module in _PARITY_RUNNER_MODULES)
+
+
+def _probe_reading_modules(path: str, content: str) -> list[str]:
+    """The probe-importing gate modules a new gate file *path* with *content* would add or run."""
+    lowered = path.lower()
+    if _GATE_LIB_RE.search(lowered):
+        return [path] if _PROBE_IMPORT_RE.search(content) and not _is_parity_runner(path) else []
+    if not _GATE_WRAPPER_RE.search(lowered):
+        return []
+    lib_dir = os.path.join(os.path.dirname(path), "lib")
+    found: list[str] = []
+    for name in sorted(set(_WRAPPER_LIB_RE.findall(content))):
+        module = _normalize(os.path.join(lib_dir, name))
+        if _PROBE_IMPORT_RE.search(_read(module)) and not _is_parity_runner(module):
+            found.append(module)
+    return found
+
+
+def _check_probe_gate(tool_input: dict[str, object], path: str) -> None:
+    if os.path.exists(path) or any(seg in path.lower() for seg in _THIRD_PARTY_SEGMENTS):
+        return
+    modules = _probe_reading_modules(path, str(tool_input.get("content", "")))
+    if not modules:
+        return
+    _block(
+        f"BLOCKED: `{path}` would add a gate that reads targets through conformance probes "
+        f"({', '.join(modules)} imports datrix_codegen_kernel.parity.conformance_probes).\n\n"
+        "A parity fact over generated artifacts is a ROW, never a new gate module: write it in "
+        "`datrix/scripts/gates/parity/cases/<area>.parity.yaml` (`parity-cases.ps1 observe` / `new`; "
+        "`datrix/scripts/gates/parity/quick-reference.md`), and `parity-cases-gate.ps1` reads it on every "
+        "registered target against the expectation you author. A reading no probe returns yet is a new "
+        "Protocol method in the kernel plus one implementation per target, and a facet in "
+        "`gates/parity/lib/parity_observers.py` -- still no new gate. A new gate module is reserved for a "
+        "source census, which imports no probe."
+    )
+
+
 def main() -> None:
     try:
         data = json.loads(sys.stdin.read())
@@ -157,6 +224,7 @@ def main() -> None:
     _check_task_heading(tool, tool_input, path)
     if tool == "Write":
         _check_new_phase(path, str(data.get("session_id", "")))
+        _check_probe_gate(tool_input, path)
     sys.exit(0)
 
 

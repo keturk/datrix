@@ -117,6 +117,11 @@ directory, file, or claim, treat it as a defect to remove.
   equivalently) is legitimate. It must enumerate its targets from the registered set of
   languages/providers — never a hardcoded `LOCAL/AWS/Azure` or `python+typescript` literal,
   which would silently assert the generator is only those targets.
+- **A parity fact over generated artifacts is a row, never a new gate module.** A fact read
+  through a conformance probe is one row of `datrix/scripts/gates/parity/cases/<area>.parity.yaml`
+  (`parity-cases.ps1 observe` / `new`), which `parity-cases-gate.ps1` reads on every registered
+  target against the expectation you author. A new gate module is reserved for a source census
+  (one that imports no probe); `guard-repo-policy-edits.py` refuses a new probe-importing one.
 - **Repo-level validation = scripts, not pytest.** Genuine cross-cutting checks (example
   generation, type-map completeness, the cross-language parity/conformance gate) belong as
   **scripts under `datrix/scripts/gates/<family>/`** (their Python in that family's `lib/`),
@@ -160,11 +165,13 @@ invariant forever; a sweep proves it once and evaporates. The fact decides the c
 | `annotation` — a `// @expect`, `@expect-none`, `@emits`, `@hover`, `@complete` or `@definition` comment on the fixture line that provokes it | a fact about one line of a committed `.dtrx` (or `.dseed`) fixture: the diagnostic reported there, the code a function declared there emits, the language server's answer at a `$0` cursor there. A new diagnostic variant also gets its per-code fixture, `tests/fixtures/diagnostics/<CODE>.<variant>.dtrx`, provoking that variant and nothing else |
 | `row` — a declarative case (`cases.ps1 new`), in a package whose `tests/` carries `test_cases.py` | any other literal fact about a stage result: one value of a generation, an analysis, a parsed unit, compared with a literal |
 | `fixture` — a committed `.dcfg` fixture document whose load reaches the model, in a package whose `tests/` carries `test_model_contracts.py` | a required field, a default, a bound, a pattern or the unknown-key refusal of a config model: the model contract runner derives each from the model and proves it on the fixture's sample (`model-contracts.ps1 facts <package>` names the models no fixture reaches) |
+| `table row` — the row itself, in a table a contract registered from `tests/conftest.py`, in a package whose `tests/` carries `test_tables.py` | a fact about one row of a table in `src/` (a builtin, a type-map entry, an emit row, a DAL generator file declaration): the runner's item `test_table[<table>::<row>]` proves the row's property; adding the row is the whole change (`tables.ps1 rows <package>` lists the items) |
 | `code` — a test function | an invariant over a set (consumed − produced, parity, path containment), an exception path, an algorithm's edge cases, a validator's rule relating fields |
 
 An annotation and a case row carry their own feature tags (an annotation through its fixture's
 `// @tags` header; a derived model item through the `// @tags` header of the fixture its sample
-came from, besides `dcfg` and `model-contracts`), and `-Tag` selects case items exactly as it selects
+came from, besides `dcfg` and `model-contracts`; a table row through its contract's tags, so its
+rows run with `-Tag <table tag>`), and `-Tag` selects case items exactly as it selects
 tests (`test.ps1 <pkg> -Tag <tag>` runs the tagged rows of `tests/test_cases.py` with the tagged
 tests). If a task file's `## Targeted Tests` names a bare full suite, the task file is defective:
 run the tests of the code you changed and say so.

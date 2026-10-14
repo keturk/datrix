@@ -176,6 +176,7 @@ For each finding, in dependency order (fix an enforcement/guard gap before the c
    - `test\test.ps1 <package> <consumer-package> -Tag <tag>` — the feature tags of the behaviour you changed, in every package the fix reaches (`test\test.ps1 <package> -ListTags` lists a package's tags and runs nothing)
    - `test\test-single.ps1 "tests/unit/test_foo.py" -Project <package>` — one file, full output
    Paste command + output. Never run a whole package suite, `-All`, or `affected-gate.ps1` — `guard-full-suite-runs.py` refuses every form. A test you write for a fix carries a feature tag.
+   When a fix changes what every registered target must realize alike (a route contract, a body wire name, an event envelope, an enum classifier, a web-security header: a facet read by `datrix/scripts/gates/parity/cases/`), also run `gates\parity\parity-cases-gate.ps1 -Tag <the behaviour's tag>`. A failing row is fixed in the target, or, when review shows the expectation is the stale side, the expectation is corrected; a reading is never copied into an expectation to turn it green.
 3. **Re-sweep set-invariants** across all surfaces — confirm no surface was left behind.
 4. If any check still fails → return to Phase 3 (root cause, not another patch). If it cannot be closed without out-of-scope work → STOP and report the blocker.
 

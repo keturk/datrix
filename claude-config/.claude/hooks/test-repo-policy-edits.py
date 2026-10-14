@@ -100,6 +100,38 @@ with tempfile.TemporaryDirectory(prefix="policy-gate-") as root:
     check("a new phase when the record names no skill", with_skill(""), BLOCK)
     check("a new phase when the record is missing", write(new_task, "x", session=sid), BLOCK)
 
+print("== a parity fact read through a probe is a row, never a new gate module ==")
+PROBE_IMPORT = "from datrix_codegen_kernel.parity.conformance_probes import language_conformance_probes\n"
+PACKAGE_IMPORT = "from datrix_codegen_kernel.parity import conformance_probes\n"
+CENSUS_IMPORT = "from datrix_scripts.registered_targets import registered_language_names\n"
+with tempfile.TemporaryDirectory(prefix="policy-gate-") as root:
+    gates = os.path.join(root, "datrix", "scripts", "gates")
+    lib = os.path.join(gates, "parity", "lib")
+    os.makedirs(lib)
+    with open(os.path.join(lib, "probe_reader.py"), "w", encoding="utf-8") as handle:
+        handle.write(PROBE_IMPORT)
+    with open(os.path.join(lib, "source_census.py"), "w", encoding="utf-8") as handle:
+        handle.write(CENSUS_IMPORT)
+    existing = os.path.join(lib, "existing_parity.py")
+    with open(existing, "w", encoding="utf-8") as handle:
+        handle.write(PROBE_IMPORT)
+
+    check("a new lib module importing the probes", write(os.path.join(lib, "header_parity.py"), PROBE_IMPORT), BLOCK)
+    check("a new lib module importing the probe module from its package",
+          write(os.path.join(lib, "route_conformance.py"), PACKAGE_IMPORT), BLOCK)
+    check("a probe-reading module in another gate family",
+          write(os.path.join(gates, "realization", "lib", "doc_parity.py"), PROBE_IMPORT), BLOCK)
+    check("a new wrapper running a probe-reading module",
+          write(os.path.join(gates, "parity", "header-parity-gate.ps1"), '$x = Join-Path $scriptDir "lib\\probe_reader.py"\n'),
+          BLOCK)
+    check("a new source-census module", write(os.path.join(lib, "header_census.py"), CENSUS_IMPORT), ALLOW)
+    check("a new wrapper running a census",
+          write(os.path.join(gates, "parity", "census-gate.ps1"), '$x = Join-Path $scriptDir "lib\\source_census.py"\n'),
+          ALLOW)
+    check("rewriting an existing probe-reading module", write(existing, PROBE_IMPORT), ALLOW)
+    check("the parity runner's own modules", write(os.path.join(lib, "parity_observers.py"), PROBE_IMPORT), ALLOW)
+    check("a probe import outside the gates tree", write(os.path.join(root, "pkg", "src", "probes.py"), PROBE_IMPORT), ALLOW)
+
 print()
 if fails:
     print(f"{len(fails)} FAILURE(S):")

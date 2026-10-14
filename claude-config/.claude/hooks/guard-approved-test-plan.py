@@ -23,9 +23,10 @@ The gate lives in ``D:\\datrix\\.tmp\\approval-gate\\``:
 While armed, for the armed session only:
   - Write of a ``test_*.py`` that does not exist yet under ``tests_root`` is refused unless
     some ``*.approved`` file lists it. Editing or overwriting an existing module is allowed.
-  - Write/Edit of a ``*.cases.yaml`` under ``tests_root`` that adds a case id no approved
-    proposal holds is refused, so a direct edit of a case file cannot bypass ``cases.ps1
-    accept``. A proposal approves nothing when its bytes no longer match its approval's hash,
+  - Write/Edit of a ``*.cases.yaml`` -- or a ``*.parity.yaml`` parity row file, when the gate
+    is armed for the parity gate's ``cases`` directory -- under ``tests_root`` that adds a case
+    id no approved proposal holds is refused, so a direct edit of a case file cannot bypass
+    ``cases.ps1 accept`` (``parity-cases.ps1 accept``). A proposal approves nothing when its bytes no longer match its approval's hash,
     or when the approval does not name every security or ``not in`` row it holds (a row is a
     security row when its record is flagged or its own tags hold a security tag). Case ids are
     the ``id`` of every row the file parses to as YAML, plus every ``id:`` key the case-id
@@ -75,8 +76,10 @@ SHELL_TOOLS: Final[frozenset[str]] = frozenset({"Bash", "PowerShell"})
 EXIT_ALLOW: Final[int] = 0
 #: The comment marker in an approval file.
 COMMENT_MARKER: Final[str] = "#"
-#: A case file, and the approval of a case-migration proposal.
+#: A case file, a parity row file (case rows read on every target by the parity gate), and the
+#: approval of a case-migration proposal (which approves parity proposals too).
 CASE_FILE_SUFFIX: Final[str] = ".cases.yaml"
+PARITY_FILE_SUFFIX: Final[str] = ".parity.yaml"
 CASES_APPROVAL_SUFFIX: Final[str] = ".cases.approved"
 #: Where ``cases.ps1 migrate`` writes its JSON proposals.
 PROPOSALS_DIR: Final[str] = "d:/datrix/.tmp/case-proposals"
@@ -331,7 +334,7 @@ def check_case_file(
     armed = read_armed(gate_dir)
     if armed is None or armed["session_id"] != session_id:
         return
-    if not path.startswith(armed["tests_root"] + "/") or not path.endswith(CASE_FILE_SUFFIX):
+    if not path.startswith(armed["tests_root"] + "/") or not path.endswith((CASE_FILE_SUFFIX, PARITY_FILE_SUFFIX)):
         return
     before = _read(raw_path)
     after = _after_text(tool_name, tool_input, before)

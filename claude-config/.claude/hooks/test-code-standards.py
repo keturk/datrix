@@ -270,6 +270,41 @@ with Repo() as repo:
           all(s in err for s in ("[schema-shaped] def test_retention_positive", "DockerPlatformConfig",
                                  "kafka_default_retention_ms::bound_gt", "model-contracts.ps1 facts")), True)
 
+    print("== per-row hand tests where the package carries the table runner ==")
+    # The planted package registers one table from its tests/conftest.py, bound to PLANTED_TYPES;
+    # the shared venv loads that session to resolve which rows a test reads.
+    row_test = repo.file("tests/unit/test_types.py",
+                         "from planted.types import PLANTED_TYPES\n\n\n"
+                         "def test_kept() -> None:\n    assert len(PLANTED_TYPES) > 0\n")
+    # An int comparison, so the case runner's literal-fact rule (planted above) does not also fire.
+    row_value = ("\n\ndef test_string_annotation() -> None:\n"
+                 "    assert PLANTED_TYPES['String'].arity == 1\n")
+    check("no table runner: a per-row hand test stays allowed",
+          edit(row_test, "> 0\n", "> 0\n" + row_value), ALLOW)
+    repo.file("tests/conftest.py",
+              "from datrix_testing.tables.contract import TableContract\n"
+              "from datrix_testing.tables.registry import register_table\n\n\n"
+              "def _rows() -> list[tuple[str, str]]:\n    return [('String', 'str')]\n\n\n"
+              "def _check(row: str) -> None:\n    return None\n\n\n"
+              "def _row_id(key: object) -> str | None:\n    return key if isinstance(key, str) else None\n\n\n"
+              "register_table(TableContract(name='planted', tags=('table-contracts',), rows=_rows, check=_check,\n"
+              "                             lookup_names=frozenset({'PLANTED_TYPES'}), key_row_id=_row_id))\n")
+    repo.file("tests/test_tables.py", "def test_table(item: object) -> None:\n    item.check()\n")
+    check("a row value restated beside the table runner", edit(row_test, "> 0\n", "> 0\n" + row_value), BLOCK)
+    check("a row's presence restated beside the runner", edit(row_test, "> 0\n", "> 0\n"
+          "\n\ndef test_string_present() -> None:\n    assert 'String' in PLANTED_TYPES\n"), BLOCK)
+    check("a test over the whole table is no per-row test", edit(row_test, "> 0\n", "> 0\n"
+          "\n\ndef test_every_row() -> None:\n    for key in PLANTED_TYPES:\n        assert PLANTED_TYPES[key]\n"), ALLOW)
+    check("an existing per-row test edited in place is never refused",
+          edit(repo.file("tests/unit/test_legacy_types.py", "from planted.types import PLANTED_TYPES\n\n\n"
+                         "def test_old() -> None:\n    assert PLANTED_TYPES['String'] is not None\n"),
+               "is not None", "is not None\n    assert 'String' in PLANTED_TYPES"), ALLOW)
+    code, err = run({"tool_name": "Edit", "tool_input": {"file_path": row_test, "old_string": "> 0\n",
+                                                         "new_string": "> 0\n" + row_value}})
+    check("the refusal names the row, the item and the runner remedy",
+          all(s in err for s in ("[table-row] def test_string_annotation", "PLANTED_TYPES['String']",
+                                 "test_table[planted::String]", "tables.ps1 rows")), True)
+
     print("== the message names what was added ==")
     code, err = run({"tool_name": "Edit", "tool_input": {
         "file_path": mod, "old_string": "    return 1",

@@ -166,6 +166,12 @@ Once tests pass:
    ```
    A changed behaviour with no tagged test gets a new, tagged one first, in the carrier its fact takes (`d:\datrix\.claude\skills\_shared\verification-strategy.md`, "Case or test"): a fact about one fixture line (a diagnostic, a transpiled expression) is an annotation on that line (`// @expect …`, `// @emits …`); any other literal fact about a stage result is a case row (`cases.ps1 new <package> <area> -Id … -Tags … -Input … -Stage … -Observer … -Selector "{…}" -Expectation … -Reason "…"`) where {PACKAGE} carries `tests/test_cases.py`; an invariant over a set, an exception path or an algorithm is a test. A dispatched subagent reports {PACKAGE}, every other package it changed, the surface it changed and its tags, and the dispatcher runs the tag run once over the union.
 
+   If the fix changed what every registered target must realize alike (a route contract, a body wire name, an event envelope, an enum classifier, a web-security header: a facet read by `datrix/scripts/gates/parity/cases/`), also run that behaviour's parity rows:
+   ```
+   powershell -File "d:/datrix/datrix/scripts/gates/parity/parity-cases-gate.ps1" -Tag {tag}
+   ```
+   A failing row is fixed in the target, or, when review shows the expectation is the stale side, the expectation is corrected; a reading is never copied into an expectation to turn it green.
+
 2. Run debug artifact check:
    ```
    powershell -File "d:/datrix/datrix/scripts/scan/check-debug-artifacts.ps1" {PACKAGE}

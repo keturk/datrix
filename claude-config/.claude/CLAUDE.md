@@ -150,7 +150,9 @@ the wrong thing. The full table, and how to add a check (in a hook or a checklis
 - **Datrix is a multi-language, multi-platform generator** — not limited to Python/TypeScript,
   not limited to Docker/AWS/Azure. Place fixes at the most agnostic layer that can own them;
   never hardcode that the shipped targets are the only targets
-  (`ai-agent-rules/multi-target-invariants.md`).
+  (`ai-agent-rules/multi-target-invariants.md`). A parity fact over generated artifacts is a
+  row in `datrix/scripts/gates/parity/cases/` (read on every registered target, against an
+  authored expectation), never a new gate module; a new gate module is reserved for a source census.
 - **Security outranks everything except correctness.** **Never propose or implement a less
   secure option when a more secure one is available** — convenience, brevity, and finishing
   sooner do not outrank it, and a difference in security posture settles a design choice
@@ -266,7 +268,9 @@ or a language-server answer at one fixture line is an annotation on that line (`
 anything else a case row (`cases.ps1 new`). A required-field, default, bound, pattern or unknown-key
 fact about a model is never a test function: the package's model contract runner
 (`tests/test_model_contracts.py`) proves it, and a model is covered by a committed `.dcfg` fixture
-that reaches it.
+that reaches it. A fact about one row of a registered table (a builtin, a type-map entry, an emit
+row, a DAL generator file) is proven by the table runner (`tests/test_tables.py`): adding the row is
+the whole change, and a per-row test function is refused.
 
 **Anti-patterns:** No placeholders/TODOs. No silent fallbacks (`dict.get(key, None)`). No
 default type mappings (`get(t, "Any")`). No `except: pass`. No raw string concat for code. No

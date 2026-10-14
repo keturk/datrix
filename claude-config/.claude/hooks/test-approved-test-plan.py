@@ -129,6 +129,11 @@ try:
           BLOCK)
     check("a block-scalar id no proposal holds",
           case_write(case_file, "- id: >-\n    identity.shop.folded\n  tags: [identity]\n"), BLOCK)
+    parity_file = tests_path("cases/identity.parity.yaml")
+    check("a parity row id no proposal holds", case_write(parity_file, row("identity.shop.parity-unapproved")), BLOCK)
+    check("a parity row id of the approved proposal", case_write(parity_file, row(approved_id)), ALLOW)
+    check("a parity row id from another session",
+          case_write(parity_file, row("identity.shop.parity-unapproved"), session=OTHER_SESSION), ALLOW)
 
     print("== armed: an approval approves nothing until it names every security and `not in` row ==")
     guarded_id, absent_id = "identity.shop.guard.statements", "identity.shop.guard.absent-bypass"

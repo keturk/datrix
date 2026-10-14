@@ -42,6 +42,14 @@ and ignored under pressure; a block is paid only when it fires. These are enforc
     `datrix_testing.conformance.assertion_inventory.migrated_shape_tests`, the definition the test-shape
     pins share; a test of a migrated shape is reported once (not again as a literal fact); skipped when
     that module is not importable.
+  * TABLE ROW TEST. In a package whose `tests/` carries the table runner `test_tables.py`, a fact
+    about one row of a registered table (the builtin registry, a type map, an emit table, a DAL
+    generator's file declarations) is proven by the runner's item for that row: adding the row is the
+    whole change. A `test_*` function the edit adds (by name) that
+    `python -m datrix_testing.tables.cli resolve` (the shared venv, which loads the package's
+    registered tables) classifies as a per-row hand test -- its whole body looks a registered table's
+    row up and compares it -- is refused, naming the rows and the items. Skipped when the venv cannot
+    resolve the module.
   * SCHEMA-SHAPED TEST. In a package whose `tests/` carries the model contract runner
     `test_model_contracts.py`, a required-field, default, bound, pattern, declared-constraint
     (`NonBlankStr`) or unknown-key fact of a model is proven by a derived runner item, never a test
@@ -105,6 +113,10 @@ _TESTS_SEGMENT: Final = "/tests/"
 # The shared venv's interpreter, which resolves a test to the model facts it restates.
 _VENV_PYTHON: Final = "d:/datrix/.venv/Scripts/python.exe"
 _RESOLVE_MODULE: Final = "datrix_testing.model_contracts.cli"
+# The table runner whose presence makes a row fact a derived item, and the module resolving a test
+# to the table rows it reads.
+_TABLE_RUNNER: Final = "tests/test_tables.py"
+_TABLE_RESOLVE_MODULE: Final = "datrix_testing.tables.cli"
 _RESOLVE_TIMEOUT_SECONDS: Final = 180
 # The dispositions of a test that restates only schema facts.
 _SCHEMA_FACT_DISPOSITIONS: Final = frozenset({"covered", "uncovered"})
@@ -422,6 +434,76 @@ def _schema_shaped_violations(path: str, before: str | None, after: str) -> list
     return _resolved_schema_facts(path, after, added) if added else []
 
 
+def carries_tables(path: str) -> bool:
+    """Whether the package holding the test at ``path`` carries the table runner."""
+    match = _PACKAGE_TESTS_RE.match(path)
+    return bool(match) and os.path.isfile(f"{match.group(1)}/{_TABLE_RUNNER}")
+
+
+def _test_names(text: str | None) -> set[str] | None:
+    """The qualified names of the test functions ``text`` defines; None when it does not parse."""
+    if text is None:
+        return set()
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return None
+    names: set[str] = set()
+
+    def visit(body: list[ast.stmt], prefix: str) -> None:
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+                names.add(f"{prefix}{node.name}")
+            elif isinstance(node, ast.ClassDef):
+                visit(node.body, f"{prefix}{node.name}.")
+
+    visit(tree.body, "")
+    return names
+
+
+def _resolved_rows(path: str, text: str) -> list[dict[str, object]]:
+    """The per-row hand tests of ``text``, resolved by the shared venv; [] when it cannot."""
+    match = _PACKAGE_TESTS_RE.match(path)
+    if not match or not os.path.isfile(_VENV_PYTHON):
+        return []
+    module = path.split(_TESTS_SEGMENT, 1)[1]
+    try:
+        completed = subprocess.run(
+            [_VENV_PYTHON, "-m", _TABLE_RESOLVE_MODULE, "resolve", match.group(1), module],
+            input=text, capture_output=True, text=True, timeout=_RESOLVE_TIMEOUT_SECONDS, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if completed.returncode != 0:
+        return []
+    records: list[dict[str, object]] = []
+    for line in completed.stdout.splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
+def _table_row_violations(path: str, before: str | None, after: str) -> list[Violation]:
+    """The per-row hand tests this edit adds (by name) over the package's registered tables."""
+    before_names = _test_names(before)
+    after_names = _test_names(after)
+    if before_names is None or after_names is None or not (after_names - before_names):
+        return []
+    found: list[Violation] = []
+    for record in _resolved_rows(path, after):
+        if record["function"] in before_names:
+            continue
+        rows = record["rows"] if isinstance(record["rows"], list) else []
+        items = ", ".join(f"test_table[{row}]" for row in rows) or "no item yet: the row is in no registered table"
+        found.append(("table-row", f"def {record['function']} reads {', '.join(record['lookups'])} "
+                                   f"({record['disposition']}; proven by: {items})"))
+    return found
+
+
 def _case_violations(tree: ast.Module) -> list[Violation]:
     """Tests whose fact a case carries: a migrated shape (its fixture line's annotation), else a
     literal fact (a case row). A test of a migrated shape is reported once, with its carrier."""
@@ -554,6 +636,15 @@ _REMEDY: Final = {
         "facts <package>` lists the models no fixture reaches). A validator's rule stays a code test that "
         "asserts the error's location and type after the `pytest.raises` block."
     ),
+    "table-row": (
+        "CLAUDE.md, Code Standards: a fact about one row of a registered table is proven by the table runner "
+        "(tests/test_tables.py), never by a test function (unit-test-guidelines.md, 'Table rows'): every row "
+        "of the table is one item, test_table[<table>::<row id>], that proves the row's property through the "
+        "real code path. Adding the row is the whole change; run it with `test.ps1 <package> -Tag <table "
+        "tag>` (`datrix/scripts/test/tables.ps1 rows <package>` lists the items). A specific value a design "
+        "decided for a row is a case row (`cases.ps1 new`) or the table's own reviewed diff. A row the item "
+        "fails is a row defect or a code-path defect: fix the row or the code."
+    ),
 }
 
 
@@ -589,6 +680,8 @@ def main() -> None:
     added = after_found - before_found
     if is_test and carries_model_contracts(path):
         added.update(_schema_shaped_violations(path, before, after))
+    if is_test and carries_tables(path):
+        added.update(_table_row_violations(path, before, after))
     if not added:
         sys.exit(0)
 

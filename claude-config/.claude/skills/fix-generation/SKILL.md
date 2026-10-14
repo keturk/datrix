@@ -178,7 +178,9 @@ fixture line (a diagnostic, an emitted expression) is an annotation on that line
 `// @emits …`); any other literal fact about a
 stage result is a case row (`cases.ps1 new <package> <area> -Id … -Tags … -Input … -Stage …
 -Observer … -Selector "{…}" -Expectation … -Reason "…"`) where the package carries
-`tests/test_cases.py`; an invariant over a set, an exception path or an algorithm is a test.
+`tests/test_cases.py`; a fact about one row of a registered table (a builtin, a type-map entry, an
+emit row, a DAL generator file declaration) is the row itself, which the package's table runner
+(`tests/test_tables.py`) proves; an invariant over a set, an exception path or an algorithm is a test.
 
 ### Step 1: Triage the Log and Build the Queue (scripted — never read the whole log)
 
@@ -248,6 +250,13 @@ tests: a later layer can show the fix was wrong, and every test written for it i
 and run the tests for every framework change that held only once the example generates
 successfully — together, once. While a regeneration is running, wait for it; do not fill the time
 with test or doc work that depends on its result.
+
+**A fix that changes a cross-target surface runs its parity rows.** When the fix changes what
+every registered target must realize alike (a route contract, a body wire name, an event envelope,
+an enum classifier, a web-security header: a facet read by `datrix/scripts/gates/parity/cases/`),
+the verification runs `parity-cases-gate.ps1 -Tag <the behaviour's tag>`. A failing row is fixed in
+the target, or, when review shows the expectation is the stale side, the expectation is corrected;
+a reading is never copied into an expectation to turn it green, and a row is never deleted.
 
 **Never regenerate a different example inside this loop** — not to check whether the fix generalises, not as a regression check, not because the triage report says a sibling shares the signature. Never regenerate while the fix that unblocks the current error is still in flight: a regeneration run is expensive (compile validation/formatters), and running it before the fix lands only re-proves a failure you already know about.
 
