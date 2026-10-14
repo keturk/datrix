@@ -30,7 +30,7 @@ from bug_resolution import (
     build_resolution,
 )
 from checklist import draft_checklist
-from common import EXIT_NO_MODEL, AssistError, ContentFilter
+from common import EXIT_NO_MODEL, MAP_WORKERS, AssistError, ContentFilter
 from context_digest import build_digest
 from datrix_scripts.customer_domain_isolation import hash_term
 from datrix_scripts.evaluate_reports import render_project_quick_report, render_service_mechanical
@@ -39,7 +39,7 @@ from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, LoopbackOllama, an
 from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
 from datrix_scripts.local_reading import WITHHELD_LINE
 from datrix_scripts.paths import script_env
-from findings import check_consolidation, extract_file
+from findings import build_index, check_consolidation, extract_file
 from implement_finding import EXIT_DELETED, EXIT_KEPT, EXIT_UNUSABLE, finding_files, test_runs
 from phase_tasks import phase_tasks
 from readiness import VERDICT_SATISFIED, missing_edges, satisfied_leads, unresolved_modules
@@ -198,6 +198,27 @@ def check_findings_extraction_maps_tails_reports_invented_and_unassigned_citatio
         assert result.findings[0].citations == ("datrix-alpha/src/x.py:3",), result.findings
         assert result.invented == ["made/up.py:1"], result.invented
         assert result.unassigned == ["datrix-alpha/src/y.py:9"], result.unassigned
+
+
+def check_findings_index_reads_every_file_before_the_first_model_call() -> None:
+    with _workspace() as root:
+        folder = root / "reports/finding"
+        # One file more than the worker threads: a lazy reader reaches the last one only after a chat.
+        files = [_write(folder / f"consolidated-{n:03d}-f.md", f"# F{n}\n\nAt `datrix-alpha/src/f{n}.py:{n}`.\n")
+                 for n in range(1, MAP_WORKERS + 2)]
+        last = files[-1]
+        reply = json.dumps({"findings": [{"title": "T", "seam": "s", "packages": [], "defect": "d",
+                                          "citations": []}]})
+
+        def rename_during_the_run(_chat: Chat) -> str:
+            if last.exists():
+                last.rename(folder / "renamed-mid-run.md")
+            return reply
+
+        with LoopbackOllama(rename_during_the_run) as server:
+            extractions = build_index(root, _pool(server), folder)
+        assert [e.source for e in extractions] == [path.name for path in files], extractions
+        assert extractions[-1].unassigned == [f"datrix-alpha/src/f{len(files)}.py:{len(files)}"], extractions[-1]
 
 
 def check_findings_never_send_a_registered_customer_term() -> None:
@@ -525,6 +546,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_readiness_finds_missing_edges_and_unresolvable_names_exactly,
     check_readiness_satisfied_lead_reads_the_verdict_and_checks_citations,
     check_findings_extraction_maps_tails_reports_invented_and_unassigned_citations,
+    check_findings_index_reads_every_file_before_the_first_model_call,
     check_findings_never_send_a_registered_customer_term,
     check_findings_check_refuses_a_lost_citation_and_a_dangling_related_pointer,
     check_findings_check_keep_raw_allows_a_surviving_raw_file_but_not_a_lost_citation,

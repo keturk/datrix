@@ -86,6 +86,15 @@ class AtomicFinding:
     citations: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class FindingsSnapshot:
+    """One findings file's text as it stood when the index started."""
+
+    name: str
+    label: str
+    text: str
+
+
 @dataclass
 class FileExtraction:
     source: str
@@ -125,11 +134,19 @@ def _source_citation(given: str, source_citations: set[str]) -> str:
     return tails[0] if len(tails) == 1 else ""
 
 
+def snapshot_file(workspace: Path, path: Path) -> FindingsSnapshot:
+    return FindingsSnapshot(path.name, workspace_label(workspace, path), read_text(path))
+
+
 def extract_file(workspace: Path, pool: LocalLlmPool, content: ContentFilter, path: Path) -> FileExtraction:
     """One file's atomic findings, with its citations checked against the file."""
-    label = workspace_label(workspace, path)
-    text = read_text(path)
-    section = content.section(label, text)
+    return extract_snapshot(pool, content, snapshot_file(workspace, path))
+
+
+def extract_snapshot(pool: LocalLlmPool, content: ContentFilter, snapshot: FindingsSnapshot) -> FileExtraction:
+    """One snapshotted file's atomic findings, with its citations checked against the snapshot's text."""
+    text = snapshot.text
+    section = content.section(snapshot.label, text)
     answer = ask_json(pool, EXTRACT_SYSTEM, section_body(section), EXTRACT_SCHEMA)
     source_citations = {_normalized(c) for c in citations_in(text)}
     findings: list[AtomicFinding] = []
@@ -144,17 +161,22 @@ def extract_file(workspace: Path, pool: LocalLlmPool, content: ContentFilter, pa
             elif _normalized(given) not in text.replace("\\", "/"):
                 invented.append(_normalized(given))
         claimed |= set(cited)
-        findings.append(AtomicFinding(path.name, str(item.get("title", "")).strip(), str(item.get("seam", "")).strip(),
-                                      tuple(string_list(item.get("packages"))), str(item.get("defect", "")).strip(),
-                                      tuple(dict.fromkeys(cited))))
+        findings.append(AtomicFinding(snapshot.name, str(item.get("title", "")).strip(),
+                                      str(item.get("seam", "")).strip(), tuple(string_list(item.get("packages"))),
+                                      str(item.get("defect", "")).strip(), tuple(dict.fromkeys(cited))))
     unassigned = sorted(source_citations - claimed)
-    return FileExtraction(path.name, findings, unassigned, list(dict.fromkeys(invented)), section.note)
+    return FileExtraction(snapshot.name, findings, unassigned, list(dict.fromkeys(invented)), section.note)
 
 
 def build_index(workspace: Path, pool: LocalLlmPool, directory: Path) -> list[FileExtraction]:
-    """The atomic findings of every file in the folder (raw and consolidated alike)."""
+    """The atomic findings of every file in the folder (raw and consolidated alike).
+
+    Every file is read before the first model call: the calls take minutes, and a file renamed or
+    deleted meanwhile (a consolidation in progress) must not abort the index or mix two states of the
+    folder into one."""
     content = ContentFilter(workspace)
-    return parallel(finding_files(directory), lambda path: extract_file(workspace, pool, content, path))
+    snapshots = [snapshot_file(workspace, path) for path in finding_files(directory)]
+    return parallel(snapshots, lambda snapshot: extract_snapshot(pool, content, snapshot))
 
 
 def render_index(extractions: list[FileExtraction]) -> str:
