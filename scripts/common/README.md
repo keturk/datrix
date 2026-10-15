@@ -106,7 +106,7 @@ skill, hook, config or package file names present.
 | `structured_log_writer.py`, `generated_test_log_writer.py`, `deploy_test_log_writer.py`, `aggregate_test_writer.py`, `deploy_test_aggregate_writer.py` | Structured run directories (`index.json`, clusters) for package, generated-project and deploy runs |
 | `codegen_hint_mapper.py` | Maps a generated file to the template and generator that probably wrote it |
 | `status_tests.py` | Test status from the newest run of every package (`test\status-tests.ps1`) |
-| `collect_failure_data.py`, `classify_run_delta.py`, `run_digest.py` | Failure bundle, run-to-run delta, and the short digest `test.ps1` prints for a red run |
+| `collect_failure_data.py`, `classify_run_delta.py`, `run_digest.py` | Failure bundle, run-to-run delta, and the short digest `test.ps1` writes to `digest.txt` for a red run |
 | `affected_set.py` | Reverse-dependency closure of packages, from actual imports |
 | `generated_example.py` | Generate one example for one registered language, as `datrix generate` would |
 | `evaluate_reports.py` | The report text the evaluation scans write from their own JSON |

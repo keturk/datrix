@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """A short digest of a red test run: its failure groups, what changed, and a local model's reading.
 
-``test.ps1`` runs this for every package whose run failed and prints the result under its
-summary table, so whoever ran the tests reads a dozen lines instead of a log. The digest is
+``test.ps1`` runs this for every package whose run failed and saves the result in the run
+directory (``digest.txt``), so whoever investigates the run reads a dozen lines instead of a
+log. The console gets one line naming the file; the digest itself is never printed. The digest is
 built from three sources, each named in it:
 
 - the run's ``index.json`` clusters, grouped into families by ``collect_failure_data``
@@ -16,7 +17,8 @@ built from three sources, each named in it:
 
 The model text is a lead, never a finding: it is labelled with the model that wrote it. When
 no model server answers, the digest says so in one line and carries the deterministic part
-alone. The digest is written to ``digest.txt`` in the run directory and printed.
+alone. The digest is written to ``digest.txt`` in the run directory; the console gets only
+``Failure digest written: <path>``.
 
 Usage:
   python -m datrix_scripts.run_digest <run-dir | index.json>   (PYTHONPATH=scripts/common/lib)
@@ -592,7 +594,7 @@ def _run_self_test() -> int:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Write and print a short digest of a red test run.")
+    parser = argparse.ArgumentParser(description="Write a short digest of a red test run to digest.txt in its run directory.")
     parser.add_argument("path", nargs="?", help="Run directory or its index.json")
     parser.add_argument("--self-test", action="store_true", help="Check the digest against a temp workspace")
     add_local_llm_arguments(parser, generate_timeout_ms=_GENERATE_TIMEOUT_MS)
@@ -613,7 +615,7 @@ def main() -> int:
     except (UsageError, DigestError) as exc:
         print(f"ERROR: no failure digest: {exc}", file=sys.stderr)
         return _EXIT_USAGE
-    print(digest.text, end="")
+    print(f"Failure digest written: {digest.path}")
     return _EXIT_OK
 
 
