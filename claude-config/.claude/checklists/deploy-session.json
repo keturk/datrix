@@ -1,7 +1,7 @@
 {
   "name": "deploy-session",
-  "_comment": "Fires only in a session where a real deploy command actually ran. `tool_used` scoping means an ordinary coding turn never evaluates these items, so they cost nothing until the expensive surface is in play.",
-  "applies_to": { "tool_used": "(?i)deploy[\\w-]*\\.ps1|az\\s+deployment\\s+(group|sub|mg|tenant)\\s+create|kubectl\\s+apply|terraform\\s+apply|helm\\s+(install|upgrade)" },
+  "_comment": "Fires only in a session where a real deploy command actually ran. `deploy_ran` scoping (a command no hook refused, that runs a deploy script or begins a deploy verb) means an ordinary coding turn never evaluates these items, so they cost nothing until the expensive surface is in play.",
+  "applies_to": { "deploy_ran": true },
   "items": [
     {
       "id": "seam-census-exists",

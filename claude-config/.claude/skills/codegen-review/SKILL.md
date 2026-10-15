@@ -19,7 +19,7 @@ Most checklist items below have a deterministic scanner — run the scanners on 
 | The tests of the change pass | `test\test.ps1 {package} -Specific "{changed test files}"` and `test\test.ps1 {package} {packages the change reaches} -Tag {tags of the changed behaviour}` — never a whole suite (`guard-full-suite-runs.py` refuses it; reach per `.claude/skills/_shared/verification-strategy.md`) |
 | No cross-package / matrix tests | `scan\check-import-boundaries.ps1` |
 | Cognitive complexity ≤15 | `metrics\complexity.ps1 {package}` |
-| No redundant code | `metrics\duplicate.ps1 {package}`; dead code: `metrics\vulture.ps1 {package}` |
+| No redundant code | `metrics\duplicate.ps1 {package}`; dead code: `metrics\dead-code-report.ps1 {package}` |
 | No magic constants | `metrics\find-constants.ps1 {package} -Output D:\datrix\.test-output\strings.md` (report defaults to CWD — always redirect) |
 | No `Any` type annotations | Grep for `: Any` (never run a type-checker) |
 | Lint clean | `metrics\ruff.ps1 {package}` |

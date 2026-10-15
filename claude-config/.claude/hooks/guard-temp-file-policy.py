@@ -21,10 +21,15 @@ Exit codes:
 """
 
 import json
+import os
 import re
+import subprocess
 import sys
 
 _REPO_ROOT = "d:/datrix"
+
+# A tracked-file lookup is one `git ls-files` call; a hook must answer in seconds.
+_GIT_LS_FILES_TIMEOUT_SECONDS = 5
 
 # The only places a temp/scratch file may live.
 _ALLOWED_DIRS = (
@@ -142,6 +147,10 @@ def main() -> None:
         sys.exit(0)
 
     basename = path.rsplit("/", 1)[-1]
+
+    # A file git already tracks is committed source, whatever its name looks like.
+    if _is_tracked_by_git(raw_path):
+        sys.exit(0)
 
     if _SCRATCH_EXT_RE.search(basename):
         _block(raw_path, "that extension marks it as a log/temp/dump artifact.")

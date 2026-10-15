@@ -119,9 +119,9 @@ def main() -> None:
         sys.exit(0)
     try:
         add_scripts_lib_to_path()
-        from datrix_scripts.venv import get_datrix_root
+        from datrix_scripts.paths import WORKSPACE_DIR
 
-        context = decide(payload, get_datrix_root(), default_settings(CALLER))
+        context = decide(payload, WORKSPACE_DIR, default_settings(CALLER))
     except Exception as exc:  # a hook must never fail the tool call it observed
         sys.stderr.write(f"inject-task-orientation: skipped: {type(exc).__name__}: {exc}\n")
         sys.exit(0)

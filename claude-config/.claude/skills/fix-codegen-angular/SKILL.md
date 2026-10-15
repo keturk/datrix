@@ -43,29 +43,36 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 |---|---|
 | `plugin.py` | `AngularClientGenerator` — compiles the DAL generator definitions, builds the client contract, renders, checks type-map completeness |
 | `activation.py` | `active_for_angular_client()`, `ANGULAR_CLIENT_TARGET_KEY` — the `clients { angular { … } }` gate |
-| `client_settings.py` | `parse_angular_client_settings()` — `baseUrlToken`; unknown settings are rejected, not ignored |
-| `dgen_definitions.py` | `angular_client_definition()` — the whole emission spec (`domain models` / `endpoints` / `manifest`) and every output path |
+| `client_settings.py` | `parse_library_only_settings()` (system block: `baseUrlToken`, `scope`) / `parse_app_mode_scope()` (apps' blocks: `scope`); unknown settings are rejected, not ignored |
+| `dgen_definitions.py` | the whole emission spec (library domains, workspace, app runtime, app domains) and every output path |
+| `dgen/libraries.py` | `build_library_layout` (names, collision refusal, placement), `library_package_files` (each library's `index.ts` + `package.json`) |
 | `dgen/registrations.py` | `register_file_languages` / `register_context_namespaces` / `register_generator_target` (kind `"component"`) |
 | `dgen/api.py` | `build_api_context`, `has_browser_routes`, path/query/body param contexts |
 | `dgen/models.py` | `build_struct_context` / `build_entity_context` / `build_enum_context` + the three mutually exclusive closure predicates |
 | `dgen/manifest.py` | `build_manifest_context`, `build_file_manifest`, `verify_file_manifest`, `build_readme` |
 | `type_mappings.py` | `ANGULAR_TYPE_MAP`, extension maps, `apply_json_wire_overrides`, `UnmappedBuiltinTypeError` |
-| `type_resolution.py` | `resolve_route_type`, `resolve_closure_type_ref`, `check_type_map_completeness` |
-| `ts_local_names.py` | `allocate_local_names` — import aliasing and collision-free local names |
+| typescript-core `web_client/type_resolution.py` | `resolve_route_type`, `resolve_closure_type_ref`, `check_type_map_completeness` |
+| typescript-core `web_client/import_sites.py` | `ImportSite` — a contract import spelled relative inside its library, by package name across |
+| typescript-core `web_client/local_names.py` | `allocate_local_names` — import aliasing and collision-free local names |
+| `dgen/imports.py` | `merge_import_lines` — one line per module; the shared library's symbolic specifier spelled to the run's package |
 | `ts_source.py` | Escapers/validators for emitted TypeScript (`escape_ts_string`, `require_ts_binding_identifier`, …) + `register_ts_source_filters` |
 | `templates/` | `models/struct.ts.j2`, `models/enum.ts.j2`, `endpoints/client.ts.j2`, `core/*.ts.j2`, `manifest/*.ts.j2` |
 
 ### Emission Layout (from `dgen_definitions.py`)
 
 ```
-domain models    → libs/api-contract/src/lib/models/{container}/…  + core/branded.ts
-domain endpoints → libs/api-client/src/lib/{api}.client.ts
-                   + libs/api-client/src/lib/core/api-base-url.token.ts
-                   + libs/api-client/src/lib/core/query-params.ts
-domain manifest  → libs/api-contract/src/lib/routes/route-manifest.ts + providers.ts
+per library (shared first, then each service):
+domain library_models      → libs/{library}/src/lib/models/{container}/…
+domain common_core         → libs/{system}-api-common/src/lib/core/{branded,page,query-params,request-options,api-base-url.token}.ts
+                             + libs/{system}-api-common/src/lib/problem/problem.ts
+domain common_exceptions   → libs/{system}-api-common/src/lib/problem/exceptions.ts
+domain common_domain_errors→ libs/{system}-api-common/src/lib/problem/domain-errors.ts
+domain service_clients     → libs/{service}-api/src/lib/clients/{api}.client.ts
+domain service_manifest    → libs/{service}-api/src/lib/routes/route-manifest.ts + providers.ts
+post-processing            → libs/{library}/src/index.ts + package.json
 ```
 
-Iteration is over the contract's **computed type closure** (`each client_type`) and **`each client_api`** — never `each service { each struct }` and never separate `rest_api`/`serverless_block` clauses. A failure about a missing or extra emitted file is usually a closure/predicate question, not a template question.
+Iteration is over each library's **slice** of the contract's computed type closure (`each client_slice_type`) and **`each client_slice_api`** — never `each service { each struct }` and never separate `rest_api`/`serverless_block` clauses. A failure about a missing or extra emitted file is usually a placement/predicate question, not a template question.
 
 ### Test-to-Source Mapping
 
@@ -79,15 +86,16 @@ Iteration is over the contract's **computed type closure** (`each client_type`) 
 | `tests/unit/dgen/test_models_context_builders.py` | `src/.../dgen/models.py` |
 | `tests/unit/dgen/test_manifest.py` | `src/.../dgen/manifest.py` |
 | `tests/unit/dgen/test_registrations.py` | `src/.../dgen/registrations.py` |
-| `tests/unit/test_type_mappings.py`, `tests/unit/test_type_map_completeness.py` | `src/.../type_mappings.py`, `type_resolution.py::check_type_map_completeness` |
-| `tests/unit/test_type_resolution.py` | `src/.../type_resolution.py` |
-| `tests/unit/test_ts_local_names.py` | `src/.../ts_local_names.py` |
+| `tests/unit/test_type_mappings.py` | `src/.../type_mappings.py` |
+| `tests/unit/test_type_resolution.py` | typescript-core `web_client/type_resolution.py` |
+| `tests/unit/dgen/test_libraries.py`, `tests/integration/test_client_libraries.py` | `src/.../dgen/libraries.py` |
+| `tests/unit/test_hooks.py`, `tests/integration/test_library_compile.py` | `src/.../hooks.py` |
 | `tests/unit/test_ts_string_escaping.py` | `src/.../ts_source.py` |
 | `tests/integration/test_endpoint_emission.py` | `templates/endpoints/client.ts.j2` + `dgen/api.py` |
 | `tests/integration/test_models_domain_emission.py` | `templates/models/*.ts.j2` + `dgen/models.py` |
 | `tests/integration/test_manifest_emission.py` | `templates/manifest/*.ts.j2` + `dgen/manifest.py` |
 | `tests/integration/test_hostile_text_emission.py` | `src/.../ts_source.py` escapers |
-| `tests/integration/test_identifier_collision_emission.py` | `src/.../ts_local_names.py` |
+| `tests/integration/test_identifier_collision_emission.py` | typescript-core `web_client/local_names.py` |
 | `tests/integration/test_generation_without_typescript.py` | `tests/integration/no_typescript_generation_probe.py` (subprocess probe) |
 | `tests/unit/test_import_isolation.py` | static AST scan over `src/datrix_codegen_angular/` |
 

@@ -19,7 +19,7 @@ This directory configures Claude Code for the Datrix project. `CLAUDE.md` define
 | `/generate-tasks` | Break design documents into implementable task files | Interactive |
 | `/troubleshoot-generated` | Diagnose generated code test failures | Interactive |
 | `/fix-tests` | Fix test failures one at a time with verification | Interactive |
-| `/apply-reviews` | Apply review artifacts from Tier 1 (local) and Tier 2 (Codex) | Interactive |
+| `/apply-reviews` | Apply review artifacts from Tier 1 (per task) and Tier 2 (per phase) | Interactive |
 | `/scope` | Anchor session with language/file/directory constraints | Reference |
 | `/checkpoint-debug` | Structured multi-bug debugging with checkpoints | Interactive |
 | `/codegen-fix-loop` | Self-correcting iterative fix loop with hard limits | Interactive |
@@ -204,10 +204,10 @@ Service-level evaluation of generated code against `.dtrx` source definitions. F
 
 ### `/apply-reviews`
 
-Apply review artifacts from Tier 1 (local) and Tier 2 (Codex) to task files. Reads review findings, groups by task and severity, applies fixes automatically, and marks applied findings to prevent double-application.
+Apply review artifacts from Tier 1 (per task) and Tier 2 (per phase), both written by local models, to task files. Reads review findings, groups by task and severity, applies fixes automatically, and marks applied findings to prevent double-application.
 
 **Workflow:**
-1. Discover review artifacts (`*.review.local.json`, `phase-{NN}.review.codex.json`)
+1. Discover review artifacts (`*.review.local.json`, `phase-{NN}.review.phase.json`)
 2. Group findings by task and severity (blocking → major → minor → nit)
 3. Apply fixes per task (highest severity first)
 4. Handle phase-level findings (dependency cycles, etc.)

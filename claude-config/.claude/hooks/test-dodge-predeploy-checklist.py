@@ -48,16 +48,30 @@ def check(label, got, want):
 
 
 def transcript(messages, name="t.jsonl"):
-    """messages: list of (kind, payload). kind 'text' or 'cmd'."""
+    """messages: list of (kind, payload). kind 'text', 'cmd', or 'refused' (a call a
+    PreToolUse hook refused: its tool_result is an error beginning `PreToolUse:`)."""
     os.makedirs(TMP, exist_ok=True)
     path = os.path.join(TMP, name)
     with open(path, "w", encoding="utf-8") as f:
-        for kind, payload in messages:
+        for index, (kind, payload) in enumerate(messages):
             if kind == "text":
                 block = {"type": "text", "text": payload}
             else:
-                block = {"type": "tool_use", "name": "Bash", "input": {"command": payload}}
+                block = {
+                    "type": "tool_use",
+                    "id": f"toolu_{index}",
+                    "name": "Bash",
+                    "input": {"command": payload},
+                }
             f.write(json.dumps({"type": "assistant", "message": {"content": [block]}}) + "\n")
+            if kind == "refused":
+                result = {
+                    "type": "tool_result",
+                    "tool_use_id": f"toolu_{index}",
+                    "is_error": True,
+                    "content": "PreToolUse:Bash hook error: BLOCKED: this is a deploy",
+                }
+                f.write(json.dumps({"type": "user", "message": {"content": [result]}}) + "\n")
     return path
 
 
@@ -193,6 +207,14 @@ for label, command in [
     ("dry run script", "powershell -File deploy-staging.ps1 -WhatIf"),
     ("terraform plan", "terraform plan -out=tf.plan"),
     ("ordinary command", "git status --short"),
+    # Naming a deploy script is not running one.
+    ("for list naming a deploy script",
+     'for f in test/status-deploy-tests.ps1; do sed -n 1,5p "$f"; done'),
+    ("grep for a deploy script name", "grep -rn deploy-staging.ps1 docs"),
+    ("scripts path in a variable", "S=d:/datrix/datrix/scripts/scan/lib/config_linter.py; grep -n foo $S"),
+    ("heredoc body naming a deploy script",
+     "cat <<EOF\npowershell -File deploy-staging.ps1\nEOF"),
+    ("status script run", 'powershell -File "d:/datrix/datrix/scripts/test/status-deploy-tests.ps1"'),
 ]:
     code, _ = run("guard-predeploy-analysis.py", predeploy_payload(command))
     check(f"predeploy/allows {label}", code, ALLOW)
@@ -203,6 +225,10 @@ for label, command in [
     ("az deployment create", "az deployment group create -g rg --template-file m.bicep"),
     ("kubectl apply", "kubectl apply -f k8s/"),
     ("terraform apply", "terraform apply -auto-approve"),
+    ("deploy script via -Command", "powershell -Command \"& 'd:/x/deploy-staging.ps1'\""),
+    ("deploy verb after cd", "cd x && az deployment group create -g rg -f m.bicep"),
+    ("deploy script via a shell wrapper", 'bash -c "powershell -File d:/x/deploy-staging.ps1"'),
+    ("compose up with a file option", "docker compose -f a.yml up -d"),
 ]:
     code, err = run("guard-predeploy-analysis.py", predeploy_payload(command))
     check(f"predeploy/blocks {label}", code, BLOCK)
@@ -395,6 +421,29 @@ for index, (label, messages, want) in enumerate(live_cases):
         {"session_id": SID, "transcript_path": transcript(messages, f"live{index}.jsonl")},
     )
     check(f"live-config/{label}", code, want)
+
+# deploy-session.json arms only when a deploy RAN. A deploy-shaped call a PreToolUse
+# hook refused ran nothing; a read naming a deploy script is not a deploy.
+_DEPLOY_REPLY = "Jon, the rollout should work now."
+clear_artifacts()
+for label, messages, want in (
+    ("refused deploy does not arm deploy-session",
+     [("refused", "powershell -File deploy-staging.ps1"), ("text", _DEPLOY_REPLY)], ALLOW),
+    ("a read naming a deploy script does not arm it",
+     [("cmd", "grep -rn deploy-staging.ps1 docs"), ("text", _DEPLOY_REPLY)], ALLOW),
+    ("a deploy that ran arms deploy-session",
+     [("cmd", "powershell -File deploy-staging.ps1"), ("text", _DEPLOY_REPLY)], BLOCK),
+):
+    reset_checklist_state()
+    code, _ = run("checklist.py", {"session_id": SID, "transcript_path": transcript(messages, "deploy.jsonl")})
+    check(f"live-config/{label}", code, want)
+
+# A refused command never satisfies `command_ran` either.
+check(
+    "checklist/a refused test run is not evidence",
+    checklist([("refused", "test.ps1 datrix-common -Specific a.py"), ("text", "All tests pass.")], "c7.jsonl")[0],
+    BLOCK,
+)
 
 # The harness passes the final reply as `last_assistant_message`, and the transcript may not
 # hold it yet when Stop fires: the hook judges the passed reply, not the transcript's older text.

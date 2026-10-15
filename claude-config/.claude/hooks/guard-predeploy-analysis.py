@@ -73,6 +73,7 @@ from typing import Final
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from _command_shape import is_deploy  # noqa: E402
 from _hook_log import append_record  # noqa: E402
 
 _REPO_ROOT: Final = "d:/datrix"
@@ -84,24 +85,10 @@ _AUDIT_PATH: Final = os.path.join(_REPO_ROOT, ".tmp", "predeploy-audit.jsonl")
 # authorize today's rollout.
 _MAX_AGE_S: Final = 2 * 60 * 60
 
-# Commands that put an artifact into an environment. Ordered by how much they cost
-# to get wrong.
-_DEPLOY_RE: Final = re.compile(
-    r"\bdeploy[\w-]*\.ps1\b"
-    r"|\bsync-staging\.ps1\b"
-    r"|\baz\s+deployment\s+(?:group|sub|mg|tenant)\s+create\b"
-    r"|\baz\s+group\s+deployment\s+create\b"
-    r"|\baz\s+(?:webapp|functionapp|containerapp|staticwebapp)\s+"
-    r"(?:deploy(?:ment)?|create|update|up)\b"
-    r"|\baz\s+acr\s+build\b"
-    r"|\bterraform\s+apply\b"
-    r"|\bkubectl\s+apply\b"
-    r"|\bhelm\s+(?:install|upgrade)\b"
-    r"|\bdocker\s+stack\s+deploy\b"
-    r"|\bdocker\s+compose\s+(?:-[^\s]+\s+)*up\b"
-    r"|\bdocker\s+push\b",
-    re.IGNORECASE,
-)
+# What counts as a deploy is decided by `_command_shape.is_deploy`: a deploy
+# script that the command RUNS, or a statement that begins with a deploy verb.
+# Naming `status-deploy-tests.ps1` in a `for` list or a `grep` pattern is not a
+# deploy.
 
 # The upper rungs of the evidence ladder. Never blocked — making these harder to
 # reach than a real deploy would invert the entire point of the hook.
@@ -250,7 +237,7 @@ def main() -> None:
     if not isinstance(command, str) or not command.strip():
         sys.exit(0)
 
-    if not _DEPLOY_RE.search(command):
+    if not is_deploy(command):
         sys.exit(0)
 
     # The upper rung of the ladder is always free.

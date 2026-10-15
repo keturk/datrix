@@ -85,11 +85,67 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
         False,
         "generate-doc-fragments.ps1 is not generate.ps1",
     ),
+    (
+        f"{_GEN} {_EXAMPLE} -L python; "
+        'powershell -File "d:/datrix/datrix/scripts/scan/compile.ps1" -All',
+        False,
+        "-All on a different statement than generate.ps1",
+    ),
+    (
+        f"& 'd:/datrix/datrix/scripts/dev/generate.ps1' {_EXAMPLE} -All",
+        True,
+        "the call operator runs generate.ps1",
+    ),
+    (
+        f'bash -c "{_GEN.replace(chr(34), chr(39))} -Domains -L python"',
+        True,
+        "generate.ps1 run through a shell wrapper",
+    ),
+)
+
+#: (command, must_block, why) — run WITHOUT the quick-reference marker: only a
+#: command that executes a script under datrix/scripts/ needs it.
+_MARKER_CASES: tuple[tuple[str, bool, str], ...] = (
+    (
+        "S=d:/datrix/datrix/scripts/scan/lib/config_linter.py; grep -n foo $S",
+        False,
+        "a scripts path in a variable assignment is named, not run",
+    ),
+    (
+        "cat <<EOF\n  python d:/datrix/datrix/scripts/scan/lib/config_linter.py\nEOF",
+        False,
+        "a heredoc body line naming a scripts .py is data",
+    ),
+    (
+        'for f in d:/datrix/datrix/scripts/test/status-deploy-tests.ps1; do sed -n 1,5p "$f"; done',
+        False,
+        "a for list naming a script runs nothing",
+    ),
+    (
+        'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common -Specific a.py',
+        True,
+        "powershell -File runs the script",
+    ),
+    (
+        "& 'd:/datrix/datrix/scripts/scan/compile.ps1' -ProjectDir x",
+        True,
+        "the call operator runs the script",
+    ),
+    (
+        r"D:\datrix\.venv\Scripts\python.exe d:\datrix\datrix\scripts\scan\lib\config_linter.py",
+        True,
+        "a Python interpreter runs the scripts .py",
+    ),
+    (
+        "S=x; powershell -Command \"& 'd:/datrix/datrix/scripts/dev/generate.ps1' a.dtrx\"",
+        True,
+        "-Command text is read for the script it runs",
+    ),
 )
 
 
-def _run(command: str) -> int:
-    payload = json.dumps({"tool_input": {"command": command, "description": _VERIFIED}})
+def _run(command: str, description: str = _VERIFIED) -> int:
+    payload = json.dumps({"tool_input": {"command": command, "description": description}})
     result = subprocess.run(
         [sys.executable, str(_HOOK)],
         input=payload,
@@ -103,8 +159,9 @@ def _run(command: str) -> int:
 
 def main() -> int:
     failures: list[str] = []
-    for command, must_block, why in _CASES:
-        blocked = _run(command) == _BLOCK_EXIT
+    runs = [(case, _VERIFIED) for case in _CASES] + [(case, "") for case in _MARKER_CASES]
+    for (command, must_block, why), description in runs:
+        blocked = _run(command, description) == _BLOCK_EXIT
         ok = blocked == must_block
         verdict = "BLOCK" if blocked else "allow"
         print(f"  [{'OK  ' if ok else 'FAIL'}] {verdict:5s}  {why}")
@@ -114,11 +171,11 @@ def main() -> int:
 
     print()
     if failures:
-        print(f"[FAIL] {len(failures)} of {len(_CASES)} cases wrong:")
+        print(f"[FAIL] {len(failures)} of {len(runs)} cases wrong:")
         for line in failures:
             print(f"  - {line}")
         return 1
-    print(f"[OK] all {len(_CASES)} cases correct")
+    print(f"[OK] all {len(runs)} cases correct")
     return 0
 
 

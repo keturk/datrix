@@ -5,12 +5,12 @@ effort: high
 
 # Apply Reviews Skill
 
-Read review artifacts from Tier 1 (local) and/or Tier 2 (Codex), group findings by task file and severity, apply fixes, and mark applied findings to prevent double-application on re-runs.
+Read review artifacts from Tier 1 (per task) and/or Tier 2 (per phase), both written by local models, group findings by task file and severity, apply fixes, and mark applied findings to prevent double-application on re-runs.
 
 ## When to Use
 
 - User says "apply reviews to phase NN"
-- User says "fix tasks based on local review" or "fix tasks based on codex review"
+- User says "fix tasks based on local review" or "fix tasks based on phase review"
 - After running `review.py` and receiving findings
 - User wants to apply fixes from review artifacts automatically
 
@@ -19,14 +19,14 @@ Read review artifacts from Tier 1 (local) and/or Tier 2 (Codex), group findings 
 - "Apply reviews to phase {NN}"
 - "Fix tasks from review phase {NN}"
 - "Apply local review findings"
-- "Apply codex review findings"
+- "Apply phase review findings"
 - "Apply review fixes for phase {NN}"
 
 ## Inputs
 
 User provides:
 - **Phase number** — which phase's reviews to apply
-- **Review source** (optional) — "local" (Tier 1 only), "codex" (Tier 2 only), or "all" (default: both)
+- **Review source** (optional) — "local" (Tier 1 only), "phase" (Tier 2 only), or "all" (default: both)
 
 ## Workflow
 
@@ -35,12 +35,12 @@ User provides:
 Discovery, schema-validated loading, already-applied filtering, and grouping/sorting are one script call (read `datrix/scripts/quick-reference.md` first; a pre-tool hook enforces this):
 
 ```bash
-powershell -File "d:/datrix/datrix/scripts/review/apply-reviews-prep.ps1" -Phase {NN} -Source {local|codex|all}
+powershell -File "d:/datrix/datrix/scripts/review/apply-reviews-prep.ps1" -Phase {NN} -Source {local|phase|all}
 ```
 
 Read the resulting `D:\datrix\.tmp\review\phase-{NN}-worklist.json`: findings are grouped by `target` (task file path), sorted blocking → major → minor → nit within each target, and findings already recorded in `.review.applied.json` markers are pre-filtered out (`skipped_already_applied` reports how many). `-Source` defaults to `all`. "No review files found" (exit 0) means there is nothing to apply — report and stop.
 
-For Codex phase-level findings (`target: "phase-{NN}"`), identify affected tasks from evidence/description (Step 4).
+For Tier 2 phase-level findings (`target: "phase-{NN}"`, IDs `P-NNN`), identify affected tasks from evidence/description (Step 4).
 
 **Example worklist structure:**
 ```
@@ -51,8 +51,8 @@ task-43-01-foo.md:
 task-43-02-bar.md:
   - F-003 (major): No test coverage for EntityValidator class
 
-phase-43 (Codex):
-  - C-001 (major): Dependency cycle: 43-02 → 43-05 → 43-02
+phase-43 (Tier 2):
+  - P-001 (major): Dependency cycle: 43-02 → 43-05 → 43-02
 ```
 
 ### Step 3: Apply Fixes Per Task
@@ -71,7 +71,7 @@ For each task file in the worklist (already-applied findings are pre-filtered by
 ```json
 {
   "applied_at": "ISO-8601 timestamp",
-  "applied_findings": ["F-001", "F-002", "C-001"],
+  "applied_findings": ["F-001", "F-002", "P-001"],
   "skipped_findings": ["F-003"],
   "skipped_reason": {
     "F-003": "Cannot auto-fix: requires design decision (which validation rule to prioritize?)"
@@ -100,9 +100,9 @@ result = data["key"]
 - Findings with ambiguous suggested_fix (multiple valid interpretations)
 - Findings that would introduce breaking changes without user consent
 
-### Step 4: Handle Phase-Level Findings (Codex)
+### Step 4: Handle Phase-Level Findings (Tier 2)
 
-Codex findings with `target: "phase-{NN}"` (e.g., dependency cycles) may affect multiple tasks:
+Tier 2 findings with `target: "phase-{NN}"` (e.g., dependency cycles) may affect multiple tasks:
 
 1. Parse the finding description to identify affected tasks
    - Example: "Dependency cycle: 43-02 → 43-05 → 43-02" → affects task-43-02 and task-43-05
@@ -110,10 +110,10 @@ Codex findings with `target: "phase-{NN}"` (e.g., dependency cycles) may affect 
 3. Mark the finding as applied in each task's `.review.applied.json`
 
 **Example (dependency cycle fix):**
-- Finding C-001: "Dependency cycle: task-43-02 depends on task-43-05, task-43-05 depends on task-43-02"
+- Finding P-001: "Dependency cycle: task-43-02 depends on task-43-05, task-43-05 depends on task-43-02"
 - Suggested fix: "Remove task-43-05 dependency on task-43-02"
 - Action: Open task-43-05, remove "task-43-02" from "**Depends on:**" field
-- Mark C-001 as applied in task-43-05.review.applied.json
+- Mark P-001 as applied in task-43-05.review.applied.json
 
 ### Step 5: Report Summary
 

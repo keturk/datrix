@@ -39,9 +39,15 @@ Drop a JSON file in `.claude/checklists/`. No code changes:
     }
 
 `applies_to` is one of `{"always": true}`, `{"skill_matches": "<regex>"}` (against
-the skill recorded by `record-active-skill.py`), or `{"tool_used": "<regex>"}`
-(against commands run this session). Absent `applies_to` means never — a config
-must opt in, so a half-written file cannot start blocking every session.
+the skill recorded by `record-active-skill.py`), or `{"deploy_ran": true}` (some
+command that ran this session is a deploy, by `_command_shape.is_deploy`). Absent
+`applies_to` means never — a config must opt in, so a half-written file cannot
+start blocking every session.
+
+A command "ran" unless a PreToolUse hook refused it (its `tool_result` is an error
+whose text begins `PreToolUse:`). A refused call ran nothing, so it can neither arm
+a checklist nor satisfy `command_ran`. Anything else, including a result that
+cannot be read, counts as ran.
 
 ITEM TYPES (all mechanical)
 ---------------------------
@@ -50,7 +56,7 @@ ITEM TYPES (all mechanical)
   file_contains / file_lacks      {path, pattern}
   glob_exists / glob_fresh        {glob, max_age_s?}
   reply_has / reply_lacks         {pattern}          - the final assistant message
-  command_ran / command_not_ran   {pattern}          - Bash/PowerShell this session
+  command_ran / command_not_ran   {pattern}          - Bash/PowerShell that ran this session
 
 NOT A WEDGE
 -----------
@@ -72,9 +78,11 @@ import sys
 import time
 from typing import Any, Final
 
+from _command_shape import is_deploy
 from _report_language import stop_reply
 
 _REPO_ROOT: Final = "d:/datrix"
+_REFUSAL_PREFIX: Final = "PreToolUse:"
 _STATE_DIR: Final = os.path.join(_REPO_ROOT, ".claude", "hooks", ".state")
 
 # The override exists so the test suite can point at a fixture directory instead of
@@ -149,8 +157,27 @@ def _file_text(path: str) -> str:
         return ""
 
 
-def _session_commands(transcript_path: str) -> str:
-    """Concatenated Bash/PowerShell commands in the transcript tail."""
+def _result_text(block: dict[str, Any]) -> str:
+    """The text of a `tool_result` block, whether its content is a string or a list."""
+    content = block.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            str(part.get("text", "")) for part in content if isinstance(part, dict)
+        )
+    return ""
+
+
+def _is_refusal(block: dict[str, Any]) -> bool:
+    """A PreToolUse hook refused the call: the command never ran."""
+    return block.get("is_error") is True and _result_text(block).lstrip().startswith(
+        _REFUSAL_PREFIX
+    )
+
+
+def _transcript_blocks(transcript_path: str) -> list[dict[str, Any]]:
+    """Every content block of the transcript tail, in order."""
     try:
         size = os.path.getsize(transcript_path)
         with open(transcript_path, encoding="utf-8", errors="replace") as handle:
@@ -159,26 +186,40 @@ def _session_commands(transcript_path: str) -> str:
                 handle.readline()  # discard the partial line
             lines = handle.readlines()
     except OSError:
-        return ""
+        return []
 
-    commands: list[str] = []
+    blocks: list[dict[str, Any]] = []
     for line in lines:
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
             continue
-        content = entry.get("message", {}).get("content", [])
-        if not isinstance(content, list):
+        message = entry.get("message") if isinstance(entry, dict) else None
+        content = message.get("content", []) if isinstance(message, dict) else []
+        if isinstance(content, list):
+            blocks.extend(block for block in content if isinstance(block, dict))
+    return blocks
+
+
+def _session_commands(transcript_path: str) -> list[str]:
+    """Bash/PowerShell commands in the transcript tail that ran (no hook refused them)."""
+    blocks = _transcript_blocks(transcript_path)
+    refused = {
+        block.get("tool_use_id")
+        for block in blocks
+        if block.get("type") == "tool_result" and _is_refusal(block)
+    }
+    commands: list[str] = []
+    for block in blocks:
+        if block.get("type") != "tool_use" or block.get("name") not in ("Bash", "PowerShell"):
             continue
-        for block in content:
-            if not isinstance(block, dict) or block.get("type") != "tool_use":
-                continue
-            if block.get("name") not in ("Bash", "PowerShell"):
-                continue
-            command = block.get("input", {}).get("command", "")
-            if isinstance(command, str):
-                commands.append(command)
-    return "\n".join(commands)
+        if block.get("id") is not None and block.get("id") in refused:
+            continue
+        tool_input = block.get("input")
+        command = tool_input.get("command") if isinstance(tool_input, dict) else None
+        if isinstance(command, str):
+            commands.append(command)
+    return commands
 
 
 def _newest_glob_age(pattern: str) -> float | None:
@@ -243,7 +284,7 @@ def _applies(config: dict[str, Any], skill: str, commands_needed: bool) -> bool 
     matcher = rule.get("skill_matches")
     if isinstance(matcher, str) and matcher:
         return bool(re.search(matcher, skill, re.IGNORECASE))
-    if isinstance(rule.get("tool_used"), str):
+    if rule.get("deploy_ran") is True:
         return None if not commands_needed else True
     return False
 
@@ -285,15 +326,19 @@ def main() -> None:
         for item in config.get("items", [])
         if isinstance(item, dict)
     )
+    needs_commands = needs_transcript or any(
+        _applies(config, skill, False) is None for config in active
+    )
     transcript_path = data.get("transcript_path", "")
     reply = stop_reply(data) if needs_transcript else ""
-    commands = _session_commands(transcript_path) if needs_transcript else ""
+    ran = _session_commands(transcript_path) if needs_commands else []
+    commands = "\n".join(ran)
+    deploy_ran = any(is_deploy(command) for command in ran)
 
     failures: list[str] = []
     for config in active:
         rule = config.get("applies_to", {})
-        matcher = rule.get("tool_used") if isinstance(rule, dict) else None
-        if isinstance(matcher, str) and not re.search(matcher, commands):
+        if isinstance(rule, dict) and rule.get("deploy_ran") is True and not deploy_ran:
             continue
         for item in config.get("items", []):
             if not isinstance(item, dict) or _evaluate(item, reply, commands):

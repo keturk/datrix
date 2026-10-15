@@ -217,9 +217,9 @@ def main() -> None:
         sys.exit(0)
     try:
         add_scripts_lib_to_path()
-        from datrix_scripts.venv import get_datrix_root
+        from datrix_scripts.paths import WORKSPACE_DIR
 
-        message = decide(payload, get_datrix_root(), default_settings(CALLER),
+        message = decide(payload, WORKSPACE_DIR, default_settings(CALLER),
                          on_repeat=lambda: _record(payload, REPEAT_CATEGORY, 0))
     except Exception as exc:  # a hook must never fail the tool call it observed
         sys.stderr.write(f"redirect-large-read: skipped: {type(exc).__name__}: {exc}\n")

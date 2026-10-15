@@ -53,6 +53,7 @@ When using Method 3, the skill will attempt to locate the service .dtrx file and
 Optional:
 - **PROJECT_SOURCE** -- Path to `system.dtrx` (for resolving imports and system config)
 - **PROMPT_FILE** -- Path to a prompt file containing all required inputs
+- **LOCAL_TRIAGE** -- Path to the `service-<name>.local-triage.json` that `evaluate-services.ps1` wrote: a local model's Phase 3.5 verdict per category (`clean` / `finding` / `unverifiable`, with cited lines), the service scan it read (`scan`) and the failed artifact checks. Start Phase 3.5 from its `finding` and `unverifiable` categories and confirm every cited line yourself: it is a lead, not a result. Reuse its `scan` instead of re-running the service scan.
 
 ## Documentation Quick Reference
 
@@ -615,5 +616,5 @@ Load `references/expected-structure.md` (relative to this skill) for the expecte
 powershell -File "d:/datrix/datrix/scripts/scan/syntax-checker.ps1" "{service.dtrx}"
 
 # Check generated code compilation (Python syntax + imports)
-powershell -File "d:/datrix/datrix/scripts/scan/compile-any-path.ps1" "{generated_service_dir}/src"
+powershell -File "d:/datrix/datrix/scripts/scan/compile.ps1" -Path "{generated_service_dir}/src"
 ```

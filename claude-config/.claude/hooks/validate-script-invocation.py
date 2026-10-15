@@ -32,7 +32,7 @@ import json
 import re
 import sys
 
-from _command_shape import executable_text
+from _command_shape import executable_text, invoked_scripts, segments
 
 # Map script subfolder to its category quick-reference file
 _CATEGORY_MAP = {
@@ -67,9 +67,10 @@ _DIRECT_PYTEST_RE = re.compile(
 # `-All` is legitimate on test.ps1 / compile.ps1 / libcst.ps1 / semgrep.ps1.
 _GROUP_GENERATION_FLAGS = ("-all", "-domains", "-testset")
 
-# `generate.ps1` as its own path segment, so `generate-doc-fragments.ps1` and
+# `generate.ps1` by file name, so `generate-doc-fragments.ps1` and
 # `generate-test-rules.ps1` (which legitimately take -All) never match.
-_GENERATE_SCRIPT_RE = re.compile(r"(?:^|[/\\])generate\.ps1\b")
+_GENERATE_SCRIPT = "generate.ps1"
+_SCRIPTS_MARKER = "datrix/scripts/"
 
 
 def _block(msg: str) -> None:
@@ -78,11 +79,27 @@ def _block(msg: str) -> None:
     sys.exit(2)
 
 
-def _detect_category(command: str) -> str:
-    """Extract the script category from the command path."""
-    normalized = command.replace("\\", "/").lower()
+def _runs_generate(segment: str) -> bool:
+    """True when this statement executes `generate.ps1` (not merely names it)."""
+    return any(
+        script.path.rsplit("/", 1)[-1].lower() == _GENERATE_SCRIPT
+        for script in invoked_scripts(segment)
+    )
+
+
+def _scripts_paths_run(command: str) -> list[str]:
+    """Lowercased paths of the scripts under `datrix/scripts/` the command executes."""
+    return [
+        script.path.lower()
+        for script in invoked_scripts(command)
+        if _SCRIPTS_MARKER in script.path.lower()
+    ]
+
+
+def _detect_category(script_path: str) -> str:
+    """Extract the script category from an invoked script's path."""
     # Match datrix/scripts/<category>/
-    match = re.search(r"datrix/scripts/(\w+)/", normalized)
+    match = re.search(r"datrix/scripts/(\w+)/", script_path)
     if match:
         category = match.group(1)
         if category in _CATEGORY_MAP:
@@ -143,12 +160,16 @@ def main() -> None:
 
     # 3. generate.ps1 must never run group generation. Verification regenerates
     #    the ONE affected project; a corpus sweep is wasted minutes per example
-    #    and belongs in a unit test in the owning package instead.
-    if _GENERATE_SCRIPT_RE.search(normalized):
+    #    and belongs in a unit test in the owning package instead. The flags are
+    #    read from the statements that execute generate.ps1.
+    generate_text = "\n".join(
+        part for part in segments(normalized) if _runs_generate(part)
+    )
+    if generate_text:
         used = [
             flag
             for flag in _GROUP_GENERATION_FLAGS
-            if re.search(rf"(?:^|\s){re.escape(flag)}(?![\w-])", normalized)
+            if re.search(rf"(?:^|\s){re.escape(flag)}(?![\w-])", generate_text)
         ]
         if used:
             _block(
@@ -166,8 +187,11 @@ def main() -> None:
                 "whereas a sweep proves it once and evaporates."
             )
 
-    # Only intercept powershell script calls under datrix/scripts/
-    if "datrix/scripts/" not in normalized:
+    # Only a command that RUNS a script under datrix/scripts/ needs the marker. A
+    # path held in a variable, listed in a `for`, or written in a heredoc body is
+    # named, not run (`_command_shape.invoked_scripts`).
+    run_paths = _scripts_paths_run(command)
+    if not run_paths:
         sys.exit(0)
 
     # If description contains the verification marker, allow
@@ -175,7 +199,7 @@ def main() -> None:
         sys.exit(0)
 
     # Determine which category quick-reference to point to
-    ref_file = _detect_category(command)
+    ref_file = _detect_category(run_paths[0])
     ref_path = f"{_SCRIPTS_BASE}{ref_file}"
 
     # Block: Claude hasn't verified the parameters
