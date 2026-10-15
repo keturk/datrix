@@ -564,7 +564,7 @@ After the **wave join** — the rolling pool has fully drained (`in_flight` and 
 4. **Read the canonical result from `index.json`, not the console.** `test.ps1` saves a timestamped folder under `{package}/.test_results/test-results-*/` and prints its path on the final console lines. Read that folder's `index.json` — it is the machine-readable source of truth (for both the step-2 accepted runs and the step-3 re-runs). Do NOT eyeball-parse stdout. Extract:
    - `result` — `"PASSED"` or `"FAILED"`
    - `counts.passed`, `counts.failed`, **`counts.error`**, `counts.skipped`, `counts.xfailed`, `counts.xpassed`
-   - **When the run is RED**, read the printed run folder's `failure-data.json`, which `test.ps1` writes for every failed run along with the short `digest.txt` it printed. Only when that file is absent, get the detail from the collector instead of reading `full.log`. Pass it the **printed** run folder (never `-Project`, which picks the newest folder on disk and can race a concurrent session):
+   - **When the run is RED**, read the printed run folder's `failure-data.json`, which `test.ps1` writes for every failed run along with the short `digest.txt` it wrote beside it. Only when that file is absent, get the detail from the collector instead of reading `full.log`. Pass it the **printed** run folder (never `-Project`, which picks the newest folder on disk and can race a concurrent session):
      ```bash
      powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" "{printed-run-folder}"
      ```

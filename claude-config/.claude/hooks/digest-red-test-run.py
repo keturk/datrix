@@ -22,7 +22,7 @@ added to the tool result as ``additionalContext``. The digest is a lead, never a
 log lines, and the agent confirms them.
 
 Bounded and fail-open. It never runs on a green run, a log outside the read scope, a test run
-whose folder holds ``test.ps1``'s own failure digest (``RUN_DIGEST_NAME`` -- the console output
+whose folder holds ``test.ps1``'s own failure digest (``RUN_DIGEST_NAME`` -- the run folder
 already carries it), or more than ``MAX_RUNS`` logs per call across all shapes; the model requests
 are capped by ``_local_digest``; and any failure -- no model server, an unreadable log, an import
 error -- leaves the tool result exactly as it was. Every request is recorded in the local-model
@@ -64,9 +64,8 @@ _GENERATION_LOG: Final = re.compile(r"^Log saved to:\s+(?P<log>.+?)\s*$", re.MUL
 _GREEN: Final = "PASSED"
 _LOG_NAME: Final = "full.log"
 _FAILURE_DATA_NAME: Final = "failure-data.json"
-# test.ps1 prints run_digest.py's digest under its summary and saves it under this name in
-# the run folder: a run that has one already carries its digest in the console output, so
-# the hook asks no model for it again. Kept in step with run_digest.DIGEST_FILENAME by the
+# test.ps1 saves run_digest.py's digest under this name in the run folder (it never prints
+# it): a run that has one already carries its digest, so the hook asks no model for it again. Kept in step with run_digest.DIGEST_FILENAME by the
 # hook's test, which imports both.
 RUN_DIGEST_NAME: Final = "digest.txt"
 

@@ -349,7 +349,7 @@ For tasks that modified code:
 1. **Read the canonical results from the run's `index.json`** (never a console transcript):
    - `result`, `counts.passed`, `counts.failed`, `counts.error`, `counts.skipped`
    - GREEN means `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — a pytest error counts as red exactly like a failure
-   - **When RED**, read the printed run folder's `failure-data.json` (written by `test.ps1` for every failed run, with the short `digest.txt` it printed). Only when it is absent, get the detail scripted — pass the collector the **printed** run folder (never `-Project`, which grabs the newest folder on disk):
+   - **When RED**, read the printed run folder's `failure-data.json` (written by `test.ps1` for every failed run, with the short `digest.txt` it wrote beside it). Only when it is absent, get the detail scripted — pass the collector the **printed** run folder (never `-Project`, which grabs the newest folder on disk):
      ```
      powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" "{printed-run-folder}"
      ```

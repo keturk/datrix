@@ -60,7 +60,7 @@ Each project (`datrix-*`) is its own independent git repository — commits and 
 - `full.log` — complete pytest output; contains the **warnings summary** section and collection/configuration errors
 - `failures/NNN-....txt`, `errors/NNN-....txt` — per-item detail with full traceback and captured stdout/stderr
 - `summary.txt`, `junit-*.xml` — rarely needed
-- `digest.txt`, `failure-data.json`, `run-delta.json` — written by `test.ps1` itself for every failed run: the short failure digest it printed under its summary (groups `E1..`/`F1..`, the change since the last run with the same selection, a local model's hint per group and one reading across groups), the full cluster bundle behind it, and the comparison (only when an earlier comparable run exists). Absent when the run was made with `-NoDigest` or by another runner
+- `digest.txt`, `failure-data.json`, `run-delta.json` — written by `test.ps1` itself for every failed run: the short failure digest it saves in the run directory (the console gets only a `Failure digest written: <path>` line; groups `E1..`/`F1..`, the change since the last run with the same selection, a local model's hint per group and one reading across groups), the full cluster bundle behind it, and the comparison (only when an earlier comparable run exists). Absent when the run was made with `-NoDigest` or by another runner
 - `warnings.json` — written by `extract-warnings.ps1` (present only after you run it)
 
 ### Extraction Scripts (use these — do not hand-parse)
