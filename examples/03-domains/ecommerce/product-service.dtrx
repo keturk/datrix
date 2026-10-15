@@ -639,7 +639,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
             .where(expiresAt: lt(DateTime.now()))
             .all();
 
-            let JSON reservationGroups = {};
+            let Map<String, Array<InventoryReservation>> reservationGroups = {};
             foreach reservation in expired {
                 let String key = reservation.reservationId.toString();
                 if (reservationGroups[key] == null) {
@@ -651,7 +651,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
 
             let Int count = 0;
             foreach reservationId in JSON.keys(reservationGroups) {
-                let JSON batch = reservationGroups[reservationId];
+                let Array<InventoryReservation> batch = reservationGroups[reservationId];
 
                 transaction(productDb) {
                     foreach item in batch {

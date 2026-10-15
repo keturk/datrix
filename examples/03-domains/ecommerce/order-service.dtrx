@@ -707,7 +707,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             inventoryReservationId: uuid()
         });
         order.save();
-        foreach i in range(51) {
+        for (let Int i = 0; i < 51; i += 1) {
             orderDb.OrderItem.create({
                 orderId: order.id,
                 productId: uuid(),
