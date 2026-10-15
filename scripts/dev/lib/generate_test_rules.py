@@ -59,7 +59,7 @@ from datrix_scripts.local_llm import (  # noqa: E402
     local_llm_settings,
 )
 from datrix_scripts.logic_map import iter_python_files, resolve_scan_paths  # noqa: E402
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 LOG = logging.getLogger("generate_test_rules")
 
@@ -1035,7 +1035,7 @@ def main() -> int:
     )
 
     try:
-        datrix_root = get_datrix_root()
+        datrix_root = WORKSPACE_DIR
     except FileNotFoundError:
         LOG.error("Could not find Datrix root directory")
         return 1

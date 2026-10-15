@@ -42,42 +42,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$pythonScript = Join-Path $scriptDir "lib\print_sexp.py"
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "print_sexp.py not found at: $pythonScript"
-    exit 2
-}
+$pythonArgs = if ($PSCmdlet.ParameterSetName -eq "Text") { @("--text", $Text) } else { @($Path) }
+if ($All) { $pythonArgs += "--all" }
 
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
-    if (-not (Ensure-DatrixVenv)) {
-        Write-Error "Failed to activate the Datrix virtual environment"
-        exit 2
-    }
-    if (-not (Ensure-DatrixPackagesInstalled -SkipIfInstalled)) {
-        Write-Error "Failed to ensure the Datrix packages are installed"
-        exit 2
-    }
-
-    if ($PSCmdlet.ParameterSetName -eq "Text") {
-        $pythonArgs = @($pythonScript, "--text", $Text)
-    } else {
-        $pythonArgs = @($pythonScript, $Path)
-    }
-    if ($All) { $pythonArgs += "--all" }
-
-    & python @pythonArgs
-    exit $LASTEXITCODE
-} catch {
-    Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-    exit 2
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\print_sexp.py") -Arguments $pythonArgs -RequirePackages)

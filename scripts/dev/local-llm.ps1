@@ -22,8 +22,18 @@
     re-run.
 
 .PARAMETER Status
-    Show which model servers answer right now, what each holds in memory, and the last -Days of
-    usage (default 1).
+    Show which model servers answer right now, what each holds in memory, a line for each machine
+    holding no model indefinitely (see -Pin), and the last -Days of usage (default 1).
+
+.PARAMETER Pin
+    On each reachable machine, load the first model of the load preference it has installed
+    (qwen3-coder:30b-ctx32k, then qwen3.6:35b) and keep it resident indefinitely, so the hooks and
+    tools that use only resident models (the red-run digest answers within seconds) find one.
+    Prints per machine what was pinned, or why nothing was. Later requests never shorten the pin.
+
+.PARAMETER Unpin
+    On each reachable machine, unload every model held resident indefinitely, freeing its GPU
+    memory. Prints per machine what was released.
 
 .PARAMETER Usage
     Report local-model requests by caller (script, hook or MCP tool) and by server over the last
@@ -40,6 +50,9 @@
 
 .EXAMPLE
     .\local-llm.ps1 -Usage -Days 1
+
+.EXAMPLE
+    .\local-llm.ps1 -Pin
 #>
 
 [CmdletBinding()]
@@ -47,82 +60,49 @@ param(
     [Parameter()] [switch]$Setup,
     [Parameter()] [switch]$Status,
     [Parameter()] [switch]$Usage,
+    [Parameter()] [switch]$Pin,
+    [Parameter()] [switch]$Unpin,
     [Parameter()] [int]$Days = -1
 )
 
 $ErrorActionPreference = "Stop"
-
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptsDir = Split-Path -Parent $scriptDir
-$cliScript = Join-Path $scriptDir "lib\local_llm_cli.py"
-$mcpScript = Join-Path $scriptDir "lib\local_llm_mcp.py"
-$commonDir = Join-Path $scriptsDir "common"
-. (Join-Path $commonDir "venv.ps1")
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
 $McpServerName = "datrix-local-llm"
 
 $actions = @(@(
     @{ Name = "-Setup"; Set = [bool]$Setup },
     @{ Name = "-Status"; Set = [bool]$Status },
-    @{ Name = "-Usage"; Set = [bool]$Usage }
+    @{ Name = "-Usage"; Set = [bool]$Usage },
+    @{ Name = "-Pin"; Set = [bool]$Pin },
+    @{ Name = "-Unpin"; Set = [bool]$Unpin }
 ) | Where-Object { $_.Set })
 if ($actions.Count -ne 1) {
     $given = if ($actions.Count) { ($actions | ForEach-Object { $_.Name }) -join ", " } else { "none" }
-    Write-Host ("Pass exactly one action: -Setup, -Status or -Usage (given: $given). " +
+    Write-Host ("Pass exactly one action: -Setup, -Status, -Usage, -Pin or -Unpin (given: $given). " +
         "Get-Help .\local-llm.ps1 -Full lists them.") -ForegroundColor Red
     exit 1
 }
-if ($Days -ge 0 -and $Setup) {
-    Write-Host "-Days applies to -Status and -Usage only; -Setup takes no other parameter." -ForegroundColor Red
+if ($Days -ge 0 -and -not ($Status -or $Usage)) {
+    Write-Host "-Days applies to -Status and -Usage only; $($actions[0].Name) takes no other parameter." -ForegroundColor Red
     exit 1
 }
 
-function Invoke-Cleanup {
-    Disable-DatrixVenv
+if ($Setup) {
+    # Registration writes the MCP server's interpreter, script and PYTHONPATH into .mcp.json; it
+    # runs no Python itself.
+    Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1")
+    Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+    . (Join-Path $PSScriptRoot "..\common\venv.ps1")
+    $workspace = Get-DatrixWorkspaceRoot
+    Install-DatrixProjectMcpServer -Name $McpServerName -PythonExe (Join-Path (Get-DatrixVenvPath) "Scripts\python.exe") `
+        -ServerScript (Join-Path $PSScriptRoot "lib\local_llm_mcp.py") -PythonPath (Get-DatrixScriptsPythonPath) `
+        -Workspace $workspace -SetupCommand "local-llm.ps1 -Setup"
+    exit 0
 }
 
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-trap {
-    Write-Host ""
-    Write-Warning "Interrupted by user (Ctrl-C)"
-    Invoke-Cleanup
-    exit 130
-}
-
-try {
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (-not (Test-Path $pythonExe)) {
-        $pythonExe = Join-Path $venvPath "bin\python"
-    }
-
-    if ($Setup) {
-        Install-DatrixProjectMcpServer -Name $McpServerName -PythonExe $pythonExe -ServerScript $mcpScript `
-            -PythonPath (Get-DatrixScriptsPythonPath) -Workspace (Split-Path -Parent (Split-Path -Parent $scriptsDir)) -SetupCommand "local-llm.ps1 -Setup"
-        exit 0
-    }
-
-    # @(...) around the whole expression: an if-expression unwraps a one-element array to a string,
-    # and splatting a string passes it one character per argument.
-    $pyArgs = @(if ($Status) { "status" } else { "usage" })
-    if ($Days -ge 0) { $pyArgs += @("--days", $Days) }
-    & $pythonExe $cliScript @pyArgs
-    exit $LASTEXITCODE
-}
-catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Invoke-Cleanup
-    exit 1
-}
-finally {
-    Invoke-Cleanup
-}
+# @(...) around the whole expression: an if-expression unwraps a one-element array to a string,
+# and splatting a string passes it one character per argument.
+$pythonArgs = @(if ($Status) { "status" } elseif ($Pin) { "pin" } elseif ($Unpin) { "unpin" } else { "usage" })
+if ($Days -ge 0) { $pythonArgs += @("--days", $Days) }
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\local_llm_cli.py") -Arguments $pythonArgs)

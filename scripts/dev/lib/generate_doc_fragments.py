@@ -46,7 +46,7 @@ def _sigint_handler(_signum: int, _frame: object) -> None:
 signal.signal(signal.SIGINT, _sigint_handler)
 
 from datrix_scripts.logging_utils import ColorCodes, colorize  # noqa: E402
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -475,7 +475,7 @@ def main() -> int:
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
-    datrix_root = get_datrix_root()
+    datrix_root = WORKSPACE_DIR
     output_dir = datrix_root / OUTPUT_DIR_NAME
 
     mode_label = "Checking" if check else "Generating"

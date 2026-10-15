@@ -19,12 +19,14 @@ import logging
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 
 from datrix_scripts.local_llm import (
     LocalLlmPool,
     LocalLlmSettings,
     LocalLlmUnavailable,
     discover_candidates,
+    unpinned_machine_lines,
 )
 from datrix_scripts.local_llm_usage import usage_report
 from datrix_scripts.local_reading import ReadScope, ReadScopeError, ask_files, digest_log
@@ -40,7 +42,7 @@ from datrix_scripts.mcp_stdio import (
     serve,
     text_list,
 )
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 LOG = logging.getLogger(__name__)
 
@@ -85,11 +87,13 @@ def _digest_log(reader: LocalReader, args: JsonObject) -> str:
 
 
 def models_status(settings: LocalLlmSettings, days: int) -> str:
-    """Which servers answer and what they hold in memory, then the usage report for ``days``."""
+    """Which servers answer, what they hold in memory and which hold no model indefinitely, then
+    the usage report for ``days``."""
     lines: list[str] = []
     candidates = discover_candidates(settings, lines.append)
     usable = ", ".join(candidate.host.label() for candidate in candidates) or "none"
-    return "\n".join([*lines, f"Usable now (resident): {usable}", "",
+    unpinned = unpinned_machine_lines(settings, candidates, datetime.now(UTC))
+    return "\n".join([*lines, f"Usable now (resident): {usable}", *unpinned, "",
                       usage_report(settings.usage_log, days).render()])
 
 
@@ -162,7 +166,7 @@ class LocalLlmServer(McpServer[LocalReader]):
 
 
 def _workspace_reader() -> LocalReader:
-    return LocalReader(ReadScope(get_datrix_root()), mcp_settings())
+    return LocalReader(ReadScope(WORKSPACE_DIR), mcp_settings())
 
 
 def main() -> int:

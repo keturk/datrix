@@ -49,13 +49,8 @@ from datrix_scripts.test_projects import (  # noqa: E402
     get_test_projects,
     resolve_provider,
 )
-from datrix_scripts.venv import get_datrix_root, get_venv_python  # noqa: E402
-
-# Add datrix-common to path so we can use DATRIX_FILE_EXTENSION
-_datrix_root = get_datrix_root()
-_datrix_common_src = _datrix_root / "datrix-common" / "src"
-if _datrix_common_src.exists() and str(_datrix_common_src) not in sys.path:
-    sys.path.insert(0, str(_datrix_common_src))
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
+from datrix_scripts.venv import get_venv_python  # noqa: E402
 from datrix_common.constants import DATRIX_FILE_EXTENSION  # noqa: E402
 
 
@@ -512,7 +507,7 @@ def main():
     args = parser.parse_args()
  
     try:
-        datrix_root = get_datrix_root()
+        datrix_root = WORKSPACE_DIR
     except FileNotFoundError:
         print("ERROR: Could not find Datrix root directory", file=sys.stderr)
         return 1

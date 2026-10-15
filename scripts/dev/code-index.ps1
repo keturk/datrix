@@ -130,13 +130,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptsDir = Split-Path -Parent $scriptDir
-$cliScript = Join-Path $scriptDir "lib\code_index_cli.py"
-$mcpScript = Join-Path $scriptDir "lib\code_index_mcp.py"
-$commonDir = Join-Path $scriptsDir "common"
-. (Join-Path $commonDir "venv.ps1")
+$cliScript = Join-Path $PSScriptRoot "lib\code_index_cli.py"
+$mcpScript = Join-Path $PSScriptRoot "lib\code_index_mcp.py"
+$commonDir = Join-Path $PSScriptRoot "..\common"
+Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $commonDir "DatrixPythonScript.psm1") -Force
+. (Join-Path $commonDir "venv.ps1")
 
 $McpServerName = "datrix-code-index"
 
@@ -161,75 +161,39 @@ if ($actions.Count -ne 1) {
     exit 1
 }
 
-function Invoke-Cleanup {
-    Disable-DatrixVenv
+if ($Setup) {
+    $refreshExit = Invoke-DatrixPythonScript -Script $cliScript -Arguments @("refresh")
+    if ($refreshExit -ne 0) {
+        Write-Host "Building the index failed (see above); the MCP server was not set up." -ForegroundColor Red
+        exit $refreshExit
+    }
+    # The MCP server entry names the venv interpreter by path; Claude Code starts it directly.
+    Install-DatrixProjectMcpServer -Name $McpServerName -PythonExe (Join-Path (Get-DatrixVenvPath) "Scripts\python.exe") -ServerScript $mcpScript `
+        -PythonPath (Get-DatrixScriptsPythonPath) -Workspace (Get-DatrixWorkspaceRoot) -SetupCommand "code-index.ps1 -Setup"
+    exit 0
 }
 
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-trap {
-    Write-Host ""
-    Write-Warning "Interrupted by user (Ctrl-C)"
-    Invoke-Cleanup
-    exit 130
+$pyArgs = @()
+if ($Symbol) {
+    $pyArgs += @("symbol", $Symbol)
+    if ($Kind) { $pyArgs += @("--kind", $Kind) }
+}
+elseif ($References) { $pyArgs += @("refs", $References) }
+elseif ($Outline) { $pyArgs += @("outline", $Outline) }
+elseif ($Search) { $pyArgs += @("search", $Search) }
+elseif ($Canonical) {
+    $pyArgs += @("canonical", $Canonical)
+    if ($IncludeTestRules) { $pyArgs += "--test-rules" }
+}
+elseif ($Status) { $pyArgs += "status" }
+elseif ($Refresh) { $pyArgs += "refresh" }
+elseif ($Usage) { $pyArgs += @("usage", "--days", "$Days") }
+elseif ($Summarize) {
+    $pyArgs += @("summarize", "--workers", "$Workers")
+    $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
+}
+if ($Limit -ge 0 -and -not ($Outline -or $Status -or $Refresh -or $Usage)) {
+    $pyArgs += @("--limit", "$Limit")
 }
 
-try {
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (-not (Test-Path $pythonExe)) {
-        $pythonExe = Join-Path $venvPath "bin\python"
-    }
-
-    if ($Setup) {
-        & $pythonExe $cliScript refresh
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Building the index failed (see above); the MCP server was not set up." -ForegroundColor Red
-            exit $LASTEXITCODE
-        }
-        Install-DatrixProjectMcpServer -Name $McpServerName -PythonExe $pythonExe -ServerScript $mcpScript `
-            -PythonPath (Get-DatrixScriptsPythonPath) -Workspace (Split-Path -Parent (Split-Path -Parent $scriptsDir)) -SetupCommand "code-index.ps1 -Setup"
-        exit 0
-    }
-
-    $pyArgs = @()
-    if ($Symbol) {
-        $pyArgs += @("symbol", $Symbol)
-        if ($Kind) { $pyArgs += @("--kind", $Kind) }
-    }
-    elseif ($References) { $pyArgs += @("refs", $References) }
-    elseif ($Outline) { $pyArgs += @("outline", $Outline) }
-    elseif ($Search) { $pyArgs += @("search", $Search) }
-    elseif ($Canonical) {
-        $pyArgs += @("canonical", $Canonical)
-        if ($IncludeTestRules) { $pyArgs += "--test-rules" }
-    }
-    elseif ($Status) { $pyArgs += "status" }
-    elseif ($Refresh) { $pyArgs += "refresh" }
-    elseif ($Usage) { $pyArgs += @("usage", "--days", $Days) }
-    elseif ($Summarize) {
-        $pyArgs += @("summarize", "--workers", $Workers)
-        $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
-    }
-    if ($Limit -ge 0 -and -not ($Outline -or $Status -or $Refresh -or $Usage)) {
-        $pyArgs += @("--limit", $Limit)
-    }
-
-    & $pythonExe $cliScript @pyArgs
-    exit $LASTEXITCODE
-}
-catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Invoke-Cleanup
-    exit 1
-}
-finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script $cliScript -Arguments $pyArgs)

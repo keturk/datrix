@@ -32,7 +32,7 @@ if sys.platform == "win32" and __name__ == "__main__":
 
 from datrix_scripts.code_index.session import open_session  # noqa: E402
 from datrix_scripts.code_index.sources import LOGIC_MAP_DB, CodeIndexError  # noqa: E402
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 # Kind display order and labels
 _KIND_ORDER = ["canonical", "boundary", "pattern", "invariant", "test-rule"]
@@ -412,7 +412,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        datrix_root = get_datrix_root()
+        datrix_root = WORKSPACE_DIR
     except FileNotFoundError:
         print("ERROR: Could not find Datrix root directory", file=sys.stderr)
         return 1

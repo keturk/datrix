@@ -53,7 +53,7 @@ from datrix_scripts.local_llm import (  # noqa: E402
     local_llm_settings,
 )
 from datrix_scripts.logging_utils import ColorCodes, colorize  # noqa: E402
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -635,7 +635,7 @@ def main() -> int:
     else:
         logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
-    datrix_root = get_datrix_root()
+    datrix_root = WORKSPACE_DIR
 
     # Resolve docs directories
     if args.docs_dirs:

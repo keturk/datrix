@@ -16,7 +16,6 @@ Exit codes: 0 = every check passed, 1 = at least one check failed, 2 = usage err
 
 from __future__ import annotations
 
-import argparse
 import io
 import json
 import os
@@ -25,7 +24,7 @@ import sqlite3
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -81,17 +80,13 @@ from datrix_scripts.code_index.usage import usage_report
 from datrix_scripts.dead_code_report import Finding
 from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
 from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering
-from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
+from datrix_scripts.gate_harness import CheckFunc, check_list_main, write_files
+from datrix_scripts.local_llm_usage import GATE_USAGE_LOG
 from datrix_scripts.logic_map import parse_markers
 from datrix_scripts.paths import PACKAGE_DIR, PYTHONPATH_ROOT, SHOWCASE_DIR, WORKSPACE_DIR, script_env
 from generate_test_rules import Proposal, drop_unknown_see_refs, seed_topics_from_index
 from logic_map_report import dangling_see_refs
 
-CheckFunc = Callable[[], None]
-
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_RESET = "\033[0m"
 
 _GIT_IDENTITY = ("-c", "user.name=code-index-gate", "-c", "user.email=gate@example.invalid",
                  "-c", "commit.gpgsign=false")
@@ -166,37 +161,8 @@ _FIXTURE_FILES = {
 }
 
 
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def run_checks(checks: list[CheckFunc]) -> bool:
-    """Run every check, catching only AssertionError. Returns True iff all passed."""
-    all_passed = True
-    for check in checks:
-        try:
-            check()
-        except AssertionError as exc:
-            _fail(f"{check.__name__}: {exc}")
-            all_passed = False
-        else:
-            _ok(check.__name__)
-    return all_passed
-
-
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *_GIT_IDENTITY, "-C", str(repo), *args], check=True, capture_output=True)
-
-
-def _write(root: Path, files: dict[str, str]) -> None:
-    for relative, text in files.items():
-        path = root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
 
 
 @contextmanager
@@ -207,10 +173,10 @@ def _workspace(extra: dict[str, str] | None = None) -> Iterator[IndexSession]:
         repo = workspace / "alpha"
         repo.mkdir()
         _git(repo, "init", "-q")
-        _write(repo, {**_FIXTURE_FILES, **(extra or {}), ".gitignore": "ignored_dir/\n"})
+        write_files(repo, {**_FIXTURE_FILES, **(extra or {}), ".gitignore": "ignored_dir/\n"})
         _git(repo, "add", "-A")
         _git(repo, "commit", "-q", "-m", "fixture")
-        _write(workspace, {"not_a_repo/loose.py": "def loose_function() -> None:\n    return None\n"})
+        write_files(workspace, {"not_a_repo/loose.py": "def loose_function() -> None:\n    return None\n"})
         session = IndexSession(open_index(index_dir(workspace)), workspace, _CONFIG)
         try:
             yield session
@@ -584,7 +550,7 @@ def check_mcp_server_starts_summaries_when_its_refresh_changes_files() -> None:
         assert server.handle(call) is not None and len(launcher.commands) == 1, "the first call finds the pending module"
         server.handle(call)
         assert len(launcher.commands) == 1, "a call whose refresh changed nothing starts no run"
-        _write(session.workspace / "alpha", {"src/alpha_pkg/big.py": _BIG_MODULE + "EXTRA = 1\n"})
+        write_files(session.workspace / "alpha", {"src/alpha_pkg/big.py": _BIG_MODULE + "EXTRA = 1\n"})
         server.handle(call)
         assert len(launcher.commands) == 2, "an edit seen by the refresh starts a run for the changed module"
         server.close()
@@ -958,21 +924,8 @@ def check_usage_hook_never_writes_into_the_datrix_repository() -> None:
 
 
 # ===========================================================================
-# Harness self-test and main
+# main
 # ===========================================================================
-
-
-def _deliberately_failing_check() -> None:
-    assert False, "deliberately failing check for --harness-self-test"
-
-
-def harness_self_test() -> bool:
-    print("=== Harness self-test: a deliberately-failing check must be reported FAILED ===")
-    if run_checks([_deliberately_failing_check]):
-        _fail("harness self-test: the deliberately-failing check was NOT reported as failed")
-        return False
-    _ok("harness self-test: the deliberately-failing check was correctly reported FAILED")
-    return True
 
 
 _ALL_CHECKS: list[CheckFunc] = [
@@ -1012,31 +965,13 @@ _ALL_CHECKS: list[CheckFunc] = [
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Behaviour checks for the code index and its entry points.")
-    parser.add_argument("--harness-self-test", action="store_true",
-                        help="Run only the harness self-test (a deliberately-failing dummy check).")
-    parser.add_argument("--only", metavar="PREFIX", help="Run only the checks whose name starts with PREFIX.")
-    args = parser.parse_args()
-    if args.harness_self_test:
-        return 0 if harness_self_test() else 1
-    checks = _ALL_CHECKS
-    if args.only:
-        checks = [check for check in _ALL_CHECKS if check.__name__.startswith(args.only)]
-        if not checks:
-            print(f"Error: no check name starts with {args.only!r}. Checks: "
-                  f"{', '.join(c.__name__ for c in _ALL_CHECKS)}.", file=sys.stderr)
-            return 2
-    print(f"Running {len(checks)} code-index behaviour checks...\n")
     # The checks' own loopback model servers must never count as real use of the machines.
-    with TemporaryDirectory(prefix="code-index-gate-") as temp:
-        os.environ[USAGE_LOG_VARIABLE] = str(Path(temp) / "usage.jsonl")
-        passed = run_checks(checks)
-    print()
-    if passed:
-        print(f"{_GREEN}GATE PASSED{_RESET}: all {len(checks)} code-index behaviour checks passed.")
-        return 0
-    print(f"{_RED}GATE FAILED{_RESET}: see the failures above.")
-    return 1
+    return check_list_main(
+        "Behaviour checks for the code index and its entry points.",
+        "code-index behaviour",
+        _ALL_CHECKS,
+        temp_file_variable=GATE_USAGE_LOG,
+    )
 
 
 if __name__ == "__main__":

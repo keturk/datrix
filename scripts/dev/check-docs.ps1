@@ -102,80 +102,27 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\check_docs.py"
-
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-. (Join-Path $commonDir "venv.ps1")
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "check_docs.py not found at $pythonScript"
-    exit 1
+$pyArgs = @($DocsDir)
+foreach ($c in $Check) {
+    # Handle comma-separated values (e.g., -Check cdx-filenames,cdx-structure)
+    foreach ($item in ($c -split ',')) {
+        $trimmed = $item.Trim()
+        if ($trimmed) { $pyArgs += @("--check", $trimmed) }
+    }
+}
+if ($Detailed) { $pyArgs += "--verbose" }
+if ($Dbg) { $pyArgs += "--debug" }
+if ($LlmSuggest) {
+    $pyArgs += @(
+        "--llm-suggest",
+        "--llm-limit", "$LlmLimit",
+        "--llm-num-predict", "$LlmNumPredict",
+        "--llm-temperature", "$LlmTemperature"
+    )
+    $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
 }
 
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-trap {
-    Write-Host ""
-    Write-Warning "Interrupted by user (Ctrl-C)"
-    Invoke-Cleanup
-    exit 130
-}
-
-try {
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (-not (Test-Path $pythonExe)) {
-        $pythonExe = Join-Path $venvPath "bin\python"
-    }
-
-    $pyArgs = @()
-
-    foreach ($d in $DocsDir) {
-        $pyArgs += $d
-    }
-    foreach ($c in $Check) {
-        # Handle comma-separated values (e.g., -Check cdx-filenames,cdx-structure)
-        foreach ($item in ($c -split ',')) {
-            $trimmed = $item.Trim()
-            if ($trimmed) {
-                $pyArgs += "--check"
-                $pyArgs += $trimmed
-            }
-        }
-    }
-    if ($Detailed) { $pyArgs += "--verbose" }
-    if ($Dbg) { $pyArgs += "--debug" }
-    if ($LlmSuggest) {
-        $pyArgs += @(
-            "--llm-suggest",
-            "--llm-limit", $LlmLimit,
-            "--llm-num-predict", $LlmNumPredict,
-            "--llm-temperature", $LlmTemperature
-        )
-        $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
-    }
-
-    & $pythonExe $pythonScript @pyArgs
-    exit $LASTEXITCODE
-} catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Invoke-Cleanup
-    exit 1
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\check_docs.py") -Arguments $pyArgs)

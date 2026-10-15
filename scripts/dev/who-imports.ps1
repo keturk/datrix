@@ -41,39 +41,10 @@ $ErrorActionPreference = "Stop"
 $Root = @($Root | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $Target = @($Target | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$pythonScript = Join-Path $scriptDir "lib\who_imports.py"
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "who_imports.py not found at: $pythonScript"
-    exit 2
-}
+$pythonArgs = @()
+foreach ($item in $Root) { $pythonArgs += @("--root", $item) }
+foreach ($item in $Target) { $pythonArgs += @("--target", $item) }
 
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
-    if (-not (Ensure-DatrixVenv)) {
-        Write-Error "Failed to activate the Datrix virtual environment"
-        exit 2
-    }
-    if (-not (Ensure-DatrixPackagesInstalled -SkipIfInstalled)) {
-        Write-Error "Failed to ensure the Datrix packages are installed"
-        exit 2
-    }
-
-    $pythonArgs = @($pythonScript)
-    foreach ($item in $Root) { $pythonArgs += "--root"; $pythonArgs += $item }
-    foreach ($item in $Target) { $pythonArgs += "--target"; $pythonArgs += $item }
-
-    & python @pythonArgs
-    exit $LASTEXITCODE
-} catch {
-    Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-    exit 2
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\who_imports.py") -Arguments $pythonArgs -RequirePackages)

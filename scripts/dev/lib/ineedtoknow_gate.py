@@ -12,11 +12,10 @@ Run through dev/ineedtoknow-gate.ps1.
 
 from __future__ import annotations
 
-import argparse
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -36,13 +35,9 @@ from datrix_scripts.knowledge.store import KIND_CURATED, KIND_LEARNED, Knowledge
 from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings, LocalLlmUnavailable
 from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, ChatAnswer, LoopbackOllama, answering, closed_port
 from datrix_scripts.local_reading import ReadScope
+from datrix_scripts.gate_harness import CheckFunc, check_list_main, write_file
 from datrix_scripts.paths import script_env
 
-CheckFunc = Callable[[], None]
-
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_RESET = "\033[0m"
 _CLI = Path(__file__).resolve().parent / "ineedtoknow_cli.py"
 
 _TENANCY_DOC = """# Tenancy Pack
@@ -72,36 +67,9 @@ _ALPHA_PATH = "datrix-alpha/docs/architecture.md"
 _CUSTOMER_DOC = "# Customer\n\nAcme's private warehouse routing rules live in this document and nowhere else.\n"
 
 
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def run_checks(checks: list[CheckFunc]) -> bool:
-    """Run every check, catching only AssertionError. Returns True iff all passed."""
-    all_passed = True
-    for check in checks:
-        try:
-            check()
-        except AssertionError as exc:
-            _fail(f"{check.__name__}: {exc}")
-            all_passed = False
-        else:
-            _ok(check.__name__)
-    return all_passed
-
-
 # ===========================================================================
 # fixtures
 # ===========================================================================
-
-
-def _write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
 
 
 @contextmanager
@@ -110,9 +78,9 @@ def _workspace() -> Iterator[Path]:
         root = Path(temp)
         for repo in ("datrix", "datrix-alpha", "acme-shop"):
             (root / repo / ".git").mkdir(parents=True)
-        _write(root / _TENANCY_PATH, _TENANCY_DOC)
-        _write(root / _ALPHA_PATH, _ARCH_DOC)
-        _write(root / "acme-shop" / "docs" / "architecture.md", _CUSTOMER_DOC)
+        write_file(root / _TENANCY_PATH, _TENANCY_DOC)
+        write_file(root / _ALPHA_PATH, _ARCH_DOC)
+        write_file(root / "acme-shop" / "docs" / "architecture.md", _CUSTOMER_DOC)
         yield root
 
 
@@ -185,7 +153,7 @@ def check_sync_adds_updates_and_removes_docs_and_never_reads_a_customer_repo() -
                        for answer in lookup(kb, scope, "Acme private warehouse routing rules")), \
             "a customer repository must never reach the knowledge base"
         assert sync_curated(kb, scope).changed() is False, "an unchanged tree must change nothing"
-        _write(root / _ALPHA_PATH, _ARCH_DOC + "\nIt also owns the gadget registry and the gadget factory.\n")
+        write_file(root / _ALPHA_PATH, _ARCH_DOC + "\nIt also owns the gadget registry and the gadget factory.\n")
         assert sync_curated(kb, scope).updated == 1
         (root / _ALPHA_PATH).unlink()
         assert sync_curated(kb, scope).removed == 1 and set(kb.curated_docs()) == {_TENANCY_PATH}
@@ -208,7 +176,7 @@ def check_lookup_answers_covered_questions_only() -> None:
 
 def check_a_section_titled_for_the_subject_outranks_a_mention() -> None:
     with _workspace() as root, TemporaryDirectory(prefix="ineedtoknow-db-") as db_dir:
-        _write(root / "datrix/docs/architecture/packs/other.md",
+        write_file(root / "datrix/docs/architecture/packs/other.md",
                "# Other\n\n## Overview\n\nThe gateway route enumeration is mentioned here: gateway route enumeration, "
                "and again gateway route enumeration, so a body match alone would rank this paragraph first.\n")
         kb = KnowledgeBase(Path(db_dir) / "kb.db")
@@ -285,7 +253,7 @@ def check_an_answer_expires_when_a_cited_file_changes() -> None:
         found = lookup(kb, scope, QUESTION)
         assert found and found[0].entry.kind == KIND_LEARNED, \
             f"the learned answer covers every word of its own question: {[a.entry.kind for a in found]}"
-        _write(root / _TENANCY_PATH, _TENANCY_DOC + "\nA new paragraph changes what the document says.\n")
+        write_file(root / _TENANCY_PATH, _TENANCY_DOC + "\nA new paragraph changes what the document says.\n")
         assert all(answer.entry.kind == KIND_CURATED for answer in lookup(kb, scope, QUESTION)), \
             "an answer drawn from a file that changed must not be returned"
         assert kb.learned() == {}, "and it must leave the database"
@@ -368,19 +336,6 @@ def check_cli_help_runs_and_names_its_actions() -> None:
 # ===========================================================================
 
 
-def _deliberately_failing_check() -> None:
-    assert False, "deliberately failing check for --harness-self-test"
-
-
-def harness_self_test() -> bool:
-    print("=== Harness self-test: a deliberately-failing check must be reported FAILED ===")
-    if run_checks([_deliberately_failing_check]):
-        _fail("harness self-test: the deliberately-failing check was NOT reported as failed")
-        return False
-    _ok("harness self-test: the deliberately-failing check was correctly reported FAILED")
-    return True
-
-
 _ALL_CHECKS: list[CheckFunc] = [
     check_chunks_keep_the_documents_own_line_numbers,
     check_long_sections_split_into_bounded_chunks_that_keep_every_line,
@@ -398,28 +353,7 @@ _ALL_CHECKS: list[CheckFunc] = [
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Behaviour checks for ineedtoknow.")
-    parser.add_argument("--harness-self-test", action="store_true",
-                        help="Run only the harness self-test (a deliberately-failing dummy check).")
-    parser.add_argument("--only", metavar="PREFIX", help="Run only the checks whose name starts with PREFIX.")
-    args = parser.parse_args()
-    if args.harness_self_test:
-        return 0 if harness_self_test() else 1
-    checks = _ALL_CHECKS
-    if args.only:
-        checks = [check for check in _ALL_CHECKS if check.__name__.startswith(args.only)]
-        if not checks:
-            print(f"Error: no check name starts with {args.only!r}. Checks: "
-                  f"{', '.join(c.__name__ for c in _ALL_CHECKS)}.", file=sys.stderr)
-            return 2
-    print(f"Running {len(checks)} ineedtoknow checks...\n")
-    passed = run_checks(checks)
-    print()
-    if passed:
-        print(f"{_GREEN}GATE PASSED{_RESET}: all {len(checks)} ineedtoknow checks passed.")
-        return 0
-    print(f"{_RED}GATE FAILED{_RESET}: see the failures above.")
-    return 1
+    return check_list_main("Behaviour checks for ineedtoknow.", "ineedtoknow", _ALL_CHECKS)
 
 
 if __name__ == "__main__":

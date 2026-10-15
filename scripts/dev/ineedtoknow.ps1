@@ -92,12 +92,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptsDir = Split-Path -Parent $scriptDir
-$cliScript = Join-Path $scriptDir "lib\ineedtoknow_cli.py"
-$commonDir = Join-Path $scriptsDir "common"
-. (Join-Path $commonDir "venv.ps1")
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
 $questionText = ($Question -join " ").Trim()
 $actions = @(@(
@@ -113,53 +109,15 @@ if ($actions.Count -ne 1) {
     exit 1
 }
 
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
+$pyArgs = @()
+if ($questionText) { $pyArgs += $questionText }
+if ($Status) { $pyArgs += "--status" }
+if ($Rebuild) { $pyArgs += "--rebuild" }
+if ($Prune) { $pyArgs += "--prune" }
+foreach ($spec in $In) { $pyArgs += @("--in", $spec) }
+if ($Refresh) { $pyArgs += "--refresh" }
+if ($NoLearn) { $pyArgs += "--no-learn" }
+if ($Limit -gt 0) { $pyArgs += @("--limit", "$Limit") }
+$pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
 
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-trap {
-    Write-Host ""
-    Write-Warning "Interrupted by user (Ctrl-C)"
-    Invoke-Cleanup
-    exit 130
-}
-
-try {
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (-not (Test-Path $pythonExe)) {
-        $pythonExe = Join-Path $venvPath "bin\python"
-    }
-
-    # @(...) so a single argument stays an array and splats as one argument.
-    $pyArgs = @()
-    if ($questionText) { $pyArgs += $questionText }
-    if ($Status) { $pyArgs += "--status" }
-    if ($Rebuild) { $pyArgs += "--rebuild" }
-    if ($Prune) { $pyArgs += "--prune" }
-    foreach ($spec in $In) { $pyArgs += @("--in", $spec) }
-    if ($Refresh) { $pyArgs += "--refresh" }
-    if ($NoLearn) { $pyArgs += "--no-learn" }
-    if ($Limit -gt 0) { $pyArgs += @("--limit", $Limit) }
-    $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
-
-    & $pythonExe $cliScript @pyArgs
-    exit $LASTEXITCODE
-}
-catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Invoke-Cleanup
-    exit 1
-}
-finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\ineedtoknow_cli.py") -Arguments $pyArgs)

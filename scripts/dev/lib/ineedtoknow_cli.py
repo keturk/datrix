@@ -45,7 +45,7 @@ from datrix_scripts.local_llm import (
     local_llm_settings,
 )
 from datrix_scripts.local_reading import ReadScope, ReadScopeError
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 EXIT_ANSWERED = 0
 EXIT_USAGE = 1
@@ -149,7 +149,7 @@ def main(argv: list[str]) -> int:
         parser.error("pass a question, or exactly one of --status, --rebuild, --prune")
     if args.limit < 1:
         parser.error(f"--limit must be at least 1; got {args.limit}.")
-    scope = ReadScope(get_datrix_root())
+    scope = ReadScope(WORKSPACE_DIR)
     try:
         kb = KnowledgeBase(knowledge_db_path())
         if args.rebuild:

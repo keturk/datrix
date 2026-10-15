@@ -13,21 +13,33 @@ Run through dev/local-llm-gate.ps1.
 
 from __future__ import annotations
 
-import argparse
 import io
 import json
-import os
 import subprocess
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from datrix_scripts.customer_domain_isolation import hash_term
-from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
-from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, LoopbackOllama, answering, closed_port
-from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
+from datrix_scripts.gate_harness import CheckFunc, check_list_main, write_file
+from datrix_scripts.local_llm import (
+    OLLAMA_KEEP_ALIVE_INDEFINITE,
+    OLLAMA_KEEP_ALIVE_UNLOAD,
+    OLLAMA_LOAD_PREFERENCE,
+    LocalCandidate,
+    LocalHost,
+    LocalLlmPool,
+    LocalLlmSettings,
+    ollama_base_url,
+    pin_models,
+    unpin_models,
+    unpinned_machine_lines,
+)
+from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, LoopbackOllama, answering, closed_port, held_for
+from datrix_scripts.local_llm_usage import GATE_USAGE_LOG, USAGE_LOG_VARIABLE
 from datrix_scripts.local_reading import (
     MAP_SYSTEM,
     MAX_FILES,
@@ -45,12 +57,6 @@ from datrix_scripts.mcp_stdio import serve
 from datrix_scripts.paths import script_env
 from local_llm_mcp import LocalLlmServer, LocalReader
 
-CheckFunc = Callable[[], None]
-
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_RESET = "\033[0m"
-
 _MCP_SCRIPT = Path(__file__).resolve().parent / "local_llm_mcp.py"
 
 _A_PY = "def alpha():\n    return 1\n\n\ndef beta():\n    return 2\n"
@@ -58,36 +64,9 @@ _A_PY = "def alpha():\n    return 1\n\n\ndef beta():\n    return 2\n"
 _GATE_TERM = "zzgateterm"
 
 
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def run_checks(checks: list[CheckFunc]) -> bool:
-    """Run every check, catching only AssertionError. Returns True iff all passed."""
-    all_passed = True
-    for check in checks:
-        try:
-            check()
-        except AssertionError as exc:
-            _fail(f"{check.__name__}: {exc}")
-            all_passed = False
-        else:
-            _ok(check.__name__)
-    return all_passed
-
-
 # ===========================================================================
 # fixtures: a workspace, and a model server on loopback
 # ===========================================================================
-
-
-def _write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
 
 
 @contextmanager
@@ -97,13 +76,13 @@ def _workspace() -> Iterator[Path]:
         root = Path(temp)
         for repo in ("datrix", "datrix-alpha", "acme-shop"):
             (root / repo / ".git").mkdir(parents=True)
-        _write(root / "datrix-alpha" / ".git" / "config", "[core]\n")
-        _write(root / "datrix-alpha" / "src" / "a.py", _A_PY)
-        _write(root / "datrix-alpha" / "src" / "b.py", "X = 1\n")
-        _write(root / "acme-shop" / "x.py", "SECRET_DOMAIN = 1\n")
-        _write(root / ".tmp" / "generated" / "app.py", "GENERATED = 1\n")
-        _write(root / ".test-output" / "run.log", "collected 3 items\nE   AssertionError: boom\n1 failed\n")
-        _write(root / "datrix" / "scripts" / "config" / "customer-term-hashes.json", json.dumps({
+        write_file(root / "datrix-alpha" / ".git" / "config", "[core]\n")
+        write_file(root / "datrix-alpha" / "src" / "a.py", _A_PY)
+        write_file(root / "datrix-alpha" / "src" / "b.py", "X = 1\n")
+        write_file(root / "acme-shop" / "x.py", "SECRET_DOMAIN = 1\n")
+        write_file(root / ".tmp" / "generated" / "app.py", "GENERATED = 1\n")
+        write_file(root / ".test-output" / "run.log", "collected 3 items\nE   AssertionError: boom\n1 failed\n")
+        write_file(root / "datrix" / "scripts" / "config" / "customer-term-hashes.json", json.dumps({
             "algorithm": "sha256", "min_token_length": 5,
             "terms": [{"hash": hash_term(_GATE_TERM), "hint": "gate fixture"}]}))
         yield root
@@ -146,10 +125,31 @@ def check_scope_reads_framework_repos_and_test_output_only() -> None:
         assert "matches no file" in _refused(scope, "datrix-alpha/**/*.rs")
 
 
+def check_scope_reads_generation_logs_and_extra_roots_only_when_given() -> None:
+    with _workspace() as root, TemporaryDirectory(prefix="local-llm-gate-extra-") as extra_temp, \
+            LoopbackOllama(answering("ok")) as server:
+        write_file(root / ".generated" / ".results" / "generate-results-1.log", "Failed: 1\n")
+        write_file(root / ".generated" / "python" / "app.py", "GENERATED = 1\n")
+        extra = Path(extra_temp)
+        write_file(extra / "service.dtrx", f"service Shop {{}}\n// {_GATE_TERM}\n")
+        assert ReadScope(root).files([".generated/.results/generate-results-1.log"]), "generation logs are in scope"
+        assert "outside what local-model tools may read" in _refused(ReadScope(root), ".generated/python/app.py"), \
+            "a generated tree is not a log and stays out of scope"
+        outside = str(extra / "service.dtrx")
+        assert "outside what local-model tools may read" in _refused(ReadScope(root), outside), \
+            "a directory is read only when the caller names it as an extra root"
+        scope = ReadScope(root, extra_roots=(extra,))
+        assert scope.files([outside]) == [(extra / "service.dtrx").resolve()]
+        ask_files(scope, _pool(server, root / "usage.jsonl"), [outside], "q")
+        sent = server.chats[-1].user
+        assert _GATE_TERM not in sent.lower() and "<line withheld" in sent, \
+            "a line from an extra root is checked against the customer-term corpus like any other"
+
+
 def check_scope_caps_the_files_per_call() -> None:
     with _workspace() as root:
         for n in range(MAX_FILES + 1):
-            _write(root / "datrix-alpha" / "many" / f"m{n}.py", "X = 1\n")
+            write_file(root / "datrix-alpha" / "many" / f"m{n}.py", "X = 1\n")
         message = _refused(ReadScope(root), "datrix-alpha/many/*.py")
         assert f"at most {MAX_FILES}" in message, message
 
@@ -247,7 +247,7 @@ def check_ask_over_many_chunks_maps_then_merges() -> None:
         raise AssertionError(f"unexpected system prompt: {chat.system[:60]}")
 
     with _workspace() as root, LoopbackOllama(respond) as server:
-        _write(root / "datrix-alpha" / "src" / "long.py", body)
+        write_file(root / "datrix-alpha" / "src" / "long.py", body)
         result = ask_files(ReadScope(root), _pool(server, root / "usage.jsonl"), ["datrix-alpha/src/long.py"],
                            "Where are value_2 and value_1998?")
         systems = [chat.system for chat in server.chats]
@@ -259,13 +259,13 @@ def check_a_line_with_a_registered_customer_term_is_never_sent() -> None:
     log = ("collected 3 items\nERROR port conflict: container zzgateterm-db is already bound\n"
            "E   AssertionError: boom\n1 failed\n")
     with _workspace() as root, LoopbackOllama(answering("ok")) as server:
-        _write(root / ".test-output" / "other-stack.log", log)
+        write_file(root / ".test-output" / "other-stack.log", log)
         result = digest_log(ReadScope(root), _pool(server, root / "usage.jsonl"), ".test-output/other-stack.log", "")
         sent = server.chats[0].user
         assert _GATE_TERM not in sent.lower(), "a registered customer term reached the model server"
         assert "2| <line withheld" in sent and "3| E   AssertionError: boom" in sent, sent
         assert any("1 line(s) withheld" in note for note in result.notes), result.notes
-        _write(root / "datrix-alpha" / "src" / "c.py", f"# {_GATE_TERM}\nX = 1\n")
+        write_file(root / "datrix-alpha" / "src" / "c.py", f"# {_GATE_TERM}\nX = 1\n")
         ask_files(ReadScope(root), _pool(server, root / "usage.jsonl"), ["datrix-alpha/src/c.py"], "q")
         assert _GATE_TERM not in server.chats[-1].user.lower(), "the filter covers source files as well as logs"
 
@@ -373,25 +373,62 @@ def check_mcp_server_stdout_carries_only_protocol() -> None:
 
 
 # ===========================================================================
+# model residency: -Pin, -Unpin and the -Status line
+# ===========================================================================
+
+_PREFERRED = OLLAMA_LOAD_PREFERENCE[0]
+_INDEFINITELY = timedelta(days=200 * 365)
+
+
+def _residency_settings(port: int) -> LocalLlmSettings:
+    return LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, load_timeout_ms=5000,
+                            ollama_port=port, usage_log=Path("unused"), caller="gate")
+
+
+def check_pin_loads_the_preferred_model_with_an_indefinite_keep_alive() -> None:
+    with LoopbackOllama(answering("ok"), ("other:7b", _PREFERRED)) as server:
+        lines = pin_models(_residency_settings(server.port))
+        assert lines == [f"{LOOPBACK}: pinned {_PREFERRED}"], lines
+        assert server.generate_bodies == [{"model": _PREFERRED, "keep_alive": OLLAMA_KEEP_ALIVE_INDEFINITE}], \
+            ("an already-loaded model is pinned too: its finite residency is not carried over", server.generate_bodies)
+    with LoopbackOllama(answering("ok"), ("other:7b",)) as server:
+        [line] = pin_models(_residency_settings(server.port))
+        assert "not pinned: none of" in line and not server.generate_bodies, line
+    [line] = pin_models(_residency_settings(closed_port()))
+    assert "not pinned: no Ollama server answers" in line, line
+
+
+def check_unpin_releases_only_indefinitely_resident_models() -> None:
+    now = datetime.now(UTC)
+    with LoopbackOllama(answering("ok"), (_PREFERRED,), expires_at=held_for(_INDEFINITELY)) as server:
+        assert unpin_models(_residency_settings(server.port), now) == [f"{LOOPBACK}: released {_PREFERRED}"]
+        assert server.generate_bodies == [{"model": _PREFERRED, "keep_alive": OLLAMA_KEEP_ALIVE_UNLOAD}], \
+            server.generate_bodies
+    with LoopbackOllama(answering("ok"), (_PREFERRED,), expires_at=held_for(timedelta(minutes=30))) as server:
+        assert unpin_models(_residency_settings(server.port), now) == [f"{LOOPBACK}: nothing pinned"]
+        assert not server.generate_bodies, "a model held for a while is not someone's pin"
+
+
+def check_status_names_each_machine_with_no_pinned_model() -> None:
+    now = datetime.now(UTC)
+    settings = _residency_settings(1)
+    host = LocalHost(ollama_base_url(LOOPBACK, settings), _PREFERRED)
+    pinned = LocalCandidate(host, thinking=False, resident=True, resident_until=now + _INDEFINITELY)
+    held = LocalCandidate(host, thinking=False, resident=True, resident_until=now + timedelta(minutes=30))
+    assert unpinned_machine_lines(settings, [pinned], now) == []
+    assert unpinned_machine_lines(settings, [held], now) == [
+        f"{LOOPBACK}: no model pinned (local-llm.ps1 -Pin keeps one resident)"]
+    assert len(unpinned_machine_lines(settings, [], now)) == 1, "a machine that did not answer holds no pin either"
+
+
+# ===========================================================================
 # harness
 # ===========================================================================
 
 
-def _deliberately_failing_check() -> None:
-    assert False, "deliberately failing check for --harness-self-test"
-
-
-def harness_self_test() -> bool:
-    print("=== Harness self-test: a deliberately-failing check must be reported FAILED ===")
-    if run_checks([_deliberately_failing_check]):
-        _fail("harness self-test: the deliberately-failing check was NOT reported as failed")
-        return False
-    _ok("harness self-test: the deliberately-failing check was correctly reported FAILED")
-    return True
-
-
 _ALL_CHECKS: list[CheckFunc] = [
     check_scope_reads_framework_repos_and_test_output_only,
+    check_scope_reads_generation_logs_and_extra_roots_only_when_given,
     check_scope_caps_the_files_per_call,
     check_chunks_carry_headers_and_original_line_numbers,
     check_reduce_log_keeps_error_context_or_the_tail,
@@ -404,34 +441,19 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_mcp_server_answers_and_refuses_out_of_scope,
     check_mcp_server_reports_no_model_server_as_a_tool_error,
     check_mcp_server_stdout_carries_only_protocol,
+    check_pin_loads_the_preferred_model_with_an_indefinite_keep_alive,
+    check_unpin_releases_only_indefinitely_resident_models,
+    check_status_names_each_machine_with_no_pinned_model,
 ]
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Behaviour checks for the local-model reading tools.")
-    parser.add_argument("--harness-self-test", action="store_true",
-                        help="Run only the harness self-test (a deliberately-failing dummy check).")
-    parser.add_argument("--only", metavar="PREFIX", help="Run only the checks whose name starts with PREFIX.")
-    args = parser.parse_args()
-    if args.harness_self_test:
-        return 0 if harness_self_test() else 1
-    checks = _ALL_CHECKS
-    if args.only:
-        checks = [check for check in _ALL_CHECKS if check.__name__.startswith(args.only)]
-        if not checks:
-            print(f"Error: no check name starts with {args.only!r}. Checks: "
-                  f"{', '.join(c.__name__ for c in _ALL_CHECKS)}.", file=sys.stderr)
-            return 2
-    print(f"Running {len(checks)} local-model reading checks...\n")
-    with TemporaryDirectory(prefix="local-llm-gate-") as temp:
-        os.environ[USAGE_LOG_VARIABLE] = str(Path(temp) / "usage.jsonl")
-        passed = run_checks(checks)
-    print()
-    if passed:
-        print(f"{_GREEN}GATE PASSED{_RESET}: all {len(checks)} local-model reading checks passed.")
-        return 0
-    print(f"{_RED}GATE FAILED{_RESET}: see the failures above.")
-    return 1
+    return check_list_main(
+        "Behaviour checks for the local-model reading tools.",
+        "local-model reading",
+        _ALL_CHECKS,
+        temp_file_variable=GATE_USAGE_LOG,
+    )
 
 
 if __name__ == "__main__":

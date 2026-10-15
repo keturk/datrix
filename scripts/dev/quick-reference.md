@@ -42,9 +42,13 @@ Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` is **manda
 
 Every run writes `generate-results-<timestamp>-<language>[-<profile>].log` to `<workspace>\.generated\.results`, whatever the output path; product repos' generate scripts call this script to get that log.
 
-Before generating, the script verifies the `datrix` CLI (`Test-DatrixCommand`) and then that every installed plugin loads (`Test-DatrixPluginDiscovery` in `common\venv.ps1`, running `python -m datrix_scripts.plugin_discovery` over the `datrix.languages`, `datrix.generators`, `datrix.platforms` and `datrix.extensions` groups). `datrix --version` loads no plugin, so a package whose plugin fails to register is named here, with the registry's own error, instead of failing deep inside the pipeline.
+Before generating, the script checks the editable installs and that every installed plugin loads (`datrix_scripts.plugin_discovery`, run through `Invoke-DatrixPythonScript -RequirePackages`, over the `datrix.languages`, `datrix.generators`, `datrix.platforms` and `datrix.extensions` groups), and then verifies the `datrix` CLI (`Test-DatrixCommand`). `datrix --version` loads no plugin, so a package whose plugin fails to register is named here, with the registry's own error, instead of failing deep inside the pipeline.
 
 **Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (any registered `datrix.languages` target, **mandatory**, the real generation target — also selects the output-path language segment), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner, output path only), `-ConfigProfile` (config profile that also selects the provider segment read from `config/system.dcfg`, e.g. test\|development\|production; default: test), `-ValidationLevel` (none\|fast\|standard, validated by the CLI; omitted = CLI default, standard), `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
+
+**Logs:** generation logs are saved to `.generated/.results/generate-results-TIMESTAMP-LANGUAGE[-PROFILE].log`; old logs are not deleted automatically. The language and profile segments are labels, not what keeps two runs apart: each run **claims** its log file (`common/DatrixRunLog.psm1`), so two runs that compute the same name — two profiles generated in the same second, or two runs of one profile — get `…-2.log`, `…-3.log`, … rather than truncating and interleaving one file. Held by `test/run-log-exclusivity-gate.ps1`. Every exit path prints `Log saved to: <path>`, which the red-run digest hook reads when the Generation Summary reports a failed project.
+
+**Implementation:** `scripts/dev/generate.ps1` checks the packages, claims the run log and runs the generator; `scripts/dev/lib/generate.py` resolves the output path and runs `datrix generate` per project.
 
 ### `dev\generate-doc-fragments.ps1`
 
@@ -192,8 +196,9 @@ It is a repo-level validation **script**, not a pytest suite.
 | **Run the gate** | `.\dev\code-index-gate.ps1` | Run every check |
 | **One area** | `.\dev\code-index-gate.ps1 -Only check_references` | Checks whose name starts with the prefix |
 | **Harness self-test** | `.\dev\code-index-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
+| **Self-test** | `.\dev\code-index-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks over planted inputs |
 
-**Parameters:** `-Only`, `-HarnessSelfTest`, `-Dbg`
+**Parameters:** `-Only`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
 
 **Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
 
@@ -245,10 +250,12 @@ Hooks reach the shared scripts package through `add_scripts_lib_to_path()` in `_
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Set up a machine** | `.\dev\local-llm.ps1 -Setup` | Write the MCP server `datrix-local-llm` into `d:\datrix\.mcp.json` (other servers kept, scripts `PYTHONPATH` in its `env`), approve it for this machine in `.claude\settings.local.json`, remove older local-scope registrations; restart Claude Code afterwards. Same mechanism as `code-index.ps1 -Setup` (`Install-DatrixProjectMcpServer`) |
-| **Status** | `.\dev\local-llm.ps1 -Status` | Servers that answer, resident models, and the last day's usage |
+| **Status** | `.\dev\local-llm.ps1 -Status` | Servers that answer, resident models, a line per machine holding no model indefinitely, and the last day's usage |
 | **Usage** | `.\dev\local-llm.ps1 -Usage -Days 7` | Requests by caller and by server (`-Days 0` = everything logged) |
+| **Pin** | `.\dev\local-llm.ps1 -Pin` | On each reachable machine, load the first installed model of the load preference and keep it resident indefinitely, so the resident-only callers (the red-run digest hook) find one; prints per machine what was pinned or why not. Nothing pins automatically |
+| **Unpin** | `.\dev\local-llm.ps1 -Unpin` | On each reachable machine, unload every indefinitely resident model; prints what was released |
 
-**Parameters:** exactly one action: `-Setup`, `-Status`, `-Usage`. Modifier: `-Days` (with `-Status`, default 1; with `-Usage`, default 7; 0 = all).
+**Parameters:** exactly one action: `-Setup`, `-Status`, `-Usage`, `-Pin`, `-Unpin`. Modifier: `-Days` (with `-Status`, default 1; with `-Usage`, default 7; 0 = all).
 
 **Exit codes:** 0 done; 1 the request could not be carried out.
 
@@ -269,8 +276,9 @@ It is a repo-level validation **script**, not a pytest suite.
 | **Run the gate** | `.\dev\local-llm-gate.ps1` | Run every check |
 | **One area** | `.\dev\local-llm-gate.ps1 -Only check_scope` | Checks whose name starts with the prefix |
 | **Harness self-test** | `.\dev\local-llm-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
+| **Self-test** | `.\dev\local-llm-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks over planted inputs |
 
-**Parameters:** `-Only`, `-HarnessSelfTest`, `-Dbg`
+**Parameters:** `-Only`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
 
 **Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
 
@@ -314,8 +322,9 @@ It is a repo-level validation **script**, not a pytest suite.
 | **Run the gate** | `.\dev\ineedtoknow-gate.ps1` | Run every check |
 | **One area** | `.\dev\ineedtoknow-gate.ps1 -Only check_gather` | Checks whose name starts with the prefix |
 | **Harness self-test** | `.\dev\ineedtoknow-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
+| **Self-test** | `.\dev\ineedtoknow-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks over planted inputs |
 
-**Parameters:** `-Only`, `-HarnessSelfTest`, `-Dbg`
+**Parameters:** `-Only`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
 
 **Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
 

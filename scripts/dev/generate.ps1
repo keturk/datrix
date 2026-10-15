@@ -133,28 +133,17 @@ $ErrorActionPreference = "Stop"
 # Script directory
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# Import common modules
-# DatrixScriptCommon is imported BEFORE DatrixPaths: the former nested-imports
-# DatrixPaths with -Force, which would strip a prior top-level DatrixPaths import
-# out of script scope. Importing DatrixPaths last keeps its exports at script scope.
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
+# Import common modules. venv.ps1 supplies the CLI health check and its reinstall, which run
+# the venv's own executables by path; all Python runs through Invoke-DatrixPythonScript.
+$commonDir = Join-Path $PSScriptRoot "..\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-# DatrixRunLog imports nothing, so importing it after DatrixPaths cannot displace
-# DatrixPaths' exports the way a nested -Force import would.
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixRunLog.psm1") -Force
+Import-Module (Join-Path $commonDir "DatrixPythonScript.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
 # Get workspace root (the monorepo root; every path this script builds hangs off it)
 $datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
-
-# Function to handle cleanup on exit
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-# Register cleanup on script exit
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
 
 # Function to create this run's log file under $LogResultsDir and return its path
 function Get-LogFilePath {
@@ -521,19 +510,17 @@ $("=" * 80)
  exit 1
  }
 
- # Activate virtual environment
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
- Write-Error "Failed to activate virtual environment"
- exit 1
- }
-
- # Ensure all packages are installed and up-to-date
- # Use SkipIfInstalled to avoid mid-run reinstalls that could break concurrent operations
- # Only triggers full reinstall if packages are not importable
- $packagesInstalled = Ensure-DatrixPackagesInstalled -SkipIfInstalled
- if (-not $packagesInstalled) {
- Write-Error "Failed to install/update packages"
+ # Ensure all packages are installed (the runner's -RequirePackages: SkipIfInstalled, so no
+ # mid-run reinstall can break a concurrent operation), then verify every installed plugin
+ # loads. 'datrix --version' loads none, so a package whose plugin fails to register would
+ # otherwise fail deep inside the pipeline; name it here, with the registry's own error,
+ # before any generation starts.
+ $discoveryLines = New-Object System.Collections.Generic.List[string]
+ $discoveryExit = Invoke-DatrixPythonScript -Module "datrix_scripts.plugin_discovery" -RequirePackages -OutputLines $discoveryLines
+ if ($discoveryExit -ne 0) {
+ Write-TeeHost "Package install check or plugin discovery failed (exit $discoveryExit):" -ForegroundColor Red -LogFilePath $logFilePath
+ foreach ($line in $discoveryLines) { Write-TeeHost $line -ForegroundColor Red -LogFilePath $logFilePath }
+ Write-Error "The datrix packages are not installed, or a Datrix plugin failed to load; fix what is named above, then re-run."
  exit 1
  }
 
@@ -569,32 +556,17 @@ $("=" * 80)
  Write-TeeHost "datrix command verified successfully" -ForegroundColor Green -LogFilePath $logFilePath
  }
 
- # Verify every installed plugin loads. 'datrix --version' loads none, so a package whose
- # plugin fails to register would otherwise fail deep inside the pipeline; name it here,
- # with the registry's own error, before any generation starts.
- $pluginDetail = ""
- if (-not (Test-DatrixPluginDiscovery -Detail ([ref]$pluginDetail))) {
- Write-TeeHost "Plugin discovery failed:" -ForegroundColor Red -LogFilePath $logFilePath
- Write-TeeHost $pluginDetail -ForegroundColor Red -LogFilePath $logFilePath
- Write-Error "A Datrix plugin failed to load; fix the package named above, then re-run.`n$pluginDetail"
- exit 1
- }
-
- # Get Python executable from venv
- $venvPath = Get-DatrixVenvPath
- $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
  # Validate -Language against the installed datrix.languages set (runtime discovery,
  # never a hardcoded python/typescript literal) so a newly installed
  # datrix-codegen-<lang> package is accepted with no edit to this script.
- $installedLanguages = Get-DatrixInstalledLanguages -PythonExe $pythonExe
+ $installedLanguages = Get-DatrixInstalledLanguages -PythonExe (Join-Path (Get-DatrixVenvPath) "Scripts\python.exe")
  if ($Language -notin $installedLanguages) {
  Write-TeeHost "Error: language '$Language' is not an installed datrix.languages target. Installed: $($installedLanguages -join ', '). Install the corresponding datrix-codegen-<language> package to add it." -ForegroundColor Red -LogFilePath $logFilePath
  exit 1
  }
 
  # Build arguments for Python script
- $pythonArgs = @($pythonScript)
+ $pythonArgs = @()
 
  if ($batchMode) {
  # Batch mode: folder switches take precedence over -All for test set
@@ -692,14 +664,11 @@ $("=" * 80)
  # Disable Python script's own logging (PowerShell handles it)
  $env:DATRIX_DISABLE_LOG = "1"
  try {
- # Capture output to both console and log file (ASCII) - stream in real-time
- # In quiet mode (no -VerboseOutput), suppress detailed output sections from console but keep in log
- if ($VerboseOutput) {
- & $pythonExe @pythonArgs 2>&1 | Write-TeeOutput -LogFilePath $logFilePath
- } else {
- & $pythonExe @pythonArgs 2>&1 | Write-TeeOutput -LogFilePath $logFilePath -QuietMode
- }
- $exitCode = $LASTEXITCODE
+ # Stream the output to both console and log file in real time. In quiet mode (no
+ # -VerboseOutput), detailed output sections are kept out of the console but logged.
+ $quietMode = -not $VerboseOutput
+ $teeOutput = { Write-TeeOutput -LogFilePath $logFilePath -QuietMode:$quietMode }.GetSteppablePipeline()
+ $exitCode = Invoke-DatrixPythonScript -Script $pythonScript -Arguments $pythonArgs -OutputPipeline $teeOutput
  } finally {
  Remove-Item env:DATRIX_DISABLE_LOG -ErrorAction SilentlyContinue
  }
@@ -731,12 +700,8 @@ Inner exception: $($_.Exception.InnerException.Message)
  try { Write-GenerationSummaryToLog -LogFilePath $logFilePath } catch { }
  }
 
- Invoke-Cleanup
  exit 1
 } finally {
- # Ensure virtual environment is deactivated even on Ctrl-C
- Invoke-Cleanup
-
  if ($logFilePath) {
  Write-Host "`nLog saved to: $logFilePath" -ForegroundColor Cyan
  }

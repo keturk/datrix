@@ -14,7 +14,7 @@
     Runs are resumable: already-annotated functions and already-proposed functions are
     skipped, so you can build the map incrementally.
 
-    Activates the Datrix virtual environment and runs lib\generate_test_rules.py.
+    Runs lib\generate_test_rules.py in the shared venv.
 
 .PARAMETER Projects
     One or more package names (e.g. datrix-codegen-python). Positional.
@@ -98,110 +98,20 @@ if ($Projects.Count -eq 0 -and -not $All -and -not $Path) {
 }
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptsDir = Split-Path -Parent $scriptDir
-$commonDir = Join-Path $scriptsDir "common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$pythonScript = Join-Path $scriptDir "lib\generate_test_rules.py"
+$pyArgs = if ($All) { @("--all") } else { @($Projects) }
+if ($Apply) { $pyArgs += "--apply" }
+if ($Review) { $pyArgs += "--review" }
+if ($Model) { $pyArgs += @("--model", $Model) }
+foreach ($machine in $LocalMachines) { $pyArgs += @("--local-machine", $machine) }
+if ($PSBoundParameters.ContainsKey('Parallel')) { $pyArgs += @("--parallel", "$Parallel") }
+if ($PSBoundParameters.ContainsKey('Limit')) { $pyArgs += @("--limit", "$Limit") }
+if ($NoSeed) { $pyArgs += "--no-seed" }
+foreach ($p in $Path) { $pyArgs += @("--path", $p) }
+if ($NoConsolidate) { $pyArgs += "--no-consolidate" }
+if ($IncludeE2e) { $pyArgs += "--include-e2e" }
+if ($IncludeIntegration) { $pyArgs += "--include-integration" }
+if ($Dbg) { $pyArgs += "--debug" }
 
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "generate_test_rules.py not found at: $pythonScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-trap {
-    Invoke-Cleanup
-    exit 130
-}
-
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
-    Write-Error "Failed to activate virtual environment"
-    exit 1
-}
-
-try {
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (-not (Test-Path $pythonExe)) {
-        $pythonExe = Join-Path $venvPath "bin\python"
-    }
-
-    $pyArgs = @()
-    if ($All) {
-        $pyArgs += "--all"
-    }
-    else {
-        $pyArgs += $Projects
-    }
-    if ($Apply) {
-        $pyArgs += "--apply"
-    }
-    if ($Review) {
-        $pyArgs += "--review"
-    }
-    if ($Model) {
-        $pyArgs += "--model", $Model
-    }
-    foreach ($machine in $LocalMachines) {
-        $pyArgs += "--local-machine", $machine
-    }
-    if ($PSBoundParameters.ContainsKey('Parallel')) {
-        $pyArgs += "--parallel", $Parallel
-    }
-    if ($PSBoundParameters.ContainsKey('Limit')) {
-        $pyArgs += "--limit", $Limit
-    }
-    if ($NoSeed) {
-        $pyArgs += "--no-seed"
-    }
-    if ($Path) {
-        foreach ($p in $Path) {
-            $pyArgs += "--path", $p
-        }
-    }
-    if ($NoConsolidate) {
-        $pyArgs += "--no-consolidate"
-    }
-    if ($IncludeE2e) {
-        $pyArgs += "--include-e2e"
-    }
-    if ($IncludeIntegration) {
-        $pyArgs += "--include-integration"
-    }
-    if ($Dbg) {
-        $pyArgs += "--debug"
-    }
-
-    Write-Host "Generating test-rule annotations..." -ForegroundColor Cyan
-    Write-Host ""
-
-    $oldEAP = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    & $pythonExe $pythonScript @pyArgs
-    $exitCode = $LASTEXITCODE
-    $ErrorActionPreference = $oldEAP
-
-    exit $exitCode
-}
-catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    if ($_.Exception.InnerException) {
-        Write-Host "Inner: $($_.Exception.InnerException.Message)" -ForegroundColor Red
-    }
-    Write-Host ""
-    Invoke-Cleanup
-    exit 1
-}
-finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\generate_test_rules.py") -Arguments $pyArgs)

@@ -22,6 +22,9 @@
  Run one intentionally-failing dummy check and confirm it is reported [FAIL] (proves the harness
  is not vacuous).
 
+.PARAMETER SelfTest
+ Run the harness self-test and the gate's checks over planted inputs only.
+
 .PARAMETER Dbg
  Print the python invocation before running.
 
@@ -36,64 +39,16 @@
 param(
     [Parameter()] [string]$Only = "",
     [Parameter()] [switch]$HarnessSelfTest,
+    [Parameter()] [switch]$SelfTest,
     [Parameter()] [switch]$Dbg
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\code_index_gate.py"
+$pythonArgs = @()
+if ($HarnessSelfTest) { $pythonArgs += "--harness-self-test" }
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($Only) { $pythonArgs += @("--only", $Only) }
 
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Host "Error: lib\code_index_gate.py not found at: $pythonScript" -ForegroundColor Red
-    exit 2
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-trap {
-    Write-Host ""
-    Write-Warning "Interrupted by user (Ctrl-C)"
-    Invoke-Cleanup
-    exit 130
-}
-
-try {
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
-    $pythonArgs = @($pythonScript)
-    if ($HarnessSelfTest) { $pythonArgs += "--harness-self-test" }
-    if ($Only) { $pythonArgs += @("--only", $Only) }
-
-    if ($Dbg) {
-        Write-Host "Python executable: $pythonExe" -ForegroundColor Cyan
-        Write-Host "Arguments: $($pythonArgs -join ' ')" -ForegroundColor Cyan
-        Write-Host ""
-    }
-
-    & $pythonExe @pythonArgs
-    exit $LASTEXITCODE
-} catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Invoke-Cleanup
-    exit 1
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\code_index_gate.py") -Arguments $pythonArgs -Gate "code-index" -ShowCommand:$Dbg)
