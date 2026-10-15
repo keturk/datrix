@@ -279,7 +279,7 @@ def _check_bare_constructor_call_counted() -> None:
         file_path.write_text(
             "from datrix_codegen_kernel.generation.generator import GeneratedFile\n"
             "def f():\n"
-            "    return GeneratedFile(path=None, content='', language='python', source_hash='x')\n",
+            "    return GeneratedFile(path=None, content='', language='python')\n",
             encoding="utf-8",
         )
         count = count_generated_file_constructions(file_path)
@@ -292,7 +292,7 @@ def _check_qualified_constructor_call_counted() -> None:
         file_path.write_text(
             "import datrix_codegen_kernel.generation.generator as gen\n"
             "def f():\n"
-            "    return gen.GeneratedFile(path=None, content='', language='python', source_hash='x')\n",
+            "    return gen.GeneratedFile(path=None, content='', language='python')\n",
             encoding="utf-8",
         )
         count = count_generated_file_constructions(file_path)
@@ -318,8 +318,8 @@ def _check_multiple_constructions_counted() -> None:
         file_path.write_text(
             "from datrix_codegen_kernel.generation.generator import GeneratedFile\n"
             "def f():\n"
-            "    a = GeneratedFile(path=None, content='', language='python', source_hash='a')\n"
-            "    b = GeneratedFile(path=None, content='', language='python', source_hash='b')\n"
+            "    a = GeneratedFile(path=None, content='a', language='python')\n"
+            "    b = GeneratedFile(path=None, content='b', language='python')\n"
             "    return [a, b]\n",
             encoding="utf-8",
         )
@@ -347,7 +347,7 @@ def _check_tests_directory_never_scanned() -> None:
         tests_dir.mkdir()
         (tests_dir / "test_gen.py").write_text(
             "from datrix_codegen_kernel.generation.generator import GeneratedFile\n"
-            "GeneratedFile(path=None, content='', language='python', source_hash='x')\n",
+            "GeneratedFile(path=None, content='', language='python')\n",
             encoding="utf-8",
         )
 
@@ -364,7 +364,7 @@ def _check_excluded_executor_file_never_counted() -> None:
         executor_dir.mkdir(parents=True)
         (executor_dir / "executor.py").write_text(
             "from datrix_codegen_kernel.generation.generator import GeneratedFile\n"
-            "GeneratedFile(path=None, content='', language='python', source_hash='x')\n",
+            "GeneratedFile(path=None, content='', language='python')\n",
             encoding="utf-8",
         )
         # Non-vacuity: the planted file must be the one EXCLUDED_FILES names,
