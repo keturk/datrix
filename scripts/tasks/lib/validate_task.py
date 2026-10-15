@@ -41,7 +41,7 @@ from datrix_scripts.task_metadata import (
     task_id_phase,
 )
 from datrix_scripts.task_orientation import KIND_EXPLAIN, parse_orientation, resolve_fact
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 from task_citations import LEVEL_ERROR, LEVEL_WARN, CitationContext, RepoFiles, check_citations
 
 EXIT_OK = 0
@@ -202,7 +202,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--require-orientation", action="store_true",
                         help="A task with no '## Orientation' block is an error.")
     args = parser.parse_args(argv)
-    base_dir = (args.base_dir or get_datrix_root()).resolve()
+    base_dir = (args.base_dir or WORKSPACE_DIR).resolve()
     files = task_files(args, base_dir)
     if not files:
         print("Error: no task files. Pass task file paths, or --phase <NN>.", file=sys.stderr)

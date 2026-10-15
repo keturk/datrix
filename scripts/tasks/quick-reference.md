@@ -6,6 +6,16 @@
 
 ---
 
+## Task/Bug System
+
+Tasks and bugs are tracked as markdown files in `.tasks/` and `.bugs/` folders within each project.
+
+**Task format:** the title line `# Task 123: Implement feature X`, then the description. When completed, the title is prefixed with `COMPLETED:` (`# COMPLETED: Task 123: Implement feature X`) — through `complete.ps1`, never by hand.
+
+**Bug format:** the title line `# Bug 456: Fix crash on startup`, then the description. When fixed, the title is prefixed with `FIXED:` (`# FIXED: Bug 456: Fix crash on startup`).
+
+---
+
 ## `tasks\todo.ps1`
 
 Lists incomplete tasks (without `COMPLETED:` prefix) and incomplete bugs (without `FIXED:` prefix) from `.tasks/` and `.bugs/` folders across all projects.
@@ -186,7 +196,8 @@ It is a repo-level validation **script**, not a pytest suite.
 | **Run the gate** | `.\tasks\task-orientation-gate.ps1` | Run every check |
 | **One area** | `.\tasks\task-orientation-gate.ps1 -Only check_citations` | Checks whose name starts with the prefix |
 | **Harness self-test** | `.\tasks\task-orientation-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
+| **Self-test** | `.\tasks\task-orientation-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks over planted inputs |
 
-**Parameters:** `-Only`, `-HarnessSelfTest`, `-Dbg`
+**Parameters:** `-Only`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
 
 **Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.

@@ -57,7 +57,7 @@ from datrix_scripts.task_orientation import (
     parse_orientation,
     resolve_fact,
 )
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 from task_citations import cited_identifiers
 
 OUTCOME_CONVERTED = "converted"
@@ -268,7 +268,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--base-dir", type=Path, default=None, help="The workspace root (default: this checkout's).")
     parser.add_argument("--apply", action="store_true", help="Write the rewritten tasks (default: a dry run).")
     args = parser.parse_args(argv)
-    workspace = (args.base_dir or get_datrix_root()).resolve()
+    workspace = (args.base_dir or WORKSPACE_DIR).resolve()
     files = [Path(path) for path in args.tasks]
     if args.phase is not None:
         files.extend(discover_phase_task_files(workspace, args.phase))

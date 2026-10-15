@@ -62,7 +62,7 @@ from datrix_scripts.task_metadata import (
     task_id_phase,
     write_json_output,
 )
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 from plan_waves import find_dependency_cycle
 
 logger = logging.getLogger(__name__)
@@ -556,7 +556,7 @@ def main() -> int:
         return EXIT_USAGE
     logger.debug("id_parsing_self_test: PASS")
 
-    base_dir = args.base_dir if args.base_dir is not None else get_datrix_root()
+    base_dir = args.base_dir if args.base_dir is not None else WORKSPACE_DIR
     if not base_dir.is_dir():
         print(f"ERROR: Base directory does not exist: {base_dir}", file=sys.stderr)
         return EXIT_USAGE

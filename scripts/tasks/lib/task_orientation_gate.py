@@ -20,14 +20,12 @@ Run through tasks/task-orientation-gate.ps1.
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import io
 import json
-import os
 import subprocess
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -35,7 +33,8 @@ from tempfile import TemporaryDirectory
 from datrix_scripts.code_index.session import open_session
 from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
 from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering, closed_port
-from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
+from datrix_scripts.gate_harness import CheckFunc, check_list_main, write_file
+from datrix_scripts.local_llm_usage import GATE_USAGE_LOG
 from datrix_scripts.local_reading import ReadScope, ask_files
 from datrix_scripts.task_metadata import parse_task_file, parse_task_text, task_prose_lines
 from datrix_scripts.task_orientation import (
@@ -71,11 +70,6 @@ from validate_task import (
     main as validate_main,
 )
 
-CheckFunc = Callable[[], None]
-
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_RESET = "\033[0m"
 _ANSWER = "The test builds the service with a factory (datrix-alpha/src/alpha_pkg/core.py:4)."
 
 _CORE = (
@@ -108,34 +102,6 @@ def _fixture_task_path(root: Path, number: int, slug: str) -> Path:
     return root / _FIXTURE_REPO / ".tasks" / f"phase-{_FIXTURE_PHASE}" / _fixture_task_name(number, slug)
 
 
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def run_checks(checks: list[CheckFunc]) -> bool:
-    """Run every check, catching only AssertionError. Returns True iff all passed."""
-    all_passed = True
-    for check in checks:
-        try:
-            check()
-        except AssertionError as exc:
-            _fail(f"{check.__name__}: {exc}")
-            all_passed = False
-        else:
-            _ok(check.__name__)
-    return all_passed
-
-
-def _write(path: Path, text: str) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return path
-
-
 def _lines(count: int) -> str:
     return "".join(f"LINE_{n} = {n}\n" for n in range(1, count + 1))
 
@@ -155,16 +121,16 @@ def _workspace() -> Iterator[Path]:
         for repo in ("datrix", "datrix-alpha", "datrix-beta"):
             (root / repo).mkdir()
             subprocess.run(["git", "-C", str(root / repo), "init", "-q"], check=True, capture_output=True)
-        _write(root / "datrix-alpha/src/alpha_pkg/__init__.py", "")
-        _write(root / "datrix-alpha/src/alpha_pkg/core.py", _CORE)
-        _write(root / "datrix-alpha/src/alpha_pkg/long.py", _lines(100))
+        write_file(root / "datrix-alpha/src/alpha_pkg/__init__.py", "")
+        write_file(root / "datrix-alpha/src/alpha_pkg/core.py", _CORE)
+        write_file(root / "datrix-alpha/src/alpha_pkg/long.py", _lines(100))
         # The same relative path and the same bare name in two repositories: ambiguous.
-        _write(root / "datrix-alpha/src/alpha_pkg/plugin/capability.py", _lines(20))
-        _write(root / "datrix-beta/src/beta_pkg/plugin/capability.py", _lines(90))
-        _write(root / "datrix-beta/src/beta_pkg/only_beta.py", _lines(30))
+        write_file(root / "datrix-alpha/src/alpha_pkg/plugin/capability.py", _lines(20))
+        write_file(root / "datrix-beta/src/beta_pkg/plugin/capability.py", _lines(90))
+        write_file(root / "datrix-beta/src/beta_pkg/only_beta.py", _lines(30))
         # The local-model reader filters every line against the customer-term corpus and refuses
         # to read without one; this workspace registers no customer.
-        _write(root / "datrix/scripts/config/customer-term-hashes.json",
+        write_file(root / "datrix/scripts/config/customer-term-hashes.json",
                json.dumps({"algorithm": "sha256", "min_token_length": 5, "terms": []}))
         yield root
 
@@ -183,7 +149,7 @@ def check_orientation_block_is_read_by_the_one_task_parser() -> None:
     with _workspace() as root:
         block = ("```orientation\n# comment\nsymbol: alpha_function\n\nrefs: alpha_pkg.core.alpha_function\n```\n")
         other = "```python\nsymbol: not_orientation\n```\n"
-        task = _write(_fixture_task_path(root, 1, "a"),
+        task = write_file(_fixture_task_path(root, 1, "a"),
                       _task("A", other, extra_sections=f"\n## Orientation\n{block}"))
         meta = parse_task_file(task)
         assert meta.orientation == ["# comment", "symbol: alpha_function", "refs: alpha_pkg.core.alpha_function"], \
@@ -191,7 +157,7 @@ def check_orientation_block_is_read_by_the_one_task_parser() -> None:
         assert [item.kind for item in parse_orientation(meta.orientation).items] == ["symbol", "refs"], \
             "the parser keeps the block's lines; comments are dropped when it is read"
         assert meta.to_dict()["orientation"] == meta.orientation
-        bare = parse_task_file(_write(_fixture_task_path(root, 2, "b"), _task("B", "text", number=2)))
+        bare = parse_task_file(write_file(_fixture_task_path(root, 2, "b"), _task("B", "text", number=2)))
         assert bare.orientation == [], "a task with no block has none"
         prose = [text for _, text in task_prose_lines(task.read_text(encoding="utf-8"))]
         assert not any("not_orientation" in line or "symbol: alpha_function" in line for line in prose), \
@@ -358,11 +324,11 @@ def check_citations_warn_only_when_the_name_beside_them_is_not_near_the_lines() 
 def check_validator_reports_stale_orientation_and_citations_and_sets_the_exit_code() -> None:
     with _workspace() as root:
         core = root / "datrix-alpha/src/alpha_pkg/core.py"
-        good = _write(_fixture_task_path(root, 1, "good"), _task(
+        good = write_file(_fixture_task_path(root, 1, "good"), _task(
             "Good", f"`{core}:4-6` `alpha_function(x)`.",
             extra_sections="\n## Orientation\n```orientation\nsymbol: alpha_function\nrefs: alpha_pkg.core.alpha_function\n"
                            "outline: datrix-alpha/src/alpha_pkg/core.py\n```\n"))
-        stale = _write(_fixture_task_path(root, 2, "stale"), _task(
+        stale = write_file(_fixture_task_path(root, 2, "stale"), _task(
             "Stale", f"`{core}:90` is beyond the file.", number=2,
             extra_sections="\n## Orientation\n```orientation\nsymbol: renamed_away_function\n"
                            "explain: datrix-alpha/../../etc/passwd :: How does this module build its result\n"
@@ -380,7 +346,7 @@ def check_validator_reports_stale_orientation_and_citations_and_sets_the_exit_co
         assert "lines 90-90 are not in core.py, which has 10 lines" in joined, joined
         required = Validator(root, require_orientation=True)
         try:
-            bare = _write(_fixture_task_path(root, 3, "bare"), _task("Bare", "Nothing.", number=3))
+            bare = write_file(_fixture_task_path(root, 3, "bare"), _task("Bare", "Nothing.", number=3))
             assert [f.message for f in required.validate(bare)] == [
                 "no '## Orientation' block (required by --require-orientation)"]
         finally:
@@ -396,16 +362,16 @@ def check_validator_reports_stale_orientation_and_citations_and_sets_the_exit_co
 def check_validator_phase_mode_counts_files_other_tasks_create() -> None:
     with _workspace() as root:
         future = root / "datrix-alpha/src/alpha_pkg/future.py"
-        _write(_fixture_task_path(root, 1, "creates"), _task(
+        write_file(_fixture_task_path(root, 1, "creates"), _task(
             "Creates", "Nothing.", extra_sections=f"\n## Files to Create\n### 1. `{future}` -- the module\n"))
-        citing = _write(_fixture_task_path(root, 2, "cites"),
+        citing = write_file(_fixture_task_path(root, 2, "cites"),
                         _task("Cites", f"The new module is at `{future}:3`.", number=2))
         validator = Validator(root)
         try:
             assert validator.validate(citing) == [], "the first fixture task creates the file the second cites"
         finally:
             validator.close()
-        _write(_fixture_task_path(root, 1, "creates"), _task("Creates", "Nothing."))
+        write_file(_fixture_task_path(root, 1, "creates"), _task("Creates", "Nothing."))
         validator = Validator(root)
         try:
             assert [f.level for f in validator.validate(citing)] == [LEVEL_ERROR], "nothing creates it now"
@@ -418,11 +384,11 @@ def check_validator_bounds_task_length_and_the_executor_record() -> None:
     warn_padding = "\n".join(f"line {n}" for n in range(TASK_WARN_LINES + 1))
     record = "\n".join(f"- decision {n}" for n in range(RECORD_WARN_LINES + 1))
     with _workspace() as root:
-        oversized = _write(_fixture_task_path(root, 1, "big"), _task("Big", padding))
-        long = _write(_fixture_task_path(root, 2, "long"), _task("Long", warn_padding, number=2))
-        chatty = _write(_fixture_task_path(root, 3, "chatty"),
+        oversized = write_file(_fixture_task_path(root, 1, "big"), _task("Big", padding))
+        long = write_file(_fixture_task_path(root, 2, "long"), _task("Long", warn_padding, number=2))
+        chatty = write_file(_fixture_task_path(root, 3, "chatty"),
                         _task("Chatty", "Nothing.", number=3, extra_sections=f"\n## How Solved\n{record}\n"))
-        done = _write(_fixture_task_path(root, 4, "done"),
+        done = write_file(_fixture_task_path(root, 4, "done"),
                       _task("Done", padding, number=4).replace("# Task", "# COMPLETED: Task", 1))
         validator = Validator(root)
         try:
@@ -469,12 +435,12 @@ def _retrofit(root: Path, task: Path, *, write: bool = False) -> RetrofitResult:
 def check_retrofit_converts_only_whole_file_orientation_items_and_nothing_else() -> None:
     with _workspace() as root:
         src = root / "datrix-alpha/src/alpha_pkg"
-        _write(src / "helper.py", "def helper_function(x: int) -> int:\n    return x\n")
-        _write(src / "other.py", "def lonely_function(x: int) -> int:\n    return x\n")
-        _write(src / "twin_a.py", "def dup_function() -> int:\n    return 1\n")
-        _write(src / "twin_b.py", "def dup_function() -> int:\n    return 2\n")
+        write_file(src / "helper.py", "def helper_function(x: int) -> int:\n    return x\n")
+        write_file(src / "other.py", "def lonely_function(x: int) -> int:\n    return x\n")
+        write_file(src / "twin_a.py", "def dup_function() -> int:\n    return 1\n")
+        write_file(src / "twin_b.py", "def dup_function() -> int:\n    return 2\n")
         edited = src / "edited.py"
-        _write(edited, "def edited_function() -> int:\n    return 3\n")
+        write_file(edited, "def edited_function() -> int:\n    return 3\n")
         core, long = src / "core.py", src / "long.py"
         task = _retrofit_task(
             root, "Retrofit fixture",
@@ -532,7 +498,7 @@ def check_retrofit_preserves_line_endings_and_respects_the_caps() -> None:
     with _workspace() as root:
         src = root / "datrix-alpha/src/alpha_pkg"
         for n in range(10):
-            _write(src / f"mod{n}.py", f"def function_{n}() -> int:\n    return {n}\n")
+            write_file(src / f"mod{n}.py", f"def function_{n}() -> int:\n    return {n}\n")
         review = [f"{n + 1}. `{src / f'mod{n}.py'}` -- module {n}" for n in range(10)]
         crlf = _retrofit_task(root, "Crlf", review, number=10, newline="\r\n")
         result = _retrofit(root, crlf, write=True)
@@ -547,19 +513,6 @@ def check_retrofit_preserves_line_endings_and_respects_the_caps() -> None:
 # ===========================================================================
 # harness
 # ===========================================================================
-
-
-def _deliberately_failing_check() -> None:
-    assert False, "deliberately failing check for --harness-self-test"
-
-
-def harness_self_test() -> bool:
-    print("=== Harness self-test: a deliberately-failing check must be reported FAILED ===")
-    if run_checks([_deliberately_failing_check]):
-        _fail("harness self-test: the deliberately-failing check was NOT reported as failed")
-        return False
-    _ok("harness self-test: the deliberately-failing check was correctly reported FAILED")
-    return True
 
 
 _ALL_CHECKS: list[CheckFunc] = [
@@ -581,30 +534,12 @@ _ALL_CHECKS: list[CheckFunc] = [
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Behaviour checks for task orientation and citation validation.")
-    parser.add_argument("--harness-self-test", action="store_true",
-                        help="Run only the harness self-test (a deliberately-failing dummy check).")
-    parser.add_argument("--only", metavar="PREFIX", help="Run only the checks whose name starts with PREFIX.")
-    args = parser.parse_args()
-    if args.harness_self_test:
-        return 0 if harness_self_test() else 1
-    checks = _ALL_CHECKS
-    if args.only:
-        checks = [check for check in _ALL_CHECKS if check.__name__.startswith(args.only)]
-        if not checks:
-            print(f"Error: no check name starts with {args.only!r}. Checks: "
-                  f"{', '.join(c.__name__ for c in _ALL_CHECKS)}.", file=sys.stderr)
-            return 2
-    print(f"Running {len(checks)} task orientation checks...\n")
-    with TemporaryDirectory(prefix="task-gate-usage-") as temp:
-        os.environ[USAGE_LOG_VARIABLE] = str(Path(temp) / "usage.jsonl")
-        passed = run_checks(checks)
-    print()
-    if passed:
-        print(f"{_GREEN}GATE PASSED{_RESET}: all {len(checks)} task orientation checks passed.")
-        return 0
-    print(f"{_RED}GATE FAILED{_RESET}: see the failures above.")
-    return 1
+    return check_list_main(
+        "Behaviour checks for task orientation and citation validation.",
+        "task orientation",
+        _ALL_CHECKS,
+        temp_file_variable=GATE_USAGE_LOG,
+    )
 
 
 if __name__ == "__main__":

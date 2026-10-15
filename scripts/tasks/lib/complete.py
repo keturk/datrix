@@ -20,7 +20,8 @@ import re
 import sys
 from pathlib import Path
 
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.framework_repos import workspace_package_dirs
+from datrix_scripts.paths import WORKSPACE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +38,7 @@ def _iter_task_files(datrix_root: Path) -> list[Path]:
     if root_tasks.is_dir():
         files.extend(root_tasks.rglob("*.md"))
 
-    for child in datrix_root.iterdir():
-        if not child.is_dir() or not child.name.startswith("datrix"):
-            continue
+    for child in workspace_package_dirs(datrix_root, include_showcase=True):
         tasks_dir = child / ".tasks"
         if tasks_dir.is_dir():
             files.extend(tasks_dir.rglob("*.md"))
@@ -148,12 +147,7 @@ def main() -> int:
         format="%(levelname)s: %(message)s",
     )
 
-    try:
-        datrix_root = get_datrix_root()
-    except FileNotFoundError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
-
+    datrix_root = WORKSPACE_DIR
     try:
         task_path = _resolve_task_path(args.task_file, datrix_root)
         logger.debug("Resolved task path: %s", task_path)

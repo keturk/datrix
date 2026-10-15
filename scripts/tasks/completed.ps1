@@ -16,7 +16,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-. (Join-Path $PSScriptRoot "common.ps1")
+Import-Module (Join-Path $PSScriptRoot "TaskCommon.psm1") -Force
 
 # Find all datrix projects
 $projects = Get-ChildItem -Path $BaseDir -Directory | Where-Object { $_.Name -like "datrix*" }

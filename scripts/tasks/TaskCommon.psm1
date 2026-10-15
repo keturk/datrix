@@ -1,7 +1,13 @@
-# Shared helpers for todo.ps1 and completed.ps1 (task/bug scanning).
-# Do not run directly; dot-source from the caller script.
+<#
+.SYNOPSIS
+ Shared helpers for todo.ps1 and completed.ps1 (task/bug scanning).
+#>
 
 function Get-FirstMarkdownHeading {
+ <#
+ .SYNOPSIS
+ The text of the first Markdown heading in Content, or $null when there is none.
+ #>
  param(
  [string]$Content
  )
@@ -19,6 +25,10 @@ function Get-FirstMarkdownHeading {
 }
 
 function Test-ItemMatchesFilter {
+ <#
+ .SYNOPSIS
+ True when Filter is empty, or the file name or title contains it.
+ #>
  param(
  [string]$FileName,
  [string]$Title,
@@ -29,3 +39,5 @@ function Test-ItemMatchesFilter {
  }
  return ($FileName -like "*$Filter*") -or ($Title -like "*$Filter*")
 }
+
+Export-ModuleMember -Function Get-FirstMarkdownHeading, Test-ItemMatchesFilter
