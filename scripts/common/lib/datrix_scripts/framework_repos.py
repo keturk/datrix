@@ -1,7 +1,13 @@
-"""The framework git repositories in a Datrix workspace."""
+"""The framework package directories and git repositories in a Datrix workspace.
+
+``workspace_package_dirs`` is the one enumeration of ``datrix-*`` directories: every script that
+needs "the packages" calls it with the marker that defines a package for its purpose (a
+``src/`` tree, a ``tests/`` tree, a manifest, a git checkout) and keys the result its own way.
+"""
 
 from __future__ import annotations
 
+from enum import StrEnum
 from pathlib import Path
 
 SHOWCASE_REPO_NAME = "datrix"
@@ -9,23 +15,53 @@ FRAMEWORK_REPO_PREFIX = "datrix-"
 GIT_DIR_NAME = ".git"
 
 
-def framework_repos(workspace_root: Path) -> list[Path]:
-    """Discover the framework git repos in the workspace.
+class PackageMarker(StrEnum):
+    """A file or directory whose presence makes a workspace directory a package for a purpose."""
 
-    Discovered, not hardcoded: a newly cloned ``datrix-codegen-<lang>`` must be
-    policed the day it appears, and Datrix is a multi-language, multi-platform
-    generator whose repo set is open-ended. The showcase repo anchors the list.
-    Any other repository at the workspace root -- a customer project checkout --
-    is not a framework repo.
+    SRC = "src"
+    TESTS = "tests"
+    PYPROJECT = "pyproject.toml"
+    PACKAGE_JSON = "package.json"
+    GIT = ".git"
+
+
+def workspace_package_dirs(
+    workspace: Path,
+    *,
+    any_of: frozenset[PackageMarker] = frozenset(),
+    include_showcase: bool = False,
+) -> list[Path]:
+    """Every ``datrix-*`` directory (and ``datrix`` when ``include_showcase``), sorted by name.
+
+    Discovered, not hardcoded: a newly cloned ``datrix-codegen-<lang>`` joins the day it
+    appears, and Datrix is a multi-language, multi-platform generator whose package set is
+    open-ended. With ``any_of`` given, a directory is returned only when it holds at least one
+    of those markers; with it empty, every matching directory is returned.
     """
-    repos: list[Path] = []
-    showcase = workspace_root / SHOWCASE_REPO_NAME
-    if (showcase / GIT_DIR_NAME).exists():
-        repos.append(showcase)
-    for child in sorted(workspace_root.iterdir()):
-        if child.name.startswith(FRAMEWORK_REPO_PREFIX) and (child / GIT_DIR_NAME).exists():
-            repos.append(child)
-    return repos
+    found: list[Path] = []
+    for child in sorted(workspace.iterdir(), key=lambda path: path.name):
+        if not child.is_dir():
+            continue
+        named = child.name.startswith(FRAMEWORK_REPO_PREFIX) or (
+            include_showcase and child.name == SHOWCASE_REPO_NAME
+        )
+        if not named:
+            continue
+        if any_of and not any((child / marker.value).exists() for marker in any_of):
+            continue
+        found.append(child)
+    return found
+
+
+def framework_repos(workspace_root: Path) -> list[Path]:
+    """Discover the framework git repos in the workspace (the showcase repo included).
+
+    Any other repository at the workspace root -- a customer project checkout -- is not a
+    framework repo.
+    """
+    return workspace_package_dirs(
+        workspace_root, any_of=frozenset({PackageMarker.GIT}), include_showcase=True
+    )
 
 
 def select_framework_repos(workspace_root: Path, wanted: list[str] | None) -> list[Path]:

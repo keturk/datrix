@@ -19,6 +19,8 @@ from .traversal import (
     all_entities_with_service,
     all_relationships_with_context,
     all_subscriptions_with_context,
+    brokers_identity,
+    host_port_label,
     service_dependency_edges,
 )
 
@@ -172,41 +174,6 @@ class _InfraGroup:
         self.connections: list[tuple[str, str]] = []  # (service_id, edge_label)
 
 
-def _brokers_identity(brokers: list[str] | str | None) -> str:
-    """Produce a stable string identity for a pubsub brokers config value.
-
-    Handles list of strings, single string, EnvRef objects, or None.
-    """
-    if brokers is None:
-        return ""
-    if isinstance(brokers, str):
-        return brokers
-    if isinstance(brokers, list):
-        return ",".join(str(b) for b in sorted(str(b) for b in brokers))
-    return str(brokers)
-
-
-def _host_port_label(key: tuple[str, ...]) -> str:
-    """Extract a host:port suffix from an infra identity key for display.
-
-    Returns empty string if no meaningful host/port, otherwise ' (host:port)'.
-    Key format is (engine_label, host_or_id, port_or_extra).
-    """
-    if len(key) < 3:
-        return ""
-    host = key[1]
-    port = key[2]
-    # Skip if host looks like a sanitized service ID (no dots, no 'localhost')
-    if not host or (host != "localhost" and "." not in host and ":" not in host):
-        return ""
-    # If host already contains port (e.g. brokers "localhost:9092"), don't append port again
-    if ":" in host:
-        return f" ({host})"
-    if port:
-        return f" ({host}:{port})"
-    return f" ({host})"
-
-
 def build_service_map(app: Application) -> str:
     """Build a service map with shared infrastructure nodes (graph TD).
 
@@ -265,7 +232,7 @@ def build_service_map(app: Application) -> str:
             if pubsub_block._config is not None:
                 cfg_mq = pubsub_block.config
                 engine_label = str(cfg_mq.engine.canonical_name)
-                brokers_str = _brokers_identity(cfg_mq.brokers)
+                brokers_str = brokers_identity(cfg_mq.brokers)
                 key = (engine_label, brokers_str, str(cfg_mq.port or ""))
             else:
                 engine_label = "MQ"
@@ -313,7 +280,7 @@ def build_service_map(app: Application) -> str:
             infra_counter += 1
             node_id = f"{prefix}_{infra_counter}"
             # Build label: engine + host:port if available
-            host_port = _host_port_label(key)
+            host_port = host_port_label(key)
             label = f"{group.engine_label}{host_port}"
             lines.append(mermaid_node(node_id, label, group.shape))
             for svc_id, edge_label in group.connections:
@@ -344,28 +311,6 @@ def build_service_map(app: Application) -> str:
 def _service_id_from_name(name: str) -> str:
     """Produce a Mermaid-safe ID from a full service name."""
     return sanitize_id(ServicePaths(name).simple_name)
-
-
-_ERD_SANITIZE = re.compile(r"[^a-zA-Z0-9_]")
-
-
-def _erd_type_display(field_type: object) -> tuple[str, bool]:
-    """Convert a DatrixType to a Mermaid ERD-safe type name.
-
-    Mermaid ERD only accepts ``[A-Za-z_][A-Za-z0-9_]*`` for attribute types.
-
-    Returns:
-        (sanitized_type_name, is_nullable)
-    """
-    is_nullable = field_type.is_optional()
-    inner = field_type.unwrap()
-    raw = inner.display_name()
-    # Replace (100) → _100, <String> → _String, commas/spaces → _
-    sanitized = raw.replace("(", "_").replace(")", "").replace("<", "_").replace(">", "")
-    sanitized = sanitized.replace(", ", "_").replace(",", "_").replace(" ", "_")
-    # Strip any remaining invalid characters
-    sanitized = _ERD_SANITIZE.sub("", sanitized)
-    return sanitized or "Unknown", is_nullable
 
 
 def build_erd(app: Application, service_name: str | None = None) -> str:

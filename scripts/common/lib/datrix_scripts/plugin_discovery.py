@@ -7,8 +7,8 @@ This loads the ``datrix.languages``, ``datrix.generators``, ``datrix.platforms``
 ``datrix.extensions`` groups in turn and prints one line per group: ``OK`` with what loaded, or
 ``FAILED`` with the registry's own error.
 
-Run by ``Test-DatrixPluginDiscovery`` in ``common/venv.ps1``:
-``python -m datrix_scripts.plugin_discovery``.
+Run by ``dev/generate.ps1`` before any generation, through the shared runner
+(``Invoke-DatrixPythonScript -Module datrix_scripts.plugin_discovery -RequirePackages``).
 
 Exit codes: 0 = every group loaded, 1 = at least one group failed.
 """

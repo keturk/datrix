@@ -27,6 +27,32 @@ CONTAINER_BODY_ATTRS: Final[tuple[str, ...]] = ("body", "orelse", "finalbody")
 FunctionDefNode = ast.FunctionDef | ast.AsyncFunctionDef
 
 
+def iter_source_files(
+    src_dir: Path, suffixes: frozenset[str], skip_dir_names: frozenset[str]
+) -> list[Path]:
+    """Every file under ``src_dir`` with one of ``suffixes``, outside any ``skip_dir_names`` folder, sorted."""
+    files: list[Path] = []
+    for path in sorted(src_dir.rglob("*")):
+        if not path.is_file() or path.suffix not in suffixes:
+            continue
+        if any(part in skip_dir_names for part in path.relative_to(src_dir).parts):
+            continue
+        files.append(path)
+    return files
+
+
+def terminal_name(node: ast.expr) -> str | None:
+    """The last identifier of a name or attribute expression (``x`` -> ``x``, ``a.b.x`` -> ``x``).
+
+    ``None`` when the expression is neither (a call, a subscript, a literal): it has no name.
+    """
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
 def collect_module_and_method_defs(
     body: list[ast.stmt], enclosing_class: str | None
 ) -> list[tuple[FunctionDefNode, str | None]]:

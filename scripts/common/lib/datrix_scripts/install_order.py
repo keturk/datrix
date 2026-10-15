@@ -26,6 +26,7 @@ import tempfile
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
+from datrix_scripts.gate_harness import report_condition, report_fail, write_file
 from datrix_scripts.pyproject_deps import (
     DATRIX_PREFIX,
     build_dependency_graph,
@@ -103,47 +104,34 @@ def topological_install_order(packages: dict[str, Path]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
-def _ok(message: str) -> None:
-    print(f"[OK] {message}")
-
-
-def _fail(message: str) -> None:
-    print(f"[FAIL] {message}")
-
-
 def _plant_order_fixture(root: Path) -> None:
     # "zulu" sorts AFTER "acme" alphabetically but has no dependencies, while
     # "acme" depends on "zulu" -- zulu must install BEFORE acme despite
     # sorting after it. Mirrors the real datrix-codegen-kernel /
     # datrix-codegen-common case the design doc cites. "beta" is an unrelated
     # zero-dependency package proving ties break alphabetically.
-    _write(
+    write_file(
         root / "datrix-selftest-acme" / "pyproject.toml",
         '[project]\nname = "datrix-selftest-acme"\nversion = "0.0.0"\n'
         'dependencies = ["datrix-selftest-zulu>=1"]\n',
     )
-    _write(
+    write_file(
         root / "datrix-selftest-zulu" / "pyproject.toml",
         '[project]\nname = "datrix-selftest-zulu"\nversion = "0.0.0"\ndependencies = []\n',
     )
-    _write(
+    write_file(
         root / "datrix-selftest-beta" / "pyproject.toml",
         '[project]\nname = "datrix-selftest-beta"\nversion = "0.0.0"\ndependencies = []\n',
     )
 
 
 def _plant_cycle_fixture(root: Path) -> None:
-    _write(
+    write_file(
         root / "datrix-selftest-cycle-a" / "pyproject.toml",
         '[project]\nname = "datrix-selftest-cycle-a"\nversion = "0.0.0"\n'
         'dependencies = ["datrix-selftest-cycle-b>=1"]\n',
     )
-    _write(
+    write_file(
         root / "datrix-selftest-cycle-b" / "pyproject.toml",
         '[project]\nname = "datrix-selftest-cycle-b"\nversion = "0.0.0"\n'
         'dependencies = ["datrix-selftest-cycle-a>=1"]\n',
@@ -151,7 +139,7 @@ def _plant_cycle_fixture(root: Path) -> None:
 
 
 def _plant_missing_dep_fixture(root: Path) -> None:
-    _write(
+    write_file(
         root / "datrix-selftest-orphan" / "pyproject.toml",
         '[project]\nname = "datrix-selftest-orphan"\nversion = "0.0.0"\n'
         'dependencies = ["datrix-selftest-nonexistent>=1"]\n',
@@ -168,18 +156,18 @@ def _run_order_fixture_checks() -> bool:
         order = topological_install_order(packages)
         zulu_idx = order.index("datrix-selftest-zulu")
         acme_idx = order.index("datrix-selftest-acme")
-        ok &= _fail_or_ok(
+        ok &= report_condition(
             zulu_idx < acme_idx,
             "dependency installs before its dependent even though it sorts after it "
             f"alphabetically (got order {order})",
         )
-        ok &= _fail_or_ok(
+        ok &= report_condition(
             order.index("datrix-selftest-beta") >= 0,
             "unrelated zero-dependency package appears in the order",
         )
         # beta has no dependency relationship to acme/zulu, so among the
         # zero-in-degree starters (beta, zulu) alphabetical order applies.
-        ok &= _fail_or_ok(
+        ok &= report_condition(
             order.index("datrix-selftest-beta") < order.index("datrix-selftest-acme"),
             f"ties among ready packages break alphabetically (got order {order})",
         )
@@ -194,13 +182,13 @@ def _run_cycle_fixture_check() -> bool:
         packages = discover_packages(root)
         try:
             topological_install_order(packages)
-            _fail("a cycle silently produced an order instead of raising")
+            report_fail("a cycle silently produced an order instead of raising")
             return False
         except InstallOrderError as exc:
             named_both = (
                 "datrix-selftest-cycle-a" in str(exc) and "datrix-selftest-cycle-b" in str(exc)
             )
-            return _fail_or_ok(named_both, f"cycle error names both members: {exc}")
+            return report_condition(named_both, f"cycle error names both members: {exc}")
 
 
 def _run_missing_dep_fixture_check() -> bool:
@@ -211,10 +199,10 @@ def _run_missing_dep_fixture_check() -> bool:
         packages = discover_packages(root)
         try:
             topological_install_order(packages)
-            _fail("a missing datrix-* dependency silently produced an order instead of raising")
+            report_fail("a missing datrix-* dependency silently produced an order instead of raising")
             return False
         except InstallOrderError as exc:
-            return _fail_or_ok(
+            return report_condition(
                 "datrix-selftest-nonexistent" in str(exc),
                 f"missing-dependency error names the missing package: {exc}",
             )
@@ -228,11 +216,6 @@ def run_self_test() -> bool:
     print()
     print("SELF-TEST PASSED" if ok else "SELF-TEST FAILED: see failures above.")
     return ok
-
-
-def _fail_or_ok(condition: bool, label: str) -> bool:
-    (_ok if condition else _fail)(label)
-    return condition
 
 
 def main() -> int:

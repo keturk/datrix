@@ -22,11 +22,9 @@ from .codegen_hint_mapper import (
 )
 from .structured_log_writer import (
     _ANSI_ESCAPE,
-    _DOUBLE_QUOTED,
-    _HEX_ADDRESS,
     _MAX_FILENAME_BODY_LENGTH,
-    _SINGLE_QUOTED,
-    _STANDALONE_NUMBER,
+    classname_to_filepath,
+    normalize_error_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -863,7 +861,7 @@ class DeployTestLogWriter:
                 traceback_text = _ANSI_ESCAPE.sub("", el.text or "")
 
                 # Derive file from classname
-                file_path = self._classname_to_filepath(classname)
+                file_path = classname_to_filepath(classname)
 
                 results.append(
                     {
@@ -1352,7 +1350,7 @@ class DeployTestLogWriter:
 
         groups: dict[str, list[DeployFailure]] = {}
         for failure in failures:
-            key = self._normalize_error_message(
+            key = normalize_error_message(
                 failure.error_type, failure.error_message
             )
             if key not in groups:
@@ -1407,7 +1405,7 @@ class DeployTestLogWriter:
             # A lifecycle error's message is a failed command's captured
             # output, and docker/compose print the diagnosis LAST -- after the
             # progress lines. Cluster on that line, not on "Container x Started".
-            key = self._normalize_error_message(
+            key = normalize_error_message(
                 error.error_type, _diagnosis_line(error.error_message)
             )
             if key not in groups:
@@ -1440,33 +1438,6 @@ class DeployTestLogWriter:
             clusters.append(cluster)
 
         return clusters
-
-    def _normalize_error_message(self, error_type: str, message: str) -> str:
-        """Normalize an error message for clustering.
-
-        Replaces quoted strings, hex addresses, and standalone numbers
-        with * to group similar errors together.
-
-        Args:
-            error_type: The exception/error type name.
-            message: The raw error message text.
-
-        Returns:
-            Normalized pattern string.
-        """
-        normalized = _ANSI_ESCAPE.sub("", message)
-        # Strip the error_type prefix if already present
-        if error_type and normalized.startswith(f"{error_type}: "):
-            normalized = normalized[len(error_type) + 2:]
-        elif error_type and normalized.startswith(f"{error_type}:"):
-            normalized = normalized[len(error_type) + 1:]
-        # Use only the first line
-        first_line = normalized.split("\n", 1)[0]
-        first_line = _SINGLE_QUOTED.sub("*", first_line)
-        first_line = _DOUBLE_QUOTED.sub("*", first_line)
-        first_line = _HEX_ADDRESS.sub("*", first_line)
-        first_line = _STANDALONE_NUMBER.sub("*", first_line)
-        return f"{error_type}: {first_line}"
 
     # --- Codegen hints ---
 
@@ -2217,30 +2188,6 @@ class DeployTestLogWriter:
         if match:
             return match.group(1)
         return "unknown"
-
-    def _classname_to_filepath(self, classname: str) -> str:
-        """Convert a JUnit classname to a file path.
-
-        Args:
-            classname: The JUnit classname attribute.
-
-        Returns:
-            A forward-slash file path string.
-        """
-        if not classname:
-            return "unknown"
-
-        parts = classname.split(".")
-        module_parts: list[str] = []
-        for part in parts:
-            if part and part[0].isupper():
-                break
-            module_parts.append(part)
-
-        if not module_parts:
-            return "unknown"
-
-        return "/".join(module_parts) + ".py"
 
     def _extract_error_type_from_message(self, message: str) -> str:
         """Extract error type from the first line of an error message.

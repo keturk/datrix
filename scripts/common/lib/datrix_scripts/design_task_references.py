@@ -52,6 +52,10 @@ import argparse
 import os
 import re
 import tempfile
+from pathlib import Path
+
+from datrix_scripts.gate_harness import write_file, write_files
+from datrix_scripts.paths import WORKSPACE_DIR
 
 # A reference looks like `task-07-42`, `task 50-22`, `tasks 09-21 and 09-22`,
 # `design/044-foo`, `design 048`, `design-019`, `design doc 046`, or a
@@ -140,7 +144,7 @@ SCAN_EXTENSIONS = (
 SKIP_DIRS = frozenset({".git", "__pycache__", "node_modules", ".venv", ".tasks", ".bugs", "design",
                        ".tmp", ".scripts", ".test-output", ".test_results", "generated"})
 
-WORKSPACE_ROOT = "D:/datrix"
+WORKSPACE_ROOT = WORKSPACE_DIR.as_posix()
 
 #: Committed subtrees of a ``datrix-*`` package. ``scripts`` is here because a
 #: package's build tooling is committed like any other source: datrix-vscode
@@ -171,8 +175,6 @@ ALLOWLIST: dict[str, str] = {
     "datrix/scripts/tasks/quick-reference.md":
         "usage examples for the task scripts; the IDs are illustrative arguments",
     "datrix/scripts/review/quick-reference.md":
-        "usage example for the review runner",
-    "datrix/scripts/review/README.md":
         "usage example for the review runner",
     "datrix/scripts/review/lib/review_library_gate.py":
         "self-test fixtures that synthesize task files in a temp dir",
@@ -341,11 +343,6 @@ def scan_paths(rel_paths: list[str], workspace: str = WORKSPACE_ROOT) -> list[tu
     return hits
 
 
-def _write(path: str, body: str) -> None:
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write(body)
-
-
 def self_test(quiet: bool = False) -> int:
     """Prove the detector fires on every reference shape and stays quiet without one.
 
@@ -353,8 +350,7 @@ def self_test(quiet: bool = False) -> int:
     runner sets it so a passing self-test adds nothing to every commit's output.
     """
     with tempfile.TemporaryDirectory() as tmp:
-        _write(os.path.join(tmp, "clean.py"),
-               "# Emits the response DTO mapping for custom endpoints.\n")
+        write_file(Path(tmp, "clean.py"), "# Emits the response DTO mapping for custom endpoints.\n")
         if scan([tmp]):
             print("SELF-TEST FAILED: detector reported a hit on a clean file")
             return 1
@@ -388,8 +384,7 @@ def self_test(quiet: bool = False) -> int:
             "split_star.ts": " * Mirrors the shared table (design\n * doc 046, the host rule).\n",
             "split_docstring.py": '"""Unit tests for the census (design\n052 sections 7.1-7.2)."""\n',
         }
-        for filename, body in shapes.items():
-            _write(os.path.join(tmp, filename), body)
+        write_files(Path(tmp), shapes)
         found = scan([tmp])
         if len(found) != len(shapes):
             missed = sorted(set(shapes) - {os.path.basename(rel) for rel, _, _, _ in found})
@@ -397,7 +392,7 @@ def self_test(quiet: bool = False) -> int:
             return 1
 
         # A bare delivery-wave mention is product vocabulary, not a pointer.
-        _write(os.path.join(tmp, "vocab.md"), "### Phase 01 capabilities (Stable)\n")
+        write_file(Path(tmp, "vocab.md"), "### Phase 01 capabilities (Stable)\n")
         if len(scan([tmp])) != len(shapes):
             print("SELF-TEST FAILED: a bare 'Phase NN' heading must not be flagged")
             return 1
@@ -451,10 +446,7 @@ _LABEL_FIXTURES: dict[str, tuple[str, int]] = {
 def label_self_test(quiet: bool = False) -> int:
     """Prove each item-label shape hits once, each near miss stays silent, and scope holds."""
     with tempfile.TemporaryDirectory() as workspace:
-        for rel, (body, _) in _LABEL_FIXTURES.items():
-            path = os.path.join(workspace, rel)
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            _write(path, body)
+        write_files(Path(workspace), {rel: body for rel, (body, _) in _LABEL_FIXTURES.items()})
         roots = default_roots(workspace)
         if len(roots) < 2:
             print(f"SELF-TEST FAILED: default_roots found no fixture trees under {workspace}: {roots}")

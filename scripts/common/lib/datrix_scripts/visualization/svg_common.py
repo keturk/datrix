@@ -35,6 +35,20 @@ SVG_PAD = 28
 CORNER_R = 6
 
 
+# ── Layout nodes ──
+
+
+class NamedNode:
+    """A node identified by a name, placed at (x, y) by a layout pass."""
+
+    __slots__ = ("name", "x", "y")
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.x = 0.0
+        self.y = 0.0
+
+
 # ── Text escaping ──
 
 

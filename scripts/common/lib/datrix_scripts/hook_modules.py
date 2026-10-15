@@ -22,6 +22,8 @@ HOOKS_DIR: Final[Path] = SHOWCASE_DIR / "claude-config" / ".claude" / "hooks"
 #: The whole-suite classifier ``guard-full-suite-runs.py`` imports, and the module it imports.
 SUITE_INVOCATION_MODULE: Final[str] = "_suite_invocation"
 COMMAND_SHAPE_MODULE: Final[str] = "_command_shape"
+#: The red-run digest hook, whose parser reads the gate runner's verdict line.
+DIGEST_HOOK_MODULE: Final[str] = "digest-red-test-run"
 
 
 class HookModuleError(RuntimeError):
@@ -67,6 +69,7 @@ def load_suite_invocation(hooks_dir: Path = HOOKS_DIR) -> ModuleType:
 
 __all__ = [
     "COMMAND_SHAPE_MODULE",
+    "DIGEST_HOOK_MODULE",
     "HOOKS_DIR",
     "SUITE_INVOCATION_MODULE",
     "HookModuleError",

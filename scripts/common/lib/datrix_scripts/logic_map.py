@@ -21,6 +21,8 @@ import tokenize
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from datrix_scripts.framework_repos import workspace_package_dirs
+
 # ---------------------------------------------------------------------------
 # Marker kinds
 # ---------------------------------------------------------------------------
@@ -365,9 +367,7 @@ def resolve_scan_paths(
     """
     if scan_all:
         pairs: list[tuple[str, Path]] = []
-        for d in sorted(datrix_root.iterdir()):
-            if not d.is_dir() or not d.name.startswith("datrix"):
-                continue
+        for d in workspace_package_dirs(datrix_root, include_showcase=True):
             if include_src and (d / "src").is_dir():
                 pairs.append((d.name, d / "src"))
             if include_tests:
@@ -381,9 +381,7 @@ def resolve_scan_paths(
         clean = name.rstrip("/\\")
         project_dir = datrix_root / clean
         if not project_dir.is_dir():
-            available = sorted(
-                d.name for d in datrix_root.iterdir() if d.is_dir() and d.name.startswith("datrix")
-            )
+            available = [d.name for d in workspace_package_dirs(datrix_root, include_showcase=True)]
             raise FileNotFoundError(
                 f"Project '{clean}' not found. Available: {available}"
             )

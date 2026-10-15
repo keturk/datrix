@@ -9,7 +9,7 @@ from pathlib import Path
 from datrix_scripts.code_index.refresh import RefreshReport, refresh_index
 from datrix_scripts.code_index.sources import CodeIndexConfig, index_dir, load_config
 from datrix_scripts.code_index.store import open_index
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 
 @dataclass
@@ -27,5 +27,5 @@ class IndexSession:
 
 def open_session(workspace: Path | None = None) -> IndexSession:
     """Open (creating if needed) the index of ``workspace`` (default: this checkout's workspace)."""
-    root = workspace or get_datrix_root()
+    root = workspace or WORKSPACE_DIR
     return IndexSession(open_index(index_dir(root)), root, load_config())

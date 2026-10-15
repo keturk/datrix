@@ -36,25 +36,13 @@ from datrix_codegen_common.algorithms.test_case_identity import (
     is_test_case_id,
 )
 from datrix_scripts.codegen_hint_mapper import get_codegen_hint
+from datrix_scripts.structured_log_writer import _ANSI_ESCAPE, normalize_error_message
 
 logger = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = 1
 _MAX_FILENAME_BODY_LENGTH = 120
 
-# Patterns for normalizing error messages before clustering
-_SINGLE_QUOTED = re.compile(r"'[^']*'")
-_DOUBLE_QUOTED = re.compile(r'"[^"]*"')
-_HEX_ADDRESS = re.compile(r"0x[0-9a-fA-F]+")
-_STANDALONE_NUMBER = re.compile(r"\b\d+\b")
-
-# ANSI escape codes
-_ANSI_ESCAPE = re.compile(
-    r"\x1b\[[0-9;]*[a-zA-Z]"
-    r"|\x1b\[\?[0-9;]*[a-zA-Z]"
-    r"|#x1B\[[0-9;]*[a-zA-Z]"
-    r"|#x1B\[\?[0-9;]*[a-zA-Z]"
-)
 
 # Patterns for extracting import chains from tracebacks
 _IMPORT_CHAIN_FRAME = re.compile(
@@ -992,30 +980,6 @@ def _aggregate_counts(services: list[_ServiceData]) -> dict[str, int]:
     return totals
 
 
-def normalize_error_message(error_type: str, error_message: str) -> str:
-    """Normalize an error message for clustering.
-
-    Replaces quoted strings, hex addresses, and standalone numbers
-    with ``*`` to group similar errors together.
-
-    Args:
-        error_type: The exception type name.
-        error_message: The raw error message text.
-
-    Returns:
-        Normalized pattern string like ``ErrorType: normalized message``.
-    """
-    normalized = _ANSI_ESCAPE.sub("", error_message)
-    if error_type and normalized.startswith(f"{error_type}: "):
-        normalized = normalized[len(error_type) + 2 :]
-    elif error_type and normalized.startswith(f"{error_type}:"):
-        normalized = normalized[len(error_type) + 1 :]
-    first_line = normalized.split("\n", 1)[0]
-    first_line = _SINGLE_QUOTED.sub("*", first_line)
-    first_line = _DOUBLE_QUOTED.sub("*", first_line)
-    first_line = _HEX_ADDRESS.sub("*", first_line)
-    first_line = _STANDALONE_NUMBER.sub("*", first_line)
-    return f"{error_type}: {first_line}"
 
 
 def _cluster_items(

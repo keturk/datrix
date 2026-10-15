@@ -11,25 +11,9 @@
  - Get-DatrixMonoProjectNames: full-monorepo scans (e.g. duplicate -Mono); canonical repo names in order where the directory exists.
 #>
 
+# No -Force: a forced nested import unloads the caller's own import of the same module.
 $pathsModule = Join-Path $PSScriptRoot "DatrixPaths.psm1"
-Import-Module $pathsModule -Force
-
-function Get-DatrixWorkspaceRootFromScript {
- <#
- .SYNOPSIS
- Resolves the monorepo workspace root from the invoking script path.
-
- .PARAMETER ScriptPath
- Path to the running .ps1 file (use $MyInvocation.MyCommand.Path).
- #>
- [CmdletBinding()]
- param(
-  [Parameter(Mandatory = $true)]
-  [string]$ScriptPath
- )
-
- return Get-DatrixWorkspaceRoot -ScriptPath $ScriptPath
-}
+Import-Module $pathsModule
 
 function ConvertTo-DatrixProjectName {
  <#
@@ -529,7 +513,6 @@ function Install-DatrixProjectMcpServer {
 }
 
 Export-ModuleMember -Function @(
- "Get-DatrixWorkspaceRootFromScript",
  "ConvertTo-DatrixProjectName",
  "Get-DatrixPackageNamesGlob",
  "Get-DatrixPackageNamesGlobWithPyProject",

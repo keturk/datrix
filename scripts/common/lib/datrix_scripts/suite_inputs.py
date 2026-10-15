@@ -78,7 +78,14 @@ if sys.platform == "win32" and __name__ == "__main__":
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from datrix_scripts import affected_set  # noqa: E402
-from datrix_scripts.affected_set import UsageError  # noqa: E402
+from datrix_scripts.gate_harness import (  # noqa: E402
+    NamedCheck,
+    UsageError,
+    named_checks,
+    report_step,
+    run_checks,
+    write_file,
+)
 from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 from datrix_scripts.runner_plugin import transient_roots  # noqa: E402
 
@@ -1355,15 +1362,9 @@ def diff_components(recorded: dict[str, object], current: dict[str, object]) -> 
 
 
 # ---------------------------------------------------------------------------
-# Self-test harness -- mirrors affected_set.py's _ok/_fail/_step +
-# run_self_test_checks pattern. Every check builds real git repositories in
-# a temporary directory; nothing is stubbed.
+# Self-test, run through datrix_scripts.gate_harness. Every check builds real
+# git repositories in a temporary directory; nothing is stubbed.
 # ---------------------------------------------------------------------------
-
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_CYAN = "\033[96m"
-_RESET = "\033[0m"
 
 _SELF_TEST_PREFIX = "suite-inputs-selftest-"
 #: Every other self-test fixture lives under the OS temp directory (an
@@ -1394,36 +1395,6 @@ _SELF_TEST_SUBTREE_COUNT = 8
 _GIT_LAUNCHES_PER_REPOSITORY = 3
 _SELF_TEST_DIST_NAME = "suite-inputs-selftest-dist"
 _SELF_TEST_METADATA = "Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n"
-
-
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def _step(msg: str) -> None:
-    print(f"\n{_CYAN}=== {msg}{_RESET}")
-
-
-def run_self_test_checks(checks: list[tuple[str, Callable[[], None]]]) -> bool:
-    """Run every (name, check_fn) pair, printing [OK]/[FAIL] per check.
-
-    Returns:
-        True iff every check passed.
-    """
-    all_passed = True
-    for name, fn in checks:
-        try:
-            fn()
-        except (AssertionError, UsageError) as exc:
-            _fail(f"{name}: {type(exc).__name__}: {exc}")
-            all_passed = False
-        else:
-            _ok(name)
-    return all_passed
 
 
 class _AuditedAccess:
@@ -1501,12 +1472,6 @@ def _git(repo: Path, *args: str) -> str:
     return result.stdout.decode("utf-8", errors="replace")
 
 
-def _write(path: Path, text: str) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return path
-
-
 def _init_repository(directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     _git(directory, "init", "-q")
@@ -1520,8 +1485,8 @@ def _commit_all(repo: Path, message: str) -> None:
 
 def _small_repository(root: Path) -> Path:
     repo = _init_repository(root / "repo")
-    _write(repo / "a.txt", "alpha")
-    _write(repo / "sub" / "b.txt", "beta")
+    write_file(repo / "a.txt", "alpha")
+    write_file(repo / "sub" / "b.txt", "beta")
     _commit_all(repo, "initial")
     return repo
 
@@ -1549,7 +1514,7 @@ def _check_one_modified_file_reads_exactly_that_file() -> None:
     with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as tmp:
         repo = _small_repository(Path(tmp).resolve())
         before = tree_digest(repo)
-        _write(repo / "a.txt", "alphb")
+        write_file(repo / "a.txt", "alphb")
         with _AuditedAccess(repo) as access:
             after = tree_digest(repo)
         assert access.opened == {_normalized(repo / "a.txt")}, (
@@ -1565,9 +1530,9 @@ def _check_untracked_file_in_new_directory_is_digested() -> None:
     with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as tmp:
         repo = _small_repository(Path(tmp).resolve())
         clean = tree_digest(repo)
-        _write(repo / "newdir" / "deep" / "n.txt", "one")
+        write_file(repo / "newdir" / "deep" / "n.txt", "one")
         with_new_file = tree_digest(repo)
-        _write(repo / "newdir" / "deep" / "n.txt", "two")
+        write_file(repo / "newdir" / "deep" / "n.txt", "two")
         edited = tree_digest(repo)
         assert len({clean, with_new_file, edited}) == 3, (
             "an untracked file in a new directory must be digested by content: adding it "
@@ -1580,10 +1545,10 @@ def _check_ignored_file_is_not_part_of_the_tree_digest() -> None:
     tree digest is the tracked state only."""
     with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as tmp:
         repo = _small_repository(Path(tmp).resolve())
-        _write(repo / ".gitignore", "build/\n")
+        write_file(repo / ".gitignore", "build/\n")
         _commit_all(repo, "ignore build")
         before = tree_digest(repo)
-        _write(repo / "build" / "artifact.bin", "generated")
+        write_file(repo / "build" / "artifact.bin", "generated")
         assert tree_digest(repo) == before, "an ignored file must not enter the tree digest"
 
 
@@ -1616,7 +1581,7 @@ def _check_assume_unchanged_file_is_read_from_worktree() -> None:
         repo = _small_repository(Path(tmp).resolve())
         before = tree_digest(repo)
         _git(repo, "update-index", "--assume-unchanged", "a.txt")
-        _write(repo / "a.txt", "alphb")
+        write_file(repo / "a.txt", "alphb")
         assert _status_paths(repo, (_WHOLE_TREE_PATHSPEC,)) == set(), (
             "precondition: git status must not report an assume-unchanged edit"
         )
@@ -1632,14 +1597,14 @@ def _check_runner_output_dir_is_not_an_input() -> None:
     with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as tmp:
         repo = _small_repository(Path(tmp).resolve())
         before = tree_digest(repo)
-        _write(repo / _RUNNER_OUTPUT_DIRNAME / "test-results-20260101-000000" / "index.json", "{}")
+        write_file(repo / _RUNNER_OUTPUT_DIRNAME / "test-results-20260101-000000" / "index.json", "{}")
         assert tree_digest(repo) == before, "the runner output directory must not be an input"
 
 
 def _check_non_repository_tree_raises() -> None:
     with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as tmp:
         plain = Path(tmp).resolve() / "plain"
-        _write(plain / "a.txt", "alpha")
+        write_file(plain / "a.txt", "alpha")
         assert _raises_suite_inputs_error(lambda: tree_digest(plain)), (
             "a tree that is not a git work-tree root must raise"
         )
@@ -1652,8 +1617,8 @@ def _check_foreign_subtree_scope_is_literal() -> None:
     with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as tmp:
         repo = _small_repository(Path(tmp).resolve())
         literal_dir = repo / "weird[1]"
-        _write(literal_dir / "inside.txt", "in")
-        sibling_file = _write(repo / "weird1", "sibling")
+        write_file(literal_dir / "inside.txt", "in")
+        sibling_file = write_file(repo / "weird1", "sibling")
         _commit_all(repo, "wildcard names")
         before = digest_subtree(literal_dir)
         _flip_last_byte(sibling_file)
@@ -1672,17 +1637,17 @@ def _check_scoped_state_matches_git_literal_pathspec() -> None:
     ignored directory, and a path that does not exist."""
     with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as tmp:
         repo = _small_repository(Path(tmp).resolve())
-        _write(repo / ".gitignore", "build/\n")
-        _write(repo / "tests" / "unit" / "a.py", "a")
-        _write(repo / "tests" / "b.py", "b")
-        _write(repo / "tes", "partial-name sibling")
-        _write(repo / "weird[1]" / "inside.txt", "in")
-        _write(repo / "weird1", "sibling")
+        write_file(repo / ".gitignore", "build/\n")
+        write_file(repo / "tests" / "unit" / "a.py", "a")
+        write_file(repo / "tests" / "b.py", "b")
+        write_file(repo / "tes", "partial-name sibling")
+        write_file(repo / "weird[1]" / "inside.txt", "in")
+        write_file(repo / "weird1", "sibling")
         _commit_all(repo, "scope shapes")
-        _write(repo / "tests" / "b.py", "b edited")
-        _write(repo / "tests" / "new" / "c.py", "untracked")
-        _write(repo / "build" / "out.bin", "ignored")
-        _write(repo / _RUNNER_OUTPUT_DIRNAME / "index.json", "{}")
+        write_file(repo / "tests" / "b.py", "b edited")
+        write_file(repo / "tests" / "new" / "c.py", "untracked")
+        write_file(repo / "build" / "out.bin", "ignored")
+        write_file(repo / _RUNNER_OUTPUT_DIRNAME / "index.json", "{}")
         state = _RepositoryRoots().state(repo)
         scopes = (
             "", "tests", "tes", "Tests", "tests/unit", "tests/unit/a.py", "tests/new",
@@ -1718,7 +1683,7 @@ def _check_subtree_digests_read_each_repository_once() -> None:
         repo = _small_repository(Path(tmp).resolve())
         subtrees = [repo / f"d{index}" for index in range(_SELF_TEST_SUBTREE_COUNT)]
         for index, subtree in enumerate(subtrees):
-            _write(subtree / "f.txt", str(index))
+            write_file(subtree / "f.txt", str(index))
         _commit_all(repo, "many subtrees")
         roots = _RepositoryRoots()
         with _AuditedAccess(repo) as access:
@@ -1737,13 +1702,13 @@ def _check_subtree_digests_read_each_repository_once() -> None:
 def _check_vanished_input_is_distinct_from_empty() -> None:
     with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as tmp:
         root = Path(tmp).resolve()
-        empty = _write(root / "empty.txt", "")
+        empty = write_file(root / "empty.txt", "")
         missing = root / "missing.txt"
         listing = digest_file(root)
         assert len({digest_file(empty), digest_file(missing), listing}) == 3, (
             "an empty file, a missing file and a directory must digest differently"
         )
-        _write(root / "another.txt", "x")
+        write_file(root / "another.txt", "x")
         assert digest_file(root) != listing, "a new entry must change a directory's listing digest"
 
 
@@ -1853,19 +1818,19 @@ def _build_fingerprint_workspace(root: Path) -> _FingerprintWorkspace:
     workspace = root / "workspace"
     workspace.mkdir()
     package_dir = affected_set._make_pkg(workspace, "datrix-solo")
-    _write(package_dir / ".gitignore", "build/\n")
-    ignored_input = _write(package_dir / "build" / "cache.txt", "v1")
+    write_file(package_dir / ".gitignore", "build/\n")
+    ignored_input = write_file(package_dir / "build" / "cache.txt", "v1")
     _init_repository(package_dir)
     _commit_all(package_dir, "initial")
     showcase = workspace / "datrix"
     affected_set._write_cross_ecosystem_config(workspace, {})
-    _write(showcase / ".gitignore", ".cache/\n")
-    foreign_file = _write(showcase / "examples" / "one" / "system.dtrx", "service a {}\n")
-    foreign_ignored_file = _write(showcase / "examples" / "one" / ".cache" / "x.bin", "c1")
+    write_file(showcase / ".gitignore", ".cache/\n")
+    foreign_file = write_file(showcase / "examples" / "one" / "system.dtrx", "service a {}\n")
+    foreign_ignored_file = write_file(showcase / "examples" / "one" / ".cache" / "x.bin", "c1")
     _init_repository(showcase)
     _commit_all(showcase, "initial")
-    unowned_file = _write(workspace / "notes" / "draft.md", "draft")
-    executable = _write(root / "bin" / "tool.bin", "v1")
+    unowned_file = write_file(workspace / "notes" / "draft.md", "draft")
+    executable = write_file(root / "bin" / "tool.bin", "v1")
     records: dict[str, list[str]] = {
         _RECORD_OPENED: [
             str(package_dir / "src" / "datrix_solo" / "__init__.py"),
@@ -1906,7 +1871,7 @@ def _check_classify_observed_buckets() -> None:
         # location under the OS temp directory is now transient by
         # definition (see is_transient), like every real workspace.
         fixture = _build_fingerprint_workspace(Path(tmp).resolve())
-        untracked_input = _write(fixture.package_dir / "notes.txt", "untracked")
+        untracked_input = write_file(fixture.package_dir / "notes.txt", "untracked")
         showcase = fixture.workspace / "datrix"
         records = {kind: list(paths) for kind, paths in fixture.records.items()}
         records[_RECORD_OPENED] += [str(untracked_input), str(Path(sys.prefix).resolve() / "pyvenv.cfg")]
@@ -1978,8 +1943,8 @@ def _check_transient_executable_is_not_a_fingerprint_input() -> None:
         fixture = _build_fingerprint_workspace(root)
         cone = package_cone(fixture.workspace, "datrix-solo")
         with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as scratch:
-            temp_executable = _write(Path(scratch).resolve() / "mvnw.cmd", "v1")
-            workspace_scratch_executable = _write(
+            temp_executable = write_file(Path(scratch).resolve() / "mvnw.cmd", "v1")
+            workspace_scratch_executable = write_file(
                 fixture.workspace / ".tmp" / "generated" / "javac.exe", "v1"
             )
             records = {kind: list(paths) for kind, paths in fixture.records.items()}
@@ -2027,7 +1992,7 @@ def _expect_single_reason(recorded: dict[str, object], current: dict[str, object
 
 def _write_selftest_distribution(site: Path, version: str) -> None:
     dist_info = site / f"{_SELF_TEST_DIST_NAME.replace('-', '_')}-1.0.dist-info"
-    _write(dist_info / "METADATA", _SELF_TEST_METADATA.format(name=_SELF_TEST_DIST_NAME, version=version))
+    write_file(dist_info / "METADATA", _SELF_TEST_METADATA.format(name=_SELF_TEST_DIST_NAME, version=version))
 
 
 def _check_each_component_moves_the_fingerprint_and_is_named() -> None:
@@ -2208,16 +2173,16 @@ def _check_installed_digest_drops_only_editable_framework_installs() -> None:
         site = Path(tmp).resolve() / "site"
         editable = site / "datrix_selftest_editable-1.0.dist-info"
         wheel = site / "datrix_selftest_wheel-1.0.dist-info"
-        _write(editable / "METADATA", _SELF_TEST_METADATA.format(name="datrix-selftest-editable", version="1.0"))
-        _write(editable / _DIRECT_URL_FILE, json.dumps({"url": "file:///x", "dir_info": {"editable": True}}))
-        _write(wheel / "METADATA", _SELF_TEST_METADATA.format(name="datrix-selftest-wheel", version="1.0"))
+        write_file(editable / "METADATA", _SELF_TEST_METADATA.format(name="datrix-selftest-editable", version="1.0"))
+        write_file(editable / _DIRECT_URL_FILE, json.dumps({"url": "file:///x", "dir_info": {"editable": True}}))
+        write_file(wheel / "METADATA", _SELF_TEST_METADATA.format(name="datrix-selftest-wheel", version="1.0"))
         baseline = installed_digest(())
         sys.path.insert(0, str(site))
         try:
             with_both = installed_digest(())
-            _write(editable / "METADATA", _SELF_TEST_METADATA.format(name="datrix-selftest-editable", version="1.1"))
+            write_file(editable / "METADATA", _SELF_TEST_METADATA.format(name="datrix-selftest-editable", version="1.1"))
             editable_bumped = installed_digest(())
-            _write(wheel / "METADATA", _SELF_TEST_METADATA.format(name="datrix-selftest-wheel", version="1.1"))
+            write_file(wheel / "METADATA", _SELF_TEST_METADATA.format(name="datrix-selftest-wheel", version="1.1"))
             wheel_bumped = installed_digest(())
         finally:
             sys.path.remove(str(site))
@@ -2234,7 +2199,7 @@ def _check_rejected_git_entry_is_no_repository() -> None:
     with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as tmp:
         fixture = _build_fingerprint_workspace(Path(tmp).resolve())
         (fixture.workspace / _GIT_DIRNAME).mkdir()
-        loose = _write(fixture.workspace / "loose" / "input.txt", "loose")
+        loose = write_file(fixture.workspace / "loose" / "input.txt", "loose")
         assert not _RepositoryRoots().is_root(fixture.workspace), (
             "precondition: git must not confirm a directory whose .git is empty as a work-tree root"
         )
@@ -2267,9 +2232,9 @@ def _build_node_consumer_workspace(root: Path) -> tuple[Path, Path]:
     _init_repository(python_package)
     _commit_all(python_package, "initial")
     client = affected_set._make_node_pkg(workspace, "datrix-client")
-    _write(client / ".gitignore", f"{_NODE_MODULES_DIRNAME}/\n{_NODE_LOCKFILE_NAME}\n")
-    _write(client / _NODE_MODULES_DIRNAME / _NODE_HIDDEN_LOCKFILE_NAME, '{"lockfileVersion": 3}\n')
-    _write(client / _NODE_LOCKFILE_NAME, '{"lockfileVersion": 3}\n')
+    write_file(client / ".gitignore", f"{_NODE_MODULES_DIRNAME}/\n{_NODE_LOCKFILE_NAME}\n")
+    write_file(client / _NODE_MODULES_DIRNAME / _NODE_HIDDEN_LOCKFILE_NAME, '{"lockfileVersion": 3}\n')
+    write_file(client / _NODE_LOCKFILE_NAME, '{"lockfileVersion": 3}\n')
     _init_repository(client)
     _commit_all(client, "initial")
     affected_set._write_cross_ecosystem_config(workspace, {"datrix-client": ["datrix-language"]})
@@ -2309,7 +2274,7 @@ def _check_node_dependency_state_is_an_installed_input() -> None:
         untracked_changed = stamp()
         _expect_single_reason(removed, untracked_changed, _REASON_INSTALLED)
 
-        _write(client / ".gitignore", f"{_NODE_MODULES_DIRNAME}/\n")
+        write_file(client / ".gitignore", f"{_NODE_MODULES_DIRNAME}/\n")
         _commit_all(client, "track the lockfile")
         tracked = stamp()
         _flip_last_byte(lockfile)
@@ -2320,54 +2285,38 @@ def _check_carry_window_is_twenty_four_hours() -> None:
     assert CARRY_WINDOW_SECONDS == 24 * 60 * 60, CARRY_WINDOW_SECONDS
 
 
-_SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
-    ("clean_tree_reads_no_content", _check_clean_tree_reads_no_content),
-    ("one_modified_file_reads_exactly_that_file", _check_one_modified_file_reads_exactly_that_file),
-    ("untracked_file_in_new_directory_is_digested", _check_untracked_file_in_new_directory_is_digested),
-    ("ignored_file_is_not_part_of_the_tree_digest", _check_ignored_file_is_not_part_of_the_tree_digest),
-    ("staged_rename_appears_once_at_new_path", _check_staged_rename_appears_once_at_new_path),
-    ("deleted_file_drops_out", _check_deleted_file_drops_out),
-    ("assume_unchanged_file_is_read_from_worktree", _check_assume_unchanged_file_is_read_from_worktree),
-    ("runner_output_dir_is_not_an_input", _check_runner_output_dir_is_not_an_input),
-    ("non_repository_tree_raises", _check_non_repository_tree_raises),
-    ("foreign_subtree_scope_is_literal", _check_foreign_subtree_scope_is_literal),
-    ("scoped_state_matches_git_literal_pathspec", _check_scoped_state_matches_git_literal_pathspec),
-    ("subtree_digests_read_each_repository_once", _check_subtree_digests_read_each_repository_once),
-    ("vanished_input_is_distinct_from_empty", _check_vanished_input_is_distinct_from_empty),
-    (
-        "invalid_name_observed_input_is_absent_not_an_error",
+_SELF_TEST_CHECKS: list[NamedCheck] = named_checks(
+    [
+        _check_clean_tree_reads_no_content,
+        _check_one_modified_file_reads_exactly_that_file,
+        _check_untracked_file_in_new_directory_is_digested,
+        _check_ignored_file_is_not_part_of_the_tree_digest,
+        _check_staged_rename_appears_once_at_new_path,
+        _check_deleted_file_drops_out,
+        _check_assume_unchanged_file_is_read_from_worktree,
+        _check_runner_output_dir_is_not_an_input,
+        _check_non_repository_tree_raises,
+        _check_foreign_subtree_scope_is_literal,
+        _check_scoped_state_matches_git_literal_pathspec,
+        _check_subtree_digests_read_each_repository_once,
+        _check_vanished_input_is_distinct_from_empty,
         _check_invalid_name_observed_input_is_absent_not_an_error,
-    ),
-    ("package_cone_is_the_dual_of_the_reverse_closure", _check_package_cone_is_the_dual_of_the_reverse_closure),
-    (
-        "node_consumer_cone_includes_cross_ecosystem_dependency",
+        _check_package_cone_is_the_dual_of_the_reverse_closure,
         _check_node_consumer_cone_includes_cross_ecosystem_dependency,
-    ),
-    ("unknown_package_raises", _check_unknown_package_raises),
-    ("classify_observed_buckets", _check_classify_observed_buckets),
-    ("classify_observed_rejects_malformed_records", _check_classify_observed_rejects_malformed_records),
-    (
-        "transient_executable_is_not_a_fingerprint_input",
+        _check_unknown_package_raises,
+        _check_classify_observed_buckets,
+        _check_classify_observed_rejects_malformed_records,
         _check_transient_executable_is_not_a_fingerprint_input,
-    ),
-    (
-        "each_component_moves_the_fingerprint_and_is_named",
         _check_each_component_moves_the_fingerprint_and_is_named,
-    ),
-    (
-        "compute_inputs_reads_no_cone_content_when_clean",
         _check_compute_inputs_reads_no_cone_content_when_clean,
-    ),
-    ("diff_is_complete_and_fails_closed", _check_diff_is_complete_and_fails_closed),
-    ("observed_keys_cannot_leave_the_workspace", _check_observed_keys_cannot_leave_the_workspace),
-    (
-        "installed_digest_drops_only_editable_framework_installs",
+        _check_diff_is_complete_and_fails_closed,
+        _check_observed_keys_cannot_leave_the_workspace,
         _check_installed_digest_drops_only_editable_framework_installs,
-    ),
-    ("rejected_git_entry_is_no_repository", _check_rejected_git_entry_is_no_repository),
-    ("node_dependency_state_is_an_installed_input", _check_node_dependency_state_is_an_installed_input),
-    ("carry_window_is_twenty_four_hours", _check_carry_window_is_twenty_four_hours),
-]
+        _check_rejected_git_entry_is_no_repository,
+        _check_node_dependency_state_is_an_installed_input,
+        _check_carry_window_is_twenty_four_hours,
+    ]
+)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -2387,8 +2336,9 @@ def _parse_args() -> argparse.Namespace:
 def main() -> int:
     """Entry point: run the self-test suite."""
     _parse_args()
-    _step("Self-test: suite-input fingerprint derivation")
-    return _EXIT_OK if run_self_test_checks(_SELF_TEST_CHECKS) else _EXIT_SELFCHECK_FAILED
+    report_step("Self-test: suite-input fingerprint derivation")
+    passed = run_checks(_SELF_TEST_CHECKS, also_failing=(UsageError,))
+    return _EXIT_OK if passed else _EXIT_SELFCHECK_FAILED
 
 
 if __name__ == "__main__":

@@ -40,7 +40,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.framework_repos import workspace_package_dirs
+from datrix_scripts.paths import WORKSPACE_DIR
 
 PENDING_STATUS = "PENDING"
 COMPLETED_STATUS = "COMPLETED"
@@ -674,9 +675,7 @@ def discover_phase_dirs(base_dir: Path, phase: int) -> list[Path]:
     """All '<repo>/.tasks/phase-NN' directories under base_dir (repos = datrix*)."""
     label = format_phase(phase)
     dirs: list[Path] = []
-    for child in sorted(base_dir.iterdir()):
-        if not child.is_dir() or not child.name.startswith("datrix"):
-            continue
+    for child in workspace_package_dirs(base_dir, include_showcase=True):
         phase_dir = child / ".tasks" / f"phase-{label}"
         if phase_dir.is_dir():
             dirs.append(phase_dir)
@@ -864,7 +863,7 @@ def parse_dependencies_md(path: Path) -> DependenciesDoc:
 
 def default_output_path(category: str, file_name: str) -> Path:
     """Stable cross-cutting output location: <workspace>/.tmp/<category>/<name>."""
-    return get_datrix_root() / ".tmp" / category / file_name
+    return WORKSPACE_DIR / ".tmp" / category / file_name
 
 
 def write_json_output(payload: dict[str, object], output_path: Path) -> None:

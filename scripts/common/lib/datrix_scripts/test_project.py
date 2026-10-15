@@ -27,7 +27,9 @@ from datrix_scripts.dev_specs import installable_dev_specs  # noqa: E402
 from datrix_scripts.node_test_runner import run_node_suite  # noqa: E402
 from datrix_scripts.package_suites import SuiteKind, detect_suite_kind  # noqa: E402
 from datrix_scripts.test_runner import TIER_MARKER_EXPRESSIONS, TestConfig, TestRunner, split_tags  # noqa: E402
-from datrix_scripts.venv import get_datrix_root, get_venv_python, is_venv_active  # noqa: E402
+from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
+from datrix_scripts.venv import get_venv_python, is_venv_active  # noqa: E402
 
 # Marker filters that SELECT a marked subset of tests. A suite with no marker
 # concept (a Node suite) has no such subset, and pytest's own convention is that
@@ -95,10 +97,7 @@ def find_project_root(project_name: str, datrix_root: Path) -> Path:
  project_path = datrix_root / project_name
  if not project_path.exists():
   # Get available projects
-  available = sorted([
-   d.name for d in datrix_root.iterdir()
-   if d.is_dir() and d.name.startswith("datrix-")
-  ])
+  available = [d.name for d in workspace_package_dirs(datrix_root)]
   raise FileNotFoundError(
    f"Project '{project_name}' not found at {project_path}\n"
    f"Available projects: {', '.join(available)}"
@@ -469,7 +468,7 @@ Note: This script should be called from test.ps1, which handles virtual environm
 
  # Find Datrix root and project root
  try:
-  datrix_root = get_datrix_root()
+  datrix_root = WORKSPACE_DIR
   project_root = find_project_root(args.project_name, datrix_root)
  except FileNotFoundError as e:
   print(f"ERROR: {e}", file=sys.stderr)

@@ -249,12 +249,7 @@ def publishable_files(repo_path: Path) -> list[str]:
     Ignored paths are excluded: they are never published.
     """
     listing = run_git(repo_path, ["ls-files", "--cached", "--others", "--exclude-standard"])
-    seen: list[str] = []
-    for line in listing.splitlines():
-        path = line.strip()
-        if path and path not in seen:
-            seen.append(path)
-    return seen
+    return list(dict.fromkeys(path for path in (line.strip() for line in listing.splitlines()) if path))
 
 
 def pending_files(repo_path: Path) -> list[str]:

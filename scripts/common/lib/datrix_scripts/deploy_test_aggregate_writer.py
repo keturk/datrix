@@ -252,22 +252,6 @@ class DeployTestAggregateWriter:
 
         return cross_clusters
 
-    def _match_cluster_patterns(
-        self,
-        pattern_a: str,
-        pattern_b: str,
-    ) -> bool:
-        """Check if two cluster patterns match after normalization.
-
-        Args:
-            pattern_a: First normalized pattern.
-            pattern_b: Second normalized pattern.
-
-        Returns:
-            True if patterns are identical (post-normalization matching).
-        """
-        return pattern_a == pattern_b
-
     # --- Output writers ---
 
     def _write_aggregate_index_json(

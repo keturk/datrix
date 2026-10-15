@@ -65,14 +65,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from datrix_scripts.dead_code_report import VULTURE_WHITELIST_FILE
-from datrix_scripts.framework_repos import SHOWCASE_REPO_NAME
+from datrix_scripts.framework_repos import SHOWCASE_REPO_NAME, PackageMarker, workspace_package_dirs
 from datrix_scripts.paths import SHOWCASE_DIR
 
 DATRIX_ROOT = SHOWCASE_DIR
 
 logger = logging.getLogger(__name__)
 
-PACKAGE_PREFIX = "datrix"
 PYPROJECT_FILE = "pyproject.toml"
 PACKAGE_TREES = ("src", "tests")
 SHOWCASE_TREES = ("scripts",)
@@ -128,10 +127,10 @@ def package_roots(workspace_root: Path) -> list[Path]:
     """Every workspace ``datrix*`` directory holding a ``pyproject.toml``."""
     return [
         child
-        for child in sorted(workspace_root.iterdir())
-        if child.is_dir()
-        and child.name.startswith(PACKAGE_PREFIX)
-        and (child / PYPROJECT_FILE).is_file()
+        for child in workspace_package_dirs(
+            workspace_root, any_of=frozenset({PackageMarker.PYPROJECT}), include_showcase=True
+        )
+        if (child / PYPROJECT_FILE).is_file()
     ]
 
 

@@ -6,17 +6,11 @@ Loads and processes test project definitions from test-projects.json.
 
 import json
 import logging
-import sys
 from pathlib import Path
 
-from datrix_scripts.venv import get_datrix_root
+from datrix_common.constants import DATRIX_FILE_EXTENSION
 
-# Add datrix-common to path for DATRIX_FILE_EXTENSION
-_datrix_root = get_datrix_root()
-_datrix_common_src = _datrix_root / "datrix-common" / "src"
-if _datrix_common_src.exists() and str(_datrix_common_src) not in sys.path:
-    sys.path.insert(0, str(_datrix_common_src))
-from datrix_common.constants import DATRIX_FILE_EXTENSION  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +152,7 @@ def load_config() -> dict:
  FileNotFoundError: If the config file doesn't exist
  """
  # Find datrix root
- datrix_root = get_datrix_root()
+ datrix_root = WORKSPACE_DIR
  # Config is in datrix/scripts/config
  config_path = datrix_root / "datrix" / "scripts" / "config" / "test-projects.json"
 
@@ -218,7 +212,7 @@ def get_default_output_path(
  output_relative = build_output_path(
   source_path, resolved_language, f"{resolved_runtime}/{provider}"
  )
- datrix_root = get_datrix_root()
+ datrix_root = WORKSPACE_DIR
  return datrix_root / ".generated" / output_relative
 
 
@@ -273,7 +267,7 @@ def get_test_projects(
  projects = []
 
  # Find datrix root
- datrix_root = get_datrix_root()
+ datrix_root = WORKSPACE_DIR
 
  for project_name in project_names:
   if project_name not in all_projects_dict:

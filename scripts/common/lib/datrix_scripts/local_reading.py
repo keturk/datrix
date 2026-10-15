@@ -46,8 +46,9 @@ from datrix_scripts.customer_domain_isolation import (
 from datrix_scripts.framework_repos import framework_repos
 from datrix_scripts.local_llm import ChatRequest, LocalLlmPool
 
-# Workspace folders outside the repositories that hold framework test output.
-WORKSPACE_OUTPUT_DIRS: tuple[str, ...] = (".test-output",)
+# Workspace folders outside the repositories that hold framework test and generation logs
+# (``.generated/.results`` holds generate.ps1's logs, never a generated tree).
+WORKSPACE_OUTPUT_DIRS: tuple[str, ...] = (".test-output", ".generated/.results")
 GIT_DIR_NAME = ".git"
 # The repository that holds the customer-term corpus (``scripts/config/customer-term-hashes.json``).
 SHOWCASE_REPO = "datrix"
@@ -162,10 +163,16 @@ class LocalAnswer:
 class ReadScope:
     """What the tools may read in one workspace, and the files a request names."""
 
-    def __init__(self, workspace: Path) -> None:
+    def __init__(self, workspace: Path, *, extra_roots: tuple[Path, ...] = ()) -> None:
+        """``extra_roots``: further directories a caller reads (a project's source and its
+        generated tree); every line read from them is checked against the customer-term corpus
+        exactly as a line from a framework repository is."""
         self.workspace = workspace.resolve()
-        self.roots = tuple(repo.resolve() for repo in framework_repos(self.workspace)) + tuple(
-            (self.workspace / name).resolve() for name in WORKSPACE_OUTPUT_DIRS)
+        self.roots = (
+            tuple(repo.resolve() for repo in framework_repos(self.workspace))
+            + tuple((self.workspace / name).resolve() for name in WORKSPACE_OUTPUT_DIRS)
+            + tuple(root.resolve() for root in extra_roots)
+        )
         self._term_corpus: TermCorpus | None = None
 
     def term_corpus(self) -> TermCorpus:
@@ -216,7 +223,9 @@ class ReadScope:
         return [path]
 
     def label(self, path: Path) -> str:
-        return path.relative_to(self.workspace).as_posix()
+        """Workspace-relative for a file in the workspace; absolute for one under an extra root."""
+        return path.relative_to(self.workspace).as_posix() if path.is_relative_to(self.workspace) \
+            else path.as_posix()
 
 
 def read_section(scope: ReadScope, path: Path) -> Section:

@@ -303,31 +303,6 @@ def detect_indent(source: str) -> str:
     return ""
 
 
-def normalize_indentation(code: str, target_indent: str) -> str:
-    """Re-indent code block to match target indentation."""
-    lines = code.splitlines(keepends=True)
-    if not lines:
-        return code
-    # Detect current base indentation from first non-empty line
-    current_indent = ""
-    for line in lines:
-        stripped = line.lstrip()
-        if stripped:
-            current_indent = line[: len(line) - len(stripped)]
-            break
-    if current_indent == target_indent:
-        return code
-    result: list[str] = []
-    for line in lines:
-        if not line.strip():
-            result.append(line)
-        elif line.startswith(current_indent):
-            result.append(target_indent + line[len(current_indent):])
-        else:
-            result.append(line)
-    return "".join(result)
-
-
 # --- Retry ---
 
 

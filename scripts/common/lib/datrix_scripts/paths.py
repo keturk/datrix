@@ -8,7 +8,7 @@ silently resolves to the wrong directory. This module's own position is fixed --
 Python run by a wrapper lives in the ``lib/`` folder beside that wrapper
 (``scripts/<folder>/lib/`` or ``scripts/gates/<family>/lib/``); code imported from more than
 one folder lives in this package, which wrappers put on ``PYTHONPATH``
-(``Set-DatrixPythonPath`` in ``common/DatrixScriptCommon.psm1``).
+(``Set-DatrixPythonPath`` in ``common/venv.ps1``).
 """
 
 from __future__ import annotations
@@ -25,6 +25,18 @@ SHOWCASE_DIR: Final[Path] = SCRIPTS_DIR.parent
 WORKSPACE_DIR: Final[Path] = SHOWCASE_DIR.parent
 
 LIB_DIR_NAME: Final[str] = "lib"
+TMP_DIR: Final[Path] = WORKSPACE_DIR / ".tmp"
+
+
+def resolve_output_path(raw: str | None, *subdirs: str, filename: str) -> Path:
+    """Where a script writes its result file, with the parent directory created.
+
+    ``raw`` (an ``--output`` value) resolved when given; otherwise
+    ``<workspace>/.tmp/<subdirs...>/<filename>``, outside every repository.
+    """
+    output_path = Path(raw).resolve() if raw else TMP_DIR.joinpath(*subdirs, filename)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    return output_path
 
 
 def lib_script(folder: str, file_name: str) -> Path:

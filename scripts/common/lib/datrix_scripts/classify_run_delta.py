@@ -38,6 +38,8 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
+from datrix_scripts.gate_harness import UsageError, run_main  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = 1
@@ -45,17 +47,11 @@ _OUTPUT_FILENAME = "run-delta.json"
 _INDEX_JSON_NAME = "index.json"
 _EXIT_SUCCESS = 0
 _EXIT_NOT_SUCCESS = 1
-_EXIT_USAGE = 2
 
 _VERDICT_SUCCESS = "SUCCESS"
 _VERDICT_PARTIAL = "PARTIAL"
 _VERDICT_NO_CHANGE = "NO_CHANGE"
 _VERDICT_REGRESSION = "REGRESSION"
-
-
-class UsageError(Exception):
-    """Invalid usage or missing input; the script exits with code 2."""
-
 
 # ---------------------------------------------------------------------------
 # Schema accessors (fail loud on unexpected shapes)
@@ -275,14 +271,6 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _configure_logging(debug: bool) -> None:
-    logging.basicConfig(
-        level=logging.DEBUG if debug else logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
-        stream=sys.stderr,
-    )
-
-
 def _resolve_inputs(args: argparse.Namespace) -> tuple[str, str]:
     """Resolve --previous/--current vs the two-positional form."""
     if args.paths:
@@ -402,13 +390,7 @@ def _run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     """Entry point."""
-    args = _parse_args()
-    _configure_logging(args.debug)
-    try:
-        return _run(args)
-    except UsageError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return _EXIT_USAGE
+    return run_main(_parse_args, _run)
 
 
 if __name__ == "__main__":

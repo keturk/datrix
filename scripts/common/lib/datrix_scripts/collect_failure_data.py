@@ -76,7 +76,9 @@ from datrix_scripts.package_suites import (  # noqa: E402
     detect_suite_kind,
 )
 from datrix_scripts.status_tests import parse_timestamp_from_log_file  # noqa: E402
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
+from datrix_scripts.gate_harness import EXIT_VIOLATION, UsageError, run_main  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +90,6 @@ _FULL_LOG_NAME = "full.log"
 _RUN_DIR_PREFIX = "test-results-"
 _DEFAULT_MAX_LOG_LINES = 60
 _EXIT_OK = 0
-_EXIT_USAGE = 2
 
 # An error message is also written whole to the entry's log_file, so the bundle
 # carries only its head. One semantic-baseline assertion once put 36 KB -- a
@@ -149,10 +150,6 @@ _CLUSTER_KINDS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
         ),
     ),
 )
-
-
-class UsageError(Exception):
-    """Invalid usage or missing input; the script exits with code 2."""
 
 
 @dataclass(frozen=True)
@@ -259,11 +256,7 @@ def _resolve_run_dir_from_project(workspace: Path, project: str) -> Path:
     """Locate the newest test-results-* run dir with an index.json for a project."""
     project_dir = workspace / project
     if not project_dir.is_dir():
-        available = sorted(
-            item.name
-            for item in workspace.iterdir()
-            if item.is_dir() and item.name.startswith("datrix-")
-        )
+        available = [item.name for item in workspace_package_dirs(workspace)]
         raise UsageError(
             f"Project '{project}' not found at {project_dir}. "
             f"Available projects: {', '.join(available)}."
@@ -1160,7 +1153,7 @@ def _check_hints_without_a_server() -> list[str]:
     settings = LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=1000, ollama_port=closed_port())
     families = _group_families([_self_test_cluster(n, "failure", f"p{n}", "tail") for n in (1, 2)])
     # The real workspace: its customer-term corpus lets the hint reach the (absent) server.
-    ctx = _RunContext(run_dir=Path("."), workspace=get_datrix_root(), project="p", max_log_lines=1)
+    ctx = _RunContext(run_dir=Path("."), workspace=WORKSPACE_DIR, project="p", max_log_lines=1)
     status = _attach_hints(families, ctx, settings, limit=1)
     problems: list[str] = []
     if "unavailable" not in status:
@@ -1222,7 +1215,7 @@ def _run_self_test() -> int:
 
     Returns:
         `_EXIT_OK` when every shape parses and yields the expected clusters,
-        `_EXIT_USAGE` when any shape fails (including the deliberate
+        `EXIT_VIOLATION` when any shape fails (including the deliberate
         unknown-spelling case, which MUST be rejected).
     """
     import tempfile
@@ -1285,7 +1278,7 @@ def _run_self_test() -> int:
 
     if failures:
         print(f"SELF-TEST FAILED: {failures} case(s)")
-        return _EXIT_USAGE
+        return EXIT_VIOLATION
     total_cases = (
         len(_SELF_TEST_INDEXES) + len(_SELF_TEST_COMMAND_CASES) + len(_SELF_TEST_BUNDLE_CHECKS) + 2
     )
@@ -1334,14 +1327,6 @@ def _parse_args() -> argparse.Namespace:
     if args.llm_hint_limit < 0:
         parser.error(f"--llm-hint-limit must be 0 or more, got {args.llm_hint_limit}; 0 writes no hints.")
     return args
-
-
-def _configure_logging(debug: bool) -> None:
-    logging.basicConfig(
-        level=logging.DEBUG if debug else logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
-        stream=sys.stderr,
-    )
 
 
 @dataclass(frozen=True)
@@ -1436,7 +1421,7 @@ def _run(args: argparse.Namespace) -> int:
             "Provide exactly one input: either a positional PATH (run directory or "
             "index.json) or --project <name>."
         )
-    workspace = get_datrix_root()
+    workspace = WORKSPACE_DIR
     if args.project:
         run_dir = _resolve_run_dir_from_project(workspace, args.project)
     else:
@@ -1455,13 +1440,7 @@ def _run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     """Entry point."""
-    args = _parse_args()
-    _configure_logging(args.debug)
-    try:
-        return _run(args)
-    except UsageError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return _EXIT_USAGE
+    return run_main(_parse_args, _run)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from datrix_scripts import package_suites as _package_suites
 from datrix_scripts import structured_log_writer as _structured_log
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -798,7 +798,7 @@ def main():
  """Main entry point."""
  # Find workspace root
  try:
-  root_dir = get_datrix_root()
+  root_dir = WORKSPACE_DIR
  except FileNotFoundError:
   print("ERROR: Could not find Datrix root directory", file=sys.stderr)
   sys.exit(1)

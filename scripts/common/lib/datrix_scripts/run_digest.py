@@ -64,7 +64,8 @@ from datrix_scripts.local_reading import (  # noqa: E402
     load_workspace_term_corpus,
     withhold_customer_lines,
 )
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.gate_harness import UsageError  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 DIGEST_FILENAME: Final = "digest.txt"
 CALLER: Final = "test-digest"
@@ -260,7 +261,7 @@ def _change_line(run_dir: Path, index: dict[str, object]) -> tuple[str, set[str]
         return "No earlier run of this package with the same test selection to compare with.", set(), set()
     try:
         delta = classify_run_delta.classify_delta(previous, run_dir)
-    except classify_run_delta.UsageError as exc:
+    except UsageError as exc:
         return f"No comparison with {previous.name}: {_one_line(str(exc), _MAX_REASON_CHARS)}", set(), set()
     new_patterns = _patterns(delta.payload["new_clusters"])
     persisting = _patterns(delta.payload["persisting_clusters"])
@@ -383,7 +384,7 @@ def write_digest(run_dir: Path, workspace: Path, settings: LocalLlmSettings) -> 
     try:
         data = collect_failure_data.write_failure_data(run_dir, workspace, settings=settings,
                                                        report=_discard_report)
-    except collect_failure_data.UsageError as exc:
+    except UsageError as exc:
         raise DigestError(str(exc)) from exc
     change, new_patterns, persisting = _change_line(run_dir, index)
     reading = _reading(str(data.payload["project"]), _groups(data.payload), settings, workspace)
@@ -608,8 +609,8 @@ def main() -> int:
         return _EXIT_USAGE
     try:
         run_dir = collect_failure_data.resolve_run_dir_from_path(args.path)
-        digest = write_digest(run_dir, get_datrix_root(), digest_settings(args))
-    except (collect_failure_data.UsageError, DigestError) as exc:
+        digest = write_digest(run_dir, WORKSPACE_DIR, digest_settings(args))
+    except (UsageError, DigestError) as exc:
         print(f"ERROR: no failure digest: {exc}", file=sys.stderr)
         return _EXIT_USAGE
     print(digest.text, end="")

@@ -43,7 +43,7 @@ from pathlib import Path
 from typing import Final
 
 from datrix_scripts import suite_inputs
-from datrix_scripts.affected_set import UsageError
+from datrix_scripts.gate_harness import UsageError
 
 logger = logging.getLogger(__name__)
 

@@ -160,6 +160,8 @@ class LoopbackOllama(LoopbackJsonServer):
     ) -> None:
         self.chats: list[Chat] = []
         self.loads: list[str] = []
+        # The body of every /api/generate request (a load, a renewal or an unload), in order.
+        self.generate_bodies: list[dict[str, object]] = []
         self._answer = answer
         self._models = models
         self._failing = failing
@@ -188,6 +190,7 @@ class LoopbackOllama(LoopbackJsonServer):
             return HTTP_OK, {"models": [self._resident_entry(m) for m in self._models]}
         if method == "POST" and path == "/api/generate" and body is not None:
             self.loads.append(str(body["model"]))
+            self.generate_bodies.append(body)
             return HTTP_OK, {"model": body["model"], "done": True}
         if method == "POST" and path == "/api/chat" and body is not None:
             return self._respond_to_chat(_chat(body))

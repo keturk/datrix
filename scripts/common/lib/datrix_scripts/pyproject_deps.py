@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
+
 try:
     import tomllib
 except ImportError:
@@ -48,15 +50,13 @@ def read_project_dependencies(pyproject_path: Path) -> list[str]:
 
 def discover_packages(workspace_root: Path) -> dict[str, Path]:
     """Map of package name -> project root for each datrix-* dir with a pyproject.toml."""
-    result: dict[str, Path] = {}
     if not workspace_root.is_dir():
-        return result
-    for child in workspace_root.iterdir():
-        if not child.is_dir() or not child.name.startswith(DATRIX_PREFIX):
-            continue
-        if (child / "pyproject.toml").is_file():
-            result[child.name] = child
-    return dict(sorted(result.items()))
+        return {}
+    return {
+        child.name: child
+        for child in workspace_package_dirs(workspace_root, any_of=frozenset({PackageMarker.PYPROJECT}))
+        if (child / PackageMarker.PYPROJECT.value).is_file()
+    }
 
 
 def third_party_dependencies(packages: dict[str, Path]) -> dict[str, list[tuple[str, str]]]:

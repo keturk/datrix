@@ -21,7 +21,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from datrix_scripts.capped_log import append_line, read_lines
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 USAGE_DIR_NAME = ".local-llm"
 USAGE_LOG_NAME = "usage.jsonl"
@@ -39,13 +39,16 @@ CHARS_PER_TOKEN = 4
 # Points the log somewhere else. Gates and hook tests set it to a temporary file so the requests
 # their own loopback servers answer never count as real use of the machines.
 USAGE_LOG_VARIABLE = "DATRIX_LOCAL_LLM_USAGE_LOG"
+# The (variable, file name) a gate hands ``gate_harness.check_list_main`` so its run logs into a
+# temporary directory.
+GATE_USAGE_LOG = (USAGE_LOG_VARIABLE, USAGE_LOG_NAME)
 
 
 def default_usage_log() -> Path:
     override = os.environ.get(USAGE_LOG_VARIABLE, "")
     if override:
         return Path(override)
-    return get_datrix_root() / USAGE_DIR_NAME / USAGE_LOG_NAME
+    return WORKSPACE_DIR / USAGE_DIR_NAME / USAGE_LOG_NAME
 
 
 def invoking_script() -> str:

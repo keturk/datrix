@@ -75,7 +75,7 @@ from datrix_scripts.suite_stamp import (
     prepare_full_run_stamp,
     selection_for,
 )
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -727,7 +727,7 @@ def run_node_suite(
         stamp = prepare_full_run_stamp(
             selection,
             run_dir if save_log else None,
-            get_datrix_root(),
+            WORKSPACE_DIR,
             project_name,
             tee.write_warning,
         )

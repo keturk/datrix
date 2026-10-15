@@ -56,7 +56,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -510,6 +510,85 @@ def ready_candidate(candidate: LocalCandidate, settings: LocalLlmSettings) -> No
         settings.load_timeout_ms,
         host.model,
     )
+
+
+# The keep_alive value that tells Ollama to unload a model now.
+OLLAMA_KEEP_ALIVE_UNLOAD = 0
+
+
+def is_pinned(resident_until: datetime | None, now: datetime) -> bool:
+    """Whether Ollama holds a model indefinitely (an expiry past the indefinite-residency horizon)."""
+    return resident_until is not None and resident_until - now > OLLAMA_INDEFINITE_RESIDENCY_HORIZON
+
+
+def _preferred_candidate(survey: ServerSurvey) -> LocalCandidate | None:
+    """The first ``OLLAMA_LOAD_PREFERENCE`` model the server has installed, or None when it has none."""
+    by_model = {candidate.host.model: candidate for candidate in survey.candidates}
+    for model in _wanted(OLLAMA_LOAD_PREFERENCE):
+        if model in by_model:
+            return by_model[model]
+    return None
+
+
+def _pin_machine(machine: str, settings: LocalLlmSettings) -> str:
+    base_url = ollama_base_url(machine, settings)
+    try:
+        survey = survey_ollama(base_url, replace(settings, models=OLLAMA_LOAD_PREFERENCE))
+    except (OSError, ValueError) as exc:
+        return f"{machine}: not pinned: no Ollama server answers at {base_url} ({exc})"
+    preferred = _preferred_candidate(survey)
+    if preferred is None:
+        return (f"{machine}: not pinned: none of {', '.join(OLLAMA_LOAD_PREFERENCE)} is installed "
+                f"(install one with 'ollama pull <model>' on that machine)")
+    # A candidate with no residency is sent the settings' keep_alive as-is, never what is left of a
+    # finite residency (ollama_keep_alive), so a model already loaded for a while is pinned too.
+    unpinned = LocalCandidate(preferred.host, preferred.thinking, resident=False)
+    try:
+        ready_candidate(unpinned, replace(settings, keep_alive_seconds=OLLAMA_KEEP_ALIVE_INDEFINITE))
+    except LocalLlmError as exc:
+        return f"{machine}: not pinned: loading {preferred.host.model} failed: {exc}"
+    return f"{machine}: pinned {preferred.host.model}"
+
+
+def pin_models(settings: LocalLlmSettings) -> list[str]:
+    """Keep the first preferred installed model resident indefinitely on every reachable machine.
+
+    Returns one line per machine: what was pinned, or why nothing was. Later requests keep the
+    pin, since ``ollama_keep_alive`` never shortens an indefinite residency.
+    """
+    return [_pin_machine(machine, settings) for machine in settings.machines]
+
+
+def _unpin_machine(machine: str, settings: LocalLlmSettings, now: datetime) -> str:
+    base_url = ollama_base_url(machine, settings)
+    try:
+        loaded = loaded_ollama_models(_fetch_json(f"{base_url}/api/ps", settings.reachable_timeout_ms))
+    except (OSError, ValueError) as exc:
+        return f"{machine}: nothing released: no Ollama server answers at {base_url} ({exc})"
+    pinned = sorted(model for model, expiry in loaded.items() if is_pinned(expiry, now))
+    if not pinned:
+        return f"{machine}: nothing pinned"
+    released: list[str] = []
+    for model in pinned:
+        try:
+            _post_json(f"{base_url}/api/generate", {"model": model, "keep_alive": OLLAMA_KEEP_ALIVE_UNLOAD},
+                       settings.load_timeout_ms, model)
+        except LocalLlmError as exc:
+            return f"{machine}: released {', '.join(released) or 'nothing'}; releasing {model} failed: {exc}"
+        released.append(model)
+    return f"{machine}: released {', '.join(released)}"
+
+
+def unpin_models(settings: LocalLlmSettings, now: datetime) -> list[str]:
+    """Unload every indefinitely resident model on every reachable machine; one line per machine."""
+    return [_unpin_machine(machine, settings, now) for machine in settings.machines]
+
+
+def unpinned_machine_lines(settings: LocalLlmSettings, candidates: list[LocalCandidate], now: datetime) -> list[str]:
+    """One line per searched machine holding no indefinitely resident model."""
+    pinned_urls = {c.host.base_url for c in candidates if is_pinned(c.resident_until, now)}
+    return [f"{machine}: no model pinned (local-llm.ps1 -Pin keeps one resident)"
+            for machine in settings.machines if ollama_base_url(machine, settings) not in pinned_urls]
 
 
 def _report_to_stderr(line: str) -> None:

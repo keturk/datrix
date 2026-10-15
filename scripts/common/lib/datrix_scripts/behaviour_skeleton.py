@@ -130,6 +130,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Final
 
+from datrix_scripts.gate_harness import report_condition
+
 logger = logging.getLogger(__name__)
 
 EXIT_OK: Final[int] = 0
@@ -1772,12 +1774,6 @@ def model_attribute_names(fn: FunctionSource) -> frozenset[str]:
 # ---------------------------------------------------------------------------
 
 
-def _assert(condition: bool, label: str) -> bool:
-    """Print [OK]/[FAIL] for one self-test assertion and return it."""
-    print(f"[OK] {label}" if condition else f"[FAIL] {label}")
-    return condition
-
-
 def _function_source_from_code(code: str, package: str = "self_test") -> FunctionSource:
     """Build a ``FunctionSource`` for the first top-level function in *code*
     -- self-test only, never loads a real plugin or package."""
@@ -2000,7 +1996,7 @@ def _run_skeleton_equality_checks() -> bool:
     ok = True
     variant_a = _function_source_from_code(_VARIANT_A_CODE)
     variant_b = _function_source_from_code(_VARIANT_B_CODE)
-    ok &= _assert(
+    ok &= report_condition(
         behaviour_skeleton(variant_a) == behaviour_skeleton(variant_b),
         "(1) rendering-only variants (names, docstrings) produce equal skeletons",
     )
@@ -2016,7 +2012,7 @@ def _run_skeleton_equality_checks() -> bool:
             return None
         '''
     )
-    ok &= _assert(
+    ok &= report_condition(
         behaviour_skeleton(variant_a) != behaviour_skeleton(variant_added_raise),
         "(2) an added fail-closed raise changes the skeleton",
     )
@@ -2031,7 +2027,7 @@ def _run_skeleton_equality_checks() -> bool:
             return None
         '''
     )
-    ok &= _assert(
+    ok &= report_condition(
         behaviour_skeleton(variant_a) != behaviour_skeleton(variant_added_model_read),
         "(3) an added model-rooted assignment changes the skeleton",
     )
@@ -2048,7 +2044,7 @@ def _run_adapter_checks() -> bool:
             return build_entity_context(entity, language_id)
         """
     )
-    ok &= _assert(is_pre_binding_adapter(adapter), "(4) single-return shared-call adapter recognized")
+    ok &= report_condition(is_pre_binding_adapter(adapter), "(4) single-return shared-call adapter recognized")
 
     nested_call = _function_source_from_code(
         """
@@ -2058,7 +2054,7 @@ def _run_adapter_checks() -> bool:
             return build_entity_context(resolve_extra(entity), language_id)
         """
     )
-    ok &= _assert(not is_pre_binding_adapter(nested_call), "(5) a nested call in an argument is not an adapter")
+    ok &= report_condition(not is_pre_binding_adapter(nested_call), "(5) a nested call in an argument is not an adapter")
 
     private_callee = _function_source_from_code(
         """
@@ -2068,7 +2064,7 @@ def _run_adapter_checks() -> bool:
             return build_entity_context_python(entity, language_id)
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         not is_pre_binding_adapter(private_callee),
         "(6) a callee not resolving to the shared codegen layer is not an adapter",
     )
@@ -2081,7 +2077,7 @@ def _run_adapter_checks() -> bool:
             return build_sub_generator_specs(language_id, migration_micro_cls=micro_cls)
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         is_pre_binding_adapter(kernel_callee),
         "(6a) a callee resolving to datrix_codegen_kernel is a shared-layer adapter",
     )
@@ -2093,7 +2089,7 @@ def _run_adapter_checks() -> bool:
             return build_profile(language_id)
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         not is_pre_binding_adapter(core_callee),
         "(6b) a callee in a language core package is not a shared-layer adapter",
     )
@@ -2106,7 +2102,7 @@ def _run_adapter_checks() -> bool:
             return spec
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         behaviour_arity(kernel_param) == 2 and plumbing_parameter_names(kernel_param) == frozenset({"own"}),
         "(6c) a kernel-typed parameter is shared, a language-package-typed one is plumbing",
     )
@@ -2128,7 +2124,7 @@ def _run_source_and_import_checks() -> bool:
         )
     )
     tc_table = build_import_table(type_checking_module, "self_test")
-    ok &= _assert(
+    ok &= report_condition(
         "build_entity_context" in tc_table
         and tc_table["build_entity_context"] == "datrix_codegen_common.algorithms.entity.build_entity_context",
         "(7) an import guarded by TYPE_CHECKING resolves in the import table",
@@ -2143,7 +2139,7 @@ def _run_source_and_import_checks() -> bool:
             fail_closed = False
         except SkeletonError as exc:
             fail_closed = str(broken_file) in str(exc)
-        ok &= _assert(fail_closed, "(8) an unparseable file raises SkeletonError naming the file")
+        ok &= report_condition(fail_closed, "(8) an unparseable file raises SkeletonError naming the file")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
     return ok
@@ -2154,7 +2150,7 @@ def _run_extended_skeleton_checks() -> bool:
     variant_a = _function_source_from_code(_VARIANT_A_CODE)
     variant_b = _function_source_from_code(_VARIANT_B_CODE)
     variant_rendered = _function_source_from_code(_VARIANT_RENDERED_CODE)
-    ok &= _assert(
+    ok &= report_condition(
         behaviour_skeleton(variant_a) == behaviour_skeleton(variant_rendered),
         "(9) annotations, a decorator, a string literal and an f-string leave the skeleton equal",
     )
@@ -2179,21 +2175,21 @@ def _run_extended_skeleton_checks() -> bool:
             return None
         '''
     )
-    ok &= _assert(
+    ok &= report_condition(
         behaviour_skeleton(variant_a) != behaviour_skeleton(variant_other_predicate)
         and behaviour_skeleton(variant_a) != behaviour_skeleton(variant_added_branch),
         "(10) a different predicate or an added else-branch changes the skeleton",
     )
 
     skeleton_texts = "\n".join(behaviour_skeleton(fn) for fn in (variant_a, variant_b, variant_rendered))
-    ok &= _assert(
+    ok &= report_condition(
         not any(token in skeleton_texts for token in _RENDERING_TOKENS_THAT_MUST_NOT_LEAK),
         "(11) no docstring, parameter name, function name, annotation, decorator or literal leaks into a skeleton",
     )
 
     self_rooted = _skeleton_of("def f(self, entity):\n    return self.name\n")
     param_rooted = _skeleton_of("def f(self, entity):\n    return entity.name\n")
-    ok &= _assert(
+    ok &= report_condition(
         self_rooted == "return self.name" and param_rooted == "return P.name" and self_rooted != param_rooted,
         "(12) a self-rooted chain renders literally and stays distinct from a parameter-rooted one",
     )
@@ -2228,7 +2224,7 @@ def _run_extended_skeleton_checks() -> bool:
                     raise TypeMappingError("Map collections are not supported here")
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         match_a != match_b and match_a == match_a_renamed,
         "(13) match arms are behaviour: a differing arm body changes the skeleton, renaming does not",
     )
@@ -2236,7 +2232,7 @@ def _run_extended_skeleton_checks() -> bool:
     dict_a = _skeleton_of('def ctx(entity):\n    return {"name": entity.name}\n')
     dict_b = _skeleton_of('def ctx(entity):\n    return {"name": entity.name, "table": entity.table}\n')
     dict_a_relabelled = _skeleton_of('def ctx(e):\n    return {"label": e.name}\n')
-    ok &= _assert(
+    ok &= report_condition(
         dict_a != dict_b and dict_a == dict_a_relabelled,
         "(14) a model read inside a returned container changes the skeleton; its key labels do not",
     )
@@ -2263,7 +2259,7 @@ def _run_extended_adapter_checks() -> bool:
             )
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         not is_pre_binding_adapter(model_piece_forwarded) and is_pre_binding_adapter(own_state_forwarded),
         "(15) forwarding a piece of a parameter denies the exemption; own state, constants and spreads do not",
     )
@@ -2277,7 +2273,7 @@ def _run_extended_adapter_checks() -> bool:
             return await shared_entity.build_entity_context(entity, language_id=language_id)
         '''
     )
-    ok &= _assert(
+    ok &= report_condition(
         is_pre_binding_adapter(async_module_alias),
         "(16) an async adapter awaiting an aliased shared-module attribute call is recognized",
     )
@@ -2299,7 +2295,7 @@ def _run_extended_adapter_checks() -> bool:
             return context
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         not is_pre_binding_adapter(shadowed_callee) and not is_pre_binding_adapter(two_statements),
         "(17) a parameter shadowing the shared import, or a second statement, denies the exemption",
     )
@@ -2321,7 +2317,7 @@ def _run_extended_source_checks() -> bool:
         )
     )
     relative_table = build_import_table(relative_module, "root.pkg")
-    ok &= _assert(
+    ok &= report_condition(
         relative_table
         == {
             "sibling": "root.pkg.sibling",
@@ -2363,7 +2359,7 @@ def _run_extended_source_checks() -> bool:
             return name
         '''
     )
-    ok &= _assert(
+    ok &= report_condition(
         normalized_source(docstring_only_a) == normalized_source(docstring_only_b)
         and normalized_source(docstring_only_a) != normalized_source(body_differs)
         and "docstring" not in normalized_source(docstring_only_a),
@@ -2392,7 +2388,7 @@ def _run_derived_root_checks() -> bool:
             return None
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         loop_required != loop_unique
         and loop_required == "for P.fields\nif P.fields[*].required\nreturn P.fields[*]\nendif\nendfor\nreturn None",
         "(21) a predicate on a loop variable bound from a model collection is behaviour, spelled <iterable>[*]",
@@ -2423,7 +2419,7 @@ def _run_derived_root_checks() -> bool:
             return 0
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         alias == inline and alias != other_read,
         "(22) a once-bound local alias of a model chain is a rename: it preserves the behaviour and adds no line",
     )
@@ -2448,7 +2444,7 @@ def _run_derived_root_checks() -> bool:
             return 0
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         twice_bound == twice_bound_other_use and "\nif _\n" in twice_bound,
         "(23) a name bound twice stays a plain local: variants differing only after the second binding compare equal",
     )
@@ -2471,7 +2467,7 @@ def _run_derived_root_checks() -> bool:
             return None
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         unpack_root != unpack_leaf
         and unpack_root
         == (
@@ -2499,7 +2495,7 @@ def _run_derived_root_checks() -> bool:
                     raise ValueError("dup")
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         chained == chained_inline
         and chained
         == (
@@ -2524,7 +2520,7 @@ def _run_derived_root_checks() -> bool:
                     return other
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         captures
         == (
             "with P.lock\nif P.lock.contended\nraise\nendif\nendwith\nmatch P.kind\n"
@@ -2562,14 +2558,14 @@ def _run_arity_checks() -> bool:
     unannotated = _function_source_from_code(
         "def emit_break_statement(scope):\n    return scope\n"
     )
-    ok &= _assert(
+    ok &= report_condition(
         plumbing_parameter_names(private_annotated) == frozenset({"scope"})
         and plumbing_parameter_names(shared_annotated) == frozenset()
         and plumbing_parameter_names(unannotated) == frozenset(),
         "(27) plumbing_parameter_names names a private-annotated parameter; a shared-annotated or "
         "unannotated one names none",
     )
-    ok &= _assert(
+    ok &= report_condition(
         behaviour_arity(shared_annotated) == 1
         and behaviour_arity(shared_annotated, extra_plumbing=frozenset({"scope"})) == 0,
         "(28) behaviour_arity(fn, extra_plumbing=...) drops a role-plumbing name even on a shared-annotated member",
@@ -2603,7 +2599,7 @@ def _run_rendering_leaf_privacy_checks() -> bool:
             return f"import {module}.{helper}"
         """
     )
-    return _assert(
+    return report_condition(
         is_rendering_leaf(private_leaf) and not is_rendering_leaf(shared_not_leaf),
         "(29) is_rendering_leaf exempts a private-typed parameter's attribute reads, and a "
         "derived root sourced only from them, from the piece-read rule; the same shape over "
@@ -2638,11 +2634,11 @@ def _run_shape_checks() -> bool:
     ``self``-rooted read and a plain local's."""
     ok = True
     sweep_shape = skeleton_shape(behaviour_skeleton(_sweep_function_source("sweep")))
-    ok &= _assert(
+    ok &= report_condition(
         set(sweep_shape) <= SKELETON_LINE_HEADS | {EXPRESSION_LINE_HEAD},
         "(30) the grammar sweep's shape carries only declared heads or the expression fallback",
     )
-    ok &= _assert(
+    ok &= report_condition(
         SKELETON_LINE_HEADS <= set(sweep_shape),
         "(31) every declared skeleton-line head appears in the grammar sweep's own shape",
     )
@@ -2662,7 +2658,7 @@ def _run_shape_checks() -> bool:
             return None
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         skeleton_shape(behaviour_skeleton(predicate_a)) == skeleton_shape(behaviour_skeleton(predicate_b))
         and behaviour_skeleton(predicate_a) != behaviour_skeleton(predicate_b),
         "(32) two functions with different predicates and equal control flow share a shape but not a skeleton",
@@ -2678,7 +2674,7 @@ def _run_shape_checks() -> bool:
             return entity.limits.maximum
         """
     )
-    ok &= _assert(
+    ok &= report_condition(
         model_attribute_names(attribute_fn) == frozenset({"fields", "required", "limits", "maximum"}),
         "(33) model_attribute_names collects parameter- and derived-root-rooted attribute names; a self-rooted "
         "read and a plain local's contribute nothing",
@@ -2707,7 +2703,7 @@ def run_self_test() -> bool:
     ok &= _run_extended_skeleton_checks()
     ok &= _run_extended_adapter_checks()
     ok &= _run_extended_source_checks()
-    ok &= _assert(
+    ok &= report_condition(
         _grammar_sweep_holds(),
         "(20) every statement and match-pattern kind in the grammar is swept and none raises",
     )

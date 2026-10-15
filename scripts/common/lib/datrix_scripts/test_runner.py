@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from datrix_scripts.logging_utils import ColorCodes, LogConfig, TeeLogger, colorize
-from datrix_scripts.paths import script_env
+from datrix_scripts.paths import WORKSPACE_DIR, script_env
 from datrix_scripts.suite_stamp import (
  RUNNER_PLUGIN_MODULE,
  DeselectedEvidence,
@@ -49,7 +49,7 @@ from datrix_scripts.suite_stamp import (
  unstamped_recorder_environment,
  write_merged_timings,
 )
-from datrix_scripts.venv import get_datrix_root, get_venv_python
+from datrix_scripts.venv import get_venv_python
 
 #: The marker expression each ``test.ps1`` tier switch selects. One table, read
 #: both where the expression is built and where a run's selection is recorded,
@@ -839,7 +839,7 @@ class TestRunner:
    # serial phase has anything to run; it is never stamped, so it pays no cone
    # derivation. An unsaved run has no run directory to record into.
    selection = _classify_selection(marker_expr, test_path, keyword_expr, tags)
-   workspace_root = get_datrix_root()
+   workspace_root = WORKSPACE_DIR
    stamp = prepare_full_run_stamp(
     selection, run_dir, workspace_root, self.config.project_name, logger.write_warning,
    )

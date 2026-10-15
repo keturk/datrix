@@ -11,44 +11,23 @@
 function Get-DatrixWorkspaceRoot {
  <#
  .SYNOPSIS
- Gets the datrix workspace root directory
- 
+ Gets the datrix workspace root directory (the parent of the datrix showcase repo).
+
  .DESCRIPTION
- Calculates the workspace root by navigating up from the script's location.
- Assumes scripts are in datrix\scripts\* and workspace root is the parent of datrix.
- 
- .PARAMETER ScriptPath
- Optional path to the script. If not provided, uses the caller's script path.
- 
+ Derived from this module's own location, which is fixed (scripts\common\DatrixPaths.psm1):
+ common -> scripts -> datrix -> workspace. The same anchoring rule as
+ common\lib\datrix_scripts\paths.py (WORKSPACE_DIR), so a script's own depth never matters.
+
  .EXAMPLE
  $workspaceRoot = Get-DatrixWorkspaceRoot
  #>
  [CmdletBinding()]
- param(
- [Parameter(Mandatory=$false)]
- [string]$ScriptPath
- )
- 
- if (-not $ScriptPath) {
- # Try to get the caller's script path
- $caller = Get-PSCallStack | Select-Object -Skip 1 -First 1
- if ($caller.ScriptName) {
- $ScriptPath = $caller.ScriptName
- } else {
- # Fallback: use current script location
- $ScriptPath = $MyInvocation.PSCommandPath
- }
- }
- 
- $scriptDir = Split-Path -Parent $ScriptPath
- 
- # Get datrix root (scripts/* -> scripts -> datrix)
- $datrixRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
- 
- # Get datrix workspace root (parent of datrix)
- $datrixWorkspaceRoot = Split-Path -Parent $datrixRoot
- 
- return $datrixWorkspaceRoot
+ [OutputType([string])]
+ param()
+
+ $scriptsDir = Split-Path -Parent $PSScriptRoot
+ $showcaseDir = Split-Path -Parent $scriptsDir
+ return (Split-Path -Parent $showcaseDir)
 }
 
 # Get the list of datrix repository directories
@@ -64,7 +43,7 @@ function Get-DatrixDirectories {
 
  Discovery is deliberate. Datrix is a multi-language, multi-platform generator, so a new
  datrix-codegen-<lang> package must never require an edit here to become visible to the
- dev scripts that consume this list (datrix-count, file-count, syntax-checker, datrix-format,
+ dev scripts that consume this list (file-count, syntax-checker, datrix-format,
  check-debug-artifacts, config-linter, compile, duplicate -Mono).
 
  .PARAMETER WorkspaceRoot

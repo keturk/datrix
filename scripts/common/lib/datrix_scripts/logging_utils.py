@@ -251,10 +251,6 @@ class TeeLogger:
 			self.log_handle.write(clean_text + end)
 			self.log_handle.flush()
 
-	def write_separator(self, char: str = "=", width: int = 80) -> None:
-		"""Write a separator line."""
-		self.write(char * width)
-
 	def write_success(self, text: str) -> None:
 		"""Write success message in green."""
 		colored = colorize(text, ColorCodes.GREEN)

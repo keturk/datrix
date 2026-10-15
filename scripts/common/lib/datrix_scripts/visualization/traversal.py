@@ -106,3 +106,34 @@ def service_dependency_edges(app: Application) -> list[tuple[str, str]]:
                 target_name = dependency.target_service.source_name
             edges.append((str(service.name), target_name))
     return edges
+
+
+def brokers_identity(brokers: list[str] | str | None) -> str:
+    """A stable string identity for a pubsub brokers config value (list, string, EnvRef or None)."""
+    if brokers is None:
+        return ""
+    if isinstance(brokers, str):
+        return brokers
+    if isinstance(brokers, list):
+        return ",".join(str(b) for b in sorted(str(b) for b in brokers))
+    return str(brokers)
+
+
+def host_port_label(key: tuple[str, ...]) -> str:
+    """The ``' (host:port)'`` display suffix of an infra identity key, or ``''``.
+
+    The key is ``(engine_label, host_or_id, port_or_extra)``. A host that looks like a
+    sanitized service id (no dots, no colon, not ``localhost``) gets no suffix; a host that
+    already carries a port (``localhost:9092``) is shown as is.
+    """
+    if len(key) < 3:
+        return ""
+    host = key[1]
+    port = key[2]
+    if not host or (host != "localhost" and "." not in host and ":" not in host):
+        return ""
+    if ":" in host:
+        return f" ({host})"
+    if port:
+        return f" ({host}:{port})"
+    return f" ({host})"

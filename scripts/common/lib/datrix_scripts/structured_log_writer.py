@@ -42,6 +42,49 @@ _SINGLE_QUOTED = re.compile(r"'[^']*'")
 _DOUBLE_QUOTED = re.compile(r'"[^"]*"')
 _HEX_ADDRESS = re.compile(r"0x[0-9a-fA-F]+")
 _STANDALONE_NUMBER = re.compile(r"\b\d+\b")
+_UNKNOWN_FILE = "unknown"
+
+
+def normalize_error_message(error_type: str, error_message: str) -> str:
+    """Normalize an error message for clustering.
+
+    Strips ANSI escape codes and a leading ``error_type`` prefix, keeps the first line, and
+    replaces quoted strings, hex addresses and standalone numbers with ``*`` so similar
+    errors group together.
+
+    Returns:
+        Normalized pattern string like ``ErrorType: normalized message``.
+    """
+    normalized = _ANSI_ESCAPE.sub("", error_message)
+    if error_type and normalized.startswith(f"{error_type}: "):
+        normalized = normalized[len(error_type) + 2:]
+    elif error_type and normalized.startswith(f"{error_type}:"):
+        normalized = normalized[len(error_type) + 1:]
+    first_line = normalized.split("\n", 1)[0]
+    first_line = _SINGLE_QUOTED.sub("*", first_line)
+    first_line = _DOUBLE_QUOTED.sub("*", first_line)
+    first_line = _HEX_ADDRESS.sub("*", first_line)
+    first_line = _STANDALONE_NUMBER.sub("*", first_line)
+    return f"{error_type}: {first_line}"
+
+
+def classname_to_filepath(classname: str) -> str:
+    """Convert a JUnit classname (``tests.test_foo.TestBar``) to a file path (``tests/test_foo.py``).
+
+    The module part ends where a part starting with an uppercase letter (a class name)
+    begins. Only reached when a ``<testcase>`` carries no ``file`` attribute, which is
+    pytest's shape; a producer that knows the owning file states it there instead.
+    """
+    if not classname:
+        return _UNKNOWN_FILE
+    module_parts: list[str] = []
+    for part in classname.split("."):
+        if part and part[0].isupper():
+            break
+        module_parts.append(part)
+    if not module_parts:
+        return _UNKNOWN_FILE
+    return "/".join(module_parts) + ".py"
 
 # Patterns for parsing traceback frames
 # Matches lines like: "path/to/file.py:123: in function_name"
@@ -521,7 +564,7 @@ class StructuredLogWriter:
         if declared_file:
             file_path = declared_file.replace("\\", "/")
         else:
-            file_path = self._classname_to_filepath(classname)
+            file_path = classname_to_filepath(classname)
 
         # Determine outcome
         failure_el = testcase.find("failure")
@@ -579,40 +622,6 @@ class StructuredLogWriter:
             system_err=system_err,
             phase=phase,
         )
-
-    def _classname_to_filepath(self, classname: str) -> str:
-        """Convert a JUnit classname to a file path.
-
-        The classname attribute typically contains the module path, e.g.
-        ``tests.test_foo.TestBar``. This converts dots to ``/`` for all
-        module-level parts and appends ``.py``.
-
-        Only reached when a ``<testcase>`` carries no ``file`` attribute, which
-        is pytest's shape; a producer that knows the owning file states it there
-        instead of leaving it to be inferred from a naming convention.
-
-        Args:
-            classname: The JUnit classname attribute value.
-
-        Returns:
-            A forward-slash file path string.
-        """
-        if not classname:
-            return "unknown"
-
-        parts = classname.split(".")
-        # Find where the module path ends and class name begins.
-        # Class names start with an uppercase letter.
-        module_parts: list[str] = []
-        for part in parts:
-            if part and part[0].isupper():
-                break
-            module_parts.append(part)
-
-        if not module_parts:
-            return "unknown"
-
-        return "/".join(module_parts) + ".py"
 
     def _extract_error_type_from_message(
         self, error_message: str
@@ -792,37 +801,6 @@ class StructuredLogWriter:
         # tests sit beside the code they cover as `<name>.test.ts`.
         return any(infix in path for infix in _JS_TEST_INFIXES)
 
-    def _normalize_error_message(
-        self, error_type: str, error_message: str
-    ) -> str:
-        """Normalize an error message for clustering.
-
-        Replaces quoted strings, hex addresses, and standalone numbers
-        with ``*`` to group similar errors together. Strips ANSI escape
-        codes and avoids duplicating the error_type prefix.
-
-        Args:
-            error_type: The exception type name.
-            error_message: The raw error message text.
-
-        Returns:
-            Normalized pattern string like ``ErrorType: normalized message``.
-        """
-        # Strip any remaining ANSI codes before normalizing
-        normalized = _ANSI_ESCAPE.sub("", error_message)
-        # Strip the error_type prefix if the message already starts with it
-        if error_type and normalized.startswith(f"{error_type}: "):
-            normalized = normalized[len(error_type) + 2:]
-        elif error_type and normalized.startswith(f"{error_type}:"):
-            normalized = normalized[len(error_type) + 1:]
-        # Use only the first line for clustering to avoid multiline noise
-        first_line = normalized.split("\n", 1)[0]
-        first_line = _SINGLE_QUOTED.sub("*", first_line)
-        first_line = _DOUBLE_QUOTED.sub("*", first_line)
-        first_line = _HEX_ADDRESS.sub("*", first_line)
-        first_line = _STANDALONE_NUMBER.sub("*", first_line)
-        return f"{error_type}: {first_line}"
-
     def _build_cluster_key(
         self,
         error_type: str,
@@ -839,7 +817,7 @@ class StructuredLogWriter:
         Returns:
             A cluster key string.
         """
-        pattern = self._normalize_error_message(error_type, error_message)
+        pattern = normalize_error_message(error_type, error_message)
         return f"{pattern} @ {source_location}"
 
     def _cluster_results(
@@ -886,7 +864,7 @@ class StructuredLogWriter:
             # The key format is: "ErrorType: message @ file:line"
             cluster = Cluster(
                 cluster_id=cluster_id,
-                pattern=self._normalize_error_message(
+                pattern=normalize_error_message(
                     representative.test_case.error_type or "",
                     representative.test_case.error_message or "",
                 ),

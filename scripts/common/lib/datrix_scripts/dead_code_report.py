@@ -19,13 +19,16 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
 import json
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
 
+from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
 from datrix_scripts.local_llm import (
     ADVISORY_UNAVAILABLE_SOURCE,
     AdvisoryText,
@@ -44,10 +47,14 @@ EXCLUDE_SRC_AND_TESTS = "*__pycache__*,*.git*"
 # Each package's known Vulture false positives, at its root. Vulture's whitelist
 # format is a list of bare names and ``_.attr`` reads, never bound in the file.
 VULTURE_WHITELIST_FILE = "vulture_whitelist.py"
+VULTURE_SORT_BY_SIZE = "--sort-by-size"
+VULTURE_MAKE_WHITELIST = "--make-whitelist"
+# --make-whitelist candidates go here, never into a package: <workspace>/.test-output/vulture/.
+WHITELIST_CANDIDATES_DIR_PARTS = (".test-output", "vulture")
+WHITELIST_CANDIDATES_TEMPLATE = "{package}-whitelist-candidates.py"
 
 # Include functions/classes/methods: Vulture reports them at 60% confidence (variables at 100%).
 DEFAULT_MIN_CONFIDENCE = 60
-DATRIX_PREFIX = "datrix-"
 DEFAULT_LLM_NUM_PREDICT = 4096
 DEFAULT_LLM_TEMPERATURE = 0.1
 DEFAULT_LLM_FINDING_LIMIT = 30
@@ -55,7 +62,7 @@ DEFAULT_LLM_FINDING_LIMIT = 30
 # Vulture output line: path:line: message (N% confidence)
 # Path may contain colons on Windows (e.g. C:\...). Symbol in message: unused type 'name'
 _LINE_RE = re.compile(
-    r"^(.+):(\d+): (unused .+?) \((\d+)% confidence\)\s*$"
+    r"^(.+):(\d+): (unused .+?) \((\d+)% confidence(?:, (\d+) lines?)?\)\s*$"
 )
 _SYMBOL_RE = re.compile(r"unused \w+ '([^']+)'")
 _KIND_RE = re.compile(r"unused (variable|function|class|method|attribute|import|property|unreachable_code)\s+")
@@ -111,6 +118,21 @@ class Finding(NamedTuple):
     confidence: int
     symbol: str
     kind: str
+    # Lines of code of an unused function or class; Vulture reports it only with --sort-by-size.
+    size: int = 0
+
+
+def format_finding(f: Finding) -> str:
+    """One report line, as Vulture writes it (with the size when it reported one)."""
+    size = f", {f.size} lines" if f.size else ""
+    return f"{f.file}:{f.line}: {f.message} ({f.confidence}% confidence{size})"
+
+
+def finding_order(sort_by_size: bool) -> Callable[[Finding], tuple[int, str, int]]:
+    """Report order: largest unused definition first with ``sort_by_size``, else by file and line."""
+    if sort_by_size:
+        return lambda f: (-f.size, f.file, f.line)
+    return lambda f: (0, f.file, f.line)
 
 
 class FileContext(NamedTuple):
@@ -295,18 +317,13 @@ def _apply_filters(
 
 def _discover_packages(workspace_root: Path) -> dict[str, Path]:
     """Return dict project_name -> project root for each datrix-* dir with pyproject.toml."""
-    result: dict[str, Path] = {}
     if not workspace_root.is_dir():
-        return result
-    for child in workspace_root.iterdir():
-        if not child.is_dir() or not child.name.startswith(DATRIX_PREFIX):
-            continue
-        if child.name == "datrix":
-            continue
-        pyproject = child / "pyproject.toml"
-        if pyproject.is_file():
-            result[child.name] = child.resolve()
-    return dict(sorted(result.items()))
+        return {}
+    return {
+        child.name: child.resolve()
+        for child in workspace_package_dirs(workspace_root, any_of=frozenset({PackageMarker.PYPROJECT}))
+        if (child / PackageMarker.PYPROJECT.value).is_file()
+    }
 
 
 def _parse_line(line: str) -> Finding | None:
@@ -315,7 +332,7 @@ def _parse_line(line: str) -> Finding | None:
     m = _LINE_RE.match(line)
     if not m:
         return None
-    path_str, line_str, message, conf_str = m.groups()
+    path_str, line_str, message, conf_str, size_str = m.groups()
     sym_m = _SYMBOL_RE.search(message)
     symbol = sym_m.group(1) if sym_m else message
     kind_m = _KIND_RE.match(message)
@@ -327,6 +344,7 @@ def _parse_line(line: str) -> Finding | None:
         confidence=int(conf_str),
         symbol=symbol,
         kind=kind,
+        size=int(size_str) if size_str else 0,
     )
 
 
@@ -384,16 +402,10 @@ class DeadCodeError(RuntimeError):
 _VULTURE_COMPLETED = frozenset({0, 3})
 
 
-def _run_vulture(
-    paths: list[str],
-    exclude_pattern: str,
-    min_confidence: int,
-    cwd: str,
-) -> tuple[list[Finding], int]:
-    """Run Vulture with given paths and exclude; return (parsed findings, returncode).
-
-    Raises DeadCodeError when Vulture did not complete a scan.
-    """
+def _vulture_output(
+    paths: list[str], exclude_pattern: str, min_confidence: int, cwd: str, extra: tuple[str, ...] = ()
+) -> subprocess.CompletedProcess[str]:
+    """Run Vulture; its completed output. Raises DeadCodeError when it did not complete a scan."""
     cmd = [
         sys.executable,
         "-m",
@@ -402,6 +414,7 @@ def _run_vulture(
         str(max(60, min(100, min_confidence))),
         "--exclude",
         exclude_pattern,
+        *extra,
         *paths,
     ]
     result = subprocess.run(
@@ -417,12 +430,55 @@ def _run_vulture(
             f"{detail[-1] if detail else 'no error output'}. If Vulture is missing, install it into the "
             f"shared venv: {sys.executable} -m pip install vulture"
         )
+    return result
+
+
+def _run_vulture(
+    paths: list[str],
+    exclude_pattern: str,
+    min_confidence: int,
+    cwd: str,
+    sort_by_size: bool = False,
+) -> tuple[list[Finding], int]:
+    """Run Vulture with given paths and exclude; return (parsed findings, returncode).
+
+    Raises DeadCodeError when Vulture did not complete a scan.
+    """
+    extra = (VULTURE_SORT_BY_SIZE,) if sort_by_size else ()
+    result = _vulture_output(paths, exclude_pattern, min_confidence, cwd, extra)
     findings: list[Finding] = []
     for line in (result.stdout or "").splitlines():
         f = _parse_line(line)
         if f:
             findings.append(f)
     return findings, result.returncode
+
+
+def make_whitelists(
+    workspace_root: Path, project_names: list[str], min_confidence: int, out_dir: Path
+) -> list[Path]:
+    """Write Vulture's ``--make-whitelist`` candidates for each package's ``src/`` (with its
+    existing whitelist) into ``out_dir`` as ``<package>-whitelist-candidates.py``.
+
+    Candidates are written outside every package: a whitelist is reviewed and merged by hand,
+    never dropped into a repo by a scan. Raises DeadCodeError for an unknown package.
+    """
+    packages = _discover_packages(workspace_root)
+    missing = sorted(set(project_names) - set(packages))
+    if missing:
+        raise DeadCodeError(f"unknown package(s): {missing}. Available: {sorted(packages)}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    for name in project_names:
+        paths = _collect_paths({name: packages[name]}, include_tests=False)
+        if not paths:
+            continue
+        result = _vulture_output(paths, EXCLUDE_SRC_ONLY, min_confidence, str(workspace_root),
+                                 (VULTURE_MAKE_WHITELIST,))
+        target = out_dir / WHITELIST_CANDIDATES_TEMPLATE.format(package=name)
+        target.write_text(result.stdout or "", encoding="utf-8")
+        written.append(target)
+    return written
 
 
 def _read_source_excerpt(file_path: str, line: int, radius: int = 4) -> str:
@@ -573,8 +629,12 @@ def collect_dead_code(
     min_confidence: int,
     verbose: bool = False,
     raw: bool = False,
+    sort_by_size: bool = False,
 ) -> DeadCodeResult:
     """Run two-pass Vulture over the named packages and classify every finding.
+
+    ``sort_by_size`` orders each list largest unused definition first (Vulture's own
+    ``--sort-by-size``); otherwise by file and line.
 
     Raises DeadCodeError when no package matches or none has a src/ tree.
     """
@@ -604,6 +664,7 @@ def collect_dead_code(
         EXCLUDE_SRC_ONLY,
         min_confidence,
         cwd,
+        sort_by_size,
     )
     set_a = {
         _normalize_key(f, workspace_root): f
@@ -620,6 +681,7 @@ def collect_dead_code(
         EXCLUDE_SRC_AND_TESTS,
         min_confidence,
         cwd,
+        sort_by_size,
     )
     set_b = {
         _normalize_key(f, workspace_root): f
@@ -666,7 +728,7 @@ def collect_dead_code(
 
     for proj in by_project:
         for kind in ("never_referenced", "only_referenced_by_tests"):
-            by_project[proj][kind].sort(key=lambda x: (x.file, x.line))
+            by_project[proj][kind].sort(key=finding_order(sort_by_size))
     return DeadCodeResult(by_project, total_filtered if not raw else 0)
 
 
@@ -682,10 +744,13 @@ def run_report(
     llm_settings: LocalLlmSettings = LocalLlmSettings(),
     llm_num_predict: int = DEFAULT_LLM_NUM_PREDICT,
     llm_temperature: float = DEFAULT_LLM_TEMPERATURE,
+    sort_by_size: bool = False,
 ) -> int:
     """Run two-pass Vulture, classify, and print report. Returns 0 on success."""
     try:
-        by_project, total_filtered = collect_dead_code(workspace_root, project_names, min_confidence, verbose, raw)
+        by_project, total_filtered = collect_dead_code(
+            workspace_root, project_names, min_confidence, verbose, raw, sort_by_size
+        )
     except DeadCodeError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
@@ -773,8 +838,8 @@ def run_report(
                     continue
                 label = KIND_LABELS.get(kind, kind.capitalize())
                 print(f"#### {label}\n")
-                for f in sorted(items, key=lambda x: (x.file, x.line)):
-                    print(f"  {f.file}:{f.line}: {f.message} ({f.confidence}% confidence)")
+                for f in items:
+                    print(f"  {format_finding(f)}")
                 print()
         if ot:
             print("### Only referenced by tests\n")
@@ -785,8 +850,8 @@ def run_report(
                     continue
                 label = KIND_LABELS.get(kind, kind.capitalize())
                 print(f"#### {label}\n")
-                for f in sorted(items, key=lambda x: (x.file, x.line)):
-                    print(f"  {f.file}:{f.line}: {f.message} ({f.confidence}% confidence)")
+                for f in items:
+                    print(f"  {format_finding(f)}")
                 print()
 
     if not raw and total_filtered > 0:
@@ -842,6 +907,31 @@ def main() -> int:
         help="Disable false-positive filters (show all Vulture findings).",
     )
     parser.add_argument(
+        "--output-file",
+        type=Path,
+        default=None,
+        help="Also write the report to this file (the report alone: progress stays on stderr).",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="With --output-file, do not print the report to the console.",
+    )
+    parser.add_argument(
+        "--sort-by-size",
+        action="store_true",
+        help="List the largest unused functions and classes first (Vulture's --sort-by-size).",
+    )
+    parser.add_argument(
+        "--make-whitelist",
+        action="store_true",
+        help=(
+            "Write Vulture's --make-whitelist candidates per package to "
+            "<workspace>/.test-output/vulture/<package>-whitelist-candidates.py (never into a "
+            "package) instead of the report."
+        ),
+    )
+    parser.add_argument(
         "--llm-review",
         action="store_true",
         help="Add an advisory local LLM review for top dead-code findings.",
@@ -884,19 +974,48 @@ def main() -> int:
         # here. This is also what --projects' help has always documented the default to be.
         project_names = sorted(_discover_packages(workspace_root).keys())
 
-    return run_report(
-        workspace_root,
-        project_names,
-        args.min_confidence,
-        args.output,
-        args.verbose,
-        raw=args.raw,
-        llm_review=args.llm_review,
-        llm_limit=args.llm_limit,
-        llm_settings=local_llm_settings(args),
-        llm_num_predict=args.llm_num_predict,
-        llm_temperature=args.llm_temperature,
-    )
+    if args.make_whitelist:
+        return _write_whitelist_candidates(workspace_root, project_names, args.min_confidence)
+
+    def report() -> int:
+        return run_report(
+            workspace_root,
+            project_names,
+            args.min_confidence,
+            args.output,
+            args.verbose,
+            raw=args.raw,
+            llm_review=args.llm_review,
+            llm_limit=args.llm_limit,
+            llm_settings=local_llm_settings(args),
+            llm_num_predict=args.llm_num_predict,
+            llm_temperature=args.llm_temperature,
+            sort_by_size=args.sort_by_size,
+        )
+
+    if args.output_file is None:
+        return report()
+    # The report alone goes to the file (progress and model notes stay on stderr), so a JSON
+    # report file is pure JSON.
+    args.output_file.parent.mkdir(parents=True, exist_ok=True)
+    with args.output_file.open("w", encoding="utf-8") as handle, contextlib.redirect_stdout(handle):
+        code = report()
+    if not args.quiet:
+        print(args.output_file.read_text(encoding="utf-8"), end="")
+    return code
+
+
+def _write_whitelist_candidates(workspace_root: Path, project_names: list[str], min_confidence: int) -> int:
+    try:
+        written = make_whitelists(workspace_root, project_names, min_confidence,
+                                  workspace_root.joinpath(*WHITELIST_CANDIDATES_DIR_PARTS))
+    except DeadCodeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    for path in written:
+        print(f"Whitelist candidates: {path}")
+    print("Review each candidate before merging it into the package's vulture_whitelist.py.")
+    return 0
 
 
 if __name__ == "__main__":

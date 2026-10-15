@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 KB_DIR_NAME = ".knowledge"
 KB_FILE_NAME = "knowledge.db"
@@ -142,7 +142,7 @@ def knowledge_db_path() -> Path:
     override = os.environ.get(KB_VARIABLE, "")
     if override:
         return Path(override)
-    return get_datrix_root() / KB_DIR_NAME / KB_FILE_NAME
+    return WORKSPACE_DIR / KB_DIR_NAME / KB_FILE_NAME
 
 
 def file_sha256(path: Path) -> str:

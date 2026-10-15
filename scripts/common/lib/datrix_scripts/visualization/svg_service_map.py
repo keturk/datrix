@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from .svg_common import (
     CARD_STROKE,
+    NamedNode,
     CORNER_R,
     FONT,
     HEADER_BG,
@@ -30,7 +31,7 @@ from .svg_common import (
     svg_open,
     svg_title,
 )
-from .traversal import service_dependency_edges
+from .traversal import brokers_identity, host_port_label, service_dependency_edges
 
 if TYPE_CHECKING:
     from datrix_common.datrix_model.containers import Application
@@ -72,17 +73,6 @@ HTTP_ARROW_COLOR = "#57606a"
 # ── Data holders ──
 
 
-class _SvcNode:
-    """A service in the service tier."""
-
-    __slots__ = ("name", "x", "y")
-
-    def __init__(self, name: str) -> None:
-        self.name = name
-        self.x = 0.0
-        self.y = 0.0
-
-
 class _InfraNode:
     """A shared infrastructure node in the infra tier."""
 
@@ -113,22 +103,11 @@ class _HttpEdge:
 # ── Data collection ──
 
 
-def _brokers_identity(brokers: list[str] | str | None) -> str:
-    """Produce a stable string for a pubsub brokers config value."""
-    if brokers is None:
-        return ""
-    if isinstance(brokers, str):
-        return brokers
-    if isinstance(brokers, list):
-        return ",".join(str(b) for b in sorted(str(b) for b in brokers))
-    return str(brokers)
-
-
 def _collect_data(
     app: Application,
-) -> tuple[list[_SvcNode], list[_InfraNode], list[_HttpEdge]]:
+) -> tuple[list[NamedNode], list[_InfraNode], list[_HttpEdge]]:
     """Collect services, infrastructure, and HTTP edges."""
-    svc_nodes: dict[str, _SvcNode] = {}
+    svc_nodes: dict[str, NamedNode] = {}
     infra_groups: dict[tuple[str, ...], _InfraNode] = {}
     infra_counter = 0
 
@@ -142,7 +121,7 @@ def _collect_data(
         if key not in infra_groups:
             infra_counter += 1
             # Build display label with host:port if available
-            host_port = _host_port_label(key)
+            host_port = host_port_label(key)
             label = f"{engine_label}{host_port}"
             infra_groups[key] = _InfraNode(
                 f"infra_{infra_counter}", label, bg, stroke,
@@ -151,7 +130,7 @@ def _collect_data(
 
     for service in app.services.values():
         sname = simple_name(str(service.name))
-        svc_nodes[sname] = _SvcNode(sname)
+        svc_nodes[sname] = NamedNode(sname)
 
         # RDBMS blocks
         for block_name, rdbms_block in service.rdbms_blocks.items():
@@ -184,7 +163,7 @@ def _collect_data(
             if pubsub_block._config is not None:
                 cfg_mq = pubsub_block.config
                 engine_label = str(cfg_mq.engine.canonical_name)
-                brokers_str = _brokers_identity(cfg_mq.brokers)
+                brokers_str = brokers_identity(cfg_mq.brokers)
                 key = (engine_label, brokers_str, str(cfg_mq.port or ""))
             else:
                 engine_label = "MQ"
@@ -226,26 +205,11 @@ def _collect_data(
     return list(svc_nodes.values()), list(infra_groups.values()), http_edges
 
 
-def _host_port_label(key: tuple[str, ...]) -> str:
-    """Extract host:port suffix for display. Returns '' or ' (host:port)'."""
-    if len(key) < 3:
-        return ""
-    host = key[1]
-    port = key[2]
-    if not host or (host != "localhost" and "." not in host and ":" not in host):
-        return ""
-    if ":" in host:
-        return f" ({host})"
-    if port:
-        return f" ({host}:{port})"
-    return f" ({host})"
-
-
 # ── Layout ──
 
 
 def _layout(
-    svc_nodes: list[_SvcNode],
+    svc_nodes: list[NamedNode],
     infra_nodes: list[_InfraNode],
 ) -> tuple[float, float, float]:
     """Position service and infra nodes. Returns (width, height, infra_y)."""
@@ -316,7 +280,7 @@ def _svg_styles() -> str:
 </style>"""
 
 
-def _render_svc_node(node: _SvcNode) -> str:
+def _render_svc_node(node: NamedNode) -> str:
     cx = node.x + SVC_NODE_W / 2
     cy = node.y + SVC_NODE_H / 2 + 4
     return (
@@ -342,7 +306,7 @@ def _render_infra_node(node: _InfraNode) -> str:
 
 def _render_infra_connections(
     infra_nodes: list[_InfraNode],
-    svc_map: dict[str, _SvcNode],
+    svc_map: dict[str, NamedNode],
 ) -> str:
     """Render thin lines from services to their infrastructure."""
     parts: list[str] = []
@@ -368,7 +332,7 @@ def _render_infra_connections(
 
 def _render_http_arrows(
     edges: list[_HttpEdge],
-    svc_map: dict[str, _SvcNode],
+    svc_map: dict[str, NamedNode],
 ) -> str:
     """Render HTTP dependency arrows between service nodes."""
     parts: list[str] = []

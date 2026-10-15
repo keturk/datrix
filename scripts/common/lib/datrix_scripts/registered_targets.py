@@ -52,6 +52,8 @@ from datrix_common.plugin.registry import (
 )
 from datrix_testing.target_distributions import target_import_names
 
+from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
+from datrix_scripts.gate_harness import report_condition
 from datrix_scripts.paths import SHOWCASE_DIR, WORKSPACE_DIR
 from datrix_scripts.target_literal_positions import target_name_literal_hits
 
@@ -137,18 +139,18 @@ _AXIS_ENTRY_POINT_GROUPS: Final[dict[str, str]] = {
 #: comparison entry (e.g. "azure+azure-vm" -- see fold_names_by_src_dirs).
 _SHARED_PACKAGE_LABEL_SEPARATOR: Final[str] = "+"
 
-#: Directory-name prefix identifying a Datrix package at the workspace root.
-_PACKAGE_DIR_PREFIX: Final[str] = "datrix-"
 #: Source subdirectory name every scanned package's importable code lives under.
 _SRC_SUBDIR_NAME: Final[str] = "src"
+#: Prefix of every Datrix import package directory under a package's ``src/``.
+_IMPORT_NAME_PREFIX: Final[str] = "datrix_"
 
 
 def discover_all_package_locations(monorepo_root: Path) -> dict[str, Path]:
     """Every `datrix-*` package directory with a `src/<import_name>/` tree,
     mapped `import_name -> src_dir`.
 
-    Pure filesystem discovery -- mirrors `scan/lib/check_import_boundaries.py`'s
-    own `discover_packages`. No `datrix-codegen-{lang}` naming-convention
+    Pure filesystem discovery, and the one the import-boundary scanners'
+    `discover_packages` is built on. No `datrix-codegen-{lang}` naming-convention
     assumption anywhere: the import name is read off whichever directory
     actually exists under `src/`, never synthesized from a language name.
     Public: also the resolver a scanner reaches for when it needs "which file
@@ -163,16 +165,16 @@ def discover_all_package_locations(monorepo_root: Path) -> dict[str, Path]:
         `{import_name: src_dir}` for every package with a resolvable src tree.
     """
     locations: dict[str, Path] = {}
-    for candidate in sorted(monorepo_root.iterdir()):
-        if not candidate.is_dir() or not candidate.name.startswith(_PACKAGE_DIR_PREFIX):
-            continue
+    for candidate in workspace_package_dirs(monorepo_root, any_of=frozenset({PackageMarker.SRC})):
         src_dir = candidate / _SRC_SUBDIR_NAME
-        if not src_dir.is_dir():
-            continue
-        package_dirs = sorted(d for d in src_dir.iterdir() if d.is_dir() and d.name.startswith("datrix"))
-        if not package_dirs:
-            continue
-        locations[package_dirs[0].name] = package_dirs[0]
+        # ``isidentifier`` keeps a ``datrix_x.egg-info`` metadata directory out of the import names.
+        import_dirs = sorted(
+            d
+            for d in src_dir.iterdir()
+            if d.is_dir() and d.name.startswith(_IMPORT_NAME_PREFIX) and d.name.isidentifier()
+        )
+        if import_dirs:
+            locations[import_dirs[0].name] = import_dirs[0]
     return locations
 
 
@@ -615,6 +617,14 @@ def self_test_gate_names_no_target(gate_file: str) -> list[str]:
         "capability declaration.",
         *format_target_references(module_path, references).splitlines(),
     ]
+
+
+def report_gate_names_no_target(gate_file: str) -> bool:
+    """The first self-test step of every cross-target gate: report that it names no target."""
+    failures = self_test_gate_names_no_target(gate_file)
+    for line in failures:
+        print(f"  FAIL: {line}")
+    return report_condition(not failures, "this gate names no registered target (imports and name literals)")
 
 
 def _run_self_test() -> int:

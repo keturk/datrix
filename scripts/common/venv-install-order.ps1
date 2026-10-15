@@ -24,13 +24,8 @@ if (-not $SelfTest) {
  exit 1
 }
 
-. (Join-Path $PSScriptRoot "venv.ps1")
+Import-Module (Join-Path $PSScriptRoot "DatrixPythonScript.psm1") -Force
 
-# --self-test needs no venv (no import of any datrix-* package, only stdlib
-# tomllib), so this wrapper deliberately does NOT call Ensure-DatrixVenv -- it
-# runs against bare `python` on PATH, matching install_order.py's own
-# no-venv-required self-test contract. It only needs the shared scripts package
-# (common\lib\datrix_scripts) on PYTHONPATH.
-Set-DatrixPythonPath
-& python -m datrix_scripts.install_order --self-test
-exit $LASTEXITCODE
+# The self-test imports only the stdlib (tomllib) and the shared scripts package, so no
+# -RequirePackages.
+exit (Invoke-DatrixPythonScript -Module "datrix_scripts.install_order" -Arguments @("--self-test"))

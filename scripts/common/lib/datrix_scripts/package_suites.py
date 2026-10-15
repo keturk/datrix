@@ -34,11 +34,9 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from datrix_scripts.framework_repos import workspace_package_dirs
 
-#: Directory-name prefix every toolchain package shares. The showcase repo
-#: ("datrix", no hyphen) is excluded by construction.
-PACKAGE_PREFIX = "datrix-"
+logger = logging.getLogger(__name__)
 
 #: Names merged into datrix-common. A stale checkout can still have these
 #: directories on disk; they are not part of the test system.
@@ -171,11 +169,7 @@ def discover_package_suites(workspace_root: Path) -> dict[str, PackageSuite]:
         return {}
 
     suites: dict[str, PackageSuite] = {}
-    for child in sorted(workspace_root.iterdir(), key=lambda p: p.name):
-        if not child.is_dir():
-            continue
-        if not child.name.startswith(PACKAGE_PREFIX):
-            continue
+    for child in workspace_package_dirs(workspace_root):
         if child.name in RETIRED_PACKAGE_NAMES:
             continue
         kind = detect_suite_kind(child)

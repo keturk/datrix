@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from .svg_common import (
     CARD_STROKE,
+    NamedNode,
     CORNER_R,
     FONT,
     HEADER_BG,
@@ -91,23 +92,12 @@ class _EntityNode:
         self.y = 0.0
 
 
-class _TraitNode:
-    """A shared trait node."""
-
-    __slots__ = ("name", "x", "y")
-
-    def __init__(self, name: str) -> None:
-        self.name = name
-        self.x = 0.0
-        self.y = 0.0
-
-
 # ── Data collection (per-service) ──
 
 
 def _collect_service_entities(
     service: Service,
-) -> tuple[list[_EntityNode], list[_TraitNode]]:
+) -> tuple[list[_EntityNode], list[NamedNode]]:
     """Collect entities and traits from a single service."""
     seen: set[str] = set()
     entity_nodes: list[_EntityNode] = []
@@ -127,7 +117,7 @@ def _collect_service_entities(
                 _EntityNode(node.parent_name, True, "", [])
             )
 
-    trait_nodes = [_TraitNode(name) for name in sorted(trait_set)]
+    trait_nodes = [NamedNode(name) for name in sorted(trait_set)]
     return entity_nodes, trait_nodes
 
 
@@ -201,7 +191,7 @@ def _assign_levels(nodes: list[_EntityNode]) -> None:
 
 def _layout(
     entities: list[_EntityNode],
-    traits: list[_TraitNode],
+    traits: list[NamedNode],
 ) -> tuple[float, float]:
     """Position entities in rows by level, traits in a right column.
 
@@ -293,7 +283,7 @@ def _render_entity(node: _EntityNode) -> str:
     )
 
 
-def _render_trait(node: _TraitNode) -> str:
+def _render_trait(node: NamedNode) -> str:
     """Render a trait node as a colored pill-shaped box."""
     cx = node.x + TRAIT_NODE_W / 2
     cy = node.y + TRAIT_NODE_H / 2 + 4
@@ -334,7 +324,7 @@ def _render_extends_edges(entities: list[_EntityNode]) -> str:
 
 def _render_trait_edges(
     entities: list[_EntityNode],
-    traits: list[_TraitNode],
+    traits: list[NamedNode],
 ) -> str:
     """Render dashed lines from entities to their traits."""
     trait_map = {t.name: t for t in traits}
@@ -364,7 +354,7 @@ def _render_trait_edges(
 def _build_service_svg(
     svc_name: str,
     entities: list[_EntityNode],
-    traits: list[_TraitNode],
+    traits: list[NamedNode],
 ) -> str:
     """Build an SVG inheritance tree for a single service."""
     _assign_levels(entities)

@@ -95,17 +95,9 @@ function Test-DatrixOfflineMode {
  return ($t -eq "1") -or ($t -eq "true") -or ($t -eq "yes")
 }
 
-# Get Datrix root directory
-function Get-DatrixRoot {
- <#
- .SYNOPSIS
- Find the Datrix root directory.
- #>
- $scriptPath = $PSScriptRoot
- # Go up: common -> scripts -> datrix -> datrix-root
- $datrixRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $scriptPath))
- return $datrixRoot
-}
+# The workspace root has one PowerShell home: DatrixPaths' Get-DatrixWorkspaceRoot. No -Force:
+# a forced import here would unload a caller's own import of the same module.
+Import-Module (Join-Path $PSScriptRoot "DatrixPaths.psm1")
 
 # Map a package directory name to its Python import name
 function Get-DatrixModuleName {
@@ -135,7 +127,7 @@ function Get-DatrixVenvPath {
  .SYNOPSIS
  Get the path to the Datrix virtual environment.
  #>
- $datrixRoot = Get-DatrixRoot
+ $datrixRoot = Get-DatrixWorkspaceRoot
  return Join-Path $datrixRoot ".venv"
 }
 
@@ -145,7 +137,7 @@ function Get-DatrixPackageLockPath {
  .SYNOPSIS
  Get the path to the package installation lock file.
  #>
- $datrixRoot = Get-DatrixRoot
+ $datrixRoot = Get-DatrixWorkspaceRoot
  return Join-Path $datrixRoot ".venv-package.lock"
 }
 
@@ -154,7 +146,7 @@ function Get-DatrixPythonCachePrefix {
  .SYNOPSIS
  Get the shared Python bytecode cache directory for Datrix scripts.
  #>
- $datrixRoot = Get-DatrixRoot
+ $datrixRoot = Get-DatrixWorkspaceRoot
  return Join-Path $datrixRoot ".pycache-verify"
 }
 
@@ -376,7 +368,7 @@ function New-DatrixVenv {
  )
 
  $venvPath = Get-DatrixVenvPath
- $datrixRoot = Get-DatrixRoot
+ $datrixRoot = Get-DatrixWorkspaceRoot
 
  if ((Test-DatrixVenvExists) -and (-not $Force)) {
  Write-DatrixVenvInfo "Virtual environment already exists at: $venvPath" -ForegroundColor Green
@@ -468,7 +460,7 @@ function Install-DatrixPackage {
  [switch]$NoDev
  )
 
- $datrixRoot = Get-DatrixRoot
+ $datrixRoot = Get-DatrixWorkspaceRoot
  $packagePath = Join-Path $datrixRoot $PackageName
 
  if (-not (Test-Path $packagePath)) {
@@ -718,7 +710,7 @@ function Get-DatrixPackageDevSpecs {
  [string]$PackageName
  )
 
- $datrixRoot = Get-DatrixRoot
+ $datrixRoot = Get-DatrixWorkspaceRoot
  $pyprojectToml = Join-Path (Join-Path $datrixRoot $PackageName) "pyproject.toml"
  if (-not (Test-Path $pyprojectToml)) {
  return @()
@@ -805,7 +797,7 @@ function Test-PackageDevExtrasNeedInstall {
  return $true
  }
 
- $datrixRoot = Get-DatrixRoot
+ $datrixRoot = Get-DatrixWorkspaceRoot
  $pyprojectToml = Join-Path (Join-Path $datrixRoot $PackageName) "pyproject.toml"
  $markerTime = (Get-Item $markerPath).LastWriteTime
  $pyprojectTime = (Get-Item $pyprojectToml).LastWriteTime
@@ -849,7 +841,7 @@ function Install-DatrixPackageDevExtras {
  return $true
  }
 
- $datrixRoot = Get-DatrixRoot
+ $datrixRoot = Get-DatrixWorkspaceRoot
  $packagePath = Join-Path $datrixRoot $PackageName
  Write-DatrixVenvInfo "Installing dev extras for $PackageName ($($devSpecs.Count) spec(s))..." -ForegroundColor Cyan
 
@@ -926,7 +918,7 @@ function Test-DatrixWorkspacePresent {
  Validates that the required Datrix repositories exist alongside this repo.
  Returns $false and prints a helpful message if any are missing.
  #>
- $datrixRoot = Get-DatrixRoot
+ $datrixRoot = Get-DatrixWorkspaceRoot
  # Curated "a complete clone must contain these" contract -- deliberately a
  # named list (not a dynamic scan) so it can detect a repo that is MISSING.
  # It must stay complete: every shipped language (datrix-codegen-<lang>) and
@@ -1069,7 +1061,7 @@ function Get-DatrixPackages {
  dependency missing from disk, throws naming every package involved -- this function never
  silently falls back to alphabetical order.
  #>
- $datrixRoot = Get-DatrixRoot
+ $datrixRoot = Get-DatrixWorkspaceRoot
 
  $installable = @()
  Get-ChildItem -Path $datrixRoot -Directory |
@@ -1134,7 +1126,7 @@ function Test-PackageNeedsReinstall {
  [string]$PackageName
  )
 
- $datrixRoot = Get-DatrixRoot
+ $datrixRoot = Get-DatrixWorkspaceRoot
  $packagePath = Join-Path $datrixRoot $PackageName
  $pyprojectToml = Join-Path $packagePath "pyproject.toml"
 
@@ -1407,50 +1399,6 @@ function Test-DatrixCommand {
  return $false
  } catch {
  if ($Detail) { $Detail.Value = "'$datrixExe --version' could not be run: $_" }
- return $false
- } finally {
- $ErrorActionPreference = $oldErrorActionPreference
- }
-}
-
-function Test-DatrixPluginDiscovery {
- <#
- .SYNOPSIS
- Test that every installed Datrix plugin loads: the datrix.languages,
- datrix.generators, datrix.platforms and datrix.extensions groups.
- 'datrix --version' (Test-DatrixCommand) loads no plugin, so a package whose
- plugin fails to register passes it and then breaks every generation and every
- plugin-discovering test at the same place. Runs
- 'python -m datrix_scripts.plugin_discovery' in the active venv.
- .PARAMETER Detail
- [ref] receiving the per-group report (OK or FAILED with the registry's error)
- when the check fails. Empty string when it succeeds.
- .RETURNS
- $true if every group loaded, $false otherwise.
- #>
- param(
- [ref]$Detail
- )
-
- if ($Detail) { $Detail.Value = "" }
- Set-DatrixPythonPath
- $pythonExe = Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"
-
- # "Continue", not "SilentlyContinue": see Test-DatrixCommand -- stderr lines must
- # reach the pipeline so a failure can say why.
- $oldErrorActionPreference = $ErrorActionPreference
- $ErrorActionPreference = "Continue"
- try {
- $rawOutput = & $pythonExe -m datrix_scripts.plugin_discovery 2>&1
- $exitCode = $LASTEXITCODE
- $output = (@($rawOutput) | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
- if ($exitCode -eq 0) {
- return $true
- }
- if ($Detail) { $Detail.Value = "plugin discovery exited $exitCode`n$($output.TrimEnd())" }
- return $false
- } catch {
- if ($Detail) { $Detail.Value = "plugin discovery could not be run: $_" }
  return $false
  } finally {
  $ErrorActionPreference = $oldErrorActionPreference

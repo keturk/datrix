@@ -66,7 +66,7 @@ import re
 import sys
 import tempfile
 import tomllib
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import product
@@ -80,7 +80,15 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs  # noqa: E402
+from datrix_scripts.gate_harness import (  # noqa: E402
+    NamedCheck,
+    UsageError,
+    report_step,
+    run_checks,
+    run_main,
+)
+from datrix_scripts.paths import WORKSPACE_DIR, resolve_output_path  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -97,15 +105,9 @@ _OUTPUT_FILENAME = "affected-set.json"
 _OUTPUT_SUBDIRS = ("test",)
 _EXIT_OK = 0
 _EXIT_SELFCHECK_FAILED = 1
-_EXIT_USAGE = 2
 
 _IMPORT_RE = re.compile(r"^\s*(?:from|import)\s+(datrix_[a-zA-Z0-9_]*)", re.MULTILINE)
 _DEP_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+")
-
-
-class UsageError(Exception):
-    """Invalid usage or unreadable input; the script exits with code 2."""
-
 
 def discover_packages(root: Path) -> dict[str, Path]:
     """Discover datrix-* packages carrying a package manifest under root.
@@ -129,17 +131,13 @@ def discover_packages(root: Path) -> dict[str, Path]:
             under root (an empty or wrong root). The floor is deliberately the
             Python set: a root holding only Node packages is not the monorepo.
     """
-    packages: dict[str, Path] = {}
-    python_packages = 0
-    for entry in sorted(root.iterdir()):
-        if not entry.is_dir() or not entry.name.startswith(_PACKAGE_PREFIX):
-            continue
-        if (entry / _PYPROJECT_NAME).is_file():
-            packages[entry.name] = entry
-            python_packages += 1
-        elif (entry / _NODE_MANIFEST_NAME).is_file():
-            packages[entry.name] = entry
-    if python_packages == 0:
+    manifests = frozenset({PackageMarker.PYPROJECT, PackageMarker.PACKAGE_JSON})
+    packages = {
+        entry.name: entry
+        for entry in workspace_package_dirs(root, any_of=manifests)
+        if (entry / _PYPROJECT_NAME).is_file() or (entry / _NODE_MANIFEST_NAME).is_file()
+    }
+    if not any(_is_python_package(entry) for entry in packages.values()):
         raise UsageError(
             f"No {_PACKAGE_PREFIX}* packages with a {_PYPROJECT_NAME} found under "
             f"{root}. Expected the Datrix monorepo layout with each package at "
@@ -897,26 +895,12 @@ def _resolve_report_targets(
     return names
 
 
-def _resolve_output_path(raw_output: str | None, workspace: Path) -> Path:
-    """Default to <workspace>/.tmp/test/affected-set.json unless overridden."""
-    if raw_output:
-        output_path = Path(raw_output).resolve()
-    else:
-        output_path = workspace.joinpath(".tmp", *_OUTPUT_SUBDIRS, _OUTPUT_FILENAME)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    return output_path
-
-
 # ---------------------------------------------------------------------------
-# Self-test harness -- mirrors the repo's established _ok/_fail/_step +
-# run_self_test_checks pattern. Runs automatically as step 1 of every
-# invocation (see main()); --self-test runs it in isolation.
+# Self-test, run through datrix_scripts.gate_harness. Runs automatically as
+# step 1 of every invocation (see main()); --self-test runs it in isolation.
 # ---------------------------------------------------------------------------
 
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_CYAN = "\033[96m"
-_RESET = "\033[0m"
+_CHECK_PREFIX = "_check_"
 
 #: Edge kinds for the hand-built duality graphs (no edge, SOURCE, TEST, DEFERRED).
 _NO_EDGE = ""
@@ -939,40 +923,6 @@ _DUALITY_RANDOM_EDGE_WEIGHTS = (
     _TEST_EDGE,
     _DEFERRED_EDGE,
 )
-
-
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def _step(msg: str) -> None:
-    print(f"\n{_CYAN}=== {msg}{_RESET}")
-
-
-def run_self_test_checks(checks: list[tuple[str, Callable[[], None]]]) -> bool:
-    """Run every (name, check_fn) pair, printing [OK]/[FAIL] per check.
-
-    Args:
-        checks: Named zero-argument callables; each raises AssertionError on
-            failure and returns normally on success.
-
-    Returns:
-        True iff every check passed.
-    """
-    all_passed = True
-    for name, fn in checks:
-        try:
-            fn()
-        except AssertionError as e:
-            _fail(f"{name}: {e}")
-            all_passed = False
-        else:
-            _ok(name)
-    return all_passed
 
 
 def _make_pkg(
@@ -1182,7 +1132,7 @@ def _check_repo_cross_ecosystem_config_is_readable() -> None:
     notice the committed file being renamed, malformed, or left naming a package
     that has since been removed.
     """
-    root = get_datrix_root()
+    root = WORKSPACE_DIR
     packages = discover_packages(root)
     edges = load_cross_ecosystem_deps(root, packages)
     assert edges, (
@@ -1680,78 +1630,37 @@ def _check_unreadable_pyproject_raises_usage_error() -> None:
             )
 
 
-_SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
-    ("discover_packages_finds_synthetic_tree", _check_discover_packages_finds_synthetic_tree),
-    ("root_conftest_edge_is_detected", _check_root_conftest_edge_is_detected),
-    ("restricted_scan_loses_conftest_edge", _check_restricted_scan_loses_conftest_edge),
-    ("bom_prefixed_file_is_read", _check_bom_prefixed_file_is_read),
-    ("cyclic_edge_does_not_hang", _check_cyclic_edge_does_not_hang),
-    ("non_vacuity_guard_detects_shrunk_closure", _check_non_vacuity_guard_detects_shrunk_closure),
-    ("unreadable_pyproject_raises_usage_error", _check_unreadable_pyproject_raises_usage_error),
-    ("test_edge_does_not_propagate_to_consumers", _check_test_edge_does_not_propagate_to_consumers),
-    ("source_edge_propagates_to_consumers", _check_source_edge_propagates_to_consumers),
-    ("forward_closure_source_edge_is_transitive", _check_forward_closure_source_edge_is_transitive),
-    (
-        "forward_closure_follows_source_edges_past_a_test_hop",
+_SELF_TEST_CHECKS: list[NamedCheck] = [
+    NamedCheck(check.__name__.removeprefix(_CHECK_PREFIX), check)
+    for check in (
+        _check_discover_packages_finds_synthetic_tree,
+        _check_root_conftest_edge_is_detected,
+        _check_restricted_scan_loses_conftest_edge,
+        _check_bom_prefixed_file_is_read,
+        _check_cyclic_edge_does_not_hang,
+        _check_non_vacuity_guard_detects_shrunk_closure,
+        _check_unreadable_pyproject_raises_usage_error,
+        _check_test_edge_does_not_propagate_to_consumers,
+        _check_source_edge_propagates_to_consumers,
+        _check_forward_closure_source_edge_is_transitive,
         _check_forward_closure_follows_source_edges_past_a_test_hop,
-    ),
-    ("forward_closure_terminal_edges_are_one_hop", _check_forward_closure_terminal_edges_are_one_hop),
-    (
-        "forward_closure_node_consumer_cone_includes_cross_ecosystem_dependency",
+        _check_forward_closure_terminal_edges_are_one_hop,
         _check_forward_closure_node_consumer_cone_includes_cross_ecosystem_dependency,
-    ),
-    (
-        "forward_closure_is_exact_dual_on_every_small_graph",
         _check_forward_closure_is_exact_dual_on_every_small_graph,
-    ),
-    (
-        "forward_closure_is_exact_dual_on_scanned_tree",
         _check_forward_closure_is_exact_dual_on_scanned_tree,
-    ),
-    ("forward_closure_rejects_dangling_edge", _check_forward_closure_rejects_dangling_edge),
-    (
-        "package_with_no_consumers_closure_is_self_only",
+        _check_forward_closure_rejects_dangling_edge,
         _check_package_with_no_consumers_closure_is_self_only,
-    ),
-    ("dev_extra_is_test_edge_only", _check_dev_extra_is_test_edge_only),
-    (
-        "function_scope_src_import_is_deferred_and_terminal",
+        _check_dev_extra_is_test_edge_only,
         _check_function_scope_src_import_is_deferred_and_terminal,
-    ),
-    (
-        "module_scope_type_checking_import_is_source",
         _check_module_scope_type_checking_import_is_source,
-    ),
-    ("unparseable_src_file_raises_usage_error", _check_unparseable_src_file_raises_usage_error),
-    (
-        "cross_ecosystem_edge_puts_consumer_in_closure",
+        _check_unparseable_src_file_raises_usage_error,
         _check_cross_ecosystem_edge_puts_consumer_in_closure,
-    ),
-    (
-        "undeclared_node_package_has_no_edge",
         _check_undeclared_node_package_has_no_edge,
-    ),
-    (
-        "cross_ecosystem_unknown_package_raises_usage_error",
         _check_cross_ecosystem_unknown_package_raises_usage_error,
-    ),
-    (
-        "missing_cross_ecosystem_config_raises_usage_error",
         _check_missing_cross_ecosystem_config_raises_usage_error,
-    ),
-    (
-        "repo_cross_ecosystem_config_is_readable",
         _check_repo_cross_ecosystem_config_is_readable,
-    ),
-]
-
-
-def _configure_logging(debug: bool) -> None:
-    logging.basicConfig(
-        level=logging.DEBUG if debug else logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
-        stream=sys.stderr,
     )
+]
 
 
 def _parse_args() -> argparse.Namespace:
@@ -1781,7 +1690,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _run(args: argparse.Namespace) -> int:
-    workspace = get_datrix_root()
+    workspace = WORKSPACE_DIR
     graphs = build_workspace_graphs(workspace)
     packages = graphs.packages
     closures = compute_affected_closures(graphs.source_graph, graphs.test_graph, graphs.deferred_graph)
@@ -1801,7 +1710,7 @@ def _run(args: argparse.Namespace) -> int:
         return _EXIT_SELFCHECK_FAILED
 
     targets = _resolve_report_targets(sorted(packages), args.projects, args.all)
-    output_path = _resolve_output_path(args.output, workspace)
+    output_path = resolve_output_path(args.output, *_OUTPUT_SUBDIRS, filename=_OUTPUT_FILENAME)
     payload: dict[str, object] = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "packages": {name: sorted(closures[name]) for name in targets},
@@ -1815,13 +1724,9 @@ def _run(args: argparse.Namespace) -> int:
     return _EXIT_OK
 
 
-def main() -> int:
-    """Entry point."""
-    args = _parse_args()
-    _configure_logging(args.debug)
-
-    _step("Self-test: reverse-dependency closure derivation edge cases")
-    self_test_passed = run_self_test_checks(_SELF_TEST_CHECKS)
+def _self_test_then_run(args: argparse.Namespace) -> int:
+    report_step("Self-test: reverse-dependency closure derivation edge cases")
+    self_test_passed = run_checks(_SELF_TEST_CHECKS)
     if args.self_test:
         return _EXIT_OK if self_test_passed else _EXIT_SELFCHECK_FAILED
     if not self_test_passed:
@@ -1831,12 +1736,12 @@ def main() -> int:
             file=sys.stderr,
         )
         return _EXIT_SELFCHECK_FAILED
+    return _run(args)
 
-    try:
-        return _run(args)
-    except UsageError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return _EXIT_USAGE
+
+def main() -> int:
+    """Entry point."""
+    return run_main(_parse_args, _self_test_then_run)
 
 
 if __name__ == "__main__":
