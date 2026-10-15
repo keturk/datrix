@@ -424,15 +424,18 @@ services:
 
 ## Idempotency
 
-All seed operations are idempotent. Re-running a seed script does not duplicate data:
+All seed operations are idempotent. Re-running a seed script does not duplicate data, and the
+category decides what a re-run does to a row, document, item or object the seed already wrote —
+the same on every target and in every language: a `reference` seed is authoritative and
+overwrites it; a `baseline` or `volume` seed is a starting state and leaves it as it is.
 
-| Target | Strategy |
-|--------|----------|
-| PostgreSQL | `INSERT ... ON CONFLICT (key) DO NOTHING` |
-| MySQL/MariaDB | `INSERT IGNORE` or `ON DUPLICATE KEY UPDATE` |
-| MongoDB/DocumentDB | `_id` or declared unique key with upsert filter |
-| DynamoDB | Partition/sort key conditional put |
-| Storage | Object key policy (`overwrite`, `ifMissing`, or checksum match) |
+| Target | `reference` (overwrite) | `baseline` / `volume` (write only if absent) |
+|--------|-------------------------|----------------------------------------------|
+| PostgreSQL | `INSERT ... ON CONFLICT (key) DO UPDATE` | `INSERT ... ON CONFLICT (key) DO NOTHING` |
+| MySQL/MariaDB | `ON DUPLICATE KEY UPDATE` | `INSERT IGNORE` |
+| MongoDB/DocumentDB | upsert matched on every conflict-key field, `$set` | upsert matched on every conflict-key field, `$setOnInsert` |
+| DynamoDB | `PutItem` under the table's key | `PutItem` only where the key is absent |
+| Object storage | upload | upload only where the key is absent |
 
 ---
 

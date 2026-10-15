@@ -348,7 +348,7 @@ Datrix provides a rich type system that maps to appropriate types in each target
 | `Integer` | `int` | `number` | `INTEGER` | `INT` |
 | `Float` | `float` | `number` | `DOUBLE PRECISION` | `DOUBLE` |
 | `Boolean` | `bool` | `boolean` | `BOOLEAN` | `BOOLEAN` |
-| `Decimal(p,s)` | `Decimal` | `number` | `NUMERIC(p,s)` | `DECIMAL(p,s)` |
+| `Decimal(p,s)` | `Decimal` | `DecimalString` | `NUMERIC(p,s)` | `DECIMAL(p,s)` |
 | `Bytes` | `bytes` | `Buffer` | `BYTEA` | `BLOB` |
 
 ### Domain Types
@@ -362,7 +362,7 @@ Datrix provides a rich type system that maps to appropriate types in each target
 | `IPAddress` | IP address | `str` | `string` |
 | `JSON` | Valid JSON | `dict` | `object` |
 | `Slug` | URL-safe string | `str` | `string` |
-| `Money` | Decimal currency | `Decimal` | `number` |
+| `Money` | Decimal currency | `Decimal` | `DecimalString` |
 | `Percentage` | 0-100 range | `float` | `number` |
 | `Color` | Hex color code | `str` | `string` |
 | `CountryCode` | ISO 3166-1 alpha-2 | `str` | `string` |
@@ -382,7 +382,7 @@ Datrix provides a rich type system that maps to appropriate types in each target
 | `DateTime` | `datetime` (UTC) | `Date` | `TIMESTAMP` |
 | `Date` | `date` | `Date` | `DATE` |
 | `Time` | `time` | `string` | `TIME` |
-| `Duration` | `timedelta` | `number` (ms) | `INTERVAL` |
+| `Duration` | `timedelta` | `string` (ISO-8601) | `INTERVAL` |
 | `Timestamp` | `datetime` | `Date` | `TIMESTAMP` |
 
 ### Collection Types

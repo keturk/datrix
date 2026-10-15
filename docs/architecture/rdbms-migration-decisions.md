@@ -70,7 +70,7 @@ The canonical Datrix schema revision chain is shared across target languages, pr
 
 `ledger.json` stores canonical Datrix migration operations from a fixed database-agnostic vocabulary. It does not store SQL, Alembic operations, MikroORM code, generated filenames, adapter IDs, active profile, platform, or database engine. Unsupported schema diffs fail before rendering.
 
-**Allowed operations:** `create_table`, `add_column`, `alter_column_nullable`, `alter_column_type`, `add_primary_key`, `add_foreign_key`, `add_index`, `create_enum`, `add_enum_value`, `create_cqrs_view_table`.
+**Allowed operations:** `create_table`, `add_column`, `alter_column_nullable`, `alter_column_type`, `alter_column_default`, `alter_column_unique`, `add_primary_key`, `add_foreign_key`, `reassert_foreign_key`, `add_index`, `rename_index`, `create_enum`, `add_enum_value`, `relabel_enum_value`, `create_cqrs_view_table`, `relocate_schema`, `set_comment` (plus the non-DDL `adopt_live_schema` marker). The diff-change-to-operation mapping is `datrix_migration.revision_ledger.CHANGE_KIND_TO_LEDGER_OP`, read by the orchestrator and by drift reconciliation alike.
 
 **Blocked operations:** `drop_table`, `drop_column`, `drop_primary_key`, `drop_foreign_key`, `drop_index`, enum value removal/rename/reorder, `drop_cqrs_view_table`, arbitrary SQL, target-native migration code.
 
