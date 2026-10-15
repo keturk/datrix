@@ -42,10 +42,8 @@ Every one of these has been used to dodge. Each is now explicitly work:
 - **"The root cause is unclear."** → Keep reading until it isn't. Unclear is a state of your
   knowledge, not a property of the bug.
 - **"The root cause is in another file / package / layer."** → Follow it there and fix it there.
-  Fixing symptoms at the boundary is a workaround (CLAUDE.md § No Workarounds).
-- **"It's bigger than the task estimate."** → Do the work. Report the expansion (§4). An estimate
-  is a prediction, not a permission slip.
-- **"That failure is pre-existing."** → It is yours now. You touched the surface. See §5.
+  Fixing symptoms at the boundary is a workaround (CLAUDE.md § No Workarounds). If following it
+  makes the job broader or bigger than was asked, that is §4: ask for approval.
 - **"That's categorically behavioral / environmental / a test artifact / a flake."** → That is a
   *claim*. Prove it with the verbatim error text, or fix it. An unproven dismissal is a dodge.
 - **"There's no test covering this."** → Write one.
@@ -54,10 +52,8 @@ Every one of these has been used to dodge. Each is now explicitly work:
   decisions *inside the task you were given*. A discovered defect whose fix would need its own
   design is a different case; see §5.
 - **"This should be tracked separately / handed to a follow-up / owned by another task."** →
-  **There is no other agent.** There is no follow-up fairy. If it genuinely is a separate root
-  cause, you file a real tracked task file — see §5. If it is not yours to fix now, you write a
-  findings file — see §5A. Prose in a report is neither.
-- **"It would require broader changes."** → Then make broader changes.
+  If the task needs it, it is the task: do it. If the task does not need it, write a findings
+  file — see §5A. Prose in a report is neither.
 - **"I've reached my attempt limit."** → Attempt limits bound a *single hypothesis*, not the task.
   A new hypothesis gets fresh attempts. Escalate (§6) before you stop.
 
@@ -89,82 +85,63 @@ your own report quoted back to you.** You do not get to exit by asserting an exi
 > deleted.** It was wrong, and it is the direct cause of the behavior this contract exists to end.
 > A proven blocker is a *fact*. A fixed problem is *the job*.
 
-## 4. Scope: expansion, not abandonment
+## 4. Scope: what was asked; growth needs Jon's approval
 
-Two different things have been confused. Separate them:
+The scope of a task is what Jon asked for, or the design doc or task file you were given. You do
+all of it, completely. You do not grow it on your own judgment.
 
-**Pre-flight split (legitimate).** *Before* you start, if the task genuinely spans 3+ unrelated
-subsystems or cannot fit in context, say so and propose a split. This is a planning judgment made
-with a clean slate.
+**Pre-flight split.** *Before* you start, if the task spans 3+ unrelated subsystems or cannot fit
+in one session, say so and propose a split.
 
-**Mid-task abandonment (never legitimate).** *Once you have started*, discovering that the job is
-bigger than you thought is **not** grounds to stop. It is grounds to **expand and continue**.
+**Growth mid-task needs approval.** When the job turns out bigger than estimated, or the correct
+fix needs broader changes than the request states, stop that part and ask:
 
-**The file list in your task is the *expected* surface, not a fence.** If the root cause lies
-outside it:
+- "Broader" means changes the request does not name: new model fields, phases, diagnostics,
+  modules or abstractions; packages it does not name; or a multiple of the expected size.
+- Ask in one line starting `APPROVAL_REQUIRED:` — what the expansion is, why the task needs it
+  (evidence, `file:line`), and roughly how big it is. A subagent returns status
+  `APPROVAL_REQUIRED` with the same content; the orchestrator puts it to Jon and does not
+  re-dispatch it until he answers.
+- Keep working everything that does not depend on the answer. If nothing does, end the turn on
+  the question. That is a legitimate exit.
+- **Never answer it yourself by shipping a smaller fix (§14).** Unapproved expansion and a
+  cut-down fix are both wrong; the question is the only right move.
 
-- **Default: follow the root cause and fix it.** Then report the expansion — which files you added
-  and why — so the orchestrator can widen its verification.
-- **Only exception — parallel waves.** If you were dispatched with an explicit
-  `PARALLEL_WAVE: files are exclusive` marker, another agent may be writing those files
-  concurrently. Do **not** edit them. Return `EXPANSION_REQUIRED` naming the exact files and the
-  root cause. The orchestrator **must re-dispatch this immediately and serially** — it may not
-  shelve it, footnote it, or count the task as done.
+**The task's file list is the expected surface.** Following your own defect's root cause into a
+neighbouring file or package to fix it there is the task, not an expansion, as long as it stays
+within the size and kind of change the task describes. Patching at the boundary to avoid crossing
+it is a workaround.
 
-`EXPANSION_REQUIRED` is not BLOCKED. It is "I know the fix and need the lock."
+**Parallel waves.** If you were dispatched with an explicit `PARALLEL_WAVE: files are exclusive`
+marker, another agent may be writing files outside your list. Do **not** edit them. Return
+`EXPANSION_REQUIRED` naming the exact files and the root cause. That is a lock request inside
+approved scope, not BLOCKED: the orchestrator re-dispatches it serially as soon as the files are free.
 
-## 5. Found it, you fix it
+## 5. What you find that the task does not need
 
-Any defect you discover on a surface you touched is **yours**. Three outcomes, and only three:
+A defect, gap or oddity you discover while working is **not fixed** unless the task needs it fixed
+to be correct. That covers a defect on a file you touched, a failure your change did not cause,
+other instances of the defect class you are fixing, and anything unrelated to your task. Each one
+gets a findings file (§5A): just write it. Do not search the findings folder for a duplicate, do not
+fix it, do not file a task for it, and do not leave it only as a line in your report. Jon decides
+what becomes work.
 
-1. **Fix it** — the default, and correct for anything within reach of the root cause you're already in.
-2. **File it** — if it is a genuinely independent root cause, create a real tracked task file via
-   the task scripts (`datrix/scripts/tasks/quick-reference.md`). A filed task has an ID, a design
-   reference, and an acceptance property.
-3. **Nothing else exists.** Mentioning a defect in prose and moving on is **not** an outcome. It is
-   the failure mode this contract exists to prevent. If it was worth typing a sentence about, it
-   was worth a fix or a task file.
+If the task *does* need it — your change cannot be correct or pass its checks without it — it is
+part of the task: fix it, and if that makes the task broader or bigger, §4 applies.
 
-A defect that is not yours to fix now — design-sized, or **unrelated to your task** (noticed in
-passing, on a surface you did not touch) — is neither fixed nor ignored. It gets a findings file
-(§5A): just write it. Do not search the findings folder for a duplicate, do not fix it, do not file
-a task for it, and do not leave it as a line in your report.
-
-**Filing is bounded — it is never authorization to open a new phase.** A filed task goes in the
-phase you are **currently executing**, in the owning package's existing `.tasks\phase-{NN}\`,
-numbered as that phase's next free `{TT}`
-(`validate-dependencies.ps1 -Phase {NN} -NextTaskNumber`). **No agent may create a
-`.tasks\phase-NN\` directory that does not already exist** — foreground, background, subagent,
-orchestrator, or fix loop alike. Creating a phase is a planning act reserved to Jon and to the
-planning skills he invokes by name (`/generate-tasks`, `/operationalize-design`); a phase that
-appears on its own silently seeds the next orchestration run with work nobody scheduled, and it
-moves what `latest-phase.ps1` reports.
-
-**And filing into your own phase does not get the work out of your gate.** The task you just filed
-is now part of that phase's completion bar: you finish it before the phase is declared done, or you
-carry a valid B1–B4 blocker with the four-part proof for it, exactly as for any other task. If you
-are filing a task *because* you would rather not do the work inside this run, you have found the
-exact reason the rule exists — filing forward is deferral wearing the costume of diligence.
-
-The legitimate reason to file rather than fix is that the fix is a **genuinely separate root cause
-or a decision that is not yours** (a product/security call, a B2). Say which, in the task file.
-
-**"Found it, you fix it" is sized for small defects.** It covers issues found while doing the
-task that a contained change can fix: a stale caller, a wrong path, a missed branch, a helper
-another change broke. **It is never licence to start work that would need its own design**:
-new behaviour across several languages or subsystems, a new capability, or a surface the task's
-design doc does not cover. A discovery of that size is **neither fixed in place nor filed into the
-running phase**. Write it up as a *findings file* (§5A) and stop there. Jon decides whether it
-becomes a design, a later phase, or nothing. Doing that work unasked, or filing it into the phase
-so that it becomes mandatory, is scope creep, however real the defect is.
+**A discovery never becomes a task file or a phase.** Filing it as a task would make it mandatory
+work nobody approved. **No agent may create a `.tasks\phase-NN\` directory that does not already
+exist** — foreground, background, subagent, orchestrator, or fix loop alike. Creating a phase is a
+planning act reserved to Jon and to the planning skills he invokes by name (`/generate-tasks`,
+`/operationalize-design`); a phase that appears on its own silently seeds the next orchestration
+run with work nobody scheduled, and it moves what `latest-phase.ps1` reports.
 
 ## 5A. Findings files — nothing you notice is dropped
 
-*Held in [execution-contract-reporting.md](./execution-contract-reporting.md).* Summary: a defect
-that needs its own design, a design flaw, or an issue on a surface you did not touch gets a findings
-file at `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md` (brief; no search first; duplicates are
-fine), and you cite its path in your reply. A findings file never replaces fixing a small defect on a
-surface you touched, and is never a reason to stop.
+*Held in [execution-contract-reporting.md](./execution-contract-reporting.md).* Summary: anything
+you find that the task does not need (§5) — a defect, a design flaw, an issue on any surface — gets
+a findings file at `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md` (brief; no search first;
+duplicates are fine), and you cite its path in your reply. A findings file is never a reason to stop.
 
 ## 6. Escalate before you stop — never instead of fixing
 
@@ -206,15 +183,17 @@ Green tests are **necessary and never sufficient.**
 
 ## 8A. A report is not an exit — only "finished" or Jon ends a turn
 
-Exactly two things end a turn: **the task is finished** (§8 holds for every item, or a valid §3
-blocker is proven), or **the user tells you to stop**. There is no third exit. In particular,
+Exactly three things end a turn: **the task is finished** (§8 holds for every item, or a valid §3
+blocker is proven), **the user tells you to stop**, or **everything left waits on an
+`APPROVAL_REQUIRED` question (§4)**. There is no fourth exit. In particular,
 *writing a report does not end the work* — the report is what you send *because* the work is done,
 never the thing you do *instead of* finishing it.
 
 - **A "what remains" list is a work queue, not a deliverable.** If your draft report contains a
   "remaining", "still to fix", "next up", or "not yet done" section, you are not finished. Delete
-  the section and go fix those items. Naming a defect whose root cause you already know, and then
-  handing back, is the §5 "mentioning it in prose" failure wearing a status-report costume.
+  the section and go fix those items. An item that is not part of the task is a findings file
+  (§5); an item that would grow the task is an `APPROVAL_REQUIRED` question (§4). Neither is a
+  "remaining" list.
 - **Partial progress is not a stop point.** A large drop in the error/failure count, one item of N
   completed, a suite turning green, a clean checkpoint, a natural-feeling pause, or simply having
   worked a long time — none of these is an exit. They are evidence the method works; keep applying
@@ -231,7 +210,7 @@ never the thing you do *instead of* finishing it.
 Your report is read by an orchestrator or by Jon, not graded by length. State the outcome and the
 evidence, nothing more:
 
-- Lead with the result (fixed / EXPANSION_REQUIRED / valid BLOCKED), then the proof.
+- Lead with the result (fixed / APPROVAL_REQUIRED / EXPANSION_REQUIRED / valid BLOCKED), then the proof.
 - Root cause in one or two sentences at the correct layer; the fix as `file:line` + what changed;
   verification as pasted command + output. No narration of the path you took to get there.
 - No preamble, no restating the task back, no "I then proceeded to…", no summary of the summary.
@@ -265,8 +244,9 @@ Summary: climb the evidence ladder from the top (read source → parse the artif
 repo gate → tagged tests across the packages reached → generate → deploy) and stop where the question
 is settled; every seam gets a `consumed − produced` set comparison that lives in code; a runtime
 failure is first a static-analysis failure (land the check that would have caught it); parse
-structure, never eyeball it with a regex; use the checks that already exist; fix the class, not the
-instance; an insertion is an integration.
+structure, never eyeball it with a regex; use the checks that already exist; characterize the
+class, fix the instances the task needs and put the rest in a findings file; an insertion is an
+integration.
 
 ## 13. Security is a ranked requirement, not a trade-off axis
 
@@ -296,11 +276,9 @@ Every one of these is banned, whatever the pressure that produced it:
 
 ### 14.1 There is no later
 
-There is no follow-up fairy and **there is no other agent** (§2). A fix labelled temporary is a
-permanent fix with a note attached — and the note is the part that evaporates. What survives a
-compaction, a session end, and a handover is the code you landed; the sentence explaining that it
-was only provisional does not. This is §5's "mentioning it in prose is not an outcome" applied to
-your own change instead of to someone else's defect.
+There is no follow-up fairy. A fix labelled temporary is a permanent fix with a note attached —
+and the note is the part that evaporates. What survives a compaction, a session end, and a handover
+is the code you landed; the sentence explaining that it was only provisional does not.
 
 Shipping the lesser fix and **describing it accurately** is not a mitigation. Honesty about a
 shortcut is not a substitute for not taking it.
@@ -323,10 +301,10 @@ an explanation of why it was cheaper.
 
 ### 14.4 When the correct fix is genuinely large
 
-Then it is genuinely large, and §4 already answers: **expand and continue**, and report the
-expansion. A task that has not started and truly spans 3+ unrelated subsystems can be proposed for a
-pre-flight split — that is a planning call made with a clean slate, never a licence to ship the
-small version of a job you already began.
+Then it is genuinely large, and §4 already answers: if it is larger or broader than what was
+approved, **ask** (`APPROVAL_REQUIRED:`) and keep working what does not depend on the answer. A task
+that has not started and truly spans 3+ unrelated subsystems can be proposed for a pre-flight
+split. Neither is ever a licence to ship the small version of a job you already began.
 
 ### 14.5 The test to run before you write the change
 

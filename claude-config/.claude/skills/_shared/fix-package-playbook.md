@@ -149,7 +149,7 @@ Read the file before editing. The **smallest correct** edit — no debug logging
 **"Smallest correct" is one phrase, not two options.** Two rules bind every fix here (`_shared/execution-contract.md` §13–§14):
 
 - **Never choose a less secure option when a more secure one is available**, and never disable, loosen, or exempt a security control to turn a red test green. If a test fails *against* a control, the control is the requirement and the thing failing it is the defect. Controls fail **closed**: a guard that cannot evaluate its input denies. This binds emitted templates as hard as generator source — an insecure default ships once per generated project, forever.
-- **The size of a fix is set by the defect, not by your budget.** No "quick fix for now", no "minimal change to get it green", no "harden it later" — and none of those become acceptable because you said them honestly or because context was short. There is no later. If the correct fix is bigger than the cluster suggested, make it and report the expansion.
+- **The size of a fix is set by the defect, not by your budget.** No "quick fix for now", no "minimal change to get it green", no "harden it later" — and none of those become acceptable because you said them honestly or because context was short. There is no later. If the correct fix is bigger or broader than what was asked, ask Jon (`APPROVAL_REQUIRED:` what, why, size; execution-contract §4) and never ship the smaller version instead.
 
 ### Step 7: Verify
 

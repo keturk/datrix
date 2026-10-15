@@ -197,19 +197,21 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    again multiplies cost without adding coverage and fragments the report the
    orchestrator has to act on.
 
-   SCOPE — root cause you are chasing vs. violation you merely noticed. These pull in
-   opposite directions and confusing them turns a task into an audit:
-   - Root cause of the failure you were sent to fix → follow it wherever it lives and
-     fix it there, even in another package. Report it under scope_expansion.
-   - Pre-existing rule violation you happened to SEE while reading (a stale reference,
-     a naming breach, a smell in code you did not touch) → write a findings file
+   SCOPE — what the task asks; growth needs Jon's approval (execution-contract §4–§5):
+   - Root cause of the failure you were sent to fix → follow it and fix it there, even
+     in another package, while the change stays the size and kind the task describes.
+     Report added files under scope_expansion.
+   - The task turns out bigger or broader than it states (new model fields, phases,
+     diagnostics, modules or packages it does not name; a multiple of its estimate) →
+     do not grow it: return status APPROVAL_REQUIRED with what, why (file:line) and
+     roughly how big.
+   - Anything you find that the task does not need (a defect on a file you touched, a
+     pre-existing failure, another instance of the defect class, a violation you
+     happened to see) → write a findings file
      (d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md, template:
      .claude/skills/_shared/execution-contract-reporting.md §5A; do not look for an
-     existing one) and move on. It is not a fix, not a task, and not a line in
-     your report. "Found it, you fix it" covers surfaces you TOUCHED, not surfaces you
-     SCANNED; a grep across N files does not make you the owner of N files.
-   When both readings are available, ask: does this block the fix I was sent to make?
-   If no, it is a findings file.
+     existing one) and move on. It is not a fix and not a task.
+   Ask: does the task need this to be correct? If no, it is a findings file.
    ```
 
    **See the template file for:**
@@ -225,7 +227,7 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 
 2. **Spawn all agents in parallel** using a single message with multiple Task tool calls (all `run_in_background: true`, `max_turns: 40`)
 
-3. **Drive the agents per the Delegation Constraints above** (genuine 5-minute polls, never passive waiting). As each poll detects a completion, collect: status (IMPLEMENTED / BLOCKED / NEEDS_CONTEXT / FAILED), files created/modified, targeted test results (pass/fail, fix attempts), and any questions.
+3. **Drive the agents per the Delegation Constraints above** (genuine 5-minute polls, never passive waiting). As each poll detects a completion, collect: status (IMPLEMENTED / BLOCKED / NEEDS_CONTEXT / APPROVAL_REQUIRED / FAILED), files created/modified, targeted test results (pass/fail, fix attempts), and any questions.
 
 4. **Handle non-IMPLEMENTED results at the poll that surfaces them:**
    - **BLOCKED → run the DECISION ADJUDICATION PROTOCOL, Door A (`d:\datrix\.claude\skills\_shared\decision-adjudication-protocol.md`) FIRST.** Read it; it is binding. **An agent's BLOCKED never stops this skill and is never relayed to the user unexamined.**
@@ -233,7 +235,8 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
      2. **Investigate it yourself, through the code and the docs.** A well-formed proof is still an assertion. Reproduce the error in the same context; open the `file:line` and verify the attempted fix is real and aimed at the root cause; trace the root cause yourself; read the design/architecture docs governing that surface; then test the claimed B-code against what you found (legitimacy table, protocol §3). You may delegate the reading and the repro — **never the verdict.**
      3. **ILLEGITIMATE (the common case) → correct and re-dispatch.** Fresh agent, original task **plus** the correction packet (protocol §4): its claim quoted back, the finding that kills it (your `file:line` or command + output), what it missed, the path forward. **Not a failure, not a blocker** — the task is still in flight and never enters `tasks_failed`. Max two such re-dispatches; on a third, do the root-cause analysis yourself and dispatch a directed implementer.
      4. **LEGITIMATE → Fable adjudication.** Spawn a **Fable** decision agent (`subagent_type: "general-purpose"`, `model: "fable"`, `effort: "high"`, `run_in_background: false`) with the protocol §5 prompt — task, objective, acceptance property, the four-part proof, **your** independent findings, the confirmed B-code, what you ruled out, the CLAUDE.md constraints. It returns one binding decision: **A** not-actually-blocked / **B** fix-elsewhere / **C** amend-task / **D** resequence / **E** spawn-follow-up / **F** ask-user. **Execute it** (protocol §6 table) — only **F** pauses for the user; A–E keep the batch moving. Verify with the `acceptance_check` it specifies.
-   - **These are never blockers — they are work:** missing dependency (implement it), missing file (create it), incomplete prereq, unclear root cause (keep reading), pre-existing failure (it's yours now), "environmental", "needs broader changes", "should be tracked separately" (**there is no other agent**). Never record them as failures; re-dispatch with that instruction.
+   - **These are never blockers — they are work:** missing dependency (implement it), missing file (create it), incomplete prereq, unclear root cause (keep reading), "environmental" (prove it or fix it). Never record them as failures; re-dispatch with that instruction. A pre-existing failure the task does not need is a findings file, not work.
+   - **APPROVAL_REQUIRED** (the task needs to grow beyond what it states) → put it to Jon in one line (what, why, how big, your recommendation) and do not re-dispatch that task until he answers. Keep the rest of the batch moving. Not a failure; never goes to `failed_tasks`.
    - **A conflict YOU hit → the SAME ladder, via Door B.** Contradicting designs/tasks, a design-named surface with no owning task, a false task premise, an ambiguous fix scope, an ordering conflict — **Fable adjudicates these, not the user.**
    - **Spec gap / missing input** (NEEDS_CONTEXT) → derive it from the design docs and the code first. If you genuinely cannot, it is a **rung-3 decision → Fable** (Door B) — *not* an automatic user question. Only the protocol's §7 closed list goes straight to the user (absent credential · irreversible outward-facing action · genuine product call · prohibition to lift); ask **with your recommendation**, then re-dispatch with the answer. Do NOT proceed to the quality gate with questions outstanding.
    - **Technical ambiguity** (NEEDS_CONTEXT on a design choice or unclear root cause) → **Decision Escalation Protocol** (below); re-dispatch with the recommendation. Never hand a technical ambiguity to the user — that is your job, and if your own analysis cannot settle it, it is **Fable's**, not theirs.

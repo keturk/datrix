@@ -189,16 +189,16 @@ Apply the implementation described in the task file:
    - No backward-compatibility wrappers
    - One way to do each thing
 
-**Scope discipline — expand, don't abandon** (execution-contract §4):
-- The task's file list is the **expected surface, not a fence**. If the root cause lies outside it, **follow it and fix it there**, then report the expansion under `scope_expansion`.
-- Growing beyond the task's estimate is **not** a stopping condition — an estimate is a prediction, not a permission slip.
-- Do NOT make unrelated "improvements" to surrounding code. (Following a root cause is not an improvement — it is the job.)
-- **Root cause you are chasing vs. violation you merely noticed — these pull in opposite directions, and confusing them is how a task becomes an audit.** A root cause of the failure you are fixing → follow it wherever it lives and fix it there, even in another package. A pre-existing rule violation you *happened to see* while reading (a stale reference, a naming breach, a lint smell in code you did not touch) → **write a findings file** (`d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md`, execution-contract §5A; do not look for an existing one) **and move on.** It is not a fix, not a task, and not a line in your report. "Found it, you fix it" covers surfaces you **touched**, not surfaces you **scanned**; a grep across N files does not make you the owner of N files. When both readings are available, ask: *does this block the fix I was sent to make?* If no, it is a findings file.
+**Scope discipline — what was asked; growth needs approval** (execution-contract §4–§5):
+- The task's file list is the expected surface. If the root cause of the task's own defect lies in a neighbouring file or package, follow it and fix it there, and list the added files under `scope_expansion`.
+- If the task turns out bigger or broader than it states (new model fields, phases, diagnostics, modules or packages it does not name; a multiple of its estimate), **do not grow it yourself**: return status `APPROVAL_REQUIRED` with what, why (`file:line`) and roughly how big. The orchestrator puts it to Jon.
+- Do NOT make unrelated "improvements" to surrounding code.
+- **Anything you find that the task does not need** — a defect on a file you touched, a pre-existing failure, another instance of the defect class, a violation you happened to see — → **write a findings file** (`d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md`, execution-contract §5A; do not look for an existing one) **and move on.** It is not a fix and not a task. Ask: *does the task need this to be correct?* If no, it is a findings file.
 - **Do NOT spawn subagents.** Do your task's work yourself, sequentially. Fanning out again multiplies cost without adding coverage and fragments the report the orchestrator has to act on.
 
 **STUCK protocol — fix it; BLOCKED is a claim you must prove** (execution-contract §1–§3):
 - **Your default outcome is: the problem is fixed.** Not investigated, not reported.
-- **These are NOT blockers — they are the work:** missing dependency (**implement it**), missing file (**create it**), patterns unclear (**read more**), root cause unclear (**keep reading**), scope grew (**do the work**), failure is pre-existing (**it's yours now**), lives in another package (**go fix it there**), no test covers it (**write one**).
+- **These are NOT blockers — they are the work:** missing dependency (**implement it**), missing file (**create it**), patterns unclear (**read more**), root cause unclear (**keep reading**), the task's root cause lives in another package (**go fix it there**), no test covers it (**write one**). Scope grew → `APPROVAL_REQUIRED`, not BLOCKED; a pre-existing failure the task does not need → findings file.
 - **Design ambiguity → escalate, don't stop.** Escalation (`_shared/decision-escalation-protocol.md`) is how you *keep going*. Returning BLOCKED on a technical ambiguity without escalating first is an invalid report.
 - **A valid BLOCKED needs all four:** verbatim error text; the fix you actually wrote and ran (`file:line` — analysis alone is **not** an attempt); why it failed; and the `B1`/`B2`/`B3`/`B4` code. **Missing any → the report is rejected and the task is re-dispatched to you.**
 - Writing `pass`, `NotImplementedError`, empty method bodies, or trivial stubs that satisfy type checkers but do nothing is the **worst** outcome — invisible debt that wastes future sessions.
@@ -281,7 +281,7 @@ OR (for quality gate):
 ### Abort Conditions
 
 STOP immediately if:
-- Modified more than **double** the files estimated by the task AND the expansion is not a root-cause follow (execution-contract §4: following the root cause outside the expected file list is the default, not an abort — report it under `scope_expansion`; unrelated "improvements" are what this bound catches)
+- The task needs more than **double** the files it estimates, or changes it does not name (execution-contract §4) → return `APPROVAL_REQUIRED` with what, why and how big, before making them
 - Ambiguities survive the adjudication ladder (a Fable **F**, or a §7 closed-list item the user must answer)
 
 On abort, report what was completed, what failed, and what cannot proceed.

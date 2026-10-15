@@ -13,7 +13,7 @@ doing the wrong thing.
 
 | Event | Hook | Refuses |
 |---|---|---|
-| `Stop` | `gate-orchestration-stop.py` | ending an armed `/task-orchestrator` run with tasks unresolved, on an offer to pause, or on a dodge/omission |
+| `Stop` | `gate-orchestration-stop.py` | ending an armed `/task-orchestrator` run with tasks unresolved (unless the turn ends on an `APPROVAL_REQUIRED` question), on an offer to pause, or on a dodge/omission |
 | `Stop` | `checklist.py` | ending a turn with a mechanical checklist item unsatisfied (`.claude/checklists/*.json`) |
 | `Stop` | `gate-stop-exhaustion.py` | ending ANY turn on a context-exhaustion claim, a "remaining / still to fix / next up" handover section, a reported security downgrade (§13), or a reported expedient fix (§14) — inert when Jon asked you to stop or asked a question |
 | `SubagentStop` | `check-agent-report.py` | a subagent report ending on a dodge without a B1–B4 proof or filed task, or reporting a security downgrade / expedient fix (neither is lifted by a proof; §13's one exception is B3) |
@@ -34,7 +34,7 @@ doing the wrong thing.
 | `PreToolUse(Bash\|PowerShell)` | `guard-approved-test-plan.py` | any shell command naming the approval gate directory, so an approval cannot be written or copied in, and the gate cannot be disarmed, from a shell |
 | `PreToolUse(Write\|Edit\|NotebookEdit)` | `gate-mandatory-reads.py` | any edit until the gated docs are read in this session (and re-read after a compaction) |
 | `PreToolUse(Read)` | `redirect-large-read.py` | the **first** whole read (no `offset`/`limit`) of a large `.py` file or test log in the framework repos — answered with the file's code-index outline, or a local model's digest of the log; repeat the same Read to get the whole file (shown once per file per agent) |
-| `PreToolUse(AskUserQuestion)` | `gate-decision-escalation.py` | handing a decision back to Jon mid-run instead of escalating |
+| `PreToolUse(AskUserQuestion)` | `gate-decision-escalation.py` | handing a decision back to Jon mid-run instead of escalating (an `APPROVAL_REQUIRED` request to grow the task passes) |
 
 `test-hook-config.py` compares this table with `settings.json` in both directions: a blocking
 hook registered but missing here, or listed here but not registered, fails it.

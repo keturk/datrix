@@ -45,8 +45,9 @@ costs more than the dodge did. Three suppressors, all applied before matching:
   2. NEGATION — "no steps were skipped", "nothing left as-is" are the opposite
      of a dodge.
   3. PROOF MARKERS — a B1-B4 blocker with proof, a filed task path, a
-     findings file path, or EXPANSION_REQUIRED is a legitimate exit and
-     suppresses the whole check.
+     findings file path, EXPANSION_REQUIRED (a parallel-wave lock request), or
+     APPROVAL_REQUIRED (asking Jon to approve growing the task) is a legitimate
+     exit and suppresses the whole check.
 
 Callers add a fourth: scope. Neither gate runs this on every session.
 """
@@ -257,6 +258,7 @@ _PROOF_RE: Final = re.compile(
     r"\bB[1-4]\b\s*[:\-—]"  # blocker code with proof
     r"|\bblocker_code\b"
     r"|\bEXPANSION_REQUIRED\b"
+    r"|\bAPPROVAL_REQUIRED\b"  # growth beyond the asked scope waits on Jon (execution-contract §4)
     r"|\bMISSING_ACCESS\b|\bUNDECIDABLE\b|\bUSER_FORBADE\b|\bFENCED_SURFACE\b"
     r"|\.tasks[/\\][\w\-./\\]+\.md"  # a real filed task file path
     r"|reports[/\\]finding[/\\][\w\-.]+\.md"  # a findings file (execution-contract §5A)
@@ -399,8 +401,8 @@ _PAUSE_REQUEST_RE: Final = re.compile(
 def user_asked_to_pause_or_report(text: str) -> bool:
     """True when Jon's own last turn asked for a stop, a status, or an answer.
 
-    The single most important suppressor here. "Exactly two things end a turn:
-    the task is FINISHED, or Jon tells you to stop" -- so when Jon HAS said
+    The single most important suppressor here. "A turn ends when the task is
+    FINISHED, when Jon tells you to stop, or on an APPROVAL_REQUIRED question" -- so when Jon HAS said
     stop, or asked a question, ending the turn is correct and a gate that
     refused it would be training evasive phrasing into every future status
     report. This is scope, not leniency.
@@ -492,20 +494,20 @@ DODGE_REMEDY: Final = (
     "  B2 UNDECIDABLE     - two genuinely defensible designs, expensive to reverse\n"
     "  B3 USER_FORBADE    - the only correct fix was explicitly prohibited\n"
     "  B4 FENCED_SURFACE  - root cause is on a surface the user explicitly excluded\n\n"
-    "Everything else is work: root cause unclear -> keep reading. Root cause in "
-    "another package -> go fix it there. Bigger than estimated -> do it. "
-    "Pre-existing -> it is yours now. 'Behavioral/environmental' -> prove it with "
-    "the verbatim error text, or fix it. No test -> write one. 'Should be tracked "
-    "separately' -> THERE IS NO OTHER AGENT.\n\n"
+    "Everything the task needs is work: root cause unclear -> keep reading. Root "
+    "cause of your defect in another package -> go fix it there. "
+    "'Behavioral/environmental' -> prove it with the verbatim error text, or fix "
+    "it. No test -> write one.\n\n"
     "If you SKIPPED a check rather than reassigned the work: go run it now. An "
     "unverified claim is not a result. 'Should work' is not evidence - read the "
     "file, run the check, and report what it actually said.\n\n"
     "Do ONE of these, then finish:\n"
-    "  1. DO IT. (This is the default and almost always the right answer.)\n"
-    "  2. FILE IT - create a real tracked task file and cite its path, if it is "
-    "genuinely an independent root cause.\n"
-    "  3. WRITE A FINDING - if it is design-sized or unrelated to your task (a "
-    "surface you did not touch), just write "
+    "  1. DO IT, if the task needs it and it stays within what was asked.\n"
+    "  2. ASK FOR APPROVAL - if doing it makes the task bigger or broader than "
+    "what was asked: one line starting APPROVAL_REQUIRED: with what, why and how "
+    "big (execution-contract.md §4). Keep working what does not depend on it.\n"
+    "  3. WRITE A FINDING - if the task does not need it (a defect you noticed, "
+    "a pre-existing failure, another instance, anything unrelated), just write "
     "d:\\datrix\\reports\\finding\\YYYYMMDD-HHMMSS-<slug>.md "
     "(execution-contract-reporting.md §5A), cite its path, and finish your own "
     "task.\n"
@@ -550,15 +552,16 @@ EXPEDIENT_REMEDY: Final = (
     "Per .claude/skills/_shared/execution-contract.md §14, the size of a fix is "
     "set by the DEFECT - never by what is left of your context, budget, turn, or "
     "patience.\n\n"
-    "There is no later. There is no other agent. A fix labelled temporary is a "
+    "There is no later. A fix labelled temporary is a "
     "permanent fix with a note attached, and the note is the part that "
     "evaporates: what survives a compaction is the code you landed, not the "
     "sentence explaining that it was provisional.\n\n"
     "Saying it honestly does not help. Honesty about a shortcut is not a "
     "substitute for not taking it.\n\n"
     "Economy means reading NARROWLY, never writing a LESSER change (§11.0 "
-    "applied to the fix itself). If the correct fix is big, do it and report the "
-    "expansion (§4). If context is short, spend it on the CORRECT change - the "
+    "applied to the fix itself). If the correct fix is bigger or broader than "
+    "what was asked, ask for approval (APPROVAL_REQUIRED:, §4) - never ship the "
+    "small version instead. If context is short, spend it on the CORRECT change - the "
     "smallest correct change, not the smallest change.\n\n"
     "Go back and make the change the defect deserves. The test: if this were the "
     "only change ever made here, would it be right? If the answer needs a 'for "

@@ -106,6 +106,9 @@ check("proven B2 blocker -> allowed",
            "settles it. Recommendation: build-on-VM."), 2 if False else 0)
 check("filed task path -> allowed",
       gate("Next up: handled by .tasks/phase-72/task-04-login-bff-image.md"), 0)
+check("approval request for growing the task -> allowed",
+      gate("Landed the Python half.\n\nAPPROVAL_REQUIRED: the TypeScript half needs a new "
+           "resolution phase the request does not name (resolve.py:88); about a day."), 0)
 check("ordinary finished turn -> allowed",
       gate("Landed the resolver and its 12 tests; datrix-codegen-docker green."), 0)
 

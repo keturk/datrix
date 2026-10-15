@@ -25,6 +25,9 @@ WHAT IS AND IS NOT BLOCKED
     and blocking the exit from it would trap the agent before it could start working.
   - An escape exists for a genuine rung-4: cite the Fable adjudication (`ASK_USER` /
     decision `F`) in the question payload and it passes.
+  - An approval request passes too: growing the run beyond what Jon asked for is his
+    call, never Fable's (execution-contract §4), so a payload carrying
+    `APPROVAL_REQUIRED` is not a decision handed up.
   - After `_MAX_BLOCKS` refusals the hook stands aside, so it can never wedge a session.
 
 Exit codes:
@@ -48,6 +51,7 @@ _MAX_BLOCKS: Final = 5
 # Evidence that rung 3 actually happened and returned F (ASK_USER).
 _ADJUDICATED_RE: Final = re.compile(
     r"\bASK_USER\b"
+    r"|\bAPPROVAL_REQUIRED\b"
     r"|\bfable\b[^.\n]{0,80}\b(?:returned|adjudicat\w*|decided|verdict)\b"
     r"|\b(?:decision|verdict)\s*[:=]\s*\"?F\b",
     re.IGNORECASE,
@@ -94,7 +98,9 @@ _MESSAGE: Final = (
     "Go to rung 3 now. Spawn the adjudicator, take its ruling, and keep executing. "
     "Everything that does not depend on the answer continues in the meantime.\n\n"
     "If Fable has already returned F on this exact question, say so in the question "
-    "payload (cite ASK_USER / the Fable ruling) and this gate will pass it through."
+    "payload (cite ASK_USER / the Fable ruling) and this gate will pass it through. "
+    "If this is a request to approve growing the task beyond what Jon asked for "
+    "(execution-contract §4), start the question with APPROVAL_REQUIRED: and it passes."
 )
 
 

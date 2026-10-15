@@ -54,31 +54,37 @@ reported, not escalated. Fixed, and proven fixed.
 - **B3 USER_FORBADE** — the only correct fix needs an action Jon explicitly prohibited.
 - **B4 FENCED_SURFACE** — the root cause is on a surface Jon explicitly excluded *in this request*.
 
-**Everything else is work**, including: root cause unclear (keep reading), root cause in
-another package (go fix it there), bigger than estimated (do it, report the expansion),
-pre-existing (it's yours now), "categorically behavioral/environmental" (prove it with the
-error text or fix it), no test coverage (write one), "would require broader changes" (make
-them), "should be tracked separately" (**there is no other agent**).
+**Everything else is work**, including: root cause unclear (keep reading), root cause of
+*your* defect in another package (go fix it there), "categorically behavioral/environmental"
+(prove it with the error text or fix it), no test coverage (write one).
 
 **BLOCKED is a claim you prove, not a status you pick.** A valid BLOCKED carries all four:
 verbatim error text; the fix you actually attempted (`file:line` — you must have written
 code and run it); why it failed; and the B1–B4 code.
 
-**Found it, you fix it.** Any defect you discover on a surface you touched is yours: fix it,
-or file a real tracked task. Mentioning it in prose and moving on is not an outcome.
-This covers **small** defects found while doing the task. Anything that would need its own
-design (a new capability, or new behaviour across languages or subsystems) is never fixed in
-place and never filed into the running phase. **Something unrelated to your task** — noticed in
-passing, on a surface you did not touch — is not yours to fix: just write the findings file below.
+**Scope is what was asked — and nothing grows it without Jon's approval.** The task is what Jon
+asked for (or the design doc / task file you were given). Do that, completely.
+- **Something you find that the task does not need** — a defect on a file you touched, a
+  pre-existing failure your change did not cause, another instance of the defect you are fixing,
+  anything unrelated — is **not fixed**. It gets a findings file (below), and you carry on.
+- **The task turns out bigger than estimated, or the correct fix needs broader changes** than the
+  request states (new model fields, phases, diagnostics or modules the request does not name;
+  packages it does not name; a multiple of the expected size) → **stop that part and ask for
+  approval**: one line starting `APPROVAL_REQUIRED:` saying what, why, and roughly how big. Keep
+  working everything that does not depend on the answer; if nothing does, end the turn on the
+  question. A subagent returns status `APPROVAL_REQUIRED` with the same content.
+- Never resolve it by shipping a smaller version instead: an unapproved expansion and a cut-down
+  fix are both wrong. Approved work then follows every rule here.
 
-**Nothing you notice is dropped.** A design-sized defect, a design flaw, or anything unrelated
-to your task gets a **findings file** at `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md`.
+**Nothing you notice is dropped.** A defect the task does not need, a design flaw, or anything
+unrelated to your task gets a **findings file** at `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md`.
 Just write it: **do not look for an existing one** (duplicates are fine; `/consolidate-findings`
 merges them), do not fix it, do not file a task. Cite its path in your reply and carry on.
 Format: execution-contract-reporting.md §5A.
 
-**Exactly two things end a turn: the task is FINISHED, or Jon tells you to stop.** Running
-long, getting tired of the loop, and reaching a natural-feeling pause are not exits.
+**Exactly three things end a turn: the task is FINISHED, Jon tells you to stop, or everything
+left waits on an `APPROVAL_REQUIRED` question to Jon.** Running long, getting tired of the
+loop, and reaching a natural-feeling pause are not exits.
 
 **Running low on context is not an exit either.** Context is compacted and the work
 continues — "I'm near the end of my context window" is not on the B1–B4 list and never
@@ -97,23 +103,23 @@ what it printed.
 what is left of your context, budget, turn, or patience. "A quick fix for now", "the
 minimal change to get it green", "a temporary shim until the real thing lands", "I'll
 harden it later" are all banned, and remain banned when you say them honestly. **There is
-no later.** If the correct fix is large, do it and report the expansion (§14).
+no later.** If the correct fix is larger than what was approved, ask (`APPROVAL_REQUIRED:`, §4) —
+never ship the small version (§14).
 
-**The only interruption is Jon.** A decision genuinely reserved to him (a true B2, or
-something he said to check with him on) → ask in one line, and keep working everything that
-does not depend on the answer.
+**The only interruption is Jon.** A decision genuinely reserved to him (a true B2, an
+`APPROVAL_REQUIRED` expansion, or something he said to check with him on) → ask in one line, and
+keep working everything that does not depend on the answer.
 
-**Scope: expansion, not abandonment.** *Before* starting, a task spanning 3+ unrelated
-subsystems may be split. *Once started*, a bigger job is grounds to **expand and continue**,
-never to stop. (Sole exception: an explicit `PARALLEL_WAVE: files are exclusive` dispatch →
-return `EXPANSION_REQUIRED` naming the files; that is not BLOCKED.)
+**Parallel waves.** An explicit `PARALLEL_WAVE: files are exclusive` dispatch whose fix needs a
+file outside its list returns `EXPANSION_REQUIRED` naming the files (a lock request inside
+approved scope, not BLOCKED).
 
 ## No Nested Agents
 
 **Only `/task-orchestrator` dispatches subagents** (sized per `execution-contract-spend.md` §10).
 Planning and design skills (`/operationalize-design`, `/generate-tasks`) never do. **A subagent never
-spawns subagents** — depth is one; do the work yourself, sequentially, and report any expansion to
-the dispatcher. `guard-no-nested-agents.py` refuses it, with no override.
+spawns subagents** — depth is one; do the work yourself, sequentially, and return
+`APPROVAL_REQUIRED` to the dispatcher for anything beyond your task. `guard-no-nested-agents.py` refuses it, with no override.
 
 ## Enforced by the Harness
 
@@ -145,8 +151,8 @@ the wrong thing. The full table, and how to add a check (in a hook or a checklis
 - **Every seam gets a set comparison, and it lives in code** (`consumed − produced`, landed as a
   validator or test; parse structure, never eyeball it with a regex). After any run failure ask
   *"what check would have caught this before the run, and where does it live?"* and land it
-  with the fix. **An insertion IS an integration** — read the neighbours. **Fix the class, not
-  the instance.** Details: `ai-agent-rules/static-analysis-first.md`, `execution-contract-verification.md` §12.
+  with the fix. **An insertion IS an integration** — read the neighbours. Other instances of
+  the defect class you notice go in the findings file, not into your change. Details: `ai-agent-rules/static-analysis-first.md`, `execution-contract-verification.md` §12.
 - **Datrix is a multi-language, multi-platform generator** — not limited to Python/TypeScript,
   not limited to Docker/AWS/Azure. Place fixes at the most agnostic layer that can own them;
   never hardcode that the shipped targets are the only targets

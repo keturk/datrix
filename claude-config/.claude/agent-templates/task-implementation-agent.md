@@ -100,13 +100,19 @@ Return a JSON report as the LAST thing in your output:
 {
   "task_id": "{task_id}",
   "task_path": "{task_path}",
-  "status": "IMPLEMENTED | EXPANSION_REQUIRED | BLOCKED | NEEDS_CONTEXT | FAILED",
+  "status": "IMPLEMENTED | APPROVAL_REQUIRED | EXPANSION_REQUIRED | BLOCKED | NEEDS_CONTEXT | FAILED",
   "files_created": ["path1", "path2"],
   "files_modified": ["path3"],
   "scope_expansion": {
     "expanded": false,
     "files_added": [],
     "why": "the root cause lay outside the task's expected file list — name it, and why these files own it"
+  },
+  "approval_request": {
+    "_comment": "REQUIRED and non-null when status is APPROVAL_REQUIRED.",
+    "what": "the expansion the task needs and does not name",
+    "why": "the evidence that the task cannot be correct without it (file:line)",
+    "size": "roughly how big: files, packages, hours"
   },
   "targeted_tests": {
     "ran": true,
@@ -124,8 +130,8 @@ Return a JSON report as the LAST thing in your output:
   "discovered_defects": [
     {
       "what": "any defect, design flaw, or issue you found — on a surface you touched or not",
-      "disposition": "FIXED | FILED | FINDING",
-      "evidence": "the fix (file:line), the task file path you created, or the findings file path (d:\\datrix\\reports\\finding\\…). Prose-only mention is NOT a valid disposition."
+      "disposition": "FIXED (only when the task needed it) | FINDING",
+      "evidence": "the fix (file:line), or the findings file path (d:\\datrix\\reports\\finding\\…). Prose-only mention is NOT a valid disposition."
     }
   ],
   "blocker_proof": {
@@ -140,7 +146,7 @@ Return a JSON report as the LAST thing in your output:
 }
 ```
 
-**`blocker_proof` is null for every status except BLOCKED.** If you set `status: "BLOCKED"` and cannot fill all four fields honestly, then **you are not blocked — you are unfinished.** Go back to Step 2 and fix the problem.
+**`approval_request` is null for every status except APPROVAL_REQUIRED. `blocker_proof` is null for every status except BLOCKED.** If you set `status: "BLOCKED"` and cannot fill all four fields honestly, then **you are not blocked — you are unfinished.** Go back to Step 2 and fix the problem.
 
 **Evidence rule:** every claimed check in this report must carry the exact command + its actual output (or index.json counts), and every test claim must carry its `run_folder`. A bare "passed"/"green" claim — or a missing run folder — is treated as unverified and re-run by the orchestrator at your task's expense; verifiable evidence is what lets the orchestrator accept your result from the saved artifacts without redoing your work. (Design-acceptance checks: the orchestrator verifies your pasted evidence at the completion gate and executes every invariant's check itself once at the phase boundary.)
 
@@ -165,19 +171,16 @@ not the task: form a new one, grounded in the error text, and continue.
 
 **Missing any of the four → the orchestrator rejects your report and re-dispatches this task to you with your own report quoted back.** You cannot exit by asserting an exit.
 
-### Scope: expand, don't abandon
+### Scope: what the task asks; growth needs approval
 
-**The file list in your task is the EXPECTED surface, not a fence.** If the root cause is outside it:
-- **Default: follow it and fix it there.** Then list the added files under `scope_expansion` in your report.
-- **Only if your dispatch carries `PARALLEL_WAVE: files are exclusive`:** another agent may hold those files. Do not edit them. Return status `EXPANSION_REQUIRED` with the exact files + root cause. This is **not** BLOCKED — it means "I know the fix and need the lock," and the orchestrator will re-dispatch you serially.
+**The file list in your task is the expected surface.**
+- If the root cause of the task's own defect is in a neighbouring file or package, follow it and fix it there, as long as the change stays the size and kind the task describes. List the added files under `scope_expansion`.
+- **If the task turns out bigger or broader than it states** — new model fields, phases, diagnostics, modules or packages it does not name, or a multiple of its estimate — **do not grow it.** Return status `APPROVAL_REQUIRED` with what the expansion is, why the task needs it (`file:line`), and roughly how big. The orchestrator puts it to Jon. This is **not** BLOCKED, and shipping a smaller fix instead is never the answer.
+- **Only if your dispatch carries `PARALLEL_WAVE: files are exclusive`:** another agent may hold files outside your list. Do not edit them. Return status `EXPANSION_REQUIRED` with the exact files + root cause. This is **not** BLOCKED — it means "I know the fix and need the lock," and the orchestrator will re-dispatch you serially.
 
-### Found it, you fix it
+### What you find that the task does not need
 
-Any defect you discover on a surface you touched is yours. **Fix it**, or **file a real tracked task file** via the task scripts. Mentioning it in prose and moving on is **not an outcome** — it is the failure mode this protocol exists to prevent.
-
-This is for **small** defects found while doing the task. If the fix would need its own design (a new capability, or new behaviour across languages or subsystems that your task's design doc does not cover), do not fix it and do not file it as a task.
-
-**Write a findings file instead, and keep working.** Do this for a design-sized defect, a design flaw, or anything unrelated to your task (noticed in passing, on a surface you did not touch) — do not fix it, do not file a task for it, and do not leave it as a line in your report. Write `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md` with the `Write` tool, using the template in `.claude/skills/_shared/execution-contract-reporting.md` §5A: what is wrong, where (`file:line`), the evidence you saw, and the impact, in under 30 lines. **Do not look for an existing finding first**; duplicates are fine. List each one under `discovered_defects` with disposition `FINDING` and the file path as its evidence.
+**Write a findings file, and keep working.** A defect on a file you touched, a pre-existing failure your change did not cause, another instance of the defect class you are fixing, a design flaw, anything unrelated — if the task does not need it to be correct, do not fix it, do not file a task for it, and do not leave it as a line in your report. Write `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md` with the `Write` tool, using the template in `.claude/skills/_shared/execution-contract-reporting.md` §5A: what is wrong, where (`file:line`), the evidence you saw, and the impact, in under 30 lines. **Do not look for an existing finding first**; duplicates are fine. List each one under `discovered_defects` with disposition `FINDING` and the file path as its evidence.
 
 ### Still forbidden (these are worse than a proven blocker)
 
@@ -188,7 +191,7 @@ This is for **small** defects found while doing the task. If the fix would need 
 
 ### Banned report vocabulary
 
-Never write these in your report, `## Implementation Notes`, or `## How Solved` unless immediately followed by a valid four-part blocker proof, a filed task ID, or a findings file path — a `SubagentStop` hook greps for them and will invalidate your report:
+Never write these in your report, `## Implementation Notes`, or `## How Solved` unless immediately followed by a valid four-part blocker proof, an `APPROVAL_REQUIRED` request, or a findings file path — a `SubagentStop` hook greps for them and will invalidate your report:
 
 `out of scope` · `not part of this task` · `beyond the scope` · `pre-existing` (as an excuse) · `categorically behavioral` · `environmental issue` · `should be tracked separately` · `left as-is` · `future work` · `would require broader changes` · `not my file` · `deferred` · `partial` · `workaround` · `dual path` · `not yet wired` · `remains unchanged`
 

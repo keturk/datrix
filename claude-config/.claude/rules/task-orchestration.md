@@ -44,19 +44,21 @@ How-Solved said `Status: BLOCKED`.)
 **Agents never create a phase.** Creating a `.tasks\phase-NN\` directory that does not
 already exist is a **planning act reserved to Jon** and to the planning skills he invokes
 by name (`/generate-tasks`, `/operationalize-design`). No agent — foreground, background,
-subagent, orchestrator, or fix loop — may create one, and "the execution contract told me
-to file a real tracked task" is **not** authorization to open a new phase. A new phase
+subagent, orchestrator, or fix loop — may create one, and a defect discovered mid-run is
+**not** authorization to open a new phase. A new phase
 silently seeds the next orchestration run with work nobody scheduled, and it is what
 `latest-phase.ps1` reports.
 
-**Design-sized findings are not phase tasks.** When an agent reports, or files, a defect whose
-fix would need its own design (a new capability, or new behaviour across languages or
-subsystems, beyond the phase's design doc), the orchestrator does not add it to the phase and
-does not dispatch it. It makes sure the finding has a findings file under
-`d:\datrix\reports\finding\` (execution-contract §5A), writing one itself if the agent did not,
-and names it to Jon before any work starts. If an agent already filed such a task, remove it
-from the phase and move its text into a findings file. Only small, contained defects are filed
-into the running phase (execution-contract §5).
+**Findings are not phase tasks.** When an agent reports a defect its task does not need, the
+orchestrator does not add it to the phase and does not dispatch it. It makes sure the finding
+has a findings file under `d:\datrix\reports\finding\` (execution-contract §5–§5A), writing one
+itself if the agent did not, and names it to Jon. If an agent filed such a task, remove it from
+the phase and move its text into a findings file.
+
+**Growing a task needs Jon's approval.** An agent that returns `APPROVAL_REQUIRED` (its task
+needs changes it does not name, or a multiple of its estimate) is not re-dispatched until Jon
+answers; the orchestrator puts the request to him and keeps the rest of the run moving
+(execution-contract §4).
 
 **A task you must file goes in the phase you are executing.** Number it the next free
 `{TT}` in that phase (`validate-dependencies.ps1 -Phase {NN} -NextTaskNumber`) and put it

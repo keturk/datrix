@@ -194,6 +194,10 @@ check("  names rung 3", "Fable adjudicator" in err, True)
 rc, _ = run("gate-decision-escalation.py", {"session_id": SID,
             "tool_input": {"questions": [{"question": "Fable returned ASK_USER on the axis choice."}]}})
 check("armed + Fable ASK_USER -> allowed", rc, 0)
+rc, _ = run("gate-decision-escalation.py", {"session_id": SID,
+            "tool_input": {"questions": [{"question": "APPROVAL_REQUIRED: the fix needs a new "
+                                                      "semantic phase the task does not name."}]}})
+check("armed + APPROVAL_REQUIRED -> allowed", rc, 0)
 
 print("\n== gate-orchestration-stop: counts the ledger, not the summary ==")
 PENDING = task_file("task-999-01.md", "# Task 999-01: Pending\n\nNo How Solved yet.\n")
@@ -219,6 +223,17 @@ if err:
     print("    hook said:", err.splitlines()[0][:110])
 check("  block counter recorded", state().get("blocks"), 1)
 check("  progress baseline stored", state().get("last_unresolved"), 1)
+
+print("\n== everything left waits on Jon's approval -> the turn may end ==")
+reset()
+arm()
+rc, _ = stop_gate(transcript_saying(
+    "APPROVAL_REQUIRED: task-999-01 needs a new model field the task does not name "
+    "(src/x.py:41); about two hours across three packages."))
+check("armed + pending task + APPROVAL_REQUIRED -> Stop ALLOWED", rc, 0)
+rc, _ = stop_gate(transcript_saying(
+    "Waiting on `APPROVAL_REQUIRED` before continuing."))
+check("  a quoted marker is not a request -> BLOCKED", rc, 2)
 
 print("\n== a valid B1-B4 proof is a terminal outcome, not a pending task ==")
 reset()

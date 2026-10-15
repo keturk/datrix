@@ -157,11 +157,12 @@ def _check_new_phase(path: str, session_id: str) -> None:
         "`.tasks/phase-NN/` is a planning act reserved to Jon and to the planning skills he invokes by "
         "name (`/generate-tasks`, `/operationalize-design`). A phase that appears on its own seeds the "
         "next orchestration run with work nobody scheduled, and it moves what `latest-phase.ps1` reports. "
-        "'The execution contract told me to file a real tracked task' is not authorization to open one.\n\n"
-        "If this task belongs in the phase you are executing: number it the next free {TT} "
-        "(`validate-dependencies.ps1 -Phase {NN} -NextTaskNumber`) and put it in the owning package's "
-        "EXISTING `.tasks/phase-{NN}/`. If it is design-sized, it is a findings file "
-        "(`d:\\datrix\\reports\\finding\\`, execution-contract-reporting.md section 5A), not a task."
+        "A defect discovered mid-run is not authorization to open one.\n\n"
+        "A defect your task does not need is a findings file "
+        "(`d:\\datrix\\reports\\finding\\`, execution-contract-reporting.md section 5A), not a task. "
+        "If an adjudicated follow-up task belongs in the phase you are executing: number it the next "
+        "free {TT} (`validate-dependencies.ps1 -Phase {NN} -NextTaskNumber`) and put it in the owning "
+        "package's EXISTING `.tasks/phase-{NN}/`."
     )
 
 

@@ -101,6 +101,9 @@ _MAX_PHASES_CHECKED: Final = 6
 
 # Offering to pause is the specific move that ended the overnight run. It is
 # banned mid-run regardless of how politely it is phrased.
+# An approval request for growing the run (execution-contract §4), outside a quote.
+_APPROVAL_RE: Final = re.compile(r"\bAPPROVAL_REQUIRED\b")
+
 _SOLICIT_RE: Final = re.compile(
     r"(?:"
     r"shall i (?:continue|proceed|go on|keep going)"
@@ -240,8 +243,9 @@ def _unresolved(phase: int) -> tuple[int, int, list[str]] | None:
 
 
 _CONTRACT: Final = (
-    "There is no third exit. A run ends when every task is COMPLETED or carries a "
-    "valid B1-B4 blocker proof, or when Jon tells you to stop. Not when the plan "
+    "A run ends when every task is COMPLETED or carries a "
+    "valid B1-B4 blocker proof, when Jon tells you to stop, or when everything left "
+    "waits on an APPROVAL_REQUIRED question to Jon. Not when the plan "
     "looks good, not at a green phase boundary, not because the run is long or "
     "expensive, and NEVER on an offer to hold for review.\n\n"
     "If your draft reply contains a 'remaining', 'next up', or 'shall I continue' "
@@ -300,6 +304,12 @@ def main() -> None:
                 f'STOP REJECTED — you are ending the turn on a dodge: "{dodge}".\n\n'
                 + DODGE_REMEDY,
             )
+
+    # Growing the run beyond what Jon approved is his call (execution-contract §4). When
+    # everything left waits on that question, ending the turn on it is the correct exit,
+    # whatever the ledger says.
+    if _APPROVAL_RE.search(strip_quoted(text)):
+        sys.exit(0)
 
     phases = _target_phases(state)[:_MAX_PHASES_CHECKED]
 

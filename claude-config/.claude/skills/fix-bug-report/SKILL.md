@@ -118,7 +118,7 @@ Profiles differ in `deployment { runtime, provider }`, so they exercise **differ
 
 It cuts both ways, and both directions are your work:
 
-- The same emitter feeds other profiles → the defect is **latent in profile trees nobody reported against**. Found it, you fix it — for every profile the emitter reaches.
+- The same emitter feeds other profiles → the defect is **latent in profile trees nobody reported against**. The reported defect is the emitter's, so fixing it means every profile the emitter reaches is fixed and proven.
 - A shared-layer fix reaches profiles whose artifact was already correct → prove those trees still are.
 
 ### Verification is per profile, on the artifact
@@ -162,7 +162,7 @@ behaviour's tag>`. A failing row is fixed in the target, or, when review shows t
 stale side, the expectation is corrected; a reading is never copied into an expectation to turn it
 green.
 
-**"I fixed it in `base`" is not evidence.** A profile that overrides that key is still broken. Per-profile artifact output, or the fix is unproven — this is the "fix the class, not the instance" rule applied along the profile axis.
+**"I fixed it in `base`" is not evidence.** A profile that overrides that key is still broken. Per-profile artifact output, or the fix is unproven.
 
 **Never deploy, sync, or run a release/provision script** — product repos require per-instance human approval for those, and nothing in this skill's verification needs them. Generation wrappers, `status`/`verify` scripts, and reads are the whole toolkit.
 

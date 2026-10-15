@@ -143,11 +143,13 @@ docs is cheaper than an adjudication turn.
 
 **Non-blockers, restated — every one of these arrives dressed as a blocker and every one is a
 re-dispatch:** root cause unclear (keep reading) · missing dependency (implement it) · missing file
-(create it) · pre-existing failure (it's yours now) · lives in another package (go there) · bigger
-than estimated (do it) · no test coverage (write one) · "environmental" / "behavioral" (prove it with
-the error text or fix it) · "would require broader changes" (make them) · "should be tracked
-separately" (**there is no other agent**) · attempt limit reached (a new hypothesis gets fresh
-attempts).
+(create it) · the task's root cause lives in another package (go there) · no test coverage (write
+one) · "environmental" / "behavioral" (prove it with the error text or fix it) · attempt limit
+reached (a new hypothesis gets fresh attempts).
+
+**Not blockers, and not re-dispatches either:** "bigger than estimated" / "would require broader
+changes" is an `APPROVAL_REQUIRED` request that goes to Jon (execution-contract §4); a pre-existing
+failure or any other defect the task does not need is a findings file (§5).
 
 ---
 
@@ -176,8 +178,10 @@ THE PATH FORWARD:
 {concrete next step(s) — the root cause as far as you have traced it, and where to go from there.
  If you traced it fully, give the fix; the agent implements it.}
 
-SCOPE: If the root cause lies outside your task's file list, FOLLOW IT AND FIX IT THERE and report
-the added files under `scope_expansion`. The file list is the expected surface, not a fence.
+SCOPE: If the root cause lies outside your task's file list, follow it and fix it there, within the
+size and kind of change the task describes, and report the added files under `scope_expansion`. If
+the fix needs changes the task does not name, or a multiple of its size, return APPROVAL_REQUIRED
+(what, why, size) instead of making them.
 
 Re-read `.claude/skills/_shared/execution-contract.md` §1-§3 before you start. Your default outcome
 is: THE PROBLEM IS FIXED.

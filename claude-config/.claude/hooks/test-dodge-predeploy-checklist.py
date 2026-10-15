@@ -96,6 +96,10 @@ subagent_cases = [
                       "d:/datrix/reports/finding/20260927-141503-auth-bug.md.", ALLOW),
     ("findings folder alone is not a finding", "The auth bug is out of scope; see the reports "
                                                 "folder.", BLOCK),
+    ("approval request", "The fix would require broader changes. APPROVAL_REQUIRED: a new "
+                         "model field in datrix-common (model.py:40), about two hours.", ALLOW),
+    ("broader changes with no approval request", "The fix would require broader changes, "
+                                                 "so I stopped.", BLOCK),
     ("clean report", "Fixed the seam at compose.py:88; targeted tests pass, output quoted above.", ALLOW),
     # §13 — a security downgrade. Not lifted by a blocker proof: a proof answers
     # "whose work is this", which is not the question a weakened control raises.

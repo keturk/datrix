@@ -99,8 +99,8 @@ question:
 
 Land that check together with the fix. If you fix the instance and ship no check, you have
 guaranteed that the next member of the same defect class also waits for a deploy to be discovered —
-and you will pay the same minutes and the same money again. "Found it, you fix it" (§5) covers the
-instance; this covers the class.
+and you will pay the same minutes and the same money again. The fix covers the instance; the check
+covers the class.
 
 ### 12.4 Parse structure; do not eyeball it with a regex
 
@@ -135,16 +135,17 @@ you touched (paths relative to `d:/datrix/datrix/scripts/`):
 Full selection rules: `_shared/verification-strategy.md`. **Never run a standalone type-checker** —
 `mypy` and equivalents are not part of verification here (CLAUDE.md § Running Python).
 
-### 12.6 Be systematic: fix the class, not the instance
+### 12.6 Be systematic: characterize the class, fix what the task needs
 
 Symptom-by-symptom is how a five-minute defect becomes a five-hour deploy loop — each round trip
 surfaces exactly one more instance of a class you could have enumerated in one pass.
 
 When a defect appears, **characterize the class before fixing the instance**: what is the general
 shape (a seam, a missing validator, an own-vs-shared enumeration mismatch, a blank-shadowing key),
-and where else does that shape occur? Enumerate all occurrences with one static pass, then fix them
-together and land the check from §12.3. One pass over the whole class beats N deploys that each
-reveal one member of it.
+and where else does that shape occur? Enumerate the occurrences with one static pass. Fix every
+occurrence the task needs fixed — all of them, in one pass, when the task is the failing run they
+all block — and land the check from §12.3. Occurrences the task does not need go in one findings
+file listing each `file:line` (execution-contract §5); fixing them is Jon's call (§4).
 
 ### 12.7 An insertion is an integration — there is no "just placing a call"
 

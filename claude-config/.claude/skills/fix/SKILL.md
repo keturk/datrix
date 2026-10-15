@@ -33,7 +33,7 @@ Follow this phased approach.
 
 - Make the changes identified in Phase 1
 - **Check for logic map markers:** Before modifying any function or class, look for `# @canonical`, `# @pattern`, `# @boundary`, or `# @invariant` comments above it. If a marker exists, update it. If deleting marked code, remove the marker.
-- **Scope: expand, don't abandon.** The stated scope is the *expected* surface, not a fence. If the root cause lies outside it, **follow it and fix it there**, then report the expansion. A fix growing beyond its estimate is not a stopping condition — an estimate is a prediction, not a permission slip. (Patching at the boundary to stay "in scope" is a workaround — see Anti-Patterns.)
+- **Scope: what was asked; growth needs approval** (execution-contract §4). If the root cause of the defect you are fixing lies in a neighbouring file or package, follow it and fix it there (patching at the boundary is a workaround — see Anti-Patterns). If the fix grows bigger or broader than the request (new fields, phases, modules, packages it does not name, a multiple of the expected size), ask Jon in one line starting `APPROVAL_REQUIRED:` and keep working what does not depend on it. Anything you find that the fix does not need goes in a findings file (§5).
 - **End-of-phase assessment:**
   - What was changed (file:line summary)
   - Any unexpected complications

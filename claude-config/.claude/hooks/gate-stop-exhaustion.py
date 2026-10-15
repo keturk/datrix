@@ -59,15 +59,16 @@ FALSE POSITIVES ARE THE EXPENSIVE FAILURE
 A gate that fires on innocent prose teaches evasive phrasing, which costs more
 than the dodge did. Four suppressors:
 
-  1. JON ASKED. "Exactly two things end a turn: the task is FINISHED, or Jon
-     tells you to stop." When Jon's own last turn said stop/pause, or asked a
+  1. JON ASKED. "A turn ends when the task is FINISHED, when Jon tells you to
+     stop, or on an APPROVAL_REQUIRED question." When Jon's own last turn said stop/pause, or asked a
      question ("why did you stop?", "what's left?", "explain"), ending the turn
      is CORRECT. Answering a direct question is not a handover.
   2. QUOTED SPANS are blanked upstream, so quoting this very rule -- which the
      model does when discussing it -- is documenting, not doing.
   3. NEGATION is suppressed upstream: "nothing remaining", "not out of runway".
-  4. PROOF MARKERS: a real B1-B4 blocker proof or a filed task path is a
-     legitimate exit and suppresses the check entirely.
+  4. PROOF MARKERS: a real B1-B4 blocker proof, a filed task path, a findings
+     file path or an APPROVAL_REQUIRED question is a legitimate exit and
+     suppresses the check entirely.
 
 A SECOND READER FOR REWORDED CLAIMS
 -----------------------------------
