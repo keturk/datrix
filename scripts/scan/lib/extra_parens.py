@@ -34,49 +34,10 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.logic_map import resolve_scan_paths  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 UP034 = "UP034"
-
-
-def resolve_scan_paths(
-    datrix_root: Path,
-    project_names: list[str],
-    scan_all: bool,
-) -> list[tuple[str, Path]]:
-    """Return ``(project_name, directory)`` pairs for Ruff (``src`` / ``tests``).
-
-    Raises:
-        FileNotFoundError: If a requested project does not exist under the monorepo root.
-    """
-    if scan_all:
-        pairs: list[tuple[str, Path]] = []
-        for d in sorted(datrix_root.iterdir()):
-            if d.is_dir() and d.name.startswith("datrix") and (d / "src").is_dir():
-                pairs.append((d.name, d / "src"))
-                tests_dir = d / "tests"
-                if tests_dir.is_dir():
-                    pairs.append((d.name, tests_dir))
-        return pairs
-
-    pairs = []
-    for name in project_names:
-        clean = name.rstrip("/\\")
-        project_dir = datrix_root / clean
-        if not project_dir.is_dir():
-            available = sorted(
-                d.name for d in datrix_root.iterdir() if d.is_dir() and d.name.startswith("datrix")
-            )
-            raise FileNotFoundError(
-                f"Project '{clean}' not found. Available: {available}"
-            )
-        src_dir = project_dir / "src"
-        if src_dir.is_dir():
-            pairs.append((clean, src_dir))
-        tests_dir = project_dir / "tests"
-        if tests_dir.is_dir():
-            pairs.append((clean, tests_dir))
-    return pairs
 
 
 def build_ruff_argv(paths: list[Path], *, dry_run: bool, diff: bool) -> list[str]:
@@ -145,11 +106,7 @@ def main() -> int:
         print("\nProvide project names or use --all.", file=sys.stderr)
         return 1
 
-    try:
-        datrix_root = get_datrix_root()
-    except FileNotFoundError:
-        print("ERROR: Could not find Datrix root directory", file=sys.stderr)
-        return 1
+    datrix_root = WORKSPACE_DIR
 
     try:
         scan_pairs = resolve_scan_paths(datrix_root, args.projects, args.scan_all)

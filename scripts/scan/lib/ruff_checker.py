@@ -12,6 +12,7 @@ Usage:
         .\\scripts\\scan\\ruff-checker.ps1
 """
 
+import argparse
 import io
 import os
 import re
@@ -41,8 +42,6 @@ except ImportError:
     print("ERROR: jinja2 is required. Install with: pip install jinja2", file=sys.stderr)
     sys.exit(1)
 
-from datrix_common.errors.type import UnmappedTypeError, UnsupportedTypeError
-from datrix_common.types.registry import TypeRegistry
 from datrix_common.utils.text import (
     to_camel_case,
     to_pascal_case,
@@ -50,11 +49,14 @@ from datrix_common.utils.text import (
     to_snake_case,
 )
 
+from datrix_scripts.gate_harness import configure_logging
+from datrix_scripts.paths import WORKSPACE_DIR
+
 
 class SilentUndefined(Undefined):
     """Custom undefined that returns empty string instead of raising errors."""
 
-    def _fail_with_undefined_error(self, *args, **kwargs):
+    def _fail_with_undefined_error(self, *_args: object, **_kwargs: object) -> str:
         return ""
 
     def __str__(self):
@@ -72,7 +74,7 @@ class SilentUndefined(Undefined):
     def __getattr__(self, name):
         return SilentUndefined()
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *_args: object, **_kwargs: object) -> "SilentUndefined":
         return SilentUndefined()
 
     def __json__(self):
@@ -185,55 +187,6 @@ def to_test_method_name(method_name: str) -> str:
 def to_fixture_name(entity_name: str) -> str:
     """Convert entity name to fixture name."""
     return to_snake_case(entity_name)
-
-
-class UnmappedSQLAlchemyTypeError(ValueError):
-    """Raised when a SQLAlchemy type has no Python mapping in the registry."""
-
-    def __init__(self, sa_type: str, available: list[str]) -> None:
-        self.sa_type = sa_type
-        self.available = available
-        super().__init__(
-        f"SQLAlchemy type {sa_type!r} has no Python mapping. Available: {sorted(available)}"
-        )
-
-
-def _build_sa_to_python_map() -> dict[str, str]:
-    """Build SQLAlchemy base type name -> Python type map from TypeRegistry."""
-    result: dict[str, str] = {}
-    for type_name in TypeRegistry.get_available_types():
-        try:
-            sa_type = TypeRegistry.get_sqlalchemy_type(type_name)
-            py_type = TypeRegistry.get_python_type(type_name)
-            base_sa = sa_type.split("(")[0]
-            result[base_sa] = py_type
-        except (UnmappedTypeError, UnsupportedTypeError):
-            continue
-    return result
-
-
-_SA_TO_PYTHON_MAP = _build_sa_to_python_map()
-
-
-def sqlalchemy_to_python_type(sa_type: str) -> str:
-    """Convert SQLAlchemy type to Python type.
-
-    Uses TypeRegistry-derived mapping. Raises if the SQLAlchemy type is not
-    in the registry (fail fast).
-
-    Args:
-        sa_type: SQLAlchemy type string (e.g. "String(255)", "PGUUID(as_uuid=True)").
-
-        Returns:
-            Python type string for use in templates.
-
-        Raises:
-            UnmappedSQLAlchemyTypeError: If sa_type has no mapping in TypeRegistry.
-    """
-    base_sa = str(sa_type).strip().split("(")[0]
-    if base_sa not in _SA_TO_PYTHON_MAP:
-        raise UnmappedSQLAlchemyTypeError(base_sa, list(_SA_TO_PYTHON_MAP.keys()))
-    return _SA_TO_PYTHON_MAP[base_sa]
 
 
 def cdk_id(name: str) -> str:
@@ -406,7 +359,6 @@ def create_jinja_env(template_path: Path) -> Environment:
     env.filters["test_class_name"] = to_test_class_name
     env.filters["test_method_name"] = to_test_method_name
     env.filters["fixture_name"] = to_fixture_name
-    env.filters["sqlalchemy_to_python_type"] = sqlalchemy_to_python_type
     env.filters["cdk_id"] = cdk_id
     env.filters["tojson"] = tojson_filter
 
@@ -580,14 +532,32 @@ def generate_report(
         f.write("=" * 80 + "\n")
 
 
+#: Where every report goes: outside every package repo, so a run never leaves a file to commit.
+REPORT_DIR = WORKSPACE_DIR / ".test-output" / "ruff-checker"
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Render Jinja2 Python templates and run ruff on the output.")
+    parser.add_argument("--templates-dir", type=Path, default=None,
+                        help="Directory searched for .j2 templates (default: the current directory).")
+    parser.add_argument("--debug", action="store_true", help="Log at DEBUG level.")
+    return parser.parse_args()
+
+
 def main() -> int:
     """Main entry point."""
-    # Always search from current directory
-    base_path = Path.cwd()
+    args = _parse_args()
+    configure_logging(args.debug)
+    base_path = (args.templates_dir or Path.cwd()).resolve()
+    if not base_path.is_dir():
+        print(f"ERROR: --templates-dir {base_path} is not a directory. Pass a folder holding .j2 templates.",
+              file=sys.stderr)
+        return 2
 
     # Generate output path with timestamp
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    report_path = Path.cwd() / f"ruff-report-{timestamp}.txt"
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORT_DIR / f"ruff-report-{timestamp}.txt"
 
     print(f"Searching for templates in: {base_path}", flush=True)
 

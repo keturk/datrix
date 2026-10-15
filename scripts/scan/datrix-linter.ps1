@@ -92,89 +92,13 @@ if (-not $All -and $Path.Count -eq 0) {
     exit 1
 }
 
-$scriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\datrix_linter.py"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
+$pythonArgs = if ($All) { @("--all") } else { @($Path) }
+if ($Strict) { $pythonArgs += "--strict" }
+if ($Dbg) { $pythonArgs += "--debug" }
+if ($ResolveConfigs) { $pythonArgs += "--resolve-configs" }
+if ($ResolveConfigs -and $Profile) { $pythonArgs += @("--profile", $Profile) }
 
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "Error: datrix_linter.py not found at: $pythonScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-trap {
-    Write-Host ""
-    Write-Warning "Interrupted by user (Ctrl-C)"
-    if (Get-Command Disable-DatrixVenv -ErrorAction SilentlyContinue) {
-        Disable-DatrixVenv
-    }
-    exit 130
-}
-
-try {
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-
-    $venvPath  = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
-    # Build the list of paths to pass to the Python script
-    $pathsToCheck = @()
-    if ($All) {
-        $pythonArgs = @($pythonScript, "--all")
-    } else {
-        $pythonArgs = @($pythonScript) + $Path
-    }
-
-    if ($Strict) {
-        $pythonArgs += "--strict"
-    }
-    if ($Dbg) {
-        $pythonArgs += "--debug"
-    }
-    if ($ResolveConfigs) {
-        $pythonArgs += "--resolve-configs"
-    }
-    if ($ResolveConfigs -and $Profile) {
-        $pythonArgs += @("--profile", $Profile)
-    }
-
-    Write-Host "Running Datrix linter..." -ForegroundColor Cyan
-    Write-Host ""
-
-    & $pythonExe @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    exit $exitCode
-
-} catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Write-Host ""
-    if ($_.Exception.InnerException) {
-        Write-Host "Inner exception:" -ForegroundColor Red
-        Write-Host $_.Exception.InnerException.Message -ForegroundColor Red
-        Write-Host ""
-    }
-    if (Get-Command Disable-DatrixVenv -ErrorAction SilentlyContinue) {
-        Disable-DatrixVenv
-    }
-    exit 1
-} finally {
-    if (Get-Command Disable-DatrixVenv -ErrorAction SilentlyContinue) {
-        Disable-DatrixVenv
-    }
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\datrix_linter.py") -Arguments $pythonArgs)
 

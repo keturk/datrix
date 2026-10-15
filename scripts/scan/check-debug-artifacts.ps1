@@ -83,41 +83,11 @@ param(
  [switch]$Dbg
 )
 
-# Error handling - ensure cleanup on exit
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-# Script directory
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\check_debug_artifacts.py"
-
-# Import common modules
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-# Check if Python script exists
-if (-not (Test-Path $pythonScript)) {
- Write-Error "Error: check_debug_artifacts.py not found at: $pythonScript"
- exit 1
-}
-
-# Function to handle cleanup on exit
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-# Register cleanup on script exit
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-# Trap Ctrl-C to ensure proper cleanup
-trap {
- Write-Host ""
- Write-Warning "Interrupted by user (Ctrl-C)"
- Invoke-Cleanup
- exit 130
-}
-
-# Require -All or ProjectDir before activating venv (-SelfTest needs neither)
+# Require -All or ProjectDir (-SelfTest needs neither)
 if (-not $SelfTest -and -not $All -and (-not $ProjectDir -or $ProjectDir.Count -eq 0)) {
  Write-Host "Usage:" -ForegroundColor Yellow
  Write-Host "  .\check-debug-artifacts.ps1 -All" -ForegroundColor White
@@ -129,64 +99,26 @@ if (-not $SelfTest -and -not $All -and (-not $ProjectDir -or $ProjectDir.Count -
  exit 2
 }
 
-# Main execution with proper error handling
-try {
- # Activate virtual environment
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
-  Write-Error "Failed to activate virtual environment"
-  exit 1
- }
-
- # Get Python executable from venv
- $venvPath = Get-DatrixVenvPath
- $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
- # Get workspace root for resolving relative project names
+# Determine which directories to check (-SelfTest scans nothing; it runs entirely in memory)
+$pathsToCheck = @()
+if ($All -and -not $SelfTest) {
+ $pathsToCheck = @(Get-DatrixDirectoryPaths | Where-Object { Test-Path $_ })
+} elseif (-not $SelfTest) {
  $datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
-
- # Determine which directories to check (-SelfTest scans nothing)
- $pathsToCheck = @()
- if ($SelfTest) {
-  # no paths — the self-test runs entirely in memory
- } elseif ($All) {
-  $directories = Get-DatrixDirectoryPaths
-  foreach ($dirPath in $directories) {
-   if (Test-Path $dirPath) {
-    $pathsToCheck += $dirPath
-   }
+ foreach ($p in $ProjectDir) {
+  $fullPath = if ([System.IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $datrixWorkspaceRoot $p }
+  if (-not (Test-Path $fullPath)) {
+   Write-Host "Error: path not found: $fullPath. Expected a project name under the workspace or a full path." -ForegroundColor Red
+   exit 2
   }
- } else {
-  foreach ($p in $ProjectDir) {
-   $fullPath = if ([System.IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $datrixWorkspaceRoot $p }
-   if (Test-Path $fullPath) {
-    $pathsToCheck += $fullPath
-   } else {
-    Write-Error "Path not found: $fullPath"
-    exit 2
-   }
-  }
+  $pathsToCheck += $fullPath
  }
-
- # Build arguments for Python script
- $pythonArgs = @($pythonScript) + $pathsToCheck
- if ($SelfTest) { $pythonArgs += "--self-test" }
- if ($Strict) { $pythonArgs += "--strict" }
- if ($IncludeGenerated) { $pythonArgs += "--include-generated" }
- if ($Dbg) { $pythonArgs += "--debug" }
-
- # Run the Python script
- & $pythonExe @pythonArgs
- $exitCode = $LASTEXITCODE
-
- exit $exitCode
-
-} catch {
- Write-Host ""
- Write-Host "Error occurred:" -ForegroundColor Red
- Write-Host $_.Exception.Message -ForegroundColor Red
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
 }
+
+$pythonArgs = @($pathsToCheck)
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($Strict) { $pythonArgs += "--strict" }
+if ($IncludeGenerated) { $pythonArgs += "--include-generated" }
+if ($Dbg) { $pythonArgs += "--debug" }
+
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\check_debug_artifacts.py") -Arguments $pythonArgs)

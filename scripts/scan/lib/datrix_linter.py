@@ -43,7 +43,7 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -83,14 +83,6 @@ def _sigint_handler(_signum: int, _frame: object) -> None:
 # ---------------------------------------------------------------------------
 # Path helpers
 # ---------------------------------------------------------------------------
-
-def _add_src_packages_to_path(datrix_root: Path) -> None:
-    """Add datrix-common and datrix-language src directories to sys.path."""
-    for pkg in ("datrix-common", "datrix-language"):
-        src = datrix_root / pkg / "src"
-        if src.exists() and str(src) not in sys.path:
-            sys.path.insert(0, str(src))
-
 
 def _discover_entry_points(path: Path) -> list[Path]:
     """Recursively find system.dtrx entry point files under *path*.
@@ -408,14 +400,7 @@ def main() -> int:
         print("\nProvide one or more paths, or use --all.", file=sys.stderr)
         return 1
 
-    # ── Resolve datrix root and add packages to sys.path ──────────────────
-    try:
-        datrix_root = get_datrix_root()
-    except FileNotFoundError:
-        print("ERROR: Could not find Datrix root directory.", file=sys.stderr)
-        return 1
-
-    _add_src_packages_to_path(datrix_root)
+    datrix_root = WORKSPACE_DIR
 
     # ── Build input path list ─────────────────────────────────────────────
     if args.all:

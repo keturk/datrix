@@ -79,85 +79,15 @@ if (-not $SelfTest) {
  }
 }
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\config_linter.py"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
+$pathsToCheck = if ($All) { @(Get-DatrixDirectoryPaths | Where-Object { Test-Path $_ }) } else { $Path }
 
-if (-not (Test-Path $pythonScript)) {
- Write-Error "Error: config_linter.py not found at: $pythonScript"
- exit 1
-}
+$pythonArgs = @($pathsToCheck)
+if ($Check) { $pythonArgs += "--check" }
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($Dbg) { $pythonArgs += "--debug" }
 
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-trap {
- Write-Host ""
- Write-Warning "Interrupted by user (Ctrl-C)"
- Invoke-Cleanup
- exit 130
-}
-
-try {
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
-  Write-Error "Failed to activate virtual environment"
-  exit 1
- }
-
- $venvPath = Get-DatrixVenvPath
- $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
- $pathsToCheck = @()
- if ($All) {
-  $directories = Get-DatrixDirectoryPaths
-  foreach ($dirPath in $directories) {
-   if (Test-Path $dirPath) {
-    $pathsToCheck += $dirPath
-   }
-  }
- } else {
-  $pathsToCheck = $Path
- }
-
- $pythonArgs = @($pythonScript) + $pathsToCheck
- if ($Check) {
-  $pythonArgs += "--check"
- }
- if ($SelfTest) {
-  $pythonArgs += "--self-test"
- }
- if ($Dbg) {
-  $pythonArgs += "--debug"
- }
-
- Write-Host "Running config linter..." -ForegroundColor Cyan
- Write-Host ""
-
- & $pythonExe @pythonArgs
- $exitCode = $LASTEXITCODE
-
- exit $exitCode
-
-} catch {
- Write-Host ""
- Write-Host "Error occurred:" -ForegroundColor Red
- Write-Host $_.Exception.Message -ForegroundColor Red
- Write-Host ""
- if ($_.Exception.InnerException) {
-  Write-Host "Inner exception:" -ForegroundColor Red
-  Write-Host $_.Exception.InnerException.Message -ForegroundColor Red
-  Write-Host ""
- }
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\config_linter.py") -Arguments $pythonArgs)
 

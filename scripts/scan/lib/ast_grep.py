@@ -34,8 +34,9 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.paths import CONFIG_DIR  # noqa: E402
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs  # noqa: E402
+from datrix_scripts.logic_map import resolve_scan_paths  # noqa: E402
+from datrix_scripts.paths import CONFIG_DIR, WORKSPACE_DIR  # noqa: E402
 
 _RULES_DIR = CONFIG_DIR / "ast-grep-rules"
 
@@ -97,37 +98,13 @@ def resolve_scan_targets(
     *,
     include_tests: bool = True,
 ) -> list[Path]:
-    """Return project src/tests directories to scan."""
-    if scan_all:
-        targets: list[Path] = []
-        for directory in sorted(datrix_root.iterdir()):
-            if directory.is_dir() and directory.name.startswith("datrix") and (directory / "src").is_dir():
-                targets.append(directory / "src")
-                tests_dir = directory / "tests"
-                if include_tests and tests_dir.is_dir():
-                    targets.append(tests_dir)
-        return targets
+    """Return project src/tests directories to scan.
 
-    targets = []
-    for name in project_names:
-        clean = name.rstrip("/\\")
-        project_dir = datrix_root / clean
-        if not project_dir.is_dir():
-            available = sorted(
-                directory.name
-                for directory in datrix_root.iterdir()
-                if directory.is_dir() and directory.name.startswith("datrix")
-            )
-            raise FileNotFoundError(
-                f"Project '{clean}' not found. Available: {available}"
-            )
-        src_dir = project_dir / "src"
-        if src_dir.is_dir():
-            targets.append(src_dir)
-        tests_dir = project_dir / "tests"
-        if include_tests and tests_dir.is_dir():
-            targets.append(tests_dir)
-    return targets
+    Raises:
+        FileNotFoundError: If a requested project does not exist.
+    """
+    pairs = resolve_scan_paths(datrix_root, project_names, scan_all, include_tests=include_tests)
+    return [directory for _, directory in pairs]
 
 
 def _expand_to_files(targets: list[Path]) -> list[Path]:
@@ -546,11 +523,7 @@ def main() -> int:
         print("ERROR: Use either --pattern or --rule, not both.", file=sys.stderr)
         return 1
 
-    try:
-        datrix_root = get_datrix_root()
-    except FileNotFoundError:
-        print("ERROR: Could not find Datrix root directory", file=sys.stderr)
-        return 1
+    datrix_root = WORKSPACE_DIR
 
     try:
         targets = resolve_scan_targets(
@@ -585,10 +558,9 @@ def main() -> int:
         args.projects if not args.scan_all
         else [
             directory.name
-            for directory in datrix_root.iterdir()
-            if directory.is_dir()
-            and directory.name.startswith("datrix")
-            and (directory / "src").is_dir()
+            for directory in workspace_package_dirs(
+                datrix_root, any_of=frozenset({PackageMarker.SRC}), include_showcase=True
+            )
         ]
     ))
 

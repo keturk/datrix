@@ -4,10 +4,10 @@
     Run ast-grep structural searches across Datrix Python code.
 
 .DESCRIPTION
-    Activates the Datrix virtual environment, ensures the ast-grep CLI is
-    available, and runs either saved YAML rules from
+    Runs, in the shared venv, either saved YAML rules from
     scripts/config/ast-grep-rules/ or a one-off Python pattern across one or
-    more projects (or all with -All).
+    more projects (or all with -All). The ast-grep CLI must be on PATH
+    (npm install -g @ast-grep/cli); the scanner refuses when it is not.
 
     Uses the Python implementation in scripts/scan/lib/ast_grep.py.
 
@@ -77,137 +77,14 @@ if ($Projects.Count -eq 0 -and -not $All -and -not $ListRules) {
 }
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptsDir = Split-Path -Parent $scriptDir
-$commonDir = Join-Path $scriptsDir "common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$pythonScript = Join-Path $scriptDir "lib\ast_grep.py"
+$pyArgs = if ($ListRules) { @("--list-rules") } elseif ($All) { @("--all") } else { @($Projects) }
+if ($Pattern) { $pyArgs += @("--pattern", $Pattern) }
+foreach ($r in $Rule) { $pyArgs += @("--rule", $r) }
+if ($Report) { $pyArgs += @("--report", $Report) }
+if ($ShowRaw) { $pyArgs += "--verbose" }
 
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "ast_grep.py not found at: $pythonScript"
-    exit 1
-}
-
-function Get-AstGrepCommand {
-    # ast-grep first: current releases print a deprecation warning for the sg alias on every run.
-    $commands = @()
-    $commands += Get-Command ast-grep.cmd -ErrorAction SilentlyContinue
-    $commands += Get-Command ast-grep.exe -ErrorAction SilentlyContinue
-    $commands += Get-Command ast-grep -ErrorAction SilentlyContinue | Where-Object { $_.CommandType -eq "Application" }
-    $commands += Get-Command sg.cmd -ErrorAction SilentlyContinue
-    $commands += Get-Command sg.exe -ErrorAction SilentlyContinue
-    $commands += Get-Command sg -ErrorAction SilentlyContinue | Where-Object { $_.CommandType -eq "Application" }
-    return $commands | Where-Object { $null -ne $_ } | Select-Object -First 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-trap {
-    Invoke-Cleanup
-    exit 130
-}
-
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
-    Write-Error "Failed to activate virtual environment"
-    exit 1
-}
-
-try {
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (-not (Test-Path $pythonExe)) {
-        $pythonExe = Join-Path $venvPath "bin\python"
-    }
-
-    $astGrepCommand = Get-AstGrepCommand
-
-    if ($null -eq $astGrepCommand -and -not $ListRules) {
-        if (Test-DatrixOfflineMode) {
-            Write-Error "DATRIX_OFFLINE is set: ast-grep is not on PATH. Install while online: npm install -g @ast-grep/cli"
-            exit 1
-        }
-
-        $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
-        if ($null -eq $npmCommand) {
-            Write-Error "ast-grep is not on PATH and npm is unavailable. Install manually: npm install -g @ast-grep/cli"
-            exit 1
-        }
-
-        Write-Host "Installing ast-grep..." -ForegroundColor Yellow
-        $oldEAP = $ErrorActionPreference
-        $ErrorActionPreference = "Continue"
-        & npm install -g "@ast-grep/cli"
-        $npmExit = $LASTEXITCODE
-        $ErrorActionPreference = $oldEAP
-        if ($npmExit -ne 0) {
-            Write-Error "Failed to install ast-grep. Install manually: npm install -g @ast-grep/cli"
-            exit 1
-        }
-
-        $astGrepCommand = Get-AstGrepCommand
-        if ($null -eq $astGrepCommand) {
-            Write-Error "ast-grep installation completed, but sg/ast-grep is still not on PATH"
-            exit 1
-        }
-        Write-Host "ast-grep installed successfully" -ForegroundColor Green
-    }
-
-    if ($null -ne $astGrepCommand) {
-        $env:AST_GREP_BIN = $astGrepCommand.Source
-    }
-
-    $pyArgs = @()
-    if ($ListRules) {
-        $pyArgs += "--list-rules"
-    } elseif ($All) {
-        $pyArgs += "--all"
-    } else {
-        $pyArgs += $Projects
-    }
-    if ($Pattern) {
-        $pyArgs += "--pattern"
-        $pyArgs += $Pattern
-    }
-    foreach ($r in $Rule) {
-        $pyArgs += "--rule"
-        $pyArgs += $r
-    }
-    if ($Report) {
-        $pyArgs += "--report"
-        $pyArgs += $Report
-    }
-    if ($ShowRaw) {
-        $pyArgs += "--verbose"
-    }
-
-    if (-not $ListRules) {
-        Write-Host "Running ast-grep structural scanner..." -ForegroundColor Cyan
-        Write-Host ""
-    }
-
-    $oldEAP = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    & $pythonExe $pythonScript @pyArgs
-    $exitCode = $LASTEXITCODE
-    $ErrorActionPreference = $oldEAP
-
-    exit $exitCode
-} catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    if ($_.Exception.InnerException) {
-        Write-Host "Inner: $($_.Exception.InnerException.Message)" -ForegroundColor Red
-    }
-    Write-Host ""
-    Invoke-Cleanup
-    exit 1
-} finally {
-    Invoke-Cleanup
-}
+# ast_grep.py finds the ast-grep binary on PATH (AST_GREP_BIN overrides it) and refuses,
+# naming the install command, when there is none.
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\ast_grep.py") -Arguments $pyArgs)

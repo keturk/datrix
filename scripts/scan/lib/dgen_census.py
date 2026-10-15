@@ -56,7 +56,8 @@ from datrix_codegen_kernel.generation.dgen_ir import (  # noqa: E402
     ResolvedFunctionRef,
 )
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.gate_harness import UsageError  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +69,6 @@ EXIT_USAGE = 2
 #: Default output location (cross-cutting output per the script conventions).
 OUTPUT_SUBDIRS: tuple[str, ...] = (".tmp", "dev")
 OUTPUT_FILENAME_TEMPLATE = "dgen-census-{language}.json"
-
-
-class UsageError(Exception):
-    """Invalid usage or unresolvable input; the script exits with code 2."""
 
 
 #: Definition name used only by the self-test fixtures below -- deliberately
@@ -435,7 +432,7 @@ def main(argv: list[str] | None = None) -> int:
     output_path = (
         Path(args.output).resolve()
         if args.output
-        else get_datrix_root().joinpath(*OUTPUT_SUBDIRS)
+        else WORKSPACE_DIR.joinpath(*OUTPUT_SUBDIRS)
         / OUTPUT_FILENAME_TEMPLATE.format(language=language)
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)

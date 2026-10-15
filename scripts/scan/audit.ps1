@@ -78,65 +78,29 @@ if ($PSBoundParameters.Count -eq 0) {
     exit 1
 }
 
-# Deactivate venv on exit (normal exit or Ctrl+C)
-trap {
-    if (Get-Command Disable-DatrixVenv -ErrorAction SilentlyContinue) {
-        Disable-DatrixVenv
-    }
-    throw $_
+$ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
+
+$pyArgs = @("--output-base", $OutputBase)
+if ($Report) { $pyArgs += @("--report", $Report) }
+if ($FailOnSyntax) { $pyArgs += "--fail-on-syntax" }
+if ($FailOnPlaceholders) { $pyArgs += "--fail-on-placeholders" }
+if ($LlmTriage) {
+    $pyArgs += @(
+        "--llm-triage",
+        "--llm-limit", "$LlmLimit",
+        "--llm-num-predict", "$LlmNumPredict",
+        "--llm-temperature", "$LlmTemperature"
+    )
+    $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
 }
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-$pythonScript = Join-Path $scriptDir "lib\audit_generated.py"
+$exitCode = Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\audit_generated.py") -Arguments $pyArgs
 
-. (Join-Path $commonDir "venv.ps1")
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "audit_generated.py not found at: $pythonScript"
-    exit 1
+if ($Report) {
+    $reportFullPath = if ([System.IO.Path]::IsPathRooted($Report)) { $Report } else { Join-Path (Get-DatrixWorkspaceRoot) $Report }
+    Write-Host "Report written to: $reportFullPath"
 }
-
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
-    Write-Error "Failed to activate virtual environment"
-    exit 1
-}
-
-try {
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (-not (Test-Path $pythonExe)) {
-        $pythonExe = Join-Path $venvPath "bin\python"
-    }
-
-    $pyArgs = @("--output-base", $OutputBase)
-    if ($Report) {
-        $pyArgs += "--report"
-        $pyArgs += $Report
-    }
-    if ($FailOnSyntax) { $pyArgs += "--fail-on-syntax" }
-    if ($FailOnPlaceholders) { $pyArgs += "--fail-on-placeholders" }
-    if ($LlmTriage) {
-        $pyArgs += @(
-            "--llm-triage",
-            "--llm-limit", $LlmLimit,
-            "--llm-num-predict", $LlmNumPredict,
-            "--llm-temperature", $LlmTemperature
-        )
-        $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
-    }
-
-    & $pythonExe $pythonScript @pyArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($Report) {
-        $reportFullPath = if ([System.IO.Path]::IsPathRooted($Report)) { $Report } else { Join-Path (Get-DatrixRoot) $Report }
-        Write-Host "Report written to: $reportFullPath"
-    }
-
-    exit $exitCode
-} finally {
-    Disable-DatrixVenv
-}
+exit $exitCode

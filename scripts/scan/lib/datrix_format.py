@@ -20,7 +20,8 @@ from datrix_language.formatting.formatter import FormatOptions, format_dtrx_sour
 from datrix_language.formatting.verification import verify_lossless  # noqa: E402
 from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser  # noqa: E402
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 # Only valid .dtrx files: the formatter refuses a file it cannot parse, and
 # `.dtrx.false` fixtures are intentionally invalid.
@@ -176,15 +177,7 @@ def main() -> int:
     if args.paths:
         input_paths = [Path(path) for path in args.paths]
     else:
-        try:
-            datrix_root = get_datrix_root()
-        except FileNotFoundError:
-            print("ERROR: Could not find Datrix root directory.", file=sys.stderr)
-            return 1
-        input_paths = sorted(
-            d for d in datrix_root.iterdir()
-            if d.is_dir() and d.name.startswith("datrix")
-        )
+        input_paths = workspace_package_dirs(WORKSPACE_DIR, include_showcase=True)
 
     all_files: list[Path] = []
     print("Discovering .dtrx files...", flush=True)

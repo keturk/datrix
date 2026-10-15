@@ -4,9 +4,9 @@
     Scan Datrix Python code for anti-patterns using LibCST.
 
 .DESCRIPTION
-    Activates the Datrix virtual environment, ensures libcst is installed,
-    and runs the LibCST anti-pattern scanner on one or more projects
-    (or the entire monorepo with -All).
+    Runs the LibCST anti-pattern scanner, in the shared venv, on one or more
+    projects (or the entire monorepo with -All). libcst must be installed in the
+    venv; the scanner refuses, naming the install command, when it is not.
 
     Patterns detected:
     - silent-fallback       : dict.get(key, None)
@@ -59,99 +59,10 @@ if ($Projects.Count -eq 0 -and -not $All) {
 }
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptsDir = Split-Path -Parent $scriptDir
-$commonDir = Join-Path $scriptsDir "common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$pythonScript = Join-Path $scriptDir "lib\libcst_scanner.py"
+$pyArgs = if ($All) { @("--all") } else { @($Projects) }
+if ($Report) { $pyArgs += @("--report", $Report) }
 
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "libcst_scanner.py not found at: $pythonScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-trap {
-    Invoke-Cleanup
-    exit 130
-}
-
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
-    Write-Error "Failed to activate virtual environment"
-    exit 1
-}
-
-try {
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (-not (Test-Path $pythonExe)) {
-        $pythonExe = Join-Path $venvPath "bin\python"
-    }
-
-    # Ensure libcst is installed (check via Python import)
-    $oldEAP = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    $null = & $pythonExe -c "import libcst" 2>&1
-    $importExitCode = $LASTEXITCODE
-    $ErrorActionPreference = $oldEAP
-
-    if ($importExitCode -ne 0) {
-        if (Test-DatrixOfflineMode) {
-            Write-Error "DATRIX_OFFLINE is set: libcst is not installed. Install while online: pip install libcst>=1.0.0"
-            exit 1
-        }
-        Write-Host "Installing libcst..." -ForegroundColor Yellow
-        $oldEAP = $ErrorActionPreference
-        $ErrorActionPreference = "Continue"
-        & $pythonExe -m pip install "libcst>=1.0.0"
-        $pipExit = $LASTEXITCODE
-        $ErrorActionPreference = $oldEAP
-        if ($pipExit -ne 0) {
-            Write-Error "Failed to install libcst. Install manually: pip install libcst>=1.0.0"
-            exit 1
-        }
-        Write-Host "libcst installed successfully" -ForegroundColor Green
-    }
-
-    # Build arguments
-    $pyArgs = @()
-    if ($All) {
-        $pyArgs += "--all"
-    } else {
-        $pyArgs += $Projects
-    }
-    if ($Report) {
-        $pyArgs += "--report"
-        $pyArgs += $Report
-    }
-
-    Write-Host "Running LibCST anti-pattern scanner..." -ForegroundColor Cyan
-    Write-Host ""
-
-    $oldEAP = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    & $pythonExe $pythonScript @pyArgs
-    $exitCode = $LASTEXITCODE
-    $ErrorActionPreference = $oldEAP
-
-    exit $exitCode
-} catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    if ($_.Exception.InnerException) {
-        Write-Host "Inner: $($_.Exception.InnerException.Message)" -ForegroundColor Red
-    }
-    Write-Host ""
-    Invoke-Cleanup
-    exit 1
-} finally {
-    Invoke-Cleanup
-}
+# libcst_scanner.py refuses, naming the install command, when libcst is not in the shared venv.
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\libcst_scanner.py") -Arguments $pyArgs)

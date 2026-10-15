@@ -155,7 +155,7 @@
  (with or without this switch); pass -SelfTest to run only the self-test.
 
 .PARAMETER Dbg
- Enable debug logging
+ Print the interpreter and arguments before running
 
 .NOTES
  Every check invocation -- the default run and any -Check* run, i.e. every run
@@ -302,104 +302,37 @@ param(
     [switch]$Dbg
 )
 
-# Error handling - ensure cleanup on exit
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-# Script directory
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\check_import_boundaries.py"
-
-# Import common modules
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-# Check if Python script exists
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "Error: check_import_boundaries.py not found at: $pythonScript"
-    exit 2
+# The function-level-import, cross-package-vocabulary, and re-export-
+# facade ratchets run on every check invocation -- the default run and
+# every -Check* run alike -- so a new deferred import, a re-spelled
+# vocabulary, or a new re-export facade fails the gate run in the change
+# that introduces it, whichever other check that run asked for. Only a
+# baseline update (which touches just the baselines it names) and a
+# self-test-only run leave them to their explicit flags.
+if (-not $UpdateBaseline -and -not $SelfTest) {
+    $CheckFunctionLevelImports = [switch]$true
+    $CheckCrossPackageVocabulary = [switch]$true
+    $CheckReexportFacades = [switch]$true
 }
 
-# Function to handle cleanup on exit
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
+$pythonArgs = @()
+if ($Warn) { $pythonArgs += "--warn" }
+if ($ShowFiles) { $pythonArgs += "--verbose" }
+if ($BaseDir) { $pythonArgs += @("--base-dir", $BaseDir) }
+if ($CheckTargetLiterals) { $pythonArgs += "--check-target-literals" }
+if ($UpdateBaseline) { $pythonArgs += "--update-baseline" }
+if ($CheckProviderConditionals) { $pythonArgs += "--check-provider-conditionals" }
+if ($CheckFunctionLevelImports) { $pythonArgs += "--check-function-level-imports" }
+if ($CheckSharedVocabulary) { $pythonArgs += "--check-shared-vocabulary" }
+if ($CheckSharedTargetNames) { $pythonArgs += "--check-shared-target-names" }
+if ($CheckCrossPackageVocabulary) { $pythonArgs += "--check-cross-package-vocabulary" }
+if ($CheckOwnTargetNames) { $pythonArgs += "--check-own-target-names" }
+if ($CheckReexportFacades) { $pythonArgs += "--check-reexport-facades" }
+foreach ($module in $FacadeModule) { $pythonArgs += @("--facade-module", $module) }
+foreach ($repo in $ConsumerPackage) { $pythonArgs += @("--consumer-package", $repo) }
+if ($SelfTest) { $pythonArgs += "--self-test" }
 
-# Register cleanup on script exit
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-# Trap Ctrl-C to ensure proper cleanup
-trap {
-    Write-Host ""
-    Write-Warning "Interrupted by user (Ctrl-C)"
-    Invoke-Cleanup
-    exit 130
-}
-
-# Main execution with proper error handling
-try {
-    # Activate virtual environment
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-
-    # Get Python executable from venv
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
-    # The function-level-import, cross-package-vocabulary, and re-export-
-    # facade ratchets run on every check invocation -- the default run and
-    # every -Check* run alike -- so a new deferred import, a re-spelled
-    # vocabulary, or a new re-export facade fails the gate run in the change
-    # that introduces it, whichever other check that run asked for. Only a
-    # baseline update (which touches just the baselines it names) and a
-    # self-test-only run leave them to their explicit flags.
-    if (-not $UpdateBaseline -and -not $SelfTest) {
-        $CheckFunctionLevelImports = [switch]$true
-        $CheckCrossPackageVocabulary = [switch]$true
-        $CheckReexportFacades = [switch]$true
-    }
-
-    # Build arguments for Python script
-    $pythonArgs = @($pythonScript)
-    if ($Warn) { $pythonArgs += "--warn" }
-    if ($ShowFiles) { $pythonArgs += "--verbose" }
-    if ($BaseDir) { $pythonArgs += "--base-dir"; $pythonArgs += $BaseDir }
-    if ($CheckTargetLiterals) { $pythonArgs += "--check-target-literals" }
-    if ($UpdateBaseline) { $pythonArgs += "--update-baseline" }
-    if ($CheckProviderConditionals) { $pythonArgs += "--check-provider-conditionals" }
-    if ($CheckFunctionLevelImports) { $pythonArgs += "--check-function-level-imports" }
-    if ($CheckSharedVocabulary) { $pythonArgs += "--check-shared-vocabulary" }
-    if ($CheckSharedTargetNames) { $pythonArgs += "--check-shared-target-names" }
-    if ($CheckCrossPackageVocabulary) { $pythonArgs += "--check-cross-package-vocabulary" }
-    if ($CheckOwnTargetNames) { $pythonArgs += "--check-own-target-names" }
-    if ($CheckReexportFacades) { $pythonArgs += "--check-reexport-facades" }
-    foreach ($module in $FacadeModule) { $pythonArgs += "--facade-module"; $pythonArgs += $module }
-    foreach ($repo in $ConsumerPackage) { $pythonArgs += "--consumer-package"; $pythonArgs += $repo }
-    if ($SelfTest) { $pythonArgs += "--self-test" }
-
-    # Debug output if requested
-    if ($Dbg) {
-        Write-Host "Python executable: $pythonExe" -ForegroundColor Cyan
-        Write-Host "Python script: $pythonScript" -ForegroundColor Cyan
-        Write-Host "Arguments: $($pythonArgs -join ' ')" -ForegroundColor Cyan
-        Write-Host ""
-    }
-
-    # Run the Python script
-    & $pythonExe @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    exit $exitCode
-
-} catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Invoke-Cleanup
-    exit 1
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\check_import_boundaries.py") -Arguments $pythonArgs -ShowCommand:$Dbg)

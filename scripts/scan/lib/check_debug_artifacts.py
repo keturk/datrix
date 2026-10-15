@@ -45,7 +45,8 @@ if sys.platform == "win32":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.gate_harness import report_condition  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 # Directories to skip during file discovery
 _SKIP_DIRS = frozenset({
@@ -351,36 +352,30 @@ def run_self_test() -> bool:
         _SELF_TEST_SOURCE, _PYTHON_PATTERNS, fixture, string_aware=True
     )
     aware_lines = {f.line_number for f in aware}
-    if aware_lines == _SELF_TEST_REAL_ARTIFACT_LINES:
-        print("[OK] real debug artifacts detected (string-aware)")
-    else:
-        ok = False
-        print(
-            f"[FAIL] string-aware scan reported lines {sorted(aware_lines)}, "
-            f"expected {sorted(_SELF_TEST_REAL_ARTIFACT_LINES)}"
-        )
+    ok &= report_condition(
+        aware_lines == _SELF_TEST_REAL_ARTIFACT_LINES,
+        "real debug artifacts detected (string-aware)",
+        f"reported lines {sorted(aware_lines)}, expected {sorted(_SELF_TEST_REAL_ARTIFACT_LINES)}",
+    )
 
     embedded_lines = {3, 4}
     leaked = embedded_lines & aware_lines
-    if not leaked:
-        print("[OK] artifacts inside a string literal are not reported")
-    else:
-        ok = False
-        print(f"[FAIL] string-literal content reported as code on lines {sorted(leaked)}")
+    ok &= report_condition(
+        not leaked,
+        "artifacts inside a string literal are not reported",
+        f"string-literal content reported as code on lines {sorted(leaked)}",
+    )
 
     naive = scan_source(
         _SELF_TEST_SOURCE, _PYTHON_PATTERNS, fixture, string_aware=False
     )
     naive_lines = {f.line_number for f in naive}
-    if embedded_lines <= naive_lines:
-        print("[OK] non-vacuity: the same lines DO match without string-awareness")
-    else:
-        ok = False
-        print(
-            "[FAIL] non-vacuity: line-based scan did not match the embedded "
-            f"lines {sorted(embedded_lines)} (got {sorted(naive_lines)}) -- the "
-            "string-aware check above proves nothing"
-        )
+    ok &= report_condition(
+        embedded_lines <= naive_lines,
+        "non-vacuity: the same lines DO match without string-awareness",
+        f"line-based scan did not match the embedded lines {sorted(embedded_lines)} "
+        f"(got {sorted(naive_lines)}) -- the string-aware check above proves nothing",
+    )
 
     return ok
 
@@ -457,7 +452,7 @@ def main() -> int:
         return 2
 
     try:
-        workspace_root = get_datrix_root()
+        workspace_root = WORKSPACE_DIR
     except FileNotFoundError:
         workspace_root = Path(args.paths[0]).parent
 

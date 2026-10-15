@@ -29,7 +29,8 @@ if sys.platform == "win32":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 # Directories to skip during file discovery (same as syntax_checker)
 _SKIP_DIRS = frozenset({
@@ -208,15 +209,11 @@ def run_import_checks(project_roots: list[Path], debug: bool) -> list[ImportErro
         return []
 
     # PYTHONPATH: requested packages first (so e.g. .generated/.../library_book_service is importable), then monorepo
-    try:
-        datrix_root = get_datrix_root()
-        all_installable = sorted(
-            d for d in datrix_root.iterdir()
-            if d.is_dir() and d.name.startswith("datrix") and is_installable_package(d)
-        )
-    except FileNotFoundError:
-        all_installable = []
-    combined = list(installable) + (all_installable or [])
+    all_installable = [
+        d for d in workspace_package_dirs(WORKSPACE_DIR, include_showcase=True)
+        if is_installable_package(d)
+    ]
+    combined = list(installable) + all_installable
     pythonpath_roots = list(dict.fromkeys(combined))
 
     errors: list[ImportErrorResult] = []
@@ -293,15 +290,7 @@ def main() -> int:
     if args.paths:
         paths_to_check = [Path(p) for p in args.paths]
     else:
-        try:
-            datrix_root = get_datrix_root()
-            paths_to_check = sorted(
-                d for d in datrix_root.iterdir()
-                if d.is_dir() and d.name.startswith("datrix")
-            )
-        except FileNotFoundError:
-            print("ERROR: Could not find Datrix root directory", file=sys.stderr)
-            return 1
+        paths_to_check = workspace_package_dirs(WORKSPACE_DIR, include_showcase=True)
 
     print("Discovering Python files...", flush=True)
     all_py_files: list[Path] = []

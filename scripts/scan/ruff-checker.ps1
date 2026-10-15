@@ -4,118 +4,42 @@
  Ruff Checker for Jinja2 Templates
 
 .DESCRIPTION
- Finds Jinja templates in subfolders of the current directory, renders them with
- mock values in a temp folder, runs ruff check on the generated files, and saves
- findings in a report (ruff-report-TIMESTAMP.txt).
+ Finds Jinja templates under -TemplatesDir (default: the current directory), renders them with
+ mock values in a temp folder, runs ruff check on the generated files, and saves the findings to
+ D:\datrix\.test-output\ruff-checker\ruff-report-<yyyyMMdd-HHmmss>.txt -- never into the scanned
+ folder, so a run inside a package leaves nothing to commit.
+
+.PARAMETER TemplatesDir
+ Directory searched (recursively) for .j2 templates. Default: the current directory.
+
+.PARAMETER Dbg
+ Log at DEBUG level and print the python invocation before running.
 
 .EXAMPLE
  .\ruff-checker.ps1
  Check all .j2 templates in the current directory and subfolders.
+
+.EXAMPLE
+ .\ruff-checker.ps1 -TemplatesDir D:\datrix\datrix-codegen-python\src\datrix_codegen_python\templates
+ Check one package's templates without changing directory.
 #>
 
 [CmdletBinding()]
-param()
+param(
+ [string]$TemplatesDir = "",
+ [switch]$Dbg
+)
 
-# Error handling - ensure cleanup on exit
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-# Script directory
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\ruff_checker.py"
+$searched = if ($TemplatesDir) { $TemplatesDir } else { (Get-Location).Path }
+Write-Host "Running ruff template checker..." -ForegroundColor Cyan
+Write-Host "Checking templates in: $searched" -ForegroundColor Cyan
+Write-Host ""
 
-# Import common modules
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-# Check if Python script exists
-if (-not (Test-Path $pythonScript)) {
- Write-Error "Error: ruff_checker.py not found at: $pythonScript"
- exit 1
+$pythonArgs = @("--templates-dir", $searched)
+if ($Dbg) {
+ $pythonArgs += "--debug"
 }
-
-# Function to handle cleanup on exit
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-# Register cleanup on script exit
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-# Main execution with proper error handling
-try {
- # Activate virtual environment
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
- Write-Error "Failed to activate virtual environment"
- exit 1
- }
-
- # Get Python executable from venv
- $venvPath = Get-DatrixVenvPath
- $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
- # Check and install jinja2 if needed
- & $pythonExe -c "import jinja2" 2>&1 | Out-Null
- if ($LASTEXITCODE -ne 0) {
- if (Test-DatrixOfflineMode) {
- Write-Error "DATRIX_OFFLINE is set: jinja2 is not installed. Install while online: pip install jinja2>=3.0.0"
- exit 1
- }
- Write-Host "Installing jinja2..." -ForegroundColor Yellow
- & $pythonExe -m pip install "jinja2>=3.0.0" | Out-Null
- if ($LASTEXITCODE -ne 0) {
- Write-Error "Failed to install jinja2. Please install manually: pip install jinja2>=3.0.0"
- exit 1
- }
- Write-Host "jinja2 installed successfully" -ForegroundColor Green
- }
-
- # Check and install ruff if needed
- & $pythonExe -c "import subprocess; subprocess.run(['ruff', '--version'], capture_output=True, check=True)" 2>&1 | Out-Null
- if ($LASTEXITCODE -ne 0) {
- if (Test-DatrixOfflineMode) {
- Write-Error "DATRIX_OFFLINE is set: ruff is not installed. Install while online: pip install ruff>=0.1.0"
- exit 1
- }
- Write-Host "Installing ruff..." -ForegroundColor Yellow
- & $pythonExe -m pip install "ruff>=0.1.0" | Out-Null
- if ($LASTEXITCODE -ne 0) {
- Write-Error "Failed to install ruff. Please install manually: pip install ruff>=0.1.0"
- exit 1
- }
- Write-Host "ruff installed successfully" -ForegroundColor Green
- }
-
- # Run the Python script
- Write-Host "Running ruff template checker..." -ForegroundColor Cyan
- Write-Host "Checking templates in: $(Get-Location)" -ForegroundColor Cyan
- Write-Host ""
-
- # Suppress PowerShell errors during Python execution - we check exit codes manually
- $oldErrorActionPreference = $ErrorActionPreference
- $ErrorActionPreference = "SilentlyContinue"
- $output = & $pythonExe $pythonScript 2>&1
- $exitCode = $LASTEXITCODE
- $ErrorActionPreference = $oldErrorActionPreference
- Write-Output $output
-
- # Exit with the same code as the Python script
- exit $exitCode
-
-} catch {
- Write-Host ""
- Write-Host "Error occurred:" -ForegroundColor Red
- Write-Host $_.Exception.Message -ForegroundColor Red
- Write-Host ""
- if ($_.Exception.InnerException) {
- Write-Host "Inner exception:" -ForegroundColor Red
- Write-Host $_.Exception.InnerException.Message -ForegroundColor Red
- Write-Host ""
- }
- Invoke-Cleanup
- exit 1
-} finally {
- # Ensure virtual environment is deactivated even on Ctrl-C
- Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\ruff_checker.py") -Arguments $pythonArgs -ShowCommand:$Dbg)

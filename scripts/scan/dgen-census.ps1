@@ -59,78 +59,19 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-# Script directory
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\dgen_census.py"
-
-# Import common modules
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
- Write-Error "Error: dgen_census.py not found at: $pythonScript"
- exit 1
-}
-
-# Function to handle cleanup on exit
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-# Register cleanup on script exit
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-# Trap Ctrl-C to ensure proper cleanup
-trap {
- Write-Host ""
- Write-Warning "Interrupted by user (Ctrl-C)"
- Invoke-Cleanup
- exit 130
-}
-
-try {
- # Activate virtual environment
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
-  Write-Error "Failed to activate virtual environment"
-  exit 1
+$pythonArgs = @()
+if ($SelfTest) {
+ $pythonArgs += "--self-test"
+} else {
+ if (-not $Language) {
+  Write-Host "Error: -Language is required unless -SelfTest is passed. Expected an installed dgen target, e.g. .\dgen-census.ps1 python." -ForegroundColor Red
+  exit 2
  }
-
- # Get Python executable from venv
- $venvPath = Get-DatrixVenvPath
- $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
- # Build arguments for Python script
- $pythonArgs = @($pythonScript)
- if ($SelfTest) {
-  $pythonArgs += "--self-test"
- } else {
-  if (-not $Language) {
-   Write-Error "Error: -Language is required unless -SelfTest is passed"
-   exit 2
-  }
-  $pythonArgs += "--language"
-  $pythonArgs += $Language
-  if ($Output) {
-   $pythonArgs += "--output"
-   $pythonArgs += $Output
-  }
- }
- if ($Dbg) {
-  $pythonArgs += "--debug"
- }
-
- & $pythonExe @pythonArgs
- exit $LASTEXITCODE
-
-} catch {
- Write-Host ""
- Write-Host "Error occurred:" -ForegroundColor Red
- Write-Host $_.Exception.Message -ForegroundColor Red
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
+ $pythonArgs += @("--language", $Language)
+ if ($Output) { $pythonArgs += @("--output", $Output) }
 }
+if ($Dbg) { $pythonArgs += "--debug" }
+
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\dgen_census.py") -Arguments $pythonArgs)

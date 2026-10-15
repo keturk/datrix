@@ -47,8 +47,9 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.paths import CONFIG_DIR  # noqa: E402
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs  # noqa: E402
+from datrix_scripts.logic_map import resolve_scan_paths  # noqa: E402
+from datrix_scripts.paths import CONFIG_DIR, WORKSPACE_DIR  # noqa: E402
 
 _RULES_DIR = CONFIG_DIR / "semgrep-rules"
 
@@ -129,35 +130,8 @@ def resolve_scan_targets(
     Raises:
         FileNotFoundError: If a requested project does not exist.
     """
-    if scan_all:
-        targets = []
-        for d in sorted(datrix_root.iterdir()):
-            if d.is_dir() and d.name.startswith("datrix") and (d / "src").is_dir():
-                targets.append(d / "src")
-                tests_dir = d / "tests"
-                if include_tests and tests_dir.is_dir():
-                    targets.append(tests_dir)
-        return targets
-
-    targets = []
-    for name in project_names:
-        clean = name.rstrip("/\\")
-        project_dir = datrix_root / clean
-        if not project_dir.is_dir():
-            available = sorted(
-                d.name for d in datrix_root.iterdir()
-                if d.is_dir() and d.name.startswith("datrix")
-            )
-            raise FileNotFoundError(
-                f"Project '{clean}' not found. Available: {available}"
-            )
-        src_dir = project_dir / "src"
-        if src_dir.is_dir():
-            targets.append(src_dir)
-        tests_dir = project_dir / "tests"
-        if include_tests and tests_dir.is_dir():
-            targets.append(tests_dir)
-    return targets
+    pairs = resolve_scan_paths(datrix_root, project_names, scan_all, include_tests=include_tests)
+    return [directory for _, directory in pairs]
 
 
 # ---------------------------------------------------------------------------
@@ -636,11 +610,7 @@ def main() -> int:
         print("\nProvide project names or use --all to scan the entire monorepo.")
         return 1
 
-    try:
-        datrix_root = get_datrix_root()
-    except FileNotFoundError:
-        print("ERROR: Could not find Datrix root directory", file=sys.stderr)
-        return 1
+    datrix_root = WORKSPACE_DIR
 
     try:
         targets = resolve_scan_targets(
@@ -663,8 +633,9 @@ def main() -> int:
     rule_names = [p.stem for p in rule_paths]
     project_names = sorted(set(
         args.projects if not args.scan_all
-        else [d.name for d in datrix_root.iterdir()
-              if d.is_dir() and d.name.startswith("datrix") and (d / "src").is_dir()]
+        else [d.name for d in workspace_package_dirs(
+            datrix_root, any_of=frozenset({PackageMarker.SRC}), include_showcase=True
+        )]
     ))
 
     print(f"Scanning {len(targets)} directories across {len(project_names)} project(s)")

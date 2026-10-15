@@ -4,9 +4,9 @@
     Run Semgrep with Datrix-specific rules across the monorepo.
 
 .DESCRIPTION
-    Activates the Datrix virtual environment, ensures semgrep is installed,
-    and runs individual YAML rules from scripts/config/semgrep-rules/ on one
-    or more projects (or all with -All).
+    Runs individual YAML rules from scripts/config/semgrep-rules/, in the shared
+    venv, on one or more projects (or all with -All). semgrep must be installed in
+    the venv; the scanner refuses, naming the install command, when it is not.
 
     Each rule is run independently, making it easy to test and debug.
     Use -Rule to run a specific rule, -ListRules to see all available rules.
@@ -87,109 +87,13 @@ if ($Projects.Count -eq 0 -and -not $All -and -not $ListRules) {
 }
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptsDir = Split-Path -Parent $scriptDir
-$commonDir = Join-Path $scriptsDir "common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$pythonScript = Join-Path $scriptDir "lib\semgrep_scanner.py"
+$pyArgs = if ($ListRules) { @("--list-rules") } elseif ($All) { @("--all") } else { @($Projects) }
+foreach ($r in $Rule) { $pyArgs += @("--rule", $r) }
+if ($Report) { $pyArgs += @("--report", $Report) }
+if ($ShowRaw) { $pyArgs += "--verbose" }
+if ($SinglePass) { $pyArgs += "--single-pass" }
 
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "semgrep_scanner.py not found at: $pythonScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-trap {
-    Invoke-Cleanup
-    exit 130
-}
-
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
-    Write-Error "Failed to activate virtual environment"
-    exit 1
-}
-
-try {
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (-not (Test-Path $pythonExe)) {
-        $pythonExe = Join-Path $venvPath "bin\python"
-    }
-
-    # Check if semgrep is available
-    $semgrepAvailable = $null -ne (Get-Command semgrep -ErrorAction SilentlyContinue)
-
-    if (-not $semgrepAvailable -and -not $ListRules) {
-        if (Test-DatrixOfflineMode) {
-            Write-Error "DATRIX_OFFLINE is set: semgrep is not on PATH. Install while online: pip install semgrep"
-            exit 1
-        }
-        Write-Host "Installing semgrep..." -ForegroundColor Yellow
-        $oldEAP = $ErrorActionPreference
-        $ErrorActionPreference = "Continue"
-        & $pythonExe -m pip install semgrep
-        $pipExit = $LASTEXITCODE
-        $ErrorActionPreference = $oldEAP
-        if ($pipExit -ne 0) {
-            Write-Error "Failed to install semgrep. Install manually: pip install semgrep"
-            exit 1
-        }
-        Write-Host "semgrep installed successfully" -ForegroundColor Green
-    }
-
-    # Build arguments
-    $pyArgs = @()
-    if ($ListRules) {
-        $pyArgs += "--list-rules"
-    } elseif ($All) {
-        $pyArgs += "--all"
-    } else {
-        $pyArgs += $Projects
-    }
-    foreach ($r in $Rule) {
-        $pyArgs += "--rule"
-        $pyArgs += $r
-    }
-    if ($Report) {
-        $pyArgs += "--report"
-        $pyArgs += $Report
-    }
-    if ($ShowRaw) {
-        $pyArgs += "--verbose"
-    }
-    if ($SinglePass) {
-        $pyArgs += "--single-pass"
-    }
-
-    if (-not $ListRules) {
-        Write-Host "Running Semgrep anti-pattern scanner..." -ForegroundColor Cyan
-        Write-Host ""
-    }
-
-    $oldEAP = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    & $pythonExe $pythonScript @pyArgs
-    $exitCode = $LASTEXITCODE
-    $ErrorActionPreference = $oldEAP
-
-    exit $exitCode
-} catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    if ($_.Exception.InnerException) {
-        Write-Host "Inner: $($_.Exception.InnerException.Message)" -ForegroundColor Red
-    }
-    Write-Host ""
-    Invoke-Cleanup
-    exit 1
-} finally {
-    Invoke-Cleanup
-}
+# semgrep_scanner.py refuses, naming the install command, when semgrep is not in the shared venv.
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\semgrep_scanner.py") -Arguments $pyArgs)

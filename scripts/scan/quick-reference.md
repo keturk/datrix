@@ -68,6 +68,10 @@ Scans for anti-patterns using LibCST: silent-fallback, empty-except, missing-enc
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Report <path>`
 
+**Patterns detected:** `silent-fallback` (`dict.get(key, None)` — use explicit lookup + raise on missing), `empty-except` (`except: pass` / `except Exception: pass` — handle or re-raise), `missing-encoding` (`read_text()` / `write_text()` / `open()` without `encoding="utf-8"`), `banned-test-import` (`MagicMock` / `Mock` / `patch` / `SimpleNamespace` in test files), `placeholder-body` (`pass` or `raise NotImplementedError` as sole function body).
+
+**Implementation:** `scripts/scan/lib/libcst_scanner.py` — a LibCST visitor that traverses the concrete syntax tree and collects findings.
+
 ### `scan\semgrep.ps1`
 
 Runs Semgrep with Datrix-specific rules from `scripts/config/semgrep-rules/`.
@@ -83,6 +87,12 @@ Runs Semgrep with Datrix-specific rules from `scripts/config/semgrep-rules/`.
 | **Show raw output** | `.\scan\semgrep.ps1 -All -ShowRaw` | Show raw semgrep output |
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Rule <name>` (repeatable), `-ListRules`, `-Report <path>`, `-ShowRaw`
+
+**Rules** (one or a closely related set per YAML file in `scripts/config/semgrep-rules/`; `-ListRules` prints the current set): `silent-fallback-none` (`dict.get(key, None)`, WARNING), `default-type-mapping` (`type_map.get(t, "Any")`, ERROR), `empty-except-pass` (WARNING), `missing-encoding-read` / `missing-encoding-write` (`Path.read_text()` / `write_text()` without `encoding=`, WARNING), `banned-mock-import` (ERROR), `banned-simple-namespace` (in tests, ERROR), `return-none-lookup` (`return None` in `get_*/find_*/lookup_*/resolve_*`, WARNING), `string-concat-codegen` (`code += f"..."`, WARNING), `todo-comment` (INFO), `magic-number-status` (bare `200`/`404`/`500` in comparisons, WARNING). Adding a rule: [config/semgrep-rules/README.md](../config/semgrep-rules/README.md).
+
+**Implementation:** `scripts/scan/lib/semgrep_scanner.py` discovers the rules, expands directories into file lists, runs semgrep per rule and aggregates the findings.
+
+**Notes:** semgrep uses `git ls-files` to discover files in a directory, so the scanner expands directories into explicit `.py` paths (a non-git workspace still works). A full scan with every rule takes ~20-25 minutes; one `-Rule` takes ~2-3. Jinja2 templates (`.j2`) are excluded.
 
 ### `scan\ast-grep.ps1`
 
@@ -100,6 +110,12 @@ Runs ast-grep structural Python rules from `scripts/config/ast-grep-rules/`, or 
 | **Show raw output** | `.\scan\ast-grep.ps1 -All -Rule empty-except-pass -ShowRaw` | Show raw ast-grep output |
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Pattern <pattern>`, `-Rule <name>` (repeatable), `-ListRules`, `-Report <path>`, `-ShowRaw`
+
+**Rules** (one per YAML file in `scripts/config/ast-grep-rules/`; `-ListRules` prints the current set): `silent-fallback-none`, `default-type-mapping-any` (error), `empty-except-pass`, `return-none-lookup`, `missing-encoding-read-text`, `missing-encoding-write-text`, `open-without-encoding`, `placeholder-function-body`, `placeholder-notimplemented-body`, `generic-exception-raise`, `legacy-compatibility-call`, `banned-mock-import` (error), `banned-simple-namespace` (error), `codegen-string-append`. Rule details: [config/ast-grep-rules/README.md](../config/ast-grep-rules/README.md).
+
+**Implementation:** `scripts/scan/lib/ast_grep.py` discovers the rules, expands directories into file lists, runs ast-grep per rule and aggregates the findings.
+
+**Notes:** PowerShell expands `$NAME` in double-quoted strings, so pass metavariable patterns in single quotes (`-Pattern 'raise Exception($MSG)'`). The npm install exposes `sg.cmd` and `ast-grep.cmd` on Windows; the wrapper prefers those shims. Jinja2 templates (`.j2`) are excluded.
 
 **PowerShell note:** Use single quotes for ast-grep metavariables (`'$MSG'`) so PowerShell does not expand them.
 
@@ -132,13 +148,15 @@ or `-All`. `Get-Help .\scan\<script>.ps1 -Full` lists each one's parameters.
 
 ### `scan\ruff-checker.ps1`
 
-Checks Jinja2 templates by rendering with mock values and running ruff. No parameters.
+Checks Jinja2 Python templates by rendering them with mock values and running ruff on the output. The report goes to `D:\datrix\.test-output\ruff-checker\ruff-report-<yyyyMMdd-HHmmss>.txt`, never into the scanned folder.
 
 | Mode | Command |
 |------|---------|
-| **Check templates** | `.\scan\ruff-checker.ps1` |
+| **Templates under the current directory** | `.\scan\ruff-checker.ps1` |
+| **One template folder** | `.\scan\ruff-checker.ps1 -TemplatesDir D:\datrix\datrix-codegen-python\src\datrix_codegen_python\templates` |
+| **Debug** | `.\scan\ruff-checker.ps1 -Dbg` |
 
-**Parameters:** (none)
+**Parameters:** `-TemplatesDir` (default: the current directory), `-Dbg`
 
 ---
 
@@ -199,7 +217,7 @@ Enforces cross-package import boundary rules across the monorepo. Scans each pac
 
 ### `scan\compile.ps1`
 
-Compiles all Python in Datrix project folders (syntax + import check, including cross-project).
+Syntax + import check of Python, in two parameter sets. **Projects:** every Python file of the named Datrix projects (including cross-project imports). **Path:** any file or directory (a routes folder inside generated code, say); it finds the containing installable package and runs that package's full import check, so a missing import is caught. Relative names and paths resolve against the workspace root.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -207,22 +225,15 @@ Compiles all Python in Datrix project folders (syntax + import check, including 
 | **One project** | `.\scan\compile.ps1 datrix-common` | Check one project |
 | **Multiple projects** | `.\scan\compile.ps1 datrix-common datrix-language` | Check several |
 | **By full path** | `.\scan\compile.ps1 D:\datrix\datrix-common` | Full path input |
+| **Any path** | `.\scan\compile.ps1 -Path .\.generated\...\routes` | Check a subfolder of generated code |
+| **Several paths** | `.\scan\compile.ps1 -Path path1,path2` | Check multiple paths |
 | **With debug** | `.\scan\compile.ps1 -All -Dbg` | Debug output |
 
-**Parameters:** `-All`, `-ProjectDir` (positional, variadic), `-Dbg`
+**Parameters:** Projects set: `-All`, `-ProjectDir` (positional, variadic); Path set: `-Path` (one or more); both: `-Dbg`
 
-### `scan\compile-any-path.ps1`
+**What it does:** (1) **syntax check** — every discovered `.py` file goes through `py_compile`; (2) **import check** — each installable package (`src/` and `pyproject.toml`) is imported with **all its submodules** in a subprocess whose `PYTHONPATH` holds every Datrix project's `src`, which exercises cross-package imports: a module doing `from datrix_language.parser import ModuleNode` that fails is reported as an import error.
 
-Syntax + import check for any Python path (files, directories, subfolders). Unlike `compile.ps1`, works for arbitrary paths (e.g., a routes folder inside generated code). Finds the containing installable package and runs that package's full import check.
-
-| Mode | Command | Description |
-|------|---------|-------------|
-| **Directory** | `.\scan\compile-any-path.ps1 .\.generated\...\routes` | Check a subfolder |
-| **Src dir** | `.\scan\compile-any-path.ps1 D:\datrix\datrix-common\src` | Check a src directory |
-| **Multiple paths** | `.\scan\compile-any-path.ps1 path1 path2` | Check multiple paths |
-| **With debug** | `.\scan\compile-any-path.ps1 path -Dbg` | Debug output |
-
-**Parameters:** `-Path` (positional, variadic), `-Dbg`
+**Implementation:** `scripts/scan/lib/compile.py` (Projects set: file discovery, `py_compile`, per-package import check with the submodule walk) and `scripts/scan/lib/compile_any_path.py` (Path set: finds the package containing each path and runs that package's check).
 
 ### `scan\audit.ps1`
 
@@ -254,7 +265,7 @@ Per-domain census of a language's compiled DAL generator definitions: file-claus
 
 ### `scan\find-duplicate-bodies.ps1`
 
-Function bodies duplicated anywhere across every `datrix-*` package's `src/` tree. Every
+Function bodies duplicated anywhere across every `datrix-*` package's `src/` tree (whole bodies only: a similar run of lines inside otherwise different functions, or in a module-level table, is `metrics\duplicate.ps1`'s class). Every
 module-level function and class method at or above the floor (8 lines, 40 AST nodes) is grouped
 two ways: **exact** (identical body, names and constants kept: a straight copy) and **normalized**
 (identical once parameters/locals become positional tokens and constants collapse to their type:

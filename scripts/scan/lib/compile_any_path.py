@@ -10,7 +10,7 @@ syntax and import check and catches missing imports like db or Book.
 
 Usage:
   python scripts/scan/lib/compile_any_path.py <path> [path ...] [--debug]
-  .\\scripts\\scan\\compile-any-path.ps1 .\\.generated\\...\\routes
+  .\\scripts\\scan\\compile.ps1 -Path .\\.generated\\...\\routes
 """
 
 import argparse

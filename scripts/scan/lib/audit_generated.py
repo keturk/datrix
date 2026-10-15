@@ -6,7 +6,7 @@ Scans .generated/python/docker (or a given path) for:
 - Placeholder patterns: pass, raise NotImplementedError, "# Test fixtures placeholder"
 
 Paths matching db/base.py or _microservice_helpers.py are allowlisted (excluded from
---fail-on-placeholders). See datrix/scripts/scan/README.md.
+--fail-on-placeholders). See datrix/scripts/scan/quick-reference.md.
 
 Usage:
     python scripts/scan/lib/audit_generated.py [--output-base .generated] [--report path.md]
@@ -31,7 +31,7 @@ from datrix_scripts.local_llm import (
     advisory_text,
     local_llm_settings,
 )
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 # Patterns for placeholder scan (path -> list of (line_no, line_text))
 PATTERN_PASS = re.compile(r"\bpass\b")
@@ -267,7 +267,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        datrix_root = get_datrix_root()
+        datrix_root = WORKSPACE_DIR
     except FileNotFoundError:
         print("ERROR: Could not find Datrix root directory", file=sys.stderr)
         return 1

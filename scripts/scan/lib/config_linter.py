@@ -22,6 +22,8 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
+from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
+from datrix_scripts.gate_harness import report_condition  # noqa: E402
 from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 if TYPE_CHECKING:
@@ -31,11 +33,6 @@ if TYPE_CHECKING:
 def _sigint_handler(_signum: int, _frame: object) -> None:
     """Exit with standard SIGINT code on Ctrl-C."""
     sys.exit(130)
-
-
-def _get_datrix_root() -> Path:
-    """The monorepo root (directory containing datrix + datrix-common)."""
-    return WORKSPACE_DIR
 
 
 _SKIP_DIRS = frozenset(
@@ -61,12 +58,6 @@ class LintIssue:
     line: int
     col: int
     message: str
-
-
-def _add_datrix_common_to_path(datrix_root: Path) -> None:
-    common_src = datrix_root / "datrix-common" / "src"
-    if common_src.exists() and str(common_src) not in sys.path:
-        sys.path.insert(0, str(common_src))
 
 
 def _discover_dcfg_files(path: Path) -> list[Path]:
@@ -604,16 +595,6 @@ _SELF_TEST_SOURCE_NO_COMMENTS = """config service test.Foo {
 """
 
 
-def _self_test_check(label: str, condition: bool, detail: str = "") -> bool:
-    """Print [OK]/[FAIL] for one self-test assertion and return it."""
-    if condition:
-        print(f"[OK] {label}")
-    else:
-        suffix = f": {detail}" if detail else ""
-        print(f"[FAIL] {label}{suffix}")
-    return condition
-
-
 def run_self_test() -> bool:
     """Prove format_dcfg's round-trip fidelity against the fixture this
     module's tests previously guarded.
@@ -626,64 +607,64 @@ def run_self_test() -> bool:
     formatted, _issues, error = format_dcfg(
         _SELF_TEST_SOURCE_NO_COMMENTS, Path("test.dcfg")
     )
-    ok &= _self_test_check(
-        "format_dcfg reports no parse error on the fixture", error is None, str(error)
+    ok &= report_condition(
+        error is None, "format_dcfg reports no parse error on the fixture", str(error)
     )
-    ok &= _self_test_check(
-        "the name-less 'service' wildcard renders as 'service from ...', "
-        "never the invalid token 'service *'",
+    ok &= report_condition(
         "service from standardServicePolicy();" in formatted
         and "service * from" not in formatted,
+        "the name-less 'service' wildcard renders as 'service from ...', "
+        "never the invalid token 'service *'",
     )
-    ok &= _self_test_check(
-        "a 'replace ... from tpl() { body }' body survives formatting",
+    ok &= report_condition(
         'namespaceGroup = "core-events";' in formatted,
+        "a 'replace ... from tpl() { body }' body survives formatting",
     )
-    ok &= _self_test_check(
-        "an 'inheriting base' clause survives formatting",
+    ok &= report_condition(
         "inheriting base" in formatted,
+        "an 'inheriting base' clause survives formatting",
     )
-    ok &= _self_test_check(
-        "the inheriting-base replace body survives formatting",
+    ok &= report_condition(
         'serverGroup = "core";' in formatted,
+        "the inheriting-base replace body survives formatting",
     )
-    ok &= _self_test_check(
-        "a top-level 'serverGroups { name { ... } }' block survives formatting",
+    ok &= report_condition(
         "serverGroups {" in formatted and 'sku = "GP_Standard_D2s_v3";' in formatted,
+        "a top-level 'serverGroups { name { ... } }' block survives formatting",
     )
-    ok &= _self_test_check(
-        "a top-level 'namespaceGroups { name { ... } }' block survives formatting",
+    ok &= report_condition(
         "namespaceGroups {" in formatted and "capacity = 10;" in formatted,
+        "a top-level 'namespaceGroups { name { ... } }' block survives formatting",
     )
-    ok &= _self_test_check(
-        "a nested 'keys { ... }' config-store block survives formatting, "
-        "including a Boolean key's description/default and an Int key's "
-        "min/max/ttlSeconds attributes",
+    ok &= report_condition(
         "keys {" in formatted
         and 'Boolean debugMode : description("Enable debug mode.") = false;' in formatted
         and "Int maxRetries : min(1), max(10), ttlSeconds(60) = 3;" in formatted,
+        "a nested 'keys { ... }' config-store block survives formatting, "
+        "including a Boolean key's description/default and an Int key's "
+        "min/max/ttlSeconds attributes",
     )
 
     once, _issues1, _error1 = format_dcfg(_SELF_TEST_SOURCE_NO_COMMENTS, Path("t.dcfg"))
     twice, _issues2, _error2 = format_dcfg(once, Path("t.dcfg"))
-    ok &= _self_test_check(
-        "formatting is idempotent: format(format(x)) == format(x)", once == twice
+    ok &= report_condition(
+        once == twice, "formatting is idempotent: format(format(x)) == format(x)"
     )
 
     comment_source = "// keep this note\n" + _SELF_TEST_SOURCE_NO_COMMENTS
     comment_formatted, comment_issues, comment_error = format_dcfg(
         comment_source, Path("t.dcfg")
     )
-    ok &= _self_test_check(
-        "comment-bearing source: no parse error", comment_error is None, str(comment_error)
+    ok &= report_condition(
+        comment_error is None, "comment-bearing source: no parse error", str(comment_error)
     )
-    ok &= _self_test_check(
-        "comment-bearing source is left byte-for-byte unchanged (fail-safe)",
+    ok &= report_condition(
         comment_formatted == comment_source,
+        "comment-bearing source is left byte-for-byte unchanged (fail-safe)",
     )
-    ok &= _self_test_check(
-        "a blocking issue explains the comment-drop fail-safe",
+    ok &= report_condition(
         any("comment" in issue.message.lower() for issue in comment_issues),
+        "a blocking issue explains the comment-drop fail-safe",
     )
 
     print()
@@ -695,8 +676,7 @@ def run_self_test() -> bool:
 
 
 def _default_scan_paths() -> list[Path]:
-    datrix_root = _get_datrix_root()
-    return sorted(d for d in datrix_root.iterdir() if d.is_dir() and d.name.startswith("datrix"))
+    return workspace_package_dirs(WORKSPACE_DIR, include_showcase=True)
 
 
 def main() -> int:
@@ -736,12 +716,6 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.self_test:
-        try:
-            datrix_root = _get_datrix_root()
-        except FileNotFoundError:
-            print("ERROR: Could not find Datrix root directory", file=sys.stderr)
-            return 1
-        _add_datrix_common_to_path(datrix_root)
         return 0 if run_self_test() else 1
 
     if args.all and args.paths:
@@ -751,14 +725,6 @@ def main() -> int:
         parser.print_help()
         print("\nProvide one or more paths, or use --all.", file=sys.stderr)
         return 1
-
-    try:
-        datrix_root = _get_datrix_root()
-    except FileNotFoundError:
-        print("ERROR: Could not find Datrix root directory", file=sys.stderr)
-        return 1
-
-    _add_datrix_common_to_path(datrix_root)
 
     input_paths = _default_scan_paths() if args.all else [Path(p) for p in args.paths]
     discovered: list[Path] = []

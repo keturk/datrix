@@ -22,19 +22,11 @@ def _sigint_handler(_signum: int, _frame: object) -> None:
     """Handle Ctrl-C: exit with 130 (standard SIGINT exit code)."""
     sys.exit(130)
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 # Try to import datrix-language parser
 try:
-    # Add datrix-common and datrix-language to path
-    datrix_root = get_datrix_root()
-    datrix_common_src = datrix_root / "datrix-common" / "src"
-    if datrix_common_src.exists() and str(datrix_common_src) not in sys.path:
-        sys.path.insert(0, str(datrix_common_src))
-    datrix_language_src = datrix_root / "datrix-language" / "src"
-    if datrix_language_src.exists() and str(datrix_language_src) not in sys.path:
-        sys.path.insert(0, str(datrix_language_src))
-
     from datrix_common.constants import DATRIX_FILE_EXTENSION
     from datrix_common.errors.parse import ParseError
     from datrix_language.parser.contextual_keywords import validate_contextual_keywords
@@ -328,15 +320,7 @@ def main():
         # Fallback for direct invocation (without the PowerShell wrapper).
         # The wrapper uses DatrixPaths.psm1 as the single source of truth
         # and passes paths as arguments.
-        try:
-            datrix_root = get_datrix_root()
-            paths_to_check = sorted(
-                d for d in datrix_root.iterdir()
-                if d.is_dir() and d.name.startswith("datrix")
-            )
-        except FileNotFoundError:
-            print("ERROR: Could not find Datrix root directory", file=sys.stderr)
-            return 1
+        paths_to_check = workspace_package_dirs(WORKSPACE_DIR, include_showcase=True)
 
     print("Discovering .dtrx files...", flush=True)
     all_files = []

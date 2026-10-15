@@ -44,40 +44,11 @@ $ErrorActionPreference = "Stop"
 # `powershell -File` passes "a,b" as one string; accept both that and a real array.
 $Package = @($Package | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$pythonScript = Join-Path $scriptDir "lib\find_unimplemented_abstracts.py"
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "find_unimplemented_abstracts.py not found at: $pythonScript"
-    exit 2
-}
+$pythonArgs = @()
+foreach ($name in $Package) { $pythonArgs += @("--package", $name) }
+if ($ShowBases) { $pythonArgs += "--show-bases" }
+if ($Dbg) { $pythonArgs += "--debug" }
 
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
-    if (-not (Ensure-DatrixVenv)) {
-        Write-Error "Failed to activate the Datrix virtual environment"
-        exit 2
-    }
-    if (-not (Ensure-DatrixPackagesInstalled -SkipIfInstalled)) {
-        Write-Error "Failed to ensure the Datrix packages are installed"
-        exit 2
-    }
-
-    $pythonArgs = @($pythonScript)
-    foreach ($name in $Package) { $pythonArgs += "--package"; $pythonArgs += $name }
-    if ($ShowBases) { $pythonArgs += "--show-bases" }
-    if ($Dbg) { $pythonArgs += "--debug" }
-
-    & python @pythonArgs
-    exit $LASTEXITCODE
-} catch {
-    Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-    exit 2
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\find_unimplemented_abstracts.py") -Arguments $pythonArgs -RequirePackages)
