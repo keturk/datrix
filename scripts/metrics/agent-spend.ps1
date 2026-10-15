@@ -53,35 +53,10 @@ $ErrorActionPreference = "Stop"
 $Session = @($Session | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $Transcript = @($Transcript | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$pythonScript = Join-Path $scriptDir "lib\agent_spend.py"
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "agent_spend.py not found at: $pythonScript"
-    exit 2
-}
+$pythonArgs = @("--days", "$Days", "--top", "$Top")
+foreach ($item in $Session) { $pythonArgs += @("--session", $item) }
+foreach ($item in $Transcript) { $pythonArgs += @("--transcript", $item) }
 
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
-    if (-not (Ensure-DatrixVenv)) {
-        Write-Error "Failed to activate the Datrix virtual environment"
-        exit 2
-    }
-
-    $pythonArgs = @($pythonScript, "--days", $Days, "--top", $Top)
-    foreach ($item in $Session) { $pythonArgs += "--session"; $pythonArgs += $item }
-    foreach ($item in $Transcript) { $pythonArgs += "--transcript"; $pythonArgs += $item }
-
-    & python @pythonArgs
-    exit $LASTEXITCODE
-} catch {
-    Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-    exit 2
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\agent_spend.py") -Arguments $pythonArgs)

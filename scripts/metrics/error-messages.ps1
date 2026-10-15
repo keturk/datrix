@@ -89,29 +89,13 @@ param(
  [switch]$Dbg
 )
 
-# Error handling - ensure cleanup on exit
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$venvUtilsScript = Join-Path $commonDir "venv.ps1"
-if (-not (Test-Path $venvUtilsScript)) {
- Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
- exit 1
-}
-. $venvUtilsScript
-
-$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$errorMessagesScript = Join-Path $scriptDir "lib\error_messages.py"
-
-if (-not (Test-Path $errorMessagesScript)) {
- Write-Error "Error: error_messages.py not found at: $errorMessagesScript"
- exit 1
-}
-
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
+$workspaceRoot = Get-DatrixWorkspaceRoot
+$errorMessagesScript = Join-Path $PSScriptRoot "lib\error_messages.py"
 
 if ($FixAll) { $Fix = $true }
 if ($Fix -and $Mode -ne "check") {
@@ -123,7 +107,6 @@ if ($Test -and -not $Fix) {
  exit 1
 }
 
-try {
  $projectsToAnalyze = @()
 
  if ($All) {
@@ -172,11 +155,6 @@ try {
  exit 1
  }
 
- if (-not (Ensure-DatrixVenv)) {
- Write-Error "Failed to ensure virtual environment is ready"
- exit 1
- }
-
  $results = @{}
  $totalProjects = $projectsToAnalyze.Count
  $currentProject = 0
@@ -191,24 +169,22 @@ try {
 
  $projectRoot = Join-Path $workspaceRoot $project
  $projectArgs = @(
- $errorMessagesScript,
  "--project-root", $projectRoot,
  "--mode", $Mode,
- "--min-score", $MinScore
+ "--min-score", "$MinScore"
  )
  if ($project -eq "datrix-common") {
-   $projectArgs += "--ignore-path-contains", "builtins,objects"
+   $projectArgs += @("--ignore-path-contains", "builtins,objects")
  }
  if ($Fix) {
    $projectArgs += "--fix"
    if ($FixAll) { $projectArgs += "--fix-all" }
-   if ($MaxRetries -ne 3) { $projectArgs += "--max-retries", $MaxRetries }
+   if ($MaxRetries -ne 3) { $projectArgs += @("--max-retries", "$MaxRetries") }
    $projectArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $Model -LlmTimeoutSeconds $LlmTimeout
  }
  if ($Test) { $projectArgs += "--test" }
 
- & python @projectArgs
- $exitCode = $LASTEXITCODE
+ $exitCode = Invoke-DatrixPythonScript -Script $errorMessagesScript -Arguments $projectArgs
 
  if ($exitCode -eq 0) {
  $results[$project] = $true
@@ -244,11 +220,3 @@ try {
 
  if ($failed -gt 0) { exit 1 }
  exit 0
-
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}

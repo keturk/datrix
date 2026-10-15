@@ -26,6 +26,26 @@
 .PARAMETER Dbg
     Pass --debug to Python (prints scan roots to stderr).
 
+.PARAMETER LlmReview
+    Add an advisory "Duplicate-name triage" section: a local model ranks which duplicate
+    top-level names are one concept with two homes. Advisory only; never changes the exit code.
+
+.PARAMETER LlmLimit
+    Maximum duplicate groups sent to the local model (default 20).
+
+.PARAMETER LocalMachines
+    Machines to search for local model servers, in preference order. Omit to search the
+    default list in common/lib/datrix_scripts/local_llm.py.
+
+.PARAMETER LlmModel
+    Local models to use, best first. Omit for any model already in memory, else the default load.
+
+.PARAMETER LlmTimeout
+    Seconds for each request to a ready local model (default 180).
+
+.PARAMETER SelfTest
+    Run only the duplicate-triage checks (planted sites, no model server) and exit.
+
 .EXAMPLE
     .\code-analyzer.ps1 datrix-common
 
@@ -37,6 +57,9 @@
 
 .EXAMPLE
     .\code-analyzer.ps1 -All -Src -Tests -Output reports\structure.md
+
+.EXAMPLE
+    .\code-analyzer.ps1 -All -LlmReview -LlmLimit 10
 #>
 
 [CmdletBinding()]
@@ -52,10 +75,18 @@ param(
 
     [string]$Output,
 
-    [switch]$Dbg
+    [switch]$Dbg,
+
+    [switch]$LlmReview,
+    [int]$LlmLimit = 20,
+    [string[]]$LocalMachines = @(),
+    [string[]]$LlmModel = @(),
+    [int]$LlmTimeout = 180,
+
+    [switch]$SelfTest
 )
 
-if ($Projects.Count -eq 0 -and -not $All) {
+if ($Projects.Count -eq 0 -and -not $All -and -not $SelfTest) {
     Write-Host "Usage:" -ForegroundColor Yellow
     Write-Host "  .\code-analyzer.ps1 <project> [project2 ...] [-Src] [-Tests] [-Output path] [-Dbg]" -ForegroundColor White
     Write-Host "  .\code-analyzer.ps1 -All [-Src] [-Tests] [-Output path] [-Dbg]" -ForegroundColor White
@@ -66,96 +97,43 @@ if ($Projects.Count -eq 0 -and -not $All) {
 }
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+$pythonScript = Join-Path $PSScriptRoot "lib\code_analyzer.py"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptsDir = Split-Path -Parent $scriptDir
-$commonDir = Join-Path $scriptsDir "common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$pythonScript = Join-Path $scriptDir "lib\code_analyzer.py"
-
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "code_analyzer.py not found at: $pythonScript"
-    exit 1
+if ($SelfTest) {
+    exit (Invoke-DatrixPythonScript -Script $pythonScript -Arguments @("--self-test"))
 }
 
-function Invoke-Cleanup {
-    Disable-DatrixVenv
+$pythonArgs = @()
+if ($All) {
+    $pythonArgs += "--all"
 }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-trap {
-    Invoke-Cleanup
-    exit 130
+else {
+    $filtered = @($Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ } | Where-Object { $_ -ne "datrix" })
+    if ($filtered.Count -eq 0) {
+        Write-Host "ERROR: No valid projects (datrix meta folder is excluded)." -ForegroundColor Red
+        exit 1
+    }
+    $pythonArgs += $filtered
+}
+if ($Output) {
+    $pythonArgs += @("--output", $Output)
+}
+if ($Src) {
+    $pythonArgs += "--src"
+}
+if ($Tests) {
+    $pythonArgs += "--tests"
+}
+if ($Dbg) {
+    $pythonArgs += "--debug"
+}
+if ($LlmReview) {
+    $pythonArgs += @("--llm-review", "--llm-limit", $LlmLimit)
+    $pythonArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
 }
 
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
-    Write-Error "Failed to activate virtual environment"
-    exit 1
-}
-
-try {
-    $workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (-not (Test-Path $pythonExe)) {
-        $pythonExe = Join-Path $venvPath "bin\python"
-    }
-
-    $pyArgs = @($pythonScript)
-    if ($All) {
-        $pkgList = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
-        if ($pkgList.Count -eq 0) {
-            Write-Host "ERROR: No datrix-* packages under: $workspaceRoot" -ForegroundColor Red
-            exit 1
-        }
-        $pyArgs += "--all"
-    }
-    else {
-        $normalized = $Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }
-        $filtered = $normalized | Where-Object { $_ -ne "datrix" }
-        if ($filtered.Count -eq 0) {
-            Write-Host "ERROR: No valid projects (datrix meta folder is excluded)." -ForegroundColor Red
-            exit 1
-        }
-        $pyArgs += $filtered
-    }
-    if ($Output) {
-        $pyArgs += "--output", $Output
-    }
-    if ($Src) {
-        $pyArgs += "--src"
-    }
-    if ($Tests) {
-        $pyArgs += "--tests"
-    }
-    if ($Dbg) {
-        $pyArgs += "--debug"
-    }
-
-    Write-Host "Python code structure analyzer (AST)..." -ForegroundColor Cyan
-    Write-Host ""
-
-    $oldEAP = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    & $pythonExe @pyArgs
-    $exitCode = $LASTEXITCODE
-    $ErrorActionPreference = $oldEAP
-
-    exit $exitCode
-}
-catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    if ($_.Exception.InnerException) {
-        Write-Host "Inner: $($_.Exception.InnerException.Message)" -ForegroundColor Red
-    }
-    Write-Host ""
-    Invoke-Cleanup
-    exit 1
-}
-finally {
-    Invoke-Cleanup
-}
+Write-Host "Python code structure analyzer (AST)..." -ForegroundColor Cyan
+Write-Host ""
+exit (Invoke-DatrixPythonScript -Script $pythonScript -Arguments $pythonArgs -ShowCommand:$Dbg)

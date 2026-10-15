@@ -77,90 +77,14 @@ if ($Projects.Count -eq 0 -and -not $All) {
 }
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptsDir = Split-Path -Parent $scriptDir
-$commonDir = Join-Path $scriptsDir "common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$pythonScript = Join-Path $scriptDir "lib\find_constants.py"
+$pyArgs = if ($All) { @("--all") } else { @($Projects) }
+if ($Output) { $pyArgs += @("--output", $Output) }
+if ($IncludeDocstrings) { $pyArgs += "--include-docstrings" }
+if ($MinLength -ne 1) { $pyArgs += @("--min-length", "$MinLength") }
+if ($MaxValueChars -ne 120) { $pyArgs += @("--max-value-chars", "$MaxValueChars") }
+if ($Src) { $pyArgs += "--src" }
+if ($Tests) { $pyArgs += "--tests" }
 
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "find_constants.py not found at: $pythonScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-trap {
-    Invoke-Cleanup
-    exit 130
-}
-
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
-    Write-Error "Failed to activate virtual environment"
-    exit 1
-}
-
-try {
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (-not (Test-Path $pythonExe)) {
-        $pythonExe = Join-Path $venvPath "bin\python"
-    }
-
-    $pyArgs = @()
-    if ($All) {
-        $pyArgs += "--all"
-    }
-    else {
-        $pyArgs += $Projects
-    }
-    if ($Output) {
-        $pyArgs += "--output", $Output
-    }
-    if ($IncludeDocstrings) {
-        $pyArgs += "--include-docstrings"
-    }
-    if ($MinLength -ne 1) {
-        $pyArgs += "--min-length", "$MinLength"
-    }
-    if ($MaxValueChars -ne 120) {
-        $pyArgs += "--max-value-chars", "$MaxValueChars"
-    }
-    if ($Src) {
-        $pyArgs += "--src"
-    }
-    if ($Tests) {
-        $pyArgs += "--tests"
-    }
-
-    Write-Host "Finding string literals (Python AST)..." -ForegroundColor Cyan
-    Write-Host ""
-
-    $oldEAP = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    & $pythonExe $pythonScript @pyArgs
-    $exitCode = $LASTEXITCODE
-    $ErrorActionPreference = $oldEAP
-
-    exit $exitCode
-}
-catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    if ($_.Exception.InnerException) {
-        Write-Host "Inner: $($_.Exception.InnerException.Message)" -ForegroundColor Red
-    }
-    Write-Host ""
-    Invoke-Cleanup
-    exit 1
-}
-finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\find_constants.py") -Arguments $pyArgs)

@@ -52,27 +52,9 @@ Error message quality checker: detects substandard error messages (missing conte
 
 ---
 
-## `metrics\vulture.ps1`
-
-Dead-code detection using Vulture. Runs a combined scan across selected projects' `src/` trees (cross-project reference detection).
-
-| Mode | Command | Description |
-|------|---------|-------------|
-| **One project** | `.\metrics\vulture.ps1 datrix-common` | Scan datrix-common |
-| **All projects** | `.\metrics\vulture.ps1 -All` | Combined scan of all |
-| **Multiple projects** | `.\metrics\vulture.ps1 datrix-common datrix-language` | Combined scan of selected |
-| **High confidence** | `.\metrics\vulture.ps1 datrix-common -MinConfidence 100` | Only 100% confidence findings |
-| **Sort by size** | `.\metrics\vulture.ps1 -All -SortBySize` | Largest dead code first |
-| **Generate whitelist** | `.\metrics\vulture.ps1 datrix-common -MakeWhitelist` | Output false-positive whitelist |
-| **Verbose** | `.\metrics\vulture.ps1 datrix-common -VerboseOutput` | Show command details |
-
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-MinConfidence` (60-100, default: 80), `-SortBySize`, `-MakeWhitelist`, `-StopOnError` (deprecated), `-VerboseOutput`
-
----
-
 ## `metrics\dead-code-report.ps1`
 
-Two-pass Vulture dead-code report: classifies findings as "never referenced" or "only referenced by tests".
+Two-pass Vulture dead-code report: classifies findings as "never referenced" or "only referenced by tests". It is the one Vulture entry point: `-SortBySize` and `-MakeWhitelist` are Vulture's own options carried through.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -84,8 +66,12 @@ Two-pass Vulture dead-code report: classifies findings as "never referenced" or 
 | **Save to file** | `.\metrics\dead-code-report.ps1 -All -OutputPath dead-code.md` | Write report to file |
 | **Raw (no filters)** | `.\metrics\dead-code-report.ps1 -All -Raw` | Disable false-positive filters |
 | **Quiet** | `.\metrics\dead-code-report.ps1 -All -OutputPath report.md -Quiet` | Only write to file |
+| **Sort by size** | `.\metrics\dead-code-report.ps1 -All -SortBySize` | Largest unused functions/classes first, each with its size |
+| **Whitelist candidates** | `.\metrics\dead-code-report.ps1 datrix-common -MakeWhitelist` | Vulture's `--make-whitelist` output per package to `D:\datrix\.test-output\vulture\<package>-whitelist-candidates.py` (never into a package); review before merging into `vulture_whitelist.py` |
 
-**Parameters:** `-Projects` (positional, variadic; package names or folder paths), `-All`, `-MinConfidence` (60-100, default: 60), `-Output` (text\|json), `-OutputPath`, `-VerboseOutput`, `-Raw`, `-LlmReview`, `-LlmLimit` (default: 30), `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-Quiet`
+`-OutputPath` receives the report alone (progress and model notes stay on the console), so a JSON report file is pure JSON.
+
+**Parameters:** `-Projects` (positional, variadic; package names or folder paths), `-All`, `-MinConfidence` (60-100, default: 60), `-SortBySize`, `-MakeWhitelist`, `-Output` (text\|json), `-OutputPath`, `-VerboseOutput`, `-Raw`, `-LlmReview`, `-LlmLimit` (default: 30), `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-Quiet`
 
 ---
 
@@ -129,7 +115,7 @@ Bandit security scanner for Python code.
 
 ## `metrics\duplicate.ps1`
 
-Pylint duplicate-code detection (R0801).
+Pylint duplicate-code detection (R0801): similar runs of lines anywhere — inside functions, across class bodies, in module-level tables. It does not compare whole function bodies by structure; `scan\find-duplicate-bodies.ps1` finds AST-identical function bodies with renamed identifiers, which line similarity misses. `datrix-codegen-python/pyproject.toml` mirrors this script's arguments.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -141,6 +127,8 @@ Pylint duplicate-code detection (R0801).
 | **Stop on fail** | `.\metrics\duplicate.ps1 -All -StopOnError` | Stop on first failure |
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Mono` (mutually exclusive with -All), `-MinLines` (default: 4 for a single project; multi-root/`-Mono` runs default to 30 unless `-MinLines` is explicitly passed), `-Tests`, `-StopOnError`, `-VerboseOutput`, `-LlmRefactorPlan`, `-LlmLimit` (default: 20), `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1)
+
+**Mono runs and cross-language duplication:** with `-Mono`, Pylint compares all Python under every project's `src/`. Duplicates between two language generators (same feature, different output language) are expected: the stacks implement parallel generators kept in sync by design. Mono runs therefore default to `min-similarity-lines=30` so those cross-language pairs are not reported; pass `-MinLines 4` (or lower) with `-Mono` to see every duplicate, cross-language included.
 
 ---
 
@@ -190,8 +178,10 @@ AST inventory of classes, methods, module functions, constants (UPPER_SNAKE heur
 | **Tests only** | `.\metrics\code-analyzer.ps1 datrix-common -Tests` | `tests/` tree only |
 | **Src and tests** | `.\metrics\code-analyzer.ps1 -All -Src -Tests` | Both trees, all packages |
 | **Custom output** | `.\metrics\code-analyzer.ps1 -All -Output reports\structure.md` | Markdown under cwd (or absolute path) |
+| **Duplicate-name triage** | `.\metrics\code-analyzer.ps1 -All -LlmReview -LlmLimit 10` | Adds an advisory "Duplicate-name triage" section: one local-model request ranking which duplicate names are one concept with two homes. No duplicate group → no request; a ranked name that is not a duplicate group is called out as made up. Never changes the exit code |
+| **Self-test** | `.\metrics\code-analyzer.ps1 -SelfTest` | The duplicate-triage checks (planted sites, no model server) |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Src`, `-Tests`, `-Output`, `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Src`, `-Tests`, `-Output`, `-Dbg`, `-LlmReview`, `-LlmLimit` (default 20), `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (seconds, default 180), `-SelfTest`
 
 ---
 

@@ -54,28 +54,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$venvUtilsScript = Join-Path $commonDir "venv.ps1"
-if (-not (Test-Path $venvUtilsScript)) {
- Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
- exit 1
-}
-. $venvUtilsScript
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$coverageScript = Join-Path $scriptDir "lib\coverage_report.py"
+$workspaceRoot = Get-DatrixWorkspaceRoot
+# pytest-cov comes with each package's dev install in the shared venv.
+$coverageScript = Join-Path $PSScriptRoot "lib\coverage_report.py"
 
-if (-not (Test-Path $coverageScript)) {
- Write-Error "Error: coverage_report.py not found at: $coverageScript"
- exit 1
-}
-
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
  $projectsToAnalyze = @()
  if ($All) {
  $projectsToAnalyze = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
@@ -115,22 +101,6 @@ try {
  exit 1
  }
 
- if (-not (Ensure-DatrixVenv)) { Write-Error "Failed to ensure venv"; exit 1 }
-
- $oldErr = $ErrorActionPreference
- $ErrorActionPreference = "SilentlyContinue"
- $null = & pip show pytest-cov 2>&1
- $pytestCovInstalled = $LASTEXITCODE -eq 0
- $ErrorActionPreference = $oldErr
- if (-not $pytestCovInstalled) {
- if (Test-DatrixOfflineMode) {
- Write-Error "DATRIX_OFFLINE is set: pytest-cov is not installed. Install while online: pip install pytest-cov>=4.0"
- exit 1
- }
- Write-Host "Installing pytest-cov..." -ForegroundColor Cyan
- & pip install "pytest-cov>=4.0"
- }
-
  $results = @{}
  $resultDetails = @{}
  foreach ($project in $projectsToAnalyze) {
@@ -139,23 +109,22 @@ try {
  $projectRoot = Join-Path $workspaceRoot $project
  $summaryFile = [System.IO.Path]::GetTempFileName()
  $projectArgs = @(
- $coverageScript,
  "--project-root", $projectRoot,
  "--format", $Format,
  "--summary-file", $summaryFile
  )
- if ($FailUnder -gt 0) { $projectArgs += "--fail-under", $FailUnder }
+ if ($FailUnder -gt 0) { $projectArgs += @("--fail-under", "$FailUnder") }
  if ($VerboseOutput) { $projectArgs += "--verbose" }
 
- & python @projectArgs
- $results[$project] = ($LASTEXITCODE -eq 0)
+ $projectExit = Invoke-DatrixPythonScript -Script $coverageScript -Arguments $projectArgs -RequirePackages
+ $results[$project] = ($projectExit -eq 0)
  $detail = $null
  if (Test-Path $summaryFile) {
  $line = Get-Content $summaryFile -Raw -ErrorAction SilentlyContinue
  if ($line) { $resultDetails[$project] = $line.Trim() }
  Remove-Item $summaryFile -Force -ErrorAction SilentlyContinue
  }
- if ($LASTEXITCODE -ne 0 -and $StopOnError) {
+ if ($projectExit -ne 0 -and $StopOnError) {
  Write-Host "Stopping due to -StopOnError" -ForegroundColor Red
  break
  }
@@ -180,10 +149,3 @@ try {
  $failed = ($results.Values | Where-Object { $_ -eq $false }).Count
  if ($failed -gt 0) { exit 1 }
  exit 0
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}

@@ -52,28 +52,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$venvUtilsScript = Join-Path $commonDir "venv.ps1"
-if (-not (Test-Path $venvUtilsScript)) {
- Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
- exit 1
-}
-. $venvUtilsScript
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$banditScript = Join-Path $scriptDir "lib\bandit_report.py"
+$workspaceRoot = Get-DatrixWorkspaceRoot
+# bandit must be installed in the shared venv; bandit_report.py refuses, naming the install command, when it is not.
+$banditScript = Join-Path $PSScriptRoot "lib\bandit_report.py"
 
-if (-not (Test-Path $banditScript)) {
- Write-Error "Error: bandit_report.py not found at: $banditScript"
- exit 1
-}
-
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
  $projectsToAnalyze = @()
  if ($All) {
  $projectsToAnalyze = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
@@ -89,29 +75,12 @@ try {
  exit 1
  }
 
- if (-not (Ensure-DatrixVenv)) { Write-Error "Failed to ensure venv"; exit 1 }
-
- $oldErr = $ErrorActionPreference
- $ErrorActionPreference = "SilentlyContinue"
- $null = & pip show bandit 2>&1
- $banditInstalled = $LASTEXITCODE -eq 0
- $ErrorActionPreference = $oldErr
- if (-not $banditInstalled) {
- if (Test-DatrixOfflineMode) {
- Write-Error "DATRIX_OFFLINE is set: bandit is not installed. Install while online: pip install bandit>=1.7"
- exit 1
- }
- Write-Host "Installing bandit..." -ForegroundColor Cyan
- & pip install "bandit>=1.7"
- }
-
  $results = @{}
  foreach ($project in $projectsToAnalyze) {
  Write-Host ""
  Write-Host "======== $project ========" -ForegroundColor Cyan
  $projectRoot = Join-Path $workspaceRoot $project
  $projectArgs = @(
- $banditScript,
  "--project-root", $projectRoot,
  "--severity", $Severity,
  "--confidence", $Confidence,
@@ -119,9 +88,9 @@ try {
  )
  if ($VerboseOutput) { $projectArgs += "--verbose" }
 
- & python @projectArgs
- $results[$project] = ($LASTEXITCODE -eq 0)
- if ($LASTEXITCODE -ne 0 -and $StopOnError) {
+ $projectExit = Invoke-DatrixPythonScript -Script $banditScript -Arguments $projectArgs
+ $results[$project] = ($projectExit -eq 0)
+ if ($projectExit -ne 0 -and $StopOnError) {
  Write-Host "Stopping due to -StopOnError" -ForegroundColor Red
  break
  }
@@ -137,10 +106,3 @@ try {
  $failed = ($results.Values | Where-Object { $_ -eq $false }).Count
  if ($failed -gt 0) { exit 1 }
  exit 0
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}

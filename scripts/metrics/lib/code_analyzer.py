@@ -23,8 +23,27 @@ from datetime import datetime
 from pathlib import Path
 from typing import Final
 
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.framework_repos import workspace_package_dirs
+from datrix_scripts.gate_harness import EXIT_PASS, EXIT_VIOLATION, named_checks, run_checks
+from datrix_scripts.local_llm import (
+    AdvisoryText,
+    ChatRequest,
+    LocalLlmSettings,
+    add_local_llm_arguments,
+    advisory_reply,
+    local_llm_settings,
+)
+from datrix_scripts.paths import WORKSPACE_DIR
 from find_constants import iter_python_files
+
+DUPLICATE_TRIAGE_PURPOSE: Final = "Duplicate-name triage"
+DEFAULT_LLM_LIMIT: Final = 20
+LLM_NUM_PREDICT: Final = 4096
+LLM_TEMPERATURE: Final = 0.1
+# The triage section's source when no model was asked.
+NOT_ASKED_SOURCE: Final = "no model asked (no duplicate group)"
+# A name the triage answer puts in backticks (only names; a backticked path holds a '/' or '.').
+_BACKTICKED_NAME_RE: Final = re.compile(r"`([A-Za-z_][A-Za-z0-9_]*)`")
 
 CONSTANT_NAME_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Z][A-Z0-9_]*$")
 DEFAULT_REPORT_NAME = "code-structure-report.md"
@@ -130,32 +149,23 @@ def _collect_nested_functions(
 def _collect_nested_methods(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     prefix: str,
-    default_role: str,
 ) -> list[MethodEntry]:
     out: list[MethodEntry] = []
     for child in node.body:
-        if isinstance(child, ast.FunctionDef):
+        if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
             qual = f"{prefix}.{child.name}"
             out.append(MethodEntry(qual, child.lineno, "method"))
-            out.extend(_collect_nested_methods(child, qual, "method"))
-        elif isinstance(child, ast.AsyncFunctionDef):
-            qual = f"{prefix}.{child.name}"
-            out.append(MethodEntry(qual, child.lineno, "method"))
-            out.extend(_collect_nested_methods(child, qual, "method"))
+            out.extend(_collect_nested_methods(child, qual))
     return out
 
 
 def _class_methods(class_node: ast.ClassDef) -> tuple[MethodEntry, ...]:
     methods: list[MethodEntry] = []
     for child in class_node.body:
-        if isinstance(child, ast.FunctionDef):
+        if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
             role = _method_role(child.decorator_list)
             methods.append(MethodEntry(child.name, child.lineno, role))
-            methods.extend(_collect_nested_methods(child, child.name, role))
-        elif isinstance(child, ast.AsyncFunctionDef):
-            role = _method_role(child.decorator_list)
-            methods.append(MethodEntry(child.name, child.lineno, role))
-            methods.extend(_collect_nested_methods(child, child.name, role))
+            methods.extend(_collect_nested_methods(child, child.name))
     methods.sort(key=lambda m: m.name.lower())
     return tuple(methods)
 
@@ -281,9 +291,7 @@ def resolve_scan_roots(
     """
     pairs: list[tuple[str, str, Path]] = []
     if scan_all:
-        for d in sorted(datrix_root.iterdir()):
-            if not d.is_dir() or not d.name.startswith("datrix-"):
-                continue
+        for d in workspace_package_dirs(datrix_root):
             if include_src:
                 src_dir = d / "src"
                 if src_dir.is_dir():
@@ -304,11 +312,7 @@ def resolve_scan_roots(
                     )
         return pairs
 
-    available = sorted(
-        x.name
-        for x in datrix_root.iterdir()
-        if x.is_dir() and x.name.startswith("datrix-")
-    )
+    available = [x.name for x in workspace_package_dirs(datrix_root)]
     for clean in project_names:
         name = clean.rstrip("/\\")
         project_dir = datrix_root / name
@@ -347,30 +351,82 @@ def resolve_output_path(output: Path | None) -> Path:
     return (cwd / output).resolve()
 
 
-def build_duplicate_section(refs: list[PublicNameRef]) -> tuple[list[str], int]:
-    """Return markdown lines for names that appear under at least two distinct file paths."""
+def duplicate_groups(refs: list[PublicNameRef]) -> list[tuple[str, list[PublicNameRef]]]:
+    """Each name defined under at least two distinct file paths, with its sites, sorted by name."""
     by_name: dict[str, list[PublicNameRef]] = defaultdict(list)
     for r in refs:
         by_name[r.name].append(r)
+    return [
+        (name, sorted(by_name[name], key=lambda e: (e.project, e.rel_posix, e.lineno)))
+        for name in sorted(by_name.keys(), key=str.lower)
+        if len({(e.project, e.rel_posix) for e in by_name[name]}) >= 2
+    ]
 
+
+def build_duplicate_section(groups: list[tuple[str, list[PublicNameRef]]]) -> list[str]:
+    """Markdown lines listing every duplicate group's sites."""
     lines: list[str] = []
-    dup_keys = 0
-    for name in sorted(by_name.keys(), key=str.lower):
-        entries = by_name[name]
-        distinct_paths = {(e.project, e.rel_posix) for e in entries}
-        if len(distinct_paths) < 2:
-            continue
-        dup_keys += 1
+    for name, entries in groups:
         lines.append(f"### `{name}`")
         lines.append("")
-        sorted_entries = sorted(entries, key=lambda e: (e.project, e.rel_posix, e.lineno))
-        for e in sorted_entries:
-            lines.append(
-                f"- **{e.kind}** `{e.project}/{e.rel_posix}` line {e.lineno}",
-            )
+        for e in entries:
+            lines.append(f"- **{e.kind}** `{e.project}/{e.rel_posix}` line {e.lineno}")
         lines.append("")
+    return lines
 
-    return lines, dup_keys
+
+def duplicate_triage_request(groups: list[tuple[str, list[PublicNameRef]]], limit: int) -> ChatRequest:
+    """One request ranking which same-named definitions are one concept with two homes."""
+    parts = [
+        "These module-level classes and functions share a name across files of the Datrix framework.",
+        "Rank the groups by how likely the definitions are ONE concept with two homes (one should be",
+        "hoisted to a shared module and the copies deleted), most likely first. Mark a group",
+        "'coincidental' when the name is shared but the concepts differ (a per-target implementation",
+        "of a shared protocol, a test helper). Advisory only: base each call on the names, kinds and",
+        "paths shown, and say what to read to confirm it.",
+        "",
+        "Return markdown: a table with columns rank, name, verdict (one concept / coincidental /",
+        "unclear), rationale, files to compare.",
+        "",
+        "Groups:",
+    ]
+    for name, entries in groups[: max(0, limit)]:
+        parts.append("")
+        parts.append(f"### {name}")
+        parts.extend(f"- {e.kind} {e.project}/{e.rel_posix}:{e.lineno}" for e in entries)
+    if not groups:
+        parts.append("No duplicate names.")
+    return ChatRequest(
+        system=("You triage duplicate-name findings of a static code report. You do not edit code; you "
+                "produce advisory markdown only."),
+        user="\n".join(parts),
+        temperature=LLM_TEMPERATURE,
+        max_tokens=LLM_NUM_PREDICT,
+    )
+
+
+def invented_names(text: str, groups: list[tuple[str, list[PublicNameRef]]]) -> list[str]:
+    """Backticked names in the answer that are no duplicate group: the model made them up."""
+    known = {name for name, _ in groups}
+    return sorted({name for name in _BACKTICKED_NAME_RE.findall(text) if name not in known})
+
+
+def duplicate_triage(
+    groups: list[tuple[str, list[PublicNameRef]]], limit: int, settings: LocalLlmSettings
+) -> AdvisoryText:
+    """The advisory triage section's body; a missing answer is reported in it, never as a failure.
+
+    With no duplicate group nothing is asked (a model asked to rank nothing invents groups), and a
+    name the answer ranks that is not a duplicate group is called out under it.
+    """
+    if not groups:
+        return AdvisoryText("No duplicate names: nothing to triage.", NOT_ASKED_SOURCE)
+    reply = advisory_reply(settings, duplicate_triage_request(groups, limit), DUPLICATE_TRIAGE_PURPOSE)
+    invented = invented_names(reply.text, groups)
+    if not invented:
+        return reply
+    note = f"\n\n**Not in the duplicate list (the model made these up):** {', '.join(invented)}"
+    return AdvisoryText(reply.text + note, reply.source)
 
 
 def write_report(
@@ -383,6 +439,7 @@ def write_report(
     scan_scope_label: str,
     files_parsed: int,
     duplicate_name_count: int,
+    triage: AdvisoryText | None,
 ) -> None:
     local_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
     cwd = Path.cwd().resolve()
@@ -451,9 +508,55 @@ def write_report(
     else:
         lines.append("*No cross-file duplicates found in the scanned set.*")
         lines.append("")
+    if triage is not None:
+        lines += [f"## {DUPLICATE_TRIAGE_PURPOSE} (advisory, local model)", "",
+                  f"*Source: {triage.source}. Advisory only: it never changes the exit code.*", "",
+                  triage.text, ""]
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _planted_refs() -> list[PublicNameRef]:
+    return [
+        PublicNameRef("resolve_key", "datrix-alpha", "a/keys.py", 3, "function"),
+        PublicNameRef("resolve_key", "datrix-beta", "b/keys.py", 9, "function"),
+        PublicNameRef("Loader", "datrix-alpha", "a/load.py", 1, "class"),
+        PublicNameRef("Loader", "datrix-alpha", "a/load.py", 40, "class"),
+    ]
+
+
+def _check_groups_need_two_distinct_files() -> None:
+    groups = duplicate_groups(_planted_refs())
+    assert [name for name, _ in groups] == ["resolve_key"], "a name defined twice in ONE file is no duplicate"
+    assert build_duplicate_section(groups)[0] == "### `resolve_key`"
+
+
+def _check_no_group_asks_no_model() -> None:
+    unreachable = LocalLlmSettings(machines=("127.0.0.1",), ollama_port=1, reachable_timeout_ms=200)
+    triage = duplicate_triage([], DEFAULT_LLM_LIMIT, unreachable)
+    assert (triage.source, triage.text) == (NOT_ASKED_SOURCE, "No duplicate names: nothing to triage."), triage
+
+
+def _check_the_request_carries_at_most_the_limit() -> None:
+    groups = duplicate_groups(_planted_refs() + [PublicNameRef("Other", "p", "x.py", 1, "class"),
+                                                PublicNameRef("Other", "q", "y.py", 1, "class")])
+    user = duplicate_triage_request(groups, 1).user
+    assert "### Other" in user and "### resolve_key" not in user, user
+
+
+def _check_invented_names_are_called_out() -> None:
+    groups = duplicate_groups(_planted_refs())
+    answer = "| 1 | `resolve_key` | one concept |\n| 2 | `Matrix` | one concept | `a/keys.py` |"
+    assert invented_names(answer, groups) == ["Matrix"], "a path in backticks is not a name"
+
+
+_SELF_TEST_CHECKS: Final = (
+    _check_groups_need_two_distinct_files,
+    _check_no_group_asks_no_model,
+    _check_the_request_carries_at_most_the_limit,
+    _check_invented_names_are_called_out,
+)
 
 
 def main() -> int:
@@ -497,7 +600,26 @@ def main() -> int:
         ),
     )
     parser.add_argument("--debug", action="store_true", help="Print scan roots to stderr.")
+    parser.add_argument(
+        "--llm-review",
+        action="store_true",
+        help=(f"Add an advisory '{DUPLICATE_TRIAGE_PURPOSE}' section: a local model ranks which duplicate "
+              "names are one concept with two homes. Never changes the exit code."),
+    )
+    parser.add_argument(
+        "--llm-limit",
+        type=int,
+        default=DEFAULT_LLM_LIMIT,
+        metavar="N",
+        help=f"Maximum duplicate groups sent to the local model (default: {DEFAULT_LLM_LIMIT}).",
+    )
+    add_local_llm_arguments(parser)
+    parser.add_argument("--self-test", action="store_true",
+                        help="Run only the duplicate-triage checks (planted sites, no model) and exit.")
     args = parser.parse_args()
+
+    if args.self_test:
+        return EXIT_PASS if run_checks(named_checks(_SELF_TEST_CHECKS)) else EXIT_VIOLATION
 
     if not args.projects and not args.all:
         parser.print_help()
@@ -518,7 +640,7 @@ def main() -> int:
         scan_scope_label = "src only"
 
     try:
-        datrix_root = get_datrix_root().resolve()
+        datrix_root = WORKSPACE_DIR
     except FileNotFoundError:
         print("ERROR: Could not find Datrix root directory.", file=sys.stderr)
         return 1
@@ -564,19 +686,22 @@ def main() -> int:
     if current_key is not None:
         sections.append((current_key[0], current_key[1], current_files))
 
-    dup_lines, dup_count = build_duplicate_section(public_refs)
+    groups = duplicate_groups(public_refs)
+    dup_count = len(groups)
+    triage = duplicate_triage(groups, args.llm_limit, local_llm_settings(args)) if args.llm_review else None
     out_path = resolve_output_path(args.output)
     projects_distinct = sorted({p for p, _, _ in scan_triples})
 
     write_report(
         out_path,
         sections=sections,
-        duplicate_lines=dup_lines,
+        duplicate_lines=build_duplicate_section(groups),
         datrix_root=datrix_root,
         projects_scanned=projects_distinct,
         scan_scope_label=scan_scope_label,
         files_parsed=files_parsed,
         duplicate_name_count=dup_count,
+        triage=triage,
     )
 
     print(

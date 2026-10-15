@@ -55,28 +55,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$venvUtilsScript = Join-Path $commonDir "venv.ps1"
-if (-not (Test-Path $venvUtilsScript)) {
- Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
- exit 1
-}
-. $venvUtilsScript
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$dependencyScript = Join-Path $scriptDir "lib\dependency.py"
+$workspaceRoot = Get-DatrixWorkspaceRoot
 
-if (-not (Test-Path $dependencyScript)) {
- Write-Error "Error: dependency.py not found at: $dependencyScript"
- exit 1
-}
-
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
  $useAll = $false
  $packageFilter = @()
 
@@ -117,38 +101,9 @@ try {
  exit 1
  }
 
- if (-not (Ensure-DatrixVenv)) {
- Write-Error "Failed to ensure virtual environment is ready"
- exit 1
- }
-
- $projectArgs = @(
- $dependencyScript,
- "--workspace-root", $workspaceRoot,
- "--mode", $Mode
- )
- if ($packageFilter.Count -gt 0) {
- $projectArgs += "--packages"
- $projectArgs += $packageFilter
- }
+ $projectArgs = @("--workspace-root", $workspaceRoot, "--mode", $Mode)
+ if ($packageFilter.Count -gt 0) { $projectArgs += @("--packages") + @($packageFilter) }
  if ($VerboseOutput) { $projectArgs += "--verbose" }
  if ($Dbg) { $projectArgs += "--debug" }
 
- & python @projectArgs
- $exitCode = $LASTEXITCODE
-
- if ($exitCode -eq 0) {
- Write-Host ""
- Write-Host "[OK] Dependency report completed" -ForegroundColor Green
- } else {
- Write-Host ""
- Write-Host "[FAIL] Dependency script exited with code $exitCode" -ForegroundColor Red
- }
- exit $exitCode
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}
+ exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\dependency.py") -Arguments $projectArgs)

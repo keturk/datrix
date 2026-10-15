@@ -61,30 +61,17 @@ param(
  [switch]$VerboseOutput
 )
 $ErrorActionPreference = "Stop"
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$venvUtilsScript = Join-Path $commonDir "venv.ps1"
-if (-not (Test-Path $venvUtilsScript)) {
- Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
- exit 1
-}
-. $venvUtilsScript
-$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$libraryScript = Join-Path $scriptDir "lib\test_gen.py"
-if (-not (Test-Path $libraryScript)) {
- Write-Error "Error: test_gen.py not found at: $libraryScript"
- exit 1
-}
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
+$workspaceRoot = Get-DatrixWorkspaceRoot
+$libraryScript = Join-Path $PSScriptRoot "lib\test_gen.py"
 if ($Generate -and $GenerateAll) {
  Write-Host "ERROR: Use only one of -Generate or -GenerateAll." -ForegroundColor Red
  exit 1
 }
 if ($Generate) { $Mode = "generate" }
 if ($GenerateAll) { $Mode = "generate-all" }
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-try {
  $projectsToRun = @()
  if ($All) {
   $projectsToRun = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
@@ -103,10 +90,6 @@ try {
   Write-Host "Usage: .\test-gen.ps1 <project-name> [-Mode report|generate|generate-all]" -ForegroundColor Yellow
   exit 1
  }
- if (-not (Ensure-DatrixVenv)) {
-  Write-Error "Failed to ensure virtual environment is ready"
-  exit 1
- }
  $results = @{}
  $i = 0
  foreach ($project in $projectsToRun) {
@@ -119,22 +102,20 @@ try {
   $projectRoot = Join-Path $workspaceRoot $project
   # Not $args: that is PowerShell's automatic variable for unbound arguments.
   $pyArgs = @(
-   $libraryScript,
    "--project-root", $projectRoot,
    "--mode", $Mode,
-   "--max-retries", $MaxRetries,
-   "--min-uncovered-ratio", $MinUncoveredRatio,
-   "--max-prompt-tokens", $MaxPromptTokens
+   "--max-retries", "$MaxRetries",
+   "--min-uncovered-ratio", "$MinUncoveredRatio",
+   "--max-prompt-tokens", "$MaxPromptTokens"
   )
   if ($TargetFunction) {
-   $pyArgs += "--target-function", $TargetFunction
+   $pyArgs += @("--target-function", $TargetFunction)
   }
   $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $Model -LlmTimeoutSeconds $LlmTimeout
   if ($VerbosePrompts) {
    $pyArgs += "--verbose-prompts"
   }
-  & python @pyArgs
-  $exitCode = $LASTEXITCODE
+  $exitCode = Invoke-DatrixPythonScript -Script $libraryScript -Arguments $pyArgs
   $results[$project] = ($exitCode -eq 0)
   if ($exitCode -eq 0) {
    Write-Host "[PASS] $project" -ForegroundColor Green
@@ -158,10 +139,3 @@ try {
  }
  if ($failed -gt 0) { exit 1 }
  exit 0
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}

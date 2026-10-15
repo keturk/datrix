@@ -133,31 +133,16 @@ param(
  [switch]$Dbg
 )
 
-# Error handling - ensure cleanup on exit
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$venvUtilsScript = Join-Path $commonDir "venv.ps1"
-if (-not (Test-Path $venvUtilsScript)) {
- Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
- exit 1
-}
-. $venvUtilsScript
-
-$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
+$workspaceRoot = Get-DatrixWorkspaceRoot
 # Shared with dev\code-scan.ps1, so it lives in the shared scripts package and runs as a module.
+# radon and cognitive_complexity come with the shared venv; the module refuses, naming the
+# install command, when either is missing.
 $complexityModule = "datrix_scripts.complexity"
-$complexityScript = Join-Path $commonDir "lib\datrix_scripts\complexity.py"
-
-if (-not (Test-Path $complexityScript)) {
- Write-Error "Error: complexity.py not found at: $complexityScript"
- exit 1
-}
-
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
 
 if ($FixAll) { $Fix = $true }
 if ($Fix -and $Mode -ne "check") {
@@ -176,7 +161,6 @@ if ($Files.Count -gt 0 -and ($Fix -or $Mode -ne "check" -or $All -or $Projects.C
  exit 1
 }
 
-try {
  $projectsToAnalyze = @()
 
  if ($Files.Count -gt 0) {
@@ -237,51 +221,8 @@ try {
  exit 1
  }
 
- if (-not (Ensure-DatrixVenv)) {
- Write-Error "Failed to ensure virtual environment is ready"
- exit 1
- }
-
- # Ensure radon is installed
- $oldErr = $ErrorActionPreference
- $ErrorActionPreference = "SilentlyContinue"
- $null = & pip show radon 2>$null
- $radonInstalled = $LASTEXITCODE -eq 0
- $ErrorActionPreference = $oldErr
- if (-not $radonInstalled) {
- if (Test-DatrixOfflineMode) {
- Write-Error "DATRIX_OFFLINE is set: radon is not installed. Install while online: pip install radon>=6.0"
- exit 1
- }
- Write-Host "Installing radon..." -ForegroundColor Cyan
- & pip install "radon>=6.0" 2>$null
- if ($LASTEXITCODE -ne 0) {
- Write-Error "Failed to install radon. Run: pip install radon>=6.0"
- exit 1
- }
- }
-
- # For mode=check, ensure cognitive_complexity is installed (for cognitive complexity)
- if ($Mode -eq "check") {
- $null = & pip show cognitive_complexity 2>$null
- $cogInstalled = $LASTEXITCODE -eq 0
- if (-not $cogInstalled) {
- if (Test-DatrixOfflineMode) {
- Write-Error "DATRIX_OFFLINE is set: cognitive_complexity is not installed. Install while online: pip install cognitive_complexity"
- exit 1
- }
- Write-Host "Installing cognitive_complexity (for cognitive complexity check)..." -ForegroundColor Cyan
- & pip install cognitive_complexity 2>$null
- if ($LASTEXITCODE -ne 0) {
- Write-Error "Failed to install cognitive_complexity. Run: pip install cognitive_complexity"
- exit 1
- }
- }
- }
-
  if ($Files.Count -gt 0) {
- & python -m $complexityModule --files @Files --max $Max
- $exitCode = $LASTEXITCODE
+ $exitCode = Invoke-DatrixPythonScript -Module $complexityModule -Arguments (@("--files") + $Files + @("--max", "$Max"))
  if ($exitCode -eq 0) {
  Write-Host "[PASS] Complexity (check) passed for $($Files.Count) file(s)" -ForegroundColor Green
  } else {
@@ -304,10 +245,9 @@ try {
 
  $projectRoot = Join-Path $workspaceRoot $project
  $projectArgs = @(
- "-m", $complexityModule,
  "--project-root", $projectRoot,
  "--mode", $Mode,
- "--max", $Max
+ "--max", "$Max"
  )
  if ($project -eq "datrix-common") {
    $projectArgs += "--ignore-path-contains", "builtins,objects"
@@ -317,16 +257,15 @@ try {
  if ($Fix) {
    $projectArgs += "--fix"
    if ($FixAll) { $projectArgs += "--fix-all" }
-   if ($MaxRetries -ne 3) { $projectArgs += "--max-retries", $MaxRetries }
-   $projectArgs += "--llm-num-predict", $LlmNumPredict
-   $projectArgs += "--llm-temperature", $LlmTemperature
+   if ($MaxRetries -ne 3) { $projectArgs += @("--max-retries", "$MaxRetries") }
+   $projectArgs += @("--llm-num-predict", "$LlmNumPredict")
+   $projectArgs += @("--llm-temperature", "$LlmTemperature")
    $projectArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $Model -LlmTimeoutSeconds $LlmTimeout
-   $projectArgs += "--max-context-chars", $MaxContextChars
+   $projectArgs += @("--max-context-chars", "$MaxContextChars")
  }
  if ($Test) { $projectArgs += "--test" }
 
- & python @projectArgs
- $exitCode = $LASTEXITCODE
+ $exitCode = Invoke-DatrixPythonScript -Module $complexityModule -Arguments $projectArgs
 
  if ($exitCode -eq 0) {
  $results[$project] = $true
@@ -374,11 +313,3 @@ try {
 
  if ($failed -gt 0) { exit 1 }
  exit 0
-
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}

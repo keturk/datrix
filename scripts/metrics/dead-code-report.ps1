@@ -4,8 +4,9 @@
  Dead-code report: never referenced vs only referenced by tests (two-pass Vulture).
 
 .DESCRIPTION
- Ensures the datrix venv is active and runs datrix_scripts.dead_code_report with two-pass Vulture.
+ Runs datrix_scripts.dead_code_report with two-pass Vulture in the shared venv.
 Reports dead code in src/ only, classified as "never referenced" or "only referenced by tests".
+With -MakeWhitelist it writes Vulture's whitelist candidates per package instead of the report.
 
 .PARAMETER Projects
  One or more project names or folder paths (e.g. datrix-common, .\datrix-codegen-aws\). If omitted, scans
@@ -17,11 +18,21 @@ every datrix-* package discovered on disk with a pyproject.toml (except datrix) 
 .PARAMETER MinConfidence
  Vulture min confidence 60-100. Default: 60 (include functions/classes).
 
+.PARAMETER SortBySize
+ List the largest unused functions and classes first (Vulture's --sort-by-size); each line carries
+ the definition's size.
+
+.PARAMETER MakeWhitelist
+ Instead of the report, write Vulture's --make-whitelist candidates for each package to
+ D:\datrix\.test-output\vulture\<package>-whitelist-candidates.py -- never into a package. Review a
+ candidate before merging it into the package's vulture_whitelist.py.
+
 .PARAMETER Output
  Report format: text or json. Default: text.
 
 .PARAMETER OutputPath
- Optional file path to write the report (stdout is still printed unless -Quiet).
+ Optional file path to write the report to (the report alone; progress stays on the console). The
+ report is still printed unless -Quiet.
 
 .PARAMETER VerboseOutput
  Verbose progress to stderr.
@@ -52,12 +63,14 @@ every datrix-* package discovered on disk with a pyproject.toml (except datrix) 
  Sampling temperature for advisory review.
 
 .PARAMETER Quiet
- Only write to -OutputPath (if set); do not print to console.
+ Only write to -OutputPath (if set); do not print the report to the console.
 
 .EXAMPLE
   .\dead-code-report.ps1
-  .\dead-code-report.ps1 -All -Output json | Out-File report.json
+  .\dead-code-report.ps1 -All -Output json -OutputPath D:\datrix\.test-output\dead-code.json
   .\dead-code-report.ps1 datrix-common .\datrix-language\ -MinConfidence 100 -OutputPath dead-code.md
+  .\dead-code-report.ps1 datrix-common -MinConfidence 80 -SortBySize
+  .\dead-code-report.ps1 datrix-cli -MakeWhitelist
   .\dead-code-report.ps1 -All -Raw
   .\dead-code-report.ps1 datrix-cli -LlmReview -LlmLimit 20
 #>
@@ -69,6 +82,8 @@ param(
 
  [switch]$All,
  [int]$MinConfidence = 60,
+ [switch]$SortBySize,
+ [switch]$MakeWhitelist,
  [ValidateSet("text", "json")]
  [string]$Output = "text",
  [string]$OutputPath,
@@ -85,87 +100,46 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$venvUtilsScript = Join-Path $commonDir "venv.ps1"
-$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-# Shared with dev\code-scan.ps1, so it lives in the shared scripts package and runs as a module.
-$deadCodeReportModule = "datrix_scripts.dead_code_report"
-$deadCodeReportPy = Join-Path $commonDir "lib\datrix_scripts\dead_code_report.py"
-
-if (-not (Test-Path $venvUtilsScript)) {
- Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
- exit 1
-}
-. $venvUtilsScript
-
-if (-not (Test-Path $deadCodeReportPy)) {
- Write-Error "Error: dead_code_report.py not found at: $deadCodeReportPy"
- exit 1
-}
-
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-trap {
- Invoke-Cleanup
- exit 130
-}
-
-if (-not (Ensure-DatrixVenv)) {
- Write-Error "Failed to ensure venv"
- exit 1
-}
-
-try {
- $normalizedProjects = @()
- if ($Projects.Count -gt 0) {
-  $normalizedProjects = ($Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }) |
-   Where-Object { $_ -ne "datrix" } |
-   Select-Object -Unique
-
-  if ($normalizedProjects.Count -eq 0) {
-   Write-Error "No valid projects selected. Pass one or more datrix-* package names or paths (excluding 'datrix')."
-   exit 1
-  }
+$normalizedProjects = @()
+if ($Projects.Count -gt 0) {
+ $normalizedProjects = @(($Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }) |
+  Where-Object { $_ -ne "datrix" } |
+  Select-Object -Unique)
+ if ($normalizedProjects.Count -eq 0) {
+  Write-Host "ERROR: No valid projects selected. Pass one or more datrix-* package names or paths (excluding 'datrix')." -ForegroundColor Red
+  exit 1
  }
+}
 
- $pyArgs = @(
-  "--workspace-root", $workspaceRoot,
-  "--min-confidence", $MinConfidence,
-  "--output", $Output
+$pythonArgs = @(
+ "--workspace-root", (Get-DatrixWorkspaceRoot),
+ "--min-confidence", $MinConfidence,
+ "--output", $Output
+)
+if ($All) { $pythonArgs += "--all" }
+elseif ($normalizedProjects.Count -gt 0) {
+ $pythonArgs += "--projects"
+ $pythonArgs += $normalizedProjects
+}
+if ($SortBySize) { $pythonArgs += "--sort-by-size" }
+if ($MakeWhitelist) { $pythonArgs += "--make-whitelist" }
+if ($VerboseOutput) { $pythonArgs += "--verbose" }
+if ($Raw) { $pythonArgs += "--raw" }
+if ($OutputPath) { $pythonArgs += @("--output-file", $OutputPath) }
+if ($Quiet) { $pythonArgs += "--quiet" }
+if ($LlmReview) {
+ $pythonArgs += @(
+  "--llm-review",
+  "--llm-limit", $LlmLimit,
+  "--llm-num-predict", $LlmNumPredict,
+  "--llm-temperature", $LlmTemperature
  )
- if ($All) { $pyArgs += "--all" }
- elseif ($normalizedProjects.Count -gt 0) {
-  $pyArgs += "--projects"
-  $pyArgs += $normalizedProjects
- }
- if ($VerboseOutput) { $pyArgs += "--verbose" }
- if ($Raw) { $pyArgs += "--raw" }
- if ($LlmReview) {
-  $pyArgs += @(
-   "--llm-review",
-   "--llm-limit", $LlmLimit,
-   "--llm-num-predict", $LlmNumPredict,
-   "--llm-temperature", $LlmTemperature
-  )
-  $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
- }
-
- if ($OutputPath) {
-  & python -m $deadCodeReportModule @pyArgs | Set-Content -Path $OutputPath -Encoding utf8
-  if (-not $Quiet) {
-   Get-Content -Path $OutputPath
-  }
- } else {
-  & python -m $deadCodeReportModule @pyArgs
- }
-
- exit $LASTEXITCODE
-} finally {
- Invoke-Cleanup
+ $pythonArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
 }
 
+# Shared with dev\code-scan.ps1, so it lives in the shared scripts package and runs as a module.
+exit (Invoke-DatrixPythonScript -Module "datrix_scripts.dead_code_report" -Arguments $pythonArgs)

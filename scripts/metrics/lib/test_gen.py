@@ -25,7 +25,7 @@ from datrix_scripts.local_llm import (
     add_local_llm_arguments,
     local_llm_settings,
 )
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 # One generation request: a whole test module may come back, after reasoning.
 GENERATE_TIMEOUT_MS = 300000
@@ -297,7 +297,7 @@ def _output_dir(project_root: Path) -> Path:
     stray output. Losing this folder is only a slowdown -- an already-generated
     test is also skipped because its output file exists.
     """
-    return get_datrix_root() / ".test-output" / "test-gen" / project_root.name
+    return WORKSPACE_DIR / ".test-output" / "test-gen" / project_root.name
 
 
 def _manifest_path(project_root: Path) -> Path:

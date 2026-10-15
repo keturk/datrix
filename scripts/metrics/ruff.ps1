@@ -74,28 +74,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$venvUtilsScript = Join-Path $commonDir "venv.ps1"
-if (-not (Test-Path $venvUtilsScript)) {
- Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
- exit 1
-}
-. $venvUtilsScript
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$ruffScript = Join-Path $scriptDir "lib\ruff_report.py"
+$workspaceRoot = Get-DatrixWorkspaceRoot
+# Ruff comes with the shared venv's dev install.
+$ruffScript = Join-Path $PSScriptRoot "lib\ruff_report.py"
 
-if (-not (Test-Path $ruffScript)) {
- Write-Error "Error: ruff_report.py not found at: $ruffScript"
- exit 1
-}
-
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
  $projectsToAnalyze = @()
  if ($All) {
  $projectsToAnalyze = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
@@ -111,22 +97,6 @@ try {
  Write-Host "Usage: .\ruff.ps1 <project> [options] or .\ruff.ps1 -All [options]" -ForegroundColor Yellow
  Write-Host " -Mode check|format -OutputFormat full|json|... -Fix -Diff -Statistics -Check -Test" -ForegroundColor Cyan
  exit 1
- }
-
- if (-not (Ensure-DatrixVenv)) { Write-Error "Failed to ensure venv"; exit 1 }
-
- $oldErr = $ErrorActionPreference
- $ErrorActionPreference = "SilentlyContinue"
- $null = & pip show ruff 2>&1
- $ruffInstalled = $LASTEXITCODE -eq 0
- $ErrorActionPreference = $oldErr
- if (-not $ruffInstalled) {
- if (Test-DatrixOfflineMode) {
- Write-Error "DATRIX_OFFLINE is set: ruff is not installed. Install while online: pip install ruff>=0.1.0"
- exit 1
- }
- Write-Host "Installing ruff..." -ForegroundColor Cyan
- & pip install "ruff>=0.1.0"
  }
 
  # Run logs go to the workspace-level output tree, never inside a package repo:
@@ -150,7 +120,6 @@ try {
  Write-Host "Log file: $logFile" -ForegroundColor Gray
 
  $projectArgs = @(
- $ruffScript,
  "--project-root", $projectRoot,
  "--mode", $Mode,
  "--output-format", $OutputFormat
@@ -162,10 +131,7 @@ try {
  if ($Check) { $projectArgs += "--check" }
  if ($VerboseOutput) { $projectArgs += "--verbose" }
 
- $ruffOutput = & python @projectArgs 2>&1
- $ruffExitCode = $LASTEXITCODE
- $ruffOutput | Out-File -FilePath $logFile -Encoding utf8
- $ruffOutput | Write-Host
+ $ruffExitCode = Invoke-DatrixPythonScript -Script $ruffScript -Arguments $projectArgs -TeePath $logFile
  $results[$project] = ($ruffExitCode -eq 0)
  if ($ruffExitCode -ne 0 -and $StopOnError) {
  Write-Host "Stopping due to -StopOnError" -ForegroundColor Red
@@ -183,10 +149,3 @@ try {
  $failed = ($results.Values | Where-Object { $_ -eq $false }).Count
  if ($failed -gt 0) { exit 1 }
  exit 0
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}

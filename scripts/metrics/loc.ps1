@@ -61,31 +61,15 @@ param(
  [switch]$Dbg
 )
 
-# Error handling - ensure cleanup on exit
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$venvUtilsScript = Join-Path $commonDir "venv.ps1"
-if (-not (Test-Path $venvUtilsScript)) {
- Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
- exit 1
-}
-. $venvUtilsScript
+$workspaceRoot = Get-DatrixWorkspaceRoot
+# pygount comes with the shared venv; loc.py refuses, naming the install command, when it is missing.
+$locScript = Join-Path $PSScriptRoot "lib\loc.py"
 
-$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$locScript = Join-Path $scriptDir "lib\loc.py"
-
-if (-not (Test-Path $locScript)) {
- Write-Error "Error: loc.py not found at: $locScript"
- exit 1
-}
-
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
  $projectsToAnalyze = @()
 
  if ($All) {
@@ -136,26 +120,6 @@ try {
  exit 1
  }
 
- if (-not (Ensure-DatrixVenv)) {
- Write-Error "Failed to ensure virtual environment is ready"
- exit 1
- }
-
- # Ensure pygount is installed
- $oldErr = $ErrorActionPreference
- $ErrorActionPreference = "SilentlyContinue"
- $null = & pip show pygount 2>&1
- $pygountInstalled = $LASTEXITCODE -eq 0
- $ErrorActionPreference = $oldErr
- if (-not $pygountInstalled) {
- if (Test-DatrixOfflineMode) {
- Write-Error "DATRIX_OFFLINE is set: pygount is not installed. Install while online: pip install pygount>=1.8"
- exit 1
- }
- Write-Host "Installing pygount..." -ForegroundColor Cyan
- & pip install "pygount>=1.8"
- }
-
  $results = @{}
  $totalProjects = $projectsToAnalyze.Count
  $currentProject = 0
@@ -181,7 +145,6 @@ try {
 
  $projectRoot = Join-Path $workspaceRoot $project
  $projectArgs = @(
- $locScript,
  "--project-root", $projectRoot,
  "--format", $Format
  )
@@ -189,8 +152,7 @@ try {
  if ($VerboseOutput) { $projectArgs += "--verbose" }
  if ($Dbg) { $projectArgs += "--debug" }
 
- & python @projectArgs
- $exitCode = $LASTEXITCODE
+ $exitCode = Invoke-DatrixPythonScript -Script $locScript -Arguments $projectArgs
 
  if ($exitCode -eq 0) {
  $results[$project] = $true
@@ -198,17 +160,16 @@ try {
  Write-Host "[PASS] LOC counting passed for $project" -ForegroundColor Green
 
  if ($All) {
+ # No --verbose/--debug: loc.py then writes only the JSON document (stderr only on failure).
  $jsonArgs = @(
- $locScript,
  "--project-root", $projectRoot,
  "--format", "json"
  )
  if ($Suffix) { $jsonArgs += @("--suffix", $Suffix) }
- if ($VerboseOutput) { $jsonArgs += "--verbose" }
- if ($Dbg) { $jsonArgs += "--debug" }
 
- $jsonStdout = & python @jsonArgs 2>$null
- $jsonExit = $LASTEXITCODE
+ $jsonLines = New-Object System.Collections.Generic.List[string]
+ $jsonExit = Invoke-DatrixPythonScript -Script $locScript -Arguments $jsonArgs -OutputLines $jsonLines
+ $jsonStdout = $jsonLines -join "`n"
  if ($jsonExit -ne 0 -or -not $jsonStdout) {
  Write-Host "[WARN] LOC rollup JSON failed for $project; omitted from workspace total." -ForegroundColor Yellow
  } else {
@@ -305,11 +266,3 @@ try {
 
  if ($failed -gt 0) { exit 1 }
  exit 0
-
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}

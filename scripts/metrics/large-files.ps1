@@ -68,31 +68,14 @@ param(
  [switch]$Dbg
 )
 
-# Error handling - ensure cleanup on exit
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$venvUtilsScript = Join-Path $commonDir "venv.ps1"
-if (-not (Test-Path $venvUtilsScript)) {
- Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
- exit 1
-}
-. $venvUtilsScript
+$workspaceRoot = Get-DatrixWorkspaceRoot
+$largeFilesScript = Join-Path $PSScriptRoot "lib\large_files.py"
 
-$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-$largeFilesScript = Join-Path $scriptDir "lib\large_files.py"
-
-if (-not (Test-Path $largeFilesScript)) {
- Write-Error "Error: large_files.py not found at: $largeFilesScript"
- exit 1
-}
-
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
  $projectsToAnalyze = @()
 
  if ($All) {
@@ -145,11 +128,6 @@ try {
  exit 1
  }
 
- if (-not (Ensure-DatrixVenv)) {
- Write-Error "Failed to ensure virtual environment is ready"
- exit 1
- }
-
  $results = @{}
  $fileCounts = @{}
  $totalProjects = $projectsToAnalyze.Count
@@ -166,28 +144,26 @@ try {
 
  $projectRoot = Join-Path $workspaceRoot $project
  $projectArgs = @(
- $largeFilesScript,
  "--project-root", $projectRoot,
- "--top", $Top,
+ "--top", "$Top",
  "--format", $Format,
  "--suffix", $Suffix
  )
- if ($Threshold -gt 0) { $projectArgs += "--threshold"; $projectArgs += $Threshold }
+ if ($Threshold -gt 0) { $projectArgs += @("--threshold", "$Threshold") }
  if ($VerboseOutput) { $projectArgs += "--verbose" }
  if ($Dbg) { $projectArgs += "--debug" }
 
  if ($Threshold -gt 0) {
- $out = & python @projectArgs
- $exitCode = $LASTEXITCODE
+ $out = New-Object System.Collections.Generic.List[string]
+ $exitCode = Invoke-DatrixPythonScript -Script $largeFilesScript -Arguments $projectArgs -OutputLines $out
  $out | Write-Host
- $lastLine = if ($null -eq $out) { $null } elseif ($out -is [array]) { $out[-1] } else { $out }
+ $lastLine = if ($out.Count -gt 0) { $out[$out.Count - 1] } else { $null }
  if ($exitCode -eq 0 -and $null -ne $lastLine -and $lastLine -match 'LARGE_FILES_COUNT: (\d+)') {
  $fileCounts[$project] = [int]$Matches[1]
  }
  $results[$project] = ($exitCode -eq 0)
  } else {
- & python @projectArgs
- $exitCode = $LASTEXITCODE
+ $exitCode = Invoke-DatrixPythonScript -Script $largeFilesScript -Arguments $projectArgs
  $results[$project] = ($exitCode -eq 0)
  }
 
@@ -227,11 +203,3 @@ try {
 
  if (($results.Values | Where-Object { $_ -eq $false }).Count -gt 0) { exit 1 }
  exit 0
-
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}

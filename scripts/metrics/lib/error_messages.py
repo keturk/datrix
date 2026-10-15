@@ -24,6 +24,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from datrix_scripts.function_sources import terminal_name
 from datrix_scripts.llm_code_fix import (
     MAX_FIX_RETRIES,
 )
@@ -310,7 +311,7 @@ def _process_raise(
 
     if isinstance(exc_node, ast.Call):
         # raise SomeException("message")
-        exception_type = _get_exception_type_name(exc_node.func)
+        exception_type = terminal_name(exc_node.func)
 
         # Skip NotImplementedError
         if exception_type == "NotImplementedError":
@@ -438,15 +439,6 @@ def _is_sys_stderr(node: ast.expr) -> bool:
         and node.value.id == "sys"
         and node.attr == "stderr"
     )
-
-
-def _get_exception_type_name(node: ast.expr) -> str | None:
-    """Extract exception class name from a Call node's func."""
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        return node.attr
-    return None
 
 
 def _extract_message_text(node: ast.expr) -> str | None:
@@ -1193,7 +1185,7 @@ def _find_exception_type_near_line(tree: ast.Module, target_line: int) -> str | 
         if isinstance(node, ast.Raise) and node.exc is not None:
             if abs(node.lineno - target_line) <= 5:
                 if isinstance(node.exc, ast.Call):
-                    return _get_exception_type_name(node.exc.func)
+                    return terminal_name(node.exc.func)
     return None
 
 

@@ -82,35 +82,20 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-$venvUtilsScript = Join-Path $commonDir "venv.ps1"
-if (-not (Test-Path $venvUtilsScript)) {
- Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
- exit 1
-}
-. $venvUtilsScript
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
+$workspaceRoot = Get-DatrixWorkspaceRoot
 # Shared with dev\code-scan.ps1, so it lives in the shared scripts package and runs as a module.
+# pylint comes with the shared venv's dev install.
 $duplicateModule = "datrix_scripts.duplicate"
-$duplicateScript = Join-Path $commonDir "lib\datrix_scripts\duplicate.py"
-
-if (-not (Test-Path $duplicateScript)) {
- Write-Error "Error: duplicate.py not found at: $duplicateScript"
- exit 1
-}
-
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
 
 if ($All -and $Mono) {
- Write-Error "Parameters -All and -Mono are mutually exclusive. Use one or the other."
+ Write-Host "Error: -All and -Mono are mutually exclusive. Use one or the other." -ForegroundColor Red
  exit 1
 }
 
-try {
  $projectsToAnalyze = @()
  $isMonoRun = $false
  if ($All) {
@@ -141,78 +126,37 @@ try {
  })
  if ($projectsToAnalyze.Count -eq 0) { Write-Host "No projects with src/ to scan." -ForegroundColor Yellow; exit 0 }
 
- if (-not (Ensure-DatrixVenv)) { Write-Error "Failed to ensure venv"; exit 1 }
-
- $oldErr = $ErrorActionPreference
- $ErrorActionPreference = "SilentlyContinue"
- $null = & pip show pylint 2>&1
- $pylintInstalled = $LASTEXITCODE -eq 0
- $ErrorActionPreference = $oldErr
- if (-not $pylintInstalled) {
- if (Test-DatrixOfflineMode) {
- Write-Error "DATRIX_OFFLINE is set: pylint is not installed. Install while online: pip install pylint>=3.0"
- exit 1
- }
- Write-Host "Installing pylint..." -ForegroundColor Cyan
- & pip install "pylint>=3.0"
+ # The options every run shares, after its --project-root arguments.
+ $commonArgs = @()
+ if ($PSBoundParameters.ContainsKey('MinLines')) { $commonArgs += @("--min-lines", "$MinLines") }
+ if ($Tests) { $commonArgs += "--tests" }
+ if ($VerboseOutput) { $commonArgs += "--verbose" }
+ if ($LlmRefactorPlan) {
+ $commonArgs += @(
+ "--llm-refactor-plan",
+ "--llm-limit", "$LlmLimit",
+ "--llm-num-predict", "$LlmNumPredict",
+ "--llm-temperature", "$LlmTemperature"
+ )
+ $commonArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
  }
 
  $results = @{}
  if ($isMonoRun) {
  Write-Host ""
  Write-Host "======== mono (all projects) ========" -ForegroundColor Cyan
- $projectArgs = @("-m", $duplicateModule)
- foreach ($project in $projectsToAnalyze) {
- $projectRoot = Join-Path $workspaceRoot $project
- $projectArgs += "--project-root"
- $projectArgs += $projectRoot
- }
- if ($PSBoundParameters.ContainsKey('MinLines')) {
- $projectArgs += "--min-lines"
- $projectArgs += $MinLines
- }
- if ($Tests) { $projectArgs += "--tests" }
- if ($VerboseOutput) { $projectArgs += "--verbose" }
- if ($LlmRefactorPlan) {
- $projectArgs += @(
- "--llm-refactor-plan",
- "--llm-limit", $LlmLimit,
- "--llm-num-predict", $LlmNumPredict,
- "--llm-temperature", $LlmTemperature
- )
- $projectArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
- }
-
- & python @projectArgs
- $results["mono"] = ($LASTEXITCODE -eq 0)
+ $projectArgs = @()
+ foreach ($project in $projectsToAnalyze) { $projectArgs += @("--project-root", (Join-Path $workspaceRoot $project)) }
+ $monoExit = Invoke-DatrixPythonScript -Module $duplicateModule -Arguments ($projectArgs + $commonArgs)
+ $results["mono"] = ($monoExit -eq 0)
  } else {
  foreach ($project in $projectsToAnalyze) {
  Write-Host ""
  Write-Host "======== $project ========" -ForegroundColor Cyan
- $projectRoot = Join-Path $workspaceRoot $project
- $projectArgs = @(
- "-m", $duplicateModule,
- "--project-root", $projectRoot
- )
- if ($PSBoundParameters.ContainsKey('MinLines')) {
- $projectArgs += "--min-lines"
- $projectArgs += $MinLines
- }
- if ($Tests) { $projectArgs += "--tests" }
- if ($VerboseOutput) { $projectArgs += "--verbose" }
- if ($LlmRefactorPlan) {
- $projectArgs += @(
- "--llm-refactor-plan",
- "--llm-limit", $LlmLimit,
- "--llm-num-predict", $LlmNumPredict,
- "--llm-temperature", $LlmTemperature
- )
- $projectArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
- }
-
- & python @projectArgs
- $results[$project] = ($LASTEXITCODE -eq 0)
- if ($LASTEXITCODE -ne 0 -and $StopOnError) {
+ $projectArgs = @("--project-root", (Join-Path $workspaceRoot $project))
+ $projectExit = Invoke-DatrixPythonScript -Module $duplicateModule -Arguments ($projectArgs + $commonArgs)
+ $results[$project] = ($projectExit -eq 0)
+ if ($projectExit -ne 0 -and $StopOnError) {
  Write-Host "Stopping due to -StopOnError" -ForegroundColor Red
  break
  }
@@ -229,10 +173,3 @@ try {
  $failed = ($results.Values | Where-Object { $_ -eq $false }).Count
  if ($failed -gt 0) { exit 1 }
  exit 0
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}
