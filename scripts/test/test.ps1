@@ -79,11 +79,12 @@
  previous test results are skipped.
 
 .PARAMETER NoDigest
- Print no failure digest. By default, after the summary, every failed package with a
+ Write no failure digest. By default, after the summary, every failed package with a
  saved run gets a short digest (common/lib/datrix_scripts/run_digest.py): its failure groups with
  location and re-run command, what changed since the previous run with the same test
- selection, and a resident local model's reading of each group. The digest is also
- written to digest.txt in the run directory. Model text is a lead to confirm.
+ selection, and a resident local model's reading of each group. The digest is written
+ to digest.txt in the run directory; the console gets one "Failure digest written: <path>"
+ line, never the digest itself. Model text is a lead to confirm.
 
 .PARAMETER Dbg
  Enable debug logging (DEBUG level instead of INFO).
@@ -737,9 +738,11 @@ Peruse $absoluteProjectLogPath and fix $($promptParts -join ', ').
  Write-Host ""
  Write-Host "Total: $totalProjects | Passed: $passed | Failed: $failed" -ForegroundColor Cyan
 
- # Failure digest: one short block per failed package whose run was saved. The digest
- # never changes this script's exit code -- the tests decide that -- but a digest that
- # could not be written says so instead of vanishing.
+ # Failure digest: one short digest.txt per failed package whose run was saved, written to
+ # the run directory; the console gets one "Failure digest written: <path>" line, never the
+ # digest itself. The digest never changes this script's exit
+ # code -- the tests decide that -- but a digest that could not be written says so
+ # instead of vanishing.
  if (-not $NoDigest) {
  foreach ($project in ($results.Keys | Sort-Object)) {
   $result = $results[$project]
