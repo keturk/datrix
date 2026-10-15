@@ -23,7 +23,7 @@ if sys.platform == "win32":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 
 def resolve_project(test_path: str, project_name: str, workspace_root: Path) -> Path:
@@ -146,7 +146,7 @@ def main() -> int:
         return 2
 
     try:
-        workspace_root = get_datrix_root()
+        workspace_root = WORKSPACE_DIR
     except FileNotFoundError:
         print("ERROR: Could not find Datrix root directory", file=sys.stderr)
         return 1

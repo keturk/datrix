@@ -61,6 +61,7 @@ from datrix_scripts.local_llm import (
     add_local_llm_arguments,
     local_llm_settings,
 )
+from datrix_scripts.framework_repos import framework_repos
 from datrix_scripts.paths import WORKSPACE_DIR
 from datrix_scripts.polystring_case_roundtrip import (
     PolyStringGateError,
@@ -207,32 +208,6 @@ class ScriptError(RuntimeError):
     """Fatal script error."""
 
 
-def workspace_root_from_script() -> Path:
-    return WORKSPACE_DIR
-
-
-def repo_paths(workspace_root: Path) -> list[Path]:
-    """Discover every Datrix git repository in the workspace.
-
-    Discovered rather than hardcoded: Datrix is a multi-language, multi-platform generator,
-    so a newly cloned datrix-codegen-<lang> repo must become visible to commit-and-push
-    without an edit here. A hardcoded list silently drops the new repo's commits.
-
-    The showcase repo comes first (it anchors the workspace); the datrix-* packages follow
-    in sorted order. A directory is a repo only if it carries .git (a directory for a normal
-    clone, a file for a worktree or submodule) -- both satisfy exists().
-    """
-    repos: list[Path] = []
-
-    showcase = workspace_root / "datrix"
-    if (showcase / ".git").exists():
-        repos.append(showcase)
-
-    for child in sorted(workspace_root.iterdir()):
-        if child.name.startswith("datrix-") and (child / ".git").exists():
-            repos.append(child)
-
-    return repos
 
 
 def run_git(repo_path: Path, args: list[str], *, check: bool = True) -> str:
@@ -348,7 +323,7 @@ def build_untracked_note(repo_path: Path, untracked_paths: list[str]) -> str:
 def find_dirty_repos(workspace_root: Path) -> list[Path]:
     """Return every Datrix repo with uncommitted changes, reporting the clean ones."""
     dirty: list[Path] = []
-    for repo_path in repo_paths(workspace_root):
+    for repo_path in framework_repos(workspace_root):
         if run_git(repo_path, ["status", "--porcelain"]).strip():
             dirty.append(repo_path)
         else:
@@ -1525,7 +1500,7 @@ def commit_repo(
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
-    workspace_root = workspace_root_from_script()
+    workspace_root = WORKSPACE_DIR
 
     dirty_repos = find_dirty_repos(workspace_root)
     if not dirty_repos:

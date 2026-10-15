@@ -31,7 +31,8 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -170,17 +171,11 @@ def resolve_projects(
         SystemExit: If a named project does not exist.
     """
     if discover_all:
-        projects = sorted(
+        projects = [
             d
-            for d in datrix_root.iterdir()
-            if d.is_dir()
-            and d.name.startswith("datrix")
-            and (
-                (d / "src").is_dir()
-                or (d / "tests").is_dir()
-                or (d / "templates").is_dir()
-            )
-        )
+            for d in workspace_package_dirs(datrix_root, include_showcase=True)
+            if (d / "src").is_dir() or (d / "tests").is_dir() or (d / "templates").is_dir()
+        ]
         logger.info("Discovered %d projects", len(projects))
         return projects
 
@@ -293,11 +288,7 @@ def main() -> int:
     if not args.projects and not args.discover_all:
         parser.error("Provide project name(s) or use --all")
 
-    try:
-        datrix_root = get_datrix_root()
-    except FileNotFoundError:
-        print("ERROR: Could not find Datrix root directory", file=sys.stderr)
-        return 1
+    datrix_root = WORKSPACE_DIR
 
     projects = resolve_projects(args.projects, args.discover_all, datrix_root)
 

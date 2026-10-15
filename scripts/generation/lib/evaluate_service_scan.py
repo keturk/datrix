@@ -34,13 +34,7 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
-
-datrix_root = get_datrix_root()
-for _sub in ("datrix-common/src", "datrix-language/src"):
-    _pkg_path = datrix_root / _sub
-    if _pkg_path.exists() and str(_pkg_path) not in sys.path:
-        sys.path.insert(0, str(_pkg_path))
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 from datrix_common.builtins.value_struct_definitions import (  # noqa: E402
     BUILTIN_VALUE_STRUCTS,  # noqa: E402
@@ -50,6 +44,7 @@ from datrix_common.paths import ServicePaths  # noqa: E402
 from datrix_common.utils.text import PolyString  # noqa: E402
 
 from datrix_scripts.evaluate_reports import SERVICE_MECHANICAL_TEMPLATE, render_service_mechanical  # noqa: E402
+from datrix_scripts.gate_harness import configure_logging  # noqa: E402
 from datrix_scripts.visualization.serializer import serialize_service  # noqa: E402
 from evaluate_generated_scan import (  # noqa: E402
     DEFAULT_CONFIG_PROFILE,
@@ -62,7 +57,6 @@ from evaluate_generated_scan import (  # noqa: E402
     TMP_SUBDIR,
     ManifestData,
     ScanInputError,
-    configure_logging,
     load_json_object,
     load_manifests,
     local_timestamp,
@@ -843,7 +837,7 @@ def default_output_path(source: Path, paths: ServicePaths) -> Path:
     """Default output: <workspace>/.tmp/eval/<project-slug>/service-<name>-scan.json."""
     slug = source.parent.name
     filename = SERVICE_SCAN_FILENAME_TEMPLATE.format(name=paths.kebab_resource)
-    return datrix_root / TMP_SUBDIR / EVAL_SUBDIR / slug / filename
+    return WORKSPACE_DIR / TMP_SUBDIR / EVAL_SUBDIR / slug / filename
 
 
 # ── CLI ──

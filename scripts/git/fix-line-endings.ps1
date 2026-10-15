@@ -41,34 +41,10 @@ $ErrorActionPreference = "Stop"
 # `powershell -File` passes "a,b" as one string; accept both that and a real array.
 $Repo = @($Repo | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent $scriptDir) "common"
-. (Join-Path $commonDir "venv.ps1")
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$pythonScript = Join-Path $scriptDir "lib\fix_line_endings.py"
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "fix_line_endings.py not found at: $pythonScript"
-    exit 2
-}
+$pythonArgs = @()
+foreach ($name in $Repo) { $pythonArgs += @("--repo", $name) }
+if ($DryRun) { $pythonArgs += "--dry-run" }
 
-function Invoke-Cleanup { Disable-DatrixVenv }
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
-    if (-not (Ensure-DatrixVenv)) {
-        Write-Error "Failed to activate the Datrix virtual environment"
-        exit 2
-    }
-
-    $pythonArgs = @($pythonScript)
-    foreach ($name in $Repo) { $pythonArgs += "--repo"; $pythonArgs += $name }
-    if ($DryRun) { $pythonArgs += "--dry-run" }
-
-    & python @pythonArgs
-    exit $LASTEXITCODE
-} catch {
-    Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-    exit 2
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\fix_line_endings.py") -Arguments $pythonArgs)

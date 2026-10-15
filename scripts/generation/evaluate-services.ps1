@@ -28,6 +28,22 @@
     Path to the evaluation directory containing prompt files.
     If not specified, uses the current directory.
 
+.PARAMETER SelfTest
+    Run only the local triage's checks (a planted prompt and scan, a model server
+    on loopback) and exit.
+
+.PARAMETER Full
+    Skip the local triage: every service goes to Claude Code.
+
+    Without -Full, each service is first triaged by the local model servers
+    (lib\service_triage.py): its Phase 3.5 categories (computed fields, lifecycle
+    hooks, validation blocks, REST endpoint logic, event handlers) are each judged
+    clean, finding or unverifiable, into service-<name>.local-triage.json. A service
+    whose categories are all clean gets its report written from the triage into
+    evaluated\ (marked "local triage only") and no Claude Code run; any other service
+    goes to Claude Code with the triage file appended to its prompt. No local server
+    answering makes every category unverifiable, so every service goes to Claude Code.
+
 .EXAMPLE
     cd d:\datrix\eval\2026-05-16-100000-ecommerce
     d:\datrix\datrix\scripts\generation\evaluate-services.ps1 -SourceDir "d:\datrix\datrix\examples\03-domains\ecommerce" -GeneratedDir "d:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce"
@@ -36,15 +52,25 @@
     d:\datrix\datrix\scripts\generation\evaluate-services.ps1 -SourceDir "d:\datrix\datrix\examples\03-domains\ecommerce" -GeneratedDir "d:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce" -EvalDir "d:\datrix\eval\2026-05-16-100000-ecommerce" -Parallel 3 -Model sonnet
 #>
 
+[CmdletBinding(DefaultParameterSetName = "Evaluate")]
 param(
-    [Parameter(Mandatory)][string]$SourceDir,
-    [Parameter(Mandatory)][string]$GeneratedDir,
-    [string]$EvalDir,
-    [int]$Parallel = 5,
-    [string]$Model = "opus"
+    [Parameter(Mandatory, ParameterSetName = "Evaluate")][string]$SourceDir,
+    [Parameter(Mandatory, ParameterSetName = "Evaluate")][string]$GeneratedDir,
+    [Parameter(ParameterSetName = "Evaluate")][string]$EvalDir,
+    [Parameter(ParameterSetName = "Evaluate")][int]$Parallel = 5,
+    [Parameter(ParameterSetName = "Evaluate")][string]$Model = "opus",
+    [Parameter(ParameterSetName = "Evaluate")][switch]$Full,
+    [Parameter(Mandatory, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) "common\DatrixPythonScript.psm1")
+$TriageScript = Join-Path $PSScriptRoot "lib\service_triage.py"
+$TriageNeedsReview = 3
+
+if ($SelfTest) {
+    exit (Invoke-DatrixPythonScript -Script $TriageScript -Arguments @("--self-test"))
+}
 
 # Validate source and generated directories
 if (-not (Test-Path $SourceDir)) {
@@ -105,15 +131,41 @@ if ($confirm -ne 'y' -and $confirm -ne 'Y') {
     exit 0
 }
 
-Write-Host ""
-Write-Host "Starting evaluations..." -ForegroundColor Green
-Write-Host "=" * 60
-
 # Track results
 $results = @()
 $startTime = Get-Date
 $completed = 0
 $failed = 0
+$triaged = 0
+# Prompt file path -> the local triage file appended to its Claude Code prompt.
+$triageFiles = @{}
+
+if (-not $Full) {
+    Write-Host ""
+    Write-Host "Local triage (pass -Full to skip)..." -ForegroundColor Green
+    $toClaude = @()
+    foreach ($promptFile in $promptFiles) {
+        $triageArgs = @("--prompt", $promptFile.FullName, "--source-dir", $SourceDir, "--generated-dir", $GeneratedDir)
+        $triageExit = Invoke-DatrixPythonScript -Script $TriageScript -Arguments $triageArgs
+        if ($triageExit -eq 0) {
+            $triaged++
+            continue
+        }
+        if ($triageExit -eq $TriageNeedsReview) {
+            $serviceName = $promptFile.Name -replace '^service-' -replace '\.prompt\.md$'
+            $triageFiles[$promptFile.FullName] = Join-Path $promptFile.DirectoryName "service-$serviceName.local-triage.json"
+        } else {
+            Write-Host "  Triage failed (exit $triageExit): $($promptFile.Name); it goes to Claude Code untriaged." -ForegroundColor Yellow
+        }
+        $toClaude += $promptFile
+    }
+    Write-Host "Local triage: $triaged service(s) clean, $($toClaude.Count) to Claude Code." -ForegroundColor Cyan
+    $promptFiles = $toClaude
+}
+
+Write-Host ""
+Write-Host "Starting evaluations..." -ForegroundColor Green
+Write-Host "=" * 60
 
 # Process in batches of $Parallel
 $batches = [System.Collections.ArrayList]@()
@@ -143,6 +195,9 @@ foreach ($batch in $batches) {
 
 PROMPT_FILE: $promptPath
 "@
+        if ($triageFiles.ContainsKey($promptPath)) {
+            $prompt += "`nLOCAL_TRIAGE: $($triageFiles[$promptPath]) (a local model's Phase 3.5 verdicts with cited lines: a lead to confirm, not a result)`n"
+        }
 
         # Launch Claude Code in non-interactive mode as a background job
         # Working dir = EvalDir (where prompts live and reports are written)
@@ -208,7 +263,8 @@ Write-Host "=" * 60
 Write-Host "EVALUATION COMPLETE" -ForegroundColor Green
 Write-Host "=" * 60
 Write-Host ""
-Write-Host "Total services: $($promptFiles.Count)" -ForegroundColor White
+Write-Host "Total services: $($promptFiles.Count + $triaged)" -ForegroundColor White
+Write-Host "Local triage:   $triaged (clean, no Claude Code run)" -ForegroundColor Green
 Write-Host "Completed:      $completed" -ForegroundColor Green
 Write-Host "Failed:         $failed" -ForegroundColor $(if ($failed -gt 0) { "Red" } else { "Gray" })
 Write-Host "Total time:     $([math]::Round($totalElapsed.TotalMinutes, 1)) minutes" -ForegroundColor Cyan
@@ -223,7 +279,8 @@ Date:       $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
 Directory:  $EvalDir
 Model:      $Model
 Parallel:   $Parallel
-Total:      $($promptFiles.Count)
+Total:      $($promptFiles.Count + $triaged)
+Triaged:    $triaged (local triage only)
 Completed:  $completed
 Failed:     $failed
 Duration:   $([math]::Round($totalElapsed.TotalMinutes, 1)) minutes

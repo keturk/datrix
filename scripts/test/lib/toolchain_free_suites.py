@@ -56,6 +56,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
 from datrix_scripts.paths import WORKSPACE_DIR
 
 #: Executables whose presence in argv[0] means a language/platform toolchain is
@@ -433,13 +434,13 @@ def self_test() -> int:
 
 
 def default_suites(repo_root: Path) -> list[Path]:
-    return sorted(
-        package / "tests"
-        for package in repo_root.iterdir()
-        if package.is_dir()
-        and package.name.startswith("datrix")
-        and (package / "tests").is_dir()
-    )
+    return [
+        package / PackageMarker.TESTS.value
+        for package in workspace_package_dirs(
+            repo_root, any_of=frozenset({PackageMarker.TESTS}), include_showcase=True
+        )
+        if (package / PackageMarker.TESTS.value).is_dir()
+    ]
 
 
 def _filter_by_shapes(violations: list[Violation], shapes: str | None) -> tuple[list[Violation], set[str] | None]:

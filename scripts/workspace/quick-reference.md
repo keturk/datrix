@@ -40,27 +40,17 @@ Generates `.project-structure.md` files containing annotated ASCII directory tre
 
 **Output:** Writes `.project-structure.md` to each project's root directory. File is gitignored.
 
-### `workspace\datrix-count.ps1`
-
-Counts `.dtrx` and `.dtrx.false` files across all datrix project directories.
-
-| Mode | Command |
-|------|---------|
-| **Count** | `.\workspace\datrix-count.ps1` |
-
-**Parameters:** (none)
-
 ### `workspace\file-count.ps1`
 
-Counts files with a specified extension across all datrix project directories.
+Counts files by extension across all datrix project directories, one column per extension. A file counts under an extension only when its name ends with it (`x.dtrx.false` is `dtrx.false`, never `dtrx`).
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Default (.j2)** | `.\workspace\file-count.ps1` | Count Jinja2 template files |
 | **Python files** | `.\workspace\file-count.ps1 py` | Count .py files |
-| **Any extension** | `.\workspace\file-count.ps1 exe` | Count .exe files |
+| **DSL sources** | `.\workspace\file-count.ps1 -Extension dtrx,dtrx.false` | `.dtrx` and disabled `.dtrx.false` files, two columns |
 
-**Parameters:** `-Extension` (positional, default: j2)
+**Parameters:** `-Extension` (positional, one or more, comma-separated; default: j2)
 
 ---
 

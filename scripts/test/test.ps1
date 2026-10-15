@@ -173,30 +173,17 @@ param(
  [switch]$Dbg
 )
 
-# Error handling - ensure cleanup on exit
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-# Script directory
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-# Import common modules
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 # The runner and the digest are shared with the suite gates and the red-run hook, so they live
 # in the shared scripts package and run as modules.
-$testProjectScript = Join-Path $commonDir "lib\datrix_scripts\test_project.py"
-$testProjectInvocation = @("-m", "datrix_scripts.test_project")
-$runDigestInvocation = @("-m", "datrix_scripts.run_digest")
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
+$testProjectModule = "datrix_scripts.test_project"
+$runDigestModule = "datrix_scripts.run_digest"
 
-# Monorepo workspace root (Get-DatrixWorkspaceRootFromScript is exported from DatrixScriptCommon; nested DatrixPaths import is not visible here)
-$datrixRoot = Get-DatrixRoot
-$datrixWorkspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-
-# Check if test_project.py exists
-if (-not (Test-Path $testProjectScript)) {
- Write-Error "Error: test_project.py not found at: $testProjectScript"
- exit 1
-}
+$datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
 
 # The caller's own value of DATRIX_PACKAGES_ENSURED, captured before this script
 # sets it. It is restored on exit: run in-process (`.\test.ps1` in an
@@ -207,7 +194,6 @@ $script:CallerPackagesEnsured = $env:DATRIX_PACKAGES_ENSURED
 
 # Function to handle cleanup on exit
 function Invoke-Cleanup {
- Disable-DatrixVenv
  $env:DATRIX_PACKAGES_ENSURED = $script:CallerPackagesEnsured
 }
 
@@ -292,7 +278,7 @@ try {
   Write-Host "Checking latest test results for all projects..." -ForegroundColor Cyan
   $projectsToTest = @()
   foreach ($p in $allProjects) {
-  if (Test-ProjectLatestRunFailed -ProjectName $p -DatrixRoot $datrixRoot) {
+  if (Test-ProjectLatestRunFailed -ProjectName $p -DatrixRoot $datrixWorkspaceRoot) {
    Write-Host "  [FAIL] $p - queued for re-run" -ForegroundColor Yellow
    $projectsToTest += $p
   } else {
@@ -364,39 +350,25 @@ try {
  exit 1
  }
 
- # Activate virtual environment (common venv at D:\datrix\.venv where all projects are installed in editable mode)
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
- Write-Host ""
- Write-Host "ERROR: Failed to activate virtual environment!" -ForegroundColor Red
- Write-Host ""
- Write-Host "To create the Datrix common virtual environment, run:" -ForegroundColor Yellow
- Write-Host " cd $datrixWorkspaceRoot" -ForegroundColor Cyan
- Write-Host " python -m venv .venv" -ForegroundColor Cyan
- Write-Host " .\.venv\Scripts\Activate.ps1" -ForegroundColor Cyan
- Write-Host " # Then install all projects in editable mode" -ForegroundColor Cyan
- Write-Host ""
- Write-Error "ERROR: No virtual environment is currently active."
- exit 1
- }
-
- # Ensure all packages are installed once (before the project loop). Per-project Python must not reinstall.
- # A caller that already ran this check for the one shared venv -- affected-gate.ps1 runs it once
- # before launching any child -- says so with DATRIX_PACKAGES_ENSURED=1, and this run skips its own.
- if ($env:DATRIX_PACKAGES_ENSURED -ne "1") {
- $packagesInstalled = Ensure-DatrixPackagesInstalled -SkipIfInstalled
- if (-not $packagesInstalled) {
- Write-Host ""
- Write-Host "ERROR: Failed to install or update packages!" -ForegroundColor Red
- Write-Host ""
- Write-Error "Failed to install or update packages"
- exit 1
- }
- } else {
- Write-DatrixVenvInfo "Package install check skipped: the caller already ran it (DATRIX_PACKAGES_ENSURED=1)" -ForegroundColor Green
+ # The package install check runs once, with this run's first Python call (the runner's
+ # -RequirePackages). A caller that already ran it for the one shared venv -- affected-gate.ps1
+ # runs it once before launching any child -- says so with DATRIX_PACKAGES_ENSURED=1, and this
+ # run skips its own.
+ $requirePackages = $env:DATRIX_PACKAGES_ENSURED -ne "1"
+ if (-not $requirePackages) {
+ Write-Host "Package install check skipped: the caller already ran it (DATRIX_PACKAGES_ENSURED=1)" -ForegroundColor Green
  }
  # Signal to test_project.py that packages were ensured; skip per-project pip install -e
  $env:DATRIX_PACKAGES_ENSURED = "1"
+
+ # Runs one Python module in the shared venv; the first call carries the install check.
+ function Invoke-TestPython {
+ param([string]$Module, [string]$Script, [string[]]$Arguments, [string]$TeePath = "")
+ $target = if ($Module) { @{ Module = $Module } } else { @{ Script = $Script } }
+ $exitCode = Invoke-DatrixPythonScript @target -Arguments $Arguments -TeePath $TeePath -RequirePackages:$requirePackages
+ $script:requirePackages = $false
+ return $exitCode
+ }
 
  # Validate mutually exclusive test type options
  $testTypeOptions = @($Unit, $Integration, $E2E, $Fast, $Slow)
@@ -446,21 +418,16 @@ try {
  foreach ($project in $projectsToTest) {
   Write-Host ""
   Write-Host "=== $project ===" -ForegroundColor Cyan
-  $ErrorActionPreference_Saved = $ErrorActionPreference
-  $ErrorActionPreference = "Continue"
-  $listArgs = $testProjectInvocation + @("--list-tags")
+  $listArgs = @("--list-tags")
   if ($Specific) { $listArgs += @("--specific", $Specific) }
-  & python @listArgs $project 2>&1 | Write-Host
-  $projectExit = $LASTEXITCODE
-  $ErrorActionPreference = $ErrorActionPreference_Saved
+  $projectExit = Invoke-TestPython -Module $testProjectModule -Arguments ($listArgs + @($project))
   if ($projectExit -ne 0 -and $listExit -eq 0) { $listExit = $projectExit }
  }
  # The tags in use, compared with the documented vocabulary (feature-tags.md): report only,
  # the exit code stays the listing's. Static AST read; runs no test.
  Write-Host ""
  Write-Host "=== Tag vocabulary ===" -ForegroundColor Cyan
- $vocabularyPackages = @($projectsToTest)
- & python (Join-Path $scriptDir "lib\tag_vocabulary.py") @vocabularyPackages 2>&1 | Write-Host
+ $null = Invoke-TestPython -Script (Join-Path $PSScriptRoot "lib\tag_vocabulary.py") -Arguments @($projectsToTest)
  exit $listExit
  }
 
@@ -615,19 +582,10 @@ try {
  Write-Host "========================================" -ForegroundColor Cyan
  Write-Host ""
 
- # Build arguments for this project
- $projectArgs = $testProjectInvocation + $baseArgs + @($project)
-
- # Run test_project.py - use Tee-Object with temp file to display in real-time and capture
+ # Run test_project.py, showing its output as it runs and capturing it for parsing
  $tempFile = [System.IO.Path]::GetTempFileName()
  try {
- # Run and capture output to temp file while displaying in real-time
- # Set ErrorAction to Continue for this command to avoid treating Python stderr as PowerShell errors
- $ErrorActionPreference_Saved = $ErrorActionPreference
- $ErrorActionPreference = "Continue"
- & python @projectArgs 2>&1 | Tee-Object -FilePath $tempFile
- $exitCode = $LASTEXITCODE
- $ErrorActionPreference = $ErrorActionPreference_Saved
+ $exitCode = Invoke-TestPython -Module $testProjectModule -Arguments ($baseArgs + @($project)) -TeePath $tempFile
 
  # Read captured output for parsing
  $outputString = Get-Content -Path $tempFile -Raw
@@ -791,11 +749,7 @@ Peruse $absoluteProjectLogPath and fix $($promptParts -join ', ').
   Write-Host "No failure digest for ${project}: the run saved no index.json." -ForegroundColor Yellow
   continue
   }
-  $ErrorActionPreference_Saved = $ErrorActionPreference
-  $ErrorActionPreference = "Continue"
-  & python @runDigestInvocation $result.indexPath 2>&1 | Write-Host
-  $digestExit = $LASTEXITCODE
-  $ErrorActionPreference = $ErrorActionPreference_Saved
+  $digestExit = Invoke-TestPython -Module $runDigestModule -Arguments @($result.indexPath)
   if ($digestExit -ne 0) {
   Write-Host "No failure digest for $project (run_digest.py exit code: $digestExit)." -ForegroundColor Yellow
   }

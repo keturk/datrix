@@ -4,7 +4,7 @@
  Author, migrate and check declarative test cases (datrix_testing.cases).
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs datrix_testing.cases.cli.
+ Runs datrix_testing.cases.cli in the shared venv.
  A case is one row of a package's tests/cases/<area>.cases.yaml: a stage run
  on a committed input, one observed value, and an authored expectation. The
  package's one runner module, tests/test_cases.py, runs every row as a pytest
@@ -121,18 +121,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
-$PythonModule = "datrix_testing.cases.cli"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
+$ExitUsage = 2
 
 # An absent case takes no expectation, so only a given -Expectation is passed on.
 $ExpectationGiven = $PSBoundParameters.ContainsKey("Expectation")
@@ -165,20 +156,10 @@ function Get-CommandArguments {
 }
 
 try {
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
-  Write-Error "Failed to activate virtual environment"
-  exit 1
- }
- $PythonExe = Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"
- $pythonArgs = @("-m", $PythonModule) + (Get-CommandArguments)
- if ($Dbg) { Write-Host "Running: $PythonExe $($pythonArgs -join ' ')" }
- & $PythonExe @pythonArgs
- exit $LASTEXITCODE
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 2
-} finally {
- Invoke-Cleanup
+ $pythonArgs = Get-CommandArguments
 }
+catch {
+ Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+ exit $ExitUsage
+}
+exit (Invoke-DatrixPythonScript -Module "datrix_testing.cases.cli" -Arguments $pythonArgs -ShowCommand:$Dbg)

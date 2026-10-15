@@ -641,7 +641,7 @@ Target language is **not** a `.dcfg` field — it is a required generation param
 | `deployment.target` | String | — | Provider-specific target (e.g., `vm`) |
 | `deployment.registry` | String | — | Provider-specific image registry (e.g., `acr`, `ecr`) |
 | `defaultTimeout` | Integer | 30000 | Default request timeout (ms) |
-| `maxPageSize` | Integer | `MAX_PAGE_SIZE` (100) | Largest page a paginated route accepts on this profile: the `limit` bound every backend's list and nested-collection handlers enforce. It may only lower the framework ceiling `datrix.foundation.MAX_PAGE_SIZE` (a denial-of-service bound), and may not drop below `DEFAULT_PAGE_SIZE` (20); outside that range analysis fails with `SYS002`. Clients send no page size, and read the size the server applied from the page envelope |
+| `maxPageSize` | Integer | `MAX_PAGE_SIZE` (100) | Largest page a paginated route accepts on this profile: the `limit` bound every backend's list and nested-collection handlers enforce. It may only lower the framework ceiling `datrix.foundation.MAX_PAGE_SIZE` (a denial-of-service bound), and may not drop below `DEFAULT_PAGE_SIZE` (20); outside that range analysis fails with `SYS002`. A client may request a size; an out-of-range one is refused, never clamped, and the page envelope reports the size applied (`limit`) and this maximum (`maxLimit`) |
 | `region` | String | — | Cloud region (required for AWS/Azure) |
 | `network` | Object | — | VPC/network configuration |
 | `registry` | String | — | Docker registry URL |

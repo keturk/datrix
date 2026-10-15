@@ -171,10 +171,6 @@ def _timestamp_label(timestamp: datetime) -> str:
     return timestamp.strftime("%Y%m%d-%H%M%S")
 
 
-def _display_timestamp(timestamp: datetime) -> str:
-    return timestamp.strftime("%Y-%m-%d %H:%M:%S")
-
-
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))

@@ -4,7 +4,7 @@
  Collect per-cluster failure data from a structured test-results run.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs datrix_scripts.collect_failure_data.
+ Runs datrix_scripts.collect_failure_data in the shared venv.
  Resolves the representative entry of every error/failure cluster in the
  run's index.json, embeds the tail of its detail log and a ready-to-run
  single-test command, and writes failure-data.json into the run directory.
@@ -81,58 +81,20 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-# Get the directory where this script is located
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$pythonArgs = @()
+if ($SelfTest) {
+ $pythonArgs += "--self-test"
+} else {
+ if ($Path) { $pythonArgs += $Path }
+ if ($Project) { $pythonArgs += @("--project", $Project) }
+ $pythonArgs += @("--max-log-lines", "$MaxLogLines", "--llm-hint-limit", "$LlmHintLimit")
+ if ($NoLlmHints) { $pythonArgs += "--no-llm-hints" }
+ $pythonArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
+}
+if ($Dbg) { $pythonArgs += "--debug" }
 
-# Import common modules
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
 # Shared with the red-run digest, so it lives in the shared scripts package and runs as a module.
-$PythonModule = "datrix_scripts.collect_failure_data"
-$PythonScript = Join-Path $commonDir "lib\datrix_scripts\collect_failure_data.py"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
-  Write-Error "Failed to activate virtual environment"
-  exit 1
- }
-
- $venvPath = Get-DatrixVenvPath
- $PythonExe = Join-Path $venvPath "Scripts\python.exe"
-
- if (-not (Test-Path $PythonScript)) {
-  Write-Error "Python script not found: $PythonScript"
-  exit 1
- }
-
- $pythonArgs = @("-m", $PythonModule)
- if ($SelfTest) {
-  $pythonArgs += "--self-test"
- } else {
-  if ($Path) { $pythonArgs += $Path }
-  if ($Project) { $pythonArgs += @("--project", $Project) }
-  $pythonArgs += @("--max-log-lines", "$MaxLogLines", "--llm-hint-limit", "$LlmHintLimit")
-  if ($NoLlmHints) { $pythonArgs += "--no-llm-hints" }
-  $pythonArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
- }
- if ($Dbg) { $pythonArgs += "--debug" }
-
- & $PythonExe @pythonArgs
- exit $LASTEXITCODE
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Module "datrix_scripts.collect_failure_data" -Arguments $pythonArgs)

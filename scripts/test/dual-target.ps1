@@ -49,20 +49,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$scriptDir = $PSScriptRoot
 $datrixScriptsRoot = Split-Path -Parent $scriptDir
 $commonDir = Join-Path $datrixScriptsRoot "common"
+Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
+. (Join-Path $commonDir "venv.ps1")
 
 # Runtime-validate -Platform against the installed datrix.platforms plugins
 # (DI-6 / D4 open identity) rather than a static ValidateSet, so a
 # newly installed datrix-codegen-<provider> package is selectable here with no
-# edit to this script.
-. (Join-Path $commonDir "venv.ps1")
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
-    throw "Could not activate the Datrix Python venv; cannot enumerate installed platform plugins."
-}
+# edit to this script. The query runs the venv interpreter by path; generate.ps1
+# and run-complete.ps1 run their own Python through the shared runner.
 $pythonExe = Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"
 $installedPlatforms = Get-DatrixInstalledPlatforms -PythonExe $pythonExe
 
@@ -80,7 +78,7 @@ if ($installedLanguages.Count -eq 0) {
     throw "No datrix.languages targets are installed; cannot run the language comparison."
 }
 
-$datrixWorkspaceRoot = Get-DatrixWorkspaceRoot -ScriptPath $MyInvocation.MyCommand.Path
+$datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
 $generateScript = Join-Path (Join-Path $datrixScriptsRoot "dev") "generate.ps1"
 $runCompleteScript = Join-Path $scriptDir "run-complete.ps1"
 

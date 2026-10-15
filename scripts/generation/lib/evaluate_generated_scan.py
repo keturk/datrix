@@ -37,13 +37,7 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
-
-datrix_root = get_datrix_root()
-for _sub in ("datrix-common/src", "datrix-language/src"):
-    _pkg_path = datrix_root / _sub
-    if _pkg_path.exists() and str(_pkg_path) not in sys.path:
-        sys.path.insert(0, str(_pkg_path))
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 import yaml  # noqa: E402
 from datrix_cli.commands._app_spec import resolve_application  # noqa: E402
@@ -53,6 +47,7 @@ from datrix_common.paths import ServicePaths  # noqa: E402
 from datrix_language.registration import register_all  # noqa: E402
 
 from datrix_scripts.evaluate_reports import QUICK_REPORT_FILENAME, render_project_quick_report  # noqa: E402
+from datrix_scripts.gate_harness import configure_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -239,12 +234,6 @@ class ManifestData:
 
 
 # ── Shared helpers (also imported by evaluate_service_scan.py) ──
-
-
-def configure_logging(debug: bool) -> None:
-    """Configure root logging; DEBUG when --debug was passed."""
-    level = logging.DEBUG if debug else logging.WARNING
-    logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
 
 
 def local_timestamp() -> str:
@@ -611,7 +600,7 @@ def render_prompt(
 def default_eval_dir(source_path: Path) -> Path:
     """Default evaluation output dir: <workspace>/.tmp/eval/<project-slug>/."""
     slug = source_path.parent.name
-    return datrix_root / TMP_SUBDIR / EVAL_SUBDIR / slug
+    return WORKSPACE_DIR / TMP_SUBDIR / EVAL_SUBDIR / slug
 
 
 # ── Scan assembly ──

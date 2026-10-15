@@ -26,14 +26,12 @@ Exit codes: 0 = every check passed, 1 = at least one check (or the harness self-
 
 from __future__ import annotations
 
-import argparse
 import json
 import re
 import subprocess
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
 from pathlib import Path
 
 from compare_tests import (
@@ -61,27 +59,10 @@ from datrix_scripts.status_tests import (
     parse_timestamp_from_log_file,
 )
 from datrix_scripts.structured_log_writer import StructuredLogWriter
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.gate_harness import NamedCheck, check_list_main, named_checks
+from datrix_scripts.paths import WORKSPACE_DIR
 from post_process_test_results import post_process_results
 from run_complete import _derive_generated_project_metadata, parse_test_statistics
-
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_CYAN = "\033[96m"
-_RESET = "\033[0m"
-
-
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def _step(msg: str) -> None:
-    print(f"\n{_CYAN}=== {msg}{_RESET}")
-
 
 # ---------------------------------------------------------------------------
 # test/compare_tests.py -- find_runs, build_service_comparisons, parse_unit_run
@@ -667,7 +648,7 @@ def _any_real_example_relpath() -> str:
     named example was renamed, and a check built on a non-existent example would
     prove nothing about a derivation whose whole job is resolving to a real file.
     """
-    examples_root = get_datrix_root() / "datrix" / "examples"
+    examples_root = WORKSPACE_DIR / "datrix" / "examples"
     for dtrx in sorted(examples_root.rglob("system.dtrx")):
         return dtrx.parent.relative_to(examples_root).as_posix()
     raise AssertionError(f"no system.dtrx found under {examples_root}")
@@ -683,7 +664,7 @@ def _check_dtrx_source_resolves_to_a_real_file() -> None:
     exist -- instead of
     ``datrix/examples/02-features/02-service-architecture/serverless/system.dtrx``.
     """
-    datrix_root = get_datrix_root()
+    datrix_root = WORKSPACE_DIR
     example = _any_real_example_relpath()
     project = datrix_root / ".generated" / "typescript" / "docker-compose" / "local" / example
 
@@ -703,7 +684,7 @@ def _check_collapsed_project_path_is_rejected() -> None:
     directory there is no category to build an example path from, and the old
     ``else`` branch silently emitted ``datrix/examples/{leaf}/system.dtrx`` anyway.
     """
-    collapsed = get_datrix_root() / ".generated" / "serverless"
+    collapsed = WORKSPACE_DIR / ".generated" / "serverless"
     try:
         _derive_generated_project_metadata(collapsed)
     except ValueError:
@@ -737,7 +718,7 @@ def _check_example_resolves_under_a_custom_output_base() -> None:
     number of leading segments irrelevant, which is what keeps a custom output base
     from turning into either a wrong pointer or a crashed run.
     """
-    datrix_root = get_datrix_root()
+    datrix_root = WORKSPACE_DIR
     example = _any_real_example_relpath()
     project = datrix_root / ".generated2" / "typescript" / "docker-compose" / "local" / example
 
@@ -1020,7 +1001,7 @@ def _check_powershell_and_python_agree_on_testable_packages() -> None:
     written twice -- and two independent implementations of one fact drift unless
     something compares them. This is that comparison.
     """
-    workspace = get_datrix_root()
+    workspace = WORKSPACE_DIR
     expected = testable_package_names(workspace)
     assert expected, f"no testable packages discovered under {workspace}"
 
@@ -1237,127 +1218,68 @@ def _check_find_all_test_results_reads_directory_runs() -> None:
 # Harness
 # ---------------------------------------------------------------------------
 
-_CHECKS: list[tuple[str, Callable[[], None]]] = [
-    ("find_runs_compares_direct_child_unit_runs_only", _check_find_runs_compares_direct_child_unit_runs_only),
-    ("unit_summary_log_fallback_parses_service_rows", _check_unit_summary_log_fallback_parses_service_rows),
-    ("deploy_runs_are_discovered_and_compared_separately", _check_deploy_runs_are_discovered_and_compared_separately),
-    ("read_index_json_valid_counts", _check_read_index_json_valid_counts),
-    ("read_index_json_passed_result", _check_read_index_json_passed_result),
-    ("failed_phase_renders_as_failed", _check_failed_phase_renders_as_failed),
-    ("legacy_returncode_phase_shape_is_read_correctly", _check_legacy_returncode_phase_shape_is_read_correctly),
-    ("uninterpretable_phase_shape_is_not_reported_as_passed", _check_uninterpretable_phase_shape_is_not_reported_as_passed),
-    ("read_index_json_incomplete_returns_none", _check_read_index_json_incomplete_returns_none),
-    ("read_index_json_no_counts_returns_none", _check_read_index_json_no_counts_returns_none),
-    ("read_index_json_corrupt_returns_none", _check_read_index_json_corrupt_returns_none),
-    ("find_latest_log_file_prefers_index_json", _check_find_latest_log_file_prefers_index_json),
-    ("find_latest_log_file_falls_back_to_full_log", _check_find_latest_log_file_falls_back_to_full_log),
-    ("find_latest_log_file_empty_dir_returns_none", _check_find_latest_log_file_empty_dir_returns_none),
-    ("parse_timestamp_directory_name", _check_parse_timestamp_directory_name),
-    ("parse_timestamp_invalid_name_returns_none", _check_parse_timestamp_invalid_name_returns_none),
-    ("parse_pytest_summary_from_index_json", _check_parse_pytest_summary_from_index_json),
-    ("parse_pytest_summary_index_json_incomplete_falls_back_to_full_log", _check_parse_pytest_summary_index_json_incomplete_falls_back_to_full_log),
-    ("parse_pytest_summary_full_log_in_directory", _check_parse_pytest_summary_full_log_in_directory),
-    ("parse_pytest_summary_extracts_progress_for_running_log", _check_parse_pytest_summary_extracts_progress_for_running_log),
-    ("format_result_row_shows_progress_in_tests_column_for_unknown", _check_format_result_row_shows_progress_in_tests_column_for_unknown),
-    ("service_without_test_report_is_recorded_as_failed", _check_service_without_test_report_is_recorded_as_failed),
-    ("all_services_reporting_still_passes", _check_all_services_reporting_still_passes),
-    ("dtrx_source_resolves_to_a_real_file", _check_dtrx_source_resolves_to_a_real_file),
-    ("collapsed_project_path_is_rejected", _check_collapsed_project_path_is_rejected),
-    ("project_matching_no_example_is_rejected", _check_project_matching_no_example_is_rejected),
-    ("example_resolves_under_a_custom_output_base", _check_example_resolves_under_a_custom_output_base),
-    ("pytest_traceback_still_resolves_to_the_project_frame", _check_pytest_traceback_still_resolves_to_the_project_frame),
-    ("v8_url_stack_resolves_to_the_project_frame", _check_v8_url_stack_resolves_to_the_project_frame),
-    ("v8_plain_path_stack_resolves_to_the_project_frame", _check_v8_plain_path_stack_resolves_to_the_project_frame),
-    ("v8_engine_only_stack_resolves_to_unknown", _check_v8_engine_only_stack_resolves_to_unknown),
-    ("pytest_classname_still_becomes_a_python_path", _check_pytest_classname_still_becomes_a_python_path),
-    ("declared_file_attribute_wins_over_classname", _check_declared_file_attribute_wins_over_classname),
-    ("node_junit_merge_counts_and_attributes_every_case", _check_node_junit_merge_counts_and_attributes_every_case),
-    ("node_file_placeholder_is_not_counted_as_a_test", _check_node_file_placeholder_is_not_counted_as_a_test),
-    ("node_untagged_cases_and_tag_pattern", _check_node_untagged_cases_and_tag_pattern),
-    ("node_summary_line_matches_the_shape_test_ps1_parses", _check_node_summary_line_matches_the_shape_test_ps1_parses),
-    ("powershell_and_python_agree_on_testable_packages", _check_powershell_and_python_agree_on_testable_packages),
-    ("node_suite_marker_is_load_bearing", _check_node_suite_marker_is_load_bearing),
-    ("run_complete_single_session_counts", _check_run_complete_single_session_counts),
-    ("run_complete_sessions_accumulate", _check_run_complete_sessions_accumulate),
-    ("run_complete_total_format_takes_priority", _check_run_complete_total_format_takes_priority),
-    ("run_complete_output_without_summary_is_all_zero", _check_run_complete_output_without_summary_is_all_zero),
-    ("run_complete_ignores_deselected_and_error_log_lines", _check_run_complete_ignores_deselected_and_error_log_lines),
-    ("run_complete_jest_suite_failures", _check_run_complete_jest_suite_failures),
-    ("summary_line_counts_are_extracted", _check_summary_line_counts_are_extracted),
-    ("non_summary_lines_are_rejected", _check_non_summary_lines_are_rejected),
-    ("find_all_test_results_reports_a_suite_without_a_log", _check_find_all_test_results_reports_a_suite_without_a_log),
-    ("find_all_test_results_reads_directory_runs", _check_find_all_test_results_reads_directory_runs),
-]
-
-
-def _dummy_intentionally_failing_check() -> None:
-    """Registered ONLY under --harness-self-test.
-
-    Always fails on purpose -- this is the proof that run_checks() actually
-    detects and reports a failing check, rather than vacuously swallowing
-    every AssertionError and reporting green regardless of what the checks do.
-    """
-    raise AssertionError("intentional harness self-test failure (expected -- proves non-vacuity)")
-
-
-def run_checks(checks: list[tuple[str, Callable[[], None]]]) -> bool:
-    """Run every (name, check_fn) pair, printing [OK]/[FAIL] per check.
-
-    Args:
-        checks: Named zero-argument callables; each raises AssertionError on
-            failure and returns normally on success.
-
-    Returns:
-        True iff every check passed.
-    """
-    all_passed = True
-    for name, fn in checks:
-        try:
-            fn()
-        except AssertionError as e:
-            _fail(f"{name}: {e}")
-            all_passed = False
-        else:
-            _ok(name)
-    return all_passed
+_CHECKS: list[NamedCheck] = named_checks(
+    [
+        _check_find_runs_compares_direct_child_unit_runs_only,
+        _check_unit_summary_log_fallback_parses_service_rows,
+        _check_deploy_runs_are_discovered_and_compared_separately,
+        _check_read_index_json_valid_counts,
+        _check_read_index_json_passed_result,
+        _check_failed_phase_renders_as_failed,
+        _check_legacy_returncode_phase_shape_is_read_correctly,
+        _check_uninterpretable_phase_shape_is_not_reported_as_passed,
+        _check_read_index_json_incomplete_returns_none,
+        _check_read_index_json_no_counts_returns_none,
+        _check_read_index_json_corrupt_returns_none,
+        _check_find_latest_log_file_prefers_index_json,
+        _check_find_latest_log_file_falls_back_to_full_log,
+        _check_find_latest_log_file_empty_dir_returns_none,
+        _check_parse_timestamp_directory_name,
+        _check_parse_timestamp_invalid_name_returns_none,
+        _check_parse_pytest_summary_from_index_json,
+        _check_parse_pytest_summary_index_json_incomplete_falls_back_to_full_log,
+        _check_parse_pytest_summary_full_log_in_directory,
+        _check_parse_pytest_summary_extracts_progress_for_running_log,
+        _check_format_result_row_shows_progress_in_tests_column_for_unknown,
+        _check_service_without_test_report_is_recorded_as_failed,
+        _check_all_services_reporting_still_passes,
+        _check_dtrx_source_resolves_to_a_real_file,
+        _check_collapsed_project_path_is_rejected,
+        _check_project_matching_no_example_is_rejected,
+        _check_example_resolves_under_a_custom_output_base,
+        _check_pytest_traceback_still_resolves_to_the_project_frame,
+        _check_v8_url_stack_resolves_to_the_project_frame,
+        _check_v8_plain_path_stack_resolves_to_the_project_frame,
+        _check_v8_engine_only_stack_resolves_to_unknown,
+        _check_pytest_classname_still_becomes_a_python_path,
+        _check_declared_file_attribute_wins_over_classname,
+        _check_node_junit_merge_counts_and_attributes_every_case,
+        _check_node_file_placeholder_is_not_counted_as_a_test,
+        _check_node_untagged_cases_and_tag_pattern,
+        _check_node_summary_line_matches_the_shape_test_ps1_parses,
+        _check_powershell_and_python_agree_on_testable_packages,
+        _check_node_suite_marker_is_load_bearing,
+        _check_run_complete_single_session_counts,
+        _check_run_complete_sessions_accumulate,
+        _check_run_complete_total_format_takes_priority,
+        _check_run_complete_output_without_summary_is_all_zero,
+        _check_run_complete_ignores_deselected_and_error_log_lines,
+        _check_run_complete_jest_suite_failures,
+        _check_summary_line_counts_are_extracted,
+        _check_non_summary_lines_are_rejected,
+        _check_find_all_test_results_reports_a_suite_without_a_log,
+        _check_find_all_test_results_reads_directory_runs,
+    ]
+)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Repo-level gate for the test tooling's parsers (compare_tests.py run discovery/comparison, "
-            "status_tests.py index.json/log parsing, run_complete.py summary-line statistics)."
-        )
+    return check_list_main(
+        "Repo-level gate for the test tooling's parsers (compare_tests.py run discovery/comparison, "
+        "status_tests.py index.json/log parsing, run_complete.py summary-line statistics).",
+        "test-tooling-parsing",
+        _CHECKS,
     )
-    parser.add_argument(
-        "--harness-self-test",
-        action="store_true",
-        help=(
-            "Demonstration mode: run one intentionally-failing dummy check through "
-            "the harness and report the result. Always reports [FAIL] and exits 1 -- "
-            "this is the proof that the harness's pass/fail detection is not vacuous."
-        ),
-    )
-    args = parser.parse_args()
-
-    if args.harness_self_test:
-        _step("Harness self-test: intentionally-failing dummy check (must report FAIL, exit 1)")
-        harness_ok = run_checks(
-            [("dummy_intentionally_failing_check", _dummy_intentionally_failing_check)]
-        )
-        return 0 if harness_ok else 1
-
-    _step("test-tooling-parsing-gate: compare_tests.py, status_tests.py")
-    passed = run_checks(_CHECKS)
-
-    print()
-    if passed:
-        print(
-            f"{_GREEN}GATE PASSED{_RESET}: all {len(_CHECKS)} absorbed test-tooling-parsing checks passed."
-        )
-        return 0
-    print(f"{_RED}GATE FAILED{_RESET}: see failures above.")
-    return 1
 
 
 if __name__ == "__main__":

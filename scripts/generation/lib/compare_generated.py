@@ -26,7 +26,7 @@ from datrix_scripts.local_llm import (
     advisory_text,
     local_llm_settings,
 )
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 # Default path exclusions (dirs/files to skip when scanning)
 EXCLUDE_DIRS = frozenset({
@@ -502,7 +502,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        datrix_root = get_datrix_root()
+        datrix_root = WORKSPACE_DIR
     except FileNotFoundError:
         print("ERROR: Could not find Datrix root directory", file=sys.stderr)
         return 1

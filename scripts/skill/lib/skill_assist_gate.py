@@ -11,12 +11,10 @@ Run through skill/skill-assist-gate.ps1.
 
 from __future__ import annotations
 
-import argparse
 import json
-import os
 import subprocess
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -36,7 +34,8 @@ from datrix_scripts.customer_domain_isolation import hash_term
 from datrix_scripts.evaluate_reports import render_project_quick_report, render_service_mechanical
 from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
 from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, LoopbackOllama, answering
-from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
+from datrix_scripts.gate_harness import CheckFunc, check_list_main, write_file
+from datrix_scripts.local_llm_usage import GATE_USAGE_LOG
 from datrix_scripts.local_reading import WITHHELD_LINE
 from datrix_scripts.paths import script_env
 from findings import build_index, check_consolidation, extract_file
@@ -45,11 +44,6 @@ from phase_tasks import phase_tasks
 from readiness import VERDICT_SATISFIED, missing_edges, satisfied_leads, unresolved_modules
 from skill_assist import _parser
 
-CheckFunc = Callable[[], None]
-
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_RESET = "\033[0m"
 # TEST-NET-1 (RFC 5737): never routed, so no model server can answer there.
 _UNROUTABLE = "192.0.2.1"
 _CLI = Path(__file__).resolve().parent / "skill_assist.py"
@@ -59,37 +53,11 @@ _REPOS = ("datrix", "datrix-alpha")
 _CORE = '"""Core helpers for alpha."""\n\nHELPERS = ("one", "two")\n'
 
 
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def run_checks(checks: list[CheckFunc]) -> bool:
-    """Run every check, catching only AssertionError. Returns True iff all passed."""
-    all_passed = True
-    for check in checks:
-        try:
-            check()
-        except AssertionError as exc:
-            _fail(f"{check.__name__}: {exc}")
-            all_passed = False
-        else:
-            _ok(check.__name__)
-    return all_passed
 
 
 # ===========================================================================
 # fixtures
 # ===========================================================================
-
-
-def _write(path: Path, text: str) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return path
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -105,10 +73,10 @@ def _workspace() -> Iterator[Path]:
         for repo in _REPOS:
             (root / repo).mkdir()
             _git(root / repo, "init", "-q")
-        _write(root / "datrix-alpha/src/datrix_alpha/__init__.py", "")
-        _write(root / "datrix-alpha/src/datrix_alpha/core.py", _CORE)
-        _write(root / "datrix-alpha/src/datrix_alpha/other.py", '"""Other things."""\n\nVALUE = 1\n')
-        _write(root / "datrix/scripts/config/customer-term-hashes.json", json.dumps({
+        write_file(root / "datrix-alpha/src/datrix_alpha/__init__.py", "")
+        write_file(root / "datrix-alpha/src/datrix_alpha/core.py", _CORE)
+        write_file(root / "datrix-alpha/src/datrix_alpha/other.py", '"""Other things."""\n\nVALUE = 1\n')
+        write_file(root / "datrix/scripts/config/customer-term-hashes.json", json.dumps({
             "algorithm": "sha256", "min_token_length": 5,
             "terms": [{"hash": hash_term(_GATE_TERM), "hint": "gate fixture"}]}))
         yield root
@@ -123,7 +91,7 @@ def _task(root: Path, number: int, *, depends: str = "None", review: tuple[str, 
             f"**Design acceptance property:** {prop}\n**Depends on:** {depends}\n\n"
             f"## Codebase Context\n\n{context}\n\n## Files to Review Before Starting\n\n{reviews}\n"
             f"## Files to Create\n\n{creates}## Success Criteria\n\n1. It works.\n")
-    return _write(root / "datrix-alpha/.tasks" / f"phase-{_PHASE:02d}" /
+    return write_file(root / "datrix-alpha/.tasks" / f"phase-{_PHASE:02d}" /
                   f"task-{_PHASE:02d}-{number:02d}-fixture-{number}.md", text)
 
 
@@ -189,7 +157,7 @@ def check_readiness_satisfied_lead_reads_the_verdict_and_checks_citations() -> N
 
 def check_findings_extraction_maps_tails_reports_invented_and_unassigned_citations() -> None:
     with _workspace() as root:
-        source = _write(root / "reports/finding/20261001-000000-x.md",
+        source = write_file(root / "reports/finding/20261001-000000-x.md",
                         "# X\n\nSee `datrix-alpha/src/x.py:3` and `datrix-alpha/src/y.py:9`.\n")
         reply = json.dumps({"findings": [{"title": "T", "seam": "s", "packages": ["datrix-alpha"], "defect": "d",
                                           "citations": ["x.py:3", "made/up.py:1"]}]})
@@ -204,7 +172,7 @@ def check_findings_index_reads_every_file_before_the_first_model_call() -> None:
     with _workspace() as root:
         folder = root / "reports/finding"
         # One file more than the worker threads: a lazy reader reaches the last one only after a chat.
-        files = [_write(folder / f"consolidated-{n:03d}-f.md", f"# F{n}\n\nAt `datrix-alpha/src/f{n}.py:{n}`.\n")
+        files = [write_file(folder / f"consolidated-{n:03d}-f.md", f"# F{n}\n\nAt `datrix-alpha/src/f{n}.py:{n}`.\n")
                  for n in range(1, MAP_WORKERS + 2)]
         last = files[-1]
         reply = json.dumps({"findings": [{"title": "T", "seam": "s", "packages": [], "defect": "d",
@@ -223,7 +191,7 @@ def check_findings_index_reads_every_file_before_the_first_model_call() -> None:
 
 def check_findings_never_send_a_registered_customer_term() -> None:
     with _workspace() as root:
-        source = _write(root / "reports/finding/20261001-000000-t.md",
+        source = write_file(root / "reports/finding/20261001-000000-t.md",
                         f"# T\n\nThe {_GATE_TERM} service breaks.\nPlain line.\n")
         reply = json.dumps({"findings": []})
         with LoopbackOllama(answering(reply)) as server:
@@ -236,12 +204,12 @@ def check_findings_never_send_a_registered_customer_term() -> None:
 def check_findings_check_refuses_a_lost_citation_and_a_dangling_related_pointer() -> None:
     with _workspace() as root:
         folder = root / "reports/finding"
-        raw = _write(folder / "20261001-000000-r.md", "# R\n\nAt `a/b.py:1`.\n")
-        kept = _write(folder / "consolidated-001-theme.md", "# Theme\n\n**Related:** consolidated-002-gone\n")
+        raw = write_file(folder / "20261001-000000-r.md", "# R\n\nAt `a/b.py:1`.\n")
+        kept = write_file(folder / "consolidated-001-theme.md", "# Theme\n\n**Related:** consolidated-002-gone\n")
         failed = check_consolidation(folder, [raw])
         assert failed.lost == {raw.name: ["a/b.py:1"]}, failed.lost
         assert failed.dangling_related == {kept.name: ["consolidated-002"]}, failed.dangling_related
-        _write(kept, "# Theme\n\n## 1. R\n\nAt `a/b.py:1`.\n")
+        write_file(kept, "# Theme\n\n## 1. R\n\nAt `a/b.py:1`.\n")
         passed = check_consolidation(folder, [raw])
         assert passed.passed, passed
 
@@ -249,13 +217,13 @@ def check_findings_check_refuses_a_lost_citation_and_a_dangling_related_pointer(
 def check_findings_check_keep_raw_allows_a_surviving_raw_file_but_not_a_lost_citation() -> None:
     with _workspace() as root:
         folder = root / "reports/finding"
-        survivor = _write(folder / "20261001-000000-same.md", "# Same\n\nAt `a/b.py:1`.\n")
-        duplicate = _write(folder / "20261001-000001-same-again.md", "# Same\n\nAt `a/b.py:1` and `a/c.py:2`.\n")
+        survivor = write_file(folder / "20261001-000000-same.md", "# Same\n\nAt `a/b.py:1`.\n")
+        duplicate = write_file(folder / "20261001-000001-same-again.md", "# Same\n\nAt `a/b.py:1` and `a/c.py:2`.\n")
         strict = check_consolidation(folder, [duplicate])
         assert strict.raw_left == [survivor.name], strict.raw_left
         lost = check_consolidation(folder, [duplicate], raw_may_remain=True)
         assert lost.lost == {duplicate.name: ["a/c.py:2"]} and not lost.raw_left, lost
-        _write(survivor, "# Same\n\nAt `a/b.py:1` and `a/c.py:2`.\n")
+        write_file(survivor, "# Same\n\nAt `a/b.py:1` and `a/c.py:2`.\n")
         passed = check_consolidation(folder, [duplicate], raw_may_remain=True)
         assert passed.passed, passed
 
@@ -291,14 +259,14 @@ def check_implement_finding_selects_the_first_files_by_name() -> None:
     with _workspace() as root:
         folder = root / "reports/finding"
         for name in ("20261002-000000-b.md", "consolidated-001-c.md", "20261001-000000-a.md", "notes.txt"):
-            _write(folder / name, "# X\n")
+            write_file(folder / name, "# X\n")
         assert [p.name for p in finding_files(folder, 2)] == ["20261001-000000-a.md", "20261002-000000-b.md"]
         assert len(finding_files(folder, 10)) == 3
 
 
 def check_implement_finding_test_runs_reads_foreground_test_ps1_results_only() -> None:
     with _workspace() as root:
-        log = _write(root / ".tmp/step.stream.jsonl", "\n".join([
+        log = write_file(root / ".tmp/step.stream.jsonl", "\n".join([
             _shell_call("a", f"{_TEST_PS1} -ListTags"), _shell_result("a", "tags"),
             _shell_call("b", f"{_TEST_PS1} -Tag x", background=True), _shell_result("b", "started"),
             _shell_call("c", "git status"), _shell_result("c", "clean"),
@@ -326,22 +294,22 @@ def check_implement_finding_test_runs_reads_foreground_test_ps1_results_only() -
 def check_implement_finding_close_deletes_only_an_unreferenced_finding_with_a_passing_last_test_run() -> None:
     with _workspace() as root:
         folder = root / "reports/finding"
-        finding = _write(folder / "20261001-000000-a.md", "# A\n")
-        referrer = _write(folder / "consolidated-001-x.md", "# X\n\n**Related:** 20261001-000000-a\n")
-        log = _write(root / ".tmp/step.stream.jsonl", _shell_call("a", "git status") + "\n")
+        finding = write_file(folder / "20261001-000000-a.md", "# A\n")
+        referrer = write_file(folder / "consolidated-001-x.md", "# X\n\n**Related:** 20261001-000000-a\n")
+        log = write_file(root / ".tmp/step.stream.jsonl", _shell_call("a", "git status") + "\n")
         result = _close(root, finding, log)
         assert result.returncode == EXIT_KEPT and finding.exists(), (result.returncode, result.stdout)
         assert "consolidated-001-x.md still names it" in result.stdout and "ran no foreground" in result.stdout, \
             result.stdout
-        _write(referrer, "# X\n")
-        _write(log, "\n".join([_shell_call("p", f"{_TEST_PS1} -Tag x"), _shell_result("p", "4 passed"),
+        write_file(referrer, "# X\n")
+        write_file(log, "\n".join([_shell_call("p", f"{_TEST_PS1} -Tag x"), _shell_result("p", "4 passed"),
                                _shell_call("f", f"{_TEST_PS1} -Tag x"), _shell_result("f", "1 failed")]) + "\n")
         result = _close(root, finding, log)
         assert result.returncode == EXIT_KEPT and "last test run did not pass (its output reports failed" in result.stdout, result.stdout
-        _write(log, _shell_call("p", f"{_TEST_PS1} -Tag x") + "\n" + _shell_result("p", "4 passed") + "\n")
+        write_file(log, _shell_call("p", f"{_TEST_PS1} -Tag x") + "\n" + _shell_result("p", "4 passed") + "\n")
         result = _close(root, finding, log)
         assert result.returncode == EXIT_DELETED and not finding.exists(), (result.returncode, result.stdout)
-        _write(finding, "# A\n")
+        write_file(finding, "# A\n")
         result = _close(root, finding)
         assert result.returncode == EXIT_DELETED and not finding.exists(), (result.returncode, result.stdout)
         result = _close(root, finding)
@@ -362,7 +330,7 @@ _DESIGN = (
 
 def check_checklist_verifies_quotes_and_lists_uncovered_requirement_lines() -> None:
     with _workspace() as root:
-        design = _write(root / "design/042-fixture-design.md", _DESIGN)
+        design = write_file(root / "design/042-fixture-design.md", _DESIGN)
         reply = json.dumps({"requirements": [
             {"id": "D1", "requirement": "Guards fail closed.", "surfaces": ["routes"], "first_line": 5,
              "last_line": 5, "quote": "route guard must fail closed when the token"},
@@ -378,19 +346,19 @@ def check_checklist_verifies_quotes_and_lists_uncovered_requirement_lines() -> N
 
 def check_absorb_references_find_name_number_and_title_but_not_task_folders() -> None:
     with _workspace() as root:
-        design = _write(root / "design/042-fixture-design.md", _DESIGN)
-        _write(root / "datrix-alpha/docs/a.md", "See design 042 for the details.\nUnrelated 042 count.\n")
-        _write(root / "datrix-alpha/docs/b.md", "From 042-fixture-design.md and A Fixture Design With A Long "
+        design = write_file(root / "design/042-fixture-design.md", _DESIGN)
+        write_file(root / "datrix-alpha/docs/a.md", "See design 042 for the details.\nUnrelated 042 count.\n")
+        write_file(root / "datrix-alpha/docs/b.md", "From 042-fixture-design.md and A Fixture Design With A Long "
                                                 "Enough Title.\n")
-        _write(root / "datrix-alpha/.tasks/phase-07/task-07-01-x.md", "Design reference: design 042\n")
+        write_file(root / "datrix-alpha/.tasks/phase-07/task-07-01-x.md", "Design reference: design 042\n")
         found = {(r.file, r.line) for r in find_references(root, design, [])}
         assert found == {("datrix-alpha/docs/a.md", 1), ("datrix-alpha/docs/b.md", 1)}, found
 
 
 def check_absorb_transfer_gives_a_verdict_per_section() -> None:
     with _workspace() as root:
-        design = _write(root / "design/042-fixture-design.md", _DESIGN)
-        _write(root / "datrix-alpha/docs/guards.md", "# Guards\n\nRoute guards fail closed.\n")
+        design = write_file(root / "design/042-fixture-design.md", _DESIGN)
+        write_file(root / "datrix-alpha/docs/guards.md", "# Guards\n\nRoute guards fail closed.\n")
 
         def respond(chat: Chat) -> str:
             return "PRESENT\ndatrix-alpha/docs/guards.md:3" if "D1 Guards" in chat.user else "MISSING"
@@ -416,12 +384,12 @@ def check_bug_resolution_describes_framework_diffs_only_and_appends_once() -> No
         alpha = root / "datrix-alpha"
         _git(alpha, "add", "-A")
         _git(alpha, "commit", "-q", "-m", "base")
-        _write(alpha / "src/datrix_alpha/core.py", _CORE + "EXTRA = 2\n")
+        write_file(alpha / "src/datrix_alpha/core.py", _CORE + "EXTRA = 2\n")
         shop = root / "acme-shop"
         shop.mkdir()
         _git(shop, "init", "-q")
-        _write(shop / "app.dtrx", "service Shop {}\n")
-        report = _write(root / "acme-shop/bugs/bug.md", "# Bug: x\n\n## Summary\nBroken.\n")
+        write_file(shop / "app.dtrx", "service Shop {}\n")
+        report = write_file(root / "acme-shop/bugs/bug.md", "# Bug: x\n\n## Summary\nBroken.\n")
         with LoopbackOllama(answering("Adds an EXTRA constant to the core helpers.")) as server:
             section = build_resolution(root, _pool(server), _facts(), [alpha, shop], {"src/datrix_alpha/core.py",
                                                                                      "app.dtrx"})
@@ -514,7 +482,7 @@ def check_service_mechanical_renders_checks_and_dead_code() -> None:
 
 def check_cli_exits_3_when_no_local_model_answers() -> None:
     with _workspace() as root:
-        design = _write(root / "design/042-fixture-design.md", _DESIGN)
+        design = write_file(root / "design/042-fixture-design.md", _DESIGN)
         result = subprocess.run(
             [sys.executable, str(_CLI), "--workspace", str(root), "checklist", "--design", str(design),
              "--local-machine", _UNROUTABLE, "--local-reachable-timeout-ms", "300"],
@@ -526,19 +494,6 @@ def check_cli_exits_3_when_no_local_model_answers() -> None:
 # ===========================================================================
 # harness
 # ===========================================================================
-
-
-def _deliberately_failing_check() -> None:
-    assert False, "deliberately failing check for --harness-self-test"
-
-
-def harness_self_test() -> bool:
-    print("=== Harness self-test: a deliberately-failing check must be reported FAILED ===")
-    if run_checks([_deliberately_failing_check]):
-        _fail("harness self-test: the deliberately-failing check was NOT reported as failed")
-        return False
-    _ok("harness self-test: the deliberately-failing check was correctly reported FAILED")
-    return True
 
 
 _ALL_CHECKS: list[CheckFunc] = [
@@ -566,30 +521,12 @@ _ALL_CHECKS: list[CheckFunc] = [
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Behaviour checks for the skill assists.")
-    parser.add_argument("--harness-self-test", action="store_true",
-                        help="Run only the harness self-test (a deliberately-failing dummy check).")
-    parser.add_argument("--only", metavar="PREFIX", help="Run only the checks whose name starts with PREFIX.")
-    args = parser.parse_args()
-    if args.harness_self_test:
-        return 0 if harness_self_test() else 1
-    checks = _ALL_CHECKS
-    if args.only:
-        checks = [check for check in _ALL_CHECKS if check.__name__.startswith(args.only)]
-        if not checks:
-            print(f"Error: no check name starts with {args.only!r}. Checks: "
-                  f"{', '.join(c.__name__ for c in _ALL_CHECKS)}.", file=sys.stderr)
-            return 2
-    print(f"Running {len(checks)} skill-assist checks...\n")
-    with TemporaryDirectory(prefix="skill-assist-gate-usage-") as temp:
-        os.environ[USAGE_LOG_VARIABLE] = str(Path(temp) / "usage.jsonl")
-        passed = run_checks(checks)
-    print()
-    if passed:
-        print(f"{_GREEN}GATE PASSED{_RESET}: all {len(checks)} skill-assist checks passed.")
-        return 0
-    print(f"{_RED}GATE FAILED{_RESET}: see the failures above.")
-    return 1
+    return check_list_main(
+        "Behaviour checks for the skill assists.",
+        "skill-assist",
+        _ALL_CHECKS,
+        temp_file_variable=GATE_USAGE_LOG,
+    )
 
 
 if __name__ == "__main__":

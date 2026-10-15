@@ -1,7 +1,7 @@
 """Review JSON schema as typed dataclasses.
 
-This module defines the contract between Tier 1 (local reviewer), Tier 2 (Codex),
-and Tier 3 (Apply Reviews skill). All reviewers emit JSON conforming to this schema.
+This module defines the contract between Tier 1 (a local model, per task), Tier 2 (a local
+model, per phase) and Tier 3 (Apply Reviews skill). All reviewers emit JSON conforming to this schema.
 """
 
 from __future__ import annotations
@@ -39,8 +39,8 @@ class ReviewResult:
     """Complete review result from a single reviewer (Tier 1 or Tier 2)."""
 
     schema_version: str  # "1.0"
-    source: Literal["local", "codex"]
-    model: str  # e.g., "qwen2.5-coder:14b", "gpt-5.x-codex"
+    source: Literal["local", "phase"]  # Tier 1 (one task) or Tier 2 (the phase)
+    model: str  # e.g., "qwen3-coder:30b-ctx32k", "nemotron-3-super:120b"
     scope: Literal["task", "phase"]
     target: str  # file path or "phase-NN"
     generated_at: str  # ISO-8601 timestamp

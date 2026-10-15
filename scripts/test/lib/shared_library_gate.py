@@ -111,16 +111,18 @@ from datrix_scripts.codegen_hint_mapper import (
     CodegenHint,
     get_codegen_hint,
 )
+from datrix_scripts.customer_domain_isolation import publishable_files
 from datrix_scripts.deploy_test_aggregate_writer import DeployTestAggregateWriter
 from datrix_scripts.deploy_test_log_writer import (
     DEPLOY_PHASES,
     TRANSIENT_ERROR_PATTERNS,
     DeployTestLogWriter,
 )
+from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
+from datrix_scripts.gate_harness import CheckFunc, NamedCheck, check_list_main, write_files
 from datrix_scripts.generated_test_log_writer import (
     GeneratedTestLogWriter,
     _extract_import_chain,
-    normalize_error_message,
 )
 from datrix_scripts.llm_code_fix import (
     parse_code_response,
@@ -156,14 +158,15 @@ from datrix_scripts.local_llm_loopback import (
     held_for,
     without_expiry,
 )
-from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE, usage_report
+from datrix_scripts.local_llm_usage import GATE_USAGE_LOG, usage_report
 from datrix_scripts.logging_utils import LogConfig, TeeLogger, cleanup_old_logs
 from datrix_scripts.node_test_runner import node_selection, node_suite_inputs
-from datrix_scripts.paths import PACKAGE_DIR, PYTHONPATH_ROOT
+from datrix_scripts.paths import PACKAGE_DIR, PYTHONPATH_ROOT, WORKSPACE_DIR
 from datrix_scripts.status_tests import _phase_status_from_index
 from datrix_scripts.structured_log_writer import (
     _MAX_FILENAME_BODY_LENGTH,
     StructuredLogWriter,
+    normalize_error_message,
 )
 from datrix_scripts.structured_log_writer import (
     TestCaseResult as _SlwTestCaseResult,
@@ -196,38 +199,10 @@ from datrix_scripts.test_runner import (
     decide_serial_phase,
     split_tags,
 )
-from datrix_scripts.venv import get_datrix_root
-
-CheckFunc = Callable[[], None]
-
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_RESET = "\033[0m"
+from scripts_contract_checks import checks as contract_checks
+from scripts_tree_census import self_test_checks as census_self_test_checks
 
 _TIMESTAMP = datetime(2026, 5, 3, 19, 10, 2)
-
-
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def run_checks(checks: list[CheckFunc]) -> bool:
-    """Run every check, catching only AssertionError. Returns True iff all passed."""
-    all_passed = True
-    for check in checks:
-        name = check.__name__
-        try:
-            check()
-        except AssertionError as exc:
-            _fail(f"{name}: {exc}")
-            all_passed = False
-        else:
-            _ok(name)
-    return all_passed
 
 
 # ===========================================================================
@@ -774,23 +749,22 @@ def check_structured_log_writer_source_location_fallback_chain() -> None:
 
 
 def check_structured_log_writer_message_normalization() -> None:
-    """_normalize_error_message replaces single/double-quoted strings, hex
+    """normalize_error_message replaces single/double-quoted strings, hex
     addresses, and standalone numbers with '*'; parametrized test variants that
     differ only in such values cluster together after normalization."""
     with TemporaryDirectory(prefix="slw-normalize-") as tmp:
         root = Path(tmp)
-        writer = StructuredLogWriter("test", root)
 
-        assert writer._normalize_error_message(
+        assert normalize_error_message(
             "KeyError", "key 'my_key' not found"
         ) == "KeyError: key * not found"
-        assert writer._normalize_error_message(
+        assert normalize_error_message(
             "KeyError", 'key "other_key" not found'
         ) == "KeyError: key * not found"
-        assert writer._normalize_error_message(
+        assert normalize_error_message(
             "RuntimeError", "object at 0x7f1234abcdef is invalid"
         ) == "RuntimeError: object at * is invalid"
-        assert writer._normalize_error_message(
+        assert normalize_error_message(
             "IndexError", "list index 42 out of range 10"
         ) == "IndexError: list index * out of range *"
 
@@ -1729,7 +1703,7 @@ def check_unstamped_recorder_environment_passes_the_runner_plugins_validation() 
     every targeted run with a usage error."""
     from datrix_scripts import runner_plugin
 
-    workspace = get_datrix_root()
+    workspace = WORKSPACE_DIR
     with TemporaryDirectory(prefix="recorder-env-") as tmp:
         run_dir = Path(tmp)
         environment = unstamped_recorder_environment(run_dir, workspace, workspace / "datrix-language")
@@ -1786,7 +1760,7 @@ def check_node_runner_stamp_names_executables_and_cross_ecosystem_cone_member() 
     fast = node_selection(None, None, "fast")
     assert fast["kind"] == "targeted" and fast["tier"] == "fast", fast
 
-    workspace = get_datrix_root()
+    workspace = WORKSPACE_DIR
     cone = suite_inputs.package_cone(workspace, "datrix-vscode")
     members = {Path(root).name for root in cone}
     assert {"datrix-vscode", "datrix-language"} <= members, (
@@ -1892,10 +1866,11 @@ _FAMILY_FOLDER = "gates"
 #: Data and fixtures, never run: Python there is a fixture, not a script.
 _NON_SCRIPT_FOLDERS = frozenset({"config"})
 #: Wrapper variables whose value is fixed by convention, and how each resolves.
-_WRAPPER_DIR_VARIABLES = frozenset({"scriptDir", "ScriptDir"})
+_WRAPPER_DIR_VARIABLES = frozenset({"scriptDir", "ScriptDir", "PSScriptRoot"})
 _WRAPPER_COMMON_VARIABLE = "commonDir"
 _WRAPPER_PATH = re.compile(r'Join-Path\s+\$(?P<var>\w+)\s+"(?P<path>[^"$]+\.(?:py|ps1|psm1))"')
 _WRAPPER_MODULE = re.compile(r'"(?P<module>datrix_scripts(?:\.\w+)+)"')
+_PS_BLOCK_COMMENT = re.compile(r"<#.*?#>", re.DOTALL)
 #: A wrapper that resolves fewer script paths than this has stopped being read, not become clean.
 _MIN_WRAPPER_REFERENCES = 100
 #: The top-level scripts folders a bare reference (``test\test.ps1``) may start with, plus the retired one.
@@ -1936,8 +1911,26 @@ def _script_python_files(scripts_dir: Path) -> list[Path]:
     )
 
 
+_PACKAGE_INIT = "__init__.py"
+
+
+def _local_package_lib(path: Path, scripts_dir: Path) -> Path | None:
+    """The ``lib/`` folder whose local package holds *path*: a directory directly in a ``lib/``
+    folder that carries ``__init__.py`` (``scan/lib/import_boundaries/``), run by that folder's
+    entry script, so its modules import each other as ``<package>.<module>``. None otherwise."""
+    parts = path.relative_to(scripts_dir).parts
+    lib_index = 2 if parts[0] == _FAMILY_FOLDER else 1
+    if len(parts) != lib_index + 3 or parts[lib_index] != _LIB:
+        return None
+    package = scripts_dir.joinpath(*parts[: lib_index + 2])
+    if package.is_relative_to(PACKAGE_DIR) or not (package / _PACKAGE_INIT).is_file():
+        return None
+    return package.parent
+
+
 def _misplaced_python(scripts_dir: Path) -> list[str]:
-    """Python files outside ``<folder>/lib/``, ``gates/<family>/lib/`` and the shared package."""
+    """Python files outside ``<folder>/lib/``, ``gates/<family>/lib/``, a local package directly in
+    one of those, and the shared package."""
     misplaced: list[str] = []
     for path in _script_python_files(scripts_dir):
         parts = path.relative_to(scripts_dir).parts
@@ -1945,7 +1938,8 @@ def _misplaced_python(scripts_dir: Path) -> list[str]:
         in_lib = len(parts) > lib_index + 1 and parts[lib_index] == _LIB
         flat = len(parts) == lib_index + 2
         shared = in_lib and parts[lib_index + 1] == PACKAGE_DIR.name and path.is_relative_to(PACKAGE_DIR)
-        if not (in_lib and (flat or shared)):
+        local_package = _local_package_lib(path, scripts_dir) is not None
+        if not (in_lib and (flat or shared or local_package)):
             misplaced.append(path.relative_to(scripts_dir).as_posix())
     return misplaced
 
@@ -2003,7 +1997,8 @@ def _unresolved_import(module: str, siblings: Path | None, installed: frozenset[
     if top == PACKAGE_DIR.name:
         return not _module_exists(PYTHONPATH_ROOT, module)
     if siblings is not None and _module_exists(siblings, top):
-        return False
+        # A sibling (or a local package beside the entry script) must hold the whole dotted name.
+        return not _module_exists(siblings, module)
     return top not in installed
 
 
@@ -2015,7 +2010,8 @@ def _unresolved_imports(scripts_dir: Path, installed: frozenset[str]) -> list[st
     """
     unresolved: list[str] = []
     for path in _script_python_files(scripts_dir):
-        siblings = None if path.is_relative_to(PACKAGE_DIR) else path.parent
+        # A local package's module runs with its entry script's lib/ first on sys.path.
+        siblings = None if path.is_relative_to(PACKAGE_DIR) else (_local_package_lib(path, scripts_dir) or path.parent)
         tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
         unresolved.extend(
             f"{path.relative_to(scripts_dir).as_posix()}:{line}: import {module}"
@@ -2027,7 +2023,8 @@ def _unresolved_imports(scripts_dir: Path, installed: frozenset[str]) -> list[st
 
 def _wrapper_references(wrapper: Path, scripts_dir: Path) -> tuple[list[Path], list[str]]:
     """(script paths, ``datrix_scripts`` modules) a wrapper names through its fixed path variables."""
-    text = wrapper.read_text(encoding="utf-8-sig")
+    # Comment-based help (<# ... #>) shows example invocations; it runs nothing.
+    text = _PS_BLOCK_COMMENT.sub("", wrapper.read_text(encoding="utf-8-sig"))
     paths: list[Path] = []
     for match in _WRAPPER_PATH.finditer(text):
         variable = match.group("var")
@@ -2054,17 +2051,22 @@ def _missing_wrapper_targets(scripts_dir: Path) -> tuple[int, list[str]]:
     return resolved, missing
 
 
-def _walked_dir(entry: Path) -> bool:
-    return entry.is_dir() and entry.name not in _REFERENCE_SKIP_DIRS and not entry.is_symlink()
-
-
 def _reference_files(roots: list[Path]) -> list[Path]:
+    """The files of each repository a commit could publish (tracked plus untracked-not-ignored).
+
+    An ignored file -- a per-machine task file, a local settings file -- is nobody's current
+    documentation, so a stale script path in it is not a defect of the tree.
+    """
     files: list[Path] = []
-    stack = list(roots)
-    while stack:
-        entries = list(stack.pop().iterdir())
-        stack.extend(entry for entry in entries if _walked_dir(entry))
-        files.extend(entry for entry in entries if entry.is_file() and entry.suffix in _REFERENCE_SUFFIXES)
+    for root in roots:
+        for relative in publishable_files(root):
+            path = root / relative
+            if path.suffix not in _REFERENCE_SUFFIXES:
+                continue
+            if any(part in _REFERENCE_SKIP_DIRS for part in Path(relative).parts[:-1]):
+                continue
+            if path.is_file():
+                files.append(path)
     return files
 
 
@@ -2127,7 +2129,8 @@ def check_scripts_tree_python_lives_in_lib_folders() -> None:
         (planted / "test" / _LIB).mkdir(parents=True)
         (planted / "test" / _LIB / "placed.py").write_text("", encoding="utf-8")
         (planted / "test" / "stray.py").write_text("", encoding="utf-8")
-        assert _misplaced_python(planted) == ["test/stray.py"], (
+        write_files(planted / "test" / _LIB, {"pkg/__init__.py": "", "pkg/part.py": "", "notpkg/loose.py": ""})
+        assert _misplaced_python(planted) == ["test/lib/notpkg/loose.py", "test/stray.py"], (
             f"the layout check missed a planted stray file: {_misplaced_python(planted)}"
         )
     misplaced = _misplaced_python(_scripts_dir())
@@ -2164,6 +2167,18 @@ def check_scripts_tree_imports_resolve() -> None:
     assert not _unresolved_import("datrix_scripts.paths", None, installed), "a real shared module was refused"
     assert _unresolved_import("datrix_scripts.no_such_module", None, installed), "a missing shared module passed"
     assert _unresolved_import("paths", None, installed), "a flat import from inside the shared package passed"
+    with TemporaryDirectory(prefix="scripts-imports-") as tmp:
+        planted = Path(tmp)
+        write_files(planted / "scan" / _LIB, {
+            "cli.py": "import pkg.part\n",
+            "pkg/__init__.py": "",
+            "pkg/part.py": "from pkg.helpers import x\nimport pkg.absent\n",
+            "pkg/helpers.py": "x = 1\n",
+        })
+        found = _unresolved_imports(planted, installed)
+        assert found == ["scan/lib/pkg/part.py:2: import pkg.absent"], (
+            f"a local package's imports were misread (its siblings are its lib/ folder): {found}"
+        )
     unresolved = _unresolved_imports(_scripts_dir(), installed)
     assert not unresolved, (
         f"imports that reach no module: {unresolved}. A module several folders use is imported as "
@@ -2179,10 +2194,13 @@ def check_scripts_tree_wrapper_targets_exist() -> None:
         planted = Path(tmp)
         (planted / "test").mkdir()
         (planted / "test" / "planted.ps1").write_text(
-            '$x = Join-Path $scriptDir "lib\\absent.py"\n$m = "datrix_scripts.no_such_module"\n', encoding="utf-8"
+            '$x = Join-Path $scriptDir "lib\\absent.py"\n$m = "datrix_scripts.no_such_module"\n'
+            'exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\\gone.py"))\n'
+            '<#\n.EXAMPLE\n exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\\help.py"))\n#>\n',
+            encoding="utf-8"
         )
         resolved, missing = _missing_wrapper_targets(planted)
-        assert resolved == 2 and len(missing) == 2, f"the wrapper check missed planted targets: {missing}"
+        assert resolved == 3 and len(missing) == 3, f"the wrapper check missed planted targets: {missing}"
     resolved, missing = _missing_wrapper_targets(_scripts_dir())
     assert resolved >= _MIN_WRAPPER_REFERENCES, (
         f"only {resolved} wrapper references resolved (expected at least {_MIN_WRAPPER_REFERENCES}): the "
@@ -2206,8 +2224,9 @@ def check_scripts_tree_references_name_existing_scripts() -> None:
         )
         named, dangling = _dangling_references([planted], scripts_dir)
         assert named == 5 and len(dangling) == 4, f"the reference scan misread the planted note: {dangling}"
-    workspace = get_datrix_root()
-    roots = [path for path in sorted(workspace.iterdir()) if path.is_dir() and path.name.startswith("datrix")]
+    roots = workspace_package_dirs(
+        WORKSPACE_DIR, any_of=frozenset({PackageMarker.GIT}), include_showcase=True
+    )
     # This file plants dangling references on purpose, as the non-vacuity fixture above.
     files = [path for path in _reference_files(roots) if path.resolve() != Path(__file__).resolve()]
     named, dangling = _dangling_references(files, scripts_dir)
@@ -4965,36 +4984,10 @@ def check_llm_code_fix_ruff_check_fails_closed() -> None:
 
 
 # ===========================================================================
-# Harness self-test (non-vacuity proof for the pass/fail mechanism itself)
-# ===========================================================================
-
-
-def _deliberately_failing_check() -> None:
-    """A dummy check that always fails, used only by --harness-self-test."""
-    assert False, "deliberately failing check for --harness-self-test"
-
-
-def harness_self_test() -> bool:
-    """Prove the harness cannot silently swallow a failing check.
-
-    Registers exactly one deliberately-failing dummy check and requires
-    run_checks() to report it FAILED (and to return False overall). If the
-    harness ever reported this as passing, the whole gate would be vacuous.
-    """
-    print("=== Harness self-test: a deliberately-failing check must be reported FAILED ===")
-    all_passed = run_checks([_deliberately_failing_check])
-    if all_passed:
-        _fail("harness self-test: the deliberately-failing check was NOT reported as failed")
-        return False
-    _ok("harness self-test: the deliberately-failing check was correctly reported FAILED")
-    return True
-
-
-# ===========================================================================
 # main
 # ===========================================================================
 
-_ALL_CHECKS: list[CheckFunc] = [
+_ALL_CHECKS: list[CheckFunc | NamedCheck] = [
     # datrix_scripts.structured_log_writer
     check_structured_log_writer_index_schema,
     check_structured_log_writer_counts_case_items_apart,
@@ -5106,55 +5099,23 @@ _ALL_CHECKS: list[CheckFunc] = [
     # datrix_scripts.llm_code_fix
     check_llm_code_fix_parses_fenced_and_bare_code,
     check_llm_code_fix_ruff_check_fails_closed,
+    # datrix_scripts.gate_harness / count_ratchet, the scripts-tree censuses and shared-module
+    # coverage (scripts_contract_checks)
+    *contract_checks(),
 ]
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Repo-level gate absorbing the shared-library test coverage orphaned by the "
-            "datrix showcase repo's no-pytest-suite boundary."
-        )
+    # --self-test: the harness reports a deliberate failure and each scripts-tree census reports
+    # its planted copy, reading nothing of the real tree. The checks' own loopback model servers
+    # never count as real use of the machines (the usage log points into a temp directory).
+    return check_list_main(
+        "Repo-level gate for the shared scripts package and the scripts-tree contracts.",
+        "shared-library behavior",
+        _ALL_CHECKS,
+        self_test=census_self_test_checks(),
+        temp_file_variable=GATE_USAGE_LOG,
     )
-    parser.add_argument(
-        "--harness-self-test",
-        action="store_true",
-        help="Run only the harness self-test (a deliberately-failing dummy check).",
-    )
-    parser.add_argument(
-        "--only",
-        metavar="PREFIX",
-        help="Run only the checks whose function name starts with PREFIX (e.g. check_local_llm).",
-    )
-    args = parser.parse_args()
-
-    if args.harness_self_test:
-        return 0 if harness_self_test() else 1
-
-    checks = _ALL_CHECKS
-    if args.only:
-        checks = [check for check in _ALL_CHECKS if check.__name__.startswith(args.only)]
-        if not checks:
-            prefixes = sorted({"_".join(c.__name__.split("_")[:3]) for c in _ALL_CHECKS})
-            print(
-                f"Error: no check name starts with {args.only!r}. Check-name prefixes: "
-                f"{', '.join(prefixes)}. Pass one of them to --only.",
-                file=sys.stderr,
-            )
-            return 2
-
-    print(f"Running {len(checks)} shared-library behavior checks...\n")
-    # The checks' own loopback model servers must never count as real use of the machines.
-    with TemporaryDirectory(prefix="shared-library-gate-") as tmp:
-        os.environ[USAGE_LOG_VARIABLE] = str(Path(tmp) / "usage.jsonl")
-        passed = run_checks(checks)
-
-    print()
-    if passed:
-        print(f"{_GREEN}GATE PASSED{_RESET}: all {len(checks)} shared-library behavior checks passed.")
-        return 0
-    print(f"{_RED}GATE FAILED{_RESET}: see the failures above.")
-    return 1
 
 
 if __name__ == "__main__":

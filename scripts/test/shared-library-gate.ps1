@@ -1,12 +1,12 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Repo-level gate for the shared scripts package and the scripts-tree layout.
+ Repo-level gate for the shared scripts package and the scripts-tree contracts.
 
 .DESCRIPTION
  Runs lib\shared_library_gate.py, which checks the shared scripts package
- (common/lib/datrix_scripts) and the scripts tree layout as plain Python checks
- (no pytest, no mocks, real tempfile.TemporaryDirectory() fixtures). See the .py
+ (common/lib/datrix_scripts), the scripts-tree layout and the scripts-tree censuses as plain
+ Python checks (no pytest, no mocks, real tempfile.TemporaryDirectory() fixtures). See the .py
  file's module docstring for the full list of modules covered.
 
  Exit codes:
@@ -14,98 +14,44 @@
    1 = at least one check failed
    2 = usage error
 
+.PARAMETER SelfTest
+ Run only the gate's non-vacuity proof over planted inputs: the harness reports a deliberate
+ failure, and each scripts-tree census reports a planted copy. Reads nothing of the real tree.
+
 .PARAMETER HarnessSelfTest
- Run only the harness self-test: register one deliberately-failing dummy
- check and confirm the harness reports it FAILED with a nonzero exit. Proves
- the pass/fail mechanism itself cannot swallow a failure.
+ Run only the harness self-test: one deliberately-failing check must be reported FAILED.
 
 .PARAMETER Only
  Run only the checks whose name starts with this prefix (e.g. check_local_llm),
  for a change confined to one shared module.
-
-.PARAMETER Dbg
- Enable debug logging (prints the python executable, script path, and arguments).
 
 .EXAMPLE
  .\shared-library-gate.ps1
  Run every shared-library behavior check; exit 0 only if all pass.
 
 .EXAMPLE
- .\shared-library-gate.ps1 -HarnessSelfTest
- Prove the pass/fail harness itself can detect and report a failure.
+ .\shared-library-gate.ps1 -SelfTest
+ Prove each census and the pass/fail harness can detect and report a failure.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter()]
+    [switch]$SelfTest,
+
+    [Parameter()]
     [switch]$HarnessSelfTest,
 
     [Parameter()]
-    [string]$Only = "",
-
-    [Parameter()]
-    [switch]$Dbg
+    [string]$Only = ""
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\shared_library_gate.py"
+$pythonArgs = @()
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($HarnessSelfTest) { $pythonArgs += "--harness-self-test" }
+if ($Only) { $pythonArgs += @("--only", $Only) }
 
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "Error: shared_library_gate.py not found at: $pythonScript"
-    exit 2
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-trap {
-    Write-Host ""
-    Write-Warning "Interrupted by user (Ctrl-C)"
-    Invoke-Cleanup
-    exit 130
-}
-
-try {
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
-    $pythonArgs = @($pythonScript)
-    if ($HarnessSelfTest) { $pythonArgs += "--harness-self-test" }
-    if ($Only) { $pythonArgs += @("--only", $Only) }
-
-    if ($Dbg) {
-        Write-Host "Python executable: $pythonExe" -ForegroundColor Cyan
-        Write-Host "Python script: $pythonScript" -ForegroundColor Cyan
-        Write-Host "Arguments: $($pythonArgs -join ' ')" -ForegroundColor Cyan
-        Write-Host ""
-    }
-
-    & $pythonExe @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    exit $exitCode
-
-} catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Invoke-Cleanup
-    exit 1
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\shared_library_gate.py") -Arguments $pythonArgs -Gate "shared-library")

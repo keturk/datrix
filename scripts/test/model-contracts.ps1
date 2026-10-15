@@ -4,7 +4,7 @@
  Inspect and migrate schema-derived model contracts (datrix_testing.model_contracts).
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs datrix_testing.model_contracts.cli.
+ Runs datrix_testing.model_contracts.cli in the shared venv.
  A package's runner module, tests/test_model_contracts.py, proves every schema fact of
  every model the package declares -- each required field, default, bound, pattern and
  the unknown-key refusal -- as one pytest item, by mutating a sample the real loader fed
@@ -61,34 +61,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
-$PythonModule = "datrix_testing.model_contracts.cli"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
-  Write-Error "Failed to activate virtual environment"
-  exit 1
- }
- $PythonExe = Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"
- $pythonArgs = @("-m", $PythonModule, $Command) + $Arguments
- if ($Dbg) { Write-Host "Running: $PythonExe $($pythonArgs -join ' ')" }
- & $PythonExe @pythonArgs
- exit $LASTEXITCODE
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 2
-} finally {
- Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Module "datrix_testing.model_contracts.cli" -Arguments (@($Command) + $Arguments) -ShowCommand:$Dbg)

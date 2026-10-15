@@ -24,6 +24,8 @@ Rebuilds the tree-sitter parser from `grammar.js` (`generation\lib\rebuild_parse
 
 **Parameters:** `-Force`
 
+The parser's own build machinery (`datrix_language.parser.tree_sitter_datrix.build`) names this wrapper as the manual rebuild command.
+
 ---
 
 ## Snapshots and Datasets
@@ -147,14 +149,18 @@ Mechanical core of `/evaluate-generated-service`: writes `service-<name>-scan.js
 
 Runs `/evaluate-generated-service` prompts in parallel using Claude Code CLI in non-interactive mode. Finds all `service-*.prompt.md` files in the evaluation folder and processes up to 5 concurrently.
 
+First, each service is triaged by the local model servers (`lib\service_triage.py`): the service scan is written into the evaluation folder, and each Phase 3.5 category the service has (computed fields, lifecycle hooks, validation blocks, REST endpoint logic, event handlers) is judged `clean`, `finding` or `unverifiable` over the DSL source and the generated files the scan maps it to, into `service-<name>.local-triage.json`. A service with every category clean and no failed artifact check gets its report in `evaluated\` marked "local triage only" and no Claude Code run; every other service goes to Claude Code with `LOCAL_TRIAGE: <triage file>` appended to its prompt. No local server answering makes every category unverifiable. The reads are confined to the framework repositories, the workspace logs and `-SourceDir`/`-GeneratedDir`, with every line carrying a registered customer term withheld.
+
 | Mode | Command | Description |
 |------|---------|-------------|
+| **Skip the triage** | `.\generation\evaluate-services.ps1 -SourceDir <src> -GeneratedDir <gen> -Full` | Every service goes to Claude Code |
+| **Self-test** | `.\generation\evaluate-services.ps1 -SelfTest` | The triage's checks over a planted prompt and scan and a loopback model; exits |
 | **From eval dir** | `cd eval\2026-05-16-...; ..\..\datrix\scripts\generation\evaluate-services.ps1 -SourceDir <src> -GeneratedDir <gen>` | Uses current dir as eval folder |
 | **Explicit eval dir** | `.\generation\evaluate-services.ps1 -SourceDir <src> -GeneratedDir <gen> -EvalDir <path>` | Specify eval folder |
 | **Custom parallelism** | `.\generation\evaluate-services.ps1 -SourceDir <src> -GeneratedDir <gen> -Parallel 3` | Fewer concurrent jobs |
 | **Different model** | `.\generation\evaluate-services.ps1 -SourceDir <src> -GeneratedDir <gen> -Model sonnet` | Use sonnet instead of opus |
 
-**Parameters:** `-SourceDir` (mandatory), `-GeneratedDir` (mandatory), `-EvalDir` (default: current directory), `-Parallel` (default: 5), `-Model` (default: opus)
+**Parameters:** `-SourceDir` (mandatory), `-GeneratedDir` (mandatory), `-EvalDir` (default: current directory), `-Parallel` (default: 5), `-Model` (default: opus), `-Full` (skip the local triage), `-SelfTest` (alone: run only the triage's checks)
 
 **Prereqs:** Run `/evaluate-generated` first to produce `service-*.prompt.md` files.
 

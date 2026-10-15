@@ -27,13 +27,9 @@ def _sigint_handler(_signum: int, _frame: object) -> None:
 
 signal.signal(signal.SIGINT, _sigint_handler)
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
-datrix_root = get_datrix_root()
-for sub in ("datrix-common/src", "datrix-language/src"):
-    p = datrix_root / sub
-    if p.exists() and str(p) not in sys.path:
-        sys.path.insert(0, str(p))
+datrix_root = WORKSPACE_DIR
 
 from datrix_scripts.logging_utils import ColorCodes, colorize  # noqa: E402
 from datrix_scripts.test_projects import get_test_projects  # noqa: E402

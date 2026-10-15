@@ -64,55 +64,20 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\refresh_example_snapshot.py"
-
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: refresh_example_snapshot.py not found at: $runnerScript"
-    exit 1
-}
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
 if (-not $SelfTest -and (-not $Source -or -not $Language)) {
-    Write-Error "-Source and -Language are required unless -SelfTest is given."
+    Write-Host "Error: -Source and -Language are required unless -SelfTest is given." -ForegroundColor Red
     exit 2
 }
 
-function Invoke-Cleanup {
-    Disable-DatrixVenv
+$pythonArgs = @()
+if ($SelfTest) {
+    $pythonArgs += "--self-test"
+} else {
+    $pythonArgs += @("--source", $Source, "--language", $Language, "--profile", $ConfigProfile)
+    if ($Platform) { $pythonArgs += @("--platform", $Platform) }
 }
+if ($Dbg) { $pythonArgs += "--debug" }
 
-trap {
-    Invoke-Cleanup
-    break
-}
-
-Ensure-DatrixVenv
-
-try {
-    Ensure-DatrixPackagesInstalled
-
-    $pythonArgs = @($runnerScript)
-    if ($SelfTest) {
-        $pythonArgs += "--self-test"
-    } else {
-        $pythonArgs += @("--source", $Source, "--language", $Language, "--profile", $ConfigProfile)
-        if ($Platform) { $pythonArgs += @("--platform", $Platform) }
-    }
-    if ($Dbg) { $pythonArgs += "--debug" }
-
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Snapshot refresh failed with exit code $exitCode" -ForegroundColor Red
-        exit $exitCode
-    }
-    exit 0
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\refresh_example_snapshot.py") -Arguments $pythonArgs -RequirePackages)

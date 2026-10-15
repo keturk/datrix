@@ -3,23 +3,34 @@
 from __future__ import annotations
 
 import logging
+from typing import Final
 
 from review_schema import ReviewResult
 
 logger = logging.getLogger(__name__)
+
+#: The ``[tier2] mode`` values (config.toml); ``--tier2-on-threshold`` / ``--tier2-phase-gate``
+#: override the configured one for a run.
+MODE_OFF: Final = "off"
+MODE_MANUAL: Final = "manual"
+MODE_THRESHOLD: Final = "threshold"
+MODE_PHASE_GATE: Final = "phase-gate"
 
 
 def should_escalate_to_tier2(
     tier1_results: list[ReviewResult],
     config: dict,
     manual_override: bool = False,
+    mode_override: str | None = None,
 ) -> bool:
     """Determine if Tier 2 should run based on escalation mode and thresholds.
 
     Args:
         tier1_results: List of Tier 1 review results for the phase
         config: Configuration dict from config.toml
-        manual_override: True if --codex flag was passed
+        manual_override: True if --tier2 was passed
+        mode_override: The mode a --tier2-on-threshold / --tier2-phase-gate flag chose for this
+            run, replacing ``[tier2] mode``; None keeps the configured mode
 
     Returns:
         True if Tier 2 should run, False otherwise
@@ -31,65 +42,63 @@ def should_escalate_to_tier2(
         logger.info("tier2_disabled")
         return False
 
-    # Manual override (--codex flag)
+    # Manual override (--tier2 flag)
     if manual_override:
         logger.info("escalating_tier2 reason=manual_override")
         return True
 
-    mode = tier2_config.get("mode", "off")
+    mode = mode_override or tier2_config.get("mode", MODE_OFF)
 
-    if mode == "off":
+    if mode == MODE_OFF:
         logger.info("escalation_mode_off")
         return False
 
-    if mode == "manual":
-        # Manual mode requires explicit --codex flag (handled by manual_override above)
+    if mode == MODE_MANUAL:
+        # Manual mode requires an explicit --tier2 flag (handled by manual_override above)
         logger.info("escalation_mode_manual_no_override")
         return False
 
-    if mode == "threshold":
-        # Escalate if:
-        # - Any blocking finding, OR
-        # - Total major+blocking findings >= threshold
-        threshold_blocking = tier2_config.get("threshold_blocking", 1)
-        threshold_total_major = tier2_config.get("threshold_total_major", 5)
+    if mode == MODE_THRESHOLD:
+        return _threshold_breached(tier1_results, tier2_config)
 
-        blocking_count = sum(1 for r in tier1_results if r.verdict == "blocking")
-        major_count = sum(
-            1
-            for r in tier1_results
-            if r.verdict in ("blocking", "needs_fixes")
-        )
-
-        if blocking_count >= threshold_blocking:
-            logger.info(
-                "escalating_tier2 reason=threshold_blocking count=%d threshold=%d",
-                blocking_count,
-                threshold_blocking,
-            )
-            return True
-
-        if major_count >= threshold_total_major:
-            logger.info(
-                "escalating_tier2 reason=threshold_major count=%d threshold=%d",
-                major_count,
-                threshold_total_major,
-            )
-            return True
-
-        logger.info(
-            "no_escalation blocking=%d major=%d thresholds=(%d,%d)",
-            blocking_count,
-            major_count,
-            threshold_blocking,
-            threshold_total_major,
-        )
-        return False
-
-    if mode == "phase-gate":
+    if mode == MODE_PHASE_GATE:
         # Phase-gate mode: always escalate (Tier 2 runs after apply+verify)
         logger.info("escalating_tier2 reason=phase_gate")
         return True
 
     logger.warning("unknown_escalation_mode mode=%s", mode)
+    return False
+
+
+def _threshold_breached(tier1_results: list[ReviewResult], tier2_config: dict) -> bool:
+    """Escalate on any blocking finding, or on enough major+blocking findings combined."""
+    threshold_blocking = tier2_config.get("threshold_blocking", 1)
+    threshold_total_major = tier2_config.get("threshold_total_major", 5)
+
+    blocking_count = sum(1 for r in tier1_results if r.verdict == "blocking")
+    major_count = sum(1 for r in tier1_results if r.verdict in ("blocking", "needs_fixes"))
+
+    if blocking_count >= threshold_blocking:
+        logger.info(
+            "escalating_tier2 reason=threshold_blocking count=%d threshold=%d",
+            blocking_count,
+            threshold_blocking,
+        )
+        return True
+
+    if major_count >= threshold_total_major:
+        logger.info(
+            "escalating_tier2 reason=threshold_major count=%d threshold=%d",
+            major_count,
+            threshold_total_major,
+        )
+        return True
+
+    logger.info(
+        "no_escalation blocking=%d major=%d thresholds=(%d,%d)",
+        blocking_count,
+        major_count,
+        threshold_blocking,
+        threshold_total_major,
+    )
     return False

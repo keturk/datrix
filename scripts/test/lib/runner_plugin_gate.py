@@ -57,18 +57,12 @@ import os
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable
 from pathlib import Path
 
 from datrix_scripts import runner_plugin
+from datrix_scripts.gate_harness import CheckFunc, check_list_main
 from datrix_scripts.paths import script_env
 from datrix_scripts.venv import get_venv_python
-
-CheckFunc = Callable[[], None]
-
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_RESET = "\033[0m"
 
 _PLUGIN = runner_plugin.__name__
 _RUN_DIR = "DATRIX_RUN_DIR"
@@ -135,29 +129,6 @@ _FACTS_SUITE_EXECUTED = 4
 _FACTS_SUITE_DESELECTED = 2
 
 _TRIVIAL_SUITE = "def test_ok():\n    assert True\n"
-
-
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def run_checks(checks: list[CheckFunc]) -> bool:
-    """Run every check, catching only AssertionError. Returns True iff all passed."""
-    all_passed = True
-    for check in checks:
-        name = check.__name__
-        try:
-            check()
-        except AssertionError as exc:
-            _fail(f"{name}: {exc}")
-            all_passed = False
-        else:
-            _ok(name)
-    return all_passed
 
 
 # ===========================================================================
@@ -427,15 +398,6 @@ def check_path_scope_excludes_workspace_scratch_directories() -> None:
         assert scope.admits(str(root / "src" / "kept.py"))
 
 
-def harness_self_test() -> bool:
-    """A dummy check that always fails, used only by --harness-self-test."""
-
-    def _always_fails() -> None:
-        assert False, "deliberately failing check for --harness-self-test"
-
-    return run_checks([_always_fails])
-
-
 _ALL_CHECKS: list[CheckFunc] = [
     check_records_never_leak_sentinels,
     check_records_hold_exact_facts,
@@ -451,18 +413,11 @@ _ALL_CHECKS: list[CheckFunc] = [
 
 
 def main() -> int:
-    if "--harness-self-test" in sys.argv:
-        return 0 if harness_self_test() else 1
-
-    print(f"Running {len(_ALL_CHECKS)} {_PLUGIN} behavior checks...\n")
-    passed = run_checks(_ALL_CHECKS)
-
-    print()
-    if passed:
-        print(f"{_GREEN}GATE PASSED{_RESET}: all {len(_ALL_CHECKS)} runner-plugin behavior checks passed.")
-        return 0
-    print(f"{_RED}GATE FAILED{_RESET}: see the failures above.")
-    return 1
+    return check_list_main(
+        f"Behavior checks for the {_PLUGIN} pytest runner plugin.",
+        "runner-plugin behavior",
+        _ALL_CHECKS,
+    )
 
 
 if __name__ == "__main__":

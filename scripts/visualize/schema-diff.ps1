@@ -45,51 +45,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-$pythonScript = Join-Path $scriptDir "lib\schema_diff.py"
+$pyArgs = @("--before", $Before, "--after", $After)
+if ($Format -ne "markdown") { $pyArgs += @("--format", $Format) }
+if ($Output) { $pyArgs += @("--output", $Output) }
+if ($Dbg) { $pyArgs += "--debug" }
 
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "schema_diff.py not found at $pythonScript"
-    exit 1
-}
-
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
-    Write-Error "Failed to activate virtual environment"
-    exit 1
-}
-
-trap {
-    if (Get-Command Disable-DatrixVenv -ErrorAction SilentlyContinue) {
-        Disable-DatrixVenv
-    }
-    throw $_
-}
-
-try {
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (-not (Test-Path $pythonExe)) {
-        $pythonExe = Join-Path $venvPath "bin\python"
-    }
-
-    $pyArgs = @("--before", $Before, "--after", $After)
-    if ($Format -ne "markdown") {
-        $pyArgs += "--format"
-        $pyArgs += $Format
-    }
-    if ($Output) {
-        $pyArgs += "--output"
-        $pyArgs += $Output
-    }
-    if ($Dbg) { $pyArgs += "--debug" }
-
-    & $pythonExe $pythonScript @pyArgs
-    exit $LASTEXITCODE
-} finally {
-    Disable-DatrixVenv
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\schema_diff.py") -Arguments $pyArgs)

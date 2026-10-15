@@ -12,8 +12,9 @@
 #   file = "path/relative/to/monorepo-root, forward slashes"
 #   count = <int>
 #
-# The loader/writer below (load_target_literal_baseline/write_target_literal_baseline)
-# does not parse or round-trip a `reason` TOML key -- `--update-baseline` fully
+# The target-literal writer (write_target_literal_baseline, in
+# scan/lib/import_boundaries/target_literals.py) does not round-trip a `reason`
+# TOML key -- `--update-baseline` fully
 # regenerates this file from a fresh scan, so a reason lives as a `#`-comment line
 # directly above its `[[baseline]]` block instead (matching this header's own
 # comment style); re-running `--update-baseline` preserves every entry's COUNT

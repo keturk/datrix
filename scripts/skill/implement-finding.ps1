@@ -73,24 +73,25 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptsDir = Split-Path -Parent $scriptDir
-$workspace = Split-Path -Parent (Split-Path -Parent $scriptsDir)
-$checkScript = Join-Path $scriptDir "lib\skill_assist.py"
-. (Join-Path $scriptsDir "common\venv.ps1")
-Import-Module (Join-Path $scriptDir "SkillChain.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "SkillChain.psm1") -Force
+
+$workspace = Get-DatrixWorkspaceRoot
+$checkScript = Join-Path $PSScriptRoot "lib\skill_assist.py"
 
 $ExitDeleted = 0
 $OutcomePattern = "Finding fix:[ \t*_`]*(DONE|ALREADY RESOLVED|BLOCKED\W*(B[1-4]))"
-$pythonExe = Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"
 
 function Invoke-FindingClose {
     <# Run skill-assist finding-close; print its output; return its exit code. #>
     param([Parameter(Mandatory)] [string]$Path, [string]$SessionLog = "")
     $closeArgs = @("--workspace", $workspace, "finding-close", "--finding", $Path)
     if ($SessionLog) { $closeArgs += @("--session-log", $SessionLog) }
-    & $pythonExe $checkScript @closeArgs | ForEach-Object { Write-Host "  $_" }
-    return $LASTEXITCODE
+    $lines = New-Object System.Collections.Generic.List[string]
+    $exitCode = Invoke-DatrixPythonScript -Script $checkScript -Arguments $closeArgs -OutputLines $lines
+    $lines | ForEach-Object { Write-Host "  $_" }
+    return $exitCode
 }
 
 function Get-SelectedFindings {
@@ -105,12 +106,14 @@ function Get-SelectedFindings {
     }
     $selectArgs = @("--workspace", $workspace, "finding-select", "--count", "$Count")
     if ($Dir) { $selectArgs += @("--dir", $Dir) }
-    $paths = @(& $pythonExe $checkScript @selectArgs)
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Selecting the findings failed (exit $LASTEXITCODE)." -ForegroundColor Red
+    $paths = New-Object System.Collections.Generic.List[string]
+    $selectExit = Invoke-DatrixPythonScript -Script $checkScript -Arguments $selectArgs -OutputLines $paths
+    if ($selectExit -ne 0) {
+        $paths | ForEach-Object { Write-Host "  $_" }
+        Write-Host "Selecting the findings failed (exit $selectExit)." -ForegroundColor Red
         exit 1
     }
-    return $paths
+    return @($paths)
 }
 
 function Get-Outcome {
@@ -139,16 +142,6 @@ function Resolve-Finding {
     if ((Invoke-FindingClose $Path $row.StreamPath) -eq $ExitDeleted) { return "fixed and deleted" }
     return "FAILED: fixed, but left in place (see above); $resume"
 }
-
-# Run from a prompt (.\implement-finding.ps1), an activation made here would outlive the script;
-# every exit below, Ctrl-C included, passes through the finally that undoes it. A venv the caller
-# had already activated is left as it was.
-$venvWasActive = [bool]$env:VIRTUAL_ENV
-try {
-    if (-not (Ensure-DatrixVenv)) {
-        Write-Host "Failed to activate the workspace virtual environment." -ForegroundColor Red
-        exit 1
-    }
 
     $selected = @(Get-SelectedFindings)
     if ($selected.Count -eq 0) {
@@ -180,6 +173,3 @@ try {
     if (@($rows | Where-Object { $_.Outcome -like "FAILED*" }).Count -gt 0) { exit 1 }
     if (@($rows | Where-Object { $_.Outcome -like "NEEDS JON*" }).Count -gt 0) { exit 2 }
     exit 0
-} finally {
-    if (-not $venvWasActive) { Disable-DatrixVenv }
-}

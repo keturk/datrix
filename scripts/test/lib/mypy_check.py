@@ -18,17 +18,15 @@ try:
 except ImportError:
  tomllib = None  # type: ignore[assignment]
 
-from datrix_scripts.venv import get_datrix_root, get_venv_python, is_venv_active
+from datrix_scripts.framework_repos import workspace_package_dirs
+from datrix_scripts.paths import WORKSPACE_DIR
+from datrix_scripts.venv import get_venv_python, is_venv_active
 
 
 def find_project_root(project_name: str, datrix_root: Path) -> Path:
  project_path = datrix_root / project_name
  if not project_path.exists():
-  available = sorted([
-   d.name
-   for d in datrix_root.iterdir()
-   if d.is_dir() and d.name.startswith("datrix")
-  ])
+  available = [d.name for d in workspace_package_dirs(datrix_root, include_showcase=True)]
   raise FileNotFoundError(
    f"Project '{project_name}' not found at {project_path}\n"
    f"Available projects: {', '.join(available)}"
@@ -80,7 +78,7 @@ def resolve_cache_dir(project_root: Path) -> Path:
  ignored-source gate fails on. The cache is pure derived state, so it belongs
  in the workspace temp tree with everything else that is regenerable.
  """
- return get_datrix_root() / ".tmp" / "mypy-cache" / project_root.name
+ return WORKSPACE_DIR / ".tmp" / "mypy-cache" / project_root.name
 
 
 def write_log(project_root: Path, output: str) -> Path:
@@ -201,8 +199,7 @@ Note: This script should be called from mypy.ps1, which handles virtual environm
   print("")
 
  try:
-  datrix_root = get_datrix_root()
-  project_root = find_project_root(args.project_name, datrix_root)
+  project_root = find_project_root(args.project_name, WORKSPACE_DIR)
  except FileNotFoundError as e:
   print(f"ERROR: {e}", file=sys.stderr)
   return 1

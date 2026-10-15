@@ -14,18 +14,16 @@ Exit codes: 0 = every check passed, 1 = at least one check failed, 2 = usage err
 
 from __future__ import annotations
 
-import argparse
 import json
-import os
 import subprocess
 import sys
-from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from datrix_scripts.gate_harness import CheckFunc, check_list_main, write_files
 from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
 from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering
-from datrix_scripts.local_llm_usage import USAGE_LOG_VARIABLE
+from datrix_scripts.local_llm_usage import GATE_USAGE_LOG
 from pre_review import (
     RULE_BARE_EXCEPT,
     RULE_EXCEPT_PASS,
@@ -42,11 +40,6 @@ from pre_review import (
     review,
 )
 
-CheckFunc = Callable[[], None]
-
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_RESET = "\033[0m"
 _GIT_IDENTITY = ("-c", "user.name=pre-review-gate", "-c", "user.email=gate@example.invalid",
                  "-c", "commit.gpgsign=false")
 
@@ -89,43 +82,15 @@ def old_placeholder() -> None:
 _ADDED = frozenset(range(2, 20))
 
 
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def run_checks(checks: list[CheckFunc]) -> bool:
-    all_passed = True
-    for check in checks:
-        try:
-            check()
-        except AssertionError as exc:
-            _fail(f"{check.__name__}: {exc}")
-            all_passed = False
-        else:
-            _ok(check.__name__)
-    return all_passed
-
-
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *_GIT_IDENTITY, "-C", str(repo), *args], check=True, capture_output=True)
-
-
-def _write(root: Path, files: dict[str, str]) -> None:
-    for relative, text in files.items():
-        path = root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
 
 
 def _repo(workspace: Path, name: str, committed: dict[str, str]) -> Path:
     repo = workspace / name
     repo.mkdir(parents=True)
     _git(repo, "init", "-q")
-    _write(repo, {**committed, ".gitignore": "ignored/\n"})
+    write_files(repo, {**committed, ".gitignore": "ignored/\n"})
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "fixture")
     return repo
@@ -168,7 +133,7 @@ def check_pending_changes_come_from_git() -> None:
     with TemporaryDirectory() as temp:
         workspace = Path(temp)
         repo = _repo(workspace, "alpha", {"src/mod.py": "A = 1\nB = 2\n"})
-        _write(repo, {"src/mod.py": "A = 1\nNEW = 3\nB = 2\n", "src/fresh.py": "X = 1\nY = 2\n",
+        write_files(repo, {"src/mod.py": "A = 1\nNEW = 3\nB = 2\n", "src/fresh.py": "X = 1\nY = 2\n",
                       "ignored/skip.py": "Z = 1\n", "notes.md": "text\n"})
         files = {f.path: set(f.added) for f in changed_python_files(repo)}
         assert files == {"src/mod.py": {2}, "src/fresh.py": {1, 2}}, files
@@ -202,7 +167,7 @@ def check_model_review_is_advisory_and_skips_tests() -> None:
     with TemporaryDirectory() as temp, LoopbackOllama(answering(answer)) as server:
         workspace = Path(temp)
         repo = _repo(workspace, "alpha", {"src/mod.py": "A = 1\n"})
-        _write(repo, {"src/mod.py": "A = 1\nB = cfg.get('k') or 'd'\n", "tests/test_mod.py": "C = 1\n"})
+        write_files(repo, {"src/mod.py": "A = 1\nB = cfg.get('k') or 'd'\n", "tests/test_mod.py": "C = 1\n"})
         settings = LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
                                     ollama_port=server.port)
         result = review(workspace, LocalLlmPool(settings, report=lambda _: None), workers=2, max_chars=4000)
@@ -212,19 +177,6 @@ def check_model_review_is_advisory_and_skips_tests() -> None:
         assert len(prompts) == 1 and "alpha/src/mod.py" in prompts[0], f"only the non-test file may be sent: {prompts}"
         offline = review(workspace, None, workers=2, max_chars=4000)
         assert not offline.advisory and "not run" in offline.advisory_note, offline.advisory_note
-
-
-def _deliberately_failing_check() -> None:
-    assert False, "deliberately failing check for --harness-self-test"
-
-
-def harness_self_test() -> bool:
-    print("=== Harness self-test: a deliberately-failing check must be reported FAILED ===")
-    if run_checks([_deliberately_failing_check]):
-        _fail("harness self-test: the deliberately-failing check was NOT reported as failed")
-        return False
-    _ok("harness self-test: the deliberately-failing check was correctly reported FAILED")
-    return True
 
 
 _ALL_CHECKS: list[CheckFunc] = [
@@ -237,31 +189,13 @@ _ALL_CHECKS: list[CheckFunc] = [
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Behaviour checks for the first-pass pre-review.")
-    parser.add_argument("--harness-self-test", action="store_true",
-                        help="Run only the harness self-test (a deliberately-failing dummy check).")
-    parser.add_argument("--only", metavar="PREFIX", help="Run only the checks whose name starts with PREFIX.")
-    args = parser.parse_args()
-    if args.harness_self_test:
-        return 0 if harness_self_test() else 1
-    checks = _ALL_CHECKS
-    if args.only:
-        checks = [check for check in _ALL_CHECKS if check.__name__.startswith(args.only)]
-        if not checks:
-            print(f"Error: no check name starts with {args.only!r}. Checks: "
-                  f"{', '.join(c.__name__ for c in _ALL_CHECKS)}.", file=sys.stderr)
-            return 2
-    print(f"Running {len(checks)} pre-review behaviour checks...\n")
     # The checks' own loopback model servers must never count as real use of the machines.
-    with TemporaryDirectory(prefix="pre-review-gate-") as temp:
-        os.environ[USAGE_LOG_VARIABLE] = str(Path(temp) / "usage.jsonl")
-        passed = run_checks(checks)
-    print()
-    if passed:
-        print(f"{_GREEN}GATE PASSED{_RESET}: all {len(checks)} pre-review behaviour checks passed.")
-        return 0
-    print(f"{_RED}GATE FAILED{_RESET}: see the failures above.")
-    return 1
+    return check_list_main(
+        "Behaviour checks for the first-pass pre-review.",
+        "pre-review behaviour",
+        _ALL_CHECKS,
+        temp_file_variable=GATE_USAGE_LOG,
+    )
 
 
 if __name__ == "__main__":

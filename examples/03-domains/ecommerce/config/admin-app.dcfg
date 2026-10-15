@@ -1,6 +1,11 @@
 config app ecommerce.Admin {
   base {
     targets = ["angular"];
+    clients {
+      angular {
+        scope = "@ecommerce";
+      }
+    }
   }
   profile development as "dev" extends base {
     web { port = 4300; }

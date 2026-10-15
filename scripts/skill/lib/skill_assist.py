@@ -69,7 +69,7 @@ from datrix_scripts.local_llm import (
 )
 from datrix_scripts.local_reading import ReadScopeError
 from datrix_scripts.task_metadata import format_phase
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 from findings import build_index, check_consolidation, render_check, render_index
 from implement_finding import DEFAULT_COUNT as DEFAULT_FINDING_COUNT
 from implement_finding import close_finding, finding_files, findings_dir
@@ -95,7 +95,7 @@ def _pool(args: argparse.Namespace) -> LocalLlmPool:
 
 
 def _workspace(args: argparse.Namespace) -> Path:
-    return Path(args.workspace).resolve() if args.workspace else get_datrix_root()
+    return Path(args.workspace).resolve() if args.workspace else WORKSPACE_DIR
 
 
 def _design(workspace: Path, spec: str) -> Path:

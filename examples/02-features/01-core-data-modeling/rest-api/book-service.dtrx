@@ -36,12 +36,14 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // Concrete entity - inherits all fields from BaseEntity and maps to a database table
         entity Book extends BaseEntity {
             // String(200) = varchar with max 200 chars; 'trim' auto-trims whitespace on input
-            String(200) title : trim;
+            // 'sortable' offers the field as a sortBy value of the resource's list;
+            // 'filterable' adds it as an optional filter of that list
+            String(200) title : trim, sortable, filterable;
             String(20) isbn;
             String(100) author : trim;
-            Int publicationYear;
+            Int publicationYear : sortable;
             // Enum fields enforce type safety; defaults use EnumName.Value syntax
-            BookStatus status = BookStatus.Available;
+            BookStatus status : filterable = BookStatus.Available;
             BookFormat format = BookFormat.Hardcover;
         }
 
@@ -52,6 +54,13 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
         // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
         resource bookDb.Book : auth(public);
+
+        // A custom paged route: its optional parameters are its filters, and
+        // sortable(...) names the fields a client may sort it by (sortBy/sortOrder)
+        @path('/books/by-author')
+        get booksByAuthor(String author, String? isbn, PageRequest page) : auth(public), sortable(title, publicationYear) -> Page<bookDb.Book> {
+            return bookDb.Book.where(author: author).orderBy(createdAt: desc).page(page);
+        }
     }
 
 }

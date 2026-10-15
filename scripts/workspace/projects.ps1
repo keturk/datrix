@@ -8,8 +8,7 @@
  With -Src, prints the full path of each project's src folder (only for projects that have one).
  With -Tests, prints the full path of each project's tests folder (only for projects that have one).
  With -Docs, prints the full path of each project's docs folder (only for projects that have one).
- Activates the datrix virtual environment and runs projects.py. Ensures virtual environment
- is deactivated even if the script is interrupted (Ctrl-C).
+ Runs projects.py in the shared venv.
 
 .PARAMETER Src
  Display full paths to the src folder of each project that has one.
@@ -49,85 +48,12 @@ param(
  [switch]$Docs
 )
 
-# Error handling - ensure cleanup on exit
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-# Script directory
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\projects.py"
+$pythonArgs = @()
+if ($Src) { $pythonArgs += "--src" }
+if ($Tests) { $pythonArgs += "--tests" }
+if ($Docs) { $pythonArgs += "--docs" }
 
-# Import common modules
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-# Check if Python script exists
-if (-not (Test-Path $pythonScript)) {
- Write-Error "Error: projects.py not found at: $pythonScript"
- exit 1
-}
-
-# Function to handle cleanup on exit
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-# Register cleanup on script exit
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-# Trap Ctrl-C to ensure proper cleanup (PowerShell.Exiting may not fire on Ctrl-C)
-trap {
- Write-Host ""
- Write-Warning "Interrupted by user (Ctrl-C)"
- Invoke-Cleanup
- exit 130
-}
-
-# Main execution with proper error handling
-try {
- # Activate virtual environment
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
-  Write-Error "Failed to activate virtual environment"
-  exit 1
- }
-
- # Get Python executable from venv
- $venvPath = Get-DatrixVenvPath
- $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
- # Build arguments for Python script
- $pythonArgs = @($pythonScript)
- if ($Src) {
-  $pythonArgs += "--src"
- }
- if ($Tests) {
-  $pythonArgs += "--tests"
- }
- if ($Docs) {
-  $pythonArgs += "--docs"
- }
-
- # Run the Python script
- & $pythonExe @pythonArgs
- $exitCode = $LASTEXITCODE
-
- # Exit with the same code as the Python script
- exit $exitCode
-
-} catch {
- Write-Host ""
- Write-Host "Error occurred:" -ForegroundColor Red
- Write-Host $_.Exception.Message -ForegroundColor Red
- Write-Host ""
- if ($_.Exception.InnerException) {
-  Write-Host "Inner exception:" -ForegroundColor Red
-  Write-Host $_.Exception.InnerException.Message -ForegroundColor Red
-  Write-Host ""
- }
- Invoke-Cleanup
- exit 1
-} finally {
- # Ensure virtual environment is deactivated even on Ctrl-C
- Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\projects.py") -Arguments $pythonArgs)

@@ -1,6 +1,11 @@
 config app ecommerce.Site {
   base {
     targets = ["angular"];
+    clients {
+      angular {
+        scope = "@ecommerce";
+      }
+    }
     strings = ["config/strings/site.en-US.dcfg", "config/strings/site.tr-TR.dcfg"];
   }
   // Loopback profiles are never indexed: `indexable` defaults to false, so a local or test

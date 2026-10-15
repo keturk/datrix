@@ -29,7 +29,8 @@ if sys.platform == "win32":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 
 def get_project_roots() -> list[Path]:
@@ -39,14 +40,8 @@ def get_project_roots() -> list[Path]:
     Returns:
         Sorted paths to directories whose names start with "datrix".
 
-    Raises:
-        FileNotFoundError: If the Datrix root cannot be found.
     """
-    datrix_root = get_datrix_root()
-    return sorted(
-        d for d in datrix_root.iterdir()
-        if d.is_dir() and d.name.startswith("datrix")
-    )
+    return workspace_package_dirs(WORKSPACE_DIR, include_showcase=True)
 
 
 def main() -> int:

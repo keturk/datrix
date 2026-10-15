@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 from datrix_scripts.generated_test_log_writer import GeneratedTestLogWriter
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 
 def detect_metadata(results_dir: Path) -> dict[str, str]:
@@ -58,7 +58,7 @@ def detect_metadata(results_dir: Path) -> dict[str, str]:
     platform = "docker"
 
     # Try to find source .dtrx file
-    datrix_root = get_datrix_root()
+    datrix_root = WORKSPACE_DIR
 
     # Check examples/{project}/system.dtrx
     source_dtrx = datrix_root / "datrix" / "examples" / project_name / "system.dtrx"

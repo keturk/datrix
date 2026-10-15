@@ -14,6 +14,7 @@ from __future__ import annotations
 import sys
 
 import libcst as cst
+from _shared import add_from_import
 from bowler import Query
 
 ERROR_MODULE = "datrix_common.errors.transform"
@@ -49,31 +50,7 @@ class ReplaceExceptionTransformer(cst.CSTTransformer):
     ) -> cst.Module:
         if not self._needs_import:
             return updated
-        parts = self.error_module.split(".")
-        if len(parts) == 1:
-            module_node: cst.BaseExpression = cst.Name(parts[0])
-        else:
-            module_node = cst.Attribute(
-                value=cst.Name(parts[0]),
-                attr=cst.Name(parts[1]),
-            )
-        import_stmt = cst.SimpleStatementLine(
-            body=[
-                cst.ImportFrom(
-                    module=module_node,
-                    names=[cst.ImportAlias(cst.Name(self.error_class))],
-                )
-            ],
-        )
-        body = list(updated.body)
-        insert_at = 0
-        for i, stmt in enumerate(body):
-            if isinstance(stmt, cst.SimpleStatementLine) and any(
-                isinstance(part, (cst.Import, cst.ImportFrom)) for part in stmt.body
-            ):
-                insert_at = i + 1
-        new_body = body[:insert_at] + [import_stmt] + body[insert_at:]
-        return updated.with_changes(body=new_body)
+        return add_from_import(updated, self.error_module, self.error_class)
 
 
 def replace_exception(

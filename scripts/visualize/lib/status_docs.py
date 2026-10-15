@@ -28,9 +28,9 @@ signal.signal(signal.SIGINT, _sigint_handler)
 
 from datrix_scripts.logging_utils import ColorCodes, colorize  # noqa: E402
 from datrix_scripts.test_projects import get_test_projects  # noqa: E402
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
-datrix_root = get_datrix_root()
+datrix_root = WORKSPACE_DIR
 
 DOC_TYPES = ("diagrams", "openapi", "asyncapi")
 

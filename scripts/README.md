@@ -24,7 +24,7 @@ scripts/
 │   └── repo-hygiene/  # What may be committed; docs, examples, hard-zero code shapes
 ├── git/          # Git operations across all repositories (status, pull, line endings, review, commit)
 ├── metrics/      # Code metrics: Radon, Vulture, Ruff, dependency, duplicate-code, Bandit, coverage, agent spend
-├── review/       # Task-file review (Tier 1 local model, Tier 2 Codex)
+├── review/       # Task-file review (Tier 1 per task, Tier 2 per phase, both on local models)
 ├── skill/        # Headless skill chains and skill assists
 ├── tasks/        # Task-file management and phase analysis
 └── visualize/    # Diagrams, OpenAPI/AsyncAPI documents, schema snapshots
@@ -41,8 +41,9 @@ The scripts follow a **wrapper pattern**:
    a package test lives in `common/lib/datrix_scripts/` and is imported as `datrix_scripts.<name>`;
    a wrapper runs one of those with `python -m datrix_scripts.<name>`.
 
-`Ensure-DatrixVenv` puts `common/lib` on `PYTHONPATH`, so every wrapper's Python can import the
-shared package. The placement rule, how hooks and MCP servers reach the package, and how to add a
+Every wrapper runs its Python through `Invoke-DatrixPythonScript` (`common/DatrixPythonScript.psm1`),
+which activates the shared venv with `common/lib` on `PYTHONPATH`, so every wrapper's Python can
+import the shared package. The placement rule, how hooks and MCP servers reach the package, and how to add a
 script are in [common/README.md](common/README.md#where-python-lives).
 `test\shared-library-gate.ps1 -Only check_scripts_tree` holds the layout.
 
@@ -81,121 +82,7 @@ See [quick-reference.md](quick-reference.md) for the full conversion table and l
 
 ## Quick Start
 
-### Run Tests
-```powershell
-# The tests of the files you changed
-.\test\test.ps1 datrix-common -Specific "tests/unit/test_foo.py"
-
-# The tests of the behaviour you changed, in every package it reaches
-.\test\test.ps1 datrix-common datrix-cli -Tag config-resolution
-
-# Compare timestamped unit/deploy results for one generated project
-.\test\compare-tests.ps1 D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce\python\.test_results
-```
-
-Whole-suite runs (a bare package, `-All`, `-Rerun`, a tier switch) are Jon's; agents run only targeted forms.
-
-### Generate Code
-```powershell
-# Generate a single project
-.\dev\generate.ps1 examples/01-foundation/system.dtrx .generated/python/docker/my-project -L python
-
-# Generate foundation examples only (Jon's: batch forms are refused for agents)
-.\dev\generate.ps1 -TestSet foundation -L python
-```
-
-### Lint/Format Config Documents (`.dcfg`)
-```powershell
-# Check all .dcfg files (no writes)
-.\scan\config-linter.ps1 -All -Check
-
-# Format all .dcfg files
-.\scan\config-linter.ps1 -All
-```
-
-### Check Git Status
-```powershell
-# Quick status of all repos
-.\git\status.ps1
-
-# Detailed status with changed files
-.\git\status.ps1 -Detailed
-```
-
-### View Tasks
-```powershell
-# List incomplete tasks and bugs
-.\tasks\todo.ps1
-
-# List completed tasks
-.\tasks\completed.ps1
-```
-
-### Code Metrics
-```powershell
-# Cyclomatic and cognitive complexity check (default max 15), per package or per file
-.\metrics\complexity.ps1 datrix-common
-.\metrics\complexity.ps1 -Files datrix-cli\src\datrix_cli\main.py
-
-# Raw metrics, Halstead, or Maintainability Index
-.\metrics\complexity.ps1 datrix-common -Mode raw
-.\metrics\complexity.ps1 -All -Mode halstead
-
-# Dead-code detection (Vulture)
-.\metrics\vulture.ps1 datrix-common
-
-# Package dependency report (tree, list, json), or third-party dependencies with specifier drift
-.\metrics\dependency.ps1 -All
-.\metrics\dependency.ps1 -All -Mode list
-.\metrics\dependency.ps1 -All -Mode third-party
-
-# Lint or format (Ruff)
-.\metrics\ruff.ps1 datrix-common
-.\metrics\ruff.ps1 datrix-common -Mode format -Diff
-
-# Duplicate-code detection (Pylint R0801)
-.\metrics\duplicate.ps1 datrix-common
-.\metrics\duplicate.ps1 -All
-
-# Security scanning (Bandit)
-.\metrics\bandit.ps1 datrix-common
-.\metrics\bandit.ps1 -All -Format json
-```
-
-See [metrics/README.md](metrics/README.md) for all options (complexity, Vulture, Ruff, dependency, duplicate, Bandit).
-
-### Anti-Pattern Scanning
-
-Three scanners enforce `.cursorrules` coding standards across the monorepo:
-
-```powershell
-# LibCST — deep Python AST analysis (silent-fallback, empty-except, missing-encoding, banned imports, placeholder bodies)
-.\scan\libcst.ps1 datrix-common
-.\scan\libcst.ps1 -All -Report libcst-report.md
-
-# Semgrep — declarative YAML rules (11 rules covering all .cursorrules anti-patterns)
-.\scan\semgrep.ps1 -All
-.\scan\semgrep.ps1 -All -Rule missing-encoding-read
-.\scan\semgrep.ps1 -ListRules
-.\scan\semgrep.ps1 -All -Report semgrep-report.md
-
-# ast-grep — fast structural Python rules and one-off AST patterns
-.\scan\ast-grep.ps1 -All
-.\scan\ast-grep.ps1 -All -Rule placeholder-notimplemented-body
-.\scan\ast-grep.ps1 -All -Pattern 'raise Exception($MSG)'
-.\scan\ast-grep.ps1 -ListRules
-.\scan\ast-grep.ps1 -All -Report ast-grep-report.md
-```
-
-See [scan/README.md](scan/README.md) for all options, [config/semgrep-rules/README.md](config/semgrep-rules/README.md) for the Semgrep catalog, and [config/ast-grep-rules/README.md](config/ast-grep-rules/README.md) for the ast-grep catalog.
-
-### Codemods (Bowler / libCST)
-
-AST-based refactors for Datrix Python code (rename functions/classes/variables, add arguments, custom transforms). Requires `pip install bowler`. See [codemods/README.md](codemods/README.md).
-
-```powershell
-.\codemods\run-codemod.ps1 01_rename_function OLD_NAME NEW_NAME datrix-language\src
-```
+Every script's forms and parameters live in its folder's quick-reference: start at [quick-reference.md](quick-reference.md), which links each category's reference and shows the forms an agent may run (targeted tests, one project's generation, one named scan rule) apart from Jon's sweeps. The anti-pattern scanners' rule catalogs are [config/semgrep-rules/README.md](config/semgrep-rules/README.md) and [config/ast-grep-rules/README.md](config/ast-grep-rules/README.md); the codemods are described in [codemods/README.md](codemods/README.md).
 
 ## Virtual Environment
 

@@ -45,7 +45,6 @@ Exit codes: 0 = all checks pass, 1 = a check failed, 2 = usage/config error.
 
 from __future__ import annotations
 
-import argparse
 import json
 import subprocess
 import sys
@@ -54,9 +53,19 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from datrix_scripts.gate_harness import (
+    EXIT_PASS,
+    EXIT_USAGE,
+    EXIT_VIOLATION,
+    gate_argument_parser,
+    harness_self_test,
+    report_fail,
+    report_ok,
+    report_step,
+)
 from datrix_scripts.logging_utils import LogConfig, TeeLogger
 from datrix_scripts.paths import SCRIPTS_DIR, WORKSPACE_DIR
-from datrix_scripts.structured_log_writer import StructuredLogWriter
+from datrix_scripts.structured_log_writer import classname_to_filepath
 
 # The pair from the original report: two files in one package that a
 # `-Specific` run was observed to confuse. Both are small, so the gate stays fast.
@@ -67,24 +76,6 @@ _DEFAULT_FILE_B = "tests/generators/cross_cutting/test_resilience_test_generator
 _TEST_PS1 = SCRIPTS_DIR / "test" / "test.ps1"
 _RUN_DIR_MARKERS = ("Details:", "Structured test results:")
 
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_CYAN = "\033[96m"
-_RESET = "\033[0m"
-
-
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def _step(msg: str) -> None:
-    print(f"\n{_CYAN}=== {msg}{_RESET}")
-
-
 def _normalize(path_text: str) -> str:
     """Normalize a test path for comparison (slashes, node id, casing of separators)."""
     cleaned = path_text.strip().replace("\\", "/")
@@ -93,14 +84,11 @@ def _normalize(path_text: str) -> str:
 
 
 # The gate must judge a run by the very classname->file translation that produced
-# the artifacts an agent reads, so it reuses StructuredLogWriter's own mapper
+# the artifacts an agent reads, so it reuses structured_log_writer's own mapper
 # rather than reimplementing it.
-_MAPPER = StructuredLogWriter(project_name="specific-selection-gate", run_dir=Path(__file__).resolve().parent)
-
-
 def _classname_to_file(classname: str) -> str:
     """Map a JUnit classname to its source file, using the SAME mapping index.json uses."""
-    return _MAPPER._classname_to_filepath(classname)  # noqa: SLF001
+    return classname_to_filepath(classname)
 
 
 def _junit_files(run_dir: Path) -> list[Path]:
@@ -256,7 +244,7 @@ def self_test(scratch_root: Path) -> bool:
     requested -- and requires check_selection() to reject it. It also requires the
     comparator to ACCEPT a correct run, so it cannot pass by rejecting everything.
     """
-    _step("Step 1/5: non-vacuity self-test (the comparator must reject a forced wrong-file run)")
+    report_step("Step 1/5: non-vacuity self-test (the comparator must reject a forced wrong-file run)")
     scratch = scratch_root / "selftest"
 
     correct_dir = scratch / "correct"
@@ -267,12 +255,12 @@ def self_test(scratch_root: Path) -> bool:
     )
     correct_violations = check_selection(correct_dir, _DEFAULT_FILE_A)
     if correct_violations:
-        _fail(
+        report_fail(
             "comparator REJECTED a correct run -- it would fail every real run and "
             "prove nothing. Violations: " + "; ".join(correct_violations)
         )
         return False
-    _ok("comparator accepts a correct run (requested file == the file JUnit names)")
+    report_ok("comparator accepts a correct run (requested file == the file JUnit names)")
 
     wrong_dir = scratch / "forced-wrong-file"
     _write_synthetic_run(
@@ -282,13 +270,13 @@ def self_test(scratch_root: Path) -> bool:
     )
     wrong_violations = check_selection(wrong_dir, _DEFAULT_FILE_A)
     if not wrong_violations:
-        _fail(
+        report_fail(
             "comparator ACCEPTED a run whose JUnit names "
             f"'{_DEFAULT_FILE_B}' while '{_DEFAULT_FILE_A}' was requested. The gate is "
             "vacuous: it cannot detect the very defect it exists to catch."
         )
         return False
-    _ok("comparator rejects a forced wrong-file run:")
+    report_ok("comparator rejects a forced wrong-file run:")
     for violation in wrong_violations:
         print(f"     -> {violation}")
 
@@ -304,9 +292,9 @@ def self_test(scratch_root: Path) -> bool:
         encoding="utf-8",
     )
     if not check_selection(empty_dir, _DEFAULT_FILE_A):
-        _fail("comparator ACCEPTED a run that executed zero testcases -- a false green.")
+        report_fail("comparator ACCEPTED a run that executed zero testcases -- a false green.")
         return False
-    _ok("comparator rejects a run that executed zero testcases")
+    report_ok("comparator rejects a run that executed zero testcases")
     return True
 
 
@@ -325,7 +313,7 @@ def run_dir_exclusivity_check(scratch_root: Path) -> bool:
     With the old `mkdir(exist_ok=True)`, every racer returns the same directory and
     both halves of this check fail -- which is exactly why it belongs in the gate.
     """
-    _step("Step 4/5: run-directory exclusivity (forced same-name collision, deterministic)")
+    report_step("Step 4/5: run-directory exclusivity (forced same-name collision, deterministic)")
     racers = 8
     ok = True
 
@@ -350,7 +338,7 @@ def run_dir_exclusivity_check(scratch_root: Path) -> bool:
     sequential_root.mkdir(parents=True, exist_ok=True)
     sequential = [claim(sequential_root, i) for i in range(racers)]
     if len(set(sequential)) != racers:
-        _fail(
+        report_fail(
             f"{racers} sequential runs that computed the same preferred directory name "
             f"got only {len(set(sequential))} distinct run directories. A reused run "
             f"directory means a later run overwrites an earlier run's junit-*.xml and "
@@ -358,21 +346,21 @@ def run_dir_exclusivity_check(scratch_root: Path) -> bool:
         )
         ok = False
     else:
-        _ok(f"{racers} sequential same-name runs -> {racers} distinct run directories")
+        report_ok(f"{racers} sequential same-name runs -> {racers} distinct run directories")
 
     concurrent_root = scratch_root / "exclusivity-concurrent"
     concurrent_root.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(max_workers=racers) as pool:
         concurrent = list(pool.map(lambda i: claim(concurrent_root, i), range(racers)))
     if len(set(concurrent)) != racers:
-        _fail(
+        report_fail(
             f"{racers} CONCURRENT runs that computed the same preferred directory name "
             f"got only {len(set(concurrent))} distinct run directories -- the directory "
             f"claim is not atomic."
         )
         ok = False
     else:
-        _ok(f"{racers} concurrent same-name runs -> {racers} distinct run directories")
+        report_ok(f"{racers} concurrent same-name runs -> {racers} distinct run directories")
 
     return ok
 
@@ -411,38 +399,38 @@ def _run_specific(package: str, test_file: str) -> tuple[int, Path | None, str]:
 
 
 def positive_check(package: str, file_a: str) -> bool:
-    _step(f"Step 2/5: real run -- test.ps1 {package} -Specific {file_a}")
+    report_step(f"Step 2/5: real run -- test.ps1 {package} -Specific {file_a}")
     code, run_dir, output = _run_specific(package, file_a)
     if run_dir is None:
-        _fail("the run did not report a run directory. Output:\n" + output)
+        report_fail("the run did not report a run directory. Output:\n" + output)
         return False
     print(f"     run directory: {run_dir}  (exit {code})")
     violations = check_selection(run_dir, file_a)
     if violations:
-        _fail("the run's own artifacts do not match the requested file:")
+        report_fail("the run's own artifacts do not match the requested file:")
         for violation in violations:
             print(f"     -> {violation}")
         return False
-    _ok(f"the run's own index.json/JUnit name ONLY {file_a}")
+    report_ok(f"the run's own index.json/JUnit name ONLY {file_a}")
     return True
 
 
 def multi_positive_check(package: str, file_a: str, file_b: str) -> bool:
     """One batched run must execute BOTH files -- and nothing else."""
     batch = f"{file_a},{file_b}"
-    _step(f'Step 3/5: batched run -- test.ps1 {package} -Specific "{batch}"')
+    report_step(f'Step 3/5: batched run -- test.ps1 {package} -Specific "{batch}"')
     code, run_dir, output = _run_specific(package, batch)
     if run_dir is None:
-        _fail("the batched run did not report a run directory. Output:\n" + output)
+        report_fail("the batched run did not report a run directory. Output:\n" + output)
         return False
     print(f"     run directory: {run_dir}  (exit {code})")
     violations = check_selection_multi(run_dir, [file_a, file_b])
     if violations:
-        _fail("the batched run's own artifacts do not match the requested set:")
+        report_fail("the batched run's own artifacts do not match the requested set:")
         for violation in violations:
             print(f"     -> {violation}")
         return False
-    _ok(f"one pytest session ran BOTH {file_a} and {file_b}, and nothing else")
+    report_ok(f"one pytest session ran BOTH {file_a} and {file_b}, and nothing else")
     return True
 
 
@@ -453,7 +441,7 @@ def concurrency_check(package: str, file_a: str, file_b: str) -> bool:
     timestamp + mkdir(exist_ok=True)) and clobbered each other's artifacts, so the
     run that asked for file B reported PASSED over file A's tests.
     """
-    _step(f"Step 5/5: concurrency -- two real -Specific runs against {package} at once")
+    report_step(f"Step 5/5: concurrency -- two real -Specific runs against {package} at once")
     with ThreadPoolExecutor(max_workers=2) as pool:
         future_a = pool.submit(_run_specific, package, file_a)
         future_b = pool.submit(_run_specific, package, file_b)
@@ -462,7 +450,7 @@ def concurrency_check(package: str, file_a: str, file_b: str) -> bool:
 
     ok = True
     if dir_a is None or dir_b is None:
-        _fail(
+        report_fail(
             "a concurrent run did not report a run directory.\n"
             f"--- run A ---\n{out_a}\n--- run B ---\n{out_b}"
         )
@@ -472,7 +460,7 @@ def concurrency_check(package: str, file_a: str, file_b: str) -> bool:
     print(f"     run B ({file_b}) -> {dir_b}  (exit {code_b})")
 
     if dir_a == dir_b:
-        _fail(
+        report_fail(
             f"both concurrent runs claimed the SAME run directory ({dir_a}). They "
             "overwrite each other's junit-*.xml and index.json, so at least one run's "
             "reported results belong to the other run."
@@ -482,31 +470,36 @@ def concurrency_check(package: str, file_a: str, file_b: str) -> bool:
     for run_dir, requested in ((dir_a, file_a), (dir_b, file_b)):
         violations = check_selection(run_dir, requested)
         if violations:
-            _fail(f"concurrent run for '{requested}' reported another file's tests:")
+            report_fail(f"concurrent run for '{requested}' reported another file's tests:")
             for violation in violations:
                 print(f"     -> {violation}")
             ok = False
 
     if ok:
-        _ok("both concurrent runs got private run directories naming only their own file")
+        report_ok("both concurrent runs got private run directories naming only their own file")
     return ok
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Prove that a `test.ps1 -Specific <file>` run's own index.json/JUnit "
-            "output names only tests from the requested file."
-        )
+    parser = gate_argument_parser(
+        "Prove that a `test.ps1 -Specific <file>` run's own index.json/JUnit "
+        "output names only tests from the requested file."
     )
     parser.add_argument("--package", default=_DEFAULT_PACKAGE, help="Package to exercise")
     parser.add_argument("--file-a", default=_DEFAULT_FILE_A, help="First test file (package-relative)")
     parser.add_argument("--file-b", default=_DEFAULT_FILE_B, help="Second test file (package-relative)")
     args = parser.parse_args()
 
+    if args.harness_self_test:
+        return EXIT_PASS if harness_self_test() else EXIT_VIOLATION
+    if args.self_test:
+        # The comparator's non-vacuity proof over planted JUnit output only; runs no test.ps1.
+        with tempfile.TemporaryDirectory(prefix="specific-selection-self-test-") as tmp:
+            return EXIT_PASS if self_test(Path(tmp)) else EXIT_VIOLATION
+
     if not _TEST_PS1.exists():
         print(f"ERROR: test.ps1 not found at {_TEST_PS1}", file=sys.stderr)
-        return 2
+        return EXIT_USAGE
 
     for test_file in (args.file_a, args.file_b):
         resolved = WORKSPACE_DIR / args.package / test_file
@@ -518,7 +511,7 @@ def main() -> int:
                 f"--file-a/--file-b.",
                 file=sys.stderr,
             )
-            return 2
+            return EXIT_USAGE
 
     with tempfile.TemporaryDirectory(prefix="specific-selection-gate-") as tmp:
         results = [
@@ -531,11 +524,10 @@ def main() -> int:
 
     print()
     if all(results):
-        print(f"{_GREEN}GATE PASSED{_RESET}: -Specific selects only the requested file, "
-              f"and the check is non-vacuous.")
-        return 0
-    print(f"{_RED}GATE FAILED{_RESET}: see the violations above.")
-    return 1
+        report_ok("GATE PASSED: -Specific selects only the requested file, and the check is non-vacuous.")
+        return EXIT_PASS
+    report_fail("GATE FAILED: see the violations above.")
+    return EXIT_VIOLATION
 
 
 if __name__ == "__main__":

@@ -99,8 +99,9 @@ Behaviour checks for the first-pass pre-review (`git/lib/pre_review.py`, wrapped
 | **Run the gate** | `.\git\pre-review-gate.ps1` | Run every check |
 | **One area** | `.\git\pre-review-gate.ps1 -Only check_model` | Checks whose name starts with the prefix |
 | **Harness self-test** | `.\git\pre-review-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
+| **Self-test** | `.\git\pre-review-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks over planted inputs |
 
-**Parameters:** `-Only`, `-HarnessSelfTest`, `-Dbg`
+**Parameters:** `-Only`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
 
 **Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
 
@@ -154,3 +155,23 @@ The scanner runs its own non-vacuity self-test first; a self-test failure aborts
 Each dirty repo's pending `.py` files (what a `git add -A` would stage; deletions excluded, and the checked-in output under `examples/**/generated/` skipped — that is generator output, held by the generators' own tests and replaced on regeneration; and the repo-root `vulture_whitelist.py` skipped — that is Vulture's input, a list of names nothing binds) are linted with `ruff check --select F`, run from that repo's root so its own `per-file-ignores` apply. Any pyflakes finding — an unused import, an undefined name, a test function silently shadowed by a same-named redefinition — aborts the **whole run** with nothing committed, reported as `repo/path:line:col CODE message`. Checked across all repos up front so a finding in the last repo cannot leave the first four already pushed. This is the per-change form of "lint only the files you edited", enforced rather than remembered. There is **no skip switch** and no baseline: a finding that is genuinely required (an import kept for a documented side effect) is suppressed on its own line with `# noqa: <code>` and the reason.
 
 The scanner runs its own non-vacuity self-test first (a planted F401 + F821 must be seen, a clean package must report zero, a fixture `per-file-ignores` must suppress the F401 only); a self-test failure aborts the run. To audit the whole workspace rather than just the pending files, run `gates\repo-hygiene\python-lint-correctness-gate.ps1`.
+
+### How `commit-and-push.ps1` works
+
+1. Finds the dirty repos and runs the pre-commit checks (customer-domain isolation, ignored source, PolyString case round-trips) across all of them before anything is generated or staged.
+2. **Message source:**
+   - Searches each local machine (`-LocalMachines`) for an Ollama server on port 11434 — all machines in parallel. Ollama is the only model server the local machines run. Nothing about a machine's models is configured: what answers, what it holds in memory and what it could load are discovered on every run. The search, readiness and failover live in `common/lib/datrix_scripts/local_llm.py`, which every local-model script in `scripts/` shares.
+   - Candidates, best first: every model Ollama already holds in memory on any machine, in machine order; then models Ollama would have to load (`OLLAMA_LOAD_PREFERENCE` in `common/lib/datrix_scripts/local_llm.py`, if installed).
+   - The first candidate is readied before any change set: its model is loaded (or a loaded one's keep-alive renewed) under `-LocalLoadTimeoutMs`, so a multi-minute cold load is not charged to a generate call.
+   - A candidate that fails to ready or generate (an exhausted GPU, a model that cannot load) is dropped for the rest of the run and the next one takes over.
+   - If nothing was found, or every candidate has failed → the Claude Code CLI generates the messages. It runs as a pure text call: no tools, `--safe-mode` (no workspace CLAUDE.md, hooks or skills), and its own system prompt. With `-MessageSource local` the run errors instead.
+   - Reasoning models are asked to skip reasoning (Ollama `think=false`, sent only to a model with the `thinking` capability): a commit message needs none, and it multiplies generate time.
+3. **Themed change sets:** each repo's dirty paths (untracked included, `.gitignore` honoured) are grouped by area. Container directories — `src/<package>`, `tests/<tier>`, `scripts`, `examples` — are stepped through, so `src/<pkg>/generators/x.py` and `tests/unit/generators/test_x.py` share the `generators` set and a feature lands in one commit with its tests. Past `-MaxCommitsPerRepo` sets, the smallest are folded into one `other changes` commit.
+4. **One message per set:** the model sees only that set's diff and is told the rest is committed separately. Messages pass a quality gate (English only, no path dumps, no chat-style prose, concrete subject). A subject over 72 characters triggers one rewrite with the overrun shown to the model. If no backend produces a usable message, a model-free message states only the area and file counts — never a guessed description.
+5. For each set: removes stale `.lock` files, `git add -A` over exactly the set's paths, then `git commit` restricted to those paths, so nothing else in the index rides along. Each repo is pushed once after its sets are committed.
+6. Stops on the first git failure.
+
+### `commit-and-push.ps1` prerequisites
+
+- **Local path:** at least one searched machine must run a model server that answers. The default machines, in order, are `DEFAULT_LOCAL_MACHINES` in `common/lib/datrix_scripts/local_llm.py`.
+- **Claude fallback:** the Claude Code CLI must be installed and available in PATH (`npm install -g @anthropic-ai/claude-code`; verify with `claude --version`).

@@ -4,7 +4,7 @@
  Aggregate a GREEN/RED test gate verdict across Datrix packages.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs gate_verdict.py. For each
+ Runs gate_verdict.py in the shared venv. For each
  requested project (or all testable packages with -All), finds the newest
  test-results run and reports a per-project GREEN/RED verdict plus an overall
  verdict. Writes gate-verdict.json to <workspace>\.tmp\test\ by default.
@@ -19,11 +19,18 @@
 .PARAMETER Output
  Output JSON path (default <workspace>\.tmp\test\gate-verdict.json).
 
+.PARAMETER SelfTest
+ Run only the self-test: planted green, red and index-less run folders give
+ GREEN, RED, RED. Reads no real run.
+
 .PARAMETER Dbg
  Enable debug logging.
 
 .EXAMPLE
  .\gate-verdict.ps1 -Projects datrix-codegen-azure,datrix-language
+
+.EXAMPLE
+ .\gate-verdict.ps1 -SelfTest
 
 .EXAMPLE
  .\gate-verdict.ps1 -All
@@ -38,56 +45,21 @@ param(
 
  [string]$Output,
 
+ [switch]$SelfTest,
+
  [switch]$Dbg
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-# Get the directory where this script is located
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-
-$PythonScript = Join-Path $ScriptDir "lib\gate_verdict.py"
-
-# Import common modules
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-function Invoke-Cleanup {
- Disable-DatrixVenv
+$pythonArgs = @()
+foreach ($project in $Projects) {
+ if ($project) { $pythonArgs += @("--projects", $project) }
 }
+if ($All) { $pythonArgs += "--all" }
+if ($Output) { $pythonArgs += @("--output", $Output) }
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($Dbg) { $pythonArgs += "--debug" }
 
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
-  Write-Error "Failed to activate virtual environment"
-  exit 1
- }
-
- $venvPath = Get-DatrixVenvPath
- $PythonExe = Join-Path $venvPath "Scripts\python.exe"
-
- if (-not (Test-Path $PythonScript)) {
-  Write-Error "Python script not found: $PythonScript"
-  exit 1
- }
-
- $pythonArgs = @($PythonScript)
- foreach ($project in $Projects) {
-  if ($project) { $pythonArgs += @("--projects", $project) }
- }
- if ($All) { $pythonArgs += "--all" }
- if ($Output) { $pythonArgs += @("--output", $Output) }
- if ($Dbg) { $pythonArgs += "--debug" }
-
- & $PythonExe @pythonArgs
- exit $LASTEXITCODE
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\gate_verdict.py") -Arguments $pythonArgs -Gate "gate-verdict")

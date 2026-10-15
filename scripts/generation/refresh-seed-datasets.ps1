@@ -28,29 +28,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\refresh_seed_datasets.py"
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "Error: refresh_seed_datasets.py not found at: $pythonScript"
-    exit 2
-}
+$pythonArgs = @()
+if ($CacheDir) { $pythonArgs += @("--cache-dir", $CacheDir) }
+$env:PYTHONIOENCODING = "utf-8"
 
-try {
-    if (-not (Ensure-DatrixVenv)) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-    $pythonExe = Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"
-    $pythonArgs = @($pythonScript)
-    if ($CacheDir) { $pythonArgs += "--cache-dir"; $pythonArgs += $CacheDir }
-    $env:PYTHONIOENCODING = "utf-8"
-    & $pythonExe @pythonArgs
-    exit $LASTEXITCODE
-}
-finally {
-    Disable-DatrixVenv
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\refresh_seed_datasets.py") -Arguments $pythonArgs)

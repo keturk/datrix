@@ -4,7 +4,7 @@
  Run mypy for Datrix projects using lib\mypy_check.py.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs lib\mypy_check.py for one or more
+ Runs lib\mypy_check.py in the shared venv for one or more
  projects. Accepts the same parameters as test.ps1 for command-line symmetry.
 
  A human-only tool: no skill, hook, orchestrator, or other script invokes it
@@ -90,29 +90,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptsDir = Split-Path -Parent $scriptDir
-$mypyScript = Join-Path $scriptDir "lib\mypy_check.py"
+$mypyScript = Join-Path $PSScriptRoot "lib\mypy_check.py"
+$datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
 
-$commonDir = Join-Path $scriptsDir "common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-$datrixWorkspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-
-if (-not (Test-Path $mypyScript)) {
- Write-Error "Error: mypy_check.py not found at: $mypyScript"
- exit 1
-}
-
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
  $projectsToCheck = @()
 
  if ($All) {
@@ -179,22 +163,6 @@ try {
  exit 1
  }
 
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
- Write-Host ""
- Write-Host "ERROR: Failed to activate virtual environment!" -ForegroundColor Red
- Write-Error "ERROR: No virtual environment is currently active."
- exit 1
- }
-
- $packagesInstalled = Ensure-DatrixPackagesInstalled -SkipIfInstalled
- if (-not $packagesInstalled) {
- Write-Host ""
- Write-Host "ERROR: Failed to install or update packages!" -ForegroundColor Red
- Write-Error "Failed to install or update packages"
- exit 1
- }
-
  $mypyArgs = @()
  if ($Coverage) { $mypyArgs += "--coverage" }
  if ($VerboseOutput) { $mypyArgs += "--verbose" }
@@ -227,8 +195,7 @@ try {
  Write-Host "========================================" -ForegroundColor Cyan
  Write-Host ""
 
- & python $mypyScript @mypyArgs $project
- $exitCode = $LASTEXITCODE
+ $exitCode = Invoke-DatrixPythonScript -Script $mypyScript -Arguments (@($mypyArgs) + @($project)) -RequirePackages
  $results[$project] = @{ success = ($exitCode -eq 0); exitCode = $exitCode }
 
  if ($exitCode -eq 0) {
@@ -262,10 +229,3 @@ try {
  exit 1
  }
  exit 0
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}

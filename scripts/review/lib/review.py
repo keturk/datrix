@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Task Review System Orchestrator.
 
-Coordinates Tier 1 (a local model, discovered on the network by datrix_scripts.local_llm) and
-optional Tier 2 (Codex reviewer) to review task files before execution.
+Coordinates Tier 1 (one task at a time) and optional Tier 2 (the whole phase), both on local
+models discovered on the network by datrix_scripts.local_llm, to review task files before
+execution.
 
 Usage (through the wrapper, which puts the shared scripts package on the path):
   .\\scripts\\review\\review.ps1 --phase 05
   .\\scripts\\review\\review.ps1 --task path/to/task.md
-  .\\scripts\\review\\review.ps1 --phase 05 --codex-phase-gate
+  .\\scripts\\review\\review.ps1 --phase 05 --tier2-phase-gate
 """
 
 from __future__ import annotations
@@ -17,30 +18,32 @@ import json
 import logging
 import re
 import sys
+import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
-
-try:
-    import tomllib  # Python 3.11+
-except ImportError:
-    import tomli as tomllib  # type: ignore
 
 from canonical_modules import (
     format_canonical_modules_for_prompt,
     load_or_build_cache,
 )
 from datrix_scripts.local_llm import (
-    ChatRequest,
     LocalLlmPool,
-    LocalLlmReply,
+    LocalLlmSettings,
     LocalLlmUnavailable,
     add_local_llm_arguments,
     local_llm_settings,
 )
 from datrix_scripts.paths import SCRIPTS_DIR
-from escalation import should_escalate_to_tier2
+from escalation import MODE_PHASE_GATE, MODE_THRESHOLD, should_escalate_to_tier2
+from review_reply import (
+    REVIEW_ATTEMPTS,
+    REVIEW_GENERATE_TIMEOUT_MS,
+    compute_verdict,
+    parse_model_response,
+    request_review,
+)
 from review_schema import Finding, ReviewResult, review_result_to_dict
-from tier2_codex import invoke_tier2_codex
+from tier2_local import Tier2Unanswered, phase_artifact_path, run_tier2
 
 logger = logging.getLogger(__name__)
 
@@ -54,21 +57,6 @@ def load_config(config_path: Path) -> dict:
         return tomllib.load(f)
 
 
-# Tier 1 request shape. Structured JSON output for a long task file needs room to
-# answer and time to produce it.
-REVIEW_SYSTEM_PROMPT = (
-    "You are a task file reviewer. You review task files for defects. "
-    "You output ONLY a JSON object with keys: schema_version, source, model, "
-    "scope, target, generated_at, verdict, findings, summary. "
-    "Your response must start with { and end with }. No other text."
-)
-REVIEW_TEMPERATURE = 0.3
-REVIEW_MAX_TOKENS = 32768
-REVIEW_GENERATE_TIMEOUT_MS = 180000
-# A local model's answer that does not parse as a review is asked for again; a server
-# that fails outright is dropped by the pool and the next one answers instead.
-REVIEW_ATTEMPTS = 3
-
 # Exit codes. Only EXIT_CLEAN means a complete review found nothing blocking; every
 # review that did not fully happen exits non-zero so it can never pass as a clean one.
 EXIT_CLEAN = 0
@@ -76,119 +64,6 @@ EXIT_BLOCKING = 1
 EXIT_ALL_PARSE_FAILED = 2
 EXIT_NO_LOCAL_MODEL = 3
 EXIT_TIER2_MISSING = 4
-
-
-def request_review(prompt: str, pool: LocalLlmPool, context_window: int) -> LocalLlmReply:
-    """Ask a local model for a review. Raises LocalLlmUnavailable when no server can answer."""
-    return pool.chat(ChatRequest(
-        system=REVIEW_SYSTEM_PROMPT,
-        user=prompt,
-        temperature=REVIEW_TEMPERATURE,
-        max_tokens=REVIEW_MAX_TOKENS,
-        context_window=context_window,
-    ))
-
-
-_REVIEW_KEYS = {"verdict", "findings", "schema_version", "summary"}
-
-
-def _looks_like_review(data: dict) -> bool:
-    """Check if a parsed dict has enough review-schema keys to be a real review.
-
-    Prevents accepting random JSON fragments (from prompt context, canonical
-    modules, or model preamble) as valid review responses.
-    """
-    return bool(_REVIEW_KEYS & data.keys())
-
-
-def extract_json_from_response(response: str) -> dict | None:
-    """Extract JSON from a model response using multiple strategies.
-
-    Local models frequently wrap JSON in markdown fences, add preamble text,
-    or include trailing commentary. This function tries several extraction
-    strategies in order of specificity.
-
-    After extraction, validates that the result contains at least one
-    review-schema key (verdict, findings, schema_version, summary) to avoid
-    matching unrelated JSON from the prompt context.
-
-    Strategies (tried in order):
-    1. Direct parse (clean JSON response)
-    2. Strip markdown fences (```json ... ``` or ``` ... ```)
-    3. Find largest { ... } block via brace matching
-    """
-    text = response.strip()
-
-    # Strategy 1: direct parse
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, dict) and _looks_like_review(parsed):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-
-    # Strategy 2: strip markdown fences
-    # Matches ```json\n...\n``` or ```\n...\n``` (with optional language tag)
-    fence_match = re.search(
-        r"```(?:json)?\s*\n(.*?)\n\s*```", text, re.DOTALL
-    )
-    if fence_match:
-        try:
-            parsed = json.loads(fence_match.group(1).strip())
-            if isinstance(parsed, dict) and _looks_like_review(parsed):
-                return parsed
-        except json.JSONDecodeError:
-            pass
-
-    # Strategy 3: find the LARGEST top-level JSON object via brace matching.
-    # We collect all top-level objects and pick the largest one that validates.
-    candidates: list[str] = []
-    idx = 0
-    while idx < len(text):
-        start = text.find("{", idx)
-        if start == -1:
-            break
-        depth = 0
-        in_string = False
-        escape_next = False
-        found_end = -1
-        for i in range(start, len(text)):
-            c = text[i]
-            if escape_next:
-                escape_next = False
-                continue
-            if c == "\\":
-                escape_next = True
-                continue
-            if c == '"' and not escape_next:
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if c == "{":
-                depth += 1
-            elif c == "}":
-                depth -= 1
-                if depth == 0:
-                    found_end = i
-                    break
-        if found_end != -1:
-            candidates.append(text[start : found_end + 1])
-            idx = found_end + 1
-        else:
-            break
-
-    # Try candidates from largest to smallest — the review JSON is typically
-    # the biggest object in the response.
-    for candidate in sorted(candidates, key=len, reverse=True):
-        try:
-            parsed = json.loads(candidate)
-            if isinstance(parsed, dict) and _looks_like_review(parsed):
-                return parsed
-        except json.JSONDecodeError:
-            continue
-
-    return None
 
 
 def dump_raw_response(
@@ -204,14 +79,6 @@ def dump_raw_response(
     dump_path = dump_dir / f"{task_path.stem}.{safe_model}.attempt-{attempt}.txt"
     dump_path.write_text(response, encoding="utf-8")
     logger.info("raw_response_dumped path=%s bytes=%d", dump_path, len(response))
-
-
-def parse_model_response(response: str, model: str) -> dict | None:
-    """Parse a model answer (reasoning already stripped by datrix_scripts.local_llm) as a review."""
-    result = extract_json_from_response(response)
-    if result is None:
-        logger.warning("parse_failed model=%s response_length=%d", model, len(response))
-    return result
 
 
 def resolve_task_context(task_path: Path, config: dict) -> dict[str, str]:
@@ -446,55 +313,6 @@ def build_reviewer_prompt(
     return full_prompt
 
 
-def dict_to_review_result(data: dict, task_path: Path) -> ReviewResult:
-    """Convert parsed JSON dict to ReviewResult dataclass.
-
-    Tolerates missing fields from local models that don't always
-    produce perfect schema conformance. Missing fields get sensible defaults.
-    """
-    raw_findings = data.get("findings", [])
-    findings: list[Finding] = []
-    for f in raw_findings:
-        if not isinstance(f, dict):
-            continue
-        findings.append(
-            Finding(
-                id=f.get("id", f"F-{len(findings) + 1:03d}"),
-                severity=f.get("severity", "minor"),
-                category=f.get("category", "other"),
-                location=f.get("location", str(task_path)),
-                description=f.get("description", "(no description)"),
-                evidence=f.get("evidence", ""),
-                suggested_fix=f.get("suggested_fix", ""),
-                rule_reference=f.get("rule_reference"),
-            )
-        )
-
-    return ReviewResult(
-        schema_version=data.get("schema_version", "1.0"),
-        source=data.get("source", "local"),
-        model=data.get("model", "unknown"),
-        scope=data.get("scope", "task"),
-        target=data.get("target", str(task_path)),
-        generated_at=data.get("generated_at", datetime.now(UTC).isoformat()),
-        verdict=data.get("verdict", "warnings_only"),
-        findings=findings,
-        summary=data.get("summary", "(no summary)"),
-    )
-
-
-def _compute_verdict(findings: list[Finding]) -> str:
-    """Compute verdict from findings based on highest severity."""
-    severities = {f.severity for f in findings}
-    if "blocking" in severities:
-        return "blocking"
-    if "major" in severities:
-        return "needs_fixes"
-    if "minor" in severities:
-        return "warnings_only"
-    return "pass"
-
-
 def review_task_with_retry(
     task_path: Path,
     context: dict[str, str],
@@ -584,7 +402,7 @@ def review_task_with_retry(
         )
     ]
 
-    verdict = _compute_verdict(all_findings)
+    verdict = compute_verdict(all_findings)
     if not llm_result_dict:
         logger.warning("llm_review_failed task=%s (deterministic checks only)", task_path)
         model_used = f"{model_used} (deterministic only)"
@@ -695,17 +513,22 @@ def main() -> int:
         help="Re-review tasks with .review.applied.json markers",
     )
     parser.add_argument(
-        "--codex", action="store_true", help="Force Tier 2 (Codex) review"
+        "--tier2", action="store_true", help="Force the Tier 2 (phase) review"
     )
-    parser.add_argument(
-        "--codex-on-threshold",
-        action="store_true",
-        help="Escalate to Tier 2 if threshold breached",
+    tier2_mode = parser.add_mutually_exclusive_group()
+    tier2_mode.add_argument(
+        "--tier2-on-threshold",
+        action="store_const",
+        dest="tier2_mode",
+        const=MODE_THRESHOLD,
+        help="Escalate to Tier 2 if the config.toml [tier2] thresholds are breached",
     )
-    parser.add_argument(
-        "--codex-phase-gate",
-        action="store_true",
-        help="Run Tier 2 after Tier 1 as quality gate",
+    tier2_mode.add_argument(
+        "--tier2-phase-gate",
+        action="store_const",
+        dest="tier2_mode",
+        const=MODE_PHASE_GATE,
+        help="Run Tier 2 after Tier 1 as a quality gate",
     )
     add_local_llm_arguments(parser, generate_timeout_ms=REVIEW_GENERATE_TIMEOUT_MS)
 
@@ -723,12 +546,23 @@ def main() -> int:
     canonical_modules_digest = load_or_build_cache(cache_path, datrix_root)
     logger.info("canonical_modules_loaded packages=%d", len(canonical_modules_digest))
 
-    pool = LocalLlmPool(local_llm_settings(args))
+    return run_review(args, config, prompt_template_path, canonical_modules_digest, local_llm_settings(args))
+
+
+def run_review(
+    args: argparse.Namespace,
+    config: dict,
+    prompt_template_path: Path,
+    canonical_modules_digest: dict[str, list[str]],
+    settings: LocalLlmSettings,
+) -> int:
+    """Run the review ``args`` asks for on the servers ``settings`` names; return its exit code."""
+    pool = LocalLlmPool(settings)
     try:
-        return _run_review(args, config, prompt_template_path, canonical_modules_digest, pool)
+        return _run_review(args, config, prompt_template_path, canonical_modules_digest, pool, settings)
     except LocalLlmUnavailable as exc:
         # Tier 2 reviews Tier 1's artifacts, so without Tier 1 neither tier runs -- a
-        # --codex flag does not make a review happen, and exit 0 would read as a clean one.
+        # --tier2 flag does not make a review happen, and exit 0 would read as a clean one.
         logger.error("local_llm_unavailable_no_review error=%s", exc)
         print(f"ERROR: No local model server can answer, so no review ran (Tier 2 reviews Tier 1's "
               f"output and cannot run without it). {exc}")
@@ -741,6 +575,7 @@ def _run_review(
     prompt_template_path: Path,
     canonical_modules_digest: dict[str, list[str]],
     pool: LocalLlmPool,
+    settings: LocalLlmSettings,
 ) -> int:
     """Run Tier 1 (and Tier 2 when due). Raises LocalLlmUnavailable when no server can answer."""
     # Tier 1 needs a model before any task is read: fail here, not after the first task.
@@ -774,37 +609,24 @@ def _run_review(
         )
 
         # Determine if Tier 2 should run
-        manual_codex = args.codex
         should_run_tier2 = should_escalate_to_tier2(
-            results, config, manual_override=manual_codex
+            results, config, manual_override=args.tier2, mode_override=args.tier2_mode
         )
         tier2_missing = False
 
         if should_run_tier2:
             logger.info("tier2_escalation_triggered phase=%d", args.phase)
-
-            # Collect Tier 1 artifacts
             phase_tasks = discover_phase_tasks(args.phase, config)
-            tier1_artifacts = [
-                task_path.with_suffix(".review.local.json")
-                for task_path in phase_tasks
-            ]
-
-            tier2_result = invoke_tier2_codex(
-                args.phase,
-                phase_tasks,
-                tier1_artifacts,
-                canonical_modules_digest,
-                config,
-            )
-
-            if tier2_result:
-                print("\nTier 2 (Codex) Review Complete")
+            try:
+                tier2_result = run_tier2(args.phase, phase_tasks, results, canonical_modules_digest, config,
+                                         settings)
+                print("\nTier 2 (phase) Review Complete")
                 print(f"Verdict: {tier2_result.verdict}")
                 print(f"Additional findings: {len(tier2_result.findings)}")
-            else:
-                print("\nERROR: Tier 2 was due but failed or was rate-limited, so the phase review is "
-                      "incomplete. See logs, then re-run.")
+                print(f"Written: {phase_artifact_path(config, args.phase)}")
+            except (LocalLlmUnavailable, Tier2Unanswered) as exc:
+                print(f"\nERROR: Tier 2 was due but no phase review was produced, so the phase review is "
+                      f"incomplete: {exc}")
                 tier2_missing = True
         else:
             logger.info("tier2_skipped phase=%d", args.phase)

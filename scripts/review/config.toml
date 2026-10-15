@@ -4,13 +4,12 @@
 context_window = 32768   # sent to Ollama as num_ctx; its default window truncates a task prompt
 
 [tier2]
+# Tier 2 reviews the whole phase on a larger local model (lib/tier2_local.py TIER2_MODELS).
 enabled = true
 mode = "phase-gate"          # one of: off, manual, threshold, phase-gate
 threshold_blocking = 1        # any blocking finding triggers Tier 2
 threshold_total_major = 5     # or this many major+blocking combined
-codex_command = "codex"
-skill_name = "review-tasks"
-auth_method = "plus"         # "plus" (codex login, default) or "api_key" (OPENAI_API_KEY env var)
+context_window = 65536        # sent to Ollama as num_ctx; both Tier 2 models allow 262,144
 
 [paths]
 datrix_root = "d:/datrix"

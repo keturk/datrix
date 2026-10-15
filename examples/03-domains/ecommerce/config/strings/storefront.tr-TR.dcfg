@@ -67,6 +67,7 @@ config strings ecommerce.Storefront locale "tr-TR" {
     framework.showingRangeOfTotal = "{total} sonuçtan {from}–{to} arası gösteriliyor";
     framework.pagination = "Sayfalama";
     framework.pageNumber = "Sayfa {number}";
+    framework.pageSize = "Sayfa başına satır";
     framework.back = "Geri";
     framework.optional = "(isteğe bağlı)";
     framework.notProvided = "Belirtilmedi";

@@ -24,7 +24,7 @@ AI agents run in a **bash** shell, not PowerShell. All examples below use PowerS
 
 **Base path:** `d:/datrix/datrix/scripts/`
 
-**Workspace root:** For scripts under `datrix/scripts/`, `Get-DatrixRoot` (venv) and `Get-DatrixWorkspaceRoot` (DatrixPaths) both refer to the monorepo root. Shared helpers live in `common/DatrixScriptCommon.psm1`.
+**Workspace root:** `Get-DatrixWorkspaceRoot` (`common/DatrixPaths.psm1`) is the monorepo root in PowerShell, `datrix_scripts.paths.WORKSPACE_DIR` in Python. Every wrapper runs its Python through `Invoke-DatrixPythonScript` (`common/DatrixPythonScript.psm1`); shared helpers live in `common/DatrixScriptCommon.psm1`.
 
 **Common mistakes to avoid:**
 - `d:\\datrix\\...` — bash strips `\\`, producing broken paths
@@ -43,11 +43,11 @@ Read the category-specific file for the script you need:
 | **Gates** | [gates/README.md](gates/README.md) | One quick-reference per family: [parity](gates/parity/quick-reference.md) (parity-cases -- every probe-read parity fact is a row of `gates/parity/cases/*.parity.yaml`, authored with parity-cases.ps1 -- type-mapping-completeness, supported-domain, behaviour, shared-home-body, observability-axis, manifest-import, third-party-dependency, framework-header, response-body-transform-census, problem-type, field-error-path, artifact-role, generated-suite, block-realization, builtin-claims), [realization](gates/realization/quick-reference.md) (conformance-gate, standing-conformance, typescript-whole-system, generation-determinism, ingress-migration, shared-builder-reachability, zero-environment-runtime, model-realization, pooled/shared-cache, shared-rdbms, documentation-realization, dgen-corpus-resolution), [ratchet](gates/ratchet/quick-reference.md) (check-generated-file-ratchet, dependency-declaration, migration-upgrade-op-family, capability-gap-ledger, slow-test), [repo-hygiene](gates/repo-hygiene/quick-reference.md) (customer-domain-isolation, retired-dsl-names, design-task-reference, ignored-source, polystring-case-roundtrip, python-lint-correctness, import-name-existence, check-docs-conformance, instruction-surface, cross-package-fixture-reads, enum-value-literals, handler-name-dedup, observability-native-only, emitted-escape-integrity, app-probe-path-literal, example-registry/snapshot/secret-seed/config-load, source-comment-reference) |
 | **Development** | [dev/quick-reference.md](dev/quick-reference.md) | generate.ps1 (checks the CLI and that every plugin loads before generating), generate-doc-fragments.ps1, find-imports.ps1, who-imports.ps1, print-sexp.ps1, check-docs.ps1, code-index.ps1, logic-map-report.ps1, local-llm.ps1, ineedtoknow.ps1, code-scan.ps1, generate-test-rules.ps1, and their gates (code-index-gate.ps1, local-llm-gate.ps1, ineedtoknow-gate.ps1) |
 | **Generation** | [generation/quick-reference.md](generation/quick-reference.md) | rebuild-parser.ps1, refresh-example-snapshot.ps1, refresh-seed-datasets.ps1, status-generation.ps1, triage-failures.ps1, compare-generated.ps1, tree-hash.ps1, evaluate-generated-scan.ps1, evaluate-service-scan.ps1, evaluate-services.ps1, delete-generated.ps1 |
-| **Scan** | [scan/quick-reference.md](scan/quick-reference.md) | syntax-checker.ps1, config-linter.ps1, datrix-linter.ps1, datrix-format.ps1, libcst.ps1, semgrep.ps1, ast-grep.ps1, check-debug-artifacts.ps1, check-python-bytecode.ps1, extra-parens.ps1, ruff-checker.ps1, check-import-boundaries.ps1, compile.ps1, compile-any-path.ps1, audit.ps1, dgen-census.ps1, find-duplicate-bodies.ps1, find-unimplemented-abstracts.ps1 |
-| **Workspace** | [workspace/quick-reference.md](workspace/quick-reference.md) | projects.ps1, project-structure.ps1, datrix-count.ps1, file-count.ps1, cleanup-temps.ps1, empty-folders.ps1 |
+| **Scan** | [scan/quick-reference.md](scan/quick-reference.md) | syntax-checker.ps1, config-linter.ps1, datrix-linter.ps1, datrix-format.ps1, libcst.ps1, semgrep.ps1, ast-grep.ps1, check-debug-artifacts.ps1, check-python-bytecode.ps1, extra-parens.ps1, ruff-checker.ps1, check-import-boundaries.ps1, compile.ps1, audit.ps1, dgen-census.ps1, find-duplicate-bodies.ps1, find-unimplemented-abstracts.ps1 |
+| **Workspace** | [workspace/quick-reference.md](workspace/quick-reference.md) | projects.ps1, project-structure.ps1, file-count.ps1, cleanup-temps.ps1, empty-folders.ps1 |
 | **Codemods** | [codemods/README.md](codemods/README.md) | run-codemod.ps1, split-module.ps1 |
 | **Git** | [git/quick-reference.md](git/quick-reference.md) | status.ps1, pull.ps1 (labels each blocked path OVERLAPS/DISJOINT/...), fix-line-endings.ps1, pre-review.ps1, pre-review-gate.ps1, commit-and-push.ps1 (refuses to commit customer domain language — see `gates/repo-hygiene/customer-domain-isolation-gate.ps1` — a tree where a `.gitignore` rule shadows a source file — see `gates/repo-hygiene/ignored-source-gate.ps1` — a `to_*_case(str(name))` round trip — see `gates/repo-hygiene/polystring-case-roundtrip-gate.ps1` — a pyflakes finding in a pending `.py` file — see `gates/repo-hygiene/python-lint-correctness-gate.ps1` — or a design-doc, task-file or item-label reference — see `gates/repo-hygiene/design-task-reference-gate.ps1`) |
-| **Metrics** | [metrics/quick-reference.md](metrics/quick-reference.md) | complexity.ps1 (`-Files` for named files), dependency.ps1 (`-Mode third-party`), agent-spend.ps1, ruff.ps1, bandit.ps1, vulture.ps1, coverage.ps1, test-gen.ps1, duplicate.ps1, loc.ps1, find-constants.ps1, ... |
+| **Metrics** | [metrics/quick-reference.md](metrics/quick-reference.md) | complexity.ps1 (`-Files` for named files), dependency.ps1 (`-Mode third-party`), agent-spend.ps1, ruff.ps1, bandit.ps1, dead-code-report.ps1, coverage.ps1, test-gen.ps1, duplicate.ps1, loc.ps1, find-constants.ps1, ... |
 | **Visualization** | [visualize/quick-reference.md](visualize/quick-reference.md) | visualize.ps1, openapi-gen.ps1, schema-diff.ps1, schema-snapshot.ps1, all-reports.ps1, status-docs.ps1 |
 | **Tasks** | [tasks/quick-reference.md](tasks/quick-reference.md) | todo.ps1, complete.ps1, completed.ps1, cleanup.ps1, latest-phase.ps1, phase-status.ps1, plan-waves.ps1, plan-waves-multi.ps1, validate-dependencies.ps1, validate-task.ps1, task-orientation-gate.ps1 |
 | **Review** | [review/quick-reference.md](review/quick-reference.md) | review.ps1 (Tier 1 + Tier 2 task file reviewer), apply-reviews-prep.ps1, review-library-gate.ps1 |
@@ -121,10 +121,11 @@ powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" "datrix/examples/03
 
 ## Common Options
 
-Most scripts support:
+Each script declares its own parameters, and its folder's quick-reference lists exactly those (held by `gates\repo-hygiene\script-catalogue-gate.ps1`). Many take:
 - `-Dbg` - Enable debug logging
-- `-All` - Process all projects
 - Folder paths as input (e.g., `.\datrix-common\` instead of `datrix-common`)
+
+An `-All` form, where a script has one, sweeps every package: test, scan and generation sweeps are refused to agents by the hooks and belong to Jon's terminal (below).
 
 ## File Locations
 
@@ -155,15 +156,12 @@ Most scripts support:
 
 ## Workflow Examples
 
-### Full Test Cycle
-```powershell
-.\test\test.ps1 -All -Coverage
-```
+Forms an agent may run: targeted tests (`-Specific`, `-Tag`), one project's generation, one named scan `-Rule`.
 
-### Generate and Test
+### Test What You Changed
 ```powershell
-.\dev\generate.ps1 -TestSet foundation -L python
-.\test\test.ps1 datrix-codegen-python
+.\test\test.ps1 datrix-common -Specific "tests/unit/test_a.py,tests/unit/test_b.py"
+.\test\test.ps1 datrix-common datrix-cli -Tag config-resolution
 ```
 
 ### Single Example End-to-End
@@ -174,13 +172,26 @@ Most scripts support:
 ### Generate Single + Validate
 ```powershell
 .\dev\generate.ps1 examples/02-features/01-core-data-modeling/rest-api/system.dtrx -L python
-.\scan\compile-any-path.ps1 .\.generated\python\docker\02-features\01-core-data-modeling\rest-api\library_book_service\src
+.\scan\compile.ps1 -Path .\.generated\python\docker\02-features\01-core-data-modeling\rest-api\library_book_service\src
 ```
 
 ### Code Review Prep
 ```powershell
 .\git\status.ps1 -Detailed
-.\test\test.ps1 -All
+.\metrics\ruff.ps1 datrix-common
+.\metrics\duplicate.ps1 datrix-common
+.\scan\semgrep.ps1 datrix-common -Rule silent-fallback-none
+.\scan\ast-grep.ps1 datrix-common -Rule empty-except-pass
+```
+
+### Jon's terminal (refused to agents by the hooks)
+
+Whole-suite, whole-corpus and whole-package sweeps: an agent's hooks refuse them (`guard-full-suite-runs.py`, `validate-script-invocation.py`, `guard-untargeted-scans.py`).
+
+```powershell
+.\test\test.ps1 -All -Coverage
+.\dev\generate.ps1 -TestSet foundation -L python
+.\test\run-complete.ps1 -All -L python
 .\metrics\ruff.ps1 -All
 .\metrics\bandit.ps1 -All
 .\metrics\duplicate.ps1 -All

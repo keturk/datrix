@@ -44,9 +44,6 @@
  When a project needs re-running, regeneration (Step 2) also happens unless -Skip2 is specified.
  Combines with -TestSet, -Domains to control which project set is checked.
 
-.PARAMETER SkipVenv
- Skip virtual environment activation (use current Python environment).
-
 .PARAMETER Skip1
  Skip Step 1 (syntax checker).
 
@@ -175,7 +172,6 @@ param(
  [switch]$Rerun,
 
  [switch]$VerboseOutput,
- [switch]$SkipVenv,
  [switch]$Skip1,
  [switch]$Skip2,
  [switch]$Skip3,
@@ -232,27 +228,17 @@ $Platform = $Platform.Split('/')[0]
 
 # Script setup
 $ErrorActionPreference = "Stop"
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runCompleteScript = Join-Path $scriptDir "lib\run_complete.py"
-
-# Import common modules. DatrixScriptCommon is imported BEFORE DatrixPaths: the
-# former nested-imports DatrixPaths with -Force, which would strip a prior
-# top-level DatrixPaths import out of script scope (removing Get-DatrixWorkspaceRoot).
-# Importing DatrixPaths last re-establishes its exports at script scope.
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
+$runCompleteScript = Join-Path $PSScriptRoot "lib\run_complete.py"
+$commonDir = Join-Path $PSScriptRoot "..\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
+Import-Module (Join-Path $commonDir "DatrixPythonScript.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
-# Get datrix root
-$datrixRoot = Get-DatrixRoot
 $datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
 
-# Check if run_complete.py exists
-if (-not (Test-Path $runCompleteScript)) {
- Write-ErrorMsg "Error: run_complete.py not found at: $runCompleteScript"
- exit 1
-}
+# Unbuffered child output (python -u), so each step's lines appear as they are written.
+$env:PYTHONUNBUFFERED = "1"
 
 # Validate parameters
 $batchMode = $All -or $Domains -or ($TestSet -ne "all") -or $Rerun
@@ -272,57 +258,14 @@ Write-Info "Datrix Complete Workflow Runner"
 Write-Info "=========================================="
 Write-Info ""
 
-# Function to handle cleanup on exit
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-# Register cleanup on script exit
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-# Determine which virtual environment to use
-$venvPath = $null
-$pythonExe = "python"
-
-if (-not $SkipVenv) {
- # Activate virtual environment (common venv at D:\datrix\.venv where all projects are installed in editable mode)
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
- Write-Host ""
- Write-ErrorMsg "ERROR: Failed to activate virtual environment!"
- Write-Host ""
- Write-Host "To create the Datrix common virtual environment, run:" -ForegroundColor Yellow
- Write-Host " cd $datrixRoot" -ForegroundColor Cyan
- Write-Host " python -m venv .venv" -ForegroundColor Cyan
- Write-Host " .\.venv\Scripts\Activate.ps1" -ForegroundColor Cyan
- Write-Host " # Then install all projects in editable mode" -ForegroundColor Cyan
- Write-Host ""
- exit 1
- }
-
- # Get Python executable from venv
- $venvPath = Get-DatrixVenvPath
- $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-} else {
- Write-Info "Using system Python (virtual environment not used)"
- Write-Info ""
-}
-
-# Display Python information
-Write-Info "Python executable: $pythonExe"
-$pythonVersion = & $pythonExe --version 2>&1
-Write-Info "Python version: $pythonVersion"
-Write-Info ""
-
 # Validate -Language against the installed datrix.languages set (runtime discovery,
 # never a hardcoded python/typescript literal) so a newly installed
 # datrix-codegen-<lang> package is accepted with no edit to this script.
-$installedLanguages = Get-DatrixInstalledLanguages -PythonExe $pythonExe
+$installedLanguages = Get-DatrixInstalledLanguages -PythonExe (Join-Path (Get-DatrixVenvPath) "Scripts\python.exe")
 if ($Language -notin $installedLanguages) {
  Write-ErrorMsg "Error: language '$Language' is not an installed datrix.languages target."
  Write-ErrorMsg "Installed languages: $($installedLanguages -join ', ')."
  Write-ErrorMsg "Install the corresponding datrix-codegen-<language> package to add it."
- Invoke-Cleanup
  exit 1
 }
 
@@ -335,7 +278,7 @@ if ($Rerun) {
  else { "all" }
 
  # Load test-projects.json
- $configPath = Join-Path $datrixRoot "datrix\scripts\config\test-projects.json"
+ $configPath = Join-Path $datrixWorkspaceRoot "datrix\scripts\config\test-projects.json"
  $config = Get-Content $configPath -Raw | ConvertFrom-Json
 
  # Build flat lookup of all projects by name
@@ -353,7 +296,6 @@ if ($Rerun) {
  } else {
   Write-ErrorMsg "Error: Test set '$testSetName' not found in test-projects.json."
   Write-ErrorMsg "Available: $($config.testSets.PSObject.Properties.Name -join ', ')"
-  Invoke-Cleanup
   exit 1
  }
 
@@ -364,7 +306,7 @@ if ($Rerun) {
  if (-not $checkUnitResults -and -not $checkDeployResults) {
   Write-Warning "Rerun mode: both Step 3 and Step 4 are skipped; no test-result folders will be inspected."
  }
- $generatedBase = Join-Path $datrixRoot ".generated"
+ $generatedBase = Join-Path $datrixWorkspaceRoot ".generated"
  $projectsToRerun = @()
 
  foreach ($projName in $projectNames) {
@@ -452,7 +394,7 @@ if ($Rerun) {
   if ($needsRerun) {
    $projectsToRerun += @{
     Name = $projName
-    ExamplePath = (Join-Path (Join-Path $datrixRoot "datrix") $sourcePath)
+    ExamplePath = (Join-Path (Join-Path $datrixWorkspaceRoot "datrix") $sourcePath)
     OutputPath = $projectOutputDir
    }
   }
@@ -460,7 +402,6 @@ if ($Rerun) {
 
  if ($projectsToRerun.Count -eq 0) {
   Write-Success "All projects in test set '$testSetName' have passing results. Nothing to re-run."
-  Invoke-Cleanup
   exit 0
  }
 
@@ -488,7 +429,7 @@ if ($Rerun) {
   Write-Info "[$($i+1)/$($projectsToRerun.Count)] Re-running: $($p.Name)"
   Write-Info "=========================================="
 
-  $singleArgs = @($runCompleteScript)
+  $singleArgs = @()
   $singleArgs += $p.ExamplePath
   $singleArgs += $p.OutputPath
   $singleArgs += "-Language"
@@ -516,11 +457,10 @@ if ($Rerun) {
    $singleArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
   }
 
-  Write-Info "Running: $pythonExe -u $($singleArgs -join ' ')"
+  Write-Info "Running: run_complete.py $($singleArgs -join ' ')"
   Write-Info ""
 
-  & $pythonExe -u @singleArgs
-  $projectExitCode = $LASTEXITCODE
+  $projectExitCode = Invoke-DatrixPythonScript -Script $runCompleteScript -Arguments $singleArgs
 
   if ($projectExitCode -eq 130) {
    Write-Warning "Interrupted by user during: $($p.Name)"
@@ -546,19 +486,17 @@ if ($Rerun) {
  if ($rerunFail -gt 0) { Write-ErrorMsg "  Failed: $rerunFail" }
  Write-Info "=========================================="
 
- Invoke-Cleanup
  exit $rerunExitCode
 
  } catch {
   Write-ErrorMsg "Error in rerun mode: $($_.Exception.Message)"
   Write-ErrorMsg "At: $($_.InvocationInfo.ScriptLineNumber): $($_.InvocationInfo.Line.Trim())"
-  Invoke-Cleanup
   exit 1
  }
 }
 
 # Build arguments for run_complete.py
-$pythonArgs = @($runCompleteScript)
+$pythonArgs = @()
 if ($batchMode) {
  $pythonArgs += "-All"
  $testSetName = if ($Domains) { "domains" }
@@ -656,41 +594,14 @@ if ($FreshBuild) {
 }
 
 # Display what we're about to run
-Write-Info "Running: $pythonExe -u $($pythonArgs -join ' ')"
-Write-Info "Working directory: $datrixRoot"
+Write-Info "Running: run_complete.py $($pythonArgs -join ' ')"
 Write-Info ""
 Write-Info "=========================================="
 Write-Info ""
 
-# Trap Ctrl-C to ensure proper cleanup
-# Note: PowerShell will pass Ctrl-C to the Python process, which has its own signal handlers
-# This trap provides an additional safety layer
-trap {
- Write-Host ""
- Write-Warning "Interrupted! The Python process should handle cleanup..."
- Invoke-Cleanup
- # Python signal handler will handle subprocess cleanup
- # Exit with code 130 (standard for SIGINT/Ctrl-C)
- exit 130
-}
-
-# Run the Python script from datrix root directory with unbuffered output (-u flag)
-try {
- & $pythonExe -u @pythonArgs
- $exitCode = $LASTEXITCODE
-} catch {
- # Handle interruption or other errors
- if ($_.Exception.Message -match "interrupt|cancel") {
- Write-Warning "Process was interrupted"
- $exitCode = 130
- } else {
- Write-ErrorMsg "Error running Python script: $($_.Exception.Message)"
- $exitCode = 1
- }
-} finally {
- # Ensure virtual environment is deactivated even on Ctrl-C
- Invoke-Cleanup
-}
+# Ctrl-C reaches the Python process, whose own signal handlers clean up its subprocesses
+# and exit 130; the runner deactivates the venv on the way out.
+$exitCode = Invoke-DatrixPythonScript -Script $runCompleteScript -Arguments $pythonArgs
 
 Write-Info ""
 Write-Info "=========================================="

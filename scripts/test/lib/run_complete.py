@@ -21,6 +21,8 @@ import signal
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -54,7 +56,9 @@ from datrix_scripts.test_projects import (  # noqa: E402
     get_default_output_path,
     get_test_projects,
 )
-from datrix_scripts.venv import get_datrix_root, get_venv_python  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
+from datrix_scripts.powershell_ast import parse_scripts  # noqa: E402
+from datrix_scripts.venv import get_venv_python  # noqa: E402
 
 # Global set to track all active subprocesses
 _active_processes = set()
@@ -376,7 +380,7 @@ def run_command(
 def get_paths() -> dict[str, Path]:
     """Get all necessary paths relative to this script location"""
     script_dir = Path(__file__).parent.resolve()
-    datrix_root = get_datrix_root()
+    datrix_root = WORKSPACE_DIR
     datrix_dir = datrix_root / "datrix"
 
     return {
@@ -1903,111 +1907,199 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
     }
 
 
+ProjectResult = dict[str, Any]
+
+#: Every shipped language emits this runner into each generated project; it is
+#: how steps 3 and 4 find a project, whatever language generated it.
+RUN_TESTS_SCRIPT = Path("tests") / "run-tests.ps1"
+#: A project's runner declares this switch when the project has deploy tests.
+RUN_TESTS_DEPLOY_PARAMETER = "Deploy"
+_COUNT_KEYS = ("passed", "failed", "errors", "skipped")
+_RULE = "=" * 60
+
+
+@dataclass(frozen=True)
+class StepTotals:
+    """What one step's project loop produced."""
+
+    project_results: list[ProjectResult]
+    success_count: int
+    fail_count: int
+    log_path: Path
+
+
+def _generated_projects(
+    generated_base: Path,
+    test_set: str | None,
+    language: str,
+    platform: str,
+    *,
+    deploy: bool,
+) -> list[Path]:
+    """The generated projects a test step runs, sorted.
+
+    With a test set, its projects that exist on disk. Otherwise every directory under
+    ``generated_base`` holding ``tests/run-tests.ps1``; with ``deploy`` only those whose
+    runner declares a ``Deploy`` parameter, read with PowerShell's own parser.
+    """
+    if test_set:
+        listed = get_test_projects(test_set=test_set, language=language, runtime=platform)
+        return [Path(p["output"]) for p in listed if Path(p["output"]).exists()]
+    if not generated_base.exists():
+        return []
+    runners = sorted(
+        script for script in generated_base.rglob(RUN_TESTS_SCRIPT.name)
+        if script.parent.name == RUN_TESTS_SCRIPT.parent.name
+    )
+    if not deploy:
+        return [runner.parent.parent for runner in runners]
+    facts = parse_scripts(runners)
+    return [
+        runner.parent.parent for runner in runners
+        if facts[runner.resolve()].declares(RUN_TESTS_DEPLOY_PARAMETER)
+    ]
+
+
+def _format_counts(result: ProjectResult) -> str:
+    return ", ".join(f"{key}: {result[key]}" for key in _COUNT_KEYS if result.get(key, 0) > 0)
+
+
+def _error_result(project_name: str) -> ProjectResult:
+    return {"name": project_name, "success": False, "passed": 0, "failed": 0, "errors": 1,
+            "skipped": 0, "output": None}
+
+
+def _run_one_project(
+    project: Path,
+    project_name: str,
+    run_one: Callable[[Path, str], ProjectResult | None],
+) -> ProjectResult | None:
+    try:
+        result = run_one(project, project_name)
+    except KeyboardInterrupt:
+        raise
+    except Exception as exc:  # noqa: BLE001 - one project's crash is that project's failure
+        print_error(f" [ERROR] Exception while running tests for {project_name}: {exc}")
+        return _error_result(project_name)
+    if result is None:
+        print_warning(f" [SKIP] No test runner found for {project_name}")
+        return None
+    print()
+    if result["success"]:
+        print_success(f" [OK] Tests passed for {project_name}")
+    else:
+        print_error(f" [FAILED] Tests failed for {project_name}")
+    counts = _format_counts(result)
+    if counts:
+        print_info(f" Tests: {counts}")
+    return result
+
+
+def _print_project_group(heading: str, results: list[ProjectResult], *, success: bool) -> None:
+    if not results:
+        return
+    report = print_success if success else print_error
+    mark = "✓" if success else "✗"
+    report(f"{heading} ({len(results)}):")
+    for result in results:
+        report(f" {mark} {result['name']}")
+        counts = _format_counts(result)
+        if counts:
+            print_info(f"   Tests: {counts}")
+    print_info("")
+
+
+def _print_step_summary(step_number: int, title: str, total_projects: int, totals: StepTotals) -> None:
+    results = totals.project_results
+    print()
+    print_info(_RULE)
+    print_info(f"STEP {step_number} SUMMARY: {title}")
+    print_info(_RULE)
+    print_info(f"Total Projects Tested: {total_projects}")
+    print_info(f" Successful Projects: {totals.success_count}")
+    print_info(f" Failed Projects: {totals.fail_count}")
+    print_info("")
+    print_info("Total Tests:")
+    print_info(f" Passed: {sum(r.get('passed', 0) for r in results)}")
+    for key, label in (("failed", "Failed"), ("errors", "Errors"), ("skipped", "Skipped")):
+        total = sum(r.get(key, 0) for r in results)
+        if total > 0:
+            (print_info if key == "skipped" else print_error)(f" {label}: {total}")
+    print_info("")
+    print_info("Per-Project Breakdown:")
+    print_info("-" * 60)
+    _print_project_group("Successful Projects", [r for r in results if r["success"]], success=True)
+    _print_project_group("Failed Projects", [r for r in results if not r["success"]], success=False)
+    print_info(_RULE)
+
+
+def _run_projects(
+    step_number: int,
+    title: str,
+    projects: list[Path],
+    generated_base: Path,
+    paths: dict[str, Path],
+    run_one: Callable[[Path, str], ProjectResult | None],
+) -> StepTotals:
+    """Run every project one at a time, print and log the step summary.
+
+    ``run_one(project, project_name)`` returns the project's result, or None when the
+    project has nothing to run for this step (reported as skipped, not counted).
+    """
+    print_info(f"Found {len(projects)} generated projects to test")
+    results: list[ProjectResult] = []
+    try:
+        for index, project in enumerate(projects, 1):
+            project_name = str(project.relative_to(generated_base))
+            print()
+            print_info(f"[{index}/{len(projects)}] Running step {step_number} tests for: {project_name}")
+            print("-" * 60)
+            result = _run_one_project(project, project_name, run_one)
+            if result is not None:
+                results.append(result)
+    except KeyboardInterrupt:
+        print()
+        print_warning(f"STEP {step_number} INTERRUPTED BY USER after {len(results)} of {len(projects)} projects")
+        raise
+    results.sort(key=lambda result: result["name"])
+    success_count = sum(1 for result in results if result["success"])
+    fail_count = len(results) - success_count
+    log_path = save_test_summary_log(
+        step_num=step_number,
+        step_name=title,
+        paths=paths,
+        project_results=results,
+        total_projects=len(projects),
+        success_count=success_count,
+        fail_count=fail_count,
+        total_passed_tests=sum(r.get("passed", 0) for r in results),
+        total_failed_tests=sum(r.get("failed", 0) for r in results),
+        total_error_tests=sum(r.get("errors", 0) for r in results),
+        total_skipped_tests=sum(r.get("skipped", 0) for r in results),
+    )
+    totals = StepTotals(results, success_count, fail_count, log_path)
+    _print_step_summary(step_number, title, len(projects), totals)
+    print_info(f"Summary log saved to: {log_path.relative_to(paths['datrix_root'])}")
+    return totals
+
+
 def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path: str | None = None, test_set: str | None = None, language: str = "python", platform: str = "docker", verbose: bool = False) -> bool:
     """Step 3: Run unit tests for generated projects using unit_tests.py"""
     if all_examples:
         print_step(3, "Run Unit Tests for Generated Projects")
         generated_base = paths["datrix_root"] / ".generated"
-        # Find generated projects: by test set or by scanning .generated
-        projects = []
-        if test_set:
-            proj_list = get_test_projects(test_set=test_set, language=language, runtime=platform)
-            projects = [Path(p["output"]) for p in proj_list if Path(p["output"]).exists()]
-        elif generated_base.exists():
-            # Scan for Python projects (tests/unit_tests.py)
-            for item in generated_base.rglob("unit_tests.py"):
-                if item.parent.name == "tests":
-                    project_dir = item.parent.parent
-                    projects.append(project_dir)
-            # Scan for TypeScript projects (service subdirs with package.json + test script)
-            seen = {p.resolve() for p in projects}
-            for item in generated_base.rglob("package.json"):
-                # package.json is inside a service dir; project root is one level up
-                service_dir = item.parent
-                project_dir = service_dir.parent
-                if project_dir.resolve() not in seen and _has_test_script(item):
-                    projects.append(project_dir)
-                    seen.add(project_dir.resolve())
-
+        projects = _generated_projects(generated_base, test_set, language, platform, deploy=False)
         if not projects:
             print_warning("No generated projects found to test")
             return True
 
-        print_info(f"Found {len(projects)} generated projects to test")
         print_info("Running projects sequentially (services within each project run in parallel)...")
-        print()
 
-        # Run projects SEQUENTIALLY (one at a time)
-        # But services within each project will run in parallel (via --parallel flag)
-        project_results = []
-        success_count = 0
-        fail_count = 0
+        def run_one(project: Path, _project_name: str) -> ProjectResult:
+            return _run_single_project_unit_tests(project, generated_base, parallel=False, verbose=verbose)
 
-        try:
-            for idx, project in enumerate(projects, 1):
-                project_name = project.relative_to(generated_base)
-
-                print()
-                print_info(f"[{idx}/{len(projects)}] Running unit tests for: {project_name}")
-                print("-" * 60)
-
-                try:
-                    project_result = _run_single_project_unit_tests(project, generated_base, parallel=False, verbose=verbose)
-                    project_results.append(project_result)
-
-                    print()
-                    if project_result["success"]:
-                        print_success(f" [OK] Unit tests passed for {project_name}")
-                        success_count += 1
-                    else:
-                        print_error(f" [FAILED] Unit tests failed for {project_name}")
-                        fail_count += 1
-
-                    test_info = []
-                    if project_result["passed"] > 0:
-                        test_info.append(f"passed: {project_result['passed']}")
-                    if project_result["failed"] > 0:
-                        test_info.append(f"failed: {project_result['failed']}")
-                    if project_result["errors"] > 0:
-                        test_info.append(f"errors: {project_result['errors']}")
-                    if project_result["skipped"] > 0:
-                        test_info.append(f"skipped: {project_result['skipped']}")
-
-                    if test_info:
-                        print_info(f" Tests: {', '.join(test_info)}")
-
-                    has_runner = (
-                        (project / "tests" / "unit_tests.py").exists()
-                        or _is_typescript_project(project)
-                    )
-                    if not has_runner:
-                        print_warning(f" [SKIP] No test runner found for {project_name}")
-
-                except KeyboardInterrupt:
-                    raise
-                except Exception as e:
-                    print_error(f" [ERROR] Exception while running tests for {project_name}: {e}")
-                    project_results.append({
-                        "name": str(project_name),
-                        "success": False,
-                        "passed": 0,
-                        "failed": 0,
-                        "errors": 1,
-                        "skipped": 0,
-                        "output": None,
-                    })
-                    fail_count += 1
-        except KeyboardInterrupt:
-            print()
-            print_warning("=" * 60)
-            print_warning("STEP 3 INTERRUPTED BY USER")
-            print_warning("=" * 60)
-            print_warning(f"Interrupted after testing {success_count + fail_count} of {len(projects)} projects")
-            print_warning("Cleaning up and exiting...")
-            print_warning("=" * 60)
-            raise
-
-        project_results.sort(key=lambda x: x["name"])
+        totals = _run_projects(3, "Unit Tests for Generated Projects", projects, generated_base, paths, run_one)
+        project_results = totals.project_results
 
         # Produce aggregate structured output across all projects
         index_paths = [
@@ -2032,92 +2124,7 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
             except Exception as exc:
                 print_warning(f"Aggregate structured output failed: {exc}")
 
-        # Calculate overall statistics
-        total_passed_tests = sum(r["passed"] for r in project_results)
-        total_failed_tests = sum(r["failed"] for r in project_results)
-        total_error_tests = sum(r["errors"] for r in project_results)
-        total_skipped_tests = sum(r["skipped"] for r in project_results)
-
-        # Save summary to log file
-        log_path = save_test_summary_log(
-        step_num=3,
-        step_name="Unit Tests for Generated Projects",
-        paths=paths,
-        project_results=project_results,
-        total_projects=len(projects),
-        success_count=success_count,
-        fail_count=fail_count,
-        total_passed_tests=total_passed_tests,
-        total_failed_tests=total_failed_tests,
-        total_error_tests=total_error_tests,
-        total_skipped_tests=total_skipped_tests,
-        )
- 
-        # Print comprehensive summary
-        print()
-        print_info("=" * 60)
-        print_info("STEP 3 SUMMARY: Unit Tests for Generated Projects")
-        print_info("=" * 60)
- 
-        print_info(f"Total Projects Tested: {len(projects)}")
-        print_info(f" Successful Projects: {success_count}")
-        print_info(f" Failed Projects: {fail_count}")
-        print_info("")
-        print_info("Total Tests:")
-        print_info(f" Passed: {total_passed_tests}")
-        if total_failed_tests > 0:
-            print_error(f" Failed: {total_failed_tests}")
-        if total_error_tests > 0:
-            print_error(f" Errors: {total_error_tests}")
-        if total_skipped_tests > 0:
-            print_info(f" Skipped: {total_skipped_tests}")
- 
-        # Per-project breakdown
-        print_info("")
-        print_info("Per-Project Breakdown:")
-        print_info("-" * 60)
- 
-        # Separate successful and failed projects
-        successful_projects = [r for r in project_results if r["success"]]
-        failed_projects = [r for r in project_results if not r["success"]]
-
-        if successful_projects:
-            print_success(f"Successful Projects ({len(successful_projects)}):")
-            for result in successful_projects:
-                print_success(f" ✓ {result['name']}")
-                test_info = []
-                if result.get("passed", 0) > 0:
-                    test_info.append(f"passed: {result.get('passed', 0)}")
-                if result.get("failed", 0) > 0:
-                    test_info.append(f"failed: {result.get('failed', 0)}")
-                if result.get("errors", 0) > 0:
-                    test_info.append(f"errors: {result.get('errors', 0)}")
-                if result.get("skipped", 0) > 0:
-                    test_info.append(f"skipped: {result.get('skipped', 0)}")
-                if test_info:
-                    print_info(f"   Tests: {', '.join(test_info)}")
-            print_info("")
-
-        if failed_projects:
-            print_error(f"Failed Projects ({len(failed_projects)}):")
-            for result in failed_projects:
-                print_error(f" ✗ {result['name']}")
-                test_info = []
-                if result.get("passed", 0) > 0:
-                    test_info.append(f"passed: {result.get('passed', 0)}")
-                if result.get("failed", 0) > 0:
-                    test_info.append(f"failed: {result.get('failed', 0)}")
-                if result.get("errors", 0) > 0:
-                    test_info.append(f"errors: {result.get('errors', 0)}")
-                if result.get("skipped", 0) > 0:
-                    test_info.append(f"skipped: {result.get('skipped', 0)}")
-                if test_info:
-                    print_info(f"   Tests: {', '.join(test_info)}")
-
-        print_info("=" * 60)
-        print_info(f"Summary log saved to: {log_path.relative_to(paths['datrix_root'])}")
-
-        return fail_count == 0
+        return totals.fail_count == 0
     else:
         if not output_path:
             print_error("Output path is required when -All is not specified")
@@ -2180,190 +2187,18 @@ def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
     if all_examples:
         print_step(4, "Run Deployment Tests (Spec + Integration) for Generated Projects")
         generated_base = paths["datrix_root"] / ".generated"
-        # Find generated projects: by test set or by scanning .generated
-        projects = []
-        if test_set:
-            proj_list = get_test_projects(test_set=test_set, language=language, runtime=platform)
-            projects = [Path(p["output"]) for p in proj_list if Path(p["output"]).exists()]
-        elif generated_base.exists():
-            # Scan for Python projects (tests/deploy_test.py)
-            for item in generated_base.rglob("deploy_test.py"):
-                if item.parent.name == "tests":
-                    projects.append(item.parent.parent)
-            # Scan for TypeScript projects (tests/jest-deploy.config.ts or tests/deploy-test.js)
-            seen = {p.resolve() for p in projects}
-            for item in generated_base.rglob("jest-deploy.config.ts"):
-                if item.parent.name == "tests":
-                    project_dir = item.parent.parent
-                    if project_dir.resolve() not in seen:
-                        projects.append(project_dir)
-                        seen.add(project_dir.resolve())
-            for item in generated_base.rglob("deploy-test.js"):
-                if item.parent.name == "tests":
-                    project_dir = item.parent.parent
-                    if project_dir.resolve() not in seen:
-                        projects.append(project_dir)
-                        seen.add(project_dir.resolve())
-
+        projects = _generated_projects(generated_base, test_set, language, platform, deploy=True)
         if not projects:
             print_warning("No generated projects found to test")
             return True
 
-        print_info(f"Found {len(projects)} generated projects to test")
-        print()
+        def run_one(project: Path, project_name: str) -> ProjectResult | None:
+            return _run_single_project_deploy_tests(project, project_name, paths, timestamp, verbose=verbose)
 
-        # Run deployment tests SEQUENTIALLY (one at a time)
-        project_results = []
-        success_count = 0
-        fail_count = 0
-
-        try:
-            for idx, project in enumerate(projects, 1):
-                project_name = str(project.relative_to(generated_base))
-
-                print()
-                print_info(f"[{idx}/{len(projects)}] Running deployment tests for: {project_name}")
-                print("-" * 60)
-
-                try:
-                    project_result = _run_single_project_deploy_tests(project, project_name, paths, timestamp, verbose=verbose)
-                    if project_result is None:
-                        # Project was skipped (no deploy_test.py)
-                        print_warning(f" [SKIP] No deployment test script found for {project_name}")
-                        continue
-                    project_results.append(project_result)
-
-                    print()
-                    if project_result["success"]:
-                        print_success(f" [OK] Deployment tests passed for {project_name}")
-                        success_count += 1
-                    else:
-                        print_error(f" [FAILED] Deployment tests failed for {project_name}")
-                        fail_count += 1
-
-                    test_info = []
-                    if project_result.get("passed", 0) > 0:
-                        test_info.append(f"passed: {project_result['passed']}")
-                    if project_result.get("failed", 0) > 0:
-                        test_info.append(f"failed: {project_result['failed']}")
-                    if project_result.get("errors", 0) > 0:
-                        test_info.append(f"errors: {project_result['errors']}")
-                    if project_result.get("skipped", 0) > 0:
-                        test_info.append(f"skipped: {project_result['skipped']}")
-
-                    if test_info:
-                        print_info(f" Tests: {', '.join(test_info)}")
-
-                except KeyboardInterrupt:
-                    raise
-                except Exception as e:
-                    print_error(f" [ERROR] Exception while running tests for {project_name}: {e}")
-                    project_results.append({
-                        "name": str(project_name),
-                        "success": False,
-                        "passed": 0,
-                        "failed": 0,
-                        "errors": 1,
-                        "skipped": 0,
-                        "output": None,
-                    })
-                    fail_count += 1
-        except KeyboardInterrupt:
-            print()
-            print_warning("=" * 60)
-            print_warning("STEP 4 INTERRUPTED BY USER")
-            print_warning("=" * 60)
-            print_warning(f"Interrupted after testing {success_count + fail_count} of {len(projects)} projects")
-            print_warning("Cleaning up and exiting...")
-            print_warning("=" * 60)
-            raise
-
-        project_results.sort(key=lambda x: x["name"])
-
-        # Calculate overall statistics
-        total_passed_tests = sum(r.get("passed", 0) for r in project_results)
-        total_failed_tests = sum(r.get("failed", 0) for r in project_results)
-        total_error_tests = sum(r.get("errors", 0) for r in project_results)
-        total_skipped_tests = sum(r.get("skipped", 0) for r in project_results)
-
-        # Save summary to log file
-        log_path = save_test_summary_log(
-        step_num=4,
-        step_name="Deployment Tests for Generated Projects",
-        paths=paths,
-        project_results=project_results,
-        total_projects=len(projects),
-        success_count=success_count,
-        fail_count=fail_count,
-        total_passed_tests=total_passed_tests,
-        total_failed_tests=total_failed_tests,
-        total_error_tests=total_error_tests,
-        total_skipped_tests=total_skipped_tests,
-        )
- 
-        # Print comprehensive summary
-        print()
-        print_info("=" * 60)
-        print_info("STEP 4 SUMMARY: Deployment Tests for Generated Projects")
-        print_info("=" * 60)
- 
-        print_info(f"Total Projects Tested: {len(projects)}")
-        print_info(f" Successful Projects: {success_count}")
-        print_info(f" Failed Projects: {fail_count}")
-        print_info("")
-        print_info("Total Tests:")
-        print_info(f" Passed: {total_passed_tests}")
-        if total_failed_tests > 0:
-            print_error(f" Failed: {total_failed_tests}")
-        if total_error_tests > 0:
-            print_error(f" Errors: {total_error_tests}")
-        if total_skipped_tests > 0:
-            print_info(f" Skipped: {total_skipped_tests}")
- 
-        # Per-project breakdown
-        print_info("")
-        print_info("Per-Project Breakdown:")
-        print_info("-" * 60)
- 
-        # Separate successful and failed projects
-        successful_projects = [r for r in project_results if r["success"]]
-        failed_projects = [r for r in project_results if not r["success"]]
-
-        if successful_projects:
-            print_success(f"Successful Projects ({len(successful_projects)}):")
-            for result in successful_projects:
-                print_success(f" ✓ {result['name']}")
-                test_info = []
-                if result.get("passed", 0) > 0:
-                    test_info.append(f"passed: {result.get('passed', 0)}")
-                if result.get("failed", 0) > 0:
-                    test_info.append(f"failed: {result.get('failed', 0)}")
-                if result.get("errors", 0) > 0:
-                    test_info.append(f"errors: {result.get('errors', 0)}")
-                if result.get("skipped", 0) > 0:
-                    test_info.append(f"skipped: {result.get('skipped', 0)}")
-                if test_info:
-                    print_info(f"   Tests: {', '.join(test_info)}")
-            print_info("")
-
-        if failed_projects:
-            print_error(f"Failed Projects ({len(failed_projects)}):")
-            for result in failed_projects:
-                print_error(f" ✗ {result['name']}")
-                test_info = []
-                if result.get("passed", 0) > 0:
-                    test_info.append(f"passed: {result.get('passed', 0)}")
-                if result.get("failed", 0) > 0:
-                    test_info.append(f"failed: {result.get('failed', 0)}")
-                if result.get("errors", 0) > 0:
-                    test_info.append(f"errors: {result.get('errors', 0)}")
-                if result.get("skipped", 0) > 0:
-                    test_info.append(f"skipped: {result.get('skipped', 0)}")
-                if test_info:
-                    print_info(f"   Tests: {', '.join(test_info)}")
-
-        print_info("=" * 60)
-        print_info(f"Summary log saved to: {log_path.relative_to(paths['datrix_root'])}")
+        totals = _run_projects(4, "Deployment Tests for Generated Projects", projects, generated_base, paths, run_one)
+        project_results = totals.project_results
+        log_path = totals.log_path
+        fail_count = totals.fail_count
 
         # Write deploy test aggregate structured output
         project_index_paths = [
@@ -2830,192 +2665,6 @@ def _run_single_project_deploy_tests(
         f" [SKIP] No deploy_test.py or jest-deploy.config.ts found for {project_name}"
     )
     return {"name": project_name, "success": False, **empty_stats}
-
-
-def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], output_path: str | None = None, test_set: str | None = None, language: str = "python", platform: str = "docker", verbose: bool = False) -> bool:
-    """Step 5: Run deployment/integration tests for generated projects using deploy_test.py"""
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-
-    if all_examples:
-        print_step(5, "Run Deployment Tests for Generated Projects")
-        generated_base = paths["datrix_root"] / ".generated"
-        projects = []
-        if test_set:
-            proj_list = get_test_projects(test_set=test_set, language=language, runtime=platform)
-            projects = [Path(p["output"]) for p in proj_list if Path(p["output"]).exists()]
-        elif generated_base.exists():
-            # Scan for Python projects (tests/deploy_test.py)
-            for item in generated_base.rglob("deploy_test.py"):
-                if item.parent.name == "tests":
-                    projects.append(item.parent.parent)
-            # Scan for TypeScript projects (tests/jest-deploy.config.ts)
-            seen = {p.resolve() for p in projects}
-            for item in generated_base.rglob("jest-deploy.config.ts"):
-                if item.parent.name == "tests":
-                    project_dir = item.parent.parent
-                    if project_dir.resolve() not in seen:
-                        projects.append(project_dir)
-                        seen.add(project_dir.resolve())
-
-        if not projects:
-            print_warning("No generated projects found to test")
-            return True
-
-        print_info(f"Found {len(projects)} generated projects to test")
-
-        success_count = 0
-        fail_count = 0
-        project_results = []
-
-        for project in projects:
-            project_name = str(project.relative_to(generated_base))
-            print()
-            print_info(f"Running deployment tests for: {project_name}")
-            print("-" * 60)
-
-            result = _run_single_project_deploy_tests(project, project_name, paths, timestamp, verbose=verbose)
-            if result is None:
-                continue  # Skipped (e.g. TypeScript)
-
-            project_results.append(result)
-            if result["success"]:
-                print_success(f" [OK] Deployment tests passed for {project_name}")
-                success_count += 1
-            else:
-                print_error(f" [FAILED] Deployment tests failed for {project_name}")
-                fail_count += 1
-
-        # Calculate overall statistics
-        total_passed_tests = sum(r["passed"] for r in project_results)
-        total_failed_tests = sum(r["failed"] for r in project_results)
-        total_error_tests = sum(r["errors"] for r in project_results)
-        total_skipped_tests = sum(r["skipped"] for r in project_results)
-
-        # Print comprehensive summary
-        print()
-        print_info("=" * 60)
-        print_info("STEP 5 SUMMARY: Deployment Tests for Generated Projects")
-        print_info("=" * 60)
-
-        print_info(f"Total Projects Tested: {len(projects)}")
-        print_info(f" Successful Projects: {success_count}")
-        print_info(f" Failed Projects: {fail_count}")
-        print_info("")
-        print_info("Total Tests:")
-        print_info(f" Passed: {total_passed_tests}")
-        if total_failed_tests > 0:
-            print_error(f" Failed: {total_failed_tests}")
-        if total_error_tests > 0:
-            print_error(f" Errors: {total_error_tests}")
-        if total_skipped_tests > 0:
-            print_info(f" Skipped: {total_skipped_tests}")
-
-        # Per-project breakdown
-        print_info("")
-        print_info("Per-Project Breakdown:")
-        print_info("-" * 60)
-
-        successful_projects = [r for r in project_results if r["success"]]
-        failed_projects = [r for r in project_results if not r["success"]]
-
-        if successful_projects:
-            print_success(f"Successful Projects ({len(successful_projects)}):")
-            for result in successful_projects:
-                print_success(f" ✓ {result['name']}")
-                test_info = []
-                if result.get("passed", 0) > 0:
-                    test_info.append(f"passed: {result.get('passed', 0)}")
-                if result.get("failed", 0) > 0:
-                    test_info.append(f"failed: {result.get('failed', 0)}")
-                if result.get("errors", 0) > 0:
-                    test_info.append(f"errors: {result.get('errors', 0)}")
-                if result.get("skipped", 0) > 0:
-                    test_info.append(f"skipped: {result.get('skipped', 0)}")
-                if test_info:
-                    print_info(f"   Tests: {', '.join(test_info)}")
-            print_info("")
-
-        if failed_projects:
-            print_error(f"Failed Projects ({len(failed_projects)}):")
-            for result in failed_projects:
-                print_error(f" ✗ {result['name']}")
-                test_info = []
-                if result.get("passed", 0) > 0:
-                    test_info.append(f"passed: {result.get('passed', 0)}")
-                if result.get("failed", 0) > 0:
-                    test_info.append(f"failed: {result.get('failed', 0)}")
-                if result.get("errors", 0) > 0:
-                    test_info.append(f"errors: {result.get('errors', 0)}")
-                if result.get("skipped", 0) > 0:
-                    test_info.append(f"skipped: {result.get('skipped', 0)}")
-                if test_info:
-                    print_info(f"   Tests: {', '.join(test_info)}")
-
-        print_info("=" * 60)
-
-        # Write deploy test aggregate structured output
-        project_index_paths = [
-            r["_index_path"] for r in project_results
-            if r.get("_index_path") is not None
-        ]
-        if project_index_paths:
-            try:
-                aggregate_dir = generated_base / ".test_results" / f"deploy-tests-{timestamp}"
-                aggregate_dir.mkdir(parents=True, exist_ok=True)
-                agg_writer = DeployTestAggregateWriter(
-                    aggregate_dir=aggregate_dir,
-                    language=language,
-                    platform=platform,
-                )
-                agg_path = agg_writer.write(
-                    project_index_paths=project_index_paths,
-                    timestamp=datetime.strptime(timestamp, "%Y%m%d-%H%M%S"),
-                )
-                print_info(f"Deploy test aggregate output: {agg_path}")
-            except Exception:
-                logger.exception("deploy_aggregate_output_failed")
-
-        return fail_count == 0
-    else:
-        if not output_path:
-            print_error("Output path is required when -All is not specified")
-            return False
-
-        print_step(5, f"Run Deployment Tests: {Path(output_path).name}")
-
-        project_path_abs = Path(output_path).resolve()
-        if not project_path_abs.exists():
-            print_error(f"Generated project not found at: {project_path_abs}")
-            return False
-
-        project_name = project_path_abs.name
-
-        result = _run_single_project_deploy_tests(
-            project_path_abs, project_name, paths, timestamp, verbose=verbose,
-        )
-        if result is None:
-            return True  # Skipped (TypeScript)
-
-        # Print statistics
-        test_info = []
-        if result["passed"] > 0:
-            test_info.append(f"passed: {result['passed']}")
-        if result["failed"] > 0:
-            test_info.append(f"failed: {result['failed']}")
-        if result["errors"] > 0:
-            test_info.append(f"errors: {result['errors']}")
-        if result["skipped"] > 0:
-            test_info.append(f"skipped: {result['skipped']}")
-        if test_info:
-            print_info("")
-            print_info(f"Test Statistics: {', '.join(test_info)}")
-
-        if result["success"]:
-            print_success(f"[OK] Deployment tests passed for {project_name}")
-            return True
-        else:
-            print_error(f"Deployment tests failed for {project_name}")
-            return False
 
 
 def main() -> int:

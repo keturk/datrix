@@ -353,8 +353,10 @@ rest_api OrderAPI : basePath('/api/v1') {
 }
 ```
 
-The response is `{ items, total, offset, limit }`: `total` counts the same chain the items are cut
-from, and `offset`/`limit` are the window the server applied.
+The response is `{ items, total, offset, limit, maxLimit }`: `total` counts the same chain the items
+are cut from, `offset`/`limit` are the window the server applied, and `maxLimit` is the largest page
+size the deployment profile accepts. Add `sortable(createdAt, total)` to let a client choose the order
+with `sortBy`/`sortOrder`; the route's optional parameters are its filters.
 
 **Note:** Resource list endpoints are `Page<T>` routes too, so they page with no code.
 

@@ -67,70 +67,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-$pythonScript = Join-Path $scriptDir "lib\visualize.py"
+$pyArgs = @()
+if ($Source) { $pyArgs += @("--source", $Source) }
+if ($All) { $pyArgs += "--all" }
+if ($Domains) { $pyArgs += "--domains" }
+if ($TestSet -ne "all") { $pyArgs += @("--test-set", $TestSet) }
+if ($Type -ne "all") { $pyArgs += @("--type", $Type) }
+if ($Service) { $pyArgs += @("--service", $Service) }
+if ($Format -ne "md") { $pyArgs += @("--format", $Format) }
+if ($Profile -ne "test") { $pyArgs += @("--profile", $Profile) }
+if ($Dbg) { $pyArgs += "--debug" }
 
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "visualize.py not found at $pythonScript"
-    exit 1
-}
-
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
-    Write-Error "Failed to activate virtual environment"
-    exit 1
-}
-
-trap {
-    if (Get-Command Disable-DatrixVenv -ErrorAction SilentlyContinue) {
-        Disable-DatrixVenv
-    }
-    throw $_
-}
-
-try {
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (-not (Test-Path $pythonExe)) {
-        $pythonExe = Join-Path $venvPath "bin\python"
-    }
-
-    $pyArgs = @()
-
-    if ($Source) {
-        $pyArgs += "--source"
-        $pyArgs += $Source
-    }
-    if ($All) { $pyArgs += "--all" }
-    if ($Domains) { $pyArgs += "--domains" }
-    if ($TestSet -ne "all") {
-        $pyArgs += "--test-set"
-        $pyArgs += $TestSet
-    }
-    if ($Type -ne "all") {
-        $pyArgs += "--type"
-        $pyArgs += $Type
-    }
-    if ($Service) {
-        $pyArgs += "--service"
-        $pyArgs += $Service
-    }
-    if ($Format -ne "md") {
-        $pyArgs += "--format"
-        $pyArgs += $Format
-    }
-    if ($Profile -ne "test") {
-        $pyArgs += "--profile"
-        $pyArgs += $Profile
-    }
-    if ($Dbg) { $pyArgs += "--debug" }
-
-    & $pythonExe $pythonScript @pyArgs
-    exit $LASTEXITCODE
-} finally {
-    Disable-DatrixVenv
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\visualize.py") -Arguments $pyArgs)

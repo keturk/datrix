@@ -50,68 +50,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-# Get the directory where this script is located
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$pythonArgs = @()
+if ($Source) { $pythonArgs += @("--source", $Source) }
+if ($Generated) { $pythonArgs += @("--generated", $Generated) }
+if ($EvalDir) { $pythonArgs += @("--eval-dir", $EvalDir) }
+if ($ConfigProfile) { $pythonArgs += @("--profile", $ConfigProfile) }
+if ($Dbg) { $pythonArgs += "--debug" }
 
-# Path to the Python script
-$PythonScript = Join-Path $ScriptDir "lib\evaluate_generated_scan.py"
-
-# Import common modules
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-# Function to handle cleanup on exit
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-# Register cleanup on script exit
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
- # Ensure virtual environment is activated
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
-  Write-Error "Failed to activate virtual environment"
-  exit 1
- }
-
- # Get Python executable from venv
- $venvPath = Get-DatrixVenvPath
- $PythonExe = Join-Path $venvPath "Scripts\python.exe"
-
- if (-not (Test-Path $PythonScript)) {
-  Write-Error "Python script not found: $PythonScript"
-  exit 1
- }
-
- # Build arguments for Python script
- $pythonArgs = @($PythonScript)
- if ($Source) {
-  $pythonArgs += @("--source", $Source)
- }
- if ($Generated) {
-  $pythonArgs += @("--generated", $Generated)
- }
- if ($EvalDir) {
-  $pythonArgs += @("--eval-dir", $EvalDir)
- }
- if ($ConfigProfile) {
-  $pythonArgs += @("--profile", $ConfigProfile)
- }
- if ($Dbg) {
-  $pythonArgs += "--debug"
- }
-
- & $PythonExe @pythonArgs
- exit $LASTEXITCODE
-
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\evaluate_generated_scan.py") -Arguments $pythonArgs)

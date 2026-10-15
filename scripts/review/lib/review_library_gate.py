@@ -33,7 +33,6 @@ import argparse
 import json
 import sys
 import tempfile
-from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -44,39 +43,27 @@ from canonical_modules import (
     format_canonical_modules_for_prompt,
     scan_package_modules,
 )
+from datrix_scripts.gate_harness import CheckFunc, NamedCheck, check_list_main
+from datrix_scripts.local_llm import LocalLlmSettings
+from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, LoopbackOllama
+from datrix_scripts.paths import SCRIPTS_DIR
 from escalation import should_escalate_to_tier2
 from review import (
+    EXIT_CLEAN,
+    EXIT_TIER2_MISSING,
     build_reviewer_prompt,
-    dict_to_review_result,
     discover_phase_tasks,
-    extract_json_from_response,
-    parse_model_response,
     resolve_task_context,
+    run_review,
 )
+from review_reply import dict_to_review_result, extract_json_from_response, parse_model_response
 from review_schema import (
     Finding,
     ReviewResult,
     finding_to_dict,
     review_result_to_dict,
 )
-
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_CYAN = "\033[96m"
-_RESET = "\033[0m"
-
-
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def _step(msg: str) -> None:
-    print(f"\n{_CYAN}=== {msg}{_RESET}")
-
+from tier2_local import TIER2_MODELS, PhaseContext, phase_artifact_path, phase_prompts
 
 # ---------------------------------------------------------------------------
 # review_schema.py -- Finding, ReviewResult, finding_to_dict, review_result_to_dict
@@ -694,129 +681,180 @@ def _check_build_reviewer_prompt_orders_task_content_before_template() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tier 2: a phase review on a local model (tier2_local.py), against a loopback Ollama
+# ---------------------------------------------------------------------------
+
+_PHASE = 7
+_WELL_FORMED_TASK = """> **Peruse** the files below before starting.
+
+# Task 07-01: Add the widget registry
+
+**Package:** datrix-alpha
+**Design reference:** widget registry
+**Depends on:** none
+
+## Overview
+
+Add a registry of widgets.
+
+## Files to Review Before Starting
+
+- src/alpha/registry.py
+
+## Files to Create
+
+- src/alpha/widgets.py
+
+## Anti-Patterns to Avoid
+
+- No silent fallbacks.
+
+## Success Criteria
+
+1. The registry lists every widget.
+2. An unknown widget raises KeyError.
+3. Widgets are sorted by name.
+4. The registry is immutable.
+5. Every widget has a docstring.
+
+## Targeted Tests
+
+- tests/unit/test_widgets.py
+"""
+_TASK_REVIEW = json.dumps({"schema_version": "1.0", "source": "local", "model": "m", "scope": "task",
+                           "target": "task-07-01-widget.md", "generated_at": "2026-10-14T00:00:00Z",
+                           "verdict": "pass", "findings": [], "summary": "No subjective issues found."})
+_PHASE_REVIEW = json.dumps({
+    "schema_version": "1.0", "source": "phase", "model": "m", "scope": "phase", "target": "phase-07",
+    "generated_at": "2026-10-14T00:00:00Z", "verdict": "warnings_only",
+    "findings": [{"id": "F-001", "severity": "minor", "category": "other", "location": "task-07-01-widget.md",
+                  "description": "The registry module is named twice.", "evidence": "registry.py",
+                  "suggested_fix": "Name it once.", "rule_reference": None}],
+    "summary": "One minor phase-level issue."})
+
+
+def _canned_review(chat: Chat) -> str:
+    """The phase verdict for the phase prompt, a clean task verdict for a task prompt."""
+    return _PHASE_REVIEW if f"# Phase {_PHASE:02d}" in chat.user else _TASK_REVIEW
+
+
+def _phase_review_exit(models: tuple[str, ...]) -> tuple[int, Path, bool]:
+    """Run a phase-gate review over one well-formed task; (exit code, phase artifact, its existence)."""
+    with tempfile.TemporaryDirectory(prefix="review-tier2-") as temp, \
+            LoopbackOllama(_canned_review, models) as server:
+        workspace = Path(temp)
+        task = workspace / "datrix-alpha" / ".tasks" / f"phase-{_PHASE:02d}" / "task-07-01-widget.md"
+        task.parent.mkdir(parents=True)
+        task.write_text(_WELL_FORMED_TASK, encoding="utf-8")
+        config = {
+            "tier1": {"context_window": 32768},
+            "tier2": {"enabled": True, "mode": "phase-gate", "context_window": 65536},
+            "paths": {"datrix_root": str(workspace), "review_artifacts": str(workspace / ".review")},
+        }
+        settings = LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, load_timeout_ms=5000,
+                                    generate_timeout_ms=5000, ollama_port=server.port,
+                                    usage_log=workspace / "usage.jsonl", caller="gate")
+        args = argparse.Namespace(task=None, phase=_PHASE, verify=False, tier2=False, tier2_mode=None)
+        code = run_review(args, config, SCRIPTS_DIR / "review" / "prompts" / "local-reviewer.md", {}, settings)
+        artifact = phase_artifact_path(config, _PHASE)
+        written = artifact.is_file() and json.loads(artifact.read_text(encoding="utf-8"))
+        return code, artifact, bool(written) and written["source"] == "phase" and \
+            [f["id"] for f in written["findings"]] == ["P-001"]
+
+
+def _check_tier2_phase_review_writes_the_phase_artifact() -> None:
+    code, artifact, written = _phase_review_exit(("tier1-model:7b", TIER2_MODELS[-1]))
+    assert code == EXIT_CLEAN, f"a phase review with a clean Tier 1 and an answered Tier 2 exits 0, got {code}"
+    assert written, f"{artifact.name} holds the phase finding as P-001, source 'phase'"
+
+
+def _check_tier2_unavailable_exits_tier2_missing() -> None:
+    code, artifact, written = _phase_review_exit(("tier1-model:7b",))
+    assert code == EXIT_TIER2_MISSING, f"no tier-2 model must exit EXIT_TIER2_MISSING, got {code}"
+    assert not written, f"{artifact.name} must not exist when Tier 2 did not run"
+
+
+def _check_a_phase_too_large_for_the_window_is_split_by_task() -> None:
+    context = PhaseContext(_PHASE, "digest", "instructions")
+    sections = ["## Task file: a\n" + "x" * 400, "## Task file: b\n" + "y" * 400, "## Task file: c\n" + "z" * 50]
+    assert len(phase_prompts(context, sections, budget_chars=100_000)) == 1
+    split = phase_prompts(context, sections, budget_chars=700)
+    assert len(split) == 2 and all("digest" in p and "instructions" in p for p in split), split
+    assert "## Task file: a" in split[0] and "## Task file: b" in split[1] and "## Task file: c" in split[1]
+
+
+# ---------------------------------------------------------------------------
 # Harness
 # ---------------------------------------------------------------------------
 
-_CHECKS: list[tuple[str, Callable[[], None]]] = [
-    ("finding_construction", _check_finding_construction),
-    ("finding_to_dict_preserves_none_rule_reference", _check_finding_to_dict_preserves_none_rule_reference),
-    ("review_result_construction", _check_review_result_construction),
-    ("review_result_to_dict_serializes_findings_list", _check_review_result_to_dict_serializes_findings_list),
-    ("discover_datrix_packages_only_matches_datrix_prefixed_with_src", _check_discover_datrix_packages_only_matches_datrix_prefixed_with_src),
-    ("scan_package_modules_builds_dotted_names", _check_scan_package_modules_builds_dotted_names),
-    ("build_canonical_modules_digest_keys_by_package", _check_build_canonical_modules_digest_keys_by_package),
-    ("cache_validity_missing_file_is_invalid", _check_cache_validity_missing_file_is_invalid),
-    ("cache_validity_malformed_json_is_invalid", _check_cache_validity_malformed_json_is_invalid),
-    ("cache_validity_fresh_cache_with_no_git_repo_is_valid", _check_cache_validity_fresh_cache_with_no_git_repo_is_valid),
-    ("format_canonical_modules_for_prompt_shape", _check_format_canonical_modules_for_prompt_shape),
-    ("escalate_manual_override_always_escalates", _check_escalate_manual_override_always_escalates),
-    ("no_escalate_mode_off", _check_no_escalate_mode_off),
-    ("escalate_threshold_blocking", _check_escalate_threshold_blocking),
-    ("escalate_threshold_major", _check_escalate_threshold_major),
-    ("no_escalate_threshold_below", _check_no_escalate_threshold_below),
-    ("escalate_phase_gate_always_escalates", _check_escalate_phase_gate_always_escalates),
-    ("no_escalate_when_tier2_disabled_even_with_override", _check_no_escalate_when_tier2_disabled_even_with_override),
-    ("no_escalate_mode_manual_without_override", _check_no_escalate_mode_manual_without_override),
-    ("no_escalate_unknown_mode", _check_no_escalate_unknown_mode),
-    ("escalate_threshold_mixed_verdicts_counts_correctly", _check_escalate_threshold_mixed_verdicts_counts_correctly),
-    ("extract_direct_json", _check_extract_direct_json),
-    ("extract_json_with_whitespace", _check_extract_json_with_whitespace),
-    ("extract_json_from_markdown_fences", _check_extract_json_from_markdown_fences),
-    ("extract_json_from_plain_fences", _check_extract_json_from_plain_fences),
-    ("extract_json_with_preamble", _check_extract_json_with_preamble),
-    ("extract_json_with_trailing_text", _check_extract_json_with_trailing_text),
-    ("extract_json_with_preamble_and_fences", _check_extract_json_with_preamble_and_fences),
-    ("extract_nested_braces", _check_extract_nested_braces),
-    ("extract_json_with_strings_containing_braces", _check_extract_json_with_strings_containing_braces),
-    ("extract_returns_none_for_garbage", _check_extract_returns_none_for_garbage),
-    ("extract_returns_none_for_invalid_json_in_fences", _check_extract_returns_none_for_invalid_json_in_fences),
-    ("extract_rejects_non_review_json", _check_extract_rejects_non_review_json),
-    ("extract_picks_review_json_over_other_json", _check_extract_picks_review_json_over_other_json),
-    ("extract_picks_largest_review_json", _check_extract_picks_largest_review_json),
-    ("parse_model_valid_json", _check_parse_model_valid_json),
-    ("parse_model_fenced_json", _check_parse_model_fenced_json),
-    ("parse_model_with_preamble", _check_parse_model_with_preamble),
-    ("parse_model_invalid_json", _check_parse_model_invalid_json),
-    ("parse_model_with_think_tags", _check_parse_model_with_think_tags),
-    ("parse_model_think_tags_then_fences", _check_parse_model_think_tags_then_fences),
-    ("parse_model_think_tags_then_preamble_then_json", _check_parse_model_think_tags_then_preamble_then_json),
-    ("parse_model_no_think_tags", _check_parse_model_no_think_tags),
-    ("parse_model_invalid_json_after_stripping_think_tags", _check_parse_model_invalid_json_after_stripping_think_tags),
-    ("resolve_task_context_extracts_design_reference_and_agent_rules", _check_resolve_task_context_extracts_design_reference_and_agent_rules),
-    ("discover_phase_tasks_searches_every_datrix_repo", _check_discover_phase_tasks_searches_every_datrix_repo),
-    ("dict_to_review_result_converts_findings", _check_dict_to_review_result_converts_findings),
-    ("build_reviewer_prompt_orders_task_content_before_template", _check_build_reviewer_prompt_orders_task_content_before_template),
+_CHECK_PREFIX = "_check_"
+
+_CHECK_FUNCTIONS: tuple[CheckFunc, ...] = (
+    _check_finding_construction,
+    _check_finding_to_dict_preserves_none_rule_reference,
+    _check_review_result_construction,
+    _check_review_result_to_dict_serializes_findings_list,
+    _check_discover_datrix_packages_only_matches_datrix_prefixed_with_src,
+    _check_scan_package_modules_builds_dotted_names,
+    _check_build_canonical_modules_digest_keys_by_package,
+    _check_cache_validity_missing_file_is_invalid,
+    _check_cache_validity_malformed_json_is_invalid,
+    _check_cache_validity_fresh_cache_with_no_git_repo_is_valid,
+    _check_format_canonical_modules_for_prompt_shape,
+    _check_escalate_manual_override_always_escalates,
+    _check_no_escalate_mode_off,
+    _check_escalate_threshold_blocking,
+    _check_escalate_threshold_major,
+    _check_no_escalate_threshold_below,
+    _check_escalate_phase_gate_always_escalates,
+    _check_no_escalate_when_tier2_disabled_even_with_override,
+    _check_no_escalate_mode_manual_without_override,
+    _check_no_escalate_unknown_mode,
+    _check_escalate_threshold_mixed_verdicts_counts_correctly,
+    _check_extract_direct_json,
+    _check_extract_json_with_whitespace,
+    _check_extract_json_from_markdown_fences,
+    _check_extract_json_from_plain_fences,
+    _check_extract_json_with_preamble,
+    _check_extract_json_with_trailing_text,
+    _check_extract_json_with_preamble_and_fences,
+    _check_extract_nested_braces,
+    _check_extract_json_with_strings_containing_braces,
+    _check_extract_returns_none_for_garbage,
+    _check_extract_returns_none_for_invalid_json_in_fences,
+    _check_extract_rejects_non_review_json,
+    _check_extract_picks_review_json_over_other_json,
+    _check_extract_picks_largest_review_json,
+    _check_parse_model_valid_json,
+    _check_parse_model_fenced_json,
+    _check_parse_model_with_preamble,
+    _check_parse_model_invalid_json,
+    _check_parse_model_with_think_tags,
+    _check_parse_model_think_tags_then_fences,
+    _check_parse_model_think_tags_then_preamble_then_json,
+    _check_parse_model_no_think_tags,
+    _check_parse_model_invalid_json_after_stripping_think_tags,
+    _check_resolve_task_context_extracts_design_reference_and_agent_rules,
+    _check_discover_phase_tasks_searches_every_datrix_repo,
+    _check_dict_to_review_result_converts_findings,
+    _check_build_reviewer_prompt_orders_task_content_before_template,
+    _check_tier2_phase_review_writes_the_phase_artifact,
+    _check_tier2_unavailable_exits_tier2_missing,
+    _check_a_phase_too_large_for_the_window_is_split_by_task,
+)
+
+_CHECKS: list[NamedCheck] = [
+    NamedCheck(check.__name__.removeprefix(_CHECK_PREFIX), check) for check in _CHECK_FUNCTIONS
 ]
 
 
-def _dummy_intentionally_failing_check() -> None:
-    """Registered ONLY under --harness-self-test.
-
-    Always fails on purpose -- this is the proof that run_checks() actually
-    detects and reports a failing check, rather than vacuously swallowing
-    every AssertionError and reporting green regardless of what the checks do.
-    """
-    raise AssertionError("intentional harness self-test failure (expected -- proves non-vacuity)")
-
-
-def run_checks(checks: list[tuple[str, Callable[[], None]]]) -> bool:
-    """Run every (name, check_fn) pair, printing [OK]/[FAIL] per check.
-
-    Args:
-        checks: Named zero-argument callables; each raises AssertionError on
-            failure and returns normally on success.
-
-    Returns:
-        True iff every check passed.
-    """
-    all_passed = True
-    for name, fn in checks:
-        try:
-            fn()
-        except AssertionError as e:
-            _fail(f"{name}: {e}")
-            all_passed = False
-        else:
-            _ok(name)
-    return all_passed
-
-
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Repo-level gate absorbing 5 orphaned review/tests/*.py pytest files "
-            "(review_schema, canonical_modules, escalation, review.py parsing + orchestrator core)."
-        )
+    return check_list_main(
+        "Repo-level gate for the review library (review_schema, canonical_modules, escalation, "
+        "review.py parsing and orchestrator core).",
+        "review-library",
+        _CHECKS,
     )
-    parser.add_argument(
-        "--harness-self-test",
-        action="store_true",
-        help=(
-            "Demonstration mode: run one intentionally-failing dummy check through "
-            "the harness and report the result. Always reports [FAIL] and exits 1 -- "
-            "this is the proof that the harness's pass/fail detection is not vacuous."
-        ),
-    )
-    args = parser.parse_args()
-
-    if args.harness_self_test:
-        _step("Harness self-test: intentionally-failing dummy check (must report FAIL, exit 1)")
-        harness_ok = run_checks(
-            [("dummy_intentionally_failing_check", _dummy_intentionally_failing_check)]
-        )
-        return 0 if harness_ok else 1
-
-    _step("review-library-gate: review_schema, canonical_modules, escalation, review.py")
-    passed = run_checks(_CHECKS)
-
-    print()
-    if passed:
-        print(
-            f"{_GREEN}GATE PASSED{_RESET}: all {len(_CHECKS)} absorbed review-library checks passed."
-        )
-        return 0
-    print(f"{_RED}GATE FAILED{_RESET}: see failures above.")
-    return 1
 
 
 if __name__ == "__main__":

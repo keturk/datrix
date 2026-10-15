@@ -1,87 +1,75 @@
 ﻿#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Count files with a specified extension in subfolders of specified datrix directories
+ Count files with one or more extensions in subfolders of every datrix directory
 
 .DESCRIPTION
- Counts the number of files with a specified extension under subfolders of every datrix repository
+ Counts the files whose name ends with each given extension under every datrix repository
 discovered by Get-DatrixDirectories (the datrix showcase repo plus every datrix-* package directory in
-the workspace). The set is discovered from disk, never hardcoded, so a new package is covered with no
-edit here.
+the workspace), one column per extension. The set is discovered from disk, never hardcoded, so a new
+package is covered with no edit here. A file is counted under an extension only when its name ends
+with it, so "x.dtrx.false" counts as dtrx.false, never as dtrx.
 
 .PARAMETER Extension
- The file extension to count (without leading dot). Defaults to "j2".
+ The file extensions to count (without the leading dot). Defaults to "j2".
 
 .EXAMPLE
  .\file-count.ps1
- Count .j2 files in all specified directories (default).
+ Count .j2 files in all directories (default).
 
 .EXAMPLE
  .\file-count.ps1 py
- Count .py files in all specified directories.
+ Count .py files in all directories.
 
 .EXAMPLE
- .\file-count.ps1 datrix
- Count .dtrx files in all specified directories.
-
-.EXAMPLE
- .\file-count.ps1 exe
- Count .exe files in all specified directories.
+ .\file-count.ps1 -Extension dtrx,dtrx.false
+ Count .dtrx and .dtrx.false files, one column each.
 #>
 
 [CmdletBinding()]
 param(
  [Parameter(Mandatory=$false, Position=0)]
- [string]$Extension = "j2"
+ [string[]]$Extension = @("j2")
 )
 
-# Error handling
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
 
-# Normalize extension (ensure it starts with a dot)
-if (-not $Extension.StartsWith(".")) {
- $Extension = ".$Extension"
-}
+# "powershell -File" passes "dtrx,dtrx.false" as one string, so a comma list is split here;
+# each extension is normalized to start with a dot.
+$extensions = @($Extension | ForEach-Object { $_ -split "," } | Where-Object { $_ } |
+ ForEach-Object { if ($_.StartsWith(".")) { $_ } else { ".$_" } })
 
-# Import common module
-$commonModulePath = Join-Path (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)) "common\DatrixPaths.psm1"
-Import-Module $commonModulePath -Force
-
-# Get workspace root and directories
-$datrixWorkspaceRoot = Get-DatrixWorkspaceRoot -ScriptPath $MyInvocation.MyCommand.Path
+$datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
 $directories = Get-DatrixDirectories
 
-Write-Host "Counting $Extension files in subfolders..." -ForegroundColor Cyan
+Write-Host "Counting $($extensions -join ', ') files in subfolders..." -ForegroundColor Cyan
 Write-Host ""
 
-$totalCount = 0
+$totals = [ordered]@{}
+foreach ($ext in $extensions) { $totals[$ext] = 0 }
 $results = @()
 
 foreach ($dir in $directories) {
  $dirPath = Join-Path $datrixWorkspaceRoot $dir
- 
  if (-not (Test-Path $dirPath)) {
- Write-Warning "Directory not found: $dirPath"
- continue
+  Write-Warning "Directory not found: $dirPath"
+  continue
  }
- 
- # Get all files with the specified extension in subfolders (recursive)
- $filter = "*$Extension"
- $files = Get-ChildItem -Path $dirPath -Filter $filter -Recurse -File -ErrorAction SilentlyContinue
- $fileCount = $files.Count
- 
- $totalCount += $fileCount
- 
- $result = [PSCustomObject]@{
- Directory = $dir
- $Extension = $fileCount
+ $names = @(Get-ChildItem -Path $dirPath -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+ $row = [ordered]@{ Directory = $dir }
+ foreach ($ext in $extensions) {
+  $count = @($names | Where-Object { $_.EndsWith($ext, [System.StringComparison]::OrdinalIgnoreCase) }).Count
+  $row[$ext] = $count
+  $totals[$ext] += $count
  }
- $results += $result
+ $results += [PSCustomObject]$row
 }
 
-# Display results
 $results | Format-Table -AutoSize
 
-Write-Host "Total $Extension files: $totalCount" -ForegroundColor Green
+foreach ($ext in $extensions) {
+ Write-Host "Total $ext files: $($totals[$ext])" -ForegroundColor Green
+}
 
 exit 0

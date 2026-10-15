@@ -109,10 +109,6 @@ def finding_files(directory: Path) -> list[Path]:
     return sorted(path for path in directory.glob("*.md") if path.is_file())
 
 
-def is_consolidated(path: Path) -> bool:
-    return path.name.startswith(CONSOLIDATED_PREFIX)
-
-
 def _normalized(reference: str) -> str:
     return reference.strip().strip("`").replace("\\", "/")
 

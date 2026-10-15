@@ -74,9 +74,20 @@ if sys.platform == "win32" and __name__ == "__main__":
 import gate_verdict  # noqa: E402
 from datrix_scripts import affected_set, suite_inputs  # noqa: E402
 from datrix_scripts.capped_log import DEFAULT_MAX_BYTES, append_line  # noqa: E402
-from datrix_scripts.paths import PACKAGE_DIR, SHOWCASE_DIR  # noqa: E402
+from datrix_scripts.gate_harness import (  # noqa: E402
+    NamedCheck,
+    UsageError,
+    configure_logging,
+    report_step,
+    run_checks,
+)
+from datrix_scripts.paths import (  # noqa: E402
+    PACKAGE_DIR,
+    SHOWCASE_DIR,
+    WORKSPACE_DIR,
+    resolve_output_path,
+)
 from datrix_scripts.status_tests import parse_timestamp_from_log_file  # noqa: E402
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -162,10 +173,6 @@ _ENSURE_PACKAGES_COMMAND = (
     "exit 0 "
     "} catch { [Console]::Error.WriteLine(\"Install check failed: $_\"); exit 1 }"
 )
-
-
-class UsageError(Exception):
-    """Invalid usage or unschedulable request; the script exits with code 2."""
 
 
 class InstallCheckError(Exception):
@@ -760,13 +767,6 @@ def _newest_full_run(test_results_dir: Path) -> tuple[str, dict[str, object]]:
     raise _CarryRefused(_REASON_NO_FULL_RUN)
 
 
-def _is_zero_count(counts: object, key: str) -> bool:
-    if not isinstance(counts, dict) or key not in counts:
-        return False
-    value = counts[key]
-    return isinstance(value, int) and not isinstance(value, bool) and value == 0
-
-
 def _require_green_complete_stamped_schema(index: dict[str, object], run_name: str) -> None:
     schema = index[_SCHEMA_VERSION_KEY] if _SCHEMA_VERSION_KEY in index else None
     if not isinstance(schema, int) or isinstance(schema, bool) or schema < _STAMPED_SCHEMA_VERSION:
@@ -776,7 +776,7 @@ def _require_green_complete_stamped_schema(index: dict[str, object], run_name: s
     counts = index[_COUNTS_KEY] if _COUNTS_KEY in index else None
     if _INCOMPLETE_MARKER in (result, status) or counts is None:
         raise _CarryRefused(_REASON_RUN_IS_INCOMPLETE, run_name)
-    if result != _RESULT_PASSED or not all(_is_zero_count(counts, key) for key in _ZERO_COUNT_KEYS):
+    if result != _RESULT_PASSED or not all(gate_verdict.is_zero_count(counts, key) for key in _ZERO_COUNT_KEYS):
         raise _CarryRefused(_REASON_RUN_IS_RED, run_name)
 
 
@@ -824,7 +824,7 @@ def _verify_candidate(
         observed = suite_inputs.ObservedInputs.from_recorded(candidate.inputs)
         current = suite_inputs.compute_inputs(workspace, package, observed, cone=cone)
         reasons = suite_inputs.diff_components(candidate.inputs, current)
-    except affected_set.UsageError as exc:
+    except UsageError as exc:
         raise _CarryRefused(
             f"suite-input fingerprint could not be computed: {exc}", candidate.run_dir
         ) from exc
@@ -842,7 +842,7 @@ def _verify_candidates(workspace: Path, candidates: Mapping[str, _CarryCandidate
     """Verify every candidate against ONE derivation of the workspace's cones."""
     try:
         cones = suite_inputs.package_cones(workspace)
-    except affected_set.UsageError as exc:
+    except UsageError as exc:
         reason = f"package cones could not be derived: {exc}"
         return {
             name: CarryDecision(carried=False, run_dir=candidate.run_dir, fingerprint=None, reason=reason)
@@ -1296,15 +1296,6 @@ def _aggregate_verdict(
     return result.exit_code
 
 
-def _resolve_output_path(raw_output: str | None, workspace: Path) -> Path:
-    if raw_output:
-        output_path = Path(raw_output).resolve()
-    else:
-        output_path = workspace.joinpath(".tmp", *_OUTPUT_SUBDIRS, _OUTPUT_FILENAME)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    return output_path
-
-
 # ---------------------------------------------------------------------------
 # Completion row: the gate's own record, in the full-suite audit log, of what
 # a sweep ran and what carry saved.
@@ -1362,47 +1353,11 @@ def append_completion_row(audit_path: Path, record: CompletionRecord) -> dict[st
 
 
 # ---------------------------------------------------------------------------
-# Self-test harness -- mirrors check_docs_conformance.py's pattern.
+# Self-test, run through datrix_scripts.gate_harness. A UsageError or an
+# InstallCheckError raised inside a check is that check failing.
 # ---------------------------------------------------------------------------
 
-_GREEN_ANSI = "\033[92m"
-_RED_ANSI = "\033[91m"
-_CYAN_ANSI = "\033[96m"
-_RESET_ANSI = "\033[0m"
-
-
-def _ok(msg: str) -> None:
-    print(f"{_GREEN_ANSI}[OK]{_RESET_ANSI} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED_ANSI}[FAIL]{_RESET_ANSI} {msg}")
-
-
-def _step(msg: str) -> None:
-    print(f"\n{_CYAN_ANSI}=== {msg}{_RESET_ANSI}")
-
-
-def run_self_test_checks(checks: list[tuple[str, Callable[[], None]]]) -> bool:
-    """Run every (name, check_fn) pair, printing [OK]/[FAIL] per check."""
-    all_passed = True
-    for name, fn in checks:
-        try:
-            fn()
-        except (AssertionError, UsageError, InstallCheckError, affected_set.UsageError, gate_verdict.UsageError) as e:
-            _fail(f"{name}: {type(e).__name__}: {e}")
-            all_passed = False
-        else:
-            _ok(name)
-    return all_passed
-
-
-def _configure_logging(debug: bool) -> None:
-    logging.basicConfig(
-        level=logging.DEBUG if debug else logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
-        stream=sys.stderr,
-    )
+_SELF_TEST_FAILURES: tuple[type[Exception], ...] = (UsageError, InstallCheckError)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -1520,7 +1475,7 @@ def _run(args: argparse.Namespace, workspace: Path, record: CompletionRecord) ->
         if not mypy_ok:
             print("mypy: at least one changed package failed type-checking", file=sys.stderr)
 
-    output_path = _resolve_output_path(args.output, workspace)
+    output_path = resolve_output_path(args.output, *_OUTPUT_SUBDIRS, filename=_OUTPUT_FILENAME)
     exit_code = _aggregate_verdict(
         workspace, affected, forced_red, produced_runs, carry_decisions, output_path, excluded=record.excluded
     )
@@ -2485,12 +2440,12 @@ def _check_gate_verdict_checks_every_carry_claim_against_the_run() -> None:
             row = rejected.rows[0]
             assert rejected.overall == _VERDICT_RED and row.verdict == _VERDICT_RED and not row.carried, row
             assert row.reason is not None and row.reason.startswith("CARRY_REJECTED"), row
+        refused = False
         try:
             gate_verdict.evaluate_projects(workspace, ["datrix-full"], carried={"datrix-full": "f" * 8})
-        except gate_verdict.UsageError:
-            pass
-        else:
-            raise AssertionError("a carried package with no pinned run must be a usage error")
+        except UsageError:
+            refused = True
+        assert refused, "a carried package with no pinned run must be a usage error"
 
 
 def _guard_row_keys_and_ts_expressions() -> tuple[set[str], list[str]]:
@@ -2570,6 +2525,10 @@ _TEST_PS1_PARTS = ("scripts", "test", "test.ps1")
 _TEST_PROJECT_NAME = "test_project.py"
 _INSTALL_CALL = "Ensure-DatrixPackagesInstalled -SkipIfInstalled"
 _INSTALL_GUARD = f'$env:{PACKAGES_ENSURED_ENV} -ne "{_PACKAGES_ENSURED_VALUE}"'
+#: test.ps1 decides from the flag whether its runner calls carry the install check ...
+_TEST_PS1_INSTALL_DECISION = f"$requirePackages = {_INSTALL_GUARD}"
+#: ... and hands that decision to the runner, which runs Ensure-DatrixPackagesInstalled -SkipIfInstalled.
+_TEST_PS1_INSTALL_REQUEST = "-RequirePackages:$requirePackages"
 _SIGNAL_TO_TEST_PROJECT = f'$env:{PACKAGES_ENSURED_ENV} = "{_PACKAGES_ENSURED_VALUE}"'
 _CALLER_VALUE_RESTORE = f"$env:{PACKAGES_ENSURED_ENV} = $script:CallerPackagesEnsured"
 _ENSURED_MARKER = "packages-ensured.marker"
@@ -2596,46 +2555,50 @@ def _showcase_repo() -> Path:
     return SHOWCASE_DIR
 
 
-def _call_is_guarded_by(text: str, call: str, guard: str) -> bool:
-    """True when the one line invoking *call* sits directly inside an ``if``
-    block whose condition contains *guard*. Walks back from the call,
-    balancing braces, to the line that opened the enclosing block."""
-    lines = text.splitlines()
-    call_lines = [index for index, line in enumerate(lines) if call in line]
-    assert len(call_lines) == 1, f"expected exactly one line invoking {call!r}, found {len(call_lines)}"
-    depth = 0
-    for line in reversed(lines[: call_lines[0]]):
-        depth += line.count("}") - line.count("{")
-        if depth < 0:
-            return line.strip().startswith("if") and guard in line
-    return False
+def _install_decision_problems(text: str) -> list[str]:
+    """Why *text* (test.ps1) would repeat an install check its caller already ran; empty when it
+    would not. Its runner calls must ask for the check only through the flag-derived decision,
+    and the decision must read the flag before the script sets it for test_project.py."""
+    problems: list[str] = []
+    if _TEST_PS1_INSTALL_DECISION not in text:
+        problems.append(f"no `{_TEST_PS1_INSTALL_DECISION}` decision")
+    if _TEST_PS1_INSTALL_REQUEST not in text:
+        problems.append(f"no runner call passes `{_TEST_PS1_INSTALL_REQUEST}`")
+    if "-RequirePackages " in text or "-RequirePackages\n" in text or text.rstrip().endswith("-RequirePackages"):
+        problems.append("a runner call asks for the install check unconditionally (bare -RequirePackages)")
+    if _INSTALL_CALL in text:
+        problems.append(f"it calls {_INSTALL_CALL} itself instead of through the runner")
+    decision, signal = text.find(_TEST_PS1_INSTALL_DECISION), text.find(_SIGNAL_TO_TEST_PROJECT)
+    if decision >= 0 and signal >= 0 and signal < decision:
+        problems.append("it sets the flag before reading it, so its own check would always be skipped")
+    return problems
 
 
 def _check_children_carry_the_install_flag_and_test_ps1_honours_it() -> None:
     """The seam between the gate that ran the check and the child that skips
-    it: every child's environment carries the flag, test.ps1's one install
-    call sits inside the guard reading that same flag, test.ps1 still hands
-    the flag to test_project.py and restores its caller's value on exit, and
-    test_project.py reads the same name. The guard finder is proven
-    non-vacuous on an unguarded call and on a call guarded by another flag."""
+    it: every child's environment carries the flag, test.ps1 asks its runner for
+    the install check only through a decision read from that same flag (before
+    setting it), test.ps1 still hands the flag to test_project.py and restores
+    its caller's value on exit, and test_project.py reads the same name. The
+    decision finder is proven non-vacuous on an unconditional request and on a
+    flag set before it is read."""
     env = _child_environment(3)
     assert env[PACKAGES_ENSURED_ENV] == _PACKAGES_ENSURED_VALUE, env.get(PACKAGES_ENSURED_ENV)
     assert env[_XDIST_WORKERS_ENV] == "3", env.get(_XDIST_WORKERS_ENV)
 
-    unguarded = f"try {{\n    $ok = {_INSTALL_CALL}\n}}\n"
-    other_flag = f'if ($env:SOME_OTHER_FLAG -ne "1") {{\n    $ok = {_INSTALL_CALL}\n}}\n'
-    closed_before = f'if ({_INSTALL_GUARD}) {{\n    $x = 1\n}}\n$ok = {_INSTALL_CALL}\n'
-    for planted in (unguarded, other_flag, closed_before):
-        assert not _call_is_guarded_by(planted, _INSTALL_CALL, _INSTALL_GUARD), (
-            f"the guard finder accepted an install call the flag does not guard:\n{planted}"
+    sound = f"{_TEST_PS1_INSTALL_DECISION}\n{_SIGNAL_TO_TEST_PROJECT}\nInvoke-X {_TEST_PS1_INSTALL_REQUEST}\n"
+    assert not _install_decision_problems(sound), _install_decision_problems(sound)
+    unconditional = f"{_TEST_PS1_INSTALL_DECISION}\n{_SIGNAL_TO_TEST_PROJECT}\nInvoke-X -RequirePackages -Arguments a\n"
+    flag_first = f"{_SIGNAL_TO_TEST_PROJECT}\n{_TEST_PS1_INSTALL_DECISION}\nInvoke-X {_TEST_PS1_INSTALL_REQUEST}\n"
+    for planted in (unconditional, flag_first):
+        assert _install_decision_problems(planted), (
+            f"the decision finder accepted a test.ps1 that repeats the install check:\n{planted}"
         )
-    guarded = f'if ({_INSTALL_GUARD}) {{\n    # comment\n    $ok = {_INSTALL_CALL}\n}}\n'
-    assert _call_is_guarded_by(guarded, _INSTALL_CALL, _INSTALL_GUARD), "the guard finder missed a guarded call"
 
     test_ps1 = _showcase_repo().joinpath(*_TEST_PS1_PARTS).read_text(encoding="utf-8-sig")
-    assert _call_is_guarded_by(test_ps1, _INSTALL_CALL, _INSTALL_GUARD), (
-        f"test.ps1's {_INSTALL_CALL} call is not inside `if ({_INSTALL_GUARD}) {{ ... }}`: every gate "
-        f"child would repeat the install check the gate already ran"
+    problems = _install_decision_problems(test_ps1)
+    assert not problems, (
+        f"test.ps1 would repeat the install check the gate already ran in every child: {problems}"
     )
     assert _SIGNAL_TO_TEST_PROJECT in test_ps1, f"test.ps1 no longer sets {_SIGNAL_TO_TEST_PROJECT} for test_project.py"
     assert _CALLER_VALUE_RESTORE in test_ps1, (
@@ -2704,7 +2667,7 @@ def _check_install_check_runs_once_before_carry_and_any_child() -> None:
         "main() must return for --self-test before _run_recorded, so a self-test runs no install check"
     )
 
-    venv_script = venv_script_path(get_datrix_root())
+    venv_script = venv_script_path(WORKSPACE_DIR)
     assert venv_script == _showcase_repo() / "scripts" / "common" / "venv.ps1", venv_script
     venv_source = venv_script.read_text(encoding="utf-8-sig")
     for function_name in ("Ensure-DatrixVenv", "Ensure-DatrixPackagesInstalled"):
@@ -2751,122 +2714,59 @@ def _check_install_check_passes_through_and_fails_loud() -> None:
             raise AssertionError("a missing venv module did not raise InstallCheckError")
 
 
-_SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
-    (
-        "cross_ecosystem_consumer_is_in_the_gates_affected_set",
+_SELF_TEST_CHECKS: list[NamedCheck] = [
+    NamedCheck(check.__name__.removeprefix("_check_"), check)
+    for check in (
         _check_cross_ecosystem_consumer_is_in_the_gates_affected_set,
-    ),
-    (
-        "budget_never_exceeds_cores_across_simulated_schedule",
         _check_budget_never_exceeds_cores_across_simulated_schedule,
-    ),
-    (
-        "proportional_allotment_follows_the_cpu_share_rule",
         _check_proportional_allotment_follows_the_cpu_share_rule,
-    ),
-    (
-        "proportional_makespan_within_bound_of_the_cpu_lower_bound",
         _check_proportional_makespan_within_bound_of_the_cpu_lower_bound,
-    ),
-    (
-        "proportional_makespan_no_worse_than_retired_fixed_slot_policy",
         _check_proportional_makespan_no_worse_than_retired_fixed_slot_policy,
-    ),
-    (
-        "worker_allotment_override_is_uniform_and_bounded",
         _check_worker_allotment_override_is_uniform_and_bounded,
-    ),
-    ("longest_first_ordering", _check_longest_first_ordering),
-    (
-        "predicted_cpu_seconds_reads_test_time_of_the_newest_full_run",
+        _check_longest_first_ordering,
         _check_predicted_cpu_seconds_reads_test_time_of_the_newest_full_run,
-    ),
-    ("missing_index_falls_back_to_loc", _check_missing_index_falls_back_to_loc),
-    (
-        "resolve_requested_packages_distinct_ok_and_duplicate_rejected",
+        _check_missing_index_falls_back_to_loc,
         _check_resolve_requested_packages_distinct_ok_and_duplicate_rejected,
-    ),
-    (
-        "select_affected_runs_named_consumers_and_records_the_rest_as_excluded",
         _check_select_affected_runs_named_consumers_and_records_the_rest_as_excluded,
-    ),
-    (
-        "select_affected_never_defaults_the_consumer_decision",
         _check_select_affected_never_defaults_the_consumer_decision,
-    ),
-    (
-        "child_with_no_new_run_forces_red_never_stale_green",
         _check_child_with_no_new_run_forces_red_never_stale_green,
-    ),
-    (
-        "verdict_is_pinned_to_the_childs_run_never_a_newer_one",
         _check_verdict_is_pinned_to_the_childs_run_never_a_newer_one,
-    ),
-    (
-        "child_run_is_attributed_from_its_own_details_line_never_the_newest_dir",
         _check_child_run_is_attributed_from_its_own_details_line_never_the_newest_dir,
-    ),
-    (
-        "pinned_run_without_results_is_red_never_a_fallthrough",
         _check_pinned_run_without_results_is_red_never_a_fallthrough,
-    ),
-    ("is_run_in_progress_missing_index_json", _check_is_run_in_progress_missing_index_json),
-    ("is_run_in_progress_incomplete_status", _check_is_run_in_progress_incomplete_status),
-    (
-        "is_run_in_progress_completed_index_is_not_in_progress",
+        _check_is_run_in_progress_missing_index_json,
+        _check_is_run_in_progress_incomplete_status,
         _check_is_run_in_progress_completed_index_is_not_in_progress,
-    ),
-    ("max_concurrent_one_is_sequential", _check_max_concurrent_one_is_sequential),
-    ("carry_refused_without_any_full_run", _check_carry_refused_without_any_full_run),
-    ("carry_refused_for_red_and_incomplete_runs", _check_carry_refused_for_red_and_incomplete_runs),
-    ("carry_refused_outside_the_carry_window", _check_carry_refused_outside_the_carry_window),
-    ("carry_refused_for_unstamped_runs", _check_carry_refused_for_unstamped_runs),
-    (
-        "carry_refused_for_foreign_algorithm_and_malformed_stamps",
+        _check_max_concurrent_one_is_sequential,
+        _check_carry_refused_without_any_full_run,
+        _check_carry_refused_for_red_and_incomplete_runs,
+        _check_carry_refused_outside_the_carry_window,
+        _check_carry_refused_for_unstamped_runs,
         _check_carry_refused_for_foreign_algorithm_and_malformed_stamps,
-    ),
-    ("identical_inputs_carry_and_launch_no_child", _check_identical_inputs_carry_and_launch_no_child),
-    ("no_carry_runs_a_carriable_package", _check_no_carry_runs_a_carriable_package),
-    (
-        "newer_targeted_runs_never_hide_a_carriable_full_run",
+        _check_identical_inputs_carry_and_launch_no_child,
+        _check_no_carry_runs_a_carriable_package,
         _check_newer_targeted_runs_never_hide_a_carriable_full_run,
-    ),
-    ("every_component_change_forces_a_run_naming_it", _check_every_component_change_forces_a_run_naming_it),
-    (
-        "affected_gate_json_names_the_carried_run_and_the_changed_component",
+        _check_every_component_change_forces_a_run_naming_it,
         _check_affected_gate_json_names_the_carried_run_and_the_changed_component,
-    ),
-    (
-        "gate_verdict_checks_every_carry_claim_against_the_run",
         _check_gate_verdict_checks_every_carry_claim_against_the_run,
-    ),
-    (
-        "completion_row_shares_the_guards_ts_type_and_is_distinguishable",
         _check_completion_row_shares_the_guards_ts_type_and_is_distinguishable,
-    ),
-    (
-        "children_carry_the_install_flag_and_test_ps1_honours_it",
         _check_children_carry_the_install_flag_and_test_ps1_honours_it,
-    ),
-    (
-        "install_check_runs_once_before_carry_and_any_child",
         _check_install_check_runs_once_before_carry_and_any_child,
-    ),
-    ("install_check_passes_through_and_fails_loud", _check_install_check_passes_through_and_fails_loud),
+        _check_install_check_passes_through_and_fails_loud,
+    )
 ]
 
 
 def main() -> int:
     """Entry point."""
     args = _parse_args()
-    _configure_logging(args.debug)
+    configure_logging(args.debug)
 
-    _step("Self-test: affected-gate scheduling, carry and completion-row edge cases")
-    self_test_passed = run_self_test_checks(_SELF_TEST_CHECKS)
+    report_step("Self-test: affected-gate scheduling, carry and completion-row edge cases")
+    self_test_passed = run_checks(_SELF_TEST_CHECKS, also_failing=_SELF_TEST_FAILURES)
     if args.self_test:
         return _EXIT_GREEN if self_test_passed else _EXIT_RED
 
-    workspace = get_datrix_root()
+    workspace = WORKSPACE_DIR
     record = CompletionRecord()
     try:
         return _run_recorded(args, workspace, self_test_passed, record)

@@ -75,5 +75,7 @@ The checks live in `lib\implement_finding.py` and run as the `skill-assist.ps1` 
 | **Run every check** | `.\skill\skill-assist-gate.ps1` |
 | **One check** | `.\skill\skill-assist-gate.ps1 -Only <check name>` |
 | **Prove the harness fails a broken check** | `.\skill\skill-assist-gate.ps1 -HarnessSelfTest` |
+| **Self-test (harness, then the checks over planted inputs)** | `.\skill\skill-assist-gate.ps1 -SelfTest` |
+| **Debug** | `.\skill\skill-assist-gate.ps1 -Dbg` |
 
 **Exit codes:** 0 every check passed; 1 a check failed.

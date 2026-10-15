@@ -40,40 +40,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptsDir = Split-Path -Parent $scriptDir
-$commonDir = Join-Path $scriptsDir "common"
-$pythonScript = Join-Path $scriptDir "lib\run_codemod.py"
-
-if (-not (Test-Path $pythonScript)) {
- Write-Error "run_codemod.py not found: $pythonScript"
- exit 1
-}
-
-. (Join-Path $commonDir "venv.ps1")
-
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-trap {
- Invoke-Cleanup
- exit 130
-}
-
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
- Write-Error "Failed to activate virtual environment"
- exit 1
-}
-
-$venvPath = Get-DatrixVenvPath
-$pythonExe = Join-Path $venvPath "Scripts\python.exe"
-if (-not (Test-Path $pythonExe)) {
- $pythonExe = Join-Path $venvPath "bin\python"
-}
-
-$pythonArgs = @($pythonScript, $CodemodName) + $CodemodArgs
-& $pythonExe @pythonArgs
-exit $LASTEXITCODE
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\run_codemod.py") -Arguments (@($CodemodName) + $CodemodArgs))

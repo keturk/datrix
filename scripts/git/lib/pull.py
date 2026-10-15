@@ -37,7 +37,7 @@ from pathlib import Path
 
 from datrix_scripts.code_index.sources import discover_repos
 from datrix_scripts.logging_utils import ColorCodes, colorize
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 EXIT_ALL_PULLED = 0
 EXIT_SOME_NOT_PULLED = 1
@@ -263,7 +263,7 @@ def main(argv: list[str]) -> int:
         stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.parse_args(argv)
-    workspace = get_datrix_root()
+    workspace = WORKSPACE_DIR
     repos = discover_repos(workspace)
     if not repos:
         print(colorize(f"ERROR: no git repositories found directly under {workspace}; expected the datrix-* "

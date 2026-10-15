@@ -29,6 +29,7 @@ import io
 import json
 import logging
 import sys
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -47,7 +48,8 @@ from datrix_scripts.status_tests import (  # noqa: E402
     parse_pytest_summary,
     parse_timestamp_from_log_file,
 )
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.gate_harness import NamedCheck, UsageError, run_checks, run_main  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR, resolve_output_path  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -76,11 +78,6 @@ _ZERO_COUNT_KEYS = ("failed", "error")
 _FINGERPRINT_DISPLAY_CHARS = 16
 _EXIT_GREEN = 0
 _EXIT_RED = 1
-_EXIT_USAGE = 2
-
-
-class UsageError(Exception):
-    """Invalid usage or missing input; the script exits with code 2."""
 
 
 @dataclass(frozen=True)
@@ -295,7 +292,8 @@ def _read_index_object(index_path: Path) -> dict[str, object]:
     return {str(key): value for key, value in raw.items()}
 
 
-def _is_zero_count(counts: object, key: str) -> bool:
+def is_zero_count(counts: object, key: str) -> bool:
+    """True when ``counts`` is a dict holding ``key`` as the integer 0 (a bool is not one)."""
     if not isinstance(counts, dict) or key not in counts:
         return False
     value = counts[key]
@@ -324,7 +322,7 @@ def _carry_claim_problems(index: dict[str, object], fingerprint: str) -> list[st
         problems.append(f"run result is {result!r}, not {_STATUS_PASSED}")
     counts = index[_COUNTS_KEY] if _COUNTS_KEY in index else None
     for key in _ZERO_COUNT_KEYS:
-        if not _is_zero_count(counts, key):
+        if not is_zero_count(counts, key):
             problems.append(f"run counts.{key} is not 0")
     inputs = index[_INPUTS_KEY] if _INPUTS_KEY in index else None
     recorded = inputs[_FINGERPRINT_KEY] if isinstance(inputs, dict) and _FINGERPRINT_KEY in inputs else None
@@ -596,16 +594,6 @@ def _resolve_projects(args: argparse.Namespace, workspace: Path) -> list[str]:
     return names
 
 
-def _resolve_output_path(raw_output: str | None, workspace: Path) -> Path:
-    """Default to <workspace>/.tmp/test/gate-verdict.json unless overridden."""
-    if raw_output:
-        output_path = Path(raw_output).resolve()
-    else:
-        output_path = workspace.joinpath(".tmp", *_OUTPUT_SUBDIRS, _OUTPUT_FILENAME)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    return output_path
-
-
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Aggregate a GREEN/RED test gate verdict across Datrix packages."
@@ -625,21 +613,51 @@ def _parse_args() -> argparse.Namespace:
         help="Output JSON path (default <workspace>/.tmp/test/gate-verdict.json)",
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Run only the self-test: planted green, red and index-less runs give GREEN, RED, RED.",
+    )
     return parser.parse_args()
 
 
-def _configure_logging(debug: bool) -> None:
-    logging.basicConfig(
-        level=logging.DEBUG if debug else logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
-        stream=sys.stderr,
-    )
+_SELF_TEST_RUN_DIR = "test-results-20260101-120000"
+
+
+def _plant_run(workspace: Path, project: str, index: dict[str, object] | None) -> None:
+    """A ``test-results-*`` run of *project* under *workspace*; ``None`` plants one with no index."""
+    run_dir = workspace / project / ".test_results" / _SELF_TEST_RUN_DIR
+    run_dir.mkdir(parents=True)
+    if index is not None:
+        (run_dir / _INDEX_JSON_NAME).write_text(json.dumps(index), encoding="utf-8")
+
+
+def _check_planted_verdicts() -> None:
+    expected = {"green-pkg": _GREEN, "red-pkg": _RED, "no-index-pkg": _RED}
+    with tempfile.TemporaryDirectory(prefix="gate-verdict-selftest-") as tmp:
+        workspace = Path(tmp)
+        _plant_run(workspace, "green-pkg", {"result": _STATUS_PASSED, "counts": {"passed": 3, "failed": 0, "error": 0}})
+        _plant_run(workspace, "red-pkg", {"result": "FAILED", "counts": {"passed": 2, "failed": 1, "error": 0}})
+        _plant_run(workspace, "no-index-pkg", None)
+        result = evaluate_projects(workspace, list(expected))
+    observed = {row.project: row.verdict for row in result.rows}
+    if observed != expected:
+        raise AssertionError(f"planted runs judged {observed}, expected {expected}")
+    if result.overall != _RED or result.exit_code != _EXIT_RED:
+        raise AssertionError(f"one RED project must make the overall verdict RED, got {result.overall}")
+
+
+def self_test_checks() -> list[NamedCheck]:
+    """The non-vacuity checks: the verdict over planted run folders."""
+    return [NamedCheck("planted_green_red_and_index_less_runs_give_green_red_red", _check_planted_verdicts)]
 
 
 def _run(args: argparse.Namespace) -> int:
-    workspace = get_datrix_root()
+    if args.self_test:
+        return _EXIT_GREEN if run_checks(self_test_checks()) else _EXIT_RED
+    workspace = WORKSPACE_DIR
     projects = _resolve_projects(args, workspace)
-    output_path = _resolve_output_path(args.output, workspace)
+    output_path = resolve_output_path(args.output, *_OUTPUT_SUBDIRS, filename=_OUTPUT_FILENAME)
 
     result = evaluate_projects(workspace, projects)
 
@@ -656,13 +674,7 @@ def _run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     """Entry point."""
-    args = _parse_args()
-    _configure_logging(args.debug)
-    try:
-        return _run(args)
-    except UsageError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return _EXIT_USAGE
+    return run_main(_parse_args, _run)
 
 
 if __name__ == "__main__":

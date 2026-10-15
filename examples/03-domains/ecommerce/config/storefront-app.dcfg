@@ -1,6 +1,11 @@
 config app ecommerce.Storefront {
   base {
     targets = ["angular", "flutter"];
+    clients {
+      angular {
+        scope = "@ecommerce";
+      }
+    }
     appId   = "com.example.store";
     strings = ["config/strings/storefront.en-US.dcfg", "config/strings/storefront.tr-TR.dcfg"];
     // Firebase client registration: public client identifiers, never secrets.

@@ -4,7 +4,7 @@
  Inspect and migrate table contracts (datrix_testing.tables).
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs datrix_testing.tables.cli.
+ Runs datrix_testing.tables.cli in the shared venv.
  A package's runner module, tests/test_tables.py, proves every row of every table the
  package's tests/conftest.py registered -- the builtin registry for its language, its type
  map, its emit tables, its DAL generator file declarations -- as one pytest item per row
@@ -62,34 +62,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
-$PythonModule = "datrix_testing.tables.cli"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
-  Write-Error "Failed to activate virtual environment"
-  exit 1
- }
- $PythonExe = Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"
- $pythonArgs = @("-m", $PythonModule, $Command) + $Arguments
- if ($Dbg) { Write-Host "Running: $PythonExe $($pythonArgs -join ' ')" }
- & $PythonExe @pythonArgs
- exit $LASTEXITCODE
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 2
-} finally {
- Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Module "datrix_testing.tables.cli" -Arguments (@($Command) + $Arguments) -ShowCommand:$Dbg)

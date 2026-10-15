@@ -6,14 +6,14 @@ Mechanizes Steps 1-2 of the apply-reviews skill
 
 - Discover Tier 1 artifacts ``*.review.local.json`` in every repo's
   ``.tasks/phase-{NN}/`` folder and the Tier 2 artifact
-  ``<base>/.review/phase-{NN}.review.codex.json`` (the path tier2_codex.py
-  writes to).
+  ``<base>/.review/phase-{NN}.review.phase.json`` (the name tier2_local.py
+  writes).
 - Load findings using the field and enum definitions from review_schema.py
   (the single source of truth for the review JSON contract).
 - Drop findings already applied: a local finding is dropped when its ID is in
   the sibling ``<task>.review.applied.json`` marker's ``applied_findings``;
-  a codex (phase-level) finding is dropped when its ID appears in ANY of the
-  phase's applied markers (codex finding IDs are phase-scoped and the skill
+  a phase-level (Tier 2) finding is dropped when its ID appears in ANY of the
+  phase's applied markers (phase finding IDs are phase-scoped and the skill
   marks them in each affected task's marker).
 - Group by ``target``, sorted blocking -> major -> minor -> nit within each
   target.
@@ -24,7 +24,7 @@ artifacts and task files are DATA — never modified here.
 Usage:
   python scripts/review/lib/apply_reviews_prep.py --phase 31   (PYTHONPATH=scripts/common/lib)
   python scripts/review/lib/apply_reviews_prep.py --phase 31 --source local
-  .\\scripts\\review\\apply-reviews-prep.ps1 -Phase 31 [-Source local|codex|all]
+  .\\scripts\\review\\apply-reviews-prep.ps1 -Phase 31 [-Source local|phase|all]
 """
 
 from __future__ import annotations
@@ -46,8 +46,10 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 from review_schema import Finding  # noqa: E402
+from tier2_local import PHASE_ARTIFACT_TEMPLATE, PHASE_SOURCE  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -58,13 +60,11 @@ EXIT_DONE = 0
 EXIT_USAGE = 2
 
 SOURCE_LOCAL = "local"
-SOURCE_CODEX = "codex"
 SOURCE_ALL = "all"
 
 LOCAL_ARTIFACT_SUFFIX = ".review.local.json"
 APPLIED_MARKER_SUFFIX = ".review.applied.json"
-CODEX_ARTIFACT_TEMPLATE = "phase-{phase}.review.codex.json"
-CODEX_REVIEW_DIRNAME = ".review"
+PHASE_REVIEW_DIRNAME = ".review"
 TASK_FILE_SUFFIX = ".md"
 
 # Field and enum definitions come from review_schema.Finding — the review JSON
@@ -144,10 +144,10 @@ def _parse_artifact(path: Path) -> tuple[str, str, list[dict[str, object]]]:
             "(a task file name/path or 'phase-NN')."
         )
     source = data.get("source")
-    if source not in (SOURCE_LOCAL, SOURCE_CODEX):
+    if source not in (SOURCE_LOCAL, PHASE_SOURCE):
         raise ValueError(
-            f"Review artifact {path}: 'source' must be 'local' or 'codex', "
-            f"got {source!r}."
+            f"Review artifact {path}: 'source' must be '{SOURCE_LOCAL}' or '{PHASE_SOURCE}', "
+            f"got {source!r}. Re-run review.ps1 to regenerate it."
         )
     findings_value = data.get("findings")
     if not isinstance(findings_value, list):
@@ -172,14 +172,11 @@ def _load_applied_ids(marker: Path) -> frozenset[str]:
 
 
 def _phase_dirs(base_dir: Path, phase_label: str) -> list[Path]:
-    dirs: list[Path] = []
-    for child in sorted(base_dir.iterdir()):
-        if not child.is_dir() or not child.name.startswith("datrix"):
-            continue
-        phase_dir = child / ".tasks" / f"phase-{phase_label}"
-        if phase_dir.is_dir():
-            dirs.append(phase_dir)
-    return dirs
+    return [
+        child / ".tasks" / f"phase-{phase_label}"
+        for child in workspace_package_dirs(base_dir, include_showcase=True)
+        if (child / ".tasks" / f"phase-{phase_label}").is_dir()
+    ]
 
 
 def _discover_local_artifacts(base_dir: Path, phase_label: str) -> list[Path]:
@@ -189,11 +186,10 @@ def _discover_local_artifacts(base_dir: Path, phase_label: str) -> list[Path]:
     return artifacts
 
 
-def _discover_codex_artifact(base_dir: Path, phase_label: str) -> Path | None:
-    candidate = (
-        base_dir / CODEX_REVIEW_DIRNAME / CODEX_ARTIFACT_TEMPLATE.format(phase=phase_label)
-    )
-    return candidate if candidate.is_file() else None
+def _discover_phase_artifact(base_dir: Path, phase: int) -> list[Path]:
+    """The phase's Tier 2 artifact, when Tier 2 ran (it does not on every phase)."""
+    candidate = base_dir / PHASE_REVIEW_DIRNAME / PHASE_ARTIFACT_TEMPLATE.format(phase=phase)
+    return [candidate] if candidate.is_file() else []
 
 
 def _all_applied_ids(base_dir: Path, phase_label: str) -> frozenset[str]:
@@ -237,7 +233,7 @@ def _collect_local(
     return collected, skipped
 
 
-def _collect_codex(
+def _collect_phase(
     artifact: Path, applied_anywhere: frozenset[str]
 ) -> tuple[list[dict[str, object]], int]:
     """Findings from the Tier 2 artifact, minus ones applied in any marker."""
@@ -285,23 +281,21 @@ def build_worklist(base_dir: Path, phase: int, source: str) -> dict[str, object]
         if source in (SOURCE_LOCAL, SOURCE_ALL)
         else []
     )
-    codex_artifact = (
-        _discover_codex_artifact(base_dir, phase_label)
-        if source in (SOURCE_CODEX, SOURCE_ALL)
-        else None
+    phase_artifacts = (
+        _discover_phase_artifact(base_dir, phase)
+        if source in (PHASE_SOURCE, SOURCE_ALL)
+        else []
     )
 
     findings, skipped = _collect_local(local_artifacts)
-    if codex_artifact is not None:
-        codex_findings, codex_skipped = _collect_codex(
-            codex_artifact, _all_applied_ids(base_dir, phase_label)
+    for phase_artifact in phase_artifacts:
+        phase_findings, phase_skipped = _collect_phase(
+            phase_artifact, _all_applied_ids(base_dir, phase_label)
         )
-        findings.extend(codex_findings)
-        skipped += codex_skipped
+        findings.extend(phase_findings)
+        skipped += phase_skipped
 
-    artifacts = [str(path.resolve()) for path in local_artifacts]
-    if codex_artifact is not None:
-        artifacts.append(str(codex_artifact.resolve()))
+    artifacts = [str(path.resolve()) for path in (*local_artifacts, *phase_artifacts)]
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -329,7 +323,7 @@ def main() -> int:
     parser.add_argument("--phase", type=int, required=True, help="Phase number (e.g. 31)")
     parser.add_argument(
         "--source",
-        choices=(SOURCE_LOCAL, SOURCE_CODEX, SOURCE_ALL),
+        choices=(SOURCE_LOCAL, PHASE_SOURCE, SOURCE_ALL),
         default=SOURCE_ALL,
         help="Which review tier(s) to include (default: all)",
     )
@@ -353,7 +347,7 @@ def main() -> int:
         format="%(levelname)s: %(message)s",
     )
 
-    base_dir = args.base_dir if args.base_dir is not None else get_datrix_root()
+    base_dir = args.base_dir if args.base_dir is not None else WORKSPACE_DIR
     if not base_dir.is_dir():
         print(f"ERROR: Base directory does not exist: {base_dir}", file=sys.stderr)
         return EXIT_USAGE
@@ -368,7 +362,7 @@ def main() -> int:
     output_path = (
         args.output
         if args.output is not None
-        else get_datrix_root() / ".tmp" / OUTPUT_CATEGORY / f"phase-{phase_label}-worklist.json"
+        else WORKSPACE_DIR / ".tmp" / OUTPUT_CATEGORY / f"phase-{phase_label}-worklist.json"
     )
     _write_output(payload, output_path)
 

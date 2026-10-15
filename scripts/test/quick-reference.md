@@ -42,7 +42,7 @@ The runner is `datrix_scripts.test_project` (in `common/lib/`), run as a module.
 
 **Log output:** Unless `-NoSave` is used, `test.ps1` creates one timestamped log folder for each project it runs under that project's `.test_results` directory. AI agents do not need to capture full console output; read the final console lines to find the saved log folder, then inspect the files in that folder.
 
-**Selection and suite-input stamp (`index.json` `schema_version: 2`):** every saved run records `selection` — `{"kind": "full"}` for a bare `test.ps1 <package>`, otherwise `{"kind": "targeted", "specific", "keyword", "tier", "marker", "tags"}` for `-Specific`/`-Keyword`/`-Tag`/any tier switch. Only a full run whose every phase completed records `inputs` (the suite-input fingerprint over the package's cone, installed set, interpreter, and observed foreign paths and executables); a targeted run never has an `inputs` key, so it can never stand in for a full one. A full run loads `datrix_scripts.runner_plugin` (`-p`) in every phase and also leaves `observed-*.json` / `deselected-*.json` / `timings-*.json` / `workers-controller.json` records and a merged `timings.json`; any other saved run loads it in its parallel phase only and is never stamped. **The serial phase runs only when needed:** when every parallel worker's `deselected-<worker>.json` says it deselected 0 items (so no collected test is `serial`), the serial phase is skipped — `full.log` says `Phase 2: serial tests SKIPPED -- …` and `index.json` records `"phases": {"Serial": "skipped (0 serial items)"}` with no `junit-serial.xml`. It runs on any missing evidence (`-NoSave`, a worker the controller listed with no record, a parallel phase that did not complete), under a marker or keyword filter (`-Unit`/`-Fast`/`-Keyword`/…; `-Specific` is not a filter), and when workers deselected items. Workers disagreeing on the count, or an unreadable record, is a runner error: the serial phase runs and the run is FAILED with the reason in `index.json` `runner_errors`. Each worker's `deselected-<worker>.json` carries per-file `deselected_files` counts, and a disagreement error names every file whose count differs and lists the package files modified since the parallel phase started: a file saved by another session mid-run adds or removes test functions, so workers that collected before and after it count different items. Collection itself is deterministic (a solo run agrees on every worker), so such a FAILED run is correct and the fix is to re-run on an unchanged tree. When a full run cannot be stamped (a phase did not complete, a session's records are missing, or a cone tree changed while it ran), `full.log` says why and `index.json` has `selection` but no `inputs`. Field reference: [README.md](README.md#package-run-indexjson-schema-version-2).
+**Selection and suite-input stamp (`index.json` `schema_version: 2`):** every saved run records `selection` — `{"kind": "full"}` for a bare `test.ps1 <package>`, otherwise `{"kind": "targeted", "specific", "keyword", "tier", "marker", "tags"}` for `-Specific`/`-Keyword`/`-Tag`/any tier switch. Only a full run whose every phase completed records `inputs` (the suite-input fingerprint over the package's cone, installed set, interpreter, and observed foreign paths and executables); a targeted run never has an `inputs` key, so it can never stand in for a full one. A full run loads `datrix_scripts.runner_plugin` (`-p`) in every phase and also leaves `observed-*.json` / `deselected-*.json` / `timings-*.json` / `workers-controller.json` records and a merged `timings.json`; any other saved run loads it in its parallel phase only and is never stamped. **The serial phase runs only when needed:** when every parallel worker's `deselected-<worker>.json` says it deselected 0 items (so no collected test is `serial`), the serial phase is skipped — `full.log` says `Phase 2: serial tests SKIPPED -- …` and `index.json` records `"phases": {"Serial": "skipped (0 serial items)"}` with no `junit-serial.xml`. It runs on any missing evidence (`-NoSave`, a worker the controller listed with no record, a parallel phase that did not complete), under a marker or keyword filter (`-Unit`/`-Fast`/`-Keyword`/…; `-Specific` is not a filter), and when workers deselected items. Workers disagreeing on the count, or an unreadable record, is a runner error: the serial phase runs and the run is FAILED with the reason in `index.json` `runner_errors`. Each worker's `deselected-<worker>.json` carries per-file `deselected_files` counts, and a disagreement error names every file whose count differs and lists the package files modified since the parallel phase started: a file saved by another session mid-run adds or removes test functions, so workers that collected before and after it count different items. Collection itself is deterministic (a solo run agrees on every worker), so such a FAILED run is correct and the fix is to re-run on an unchanged tree. When a full run cannot be stamped (a phase did not complete, a session's records are missing, or a cone tree changed while it ran), `full.log` says why and `index.json` has `selection` but no `inputs`. Field reference: [Package-run `index.json`](#package-run-indexjson-schema-version-2).
 
 **Never run two `test.ps1` invocations at once — batch the projects into ONE call instead.** `-Projects` is variadic and iterates sequentially, so `test.ps1 a b c` is the supported way to cover several packages. Before running anything, `test.ps1` calls `Ensure-DatrixPackagesInstalled`, which takes a **workspace-wide exclusive package lock** (`scripts/common/venv.ps1`, 120s acquisition timeout) shared with `generate.ps1` — it guards the install/repair phase against concurrent writers of the one shared venv. A second concurrent invocation therefore blocks for up to two minutes and then dies with `Could not acquire package lock - another process may be installing packages`, having run **no** tests. The one sanctioned concurrency is `affected-gate.ps1` (Jon's tool — agents never run it), and it does not contend here: it runs that install check **once**, before any child, and launches every `test.ps1` child with `DATRIX_PACKAGES_ENSURED=1`, which makes `test.ps1` skip its own check (with `DATRIX_VENV_VERBOSE=1` it prints `Package install check skipped: the caller already ran it` instead). `test.ps1` restores its caller's value of that variable on exit, so a run started in your own shell never leaves it set for the next direct run — a direct `test.ps1` always performs its own check.
 
@@ -104,10 +104,9 @@ Complete workflow: syntax check, code generation, unit tests, deployment tests. 
 | **Rerun domains** | `.\test\run-complete.ps1 -Rerun -Domains -L python` | Re-run only failed/untested domain projects |
 | **Rerun tests only** | `.\test\run-complete.ps1 -Rerun -L python -Skip2` | Re-run failed/untested projects without regenerating |
 | **Verbose output** | `.\test\run-complete.ps1 -All -L python -VerboseOutput` | Show detailed generation and test output |
-| **Skip venv** | `.\test\run-complete.ps1 -All -L python -SkipVenv` | Use system Python |
 | **Debug** | `.\test\run-complete.ps1 -All -L python -Dbg` | Debug logging |
 
-**Parameters:** `-ExamplePath` (positional 0), `-OutputPath` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, **mandatory**), `-Platform`/`-P` (output-path runtime segment, default: docker-compose; provider segment comes from each project's `config/system.dcfg`), `-Hosting`/`-H`, `-TestSet` (default: all), `-Rerun`, `-VerboseOutput`, `-SkipVenv`, `-Skip1`, `-Skip2`, `-Skip3`, `-Skip4`, `-Skip5` (deprecated), `-FreshBuild`, `-Dbg`/`-DebugLogging`, `-LlmSummary`, `-LlmLimit` (default: 12), `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-LlmModel` (default: any model already in memory), `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1)
+**Parameters:** `-ExamplePath` (positional 0), `-OutputPath` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, **mandatory**), `-Platform`/`-P` (output-path runtime segment, default: docker-compose; provider segment comes from each project's `config/system.dcfg`), `-Hosting`/`-H`, `-TestSet` (default: all), `-Rerun`, `-VerboseOutput`, `-Skip1`, `-Skip2`, `-Skip3`, `-Skip4`, `-Skip5` (deprecated), `-FreshBuild`, `-Dbg`/`-DebugLogging`, `-LlmSummary`, `-LlmLimit` (default: 12), `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-LlmModel` (default: any model already in memory), `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1)
 
 **Note:** Deploy tests (Step 4) use Docker cache by default for faster builds and better network resilience. Use `-FreshBuild` to force `--no-cache` for maximum validation confidence. `-Skip5` is accepted but deprecated (Step 5 merged into Step 4).
 
@@ -383,7 +382,7 @@ Aggregates the newest run of each requested package into a GREEN/RED gate verdic
 | **All testable packages** | `.\test\gate-verdict.ps1 -All` |
 | **Custom output path** | `.\test\gate-verdict.ps1 -All -Output D:\datrix\.tmp\test\my-gate.json` |
 
-**Parameters:** `-Projects <comma-separated>` OR `-All`, `-Output <path>`, `-Dbg`
+**Parameters:** `-Projects <comma-separated>` OR `-All`, `-Output <path>`, `-SelfTest` (only the verdict logic over planted run directories; reads no real run), `-Dbg`
 
 **Output:** `D:\datrix\.tmp\test\gate-verdict.json` (schema 2: per-package counts + capped failing-test list). **Exit codes:** 0 = overall GREEN, 1 = overall RED, 2 = usage error.
 
@@ -504,15 +503,22 @@ fixtures). They cover:
   first proves on a planted fixture that it reports the defect it exists for, and the wrapper and
   reference scans also require a floor of matches, so a matcher that stopped matching fails rather
   than reporting clean.
+- **the scripts-tree contracts**: `gate_harness` and `count_ratchet` behaviour; the one-home
+  censuses (harness ownership, runner adoption, root resolvers, package discovery, `sys.path`,
+  identical bodies, gate self-tests; see [../common/README.md](../common/README.md#one-home-per-fact)),
+  each proven on a planted copy and zero on the real tree; every shared module importing in a fresh
+  interpreter; every hook-imported module exercised by a gate; `run_complete`'s project discovery by
+  the emitted `tests/run-tests.ps1` (a `-Deploy` parameter selects deploy tests); and the gate verdict
+  line `Invoke-DatrixPythonScript -Gate` prints being the line the red-run digest hook parses.
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Run the gate** | `.\test\shared-library-gate.ps1` | Run every check |
 | **One area** | `.\test\shared-library-gate.ps1 -Only check_scripts_tree` | Run only checks whose name starts with the prefix |
 | **Harness self-test** | `.\test\shared-library-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
-| **Debug** | `.\test\shared-library-gate.ps1 -Dbg` | Print the python invocation before running |
+| **Self-test** | `.\test\shared-library-gate.ps1 -SelfTest` | The gate's checks over planted inputs only |
 
-**Parameters:** `-HarnessSelfTest`, `-Only <prefix>`, `-Dbg`
+**Parameters:** `-SelfTest`, `-HarnessSelfTest`, `-Only <prefix>`
 
 **Exit codes:** 0 = every check passed, 1 = at least one check (or the harness self-test) failed, 2 = usage error.
 
@@ -533,8 +539,9 @@ naming every worker); an existing record file is never overwritten.
 | **Run the gate** | `.\test\runner-plugin-gate.ps1` | Run every check |
 | **Harness self-test** | `.\test\runner-plugin-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure |
 | **Debug** | `.\test\runner-plugin-gate.ps1 -Dbg` | Print the python invocation before running |
+| **Self-test** | `.\test\runner-plugin-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks over planted inputs |
 
-**Parameters:** `-HarnessSelfTest`, `-Dbg`
+**Parameters:** `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
 
 **Exit codes:** 0 = every check passed, 1 = at least one check (or the harness self-test) failed.
 
@@ -558,8 +565,9 @@ test runner.
 | **Run the gate** | `.\test\test-tooling-parsing-gate.ps1` | Run every check |
 | **Harness self-test** | `.\test\test-tooling-parsing-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
 | **Debug** | `.\test\test-tooling-parsing-gate.ps1 -Dbg` | Print the python invocation before running |
+| **Self-test** | `.\test\test-tooling-parsing-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks over planted inputs |
 
-**Parameters:** `-HarnessSelfTest`, `-Dbg`
+**Parameters:** `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
 
 **Assertions:** several checks are inherently adversarial (nested/archived run dirs excluded from discovery, corrupt JSON → `None`, INCOMPLETE result → `None`/fallback, missing `counts` → `None`), which already demonstrates discriminating power; `-HarnessSelfTest` additionally proves the pass/fail harness itself is not vacuous by registering one deliberately-failing dummy check and confirming it is reported `[FAIL]` with a nonzero exit.
 
@@ -582,7 +590,8 @@ printing its own correct exit code.
 | **Debug** | `.\test\test-specific-selection-gate.ps1 -Dbg` | Print the python invocation |
 
 **Parameters:** `-Package` (default: `datrix-codegen-python`), `-FileA` / `-FileB` (package-relative test
-files; must be two *different* files — the default pair is the one from the original report), `-Dbg`
+files; must be two *different* files — the default pair is the one from the original report), `-SelfTest`
+(only the comparator's non-vacuity step over planted run directories; runs no test), `-Dbg`
 
 **Assertions (4 steps):**
 - **Non-vacuity (runs first).** The comparator is fed a deliberately **wrong-file** run directory — a
@@ -621,7 +630,7 @@ profile case open, so uniqueness comes from *claiming* the name (`common/DatrixR
 | **Run the gate** | `.\test\run-log-exclusivity-gate.ps1` | 8 racers (default) |
 | **More racers** | `.\test\run-log-exclusivity-gate.ps1 -Racers 32` | Widen the forced collision (2–64) |
 
-**Parameters:** `-Racers` (default: `8`, range 2–64)
+**Parameters:** `-Racers` (default: `8`, range 2–64), `-SelfTest` (only the gate's non-vacuity proof over planted inputs)
 
 **Assertions (5 steps):**
 - **Non-vacuity (runs first).** The distinct-count comparator is fed names composed the way the defect
@@ -672,3 +681,162 @@ profile case open, so uniqueness comes from *claiming* the name (`common/DatrixR
 **Assertions:** the non-vacuity self-test runs before every real scan (a planted `javac` call, a planted `exec(compile(...))`, a planted nested-pytest subprocess, and a planted repo-script subprocess must all be caught; an allowed `ruff` call, an allowed `sys.executable -m datrix_cli`, a `pytester`-fixture test, and a `pytester.runpytest(...)` call must all pass), so a green result can never mean the detector was broken.
 
 **Exit codes:** 0 = no violation of the requested shape(s), 1 = at least one violation, or the self-test failed.
+
+---
+
+## Structured Test Output
+
+### Package-run `index.json` (schema version 2)
+
+A package run's `index.json` carries `schema_version: 2`. Version 2 adds two fields; a version-1 file predates both, and a reader treats it as a run whose selection is unknown.
+
+- **`selection`** (every saved run) — what the run selected, recorded rather than inferred from a log. `{"kind": "full"}` for a bare `test.ps1 <package>`; otherwise `{"kind": "targeted", "specific": [...] | null, "keyword": str | null, "tier": str | null, "marker": str | null, "tags": [...] | null}`. Any of `-Specific`, `-Keyword`, `-Tag`, `-Unit`, `-Integration`, `-E2E`, `-Fast` or `-Slow` makes a run targeted — including `-Fast` on a Node suite, which has no markers and so runs whole. An INCOMPLETE run records its selection too.
+- **`inputs`** (a full run only, and only when every phase completed) — the suite-input stamp: `{"algorithm": ..., "fingerprint": <blake2b hex>, "components": {...}}`, where `components` holds `trees` (one git-state digest per package in the run's cone — the package plus everything its suite reaches, cross-ecosystem edges included), `installed` (the installed Python distributions, plus — for every cone package carrying a `package.json` — its installed Node dependency state: npm's hidden lockfile `node_modules/.package-lock.json`, digested as `absent` when missing, and its own `package-lock.json` when git does not track it), `interpreter`, `foreign` (observed paths outside the cone), `in_cone_ignored` (observed cone paths git does not track) and `executables` (every executable started, content-digested). A directory is a repository only when git itself confirms it as a work-tree top level; a path under a `.git` git rejects is digested as a path in no repository. A bytecode cache read — in `__pycache__` or under `PYTHONPYCACHEPREFIX` — is recorded as the source it caches, never as the cache. A targeted run never has an `inputs` key: its inputs are not the package's full suite, so a stamp would let a narrow run stand in for a full one. A full run is written **without** `inputs` — never with an empty or partial one — when a phase did not complete (its process could not start, or pytest exited interrupted, with an internal error or with a usage error), when any session's records are missing or unaccounted for, or when a cone tree or the installed set changed while the suite ran; `full.log` states the reason.
+
+A full pytest run loads `test.runner_plugin` with `-p` in every phase; any other saved run loads it in its parallel phase only, for the serial-phase decision below, and is never stamped. The plugin writes its records into the run directory:
+
+```
+    observed-<worker>.json      # paths opened/listed/loaded and executables started
+    deselected-<worker>.json    # how many collected items the session deselected, in total and per test file
+    timings-<worker>.json       # call-phase durations and module/package/session fixture setups
+    workers-controller.json     # the xdist controller's list of the workers it ran
+    timings.json                # the runner's merge of every timings-<worker>.json, each entry tagged "worker"
+```
+
+`<worker>` is the xdist worker id (`gw0`, `gw1`, ...) in the parallel phase, `main` in a phase that runs in one process, and `controller` for the xdist controller, which writes only `observed-controller.json` and `workers-controller.json`. The runner merges the records only when the set is exactly the one the phases must have left — every listed worker's three records, the controller's two, and `main`'s three for a single-process phase. A Node run has no records: its stamp's observed inputs are the `node` (and, when a build ran, `npm`) executables the runner itself launched.
+
+**The serial phase runs only when it has something to run.** The parallel phase selects `not serial`, so each worker's `deselected-<worker>.json` counts its serial-marked items. When every worker the controller lists recorded 0, no collected test is serial: the serial phase is skipped — no second collection — `full.log` says `Phase 2: serial tests SKIPPED -- …`, there is no `junit-serial.xml`, and `index.json` records `"phases": {"Parallel": {"status": 1}, "Serial": "skipped (0 serial items)"}`. Everything else runs it: no records (`-NoSave`), a listed worker with no record, a parallel phase that did not complete, a marker or keyword filter (`-Unit`, `-Fast`, `-Keyword`, …, whose own deselections hide whether serial items exist — `-Specific` narrows collection and is not such a filter), or any worker that deselected items. Workers disagreeing on the count, an unreadable record, or a record the controller did not list is a runner error: the serial phase still runs, the run exits non-zero, and `index.json` is `FAILED` with the reason under `runner_errors`. For disagreeing counts the reason names each test file whose per-file deselected count differs and which workers saw which count, and lists the package files modified since the parallel phase started: workers that start at different moments collect different trees when a test file is added to, removed from or edited in the package mid-run.
+
+### Generated-project `index.json` (per project)
+
+```json
+{
+  "schema_version": 1,
+  "project": "typescript/docker/03-domains/ecommerce",
+  "project_path": "D:\\datrix\\.generated\\typescript\\docker\\03-domains\\ecommerce",
+  "language": "typescript",
+  "platform": "docker",
+  "example": "03-domains/ecommerce",
+  "dtrx_source": "datrix/examples/03-domains/ecommerce/system.dtrx",
+  "timestamp": "2026-05-03T21:04:22",
+  "duration_seconds": 12.3,
+  "result": "FAILED",
+  "counts": {"passed": 45, "failed": 0, "errors": 40, "skipped": 0, "suite_failures": 0},
+  "services": [
+    {"name": "ecommerce_user_service", "result": "FAILED",
+     "counts": {"passed": 0, "failed": 0, "errors": 9, "skipped": 0, "suite_failures": 0},
+     "log_file": "services/ecommerce_user_service/service.log"}
+  ],
+  "failures": [],
+  "errors": [
+    {"id": 1, "service": "ecommerce_user_service",
+     "test_id": "tests/integration/repositories/test_user_repository.py",
+     "error_type": "ImportError",
+     "error_message": "cannot import name '_email_send_ses' from '..._email_helpers'",
+     "import_chain": ["test_user_repository.py -> user_service", "user_service.py -> _email_send_ses"],
+     "generated_file": "ecommerce_user_service/src/.../integrations/_email_helpers.py",
+     "log_file": "errors/001-ecommerce_user_service-collection-test_user_repository.txt"}
+  ],
+  "failure_clusters": [],
+  "error_clusters": [
+    {"cluster_id": 1, "pattern": "ImportError: cannot import name * from *._email_helpers",
+     "generated_file": "ecommerce_user_service/src/.../integrations/_email_helpers.py",
+     "count": 6, "services_affected": ["ecommerce_user_service"], "error_ids": [1, 2, 3, 4, 5, 6],
+     "representative_error_id": 1,
+     "codegen_hint": {"probable_template": "integration_helpers.py.j2", "probable_generator": "IntegrationGenerator"}}
+  ]
+}
+```
+
+Key fields: **`dtrx_source`** (derived from the project path: the `.dtrx` to look up), **`import_chain`** (for a collection error, the import chain from the test to the missing symbol), **`generated_file`** (the generated file holding the bug, from the traceback), **`services_affected`** (which services hit the cluster), **`codegen_hint`** (a best-effort guess at the template/generator; `null` when the mapping is ambiguous — a starting point, not a verdict).
+
+### Generated-project `aggregate-index.json` (across projects)
+
+```json
+{
+  "schema_version": 1,
+  "timestamp": "2026-05-03T21:08:12",
+  "language": "typescript",
+  "platform": "docker",
+  "total_projects": 46,
+  "projects_passed": 37,
+  "projects_failed": 9,
+  "total_counts": {"passed": 11661, "failed": 0, "errors": 52, "skipped": 0, "suite_failures": 7},
+  "failed_projects": [
+    {"project": "typescript/docker/03-domains/ecommerce", "example": "03-domains/ecommerce",
+     "result_dir": ".../.test_results/unit-tests-20260503-210422",
+     "counts": {"passed": 45, "failed": 0, "errors": 40, "suite_failures": 0},
+     "top_cluster_pattern": "ImportError: cannot import name 'ContractViolationError' from *.errors"}
+  ],
+  "cross_project_clusters": [
+    {"cluster_id": 1, "pattern": "ImportError: cannot import name 'ContractViolationError' from *.errors",
+     "projects_affected": ["modules-imports", "ecommerce"], "total_errors": 46,
+     "codegen_hint": {"probable_template": "error_classes.py.j2", "probable_generator": "ErrorGenerator"},
+     "representative_project": "modules-imports"}
+  ],
+  "suite_failure_clusters": [
+    {"cluster_id": 1, "pattern": "Cannot find module *", "projects_affected": ["advanced-cache", "batch-operations", "..."],
+     "total_suite_failures": 7, "representative_project": "advanced-cache"}
+  ]
+}
+```
+
+Key fields: **`cross_project_clusters`** (identical error patterns grouped across projects: how many errors share one root cause in the whole run), **`suite_failure_clusters`** (environment-level issues — missing modules, config errors — that stop a whole suite; separate from test-level errors because their causes differ), **`representative_project`** (the project to investigate first for a cluster), **`top_cluster_pattern`** (per failed project, the most common error pattern; `null` for a project with only suite failures — read `suite_failure_message`).
+
+### Schema evolution policy
+
+Both `index.json` and `aggregate-index.json` carry `schema_version` as their first field.
+
+- **Additive changes** (new optional fields): no version bump; readers ignore unknown fields.
+- **Breaking changes** (a field renamed, retyped, removed, or a required field added): bump `schema_version`.
+- **Readers** read `schema_version` first; a version higher than the reader supports logs a warning and falls back to `summary.txt`. A file is never rejected.
+- **Writers** always write the current version; no multi-version output.
+
+### Agent workflow (generated-project tests)
+
+1. Read `aggregate-index.json` — every failed project, cross-project clusters, codegen hints.
+2. Read the representative project's `index.json` — per-service breakdown, error clusters with import chains.
+3. Read `errors/001-....txt` (~30 lines) — one representative error per cluster.
+4. Fix the root cause in the template/generator — re-run — read the new `aggregate-index.json`.
+
+### Deploy test structured output
+
+Deploy tests verify that generated projects build, deploy, and pass spec/integration tests against real Docker containers. After each project's deploy tests, `run_complete.py` post-processes the raw data (`failures.json`, JUnit XML, Jest JSON, Docker logs, `deploy-test-output.log`) into a result directory under the project's `.test_results/`:
+
+```
+{project}/.test_results/
+  deploy-test-20260503-210903/
+    index.json                       # Machine-readable index (agent reads this FIRST)
+    summary.txt                      # Human-readable summary (< 60 lines)
+    full.log                         # Combined execution log
+    environment.json                 # Toolchain metadata
+    docker-logs/                     # Per-container logs
+    services/<service>/
+      spec/junit.xml | spec/jest-results.json
+      integration/junit-project.xml, junit-service.xml | integration/jest-results.json
+    failures/                        # One file per unique test failure (logic only)
+    errors/                          # Infrastructure/lifecycle errors
+```
+
+`index.json` is always written (passing runs too); `failures/` and `errors/` only when there is something to put there.
+
+**Phases**, in order — a later phase is `SKIPPED` once an earlier one failed, and `index.json` names the first failed phase (`failed_phase`), so a Docker lifecycle issue is told from a test failure at once:
+
+| Phase | What happens | Failure output |
+|-------|-------------|---------------|
+| **docker-build** | `docker compose build` | Exit code + build output in `full.log` |
+| **docker-up** | `docker compose up -d` + wait for healthy | Exit code + container logs in `docker-logs/` |
+| **health-check** | HTTP health check per service | Timeout/error in `full.log` + container logs |
+| **db-connectivity** | Database URL resolution + connection test | Error in `full.log` |
+| **spec-tests** | pytest/Jest spec tests per service | `failures.json` + JUnit XML / Jest JSON |
+| **integration-tests** | pytest/Jest integration tests | `failures.json` + JUnit XML / Jest JSON |
+
+`summary.txt` lists the phases with their durations (`✓`/`✗`/`-` skipped), then `ERRORS:` (phase, error, container log, probable template) or `FAILURE CLUSTERS:` (logic vs transient), then `SERVICE STATUS:` per service (port, docker health, spec/integration result). An `errors/NNN-<phase>-<kind>.txt` file holds `PHASE`, `ERROR`, `MESSAGE`, the relevant container, the last 50 lines of its log, the generated files involved and the codegen hint (template, generator, `.dtrx` source); a `failures/NNN-<service>-<phase>-<error>-<test>.txt` file holds `SERVICE`, `PHASE`, `TEST`, `FAILURE TYPE`, `ERROR`, the traceback, the generated file and the codegen hint.
+
+**Per-project deploy `index.json`** adds to the generated-project schema: `failed_phase`; `phases` (per phase `result`, `duration_seconds`, and on failure `error_message` and `relevant_containers` — the only docker logs to read); per service `port`, `docker_healthy`, `health_check_passed`, `db_connectivity_passed`, `spec_result`, `integration_result`; per error `phase`, `container`, `docker_log_file`; per failure `failure_type` (`"transient"` — connection resets, timeouts — or `"logic"`, an actual bug; codegen fixes start from `"logic"`); and `phase` on each cluster.
+
+**Cross-project deploy aggregate** (`.generated/.test_results/deploy-tests-<stamp>/`: `aggregate-index.json`, `aggregate-summary.txt`, `full.log`) adds `total_counts.infrastructure_failures` (projects that failed in a Docker lifecycle phase and never reached tests), `failed_phase` per failed project, and per cross-project cluster `phase` and `failure_type` (`"infrastructure"`, `"logic"` or `"transient"`; agents take `"logic"` first). `aggregate-summary.txt` groups the failed projects into infrastructure, logic and transient failures, then lists the passed ones.
+
+**Transient error patterns:** Python deploy tests classify a failure as transient or logic at runtime; TypeScript failures are classified in post-processing. The patterns are `TRANSIENT_ERROR_PATTERNS` in `common/lib/datrix_scripts/deploy_test_log_writer.py`: connection (`ConnectionResetError`, `ConnectionDoesNotExistError`, `connection was closed in the middle of operation`), network/DNS (`getaddrinfo failed`, `Name or service not known`, `Temporary failure in name resolution`), timeout (`timeout`, `timed out`), database (`server closed the connection unexpectedly`, `connection to server * closed unexpectedly`) and infrastructure (`Cannot connect to`, `Connection refused`, `No route to host`). A transient failure is an environment issue, not a codegen bug.
+
+**Agent workflow (deploy tests):** read `aggregate-index.json` (failed projects, phases, clusters, hints) → the representative project's `index.json` (phase breakdown, service status, clusters) → `errors/001-....txt` or `failures/001-....txt` (~30 lines, with the relevant container log excerpt) → fix the root cause in the template/generator, re-run, read the new `aggregate-index.json`.

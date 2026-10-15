@@ -4,7 +4,7 @@
  Compare timestamped test results inside one .test_results folder.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs compare_tests.py against a
+ Runs compare_tests.py in the shared venv against a
  single project .test_results directory. Unit test runs are compared only with
  other unit-test timestamps, and deploy test runs are compared only with other
  deploy-test timestamps.
@@ -37,68 +37,20 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-# Get the directory where this script is located
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-
-$PythonScript = Join-Path $ScriptDir "lib\compare_tests.py"
-
-# Import common modules
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-function Invoke-Cleanup {
- Disable-DatrixVenv
+if (-not (Test-Path -LiteralPath $TestResults -PathType Container)) {
+ Write-Host "Error: test results path is not a directory: $TestResults. Expected a project's .test_results folder." -ForegroundColor Red
+ exit 1
+}
+$resolvedTestResultsPath = (Resolve-Path -LiteralPath $TestResults).Path
+if ((Split-Path -Leaf $resolvedTestResultsPath) -ne ".test_results") {
+ Write-Host "Error: expected a .test_results folder, got: $resolvedTestResultsPath" -ForegroundColor Red
+ exit 1
 }
 
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
+$pythonArgs = @("--test-results", $resolvedTestResultsPath)
+if ($Report) { $pythonArgs += @("--report", $Report) }
+if ($Dbg) { $pythonArgs += "--debug" }
 
-try {
- $resolvedTestResults = Resolve-Path -LiteralPath $TestResults -ErrorAction Stop
- $resolvedTestResultsPath = $resolvedTestResults.Path
- if (-not (Test-Path -LiteralPath $resolvedTestResultsPath -PathType Container)) {
- Write-Error "Test results path is not a directory: $resolvedTestResultsPath"
- exit 1
- }
- if ((Split-Path -Leaf $resolvedTestResultsPath) -ne ".test_results") {
- Write-Error "Expected a .test_results folder, got: $resolvedTestResultsPath"
- exit 1
- }
-
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
- Write-Error "Failed to activate virtual environment"
- exit 1
- }
-
- $venvPath = Get-DatrixVenvPath
- $PythonExe = Join-Path $venvPath "Scripts\python.exe"
-
- if (-not (Test-Path -LiteralPath $PythonScript)) {
- Write-Error "Python script not found: $PythonScript"
- exit 1
- }
-
- $pythonArgs = @($PythonScript, "--test-results", $resolvedTestResultsPath)
- if ($Report) {
- $pythonArgs += @("--report", $Report)
- }
- if ($Dbg) {
- $pythonArgs += "--debug"
- }
-
- Write-Host "Running test comparison report..." -ForegroundColor Cyan
- Write-Host ""
-
- & $PythonExe @pythonArgs
- $ExitCode = $LASTEXITCODE
- exit $ExitCode
-
-} catch {
- Write-Error "Error: $_"
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\compare_tests.py") -Arguments $pythonArgs)

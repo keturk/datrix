@@ -4,8 +4,8 @@
  Run a single test file or pattern quickly for checkpoint-based debugging.
 
 .DESCRIPTION
- Lightweight test runner for verifying individual fixes. Activates the datrix virtual
- environment and runs pytest against a specific test file, test class, or test function.
+ Lightweight test runner for verifying individual fixes. Runs pytest, in the shared
+ venv, against a specific test file, test class, or test function.
  Designed for the fix-one-verify-one workflow where you need fast feedback on a single fix.
 
  Unlike test.ps1 which orchestrates full project test runs, this script focuses on
@@ -81,39 +81,8 @@ param(
  [switch]$Dbg
 )
 
-# Error handling - ensure cleanup on exit
 $ErrorActionPreference = "Stop"
-
-# Script directory
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\test_single.py"
-
-# Import common modules
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-# Check if Python script exists
-if (-not (Test-Path $pythonScript)) {
- Write-Error "Error: test_single.py not found at: $pythonScript"
- exit 1
-}
-
-# Function to handle cleanup on exit
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-# Register cleanup on script exit
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-# Trap Ctrl-C to ensure proper cleanup
-trap {
- Write-Host ""
- Write-Warning "Interrupted by user (Ctrl-C)"
- Invoke-Cleanup
- exit 130
-}
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
 # Require TestPath or Keyword
 if (-not $TestPath -and -not $Keyword) {
@@ -129,43 +98,13 @@ if (-not $TestPath -and -not $Keyword) {
  exit 2
 }
 
-# Main execution with proper error handling
-try {
- # Activate virtual environment
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
-  Write-Error "Failed to activate virtual environment"
-  exit 1
- }
+$pythonArgs = @()
+if ($TestPath) { $pythonArgs += $TestPath }
+if ($Project) { $pythonArgs += @("--project", $Project) }
+if ($Keyword) { $pythonArgs += @("--keyword", $Keyword) }
+if ($Marker) { $pythonArgs += @("--marker", $Marker) }
+if ($VerboseOutput) { $pythonArgs += "--verbose" }
+if ($FailFast) { $pythonArgs += "--fail-fast" }
+if ($Dbg) { $pythonArgs += "--debug" }
 
- Ensure-DatrixPackagesInstalled
-
- # Get Python executable from venv
- $venvPath = Get-DatrixVenvPath
- $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
- # Build arguments for Python script
- $pythonArgs = @($pythonScript)
- if ($TestPath) { $pythonArgs += $TestPath }
- if ($Project) { $pythonArgs += "--project"; $pythonArgs += $Project }
- if ($Keyword) { $pythonArgs += "--keyword"; $pythonArgs += $Keyword }
- if ($Marker) { $pythonArgs += "--marker"; $pythonArgs += $Marker }
- if ($VerboseOutput) { $pythonArgs += "--verbose" }
- if ($FailFast) { $pythonArgs += "--fail-fast" }
- if ($Dbg) { $pythonArgs += "--debug" }
-
- # Run the Python script
- & $pythonExe @pythonArgs
- $exitCode = $LASTEXITCODE
-
- exit $exitCode
-
-} catch {
- Write-Host ""
- Write-Host "Error occurred:" -ForegroundColor Red
- Write-Host $_.Exception.Message -ForegroundColor Red
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\test_single.py") -Arguments $pythonArgs -RequirePackages)

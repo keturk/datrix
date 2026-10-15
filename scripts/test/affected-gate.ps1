@@ -4,7 +4,7 @@
  Run the affected set of Datrix package suites concurrently and return one verdict.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs affected_gate.py. Runs the
+ Runs affected_gate.py in the shared venv. Runs the
  affected set: the changed packages plus the consumers named with -Consumers
  (packages whose suites reach the changed surface). Every other package in the
  changed packages' reverse-dependency closure is printed and recorded as
@@ -108,59 +108,24 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$PythonScript = Join-Path $ScriptDir "lib\affected_gate.py"
-
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
+$pythonArgs = @()
+foreach ($project in $Projects) {
+    if ($project) { $pythonArgs += @("--projects", $project) }
 }
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-try {
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-
-    $venvPath = Get-DatrixVenvPath
-    $PythonExe = Join-Path $venvPath "Scripts\python.exe"
-
-    if (-not (Test-Path $PythonScript)) {
-        Write-Error "Python script not found: $PythonScript"
-        exit 2
-    }
-
-    $pythonArgs = @($PythonScript)
-    foreach ($project in $Projects) {
-        if ($project) { $pythonArgs += @("--projects", $project) }
-    }
-    foreach ($consumer in $Consumers) {
-        if ($consumer) { $pythonArgs += @("--consumers", $consumer) }
-    }
-    if ($NoConsumers) { $pythonArgs += "--no-consumers" }
-    if ($All) { $pythonArgs += "--all" }
-    if ($MaxConcurrent) { $pythonArgs += @("--max-concurrent", $MaxConcurrent) }
-    if ($WorkersPerChild) { $pythonArgs += @("--workers-per-child", $WorkersPerChild) }
-    if ($Mypy) { $pythonArgs += "--mypy" }
-    if ($Force) { $pythonArgs += "--force" }
-    if ($NoCarry) { $pythonArgs += "--no-carry" }
-    if ($Output) { $pythonArgs += @("--output", $Output) }
-    if ($SelfTest) { $pythonArgs += "--self-test" }
-    if ($Dbg) { $pythonArgs += "--debug" }
-
-    & $PythonExe @pythonArgs
-    exit $LASTEXITCODE
-} catch {
-    Write-Error "Error: $_"
-    Invoke-Cleanup
-    exit 1
-} finally {
-    Invoke-Cleanup
+foreach ($consumer in $Consumers) {
+    if ($consumer) { $pythonArgs += @("--consumers", $consumer) }
 }
+if ($NoConsumers) { $pythonArgs += "--no-consumers" }
+if ($All) { $pythonArgs += "--all" }
+if ($MaxConcurrent) { $pythonArgs += @("--max-concurrent", "$MaxConcurrent") }
+if ($WorkersPerChild) { $pythonArgs += @("--workers-per-child", "$WorkersPerChild") }
+if ($Mypy) { $pythonArgs += "--mypy" }
+if ($Force) { $pythonArgs += "--force" }
+if ($NoCarry) { $pythonArgs += "--no-carry" }
+if ($Output) { $pythonArgs += @("--output", $Output) }
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($Dbg) { $pythonArgs += "--debug" }
+
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\affected_gate.py") -Arguments $pythonArgs -Gate "affected")

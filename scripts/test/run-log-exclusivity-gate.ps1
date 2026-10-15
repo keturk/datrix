@@ -47,15 +47,27 @@
 .PARAMETER Racers
  How many runs to force onto one name in checks 2 and 3 (default: 8).
 
+.PARAMETER SelfTest
+ Run only step 1, the non-vacuity check, and claim no file.
+
+ The last line is the gate verdict, "[GATE] run-log-exclusivity PASSED|FAILED
+ exit=<n> log=<path>".
+
 .EXAMPLE
  .\run-log-exclusivity-gate.ps1
+
+.EXAMPLE
+ .\run-log-exclusivity-gate.ps1 -SelfTest
 #>
 
 [CmdletBinding()]
 param(
     [Parameter()]
     [ValidateRange(2, 64)]
-    [int]$Racers = 8
+    [int]$Racers = 8,
+
+    [Parameter()]
+    [switch]$SelfTest
 )
 
 $ErrorActionPreference = "Stop"
@@ -67,25 +79,24 @@ $commonDir = Join-Path $datrixRoot "scripts\common"
 $modulePath = Join-Path $commonDir "DatrixRunLog.psm1"
 $generateScript = Join-Path $datrixRoot "scripts\dev\generate.ps1"
 
-$GREEN = "$([char]27)[92m"
-$RED = "$([char]27)[91m"
-$CYAN = "$([char]27)[96m"
-$RESET = "$([char]27)[0m"
+$GateName = "run-log-exclusivity"
+$ExitPass = 0
+$ExitFail = 1
 
 function Write-Ok {
     param([string]$Message)
-    Write-Host "  [OK] $Message" -ForegroundColor Green
+    Write-DatrixGateLog -LogPath $script:GateLog -Message "  [OK] $Message" -Color Green
 }
 
 function Write-Violation {
     param([string]$Message)
-    Write-Host "  [FAIL] $Message" -ForegroundColor Red
+    Write-DatrixGateLog -LogPath $script:GateLog -Message "  [FAIL] $Message" -Color Red
 }
 
 function Write-Step {
     param([string]$Message)
-    Write-Host ""
-    Write-Host "${CYAN}$Message${RESET}"
+    Write-DatrixGateLog -LogPath $script:GateLog -Message ""
+    Write-DatrixGateLog -LogPath $script:GateLog -Message $Message -Color Cyan
 }
 
 # Write-Host, not Write-Error: $ErrorActionPreference = "Stop" turns Write-Error into a
@@ -100,6 +111,7 @@ if (-not (Test-Path -LiteralPath $generateScript)) {
 }
 
 Import-Module $modulePath -Force
+Import-Module (Join-Path $commonDir "DatrixPythonScript.psm1") -Force
 
 # A fixed moment, so every composed base name in this gate is identical by
 # construction. The collision these checks survive is guaranteed, not scheduled.
@@ -274,25 +286,41 @@ function Test-CallerWiring {
     return $ok
 }
 
-$scratchRoot = Join-Path ([System.IO.Path]::GetTempPath()) "datrix-run-log-gate-$([guid]::NewGuid())"
-$results = @()
-try {
-    $null = New-Item -ItemType Directory -Path $scratchRoot -Force
-    $results += Test-NonVacuity
-    $results += Test-SequentialExclusivity -Root $scratchRoot
-    $results += Test-ConcurrentExclusivity -Root $scratchRoot
-    $results += Test-LabelContainment -Root $scratchRoot
-    $results += Test-CallerWiring
-} finally {
-    if (Test-Path -LiteralPath $scratchRoot) {
-        Remove-Item -LiteralPath $scratchRoot -Recurse -Force -ErrorAction SilentlyContinue
+function Invoke-Gate {
+    $scratchRoot = Join-Path ([System.IO.Path]::GetTempPath()) "datrix-run-log-gate-$([guid]::NewGuid())"
+    $results = @()
+    try {
+        $null = New-Item -ItemType Directory -Path $scratchRoot -Force
+        $results += Test-NonVacuity
+        if (-not $SelfTest) {
+            $results += Test-SequentialExclusivity -Root $scratchRoot
+            $results += Test-ConcurrentExclusivity -Root $scratchRoot
+            $results += Test-LabelContainment -Root $scratchRoot
+            $results += Test-CallerWiring
+        }
     }
+    finally {
+        if (Test-Path -LiteralPath $scratchRoot) {
+            Remove-Item -LiteralPath $scratchRoot -Recurse -Force
+        }
+    }
+
+    Write-DatrixGateLog -LogPath $script:GateLog -Message ""
+    if ($results -contains $false) {
+        Write-DatrixGateLog -LogPath $script:GateLog -Message "GATE FAILED: see the violations above." -Color Red
+        return $ExitFail
+    }
+    $scope = if ($SelfTest) { "the comparator detects a forced collision" } else { "every run gets a log file of its own, and the check is non-vacuous" }
+    Write-DatrixGateLog -LogPath $script:GateLog -Message "GATE PASSED: $scope." -Color Green
+    return $ExitPass
 }
 
-Write-Host ""
-if ($results -contains $false) {
-    Write-Host "${RED}GATE FAILED${RESET}: see the violations above."
-    exit 1
+$script:GateLog = New-DatrixGateLogFile -Gate $GateName
+$exitCode = $ExitFail
+try {
+    $exitCode = Invoke-Gate
 }
-Write-Host "${GREEN}GATE PASSED${RESET}: every run gets a log file of its own, and the check is non-vacuous."
-exit 0
+finally {
+    Write-DatrixGateVerdict -Gate $GateName -ExitCode $exitCode -LogPath $script:GateLog
+}
+exit $exitCode

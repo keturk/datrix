@@ -51,7 +51,7 @@ from datrix_scripts.local_llm import (
     add_local_llm_arguments,
     local_llm_settings,
 )
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 EXIT_CLEAN = 0
 EXIT_DEFINITE_FINDINGS = 1
@@ -548,7 +548,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     pool = LocalLlmPool(local_llm_settings(args)) if args.model_review else None
     try:
-        result = review(get_datrix_root(), pool, args.workers, args.max_chunk_chars)
+        result = review(WORKSPACE_DIR, pool, args.workers, args.max_chunk_chars)
     except PreReviewError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return EXIT_CANNOT_RUN

@@ -78,68 +78,18 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\toolchain_free_suites.py"
-
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: toolchain_free_suites.py not found at: $runnerScript"
-    exit 1
+$pythonArgs = @()
+if ($SelfTest) {
+    $pythonArgs += "--self-test"
 }
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
+elseif (-not [string]::IsNullOrWhiteSpace($Suites)) {
+    foreach ($item in $Suites.Split(",")) {
+        $trimmed = $item.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($trimmed)) { $pythonArgs += $trimmed }
+    }
 }
+if (-not [string]::IsNullOrWhiteSpace($Shapes)) { $pythonArgs += @("--shapes", $Shapes) }
 
-trap {
-    Invoke-Cleanup
-    break
-}
-
-Ensure-DatrixVenv
-
-try {
-    Ensure-DatrixPackagesInstalled
-
-    $pythonArgs = @($runnerScript)
-    if ($SelfTest) {
-        $pythonArgs += "--self-test"
-    }
-    elseif (-not [string]::IsNullOrWhiteSpace($Suites)) {
-        foreach ($item in $Suites.Split(",")) {
-            $trimmed = $item.Trim()
-            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
-                $pythonArgs += $trimmed
-            }
-        }
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($Shapes)) {
-        $pythonArgs += "--shapes"
-        $pythonArgs += $Shapes
-    }
-
-    $targetLabel = if ($SelfTest) { "self-test only" }
-                   elseif ([string]::IsNullOrWhiteSpace($Suites)) { "all package suites" }
-                   else { $Suites }
-    $targetLabel = if ([string]::IsNullOrWhiteSpace($Shapes)) { $targetLabel } else { "$targetLabel (shapes: $Shapes)" }
-    Write-Host "Running toolchain-free suite check for: $targetLabel" -ForegroundColor Cyan
-
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Toolchain-free suite check failed with exit code $exitCode" -ForegroundColor Red
-        exit $exitCode
-    }
-
-    Write-Host "Toolchain-free suite check passed" -ForegroundColor Green
-    exit 0
-
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\toolchain_free_suites.py") -Arguments $pythonArgs -RequirePackages -Gate "toolchain-free-suites")

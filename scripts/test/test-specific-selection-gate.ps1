@@ -46,12 +46,20 @@
  target; it must be a DIFFERENT file from FileA for the concurrency check to mean
  anything.
 
+.PARAMETER SelfTest
+ Run only the non-vacuity self-test (the comparator rejects a planted wrong-file
+ run directory and accepts a correct one) and run no suite.
+
 .PARAMETER Dbg
- Enable debug logging.
+ Print the interpreter and arguments before running.
 
 .EXAMPLE
  .\test-specific-selection-gate.ps1
  Run the gate against the default package/file pair.
+
+.EXAMPLE
+ .\test-specific-selection-gate.ps1 -SelfTest
+ Run only the non-vacuity self-test.
 
 .EXAMPLE
  .\test-specific-selection-gate.ps1 -Package datrix-common -FileA "tests/unit/datrix_model/test_seal.py" -FileB "tests/unit/datrix_model/test_traits.py"
@@ -70,69 +78,19 @@ param(
     [string]$FileB = "",
 
     [Parameter()]
+    [switch]$SelfTest,
+
+    [Parameter()]
     [switch]$Dbg
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\test_specific_selection_gate.py"
+$pythonArgs = @()
+if ($Package) { $pythonArgs += @("--package", $Package) }
+if ($FileA) { $pythonArgs += @("--file-a", $FileA) }
+if ($FileB) { $pythonArgs += @("--file-b", $FileB) }
+if ($SelfTest) { $pythonArgs += "--self-test" }
 
-$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "Error: test_specific_selection_gate.py not found at: $pythonScript"
-    exit 2
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-trap {
-    Write-Host ""
-    Write-Warning "Interrupted by user (Ctrl-C)"
-    Invoke-Cleanup
-    exit 130
-}
-
-try {
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
-    $pythonArgs = @($pythonScript)
-    if ($Package) { $pythonArgs += "--package"; $pythonArgs += $Package }
-    if ($FileA) { $pythonArgs += "--file-a"; $pythonArgs += $FileA }
-    if ($FileB) { $pythonArgs += "--file-b"; $pythonArgs += $FileB }
-
-    if ($Dbg) {
-        Write-Host "Python executable: $pythonExe" -ForegroundColor Cyan
-        Write-Host "Python script: $pythonScript" -ForegroundColor Cyan
-        Write-Host "Arguments: $($pythonArgs -join ' ')" -ForegroundColor Cyan
-        Write-Host ""
-    }
-
-    & $pythonExe @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    exit $exitCode
-
-} catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Invoke-Cleanup
-    exit 1
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\test_specific_selection_gate.py") -Arguments $pythonArgs -Gate "test-specific-selection" -ShowCommand:$Dbg)
