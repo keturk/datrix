@@ -94,50 +94,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\generated_suite_parity.py"
+$pythonArgs = @()
+if ($GeneratedRoot) { $pythonArgs += @("--generated-root", $GeneratedRoot) }
+if ($null -ne $ListLimit) { $pythonArgs += @("--list-limit", "$ListLimit") }
+if ($Dbg) { $pythonArgs += "--debug" }
+if ($SelfTest) { $pythonArgs += "--self-test" }
 
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: generated_suite_parity.py not found at: $runnerScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-trap {
-    Invoke-Cleanup
-    break
-}
-
-Ensure-DatrixVenv
-
-try {
-    Ensure-DatrixPackagesInstalled
-
-    $pythonArgs = @($runnerScript)
-    if ($GeneratedRoot) { $pythonArgs += @("--generated-root", $GeneratedRoot) }
-    if ($null -ne $ListLimit) { $pythonArgs += @("--list-limit", "$ListLimit") }
-    if ($Dbg) { $pythonArgs += "--debug" }
-    if ($SelfTest) { $pythonArgs += "--self-test" }
-
-    Write-Host "Running generated-suite parity gate (over the local unit-test indices)" -ForegroundColor Cyan
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Generated-suite parity gate failed with exit code $exitCode" -ForegroundColor Red
-        exit $exitCode
-    }
-
-    Write-Host "Generated-suite parity gate passed" -ForegroundColor Green
-    exit 0
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\generated_suite_parity.py") -Arguments $pythonArgs -RequirePackages -Gate "generated-suite-parity")

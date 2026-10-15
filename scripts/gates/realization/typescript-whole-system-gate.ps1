@@ -48,93 +48,73 @@
   install state and are not deterministic generated source:
     .datrix  .ruff_cache  .tsc_cache  node_modules
 
+  The last line is the gate verdict, "[GATE] typescript-whole-system PASSED|FAILED
+  exit=<n> log=<path>"; the log holds the gate's own lines (generate.ps1 keeps its own).
+
 .PARAMETER OutputRoot
   Root under which run1/ and run2/ are written. Default:
-  d:/datrix/.test-output/ts-gate (per the repo temp-output policy).
+  <workspace>/.test-output/ts-gate (per the repo temp-output policy).
 
 .PARAMETER Dbg
   Forward -Dbg (debug logging) to generate.ps1.
+
+.PARAMETER SelfTest
+  Run only the self-test and generate nothing: the realness and byte-stability
+  classifier over planted generation trees in a temp directory (a clean pair
+  passes; a Python file under src/, a run with no .ts, a changed byte and a file
+  only one run has each fail; differences inside an excluded directory do not),
+  and Get-PathSegments over a doubled separator.
+
+.EXAMPLE
+  .\typescript-whole-system-gate.ps1
+  Generate the example twice and check realness and byte-stability.
+
+.EXAMPLE
+  .\typescript-whole-system-gate.ps1 -SelfTest
+  Prove the classifier on planted trees.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter()]
-    [string]$OutputRoot = "d:/datrix/.test-output/ts-gate",
+    [string]$OutputRoot = "",
 
     [Alias("Dbg")]
-    [switch]$DebugLogging
+    [switch]$DebugLogging,
+
+    [Parameter()]
+    [switch]$SelfTest
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-# ---------------------------------------------------------------------------
-# Bootstrap (venv + paths), modeled on test/dual-target.ps1.
-# ---------------------------------------------------------------------------
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$datrixScriptsRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
-$commonDir = Join-Path $datrixScriptsRoot "common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
-    throw "Could not activate the Datrix Python venv; cannot run the TypeScript whole-system gate."
-}
-
-$datrixRoot = Get-DatrixRoot
-$generateScript = Join-Path (Join-Path $datrixScriptsRoot "dev") "generate.ps1"
-if (-not (Test-Path -LiteralPath $generateScript)) {
-    throw "generate.ps1 not found at: $generateScript"
-}
-
-# A language-NEUTRAL example. Datrix has no language-specific examples: every
-# example models domain content only, and the generation target is chosen by the
-# caller. 01-foundation is used because it is the one example known to generate
-# cleanly in every registered language (the same reason the reference-example
-# parity gate holds it as its corpus).
-$exampleSource = Join-Path $datrixRoot "datrix/examples/01-foundation/system.dtrx"
-if (-not (Test-Path -LiteralPath $exampleSource)) {
-    throw "Gate example not found at: $exampleSource"
-}
+$GateName = "typescript-whole-system"
+$ExitPass = 0
+$ExitFail = 1
 
 # Directory names that are post-generation build/install artifacts, never
 # deterministic generated source. Excluded from realness scan AND byte diff.
 $ExcludedDirNames = @('.datrix', '.ruff_cache', '.tsc_cache', 'node_modules')
 
-$run1 = Join-Path $OutputRoot "run1"
-$run2 = Join-Path $OutputRoot "run2"
+# Python locations every target language emits by design (see .DESCRIPTION).
+$LanguageAgnosticPythonDirs = @('tests', 'migration-tools')
+
+# Byte differences listed before the rest are summarized.
+$ByteDiffListLimit = 40
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-function Invoke-TsGeneration {
-    param(
-        [Parameter(Mandatory = $true)][string]$OutputDir
-    )
-    if (Test-Path -LiteralPath $OutputDir) {
-        Remove-Item -LiteralPath $OutputDir -Recurse -Force
-    }
-    # Named-parameter splat: -Language IS the target selector (generate.ps1
-    # forwards it as --language). The explicit -Output dir is what the gate
-    # actually compares.
-    $genArgs = @{
-        Source   = $exampleSource
-        Output   = $OutputDir
-        Language = "typescript"
-    }
-    if ($DebugLogging) { $genArgs.Dbg = $true }
-    & $generateScript @genArgs
-    return $LASTEXITCODE
-}
 
 function Get-GeneratedSourceFiles {
     <#
       Iterative directory walk returning generated-source files under $Root,
       pruning any directory whose name is in $ExcludedDirNames and never
       descending into reparse points (symlinks -- pnpm's node_modules store).
-      Returns objects with RelPath (forward-slashed, lowercased for comparison
-      keys) and FullPath.
+      Returns objects with RelPath (forward-slashed), RelKey (lowercased, the
+      comparison key) and FullPath.
     #>
     param([Parameter(Mandatory = $true)][string]$Root)
 
@@ -146,23 +126,19 @@ function Get-GeneratedSourceFiles {
 
     while ($stack.Count -gt 0) {
         $dir = $stack.Pop()
-        $children = Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue
-        foreach ($child in $children) {
+        foreach ($child in (Get-ChildItem -LiteralPath $dir -Force)) {
             $isReparse = ($child.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+            if ($isReparse) { continue }
             if ($child.PSIsContainer) {
-                if ($ExcludedDirNames -contains $child.Name) { continue }
-                if ($isReparse) { continue }
-                $stack.Push($child.FullName)
+                if ($ExcludedDirNames -notcontains $child.Name) { $stack.Push($child.FullName) }
+                continue
             }
-            else {
-                if ($isReparse) { continue }
-                $rel = $child.FullName.Substring($rootLen).TrimStart('\', '/') -replace '\\', '/'
-                $results.Add([PSCustomObject]@{
-                        RelPath  = $rel
-                        RelKey   = $rel.ToLowerInvariant()
-                        FullPath = $child.FullName
-                    })
-            }
+            $rel = $child.FullName.Substring($rootLen).TrimStart('\', '/') -replace '\\', '/'
+            $results.Add([PSCustomObject]@{
+                    RelPath  = $rel
+                    RelKey   = $rel.ToLowerInvariant()
+                    FullPath = $child.FullName
+                })
         }
     }
     return $results
@@ -170,119 +146,260 @@ function Get-GeneratedSourceFiles {
 
 function Get-PathSegments {
     param([string]$RelPath)
-    return ($RelPath -split '/') | Where-Object { $_ -ne '' }
+    return @(($RelPath -split '/') | Where-Object { $_ -ne '' })
 }
 
-# ---------------------------------------------------------------------------
-# 1. Generate twice
-# ---------------------------------------------------------------------------
-Write-Host "=== TypeScript whole-system gate ===" -ForegroundColor Cyan
-Write-Host "Example : $exampleSource"
-Write-Host "run1    : $run1"
-Write-Host "run2    : $run2"
-Write-Host ""
+function Get-LanguageLeaks {
+    <#
+      The generated *.py files that are a language leak: any under a `src/`
+      segment, or outside the language-agnostic Python locations.
+    #>
+    param([Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$PyFiles)
 
-$failures = New-Object System.Collections.Generic.List[string]
-
-Write-Host "Generating run1..." -ForegroundColor Cyan
-$exit1 = Invoke-TsGeneration -OutputDir $run1
-if ($exit1 -ne 0) {
-    $failures.Add("run1 generation exited with code $exit1")
-}
-
-Write-Host "Generating run2..." -ForegroundColor Cyan
-$exit2 = Invoke-TsGeneration -OutputDir $run2
-if ($exit2 -ne 0) {
-    $failures.Add("run2 generation exited with code $exit2")
-}
-
-if ($failures.Count -gt 0) {
-    Write-Host ""
-    Write-Host "GATE FAILED (generation did not complete):" -ForegroundColor Red
-    foreach ($f in $failures) { Write-Host "  - $f" -ForegroundColor Red }
-    exit 1
-}
-
-# ---------------------------------------------------------------------------
-# 2. Realness assertions (against run1)
-# ---------------------------------------------------------------------------
-$run1Files = Get-GeneratedSourceFiles -Root $run1
-
-$tsFiles = @($run1Files | Where-Object { $_.RelPath.ToLowerInvariant().EndsWith('.ts') })
-$pyFiles = @($run1Files | Where-Object { $_.RelPath.ToLowerInvariant().EndsWith('.py') })
-
-$tsCount = $tsFiles.Count
-$pyCount = $pyFiles.Count
-
-# Positive realness: the TypeScript language generator emitted real .ts source.
-if ($tsCount -le 0) {
-    $failures.Add("REALNESS: expected generated *.ts files > 0, found $tsCount (hollow TypeScript output).")
-}
-
-# Negative leak guard: the SERVICE IMPLEMENTATION must be TypeScript, not Python.
-# Any *.py under a `src/` segment, or outside the allowed language-agnostic
-# locations (tests/, migration-tools/), is a language leak.
-$leakedPy = New-Object System.Collections.Generic.List[string]
-foreach ($py in $pyFiles) {
-    $segs = Get-PathSegments -RelPath $py.RelKey
-    $underSrc = $segs -contains 'src'
-    $allowed = ($segs -contains 'tests') -or ($segs -contains 'migration-tools')
-    if ($underSrc -or (-not $allowed)) {
-        $leakedPy.Add($py.RelPath)
+    $leaked = New-Object System.Collections.Generic.List[string]
+    foreach ($py in $PyFiles) {
+        $segs = Get-PathSegments -RelPath $py.RelKey
+        $underSrc = $segs -contains 'src'
+        $allowed = @($segs | Where-Object { $LanguageAgnosticPythonDirs -contains $_ }).Count -gt 0
+        if ($underSrc -or (-not $allowed)) { $leaked.Add($py.RelPath) }
     }
-}
-if ($leakedPy.Count -gt 0) {
-    $failures.Add("REALNESS: $($leakedPy.Count) Python file(s) leaked into the TypeScript service (expected only tests/ + migration-tools/): $($leakedPy -join ', ')")
+    return , $leaked
 }
 
-# ---------------------------------------------------------------------------
-# 3. Byte-stability (run1 vs run2)
-# ---------------------------------------------------------------------------
-$run2Files = Get-GeneratedSourceFiles -Root $run2
+function Get-ByteDifferences {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Run1Files,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Run2Files
+    )
 
-$map1 = @{}
-foreach ($f in $run1Files) { $map1[$f.RelKey] = $f.FullPath }
-$map2 = @{}
-foreach ($f in $run2Files) { $map2[$f.RelKey] = $f.FullPath }
+    $map1 = @{}
+    foreach ($f in $Run1Files) { $map1[$f.RelKey] = $f.FullPath }
+    $map2 = @{}
+    foreach ($f in $Run2Files) { $map2[$f.RelKey] = $f.FullPath }
 
-$byteDiffs = New-Object System.Collections.Generic.List[string]
-
-$onlyIn1 = @($map1.Keys | Where-Object { -not $map2.ContainsKey($_) })
-$onlyIn2 = @($map2.Keys | Where-Object { -not $map1.ContainsKey($_) })
-foreach ($k in $onlyIn1) { $byteDiffs.Add("only in run1: $k") }
-foreach ($k in $onlyIn2) { $byteDiffs.Add("only in run2: $k") }
-
-foreach ($k in $map1.Keys) {
-    if (-not $map2.ContainsKey($k)) { continue }
-    $h1 = (Get-FileHash -LiteralPath $map1[$k] -Algorithm SHA256).Hash
-    $h2 = (Get-FileHash -LiteralPath $map2[$k] -Algorithm SHA256).Hash
-    if ($h1 -ne $h2) { $byteDiffs.Add("content differs: $k") }
+    $diffs = New-Object System.Collections.Generic.List[string]
+    foreach ($k in ($map1.Keys | Sort-Object)) {
+        if (-not $map2.ContainsKey($k)) { $diffs.Add("only in run1: $k"); continue }
+        $h1 = (Get-FileHash -LiteralPath $map1[$k] -Algorithm SHA256).Hash
+        $h2 = (Get-FileHash -LiteralPath $map2[$k] -Algorithm SHA256).Hash
+        if ($h1 -ne $h2) { $diffs.Add("content differs: $k") }
+    }
+    foreach ($k in ($map2.Keys | Sort-Object)) {
+        if (-not $map1.ContainsKey($k)) { $diffs.Add("only in run2: $k") }
+    }
+    return , $diffs
 }
 
-if ($byteDiffs.Count -gt 0) {
-    $shown = $byteDiffs | Select-Object -First 40
-    foreach ($d in $shown) { $failures.Add("BYTE-STABILITY: $d") }
-    if ($byteDiffs.Count -gt 40) {
-        $failures.Add("BYTE-STABILITY: ... and $($byteDiffs.Count - 40) more differences")
+function Get-GenerationVerdict {
+    <#
+      The failure classifier: realness over run1, byte-stability run1 vs run2.
+      Returns Failures (a list of messages) and the summary counts.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Run1,
+        [Parameter(Mandatory = $true)][string]$Run2
+    )
+
+    $failures = New-Object System.Collections.Generic.List[string]
+    $run1Files = @(Get-GeneratedSourceFiles -Root $Run1)
+    $tsFiles = @($run1Files | Where-Object { $_.RelKey.EndsWith('.ts') })
+    $pyFiles = @($run1Files | Where-Object { $_.RelKey.EndsWith('.py') })
+
+    if ($tsFiles.Count -le 0) {
+        $failures.Add("REALNESS: expected generated *.ts files > 0, found $($tsFiles.Count) (hollow TypeScript output).")
+    }
+    $leaked = Get-LanguageLeaks -PyFiles $pyFiles
+    if ($leaked.Count -gt 0) {
+        $failures.Add("REALNESS: $($leaked.Count) Python file(s) leaked into the TypeScript service (expected only $($LanguageAgnosticPythonDirs -join '/ + ')/): $($leaked -join ', ')")
+    }
+
+    $byteDiffs = Get-ByteDifferences -Run1Files $run1Files -Run2Files @(Get-GeneratedSourceFiles -Root $Run2)
+    foreach ($d in ($byteDiffs | Select-Object -First $ByteDiffListLimit)) { $failures.Add("BYTE-STABILITY: $d") }
+    if ($byteDiffs.Count -gt $ByteDiffListLimit) {
+        $failures.Add("BYTE-STABILITY: ... and $($byteDiffs.Count - $ByteDiffListLimit) more differences")
+    }
+
+    return [PSCustomObject]@{
+        Failures      = $failures
+        TsCount       = $tsFiles.Count
+        PyCount       = $pyFiles.Count
+        ComparedCount = $run1Files.Count
+        ByteDiffCount = $byteDiffs.Count
     }
 }
 
-# ---------------------------------------------------------------------------
-# 4. Summary + exit
-# ---------------------------------------------------------------------------
-Write-Host ""
-Write-Host "=== Summary ===" -ForegroundColor Cyan
-Write-Host "Generated TypeScript source files (*.ts, excl. build artifacts): $tsCount"
-Write-Host "Language-agnostic Python artifacts (tests/ + migration-tools/):  $pyCount"
-Write-Host "Compared source files run1 vs run2:                              $($map1.Count)"
-Write-Host "Byte differences (excl. .datrix/.ruff_cache/.tsc_cache/node_modules): $($byteDiffs.Count)"
-Write-Host ""
-
-if ($failures.Count -gt 0) {
-    Write-Host "GATE FAILED:" -ForegroundColor Red
-    foreach ($f in $failures) { Write-Host "  - $f" -ForegroundColor Red }
-    exit 1
+function Invoke-TsGeneration {
+    param(
+        [Parameter(Mandatory = $true)][string]$GenerateScript,
+        [Parameter(Mandatory = $true)][string]$ExampleSource,
+        [Parameter(Mandatory = $true)][string]$OutputDir
+    )
+    if (Test-Path -LiteralPath $OutputDir) {
+        Remove-Item -LiteralPath $OutputDir -Recurse -Force
+    }
+    # Named-parameter splat: -Language IS the target selector (generate.ps1
+    # forwards it as --language). The explicit -Output dir is what the gate
+    # actually compares.
+    $genArgs = @{
+        Source   = $ExampleSource
+        Output   = $OutputDir
+        Language = "typescript"
+    }
+    if ($DebugLogging) { $genArgs.Dbg = $true }
+    & $GenerateScript @genArgs | Out-Host
+    return $LASTEXITCODE
 }
 
-Write-Host "GATE PASSED: real TypeScript whole-system output, byte-stable across two runs." -ForegroundColor Green
-exit 0
+# ---------------------------------------------------------------------------
+# Self-test
+# ---------------------------------------------------------------------------
+
+function New-PlantedFile {
+    param([string]$Root, [string]$RelPath, [string]$Content)
+    $path = Join-Path $Root $RelPath
+    New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+    [System.IO.File]::WriteAllText($path, $Content)
+}
+
+function New-PlantedPair {
+    <# A clean run1/run2 pair under $Root: identical source, allowed Python, a differing excluded dir. #>
+    param([string]$Root)
+    foreach ($run in @("run1", "run2")) {
+        $dir = Join-Path $Root $run
+        New-PlantedFile -Root $dir -RelPath "service/src/app.ts" -Content "export const app = 1;"
+        New-PlantedFile -Root $dir -RelPath "service/tests/test_contract.py" -Content "def test_contract(): ..."
+        New-PlantedFile -Root $dir -RelPath "service/migration-tools/export.py" -Content "print('export')"
+        New-PlantedFile -Root $dir -RelPath "service/node_modules/pkg/index.js" -Content "$run"
+    }
+    return [PSCustomObject]@{ Run1 = (Join-Path $Root "run1"); Run2 = (Join-Path $Root "run2") }
+}
+
+function Test-SelfTestCase {
+    <# Plants a pair, lets $Plant break it, and checks the classifier's failures against $ExpectedPrefix ("" = no failure). #>
+    param([string]$Root, [string]$Name, [scriptblock]$Plant, [string]$ExpectedPrefix, [string]$LogPath)
+    $pair = New-PlantedPair -Root (Join-Path $Root $Name)
+    & $Plant $pair
+    $failures = (Get-GenerationVerdict -Run1 $pair.Run1 -Run2 $pair.Run2).Failures
+    $ok = if ($ExpectedPrefix) {
+        $failures.Count -eq 1 -and $failures[0].StartsWith($ExpectedPrefix)
+    }
+    else {
+        $failures.Count -eq 0
+    }
+    $status = if ($ok) { "OK" } else { "FAIL" }
+    Write-DatrixGateLog -LogPath $LogPath -Message "  [$status] $Name$(if (-not $ok) { " -- got: $($failures -join ' | ')" })"
+    return $ok
+}
+
+function Invoke-SelfTest {
+    param([string]$LogPath)
+    $root = Join-Path ([System.IO.Path]::GetTempPath()) "$GateName-selftest-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $root -Force | Out-Null
+    Write-DatrixGateLog -LogPath $LogPath -Message "$GateName self-test:"
+    try {
+        $cases = @(
+            @{ Name = "clean_pair_passes"; Expected = ""; Plant = { param($p) } },
+            @{ Name = "python_under_src_is_a_leak"; Expected = "REALNESS: 1 Python file(s) leaked"; Plant = {
+                    param($p)
+                    foreach ($run in @($p.Run1, $p.Run2)) { New-PlantedFile -Root $run -RelPath "service/src/handler.py" -Content "x = 1" }
+                } },
+            @{ Name = "no_typescript_is_hollow"; Expected = "REALNESS: expected generated *.ts"; Plant = {
+                    param($p)
+                    foreach ($run in @($p.Run1, $p.Run2)) { Remove-Item -LiteralPath (Join-Path $run "service/src/app.ts") }
+                } },
+            @{ Name = "changed_byte_is_unstable"; Expected = "BYTE-STABILITY: content differs"; Plant = {
+                    param($p)
+                    New-PlantedFile -Root $p.Run2 -RelPath "service/src/app.ts" -Content "export const app = 2;"
+                } },
+            @{ Name = "file_in_one_run_is_unstable"; Expected = "BYTE-STABILITY: only in run2"; Plant = {
+                    param($p)
+                    New-PlantedFile -Root $p.Run2 -RelPath "service/src/extra.ts" -Content "export {};"
+                } }
+        )
+        $passed = 0
+        foreach ($case in $cases) {
+            if (Test-SelfTestCase -Root $root -Name $case.Name -Plant $case.Plant -ExpectedPrefix $case.Expected -LogPath $LogPath) { $passed += 1 }
+        }
+        $segments = Get-PathSegments -RelPath "service//src/app.ts"
+        $segmentsOk = ($segments -join '|') -eq "service|src|app.ts"
+        Write-DatrixGateLog -LogPath $LogPath -Message "  [$(if ($segmentsOk) { 'OK' } else { 'FAIL' })] path_segments_drop_empty_parts"
+        if ($segmentsOk) { $passed += 1 }
+
+        $total = $cases.Count + 1
+        if ($passed -ne $total) {
+            Write-DatrixGateLog -LogPath $LogPath -Message "SELF-TEST FAILED: $($total - $passed) of $total check(s) failed." -Color Red
+            return $ExitFail
+        }
+        Write-DatrixGateLog -LogPath $LogPath -Message "SELF-TEST PASSED: $total check(s)." -Color Green
+        return $ExitPass
+    }
+    finally {
+        Remove-Item -LiteralPath $root -Recurse -Force
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Gate
+# ---------------------------------------------------------------------------
+
+function Invoke-Gate {
+    param([string]$LogPath)
+
+    $workspace = Get-DatrixWorkspaceRoot
+    $root = if ($OutputRoot) { $OutputRoot } else { Join-Path $workspace ".test-output\ts-gate" }
+    $generateScript = Join-Path $PSScriptRoot "..\..\dev\generate.ps1"
+    # A language-NEUTRAL example. Datrix has no language-specific examples: every
+    # example models domain content only, and the generation target is chosen by the
+    # caller. 01-foundation is used because it is the one example known to generate
+    # cleanly in every registered language (the same reason the reference-example
+    # parity gate holds it as its corpus).
+    $exampleSource = Join-Path $workspace "datrix\examples\01-foundation\system.dtrx"
+    if (-not (Test-Path -LiteralPath $exampleSource)) {
+        Write-DatrixGateLog -LogPath $LogPath -Message "Gate example not found at: $exampleSource. Expected the 01-foundation example. Fix: restore it." -Color Red
+        return $ExitFail
+    }
+
+    $run1 = Join-Path $root "run1"
+    $run2 = Join-Path $root "run2"
+    Write-DatrixGateLog -LogPath $LogPath -Message "=== TypeScript whole-system gate ===" -Color Cyan
+    Write-DatrixGateLog -LogPath $LogPath -Message "Example : $exampleSource"
+    Write-DatrixGateLog -LogPath $LogPath -Message "run1    : $run1"
+    Write-DatrixGateLog -LogPath $LogPath -Message "run2    : $run2"
+
+    $generationFailures = New-Object System.Collections.Generic.List[string]
+    foreach ($run in @($run1, $run2)) {
+        Write-DatrixGateLog -LogPath $LogPath -Message "Generating $(Split-Path -Leaf $run)..." -Color Cyan
+        $exitCode = Invoke-TsGeneration -GenerateScript $generateScript -ExampleSource $exampleSource -OutputDir $run
+        if ($exitCode -ne 0) { $generationFailures.Add("$(Split-Path -Leaf $run) generation exited with code $exitCode") }
+    }
+    if ($generationFailures.Count -gt 0) {
+        Write-DatrixGateLog -LogPath $LogPath -Message "GATE FAILED (generation did not complete):" -Color Red
+        foreach ($f in $generationFailures) { Write-DatrixGateLog -LogPath $LogPath -Message "  - $f" -Color Red }
+        return $ExitFail
+    }
+
+    $verdict = Get-GenerationVerdict -Run1 $run1 -Run2 $run2
+    Write-DatrixGateLog -LogPath $LogPath -Message "=== Summary ===" -Color Cyan
+    Write-DatrixGateLog -LogPath $LogPath -Message "Generated TypeScript source files (*.ts, excl. build artifacts): $($verdict.TsCount)"
+    Write-DatrixGateLog -LogPath $LogPath -Message "Language-agnostic Python artifacts (tests/ + migration-tools/):  $($verdict.PyCount)"
+    Write-DatrixGateLog -LogPath $LogPath -Message "Compared source files run1 vs run2:                              $($verdict.ComparedCount)"
+    Write-DatrixGateLog -LogPath $LogPath -Message "Byte differences (excl. $($ExcludedDirNames -join '/')): $($verdict.ByteDiffCount)"
+
+    if ($verdict.Failures.Count -gt 0) {
+        Write-DatrixGateLog -LogPath $LogPath -Message "GATE FAILED:" -Color Red
+        foreach ($f in $verdict.Failures) { Write-DatrixGateLog -LogPath $LogPath -Message "  - $f" -Color Red }
+        return $ExitFail
+    }
+    Write-DatrixGateLog -LogPath $LogPath -Message "GATE PASSED: real TypeScript whole-system output, byte-stable across two runs." -Color Green
+    return $ExitPass
+}
+
+$logPath = New-DatrixGateLogFile -Gate $GateName
+$exitCode = $ExitFail
+try {
+    $exitCode = if ($SelfTest) { Invoke-SelfTest -LogPath $logPath } else { Invoke-Gate -LogPath $logPath }
+}
+finally {
+    Write-DatrixGateVerdict -Gate $GateName -ExitCode $exitCode -LogPath $logPath
+}
+exit $exitCode

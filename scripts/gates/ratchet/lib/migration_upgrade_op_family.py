@@ -79,6 +79,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from datrix_scripts.gate_harness import write_file
 from datrix_scripts.paths import SHOWCASE_DIR
 from datrix_scripts.registered_targets import (
     AXIS_LANGUAGES,
@@ -407,15 +408,10 @@ def evaluate(
 # ---------------------------------------------------------------------------
 
 
-def _write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
 def _check_resolver_finds_a_planted_call(tmp_path: Path) -> list[str]:
     """The resolver can find a call at all -- a scan that can only return zero
     is not evidence."""
-    _write(
+    write_file(
         tmp_path / "caller.py",
         f"from {SHARED_MODULE} import {SHARED_SYMBOL}\n"
         f"def go(d):\n    return {SHARED_SYMBOL}(d)\n",
@@ -428,7 +424,7 @@ def _check_resolver_finds_a_planted_call(tmp_path: Path) -> list[str]:
 
 def _check_resolver_follows_an_import_alias(tmp_path: Path) -> list[str]:
     """The call site never spells the symbol -- only its alias."""
-    _write(
+    write_file(
         tmp_path / "aliased.py",
         f"from {SHARED_MODULE} import {SHARED_SYMBOL} as _shared_parse\n"
         "def go(d):\n    return _shared_parse(d)\n",
@@ -441,7 +437,7 @@ def _check_resolver_follows_an_import_alias(tmp_path: Path) -> list[str]:
 
 def _check_resolver_finds_a_module_qualified_call(tmp_path: Path) -> list[str]:
     """``import module as alias`` then ``alias.symbol(...)`` also resolves."""
-    _write(
+    write_file(
         tmp_path / "qualified.py",
         f"import {SHARED_MODULE} as _mod\n"
         f"def go(d):\n    return _mod.{SHARED_SYMBOL}(d)\n",
@@ -455,7 +451,7 @@ def _check_resolver_finds_a_module_qualified_call(tmp_path: Path) -> list[str]:
 def _check_resolver_ignores_a_same_suffix_private_wrapper(tmp_path: Path) -> list[str]:
     """The false-positive shape this chain has already been bitten by twice: a
     private wrapper whose name merely ends with the shared symbol's name."""
-    _write(
+    write_file(
         tmp_path / "wrapper.py",
         f"def _{SHARED_SYMBOL}(d):\n    return d\n"
         f"def go(d):\n    return _{SHARED_SYMBOL}(d)\n",
@@ -468,7 +464,7 @@ def _check_resolver_ignores_a_same_suffix_private_wrapper(tmp_path: Path) -> lis
 
 def _check_resolver_ignores_a_bare_name_mention(tmp_path: Path) -> list[str]:
     """A docstring mention and a string constant are not calls."""
-    _write(
+    write_file(
         tmp_path / "mention.py",
         f'"""Docs mentioning {SHARED_SYMBOL} and nothing else."""\n'
         f"MESSAGE = {SHARED_SYMBOL!r}\n",
@@ -483,7 +479,7 @@ def _check_definition_scan_finds_a_planted_definition(tmp_path: Path) -> list[st
     """The definition scan the survival and redefinition checks rest on finds a
     definition it is pointed at, and does not invent one."""
     problems: list[str] = []
-    _write(
+    write_file(
         tmp_path / "defs.py",
         f"def {DIVERGENT_SYMBOLS[0]}(self, change):\n    return change\n",
     )
@@ -510,14 +506,14 @@ def _write_family_fixture(tmp_path: Path, *, omit_symbol: str | None = None) -> 
         for symbol in DIVERGENT_SYMBOLS
         if symbol != omit_symbol
     )
-    _write(carrier / "builders.py", definitions)
-    _write(
+    write_file(carrier / "builders.py", definitions)
+    write_file(
         carrier / "render.py",
         f"from {SHARED_MODULE} import {SHARED_SYMBOL}\n"
         f"def render(d):\n    return {SHARED_SYMBOL}(d)\n"
         f"def audit(d):\n    return {SHARED_SYMBOL}(d)\n",
     )
-    _write(
+    write_file(
         caller / "adapter.py",
         f"import {SHARED_MODULE} as _mod\ndef index_of(d):\n    return _mod.{SHARED_SYMBOL}(d)\n",
     )
@@ -585,14 +581,14 @@ def _check_baseline_loader_refuses_a_malformed_entry(tmp_path: Path) -> list[str
     )
     for index, languages in enumerate(malformed):
         path = tmp_path / f"malformed{index}.json"
-        _write(path, json.dumps({_LANGUAGES_KEY: languages}))
+        write_file(path, json.dumps({_LANGUAGES_KEY: languages}))
         try:
             load_baseline(path)
         except GateConfigurationError:
             continue
         problems.append(f"load_baseline accepted a malformed entry: {languages}")
     valid = tmp_path / "valid.json"
-    _write(valid, json.dumps({_LANGUAGES_KEY: {_FIXTURE_CARRIER: {_CARRIES_FAMILY_KEY: True, _CALL_SITES_KEY: 2}}}))
+    write_file(valid, json.dumps({_LANGUAGES_KEY: {_FIXTURE_CARRIER: {_CARRIES_FAMILY_KEY: True, _CALL_SITES_KEY: 2}}}))
     if load_baseline(valid) != {_FIXTURE_CARRIER: _fixture_baseline()[_FIXTURE_CARRIER]}:
         problems.append("load_baseline misread a valid entry")
     return problems

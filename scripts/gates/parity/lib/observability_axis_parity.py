@@ -73,6 +73,7 @@ from datrix_common.plugin.language_capability import (
     LanguageCapabilityDeclaration,
 )
 from datrix_common.plugin.registry import LANGUAGES_GROUP, PLATFORM_GROUP
+from datrix_scripts.gate_harness import configure_logging
 
 #: Checking "every language agrees" over zero languages is vacuous -- it
 #: would report a clean gate while proving nothing. Fail loud instead.
@@ -117,12 +118,6 @@ _SELF_TEST_LANGUAGE: Final[str] = "self_test_lang"
 #: name_tokens must match ^[a-z0-9]+$ -- _SELF_TEST_LANGUAGE itself contains
 #: underscores and cannot be reused as a token.
 _SELF_TEST_LANGUAGE_TOKEN: Final[str] = "selftestlang"
-
-
-def configure_logging(debug: bool = False) -> None:
-    """Configure logging output."""
-    level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def _discover_names(group: str) -> frozenset[str]:

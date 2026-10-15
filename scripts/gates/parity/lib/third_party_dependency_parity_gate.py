@@ -69,6 +69,7 @@ from dataclasses import dataclass
 from importlib.metadata import packages_distributions
 from pathlib import Path
 
+from datrix_scripts.gate_harness import report_fail, report_ok, write_file
 from datrix_scripts.paths import WORKSPACE_DIR
 
 DEV_EXTRA_NAMES: frozenset[str] = frozenset({"dev"})
@@ -119,14 +120,6 @@ class Exemption:
     package: str
     distribution: str
     reason: str
-
-
-def _ok(message: str) -> None:
-    print(f"{GREEN}[OK]{RESET} {message}")
-
-
-def _fail(message: str) -> None:
-    print(f"{RED}[FAIL]{RESET} {message}")
 
 
 # ---------------------------------------------------------------------------
@@ -312,11 +305,6 @@ def load_exemptions(path: Path) -> list[Exemption]:
 # ---------------------------------------------------------------------------
 
 
-def _write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
 _SELFTEST_MAPPING: dict[str, list[str]] = {
     "engine": ["engine-lib"],
     "hasher": ["hasher-lib"],
@@ -328,7 +316,7 @@ _SELFTEST_STDLIB: frozenset[str] = frozenset({"os", "json"})
 
 
 def _plant_dirty(root: Path) -> None:
-    _write(
+    write_file(
         root / "datrix-selftest-dirty" / "pyproject.toml",
         "[project]\n"
         'name = "datrix-selftest-dirty"\n'
@@ -338,7 +326,7 @@ def _plant_dirty(root: Path) -> None:
         'dev = ["devtool-lib>=1"]\n'
         'helpers = ["helper-lib>=1"]\n',
     )
-    _write(
+    write_file(
         root / "datrix-selftest-dirty" / "src" / "selftest_dirty" / "mod.py",
         "import os\n"
         "import engine\n"
@@ -355,14 +343,14 @@ def _plant_dirty(root: Path) -> None:
 
 
 def _plant_clean(root: Path) -> None:
-    _write(
+    write_file(
         root / "datrix-selftest-clean" / "pyproject.toml",
         "[project]\n"
         'name = "datrix-selftest-clean"\n'
         'version = "0.0.0"\n'
         'dependencies = ["engine-lib>=1", "datrix-selftest-dirty"]\n',
     )
-    _write(
+    write_file(
         root / "datrix-selftest-clean" / "src" / "selftest_clean" / "mod.py",
         "import os\nfrom engine import thing\nimport datrix_selftest_dirty\n",
     )
@@ -380,9 +368,9 @@ def run_self_test(base_dir: Path, root_to_dists: Mapping[str, list[str]], stdlib
         _plant_clean(root)
         manifests = {m.distribution: m for m in discover_manifests(root)}
         if set(manifests) == {"datrix-selftest-dirty", "datrix-selftest-clean"}:
-            _ok("discovery finds every planted package with a src/ tree")
+            report_ok("discovery finds every planted package with a src/ tree")
         else:
-            _fail(f"discovery returned {sorted(manifests)}")
+            report_fail(f"discovery returned {sorted(manifests)}")
             ok = False
         dirty_violations, used = compare(
             manifests["datrix-selftest-dirty"], _SELFTEST_MAPPING, _SELFTEST_STDLIB, exemptions
@@ -395,33 +383,33 @@ def run_self_test(base_dir: Path, root_to_dists: Mapping[str, list[str]], stdlib
             ("unmapped-import", "ghost"),
         ]
         if got == expected:
-            _ok(
+            report_ok(
                 "dirty package: undeclared import, dev-extra-only import, unmapped import and "
                 "dead declaration are reported; the non-dev-extra import, the ambiguous root "
                 "satisfied by one declared candidate, and the exempted executable are not"
             )
         else:
-            _fail(f"dirty package yielded {got}, expected {expected}")
+            report_fail(f"dirty package yielded {got}, expected {expected}")
             ok = False
         if [e.distribution for e in used] == ["exec-tool"]:
-            _ok("only the matching executable exemption is consumed; the stale one is left over")
+            report_ok("only the matching executable exemption is consumed; the stale one is left over")
         else:
-            _fail(f"used exemptions were {[e.distribution for e in used]}")
+            report_fail(f"used exemptions were {[e.distribution for e in used]}")
             ok = False
         clean_violations, _ = compare(
             manifests["datrix-selftest-clean"], _SELFTEST_MAPPING, _SELFTEST_STDLIB, []
         )
         if not clean_violations:
-            _ok("clean package yields zero violations (Datrix distributions are out of scope)")
+            report_ok("clean package yields zero violations (Datrix distributions are out of scope)")
         else:
-            _fail(f"clean package yielded {clean_violations}")
+            report_fail(f"clean package yielded {clean_violations}")
             ok = False
         try:
             _require_enough([manifests["datrix-selftest-clean"]])
         except GateError:
-            _ok("fewer than two packages is refused, never a silent pass")
+            report_ok("fewer than two packages is refused, never a silent pass")
         else:
-            _fail("a single package was accepted")
+            report_fail("a single package was accepted")
             ok = False
 
     live = [m for m in discover_manifests(base_dir) if m.runtime]
@@ -433,9 +421,9 @@ def run_self_test(base_dir: Path, root_to_dists: Mapping[str, list[str]], stdlib
             proven = True
             break
     if proven:
-        _ok("live scan sees a real package both declare and import one third-party distribution")
+        report_ok("live scan sees a real package both declare and import one third-party distribution")
     else:
-        _fail("live scan found no package whose declared dependency is also imported")
+        report_fail("live scan found no package whose declared dependency is also imported")
         ok = False
     return ok
 
@@ -493,9 +481,9 @@ def main(argv: list[str] | None = None) -> int:
     stale = [e for e in exemptions if e not in used_exemptions]
 
     for violation in violations:
-        _fail(f"{violation.package}: {violation.kind} {violation.subject!r} -- {violation.detail}")
+        report_fail(f"{violation.package}: {violation.kind} {violation.subject!r} -- {violation.detail}")
     for exemption in stale:
-        _fail(
+        report_fail(
             f"stale exemption: {exemption.package} no longer declares-without-importing "
             f"{exemption.distribution!r}"
         )

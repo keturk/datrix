@@ -36,7 +36,7 @@
  Print each package's declared set as it is scanned.
 
 .PARAMETER Dbg
- Enable debug logging.
+ Print the interpreter and arguments before running.
 
 .EXAMPLE
  .\third-party-dependency-parity-gate.ps1
@@ -63,59 +63,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\third_party_dependency_parity_gate.py"
+$pythonArgs = @()
+if ($BaseDir) { $pythonArgs += @("--base-dir", $BaseDir) }
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($ShowFiles) { $pythonArgs += "--verbose" }
 
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "Error: third_party_dependency_parity_gate.py not found at: $pythonScript"
-    exit 2
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-trap {
-    Write-Host ""
-    Write-Warning "Interrupted by user (Ctrl-C)"
-    Invoke-Cleanup
-    exit 130
-}
-
-try {
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
-    $pythonArgs = @($pythonScript)
-    if ($BaseDir) { $pythonArgs += "--base-dir"; $pythonArgs += $BaseDir }
-    if ($SelfTest) { $pythonArgs += "--self-test" }
-    if ($ShowFiles) { $pythonArgs += "--verbose" }
-
-    if ($Dbg) {
-        Write-Host "Python executable: $pythonExe" -ForegroundColor Cyan
-        Write-Host "Python script: $pythonScript" -ForegroundColor Cyan
-    }
-
-    & $pythonExe @pythonArgs
-    $exitCode = $LASTEXITCODE
-    Invoke-Cleanup
-    exit $exitCode
-}
-catch {
-    Write-Error $_
-    Invoke-Cleanup
-    exit 2
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\third_party_dependency_parity_gate.py") -Arguments $pythonArgs -Gate "third-party-dependency-parity" -ShowCommand:$Dbg)

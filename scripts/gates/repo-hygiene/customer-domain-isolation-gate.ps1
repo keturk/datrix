@@ -4,7 +4,7 @@
  Repo-level gate: no registered customer term appears in a Datrix framework repo.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs lib\customer_domain_isolation_gate.py,
+ Runs lib\customer_domain_isolation_gate.py in the shared venv,
  which scans the git-TRACKED content of every framework repo in the workspace (datrix
  plus every datrix-* clone) against the hashed customer-term corpus at
  scripts/config/customer-term-hashes.json.
@@ -42,6 +42,9 @@
 .PARAMETER Hint
  Non-identifying note stored alongside a registered digest.
 
+.PARAMETER SelfTest
+ Run only the scanner self-test and scan nothing.
+
 .PARAMETER Dbg
  Print the python invocation before running.
 
@@ -73,64 +76,19 @@ param(
     [string]$Hint = "customer project",
 
     [Parameter()]
+    [switch]$SelfTest,
+
+    [Parameter()]
     [switch]$Dbg
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\customer_domain_isolation_gate.py"
+$pythonArgs = @()
+foreach ($name in $Repo) { $pythonArgs += @("--repo", $name) }
+if ($PendingOnly) { $pythonArgs += "--pending-only" }
+if ($AddTerm) { $pythonArgs += @("--add-term", $AddTerm, "--hint", $Hint) }
+if ($SelfTest) { $pythonArgs += "--self-test" }
 
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "Error: customer_domain_isolation_gate.py not found at: $pythonScript"
-    exit 2
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-trap {
-    Write-Host ""
-    Write-Warning "Interrupted by user (Ctrl-C)"
-    Invoke-Cleanup
-    exit 130
-}
-
-try {
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
-    $pythonArgs = @($pythonScript)
-    foreach ($name in $Repo) { $pythonArgs += @("--repo", $name) }
-    if ($PendingOnly) { $pythonArgs += "--pending-only" }
-    if ($AddTerm) { $pythonArgs += @("--add-term", $AddTerm, "--hint", $Hint) }
-
-    if ($Dbg) {
-        Write-Host "Python executable: $pythonExe" -ForegroundColor Cyan
-        Write-Host "Python script: $pythonScript" -ForegroundColor Cyan
-        Write-Host ""
-    }
-
-    & $pythonExe @pythonArgs
-    exit $LASTEXITCODE
-
-} catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Invoke-Cleanup
-    exit 1
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\customer_domain_isolation_gate.py") -Arguments $pythonArgs -Gate "customer-domain-isolation" -ShowCommand:$Dbg)

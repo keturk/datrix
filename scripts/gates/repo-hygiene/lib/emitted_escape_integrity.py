@@ -34,6 +34,8 @@ import re
 import sys
 import tempfile
 
+from datrix_scripts.paths import WORKSPACE_DIR
+
 #: Exactly two backslashes before an escape letter -- not one (correct), and not
 #: three or four (a deliberate, deeper escape). The lookbehind is what makes the
 #: run length exact.
@@ -60,7 +62,7 @@ SKIP_DIRS = frozenset(
     }
 )
 
-DEFAULT_BASE_DIR = "D:/datrix"
+DEFAULT_BASE_DIR = str(WORKSPACE_DIR)
 
 EXEMPTIONS_RELPATH = "datrix/scripts/config/emitted-escape-exemptions.json"
 
@@ -191,7 +193,7 @@ def self_test() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--base-dir", default=DEFAULT_BASE_DIR, help="monorepo root (default: D:/datrix)"
+        "--base-dir", default=DEFAULT_BASE_DIR, help="workspace root (default: the workspace holding this checkout)"
     )
     parser.add_argument(
         "--show-files", action="store_true", help="print every template scanned"

@@ -70,7 +70,7 @@ from typing import Literal
 
 from datrix_scripts.package_suites import PackageSuite, SuiteKind, discover_package_suites
 from datrix_scripts.suite_stamp import MERGED_TIMINGS_NAME
-from datrix_scripts.venv import get_datrix_root
+from datrix_scripts.paths import WORKSPACE_DIR
 
 #: A call's ``call``-phase duration above this is an offender unless baselined.
 CALL_CEILING_SECONDS: float = 30.0
@@ -948,7 +948,7 @@ def main() -> int:
     if self_test() != 0:
         return 1
 
-    workspace = get_datrix_root()
+    workspace = WORKSPACE_DIR
     if args.dbg:
         packages = discover_package_suites(workspace)
         print(f"workspace={workspace}", file=sys.stderr)

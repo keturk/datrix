@@ -46,76 +46,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-# Script directory
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\conformance_gate.py"
+$pythonArgs = @()
+if ($Spec) { $pythonArgs += @("--spec", $Spec) }
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($Output) { $pythonArgs += @("--output", $Output) }
+if ($Dbg) { $pythonArgs += "--debug" }
 
-# Import common modules
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
- Write-Error "Error: conformance_gate.py not found at: $pythonScript"
- exit 1
-}
-
-# Function to handle cleanup on exit
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-# Register cleanup on script exit
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-# Trap Ctrl-C to ensure proper cleanup
-trap {
- Write-Host ""
- Write-Warning "Interrupted by user (Ctrl-C)"
- Invoke-Cleanup
- exit 130
-}
-
-try {
- # Activate virtual environment
- $venvActivated = Ensure-DatrixVenv
- if (-not $venvActivated) {
-  Write-Error "Failed to activate virtual environment"
-  exit 1
- }
-
- # Get Python executable from venv
- $venvPath = Get-DatrixVenvPath
- $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
- # Build arguments for Python script
- $pythonArgs = @($pythonScript)
-
- if ($Spec) {
-  $pythonArgs += "--spec"
-  $pythonArgs += $Spec
- }
- if ($SelfTest) {
-  $pythonArgs += "--self-test"
- }
- if ($Output) {
-  $pythonArgs += "--output"
-  $pythonArgs += $Output
- }
- if ($Dbg) {
-  $pythonArgs += "--debug"
- }
-
- & $pythonExe @pythonArgs
- exit $LASTEXITCODE
-
-} catch {
- Write-Host ""
- Write-Host "Error occurred:" -ForegroundColor Red
- Write-Host $_.Exception.Message -ForegroundColor Red
- Invoke-Cleanup
- exit 1
-} finally {
- Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\conformance_gate.py") -Arguments $pythonArgs -Gate "conformance")

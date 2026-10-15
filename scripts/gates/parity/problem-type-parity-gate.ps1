@@ -60,53 +60,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\problem_type_parity.py"
+$pythonArgs = @()
+if ($Dbg) { $pythonArgs += "--debug" }
+if ($SelfTest) { $pythonArgs += "--self-test" }
 
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: problem_type_parity.py not found at: $runnerScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-trap {
-    Invoke-Cleanup
-    break
-}
-
-Ensure-DatrixVenv
-
-try {
-    Ensure-DatrixPackagesInstalled
-
-    $pythonArgs = @($runnerScript)
-    if ($Dbg) {
-        $pythonArgs += "--debug"
-    }
-    if ($SelfTest) {
-        $pythonArgs += "--self-test"
-    }
-
-    Write-Host "Running problem-type parity gate (every registered language)" -ForegroundColor Cyan
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Problem-type parity gate failed with exit code $exitCode" -ForegroundColor Red
-        exit $exitCode
-    }
-
-    Write-Host "Problem-type parity gate passed" -ForegroundColor Green
-    exit 0
-
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\problem_type_parity.py") -Arguments $pythonArgs -RequirePackages -Gate "problem-type-parity")

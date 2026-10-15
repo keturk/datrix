@@ -41,6 +41,7 @@ hardcoded package count or list.
 Usage:
     python dgen_corpus_resolution.py
     python dgen_corpus_resolution.py --debug
+    python dgen_corpus_resolution.py --self-test
 """
 
 from __future__ import annotations
@@ -49,9 +50,12 @@ import argparse
 import logging
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 from datrix_codegen_kernel.dgen import target_registry
+from datrix_scripts.gate_harness import EXIT_PASS, EXIT_USAGE, NamedCheck, configure_logging, run_checks
 
 #: Generous ceiling for a single package's DAL generator-definitions import. Eager
 #: reference resolution walks one package's compiled IR tree in memory; a
@@ -59,6 +63,14 @@ from datrix_codegen_kernel.dgen import target_registry
 #: to fail loud (instead of hanging the gate forever) if a subprocess never
 #: returns.
 SUBPROCESS_TIMEOUT_SECONDS: int = 120
+
+#: The self-test plants definitions for this registered target, whose DAL
+#: namespace resolves to its own dgen package; the resolved twin names a builder
+#: that namespace really carries, the other a builder it does not.
+SELF_TEST_TARGET = "sql"
+SELF_TEST_NAMESPACE = "sql.ddl"
+SELF_TEST_RESOLVED_BUILDER = "build_entity_ddl"
+SELF_TEST_MISSING_BUILDER = "dgen_corpus_selftest_missing_builder"
 
 
 @dataclass(frozen=True)
@@ -111,14 +123,8 @@ def discover_dgen_definition_modules() -> tuple[str, ...]:
     return tuple(sorted(modules))
 
 
-def configure_logging(debug: bool = False) -> None:
-    """Configure logging output."""
-    level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
-
-
 def resolve_module_in_subprocess(
-    python_executable: str, module_name: str
+    python_executable: str, module_name: str, cwd: Path | None = None
 ) -> ModuleResolutionResult:
     """Import *module_name* in its own dedicated subprocess.
 
@@ -136,6 +142,9 @@ def resolve_module_in_subprocess(
             under (the shared venv interpreter, so the target package is
             importable).
         module_name: Fully qualified DAL generator definitions module to import.
+        cwd: The child's working directory, which ``-c`` puts first on its
+            ``sys.path`` (the self-test's planted packages live there); the
+            inherited one when omitted.
 
     Returns:
         The resolution result: whether the import succeeded, and (on
@@ -148,6 +157,7 @@ def resolve_module_in_subprocess(
             text=True,
             timeout=SUBPROCESS_TIMEOUT_SECONDS,
             check=False,
+            cwd=cwd,
         )
     except subprocess.TimeoutExpired as exc:
         timeout_output = (
@@ -163,7 +173,9 @@ def resolve_module_in_subprocess(
     return ModuleResolutionResult(module_name, False, combined_output)
 
 
-def check_corpus_resolution(python_executable: str, modules: tuple[str, ...]) -> int:
+def check_corpus_resolution(
+    python_executable: str, modules: tuple[str, ...], cwd: Path | None = None
+) -> int:
     """Import every DAL generator definitions module in isolation and report failures.
 
     Args:
@@ -171,6 +183,7 @@ def check_corpus_resolution(python_executable: str, modules: tuple[str, ...]) ->
             subprocess is run under.
         modules: Fully qualified module names to import, one subprocess per
             module.
+        cwd: Each child's working directory (see :func:`resolve_module_in_subprocess`).
 
     Returns:
         Exit code (0 = every module's corpus resolved, 1 = at least one
@@ -183,7 +196,7 @@ def check_corpus_resolution(python_executable: str, modules: tuple[str, ...]) ->
         logger.info(
             "Resolving DAL generator corpus (isolated subprocess): %s", module_name
         )
-        result = resolve_module_in_subprocess(python_executable, module_name)
+        result = resolve_module_in_subprocess(python_executable, module_name, cwd)
         if not result.succeeded:
             failures[module_name] = result.error_output
             logger.error(
@@ -207,6 +220,71 @@ def check_corpus_resolution(python_executable: str, modules: tuple[str, ...]) ->
     return 0
 
 
+def _plant_definitions_package(root: Path, package: str, builder_function: str) -> str:
+    """Write a definitions package under *root* whose one builder names *builder_function*.
+
+    The package registers a ``.dal`` resource through the real
+    ``generator_definition_file``, so importing it runs the shipped eager
+    reference resolution exactly as a target's own definitions module does.
+
+    Returns:
+        The dotted name of the planted definitions module.
+    """
+    package_dir = root / package
+    package_dir.mkdir()
+    (package_dir / "__init__.py").write_text("", encoding="utf-8")
+    (package_dir / "generator.dal").write_text(
+        f"generator {package} : {SELF_TEST_TARGET} {{\n"
+        "  consumes application;\n"
+        "  domain entity_ddl {\n"
+        "    each service {\n"
+        "      each rdbms_block {\n"
+        "        each entity where concrete {\n"
+        "          sql entity_table {\n"
+        f'            builder {SELF_TEST_NAMESPACE}.{builder_function} => "{{service.dir}}/x.sql";\n'
+        "          }\n"
+        "        }\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (package_dir / "definitions.py").write_text(
+        "from datrix_codegen_kernel.dgen.compiler import generator_definition_file\n\n"
+        f'generator_definition_file("{SELF_TEST_TARGET}", __package__, "generator.dal")\n',
+        encoding="utf-8",
+    )
+    return f"{package}.definitions"
+
+
+def _check_planted_corpus() -> None:
+    with tempfile.TemporaryDirectory(prefix="dgen-corpus-selftest-") as tmp:
+        root = Path(tmp)
+        resolved = _plant_definitions_package(root, "dgen_selftest_resolved", SELF_TEST_RESOLVED_BUILDER)
+        unresolved = _plant_definitions_package(root, "dgen_selftest_unresolved", SELF_TEST_MISSING_BUILDER)
+        resolved_result = resolve_module_in_subprocess(sys.executable, resolved, root)
+        if not resolved_result.succeeded:
+            raise AssertionError(
+                f"the planted corpus naming {SELF_TEST_NAMESPACE}.{SELF_TEST_RESOLVED_BUILDER} "
+                f"failed to resolve:\n{resolved_result.error_output}"
+            )
+        unresolved_result = resolve_module_in_subprocess(sys.executable, unresolved, root)
+        if unresolved_result.succeeded or "DalReferenceError" not in unresolved_result.error_output:
+            raise AssertionError(
+                f"the planted corpus naming {SELF_TEST_NAMESPACE}.{SELF_TEST_MISSING_BUILDER} was "
+                f"not reported as an unresolved reference (succeeded={unresolved_result.succeeded}):\n"
+                f"{unresolved_result.error_output}"
+            )
+        if check_corpus_resolution(sys.executable, (resolved, unresolved), root) != 1:
+            raise AssertionError("a corpus holding one unresolved module did not fail the gate")
+
+
+def self_test_checks() -> list[NamedCheck]:
+    """The gate's non-vacuity checks."""
+    return [NamedCheck("planted_unresolved_reference_is_reported_and_its_twin_passes", _check_planted_corpus)]
+
+
 def main() -> int:
     """Main entry point.
 
@@ -225,9 +303,18 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Run only the self-test: a planted corpus with one unresolved reference is "
+        "reported, and its resolved twin passes.",
+    )
     args = parser.parse_args()
 
     configure_logging(debug=args.debug)
+
+    if args.self_test:
+        return EXIT_PASS if run_checks(self_test_checks()) else EXIT_USAGE
 
     modules = discover_dgen_definition_modules()
     logging.getLogger(__name__).info(

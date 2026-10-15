@@ -59,6 +59,7 @@ from dataclasses import dataclass
 from importlib.metadata import entry_points
 from pathlib import Path
 
+from datrix_scripts.gate_harness import report_fail, report_ok, write_file
 from datrix_scripts.paths import WORKSPACE_DIR
 
 PLATFORMS_ENTRY_POINT_GROUP = "datrix.platforms"
@@ -111,14 +112,6 @@ class Exemption:
     file: str
     snippet: str
     reason: str
-
-
-def _ok(message: str) -> None:
-    print(f"{GREEN}[OK]{RESET} {message}")
-
-
-def _fail(message: str) -> None:
-    print(f"{RED}[FAIL]{RESET} {message}")
 
 
 # ---------------------------------------------------------------------------
@@ -348,14 +341,9 @@ def apply_exemptions(
 # ---------------------------------------------------------------------------
 
 
-def _write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
 def _plant_platform_package(root: Path, name: str, *, planted: bool, route: str) -> None:
     import_root = name.replace("-", "_")
-    _write(
+    write_file(
         root / name / "pyproject.toml",
         "[project]\n"
         f'name = "{name}"\n'
@@ -364,7 +352,7 @@ def _plant_platform_package(root: Path, name: str, *, planted: bool, route: str)
         f'{name} = "{import_root}.plugin:PLUGIN"\n',
     )
     if planted:
-        _write(
+        write_file(
             root / name / "src" / import_root / "probe.py",
             '"""Module docstring mentioning ' + route + ' must not count."""\n'
             "\n"
@@ -380,7 +368,7 @@ def _plant_platform_package(root: Path, name: str, *, planted: bool, route: str)
             f'INFRA_PATH = "http://localhost:9200/_cluster{route}"\n'
             f'NO_PORT_URL = "http://localhost{route}"\n',
         )
-        _write(
+        write_file(
             root / name / "src" / import_root / "compose.yml.j2",
             f"// a comment mentioning '{route}' must not count\n"
             f"healthcheck: curl -f http://localhost:8000{route}\n"
@@ -389,7 +377,7 @@ def _plant_platform_package(root: Path, name: str, *, planted: bool, route: str)
             f"infra_path: '/minio{route}/live'\n",
         )
     else:
-        _write(
+        write_file(
             root / name / "src" / import_root / "clean.py",
             '"""Clean module."""\n\nVALUE = "/not-a-probe-route"\n',
         )
@@ -406,9 +394,9 @@ def run_self_test(base_dir: Path, routes_by_language: dict[str, frozenset[str]])
         _plant_platform_package(root, "datrix-selftest-clean", planted=False, route=sample_route)
         packages = discover_packages_registering(root, PLATFORMS_ENTRY_POINT_GROUP)
         if [p.distribution for p in packages] == ["datrix-selftest-clean", "datrix-selftest-planted"]:
-            _ok("discovery finds every planted platform package from its manifest")
+            report_ok("discovery finds every planted platform package from its manifest")
         else:
-            _fail(f"discovery returned {[p.distribution for p in packages]}")
+            report_fail(f"discovery returned {[p.distribution for p in packages]}")
             ok = False
         planted_hits = scan_src_tree(root / "datrix-selftest-planted" / "src", all_routes)
         literals = sorted((h.file.name, h.line) for h in planted_hits)
@@ -421,27 +409,27 @@ def run_self_test(base_dir: Path, routes_by_language: dict[str, frozenset[str]])
             ("probe.py", 13),
         ]
         if literals == expected:
-            _ok(
+            report_ok(
                 "planted literals (bare constant, f-string part, route embedded in a "
                 "shell command, scheme-only URL, quoted and unquoted template lines) are "
                 "reported; docstrings, template comments, longer paths sharing the prefix "
                 "and routes hanging off an earlier segment are not"
             )
         else:
-            _fail(f"planted package yielded {literals}, expected {expected}")
+            report_fail(f"planted package yielded {literals}, expected {expected}")
             ok = False
         clean_hits = scan_src_tree(root / "datrix-selftest-clean" / "src", all_routes)
         if not clean_hits:
-            _ok("clean planted package yields zero hits")
+            report_ok("clean planted package yields zero hits")
         else:
-            _fail(f"clean package yielded {clean_hits}")
+            report_fail(f"clean package yielded {clean_hits}")
             ok = False
         try:
             _require_enough(packages[:1], routes_by_language)
         except GateError:
-            _ok("fewer than two platform packages is refused, never a silent pass")
+            report_ok("fewer than two platform packages is refused, never a silent pass")
         else:
-            _fail("a single platform package was accepted")
+            report_fail("a single platform package was accepted")
             ok = False
 
     # Live non-vacuity: the languages' own src trees carry every declared route.
@@ -451,9 +439,9 @@ def run_self_test(base_dir: Path, routes_by_language: dict[str, frozenset[str]])
         seen.update(hit.literal for hit in scan_src_tree(package.src_dir, all_routes))
     missing = sorted(all_routes - seen)
     if not missing:
-        _ok(f"live scan of the language packages finds every declared route {sorted(all_routes)}")
+        report_ok(f"live scan of the language packages finds every declared route {sorted(all_routes)}")
     else:
-        _fail(f"declared routes {missing} were not found in any language package src tree")
+        report_fail(f"declared routes {missing} were not found in any language package src tree")
         ok = False
     return ok
 
@@ -516,13 +504,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     for hit in unexempted:
-        _fail(
+        report_fail(
             f"{hit.relative_to(base_dir)}:{hit.line} hardcodes probe route {hit.literal!r}; "
             "read LanguageRuntimeSpec.readiness_probe_path() / "
             "app_service_liveness_probe_path() from the resolved language plugin instead."
         )
     for exemption in stale:
-        _fail(f"stale exemption: {exemption.file} no longer carries snippet {exemption.snippet!r}")
+        report_fail(f"stale exemption: {exemption.file} no longer carries snippet {exemption.snippet!r}")
     print(
         f"APP PROBE-PATH LITERAL REPORT: {len(platform_packages)} platform package(s) scanned, "
         f"{len(hits)} literal(s) found, {len(exemptions) - len(stale)} exempted, "

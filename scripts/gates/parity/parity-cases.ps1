@@ -94,22 +94,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$toolScript = Join-Path $scriptDir "lib\parity_cases_tool.py"
-
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-function Invoke-Cleanup {
- Disable-DatrixVenv
-}
-
-trap {
- Invoke-Cleanup
- break
-}
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
 function Get-CommandArguments {
  $pythonArgs = @($Command) + $Arguments
@@ -131,14 +116,4 @@ function Get-CommandArguments {
  return ,$pythonArgs
 }
 
-Ensure-DatrixVenv
-
-try {
- Ensure-DatrixPackagesInstalled
- $pythonArgs = @($toolScript) + (Get-CommandArguments)
- if ($Dbg) { Write-Host "Running: python $($pythonArgs -join ' ')" }
- python @pythonArgs
- exit $LASTEXITCODE
-} finally {
- Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\parity_cases_tool.py") -Arguments (Get-CommandArguments) -RequirePackages -ShowCommand:$Dbg)

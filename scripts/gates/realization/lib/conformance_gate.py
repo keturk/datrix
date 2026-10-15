@@ -43,6 +43,7 @@ exit 2 before any real result is trusted.
 Usage:
   python scripts/gates/realization/lib/conformance_gate.py --spec my-spec.json   (PYTHONPATH=scripts/common/lib)
   python scripts/gates/realization/lib/conformance_gate.py --self-test
+  python scripts/gates/realization/lib/conformance_gate.py --spec-dir scripts/config/conformance-specs
   .\\scripts\\gates\\realization\\conformance-gate.ps1 my-spec.json
   .\\scripts\\gates\\realization\\conformance-gate.ps1 -SelfTest
 
@@ -72,7 +73,8 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from datrix_scripts.venv import get_datrix_root  # noqa: E402
+from datrix_scripts.gate_harness import UsageError  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -115,10 +117,10 @@ PATH_CAP = 100
 #: Ledger location (test-output artifact per the script conventions).
 OUTPUT_SUBDIRS: tuple[str, ...] = (".test-output", "conformance")
 LEDGER_SUFFIX = "-ledger.json"
-
-
-class UsageError(Exception):
-    """Bad usage or malformed spec; the script exits with code 2."""
+#: Spec fields naming a directory; a committed corpus spec writes each relative to itself.
+CORPUS_DIRECTORY_FIELDS: tuple[str, ...] = ("target", "negative_control")
+CORPUS_EMPTY_CHECK = "empty-corpus-rejected"
+CORPUS_ROOTED_CHECK = "rooted-corpus-field-rejected"
 
 
 @dataclass(frozen=True)
@@ -740,6 +742,34 @@ def _rejection_checks() -> list[str]:
     return problems
 
 
+def _corpus_rejection_checks(root: Path, target: Path) -> list[str]:
+    """Prove corpus mode refuses an empty corpus and a rooted directory field.
+
+    Args:
+        root: A scratch directory the checks may write under.
+        target: An existing tree the planted rooted spec names absolutely.
+
+    Returns:
+        Problem descriptions; empty when both refusals fire.
+    """
+    empty = root / "empty-corpus"
+    empty.mkdir()
+    rooted = root / "rooted-corpus"
+    rooted.mkdir()
+    planted = {"target": str(target.resolve()), "assertions": [
+        {"id": "x", "type": TYPE_FILE_EXISTS, "description": "d", "glob": "*"}
+    ]}
+    (rooted / "planted.json").write_text(json.dumps(planted), encoding="utf-8")
+    problems: list[str] = []
+    for name, corpus in ((CORPUS_EMPTY_CHECK, empty), (CORPUS_ROOTED_CHECK, rooted)):
+        try:
+            run_corpus(corpus)
+        except UsageError:
+            continue
+        problems.append(f"{name}: expected UsageError, but the corpus ran")
+    return problems
+
+
 def run_self_test(verbose: bool) -> list[str]:
     """Prove every assertion type both detects a violation and passes.
 
@@ -774,10 +804,11 @@ def run_self_test(verbose: bool) -> list[str]:
                     f"{case.name}: expected {case.expected_status}, got "
                     f"{result.status} ({result.detail})"
                 )
-    rejection_problems = _rejection_checks()
+        rejection_problems = _rejection_checks() + _corpus_rejection_checks(Path(tmp), target)
     if verbose:
         for name in ("unknown-type-rejected", "bad-regex-rejected",
-                     "missing-pattern-rejected", "missing-path-and-glob-rejected"):
+                     "missing-pattern-rejected", "missing-path-and-glob-rejected",
+                     CORPUS_EMPTY_CHECK, CORPUS_ROOTED_CHECK):
             failed = any(p.startswith(name) for p in rejection_problems)
             print(f"  [{'FAIL' if failed else 'OK'}] {name}")
     problems.extend(rejection_problems)
@@ -817,7 +848,7 @@ def run_spec(spec_path: Path, output_override: str | None) -> int:
     ledger_path = (
         Path(output_override).resolve()
         if output_override
-        else get_datrix_root().joinpath(*OUTPUT_SUBDIRS)
+        else WORKSPACE_DIR.joinpath(*OUTPUT_SUBDIRS)
         / f"{spec_path.stem}{LEDGER_SUFFIX}"
     )
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
@@ -842,6 +873,81 @@ def run_spec(spec_path: Path, output_override: str | None) -> int:
     return EXIT_PASS if overall == STATUS_PASS else EXIT_FAIL
 
 
+def _rooted_spec_fields(spec_path: Path) -> list[str]:
+    """Name every directory field of *spec_path* written as an absolute path.
+
+    Args:
+        spec_path: A committed spec file.
+
+    Returns:
+        One ``"<spec>: '<field>' = '<value>'"`` line per rooted field.
+
+    Raises:
+        UsageError: If the spec is not a JSON object.
+    """
+    try:
+        data = json.loads(spec_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise UsageError(f"Spec file {spec_path} is not valid JSON: {exc}.") from exc
+    if not isinstance(data, dict):
+        raise UsageError(f"Spec file {spec_path} must contain a JSON object at top level.")
+    rooted: list[str] = []
+    for field in CORPUS_DIRECTORY_FIELDS:
+        value = data.get(field)
+        if isinstance(value, str) and Path(value).is_absolute():
+            rooted.append(f"{spec_path.name}: {field!r} = {value!r}")
+    return rooted
+
+
+def run_corpus(spec_dir: Path) -> int:
+    """Run every committed spec directly under *spec_dir*, one ledger each.
+
+    A committed spec addresses its trees relative to itself, so the corpus runs
+    from any checkout: every spec is checked for an absolute directory field
+    before any spec runs, and one such field refuses the whole corpus. An
+    absent or empty corpus is refused too -- it would pass vacuously.
+
+    Args:
+        spec_dir: The corpus directory (subdirectories such as ``_fixtures/``
+            are never specs).
+
+    Returns:
+        Process exit code (0 every spec passes, 1 any spec fails).
+
+    Raises:
+        UsageError: On a missing or empty corpus, a rooted field, or a malformed spec.
+    """
+    if not spec_dir.is_dir():
+        raise UsageError(
+            f"Spec directory not found: {spec_dir}. Expected the committed corpus "
+            f"directory; a missing corpus would be a vacuous pass."
+        )
+    specs = sorted(path for path in spec_dir.glob("*.json") if path.is_file())
+    if not specs:
+        raise UsageError(
+            f"Zero spec files directly under {spec_dir}; an empty corpus would be a "
+            f"vacuous pass. Add a spec or point --spec-dir at the corpus."
+        )
+    rooted = [line for spec in specs for line in _rooted_spec_fields(spec)]
+    if rooted:
+        raise UsageError(
+            f"{len(rooted)} committed spec field(s) use an absolute path; a committed "
+            f"spec must address its trees relative to the spec file, or the corpus only "
+            f"runs on the machine whose checkout path was baked in:\n  " + "\n  ".join(rooted)
+        )
+    print(f"Running {len(specs)} standing conformance spec(s)")
+    failures = 0
+    for spec in specs:
+        print(f"\n--- {spec.name} ---")
+        if run_spec(spec, None) != EXIT_PASS:
+            failures += 1
+    if failures:
+        print(f"\nSTANDING CONFORMANCE FAILED: {failures} of {len(specs)} spec(s) failed.")
+        return EXIT_FAIL
+    print(f"\nSTANDING CONFORMANCE PASSED: all {len(specs)} spec(s) green.")
+    return EXIT_PASS
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     """Parse CLI arguments.
 
@@ -859,8 +965,15 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "A built-in self-test runs first on every invocation."
         ),
     )
-    parser.add_argument(
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
         "--spec", default=None, help="Path to the conformance spec JSON."
+    )
+    selection.add_argument(
+        "--spec-dir",
+        default=None,
+        help="Run every spec directly under this directory (the committed corpus); "
+        "refuses an empty corpus and any spec with an absolute directory field.",
     )
     parser.add_argument(
         "--self-test",
@@ -903,10 +1016,17 @@ def main(argv: list[str] | None = None) -> int:
         print("SELF-TEST PASSED (every assertion type detects and passes)")
         return EXIT_PASS
 
-    if not args.spec:
+    if not args.spec and not args.spec_dir:
         print(
-            "ERROR: pass -Spec <spec.json> (or -SelfTest to run only the built-in "
-            "self-test).",
+            "ERROR: pass -Spec <spec.json> or --spec-dir <corpus> (or -SelfTest to run "
+            "only the built-in self-test).",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    if args.spec_dir and args.output:
+        print(
+            "ERROR: --output names one ledger; --spec-dir writes one ledger per spec "
+            "under <workspace>/.test-output/conformance/. Drop --output.",
             file=sys.stderr,
         )
         return EXIT_USAGE
@@ -920,6 +1040,8 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_USAGE
 
     try:
+        if args.spec_dir:
+            return run_corpus(Path(args.spec_dir))
         return run_spec(Path(args.spec), args.output)
     except UsageError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

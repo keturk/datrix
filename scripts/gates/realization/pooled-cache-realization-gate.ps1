@@ -73,50 +73,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\pooled_cache_realization_gate.py"
+$pythonArgs = @()
+if ($Axis) { $pythonArgs += @("--axis", $Axis) }
+if ($Dbg) { $pythonArgs += "--debug" }
+if ($SelfTest) { $pythonArgs += "--self-test" }
 
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: pooled_cache_realization_gate.py not found at: $runnerScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-trap {
-    Invoke-Cleanup
-    break
-}
-
-Ensure-DatrixVenv
-
-try {
-    Ensure-DatrixPackagesInstalled
-
-    $pythonArgs = @($runnerScript)
-    if ($Axis) { $pythonArgs += @("--axis", $Axis) }
-    if ($Dbg) { $pythonArgs += "--debug" }
-    if ($SelfTest) { $pythonArgs += "--self-test" }
-
-    $axisLabel = if ($Axis) { $Axis } else { "languages+platforms" }
-    Write-Host "Running pooled-cache member-slice realization gate (axis: $axisLabel)" -ForegroundColor Cyan
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Pooled-cache realization gate failed with exit code $exitCode" -ForegroundColor Red
-        exit $exitCode
-    }
-
-    Write-Host "Pooled-cache realization gate passed" -ForegroundColor Green
-    exit 0
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\pooled_cache_realization_gate.py") -Arguments $pythonArgs -RequirePackages -Gate "pooled-cache-realization")

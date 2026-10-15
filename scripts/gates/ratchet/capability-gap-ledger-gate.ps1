@@ -56,56 +56,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\capability_gap_ledger.py"
+$pythonArgs = @()
+if ($Dbg) { $pythonArgs += "--debug" }
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($BaselinePath) { $pythonArgs += @("--baseline", $BaselinePath) }
 
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: capability_gap_ledger.py not found at: $runnerScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-trap {
-    Invoke-Cleanup
-    break
-}
-
-Ensure-DatrixVenv
-
-try {
-    Ensure-DatrixPackagesInstalled
-
-    $pythonArgs = @($runnerScript)
-    if ($Dbg) {
-        $pythonArgs += "--debug"
-    }
-    if ($SelfTest) {
-        $pythonArgs += "--self-test"
-    }
-    if ($BaselinePath) {
-        $pythonArgs += @("--baseline", $BaselinePath)
-    }
-
-    Write-Host "Running capability gap ledger gate (all registered languages, client targets and platforms)" -ForegroundColor Cyan
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Capability gap ledger gate failed with exit code $exitCode" -ForegroundColor Red
-        exit $exitCode
-    }
-
-    Write-Host "Capability gap ledger gate passed" -ForegroundColor Green
-    exit 0
-
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\capability_gap_ledger.py") -Arguments $pythonArgs -RequirePackages -Gate "capability-gap-ledger")

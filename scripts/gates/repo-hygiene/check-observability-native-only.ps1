@@ -30,7 +30,7 @@
  Print each system.dcfg being scanned (verbose mode).
 
 .PARAMETER Dbg
- Enable debug logging.
+ Print the interpreter and arguments before running.
 
 .EXAMPLE
  .\check-observability-native-only.ps1
@@ -60,66 +60,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonScript = Join-Path $scriptDir "lib\check_observability_native_only.py"
+$pythonArgs = @()
+if ($Warn) { $pythonArgs += "--warn" }
+if ($ExamplesRoot) { $pythonArgs += @("--examples-root", $ExamplesRoot) }
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($ShowFiles) { $pythonArgs += "--verbose" }
 
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "Error: check_observability_native_only.py not found at: $pythonScript"
-    exit 2
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
-
-trap {
-    Write-Host ""
-    Write-Warning "Interrupted by user (Ctrl-C)"
-    Invoke-Cleanup
-    exit 130
-}
-
-try {
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
-    $pythonArgs = @($pythonScript)
-    if ($Warn) { $pythonArgs += "--warn" }
-    if ($ExamplesRoot) { $pythonArgs += "--examples-root"; $pythonArgs += $ExamplesRoot }
-    if ($SelfTest) { $pythonArgs += "--self-test" }
-    if ($ShowFiles) { $pythonArgs += "--verbose" }
-
-    if ($Dbg) {
-        Write-Host "Python executable: $pythonExe" -ForegroundColor Cyan
-        Write-Host "Python script: $pythonScript" -ForegroundColor Cyan
-        Write-Host "Arguments: $($pythonArgs -join ' ')" -ForegroundColor Cyan
-        Write-Host ""
-    }
-
-    & $pythonExe @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    exit $exitCode
-
-} catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Invoke-Cleanup
-    exit 1
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\check_observability_native_only.py") -Arguments $pythonArgs -Gate "observability-native-only" -ShowCommand:$Dbg)

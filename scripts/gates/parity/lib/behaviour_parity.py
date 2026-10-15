@@ -265,6 +265,7 @@ from datrix_scripts.function_sources import (
     dotted_package_for_file,
     qualified_def_name,
 )
+from datrix_scripts.gate_harness import report_condition
 from datrix_scripts.registered_targets import (
     AXIS_LANGUAGES,
     AXIS_PLATFORMS,
@@ -2096,27 +2097,6 @@ def discover_roles_for(
     return discover_role_scan(axis, target_src_dirs, workspace_root).verdicts
 
 
-def discover_roles(axis: str, target_names: frozenset[str], workspace_root: Path) -> list[RoleVerdict]:
-    """Resolve *axis*'s registered *target_names* to on-disk src dirs via the
-    live registry, then scan them with ``discover_roles_for``.
-
-    Args:
-        axis: ``AXIS_LANGUAGES`` or ``AXIS_PLATFORMS``.
-        target_names: Registered names on that axis to compare.
-        workspace_root: The monorepo root.
-
-    Returns:
-        Every qualifying ``RoleVerdict``.
-
-    Raises:
-        ValueError: A registered name resolves to no on-disk package, or
-            fewer than two distinct packages resolve.
-        SkeletonError: An unparseable or unclassifiable member.
-    """
-    target_src_dirs = discover_target_package_src_dirs(axis, target_names, workspace_root)
-    return discover_roles_for(axis, target_src_dirs, workspace_root)
-
-
 # ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
@@ -3202,11 +3182,6 @@ class _SelfTestSrcDirGenerator:
 
 _SelfTestSrcDirGenerator.__module__ = _SELF_TEST_SRCDIR_MODULE_ROOT
 
-
-def _assert(condition: bool, label: str) -> bool:
-    """Print [OK]/[FAIL] for one self-test assertion and return it."""
-    print(f"[OK] {label}" if condition else f"[FAIL] {label}")
-    return condition
 
 
 def _write_module(dir_path: Path, source: str, module_name: str = _SELF_TEST_MODULE) -> None:
@@ -5169,204 +5144,204 @@ def run_self_test() -> bool:
         True iff every assertion passed.
     """
     ok = True
-    ok &= _assert(_self_test_case_identical(), "(a) byte-identical bodies land in exactly one 'identical' role")
-    ok &= _assert(
+    ok &= report_condition(_self_test_case_identical(), "(a) byte-identical bodies land in exactly one 'identical' role")
+    ok &= report_condition(
         _self_test_case_same_behaviour(), "(b) equal skeletons, differing rendering, land in 'same-behaviour'"
     )
-    ok &= _assert(_self_test_case_divergent(), "(c) an added raise branch lands the role in 'divergent'")
-    ok &= _assert(
+    ok &= report_condition(_self_test_case_divergent(), "(c) an added raise branch lands the role in 'divergent'")
+    ok &= report_condition(
         _self_test_case_token_split_unification(),
         "(d) a role unified only by stripping each package's own language token",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_signature_unification(),
         "(e) a role unified only by its shared product type, names unrelated, differing inputs ignored",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_inputs_never_key_a_role(),
         "(e2) a shared-typed input with no shared product keys a name role, never a signature role",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_adapter_exempt(),
         "(f) a pre-binding-adapter role is adapter-exempt; a behaviour-bearing one is not",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_excluded_by_other_package(), "(g) a name also defined in a non-axis package is excluded"
     )
-    ok &= _assert(_self_test_case_min_packages_refused(), "(h) a one-package map is refused, never silently compared")
-    ok &= _assert(
+    ok &= report_condition(_self_test_case_min_packages_refused(), "(h) a one-package map is refused, never silently compared")
+    ok &= report_condition(
         _self_test_case_unparseable_member_fails_closed(), "(i) an unparseable member aborts the scan naming its file"
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_domain_step_one(),
         "(j) ladder step 1: a single-domain rich context type resolves; a many-domain type never does",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_domain_step_two(),
         "(k) ladder step 2: an eligible context module's basename resolves, affixes stripped; an ineligible one does not",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_domain_step_three(),
         "(l) ladder step 3: four owning-module shapes agreeing resolve; disagreement or a non-universe id is undomained",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_declared_hole_still_fails(),
         "(n) NEG: a divergent role whose package would have been declared unsupported (or on-demand) for its "
         "domain, and one whose member is an @emit_adapter over a builtin group that would have been declared "
         "unsupported, STILL FAIL naming both groups -- evaluate_role takes the role alone",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_no_declaration_reader(),
         "(o) no declaration reader: this module's own AST imports, names and reads no domain stance, builtin-group "
         "stance, capability-gap row or on-demand table; the matcher finds each one planted in a synthetic source",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_report_filters(),
         "(p) report filters: --scope/--buckets choose which role lines print (a role prints when its domain and "
         "verdict satisfy every filter given); unknown ids and empty options are refused",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_skeleton_groups_fail_naming_every_group(),
         "(q1) a divergent role split into two skeleton groups FAILs with one reason naming both groups -- no "
         "reference language, no lagging side",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_bucket_labels(),
         "(q4) the bucket labels printed and accepted are exactly identical / same-behaviour / divergent",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_gate_outcome(),
         "(r) gate: a divergent role FAILs and is counted (naming the role and every group, no in-scope split in "
         "the printed verdict); a pin equal to the live count exits 0; duplicate buckets fail unless "
         "adapter-exempt; both axes gate unless --report-only, and an unknown axis is refused",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_undomained_role_counted(),
         "(r1) an undomained failing role is COUNTED like a domained one -- by the failing-role count, the bucket "
         "split and the ratchet; a pin that omits it fails",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_population_ratchet_both_directions(),
         "(r2) ratchet: a live count above the pin fails (regression), a live count below the pin fails (an "
         "unbanked improvement), only an exact match passes; an unpinned axis raises; a stale bucket split is a "
         "note, never a verdict",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_baseline_loader(),
         "(r3) baseline loader: a well-formed file (and one whose pin alone was edited) loads; an unrecognized "
         "top-level or nested key, a missing or unknown bucket key, a negative/float/bool count, an empty, "
         "malformed or missing file are each refused naming the file and the key",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_filters_never_move_the_verdict(),
         "(t) filters never move the verdict: a filter that admits no role removes its line from the report, yet "
         "the gate summary and the ratchet verdict equal the unfiltered run's",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_try_except_structure(),
         "(u) a try/except wrapper around an otherwise-matching call diverges from an unguarded sibling",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_behaviour_arity(),
         "(v) matching statement lines with a different real parameter count land in 'divergent' and split into "
         "two skeleton groups",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_rendering_leaf_exempt(),
         "(w) a docstring-only-body role is rendering-leaf-exempt though it is not a pre-binding adapter",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_rendering_leaf_denies_private_callee(),
         "(x) a leaf-shaped body calling a same-package private helper is denied the rendering-leaf exemption",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_role_level_arity(),
         "(y) role-level arity: a plumbing name any member drops is dropped for a shared-annotated sibling too, so "
         "a same-named parameter differing only in where its private subclass lives no longer splits the role; a "
         "genuine extra parameter beside it still does",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_rendering_leaf_private_parameter_exemption(),
         "(z) a role reading only a language-private parameter's attributes (directly and through a derived "
         "root), beside a role with no such read, lands same-behaviour rendering-leaf-exempt",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_client_target_generator_names(),
         "(z1) a transpiler_profile-bearing native generator class is included by "
         "registered_client_target_generator_names; a transpiler_profile=None sibling is excluded",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_client_target_token_fallback(),
         "(z2) tokens_for falls back to a ClientTargetCapabilityDeclaration.name_tokens fixture when no "
         "LanguageCapabilityDeclaration resolves for the label",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_merged_axis_group_and_classify(),
         "(z3) group_and_classify_roles fed a merged language+generator target_src_dirs produces a role "
         "spanning both, neither excluded as an 'other package'",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_merged_axis_min_packages_still_refused(),
         "(z4) a merged language+generator set of size 1 is still refused -- the floor is not weakened",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_client_target_generator_src_dir_resolution(),
         "(z5) discover_client_target_generator_src_dirs resolves a planted fixture to its on-disk src/ "
         "directory, and raises naming the unresolved name and the discovered roots when it cannot",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_language_core_is_a_member_not_an_other_package(),
         "(z6) a fixture language split into a backend and a core resolves both packages under one label; "
         "a function planted only in the core is compared as that language's member, and the core is never "
         "an 'other package' (fed as one, the role is excluded)",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_fingerprint_renamed_pair_reported(),
         "(fp1) NON-VACUITY: a renamed cross-language pair no name/signature role covers is reported as one "
         "FINGERPRINT group naming both members",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_fingerprint_near_match_divergent(),
         "(fp2) an inverted-predicate variant lands in the same group as near-match/divergent",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_fingerprint_covered_pair_absent(),
         "(fp3) a pair sharing one name (covered by a name role) produces no fingerprint group",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_fingerprint_thresholds(),
         "(fp4) an under-size pair, a no-model-attribute pair, and two renamed copies in one package each "
         "produce no fingerprint group",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_fingerprint_report_only(),
         "(fp5) render_fingerprint_report logs every line below ERROR, one per group plus a summary naming "
         "the group count and FINGERPRINT_MIN_SKELETON_LINES",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_coordinate_key(),
         "(c1) coordinate key: every function a registered plan builder or declared emitter reaches is keyed to the "
         "block type of each seed reaching it (adapter, bound and inherited methods, relative import, annotated "
         "receiver); a shared helper and a uniform builder join every role they serve; an unreached function keeps "
         "the name key; no index, no coordinate role",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_coordinate_key_fails_closed(),
         "(c2) coordinate key fails closed: a platform with no table, an unbound load_realization_tables call, an "
         "unimportable module, a two-delegate adapter, a non-function builder, a seed outside the package and an "
         "unknown generator class are each refused naming the cause",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_emitter_reach(),
         "(c4) a declared emitter the generator class never reaches is refused naming each cell binding it; a DAL generator "
         "definition tree referencing it supplies the root and the tables pass",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_scaffold_delegation(),
         "(c5) a cell delegated to a container-scaffold runtime seeds only its plan builder, passes while the "
         "runtime's scaffold platform binds emitters for the pair, and is named when it does not",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _self_test_case_live_coordinate_floor(),
         f"(c3) the live platform index resolves at least {_PLATFORM_COORDINATE_ROLE_FLOOR} block types that two or "
         f"more platform packages register a plan builder or emitter for -- the floor name-only grouping cannot reach",

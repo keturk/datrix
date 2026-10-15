@@ -40,8 +40,9 @@ Standing conformance-spec corpus gate: runs every committed `conformance_gate.py
 |------|---------|-------------|
 | **Run gate** | `.\gates\realization\standing-conformance-gate.ps1` | Run every committed spec |
 | **Debug** | `.\gates\realization\standing-conformance-gate.ps1 -Dbg` | Debug logging, forwarded per-spec |
+| **Self-test** | `.\gates\realization\standing-conformance-gate.ps1 -SelfTest` | The gate's non-vacuity proof over planted inputs only |
 
-**Parameters:** `-Dbg`
+**Parameters:** `-Dbg`, `-SelfTest`
 
 **Assertions:**
 - Every `*.json` file directly under `scripts/config/conformance-specs/` is a spec, run via `conformance_gate.py --spec <file>` (its own built-in self-test runs first, per-spec, aborting that spec with exit 2 before any real result is trusted).
@@ -61,7 +62,7 @@ Whole-system **TypeScript** generation gate: proves the whole-system generate pa
 | **Custom output root** | `.\gates\realization\typescript-whole-system-gate.ps1 -OutputRoot D:\datrix\.test-output\ts-gate` | Override run1/run2 location |
 | **Debug** | `.\gates\realization\typescript-whole-system-gate.ps1 -Dbg` | Forward `-Dbg` to generate.ps1 |
 
-**Parameters:** `-OutputRoot` (default: `d:/datrix/.test-output/ts-gate`), `-Dbg`/`-DebugLogging`
+**Parameters:** `-OutputRoot` (default: `d:/datrix/.test-output/ts-gate`), `-Dbg`/`-DebugLogging`, `-SelfTest` (the gate's non-vacuity proof over planted inputs only; generates nothing)
 
 **Assertions:**
 - **Realness (positive):** generated `*.ts` source count > 0 (the TypeScript language generator ran).
@@ -83,7 +84,7 @@ Generation-pipeline determinism gate for one registered language: the SAME sourc
 | **Custom output root** | `.\gates\realization\generation-determinism-gate.ps1 -Language python -OutputRoot D:\datrix\.test-output\generation-determinism-gate\python` | Override run1..runN location |
 | **Debug** | `.\gates\realization\generation-determinism-gate.ps1 -Language python -Dbg` | Forward `-Dbg` to generate.ps1 |
 
-**Parameters:** `-Language` (required; a registered `datrix.languages` name), `-OutputRoot` (default: `d:/datrix/.test-output/generation-determinism-gate/<Language>`), `-Runs` (default: 5, must be >= 2), `-Dbg`/`-DebugLogging`
+**Parameters:** `-SelfTest` (alone: the gate's non-vacuity proof over planted inputs only; generates nothing), or `-Language` (required unless `-SelfTest`; a registered `datrix.languages` name), `-OutputRoot` (default: `d:/datrix/.test-output/generation-determinism-gate/<Language>`), `-Runs` (default: 5, must be >= 2), `-Dbg`/`-DebugLogging`
 
 **Assertions:**
 - Every run's classification (SUCCESS vs FAILED) matches run 1's.
@@ -105,7 +106,7 @@ Declaration-driven service ingress migration conformance gate. Repo-level, indep
 | **Custom output root** | `.\gates\realization\ingress-migration-conformance-gate.ps1 -OutputRoot D:\datrix\.test-output\ingress-gate` | Override scratch generation root |
 | **Debug** | `.\gates\realization\ingress-migration-conformance-gate.ps1 -Dbg` | Forward `-Dbg` to generate.ps1/run-complete.ps1 |
 
-**Parameters:** `-OutputRoot` (default: `D:\datrix\.test-output\ingress-gate`), `-Languages` (comma-separated, default: `python,typescript`), `-Dbg`/`-DebugLogging`
+**Parameters:** `-OutputRoot` (default: `D:\datrix\.test-output\ingress-gate`), `-Languages` (comma-separated, default: `python,typescript`), `-Dbg`/`-DebugLogging`, `-SelfTest` (the gate's non-vacuity proof over planted inputs only; generates nothing)
 
 **Assertions:**
 - **Step 0 (live counts):** re-verifies `rest_api` file count, `system.dcfg` gateway-declaration count, `auth(service` occurrence count, and that the sole `verify(` usage is paired with `auth(webhook)` (the webhook migration's precondition).
@@ -422,8 +423,9 @@ next package's own corpus does not actually resolve on its own).
 |------|---------|--------------|
 | **Run gate** | `.\gates\realization\dgen-corpus-resolution-gate.ps1` | Import every discovered target's DAL generator definitions, fail on any unresolved reference |
 | **Debug** | `.\gates\realization\dgen-corpus-resolution-gate.ps1 -Dbg` | Debug logging (also prints the discovered module list and count) |
+| **Self-test** | `.\gates\realization\dgen-corpus-resolution-gate.ps1 -SelfTest` | The gate's non-vacuity proof over planted inputs only |
 
-**Parameters:** `-Dbg`
+**Parameters:** `-Dbg`, `-SelfTest`
 
 **Exit codes:** 0 = every discovered target's DAL generator corpus resolved at import, 1 = at least one
 target failed to resolve or import.

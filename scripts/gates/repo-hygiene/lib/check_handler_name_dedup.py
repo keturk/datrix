@@ -57,6 +57,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
+from datrix_scripts.function_sources import terminal_name
 from datrix_scripts.paths import WORKSPACE_DIR
 
 #: Packages whose source may not de-duplicate a handler name. Every one of
@@ -113,15 +115,6 @@ class Violation:
             f"  {shown}:{self.line}  in {self.function}() -- numeric-suffix loop "
             f"over the claimed-name set {self.container!r}"
         )
-
-
-def _container_identifier(node: ast.expr) -> str | None:
-    """Name a membership test's right-hand container, when it has one."""
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        return node.attr
-    return None
 
 
 def _referenced_names(node: ast.AST) -> set[str]:
@@ -186,7 +179,7 @@ def _is_numeric_suffix_loop(node: ast.While) -> tuple[str, set[str]] | None:
         return None
     if not isinstance(test.ops[0], ast.In):
         return None
-    container = _container_identifier(test.comparators[0])
+    container = terminal_name(test.comparators[0])
     if container is None:
         return None
     counters = _incremented_counters(node.body)
@@ -208,16 +201,16 @@ def _mutates(function: ast.FunctionDef | ast.AsyncFunctionDef, container: str) -
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr in _MUTATING_METHODS
-            and _container_identifier(node.func.value) == container
+            and terminal_name(node.func.value) == container
         ):
             return True
         if (
             isinstance(node, ast.AugAssign)
-            and _container_identifier(node.target) == container
+            and terminal_name(node.target) == container
         ):
             return True
         if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Subscript) and _container_identifier(t.value) == container
+            isinstance(t, ast.Subscript) and terminal_name(t.value) == container
             for t in node.targets
         ):
             return True
@@ -287,10 +280,8 @@ def discover_packages(base_dir: Path) -> list[Path]:
     """Every ``datrix-codegen-*`` package directory carrying a ``src/`` tree."""
     return [
         package
-        for package in sorted(base_dir.iterdir())
-        if package.is_dir()
-        and package.name.startswith(_SCANNED_PREFIX)
-        and (package / "src").is_dir()
+        for package in workspace_package_dirs(base_dir, any_of=frozenset({PackageMarker.SRC}))
+        if package.name.startswith(_SCANNED_PREFIX) and (package / PackageMarker.SRC.value).is_dir()
     ]
 
 

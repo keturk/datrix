@@ -34,14 +34,32 @@ from __future__ import annotations
 
 import argparse
 import ast
-import json
 import sys
 import tempfile
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from datrix_scripts.count_ratchet import (
+    RatchetMode,
+    compare,
+    load_counts_json,
+    write_counts_json,
+)
+from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
+from datrix_scripts.gate_harness import (
+    EXIT_PASS,
+    EXIT_USAGE,
+    EXIT_VIOLATION,
+    NamedCheck,
+    gate_argument_parser,
+    harness_self_test,
+    named_checks,
+    report_step,
+    run_checks,
+)
 from datrix_scripts.paths import WORKSPACE_DIR
+
+BASELINE_TABLE = "baseline"
 
 # The declared-file render path's own internals: constructing GeneratedFile
 # here IS the render mechanism (executor.py implements declared rendering),
@@ -73,15 +91,10 @@ def discover_packages(base_dir: Path) -> dict[str, PackageInfo]:
         its ``PackageInfo``. Packages without a ``src/`` directory (e.g. the
         ``datrix`` showcase repo itself) are skipped.
     """
-    packages: dict[str, PackageInfo] = {}
-    for candidate in base_dir.iterdir():
-        if not candidate.is_dir() or not candidate.name.startswith("datrix-"):
-            continue
-        src_dir = candidate / "src"
-        if not src_dir.exists():
-            continue
-        packages[candidate.name] = PackageInfo(name=candidate.name, src_dir=src_dir)
-    return packages
+    return {
+        directory.name: PackageInfo(name=directory.name, src_dir=directory / PackageMarker.SRC.value)
+        for directory in workspace_package_dirs(base_dir, any_of=frozenset({PackageMarker.SRC}))
+    }
 
 
 def count_generated_file_constructions(file_path: Path) -> int:
@@ -168,76 +181,49 @@ def scan_all_packages(
 def load_baseline(baseline_path: Path) -> dict[str, int]:
     """Load ``{package_name: frozen_count}`` from the baseline JSON.
 
-    Args:
-        baseline_path: Path to ``generated-file-ratchet.json``.
-
-    Returns:
-        The frozen per-package baseline. Empty dict if the file does not
-        exist (first-ever run, before ``--update-baseline`` freezes it).
+    Raises:
+        ValueError: the file does not exist or its table is malformed. A missing baseline
+            never reads as empty; the first freeze is an explicit ``--update-baseline``.
     """
-    if not baseline_path.exists():
-        return {}
-    with baseline_path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    baseline = data.get("baseline", {})
-    return {str(k): int(v) for k, v in baseline.items()}
+    return load_counts_json(baseline_path, table_key=BASELINE_TABLE)
+
+
+_BASELINE_COMMENT = (
+    "I5 GeneratedFile-construction ratchet baseline "
+    "(Invariant I5). Frozen per-package counts of direct "
+    "GeneratedFile(...) constructor calls in each package's src/ "
+    "tree (tests/ excluded; datrix-codegen-kernel/.../dgen/"
+    "executor.py excluded as the declared-render path's own "
+    "internals). Any INCREASE fails "
+    "datrix/scripts/gates/ratchet/check-generated-file-ratchet.ps1. Decreases "
+    "are always allowed and should be captured by re-running with "
+    "--update-baseline once a migration converts hand-coded "
+    "construction into a DAL generator declaration."
+)
 
 
 def write_baseline(baseline_path: Path, counts: dict[str, int]) -> None:
-    """Write *counts* to the baseline JSON, sorted by package name.
-
-    Args:
-        baseline_path: Path to ``generated-file-ratchet.json``.
-        counts: Package name -> current GeneratedFile-construction count.
-    """
-    payload = {
-        "_comment": (
-            "I5 GeneratedFile-construction ratchet baseline "
-            "(Invariant I5). Frozen per-package counts of direct "
-            "GeneratedFile(...) constructor calls in each package's src/ "
-            "tree (tests/ excluded; datrix-codegen-kernel/.../dgen/"
-            "executor.py excluded as the declared-render path's own "
-            "internals). Any INCREASE fails "
-            "datrix/scripts/gates/ratchet/check-generated-file-ratchet.ps1. Decreases "
-            "are always allowed and should be captured by re-running with "
-            "--update-baseline once a migration converts hand-coded "
-            "construction into a DAL generator declaration."
-        ),
-        "baseline": {name: counts[name] for name in sorted(counts)},
-    }
-    baseline_path.parent.mkdir(parents=True, exist_ok=True)
-    baseline_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    """Write *counts* to the baseline JSON, sorted by package name."""
+    write_counts_json(baseline_path, counts, comment=_BASELINE_COMMENT, table_key=BASELINE_TABLE)
 
 
 def check_ratchet(current_counts: dict[str, int], baseline: dict[str, int]) -> list[str]:
-    """Compare *current_counts* against *baseline*; one message per regressed package.
+    """Compare *current_counts* against *baseline* (tighten-only); one message per regressed package.
 
     A package absent from the baseline has an implicit baseline of 0. Never
     flags a decrease -- the ratchet only tightens.
-
-    Args:
-        current_counts: Package name -> current count.
-        baseline: Package name -> frozen baseline count.
-
-    Returns:
-        Human-readable ratchet-failure messages, sorted by package name.
     """
-    messages: list[str] = []
-    for name in sorted(current_counts):
-        current = current_counts[name]
-        frozen = baseline.get(name, 0)
-        if current > frozen:
-            messages.append(
-                f"{name}: GeneratedFile construction count increased from "
-                f"baseline {frozen} to {current}. Fix: declare the new "
-                f"file(s) in DAL generator instead of constructing GeneratedFile "
-                f"directly, or (if this increase is an intentional, "
-                f"reviewed exception) rerun with --update-baseline -- "
-                f"which only accepts decreases once a baseline exists, so "
-                f"an increase must be resolved by removing the direct "
-                f"construction first."
-            )
-    return messages
+    return [
+        f"{delta.key}: GeneratedFile construction count increased from "
+        f"baseline {delta.frozen} to {delta.current}. Fix: declare the new "
+        f"file(s) in DAL generator instead of constructing GeneratedFile "
+        f"directly, or (if this increase is an intentional, "
+        f"reviewed exception) rerun with --update-baseline -- "
+        f"which only accepts decreases once a baseline exists, so "
+        f"an increase must be resolved by removing the direct "
+        f"construction first."
+        for delta in compare(current_counts, baseline, RatchetMode.TIGHTEN_ONLY)
+    ]
 
 
 
@@ -251,27 +237,8 @@ def check_ratchet(current_counts: dict[str, int], baseline: dict[str, int]) -> l
 # exclusion, ratchet regression/no-regression/missing-baseline behavior, and
 # package-discovery filtering. Runs automatically as an unconditional first
 # step of every invocation (see main()), and can be run in isolation via
-# --self-test. Mirrors the _ok/_fail/_step harness pattern established by
-# test_specific_selection_gate.py.
+# --self-test. Runs through datrix_scripts.gate_harness.
 # ---------------------------------------------------------------------------
-
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_CYAN = "\033[96m"
-_RESET = "\033[0m"
-
-
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def _step(msg: str) -> None:
-    print(f"\n{_CYAN}=== {msg}{_RESET}")
-
 
 def _check_bare_constructor_call_counted() -> None:
     with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
@@ -423,50 +390,34 @@ def _check_discover_packages_only_datrix_prefixed_with_src() -> None:
         assert "not-datrix-prefixed" not in packages, "non-datrix-prefixed dir must be excluded"
 
 
-_SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
-    ("bare_constructor_call_counted", _check_bare_constructor_call_counted),
-    ("qualified_constructor_call_counted", _check_qualified_constructor_call_counted),
-    ("from_content_factory_not_counted", _check_from_content_factory_not_counted),
-    ("multiple_constructions_counted", _check_multiple_constructions_counted),
-    ("no_construction_returns_zero", _check_no_construction_returns_zero),
-    ("tests_directory_never_scanned", _check_tests_directory_never_scanned),
-    ("excluded_executor_file_never_counted", _check_excluded_executor_file_never_counted),
-    ("ratchet_no_regression_when_equal_to_baseline", _check_ratchet_no_regression_when_equal_to_baseline),
-    ("ratchet_no_regression_when_below_baseline", _check_ratchet_no_regression_when_below_baseline),
-    ("ratchet_regression_when_above_baseline", _check_ratchet_regression_when_above_baseline),
-    ("ratchet_missing_baseline_entry_treated_as_zero", _check_ratchet_missing_baseline_entry_treated_as_zero),
-    ("discover_packages_only_datrix_prefixed_with_src", _check_discover_packages_only_datrix_prefixed_with_src),
-]
-
-
-def _dummy_intentionally_failing_check() -> None:
-    """Registered ONLY under --harness-self-test. Always fails on purpose --
-    this is the proof that run_self_test_checks() actually detects and
-    reports a failing check, rather than vacuously swallowing every
-    AssertionError and reporting green regardless of what the checks do."""
-    assert False, "intentional harness self-test failure (expected -- proves non-vacuity)"  # noqa: B011
-
-
-def run_self_test_checks(checks: list[tuple[str, Callable[[], None]]]) -> bool:
-    """Run every (name, check_fn) pair, printing [OK]/[FAIL] per check.
-
-    Args:
-        checks: Named zero-argument callables; each raises AssertionError on
-            failure and returns normally on success.
-
-    Returns:
-        True iff every check passed.
-    """
-    all_passed = True
-    for name, fn in checks:
+def _check_missing_baseline_is_refused_never_read_as_empty() -> None:
+    with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
+        missing = Path(tmp) / "generated-file-ratchet.json"
         try:
-            fn()
-        except AssertionError as e:
-            _fail(f"{name}: {e}")
-            all_passed = False
-        else:
-            _ok(name)
-    return all_passed
+            load_baseline(missing)
+        except ValueError as exc:
+            assert missing.name in str(exc), f"the refusal must name the file: {exc}"
+            return
+        raise AssertionError("a missing baseline read as an empty one, which passes every count")
+
+
+_SELF_TEST_CHECKS: list[NamedCheck] = named_checks(
+    [
+        _check_bare_constructor_call_counted,
+        _check_qualified_constructor_call_counted,
+        _check_from_content_factory_not_counted,
+        _check_multiple_constructions_counted,
+        _check_no_construction_returns_zero,
+        _check_tests_directory_never_scanned,
+        _check_excluded_executor_file_never_counted,
+        _check_ratchet_no_regression_when_equal_to_baseline,
+        _check_ratchet_no_regression_when_below_baseline,
+        _check_ratchet_regression_when_above_baseline,
+        _check_ratchet_missing_baseline_entry_treated_as_zero,
+        _check_discover_packages_only_datrix_prefixed_with_src,
+        _check_missing_baseline_is_refused_never_read_as_empty,
+    ]
+)
 
 
 def _report_update_baseline_increases(increases: list[str]) -> None:
@@ -517,7 +468,7 @@ def _run_update_baseline(
         ]
         if increases:
             _report_update_baseline_increases(increases)
-            return 2
+            return EXIT_USAGE
 
     write_baseline(baseline_path, current_counts)
     action = "Updated" if baseline_already_existed else "Froze initial"
@@ -529,107 +480,66 @@ def _run_update_baseline(
     return 0
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="I5 GeneratedFile-construction ratchet scanner",
-    )
-    parser.add_argument("-w", "--warn", action="store_true", help="Report but exit 0")
-    parser.add_argument("-b", "--base-dir", type=Path, help="Monorepo root (default: auto-detect)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Print each file scanned")
-    parser.add_argument(
-        "--update-baseline",
-        action="store_true",
-        help=(
-            "Recompute current per-package counts and write the frozen "
-            "baseline, then exit 0. If no baseline file exists yet, this is "
-            "the bootstrap freeze and always succeeds. If a baseline "
-            "already exists, this only succeeds (monotonic ratchet: tighten "
-            "never loosen) when every package's new count is <= its "
-            "existing baseline; otherwise exits 2 naming the offending "
-            "package(s)."
-        ),
-    )
-    parser.add_argument(
-        "--self-test",
-        action="store_true",
-        help=(
-            "Run only the self-test suite (plain-Python edge-case checks on "
-            "this scanner's own functions) and exit -- skips the real "
-            "package scan. The same checks also run automatically, "
-            "unconditionally, as step 1 of every normal invocation."
-        ),
-    )
-    parser.add_argument(
-        "--harness-self-test",
-        action="store_true",
-        help=(
-            "Demonstration mode: run one intentionally-failing dummy check "
-            "through the self-test harness and report the result. Always "
-            "reports [FAIL] and exits 1 -- this is the proof that the "
-            "harness's pass/fail detection is not vacuous."
-        ),
-    )
-    args = parser.parse_args()
-
-    if args.harness_self_test:
-        _step("Harness self-test: intentionally-failing dummy check (must report FAIL, exit 1)")
-        harness_ok = run_self_test_checks(
-            [("dummy_intentionally_failing_check", _dummy_intentionally_failing_check)]
-        )
-        return 0 if harness_ok else 1
-
-    _step("Self-test: I5 GeneratedFile-construction ratchet scanner edge cases")
-    self_test_passed = run_self_test_checks(_SELF_TEST_CHECKS)
-    if args.self_test:
-        return 0 if self_test_passed else 1
-    if not self_test_passed:
-        print(
-            "\nError: self-test failed -- refusing to trust the scanner for a "
-            "real scan. Fix the scanner before re-running.",
-            file=sys.stderr,
-        )
-        return 2
-
+def _scan_and_compare(args: argparse.Namespace) -> int:
     monorepo_root = args.base_dir.resolve() if args.base_dir else WORKSPACE_DIR
-
     if not monorepo_root.exists():
         print(f"Error: Monorepo root not found: {monorepo_root}", file=sys.stderr)
-        return 2
+        return EXIT_USAGE
 
     packages = discover_packages(monorepo_root)
     if not packages:
         print(f"Error: No datrix packages found in {monorepo_root}", file=sys.stderr)
-        return 2
+        return EXIT_USAGE
 
     current_counts = scan_all_packages(packages, monorepo_root, args.verbose)
     baseline_path = monorepo_root / "datrix" / "scripts" / "config" / "generated-file-ratchet.json"
-
     if args.update_baseline:
         return _run_update_baseline(current_counts, baseline_path, monorepo_root)
 
-    if not baseline_path.exists():
+    try:
+        baseline = load_baseline(baseline_path)
+    except ValueError as exc:
         print(
-            f"Error: I5 baseline not found at {baseline_path}. Run "
-            f"'check-generated-file-ratchet.ps1 -UpdateBaseline' first to "
-            f"freeze the initial baseline.",
+            f"Error: {exc} Run 'check-generated-file-ratchet.ps1 -UpdateBaseline' to freeze it.",
             file=sys.stderr,
         )
-        return 2
-
-    baseline = load_baseline(baseline_path)
+        return EXIT_USAGE
     messages = check_ratchet(current_counts, baseline)
-
     if messages:
         mode = "Warning" if args.warn else "Error"
         print(f"{mode}: I5 GeneratedFile ratchet failed for {len(messages)} package(s):\n")
         for message in messages:
             print(message)
             print()
-        return 0 if args.warn else 1
+        return EXIT_PASS if args.warn else EXIT_VIOLATION
 
     if args.verbose:
         print("No I5 GeneratedFile ratchet regressions found.", file=sys.stderr)
-    return 0
+    return EXIT_PASS
+
+
+def main() -> int:
+    parser = gate_argument_parser("I5 GeneratedFile-construction ratchet scanner", update_baseline=True)
+    parser.add_argument("-w", "--warn", action="store_true", help="Report but exit 0")
+    parser.add_argument("-b", "--base-dir", type=Path, help="Monorepo root (default: auto-detect)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Print each file scanned")
+    args = parser.parse_args()
+
+    if args.harness_self_test:
+        return EXIT_PASS if harness_self_test() else EXIT_VIOLATION
+
+    report_step("Self-test: I5 GeneratedFile-construction ratchet scanner edge cases")
+    self_test_passed = run_checks(_SELF_TEST_CHECKS)
+    if args.self_test:
+        return EXIT_PASS if self_test_passed else EXIT_VIOLATION
+    if not self_test_passed:
+        print(
+            "\nError: self-test failed -- refusing to trust the scanner for a "
+            "real scan. Fix the scanner before re-running.",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    return _scan_and_compare(args)
 
 
 if __name__ == "__main__":

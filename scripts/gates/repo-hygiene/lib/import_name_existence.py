@@ -68,7 +68,9 @@ import sys
 import tempfile
 import types
 from dataclasses import dataclass
+from pathlib import Path
 
+from datrix_scripts.gate_harness import write_files
 from datrix_scripts.paths import WORKSPACE_DIR
 
 #: Directories never walked -- caches, build output, virtualenvs, and the
@@ -564,11 +566,6 @@ def scan(roots: list[str], resolver: NameResolver) -> ScanReport:
     )
 
 
-def _write(path: str, body: str) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write(body)
-
 
 _SELF_TEST_TARGET = """\
 from __future__ import annotations
@@ -672,17 +669,22 @@ from ..target import real_function
 
 def _build_self_test_tree(tmp: str) -> tuple[list[str], dict[str, str]]:
     src_root = _norm(os.path.join(tmp, "src"))
-    _write(os.path.join(src_root, "probe_pkg", "__init__.py"), "")
-    _write(os.path.join(src_root, "probe_pkg", "target.py"), _SELF_TEST_TARGET)
-    _write(os.path.join(src_root, "probe_pkg", "leaf.py"), _SELF_TEST_LEAF)
-    _write(os.path.join(src_root, "probe_pkg", "consumer.py"), _SELF_TEST_CONSUMER)
-    _write(os.path.join(src_root, "probe_pkg", "sub", "inner.py"), _SELF_TEST_INNER)
-    _write(os.path.join(src_root, "probe_pkg", "sub", "__init__.py"), _SELF_TEST_SUB_INIT)
-    _write(os.path.join(src_root, "probe_pkg", "sub", "sibling.py"), _SELF_TEST_SIBLING)
+    write_files(
+        Path(src_root),
+        {
+            "probe_pkg/__init__.py": "",
+            "probe_pkg/target.py": _SELF_TEST_TARGET,
+            "probe_pkg/leaf.py": _SELF_TEST_LEAF,
+            "probe_pkg/consumer.py": _SELF_TEST_CONSUMER,
+            "probe_pkg/sub/inner.py": _SELF_TEST_INNER,
+            "probe_pkg/sub/__init__.py": _SELF_TEST_SUB_INIT,
+            "probe_pkg/sub/sibling.py": _SELF_TEST_SIBLING,
+        },
+    )
     index: dict[str, str] = {}
     _index_src_tree(src_root, index)
     tests_root = _norm(os.path.join(tmp, "tests"))
-    _write(os.path.join(tests_root, "test_negative_existence.py"), _SELF_TEST_NEGATIVE_SUITE)
+    write_files(Path(tests_root), {"test_negative_existence.py": _SELF_TEST_NEGATIVE_SUITE})
     return [src_root, tests_root], index
 
 

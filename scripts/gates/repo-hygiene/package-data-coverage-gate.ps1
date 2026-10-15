@@ -53,47 +53,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\package_data_coverage.py"
+$pythonArgs = @()
+foreach ($name in $Package) { $pythonArgs += @("--package", $name) }
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($Dbg) { $pythonArgs += "--debug" }
 
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: package_data_coverage.py not found at: $runnerScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-trap {
-    Invoke-Cleanup
-    break
-}
-
-Ensure-DatrixVenv
-
-try {
-    $pythonArgs = @($runnerScript)
-    foreach ($name in $Package) { $pythonArgs += @("--package", $name) }
-    if ($SelfTest) { $pythonArgs += "--self-test" }
-    if ($Dbg) { $pythonArgs += "--debug" }
-
-    Write-Host "Running package-data coverage gate" -ForegroundColor Cyan
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Package-data coverage gate failed with exit code $exitCode" -ForegroundColor Red
-        exit $exitCode
-    }
-
-    Write-Host "Package-data coverage gate passed" -ForegroundColor Green
-    exit 0
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\package_data_coverage.py") -Arguments $pythonArgs -Gate "package-data-coverage")

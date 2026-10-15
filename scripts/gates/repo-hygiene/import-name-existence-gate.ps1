@@ -63,62 +63,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\import_name_existence.py"
-
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: import_name_existence.py not found at: $runnerScript"
-    exit 1
+$pythonArgs = @()
+if ($SelfTest) {
+    $pythonArgs += "--self-test"
 }
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-trap {
-    Invoke-Cleanup
-    break
-}
-
-Ensure-DatrixVenv
-
-try {
-    Ensure-DatrixPackagesInstalled
-
-    $pythonArgs = @($runnerScript)
-    if ($SelfTest) {
-        $pythonArgs += "--self-test"
+elseif (-not [string]::IsNullOrWhiteSpace($Roots)) {
+    foreach ($item in $Roots.Split(",")) {
+        $trimmed = $item.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($trimmed)) { $pythonArgs += $trimmed }
     }
-    elseif (-not [string]::IsNullOrWhiteSpace($Roots)) {
-        foreach ($item in $Roots.Split(",")) {
-            $trimmed = $item.Trim()
-            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
-                $pythonArgs += $trimmed
-            }
-        }
-    }
-
-    $targetLabel = if ($SelfTest) { "self-test only" }
-                   elseif ([string]::IsNullOrWhiteSpace($Roots)) { "every datrix package tree" }
-                   else { $Roots }
-    Write-Host "Running import-name existence check for: $targetLabel" -ForegroundColor Cyan
-
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Import-name existence check failed with exit code $exitCode" -ForegroundColor Red
-        exit $exitCode
-    }
-
-    Write-Host "Import-name existence check passed" -ForegroundColor Green
-    exit 0
-
-} finally {
-    Invoke-Cleanup
 }
+
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\import_name_existence.py") -Arguments $pythonArgs -RequirePackages -Gate "import-name-existence")

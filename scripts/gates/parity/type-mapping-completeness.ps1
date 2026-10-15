@@ -53,72 +53,13 @@ param(
     [switch]$Dbg
 )
 
-# Error handling - ensure cleanup on exit
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-# Script directory
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\type_mapping_completeness.py"
+# Without -Languages the runner covers every registered datrix.languages target.
+$pythonArgs = @()
+if (-not [string]::IsNullOrWhiteSpace($Languages)) { $pythonArgs += @("--languages", $Languages) }
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($Dbg) { $pythonArgs += "--debug" }
 
-# Import common modules
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-# Monorepo workspace root
-$datrixRoot = Get-DatrixRoot
-$datrixWorkspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-
-# Check if runner script exists
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: type_mapping_completeness.py not found at: $runnerScript"
-    exit 1
-}
-
-# Function to handle cleanup on exit
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-# Register cleanup handler
-trap {
-    Invoke-Cleanup
-    break
-}
-
-# Ensure venv exists and is activated
-Ensure-DatrixVenv
-
-try {
-    Ensure-DatrixPackagesInstalled
-
-    # Build Python arguments. When -Languages is omitted, the runner defaults to
-    # every registered datrix.languages target (discovered at runtime).
-    $pythonArgs = @($runnerScript)
-    if (-not [string]::IsNullOrWhiteSpace($Languages)) {
-        $pythonArgs += @("--languages", $Languages)
-    }
-    if ($SelfTest) {
-        $pythonArgs += "--self-test"
-    }
-    if ($Dbg) {
-        $pythonArgs += "--debug"
-    }
-
-    # Run the Python script
-    $targetLabel = if ([string]::IsNullOrWhiteSpace($Languages)) { "all registered languages" } else { $Languages }
-    Write-Host "Running type mapping completeness check for: $targetLabel" -ForegroundColor Cyan
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Type mapping completeness check failed with exit code $exitCode" -ForegroundColor Red
-        exit $exitCode
-    }
-
-    Write-Host "Type mapping completeness check passed" -ForegroundColor Green
-    exit 0
-
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\type_mapping_completeness.py") -Arguments $pythonArgs -RequirePackages -Gate "type-mapping-completeness")

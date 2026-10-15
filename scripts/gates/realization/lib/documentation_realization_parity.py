@@ -92,6 +92,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
 )
 from datrix_common.errors.plugin import PluginValidationError
 
+from datrix_scripts.gate_harness import configure_logging
 from datrix_scripts.paths import SHOWCASE_DIR, WORKSPACE_DIR
 from datrix_scripts.registered_targets import (
     registered_language_names,
@@ -1470,11 +1471,6 @@ def _write_report(report: GateReport) -> None:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-
-
-def configure_logging(debug: bool = False) -> None:
-    level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def main() -> int:

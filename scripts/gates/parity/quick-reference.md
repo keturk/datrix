@@ -30,7 +30,7 @@ facets and the reading of each are `gates\parity\lib\parity_observers.py` (`PROB
 
 | Probe | Fixture (`input`) | Facets (selector keys) |
 |---|---|---|
-| `route_wire_contracts` | a registered example, generated per language | `route` (`verb`, `path`): `{status, body, media-type}`; `routes`: every `VERB /path/{}`; `duplicate-routes` |
+| `route_wire_contracts` | a registered example, generated per language | `route` (`verb`, `path`): `{status, body, media-type}`; `routes`: every `VERB /path/{}`; `duplicate-routes`; `query-keys` (`verb`, `path`): the query keys the route binds, each read as its camelCase words (a backend's own casing is proven by that backend's list-query seam test against `route_query_wire_keys`) |
 | `response_body_wire_fields` | a registered example, generated per language | `wire-name` (`field`, `excluding`: schema kinds outside the population): the wire keys the field emits, whatever each language calls it; `nonconformant-fields` (`excluding`): fields whose wire key is not `body_wire_name`'s. A row never selects by schema kind: how a probe classifies a response class differs per language |
 | `event_envelopes` | a registered example, generated per language | `envelope-keys` (`event`), `payload-keys` (`event`), `published-events`, `unwritten-consumed-keys` |
 | `render_enum_classifier` | a registered example; the `enum` key names one of its enums, rendered by each language | `classifiers` (`enum`): the keyword classifiers defined; `no-match-raise` (`enum`): `{exception: declared or the name raised, message}` |

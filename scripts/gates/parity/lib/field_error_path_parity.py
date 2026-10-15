@@ -64,12 +64,14 @@ from datrix_common.plugin.language_capability import (  # noqa: E402
     TemplateFieldErrorPathConstruction,
 )
 
+from datrix_scripts.function_sources import iter_source_files  # noqa: E402
+from datrix_scripts.gate_harness import report_condition  # noqa: E402
 from datrix_scripts.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
     WORKSPACE_ROOT,
     discover_target_package_src_dirs,
     registered_language_names,  # noqa: E402
-    self_test_gate_names_no_target,
+    report_gate_names_no_target,
 )
 
 logger = logging.getLogger(__name__)
@@ -145,17 +147,6 @@ class LanguageVerdict:
 # ---------------------------------------------------------------------------
 
 
-def _iter_source_files(src_dir: Path) -> list[Path]:
-    files: list[Path] = []
-    for path in sorted(src_dir.rglob("*")):
-        if not path.is_file() or path.suffix not in _SOURCE_SUFFIXES:
-            continue
-        if any(part in _SKIP_DIR_NAMES for part in path.relative_to(src_dir).parts):
-            continue
-        files.append(path)
-    return files
-
-
 def _package_of(src_dir: Path) -> str:
     """`<package>/src/<import_name>` -> `<package>`."""
     return src_dir.parents[1].name
@@ -176,7 +167,7 @@ def _call_site_defect(
     (apart from *excluding*, the realization's own definition file)."""
     pattern = re.compile(call_site)
     for src_dir in src_dirs:
-        for path in _iter_source_files(src_dir):
+        for path in iter_source_files(src_dir, _SOURCE_SUFFIXES, _SKIP_DIR_NAMES):
             if path.resolve() in excluding:
                 continue
             if pattern.search(path.read_text(encoding="utf-8")):
@@ -462,11 +453,6 @@ _FIXTURE_CALL_SITE: Final[str] = r"render_path\(loc\)"
 _FIXTURE_CALL_SOURCE: Final[str] = "result = render_path(loc)\n"
 
 
-def _assert(condition: bool, label: str) -> bool:
-    print(f"  {'PASS' if condition else 'FAIL'}: {label}")
-    return condition
-
-
 def _planted(language: str, spelled_path: str) -> LanguageCensus:
     return LanguageCensus(
         (RealizationSite(language, f"datrix-codegen-{language}", "planted.j2", 1, spelled_path),), ()
@@ -487,27 +473,27 @@ def _self_test_comparator() -> bool:
 
     clean = {"alpha": _planted("alpha", canonical), "beta": _planted("beta", canonical)}
     problems, verdicts = evaluate(canonical, clean)
-    ok &= _assert(problems == [], "two languages spelling the canonical path report no problem")
-    ok &= _assert(verdicts["alpha"].realized, "the verdict records realization")
+    ok &= report_condition(problems == [], "two languages spelling the canonical path report no problem")
+    ok &= report_condition(verdicts["alpha"].realized, "the verdict records realization")
 
     divergent_path = "body." + canonical
     divergent = {"alpha": _planted("alpha", divergent_path), "beta": clean["beta"]}
     problems, _ = evaluate(canonical, divergent)
-    ok &= _assert(
+    ok &= report_condition(
         len(problems) == 1 and divergent_path in problems[0] and canonical in problems[0],
         "a divergent spelling is one violation naming the found and expected paths",
     )
 
     undeclared = {"alpha": None, "beta": clean["beta"]}
     problems, verdicts = evaluate(canonical, undeclared)
-    ok &= _assert(
+    ok &= report_condition(
         len(problems) == 1
         and problems[0].startswith("alpha:")
         and "declares no field-error-path realization" in problems[0],
         "a language declaring None is exactly one problem naming it, and evaluate takes no "
         "declaration input that could excuse it",
     )
-    ok &= _assert(
+    ok &= report_condition(
         not verdicts["alpha"].realized and verdicts["beta"].realized,
         "the verdict marks only the undeclaring language missing",
     )
@@ -517,7 +503,7 @@ def _self_test_comparator() -> bool:
         "beta": clean["beta"],
     }
     problems, verdicts = evaluate(canonical, defective)
-    ok &= _assert(
+    ok &= report_condition(
         len(problems) == 1 and "matches nothing" in problems[0] and not verdicts["alpha"].realized,
         "a canonical spelling with a defect is one violation and is not realized",
     )
@@ -672,7 +658,7 @@ def _self_test_executed(tmp_root: Path) -> bool:
     good = _executed_fixture(tmp_root, "fx-exec-good", classifier_location_expr="loc[0]")
     with _importable(good):
         census = census_language(_FIXTURE_LANGUAGE, (good,), _executed("fx-exec-good", classifier=True))
-    ok &= _assert(
+    ok &= report_condition(
         len(census.sites) == 1
         and census.sites[0].spelled_path == _CANONICAL_PATH
         and not census.defects,
@@ -682,7 +668,7 @@ def _self_test_executed(tmp_root: Path) -> bool:
     bad = _executed_fixture(tmp_root, "fx-exec-bad", formatter_source=_DIVERGENT_FORMATTER_SOURCE)
     with _importable(bad):
         census = census_language(_FIXTURE_LANGUAGE, (bad,), _executed("fx-exec-bad"))
-    ok &= _assert(
+    ok &= report_condition(
         len(census.sites) == 1 and census.sites[0].spelled_path != _CANONICAL_PATH,
         f"a divergent formatter's real execution surfaces its actual wrong output (got {census})",
     )
@@ -692,7 +678,7 @@ def _self_test_executed(tmp_root: Path) -> bool:
         census = census_language(
             _FIXTURE_LANGUAGE, (misplacing,), _executed("fx-exec-misplaced", classifier=True)
         )
-    ok &= _assert(
+    ok &= report_condition(
         any("located entries" in defect for defect in census.defects),
         f"a classifier reporting every entry at the body location is a defect (got {census})",
     )
@@ -700,7 +686,7 @@ def _self_test_executed(tmp_root: Path) -> bool:
     uncalled = _executed_fixture(tmp_root, "fx-exec-uncalled", call_source=None)
     with _importable(uncalled):
         census = census_language(_FIXTURE_LANGUAGE, (uncalled,), _executed("fx-exec-uncalled"))
-    ok &= _assert(
+    ok &= report_condition(
         len(census.defects) == 1 and "not on the emission path" in census.defects[0],
         f"a realization with no call site is a defect (got {census})",
     )
@@ -713,7 +699,7 @@ def _self_test_executed(tmp_root: Path) -> bool:
     )
     with _importable(own_file_only):
         census = census_language(_FIXTURE_LANGUAGE, (own_file_only,), _executed("fx-exec-self-call"))
-    ok &= _assert(
+    ok &= report_condition(
         any("not on the emission path" in defect for defect in census.defects),
         "a call site spelled only inside the realization's own file does not count as a call",
     )
@@ -722,7 +708,7 @@ def _self_test_executed(tmp_root: Path) -> bool:
     inside = _executed_fixture(tmp_root, "fx-exec-inside")
     with _importable(elsewhere, inside):
         census = census_language(_FIXTURE_LANGUAGE, (inside,), _executed("fx-exec-elsewhere"))
-    ok &= _assert(
+    ok &= report_condition(
         not census.sites and any("outside this language's own src dirs" in d for d in census.defects),
         f"a formatter module outside the language's src dirs is a violation, never executed (got {census})",
     )
@@ -738,7 +724,7 @@ def _self_test_executed(tmp_root: Path) -> bool:
                 call_site=_FIXTURE_CALL_SITE,
             ),
         )
-    ok &= _assert(
+    ok &= report_condition(
         any("does not exist" in defect for defect in census.defects),
         f"a declared function the module lacks is a defect (got {census})",
     )
@@ -750,14 +736,14 @@ def _self_test_template(tmp_root: Path) -> bool:
 
     good = _template_fixture(tmp_root, "fx-tpl-good", _FIXTURE_BUILDER_SOURCE)
     census = census_language(_FIXTURE_LANGUAGE, (good,), _FIXTURE_TEMPLATE_DECLARATION)
-    ok &= _assert(
+    ok &= report_condition(
         len(census.sites) == 1 and census.sites[0].spelled_path == _CANONICAL_PATH and not census.defects,
         f"a correct template builder with a call site censuses as canonical (got {census})",
     )
 
     no_bracket = _template_fixture(tmp_root, "fx-tpl-no-bracket", _FIXTURE_BUILDER_NO_BRACKET_SOURCE)
     census = census_language(_FIXTURE_LANGUAGE, (no_bracket,), _FIXTURE_TEMPLATE_DECLARATION)
-    ok &= _assert(
+    ok &= report_condition(
         len(census.sites) == 1
         and census.sites[0].spelled_path != _CANONICAL_PATH
         and repr(_FIXTURE_TEMPLATE_DECLARATION.constructions[0]) in census.sites[0].spelled_path,
@@ -766,14 +752,14 @@ def _self_test_template(tmp_root: Path) -> bool:
 
     no_anchor = _template_fixture(tmp_root, "fx-tpl-no-anchor", "const x = 1;\n")
     census = census_language(_FIXTURE_LANGUAGE, (no_anchor,), _FIXTURE_TEMPLATE_DECLARATION)
-    ok &= _assert(
+    ok &= report_condition(
         not census.sites and any("anchor" in defect for defect in census.defects),
         f"a template without the declared builder anchor is a defect (got {census})",
     )
 
     missing = _template_fixture(tmp_root, "fx-tpl-missing", None)
     census = census_language(_FIXTURE_LANGUAGE, (missing,), _FIXTURE_TEMPLATE_DECLARATION)
-    ok &= _assert(
+    ok &= report_condition(
         not census.sites and any("exists under none" in defect for defect in census.defects),
         f"a declared template that exists nowhere is a defect (got {census})",
     )
@@ -781,7 +767,7 @@ def _self_test_template(tmp_root: Path) -> bool:
     twin_a = _template_fixture(tmp_root, "fx-tpl-twin-a", _FIXTURE_BUILDER_SOURCE)
     twin_b = _template_fixture(tmp_root, "fx-tpl-twin-b", _FIXTURE_BUILDER_SOURCE)
     census = census_language(_FIXTURE_LANGUAGE, (twin_a, twin_b), _FIXTURE_TEMPLATE_DECLARATION)
-    ok &= _assert(
+    ok &= report_condition(
         not census.sites and any("exists in 2" in defect for defect in census.defects),
         f"a template path present in two of the language's packages is refused (got {census})",
     )
@@ -790,13 +776,13 @@ def _self_test_template(tmp_root: Path) -> bool:
         tmp_root, "fx-tpl-uncalled", _FIXTURE_BUILDER_SOURCE.rsplit("const path", 1)[0]
     )
     census = census_language(_FIXTURE_LANGUAGE, (uncalled,), _FIXTURE_TEMPLATE_DECLARATION)
-    ok &= _assert(
+    ok &= report_condition(
         any("not on the emission path" in defect for defect in census.defects),
         f"a builder nothing calls is a defect (got {census})",
     )
 
     for bad_template in ("../escape.j2", "/abs/path.j2", "C:/drive/path.j2", "a\\b.j2", ""):
-        ok &= _assert(
+        ok &= report_condition(
             _raises_value_error(
                 lambda template=bad_template: TemplateFieldErrorPathConstruction(
                     template=template,
@@ -825,7 +811,7 @@ def _self_test_language_core(tmp_root: Path) -> bool:
         split = census_language(_FIXTURE_LANGUAGE, (backend, core), declaration)
         backend_only = census_language(_FIXTURE_LANGUAGE, (backend,), declaration)
     found = [(site.package, site.spelled_path) for site in split.sites]
-    ok &= _assert(
+    ok &= report_condition(
         found == [("datrix-codegen-splitlang-core", _CANONICAL_PATH)]
         and not split.defects
         and not backend_only.sites,
@@ -837,7 +823,7 @@ def _self_test_language_core(tmp_root: Path) -> bool:
     template_backend = _template_fixture(tmp_root, "datrix-codegen-tplsplit", None)
     split = census_language(_FIXTURE_LANGUAGE, (template_backend, template_core), _FIXTURE_TEMPLATE_DECLARATION)
     found = [(site.package, site.spelled_path) for site in split.sites]
-    ok &= _assert(
+    ok &= report_condition(
         found == [("datrix-codegen-tplsplit-core", _CANONICAL_PATH)] and not split.defects,
         f"a template realization planted in the core is found and recorded against it (got {found})",
     )
@@ -851,9 +837,9 @@ def _self_test_min_languages_refusal() -> bool:
     carries."""
     try:
         _require_min_languages(frozenset({"only-one"}))
-        return _assert(False, "a single-language set is refused")
+        return report_condition(False, "a single-language set is refused")
     except SystemExit as exc:
-        return _assert(exc.code == EXIT_USAGE, "a single-language set is refused")
+        return report_condition(exc.code == EXIT_USAGE, "a single-language set is refused")
 
 
 def _self_test_live_read() -> bool:
@@ -864,18 +850,10 @@ def _self_test_live_read() -> bool:
         if census is not None
         and any(site.spelled_path == _CANONICAL_PATH for site in census.sites)
     )
-    return _assert(
+    return report_condition(
         len(realizing) >= 1,
         f"live census finds at least one language realizing the rule (found: {realizing})",
     )
-
-
-def _self_test_names_no_target() -> bool:
-    """This gate enumerates languages from registration and must name none."""
-    failures = self_test_gate_names_no_target(__file__)
-    for line in failures:
-        print(f"  FAIL: {line}")
-    return _assert(not failures, "this gate names no registered target (imports and name literals)")
 
 
 def self_test() -> bool:
@@ -887,7 +865,7 @@ def self_test() -> bool:
     census that finds at least one language realizing the rule (a scan that sees
     nothing is broken, not clean)."""
     print("Non-vacuity self-test:")
-    ok = _self_test_names_no_target()
+    ok = report_gate_names_no_target(__file__)
     tmp_root = Path(tempfile.mkdtemp(prefix="field-error-path-gate-"))
     try:
         ok &= _self_test_executed(tmp_root)

@@ -117,13 +117,14 @@ from datrix_codegen_kernel.dal.literals import decode_string
 from datrix_common.config.project.catalog import DependencyCatalog
 from lark import Token
 
+from datrix_scripts.gate_harness import report_condition
 from datrix_scripts.paths import SHOWCASE_DIR
 from datrix_scripts.registered_targets import (
     AXIS_LANGUAGES,
     WORKSPACE_ROOT,
     discover_target_package_src_dirs,
     registered_language_names,
-    self_test_gate_names_no_target,
+    report_gate_names_no_target,
 )
 
 logger = logging.getLogger(__name__)
@@ -664,15 +665,6 @@ def scan_all_registered_languages() -> dict[str, list[OutOfTableSite]]:
 # ---------------------------------------------------------------------------
 
 
-def _assert(condition: bool, label: str) -> bool:
-    """Print [OK]/[FAIL] for one self-test assertion and return it."""
-    if condition:
-        print(f"[OK] {label}")
-    else:
-        print(f"[FAIL] {label}")
-    return condition
-
-
 def _write_synthetic_language(language_dir: Path, language: str, package_name: str) -> None:
     """Plant one synthetic language package: a `defaults.yaml` declaring
     *package_name*, and a `.py` file referencing it as a bare string literal
@@ -927,14 +919,6 @@ def _self_test_qualifier_value_excluded(tmp_root: Path) -> bool:
     return [site.line_number for site in sites] == [5]
 
 
-def _self_test_names_no_target() -> bool:
-    """This gate enumerates languages from registration and must name none."""
-    failures = self_test_gate_names_no_target(__file__)
-    for line in failures:
-        print(f"  FAIL: {line}")
-    return _assert(not failures, "this gate names no registered target (imports and name literals)")
-
-
 def self_test() -> bool:
     """Non-vacuity self-test, run as step 1 of every invocation.
 
@@ -972,7 +956,7 @@ def self_test() -> bool:
     Returns:
         True if every assertion holds.
     """
-    ok = _self_test_names_no_target()
+    ok = report_gate_names_no_target(__file__)
     tmp_root = Path(tempfile.mkdtemp(prefix="dependency-declaration-ratchet-selftest-"))
     try:
         lang_a_dir = tmp_root / "lang_a"
@@ -982,14 +966,14 @@ def self_test() -> bool:
 
         sites_a = scan_language(_SELF_TEST_LANGUAGE_A, (lang_a_dir,))
         sites_b = scan_language(_SELF_TEST_LANGUAGE_B, (lang_b_dir,))
-        ok &= _assert(
+        ok &= report_condition(
             len(sites_a) == 1 and len(sites_b) == 1,
             "synthetic two-language tree yields exactly two planted out-of-table sites",
         )
 
         _write_non_qualifying_decoy(lang_a_dir, _SELF_TEST_PACKAGE_A)
         sites_a_with_decoy = scan_language(_SELF_TEST_LANGUAGE_A, (lang_a_dir,))
-        ok &= _assert(
+        ok &= report_condition(
             len(sites_a_with_decoy) == 1,
             "a non-qualifying function/constant referencing the same planted "
             "literal outside any dependency-decision-shaped name adds no new "
@@ -999,43 +983,43 @@ def self_test() -> bool:
         _move_planted_literal_into_declared_table(lang_a_dir)
         sites_a_after = scan_language(_SELF_TEST_LANGUAGE_A, (lang_a_dir,))
         combined_after = len(sites_a_after) + len(sites_b)
-        ok &= _assert(
+        ok &= report_condition(
             len(sites_a_after) == 0 and combined_after == 1,
             "moving the planted literal into generation/dependency_tables.py "
             "drops the combined count by exactly one",
         )
 
-        ok &= _assert(
+        ok &= report_condition(
             _self_test_jinja_pass(tmp_root),
             "synthetic Jinja template literal is detected by the template pass "
             "independently of the Python-source pass",
         )
 
-        ok &= _assert(
+        ok &= report_condition(
             _self_test_jinja_decision_shapes(tmp_root),
             "the template pass counts a membership test against a decision-named collection and a "
             "decision-named set, and not an equality test against an unrelated attribute",
         )
 
-        ok &= _assert(
+        ok &= report_condition(
             _self_test_language_core(tmp_root),
             "a fixture language split into a backend and a core: a decision site planted in the core is "
             "found against the backend's catalog; scanning the backend alone misses it",
         )
 
-        ok &= _assert(
+        ok &= report_condition(
             _live_catalog_matches_real_declarations(tmp_root),
             "live tree: every registered language's catalog contains every package its declared table "
             "names, and a real declared name planted into a decision site is reported against it",
         )
 
-        ok &= _assert(
+        ok &= report_condition(
             _self_test_qualifier_value_excluded(tmp_root),
             "a catalog name passed to DependencyQualifier(...) is a qualifier value and is not counted; "
             "a bare literal of the same name in the same function is",
         )
 
-        ok &= _assert(
+        ok &= report_condition(
             _live_scan_narrows_real_tree(),
             "live scan (real tree): for every registered language each reported site is a catalog literal "
             "and at least one real catalog literal outside any decision site is excluded",
@@ -1046,7 +1030,7 @@ def self_test() -> bool:
             guard_refused = False
         except SystemExit as exc:
             guard_refused = exc.code == EXIT_USAGE
-        ok &= _assert(
+        ok &= report_condition(
             guard_refused,
             "single-language guard refuses a one-language set with EXIT_USAGE, never a silent pass",
         )

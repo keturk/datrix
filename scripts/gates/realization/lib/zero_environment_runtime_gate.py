@@ -74,13 +74,14 @@ from datrix_common.plugin.language_capability import (
     ZeroEnvironmentRuntimeDeclaration,
 )
 
+from datrix_scripts.gate_harness import report_condition
 from datrix_scripts.paths import SHOWCASE_DIR
 from datrix_scripts.registered_targets import (
     AXIS_LANGUAGES,
     WORKSPACE_ROOT,
     discover_target_package_src_dirs,
     registered_language_names,
-    self_test_gate_names_no_target,
+    report_gate_names_no_target,
 )
 
 logger = logging.getLogger(__name__)
@@ -496,11 +497,6 @@ def write_baseline(
 # ---------------------------------------------------------------------------
 
 
-def _assert(condition: bool, label: str) -> bool:
-    print(f"[{'OK' if condition else 'FAIL'}] {label}")
-    return condition
-
-
 def _raises_value_error(call: Callable[[], object]) -> bool:
     """Whether calling *call* raises ``ValueError``."""
     try:
@@ -521,7 +517,7 @@ def _self_test_census(tmp_root: Path) -> tuple[bool, LanguageCensus]:
         "SELF_TEST_ENV.read('ignored: not a template')\n", encoding="utf-8"
     )
     census = census_language(_SELF_TEST_LANGUAGE, (src_dir,), (re.compile(_SELF_TEST_IDIOM),))
-    ok = _assert(
+    ok = report_condition(
         census.reads == frozenset({_SELF_TEST_TEMPLATE}),
         "synthetic tree: exactly the planted template is a read; the clean template and "
         "the non-template file are not",
@@ -545,7 +541,7 @@ def _self_test_language_core(tmp_root: Path) -> bool:
     backend_only = census_language(_SELF_TEST_LANGUAGE, (backend,), idioms)
     (backend / "templates" / "core_reads.py.j2").write_text("value = SELF_TEST_ENV.read('Y')\n", encoding="utf-8")
     collision_refused = _raises_value_error(lambda: census_language(_SELF_TEST_LANGUAGE, (backend, core), idioms))
-    return _assert(
+    return report_condition(
         split.reads == frozenset({"templates/core_reads.py.j2"}) and not backend_only.reads and collision_refused,
         "a fixture language split into a backend and a core: a read planted in the core is censused, a "
         "backend-only census misses it, and one relative path in both packages is refused",
@@ -566,36 +562,36 @@ def _pinned_entry(count: int) -> dict[str, object]:
 def _self_test_comparator(census: LanguageCensus) -> bool:
     clean = LanguageCensus(_SELF_TEST_LANGUAGE, census.src_dirs, frozenset())
     ok = True
-    ok &= _assert(
+    ok &= report_condition(
         evaluate(census, _exemptions_entry(_SELF_TEST_TEMPLATE)) == [],
         "reviewed_exemptions + exact exemption list: no problem",
     )
-    ok &= _assert(
+    ok &= report_condition(
         len(evaluate(census, _exemptions_entry())) == 1,
         "reviewed_exemptions + missing exemption: exactly one problem",
     )
-    ok &= _assert(
+    ok &= report_condition(
         len(evaluate(census, _exemptions_entry(_SELF_TEST_TEMPLATE, "templates/gone.py.j2"))) == 1,
         "reviewed_exemptions + stale exemption: exactly one problem",
     )
-    ok &= _assert(
+    ok &= report_condition(
         evaluate(census, _pinned_entry(1)) == [] and evaluate(census, _pinned_entry(5)) == [],
         "pinned_count + count at or below the pin: no problem",
     )
-    ok &= _assert(
+    ok &= report_condition(
         len(evaluate(census, _pinned_entry(0))) == 1,
         "pinned_count + count above the pin: exactly one problem",
     )
-    ok &= _assert(
+    ok &= report_condition(
         len(evaluate(census, None)) == 1 and evaluate(clean, None) == [],
         "no entry + one read: exactly one problem; no entry + no read: none",
     )
-    ok &= _assert(
+    ok &= report_condition(
         evaluate(census, _pinned_entry(1)) == [] and len(evaluate(census, _exemptions_entry())) == 1,
         "the same one-read census passes against a pinned_count entry of 1 and fails against an "
         "empty reviewed_exemptions entry: the entry kind alone selects the branch",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _raises_value_error(
             lambda: parse_exemptions(
                 _SELF_TEST_LANGUAGE,
@@ -609,7 +605,7 @@ def _self_test_comparator(census: LanguageCensus) -> bool:
 
 def _self_test_entry_kind() -> bool:
     ok = True
-    ok &= _assert(
+    ok &= report_condition(
         entry_kind(_SELF_TEST_LANGUAGE, _exemptions_entry()) == ENTRY_KIND_EXEMPTIONS
         and entry_kind(_SELF_TEST_LANGUAGE, _pinned_entry(3)) == ENTRY_KIND_PINNED_COUNT,
         "entry_kind returns the kind of a well-formed entry of each kind",
@@ -630,7 +626,7 @@ def _self_test_entry_kind() -> bool:
         ("an entry carrying an unrecognized key", {**_pinned_entry(1), "reason": "planted"}),
     )
     for label, entry in rejected:
-        ok &= _assert(
+        ok &= report_condition(
             _raises_value_error(lambda entry=entry: entry_kind(_SELF_TEST_LANGUAGE, entry)),
             f"entry_kind rejects {label}",
         )
@@ -641,7 +637,7 @@ def _self_test_stale_entries() -> bool:
     registered = frozenset({"alpha", "beta"})
     stale = stale_entry_problems({"alpha": _pinned_entry(1), "gamma": _exemptions_entry()}, registered)
     registered_only = stale_entry_problems({"alpha": _pinned_entry(1)}, registered)
-    return _assert(
+    return report_condition(
         len(stale) == 1 and "gamma" in stale[0] and registered_only == [],
         "a baseline entry naming an unregistered language is one stale-entry problem; registered ones are not",
     )
@@ -666,11 +662,11 @@ def _self_test_baseline_writer(tmp_root: Path, census: LanguageCensus) -> bool:
     }
     write_baseline(censuses, existing, target)
     written = json.loads(target.read_text(encoding="utf-8"))["languages"]
-    ok &= _assert(
+    ok &= report_condition(
         written["self_pinned"] == _pinned_entry(1),
         "write_baseline lowers a pinned_count entry from 4 to the live count 1, keeping its kind",
     )
-    ok &= _assert(
+    ok &= report_condition(
         json.dumps(written["self_exemptions"]) == json.dumps(exemptions)
         and json.dumps(written["self_uncensused"]) == json.dumps(untouched_pin),
         "write_baseline carries a reviewed_exemptions entry and an uncensused pinned entry through unchanged",
@@ -683,7 +679,7 @@ def _self_test_baseline_writer(tmp_root: Path, census: LanguageCensus) -> bool:
             target,
         )
     )
-    ok &= _assert(
+    ok &= report_condition(
         refused and target.read_text(encoding="utf-8") == untouched,
         "write_baseline refuses to raise a pinned_count entry (live 1 against a pin of 0) and writes nothing",
     )
@@ -712,33 +708,25 @@ def _self_test_live_read() -> bool:
     try:
         listed = _listed_exemptions(load_baseline())
     except ValueError as exc:
-        return _assert(False, f"committed baseline is well formed ({exc})")
+        return report_condition(False, f"committed baseline is well formed ({exc})")
     if not listed:
-        return _assert(False, "committed baseline lists a reviewed exemption for a registered language")
+        return report_condition(False, "committed baseline lists a reviewed exemption for a registered language")
     src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, frozenset(listed), WORKSPACE_ROOT)
     found: list[str] = []
     for language, templates in sorted(listed.items()):
         declaration = _declaration_for(language)
         if declaration is None:
-            return _assert(False, f"live tree registers {language} with stated idioms")
+            return report_condition(False, f"live tree registers {language} with stated idioms")
         census = census_language(language, src_dirs[language], declaration.compiled_idioms())
         found.extend(f"{language}:{template}" for template in sorted(census.reads & templates))
-    return _assert(
+    return report_condition(
         bool(found),
         f"live census (real tree) finds {len(found)} read(s) the committed baseline lists as reviewed exemptions",
     )
 
 
-def _self_test_names_no_target() -> bool:
-    """This gate enumerates languages from registration and must name none."""
-    failures = self_test_gate_names_no_target(__file__)
-    for line in failures:
-        print(f"  FAIL: {line}")
-    return _assert(not failures, "this gate names no registered target (imports and name literals)")
-
-
 def self_test() -> bool:
-    ok = _self_test_names_no_target()
+    ok = report_gate_names_no_target(__file__)
     tmp_root = Path(tempfile.mkdtemp(prefix="zero-environment-runtime-selftest-"))
     try:
         census_ok, census = _self_test_census(tmp_root)
@@ -754,7 +742,7 @@ def self_test() -> bool:
             _require_min_languages(frozenset({_SELF_TEST_LANGUAGE}))
         except SystemExit as exc:
             refused = exc.code == EXIT_USAGE
-        ok &= _assert(refused, "single-language guard refuses a one-language set, never a silent pass")
+        ok &= report_condition(refused, "single-language guard refuses a one-language set, never a silent pass")
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)
     return ok

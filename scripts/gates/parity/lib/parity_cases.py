@@ -541,7 +541,10 @@ class _PlantedTargets:
 
 
 def _contract(status: int = 200) -> RouteWireContract:
-    return RouteWireContract("get", "/api/v1/books", status, "page", "application/json", Path(_CANARY) / "routes.src")
+    return RouteWireContract(
+        "get", "/api/v1/books", status, "page", "application/json", Path(_CANARY) / "routes.src",
+        frozenset({"skip", "limit"}),
+    )
 
 
 def _planted_row(row_id: str = "self-test.list-books", path: str = "/api/v1/books", capability: str = "") -> Case:

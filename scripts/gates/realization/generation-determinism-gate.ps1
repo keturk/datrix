@@ -51,14 +51,18 @@
   determinism, not correctness of the generated code; unrelated, already
   tracked codegen defects are out of this gate's scope.
 
+  The last line is the gate verdict, "[GATE] generation-determinism
+  PASSED|FAILED exit=<n> log=<path>"; the log holds the per-run outcomes and the
+  findings (generate.ps1 keeps its own logs).
+
 .PARAMETER Language
-  Required. The registered `datrix.languages` name to generate for (passed to
-  generate.ps1 as -Language). There is no default: the gate never assumes
-  which languages are installed.
+  Required unless -SelfTest. The registered `datrix.languages` name to generate
+  for (passed to generate.ps1 as -Language). There is no default: the gate never
+  assumes which languages are installed.
 
 .PARAMETER OutputRoot
   Root under which run1/ .. runN/ are written. Default:
-  d:/datrix/.test-output/generation-determinism-gate/<Language> (per the repo
+  <workspace>/.test-output/generation-determinism-gate/<Language> (per the repo
   temp-output policy).
 
 .PARAMETER Runs
@@ -66,60 +70,49 @@
 
 .PARAMETER Dbg
   Forward -Dbg (debug logging) to generate.ps1.
+
+.PARAMETER SelfTest
+  Run only the self-test and generate nothing: the success manifest and the
+  failure fingerprint over planted trees and logs (one changed byte differs,
+  identical twins and a different --output path do not), and the outcome
+  comparison (a changed classification or fingerprint fails, agreement passes).
+
+.EXAMPLE
+  .\generation-determinism-gate.ps1 -Language python
+  Generate the reference example five times for python and compare the outcomes.
+
+.EXAMPLE
+  .\generation-determinism-gate.ps1 -SelfTest
+  Prove the fingerprints and the comparison on planted inputs.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Gate")]
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Gate")]
     [string]$Language,
 
-    [Parameter()]
+    [Parameter(ParameterSetName = "Gate")]
     [string]$OutputRoot,
 
-    [Parameter()]
+    [Parameter(ParameterSetName = "Gate")]
     [int]$Runs = 5,
 
+    [Parameter(ParameterSetName = "Gate")]
     [Alias("Dbg")]
-    [switch]$DebugLogging
+    [switch]$DebugLogging,
+
+    [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")]
+    [switch]$SelfTest
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPaths.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-if ($Runs -lt 2) {
-    throw "Runs must be >= 2 (need at least two outcomes to compare); got $Runs."
-}
-if ([string]::IsNullOrWhiteSpace($Language)) {
-    throw "Language must name a registered datrix.languages entry (e.g. -Language python); got an empty value."
-}
-if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
-    $OutputRoot = "d:/datrix/.test-output/generation-determinism-gate/$Language"
-}
-
-# ---------------------------------------------------------------------------
-# Bootstrap (venv + paths), modeled on gates/realization/typescript-whole-system-gate.ps1.
-# ---------------------------------------------------------------------------
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$datrixScriptsRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
-$commonDir = Join-Path $datrixScriptsRoot "common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
-    throw "Could not activate the Datrix Python venv; cannot run the generation determinism gate."
-}
-
-$datrixRoot = Get-DatrixRoot
-$generateScript = Join-Path (Join-Path $datrixScriptsRoot "dev") "generate.ps1"
-if (-not (Test-Path -LiteralPath $generateScript)) {
-    throw "generate.ps1 not found at: $generateScript"
-}
-
-# The example this class of non-determinism was originally found against.
-$exampleSource = Join-Path $datrixRoot "datrix/examples/02-features/03-infrastructure-blocks/nosql/system.dtrx"
-if (-not (Test-Path -LiteralPath $exampleSource)) {
-    throw "Reference example not found at: $exampleSource"
-}
+$GateName = "generation-determinism"
+$ExitPass = 0
+$ExitFail = 1
+$MinimumRuns = 2
 
 # `.datrix` holds the run's own audit log / snapshot / manifest generated_at
 # timestamp -- expected to differ every invocation by design. Excluded from
@@ -127,37 +120,22 @@ if (-not (Test-Path -LiteralPath $exampleSource)) {
 # failure fingerprint.
 $ExcludedDirNames = @('.datrix')
 
+# Preamble lines of a generate-results log that carry the run's own time or path.
+$RunSpecificLogLinePatterns = @('^Timestamp:', '^Log file:', '^Log saved to:')
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-function Invoke-LanguageGeneration {
-    param(
-        [Parameter(Mandatory = $true)][string]$OutputDir
-    )
-    if (Test-Path -LiteralPath $OutputDir) {
-        Remove-Item -LiteralPath $OutputDir -Recurse -Force
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Text))
+        return [System.BitConverter]::ToString($hashBytes).Replace('-', '').ToLowerInvariant()
     }
-    $genArgs = @{
-        Source   = $exampleSource
-        Output   = $OutputDir
-        Language = $Language
-    }
-    if ($DebugLogging) { $genArgs.Dbg = $true }
-    $resultsDir = Join-Path $datrixRoot ".generated/.results"
-    $logBefore = Get-ChildItem -LiteralPath $resultsDir -Filter "generate-results-*.log" -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    & $generateScript @genArgs | Out-Null
-    $exitCode = $LASTEXITCODE
-    $logAfter = Get-ChildItem -LiteralPath $resultsDir -Filter "generate-results-*.log" -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    $logPath = $null
-    if ($null -ne $logAfter -and ($null -eq $logBefore -or $logAfter.FullName -ne $logBefore.FullName)) {
-        $logPath = $logAfter.FullName
-    }
-    return [PSCustomObject]@{
-        ExitCode = $exitCode
-        LogPath  = $logPath
+    finally {
+        $sha256.Dispose()
     }
 }
 
@@ -177,22 +155,18 @@ function Get-GeneratedSourceFiles {
 
     while ($stack.Count -gt 0) {
         $dir = $stack.Pop()
-        $children = Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue
-        foreach ($child in $children) {
+        foreach ($child in (Get-ChildItem -LiteralPath $dir -Force)) {
             $isReparse = ($child.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+            if ($isReparse) { continue }
             if ($child.PSIsContainer) {
-                if ($ExcludedDirNames -contains $child.Name) { continue }
-                if ($isReparse) { continue }
-                $stack.Push($child.FullName)
+                if ($ExcludedDirNames -notcontains $child.Name) { $stack.Push($child.FullName) }
+                continue
             }
-            else {
-                if ($isReparse) { continue }
-                $rel = $child.FullName.Substring($rootLen).TrimStart('\', '/') -replace '\\', '/'
-                $results.Add([PSCustomObject]@{
-                        RelKey   = $rel.ToLowerInvariant()
-                        FullPath = $child.FullName
-                    })
-            }
+            $rel = $child.FullName.Substring($rootLen).TrimStart('\', '/') -replace '\\', '/'
+            $results.Add([PSCustomObject]@{
+                    RelKey   = $rel.ToLowerInvariant()
+                    FullPath = $child.FullName
+                })
         }
     }
     return $results
@@ -200,17 +174,11 @@ function Get-GeneratedSourceFiles {
 
 function Get-SuccessManifestHash {
     param([Parameter(Mandatory = $true)][string]$Root)
-    $files = Get-GeneratedSourceFiles -Root $Root | Sort-Object RelKey
-    $sha256 = [System.Security.Cryptography.SHA256]::Create()
     $lines = New-Object System.Collections.Generic.List[string]
-    foreach ($f in $files) {
-        $fileHash = (Get-FileHash -LiteralPath $f.FullPath -Algorithm SHA256).Hash
-        $lines.Add("$($f.RelKey):$fileHash")
+    foreach ($f in (Get-GeneratedSourceFiles -Root $Root | Sort-Object RelKey)) {
+        $lines.Add("$($f.RelKey):$((Get-FileHash -LiteralPath $f.FullPath -Algorithm SHA256).Hash)")
     }
-    $joined = [string]::Join("`n", $lines)
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($joined)
-    $hashBytes = $sha256.ComputeHash($bytes)
-    return [System.BitConverter]::ToString($hashBytes).Replace('-', '').ToLowerInvariant()
+    return Get-Sha256Hex -Text ([string]::Join("`n", $lines))
 }
 
 function Get-FailureFingerprint {
@@ -235,90 +203,186 @@ function Get-FailureFingerprint {
     $text = $text.Replace($outputDirFull, "<OUTPUT_DIR>")
     $text = $text.Replace($outputDirFull.Replace('\', '/'), "<OUTPUT_DIR>")
     $normalizedLines = ($text -split "`r?`n") | Where-Object {
-        ($_ -notmatch '^Timestamp:') -and ($_ -notmatch '^Log file:') -and ($_ -notmatch '^Log saved to:')
+        $line = $_
+        @($RunSpecificLogLinePatterns | Where-Object { $line -match $_ }).Count -eq 0
     }
-    $normalized = [string]::Join("`n", $normalizedLines)
-    $sha256 = [System.Security.Cryptography.SHA256]::Create()
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($normalized)
-    $hashBytes = $sha256.ComputeHash($bytes)
-    $digest = [System.BitConverter]::ToString($hashBytes).Replace('-', '').ToLowerInvariant()
-    return @{ Digest = $digest; Normalized = $normalized }
+    return Get-Sha256Hex -Text ([string]::Join("`n", $normalizedLines))
+}
+
+function Get-DeterminismFailures {
+    <# Every outcome whose classification or fingerprint differs from the first. #>
+    param([Parameter(Mandatory = $true)][object[]]$Outcomes)
+
+    $reference = $Outcomes[0]
+    $failures = New-Object System.Collections.Generic.List[string]
+    foreach ($o in ($Outcomes | Select-Object -Skip 1)) {
+        if ($o.Success -ne $reference.Success) {
+            $failures.Add("run$($o.Run) classification ($(if ($o.Success) { 'SUCCESS' } else { 'FAILED' })) differs from run1 ($(if ($reference.Success) { 'SUCCESS' } else { 'FAILED' }))")
+        }
+        elseif ($o.Fingerprint -ne $reference.Fingerprint) {
+            $failures.Add("run$($o.Run) fingerprint ($($o.Fingerprint)) differs from run1 ($($reference.Fingerprint))")
+        }
+    }
+    return , $failures
+}
+
+function Invoke-LanguageGeneration {
+    param(
+        [Parameter(Mandatory = $true)][string]$GenerateScript,
+        [Parameter(Mandatory = $true)][string]$ExampleSource,
+        [Parameter(Mandatory = $true)][string]$ResultsDir,
+        [Parameter(Mandatory = $true)][string]$OutputDir
+    )
+    if (Test-Path -LiteralPath $OutputDir) {
+        Remove-Item -LiteralPath $OutputDir -Recurse -Force
+    }
+    $genArgs = @{
+        Source   = $ExampleSource
+        Output   = $OutputDir
+        Language = $Language
+    }
+    if ($DebugLogging) { $genArgs.Dbg = $true }
+    $logBefore = Get-ChildItem -LiteralPath $ResultsDir -Filter "generate-results-*.log" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    & $GenerateScript @genArgs | Out-Null
+    $exitCode = $LASTEXITCODE
+    $logAfter = Get-ChildItem -LiteralPath $ResultsDir -Filter "generate-results-*.log" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $logPath = $null
+    if ($null -ne $logAfter -and ($null -eq $logBefore -or $logAfter.FullName -ne $logBefore.FullName)) {
+        $logPath = $logAfter.FullName
+    }
+    return [PSCustomObject]@{
+        ExitCode = $exitCode
+        LogPath  = $logPath
+    }
 }
 
 # ---------------------------------------------------------------------------
-# 1. Generate N times
+# Self-test
 # ---------------------------------------------------------------------------
-Write-Host "=== Generation determinism gate: $Language ($Runs runs) ===" -ForegroundColor Cyan
-Write-Host "Example : $exampleSource"
-Write-Host ""
 
-$outcomes = New-Object System.Collections.Generic.List[object]
+function New-PlantedFile {
+    param([string]$Path, [string]$Content)
+    New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
+    [System.IO.File]::WriteAllText($Path, $Content)
+}
 
-for ($i = 1; $i -le $Runs; $i++) {
-    $runDir = Join-Path $OutputRoot "run$i"
-    Write-Host "Generating run$i..." -ForegroundColor Cyan
-    $gen = Invoke-LanguageGeneration -OutputDir $runDir
-    if ($gen.ExitCode -eq 0) {
-        $hash = Get-SuccessManifestHash -Root $runDir
-        $outcomes.Add([PSCustomObject]@{
-                Run          = $i
-                Success      = $true
-                Fingerprint  = $hash
-                Detail       = "SUCCESS manifest sha256=$hash"
-            })
+function Write-SelfTestResult {
+    param([string]$LogPath, [string]$Name, [bool]$Ok)
+    Write-DatrixGateLog -LogPath $LogPath -Message "  [$(if ($Ok) { 'OK' } else { 'FAIL' })] $Name"
+    return $Ok
+}
+
+function Invoke-SelfTest {
+    param([string]$LogPath)
+    $root = Join-Path ([System.IO.Path]::GetTempPath()) "$GateName-selftest-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $root -Force | Out-Null
+    Write-DatrixGateLog -LogPath $LogPath -Message "$GateName self-test:"
+    try {
+        foreach ($tree in @("a", "b", "c")) {
+            New-PlantedFile -Path (Join-Path $root "$tree\src\app.py") -Content "x = 1"
+            New-PlantedFile -Path (Join-Path $root "$tree\.datrix\manifest.json") -Content "{`"generated_at`": `"$tree`"}"
+        }
+        New-PlantedFile -Path (Join-Path $root "c\src\app.py") -Content "x = 2"
+
+        $runA = Join-Path $root "run-a"; $runB = Join-Path $root "run-b"
+        New-Item -ItemType Directory -Path $runA, $runB -Force | Out-Null
+        $logA = Join-Path $root "a.log"; $logB = Join-Path $root "b.log"; $logC = Join-Path $root "c.log"
+        New-PlantedFile -Path $logA -Content "Timestamp: 1`nerror in $runA\src\app.ts: TS2304`n"
+        New-PlantedFile -Path $logB -Content "Timestamp: 2`nerror in $runB\src\app.ts: TS2304`n"
+        New-PlantedFile -Path $logC -Content "Timestamp: 3`nerror in $runB\src\app.ts: TS2551`n"
+
+        $same = @(
+            [PSCustomObject]@{ Run = 1; Success = $true; Fingerprint = "f" },
+            [PSCustomObject]@{ Run = 2; Success = $true; Fingerprint = "f" }
+        )
+        $reclassified = @($same[0], [PSCustomObject]@{ Run = 2; Success = $false; Fingerprint = "f" })
+        $refingerprinted = @($same[0], [PSCustomObject]@{ Run = 2; Success = $true; Fingerprint = "g" })
+
+        $results = @(
+            (Write-SelfTestResult -LogPath $LogPath -Name "manifest_identical_trees_agree_despite_datrix_metadata" -Ok ((Get-SuccessManifestHash -Root (Join-Path $root "a")) -eq (Get-SuccessManifestHash -Root (Join-Path $root "b")))),
+            (Write-SelfTestResult -LogPath $LogPath -Name "manifest_one_changed_byte_differs" -Ok ((Get-SuccessManifestHash -Root (Join-Path $root "a")) -ne (Get-SuccessManifestHash -Root (Join-Path $root "c")))),
+            (Write-SelfTestResult -LogPath $LogPath -Name "fingerprint_same_failure_in_another_output_dir_agrees" -Ok ((Get-FailureFingerprint -LogPath $logA -OutputDir $runA) -eq (Get-FailureFingerprint -LogPath $logB -OutputDir $runB))),
+            (Write-SelfTestResult -LogPath $LogPath -Name "fingerprint_different_error_differs" -Ok ((Get-FailureFingerprint -LogPath $logB -OutputDir $runB) -ne (Get-FailureFingerprint -LogPath $logC -OutputDir $runB))),
+            (Write-SelfTestResult -LogPath $LogPath -Name "comparison_agreeing_runs_pass" -Ok ((Get-DeterminismFailures -Outcomes $same).Count -eq 0)),
+            (Write-SelfTestResult -LogPath $LogPath -Name "comparison_changed_classification_fails" -Ok ((Get-DeterminismFailures -Outcomes $reclassified).Count -eq 1)),
+            (Write-SelfTestResult -LogPath $LogPath -Name "comparison_changed_fingerprint_fails" -Ok ((Get-DeterminismFailures -Outcomes $refingerprinted).Count -eq 1))
+        )
+        $failed = @($results | Where-Object { -not $_ }).Count
+        if ($failed -gt 0) {
+            Write-DatrixGateLog -LogPath $LogPath -Message "SELF-TEST FAILED: $failed of $($results.Count) check(s) failed." -Color Red
+            return $ExitFail
+        }
+        Write-DatrixGateLog -LogPath $LogPath -Message "SELF-TEST PASSED: $($results.Count) check(s)." -Color Green
+        return $ExitPass
     }
-    else {
-        if ($null -eq $gen.LogPath) {
-            $outcomes.Add([PSCustomObject]@{
-                    Run         = $i
-                    Success     = $false
-                    Fingerprint = "NO_LOG_FOUND"
-                    Detail      = "FAILED (exit $($gen.ExitCode)) -- no new generate-results log was found"
-                })
+    finally {
+        Remove-Item -LiteralPath $root -Recurse -Force
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Gate
+# ---------------------------------------------------------------------------
+
+function Invoke-Gate {
+    param([string]$LogPath)
+
+    if ($Runs -lt $MinimumRuns) {
+        Write-DatrixGateLog -LogPath $LogPath -Message "Runs must be >= $MinimumRuns (need at least two outcomes to compare); got $Runs. Fix: pass -Runs $MinimumRuns or more." -Color Red
+        return $ExitFail
+    }
+    $workspace = Get-DatrixWorkspaceRoot
+    $root = if ($OutputRoot) { $OutputRoot } else { Join-Path $workspace ".test-output\generation-determinism-gate\$Language" }
+    $generateScript = Join-Path $PSScriptRoot "..\..\dev\generate.ps1"
+    $resultsDir = Join-Path $workspace ".generated\.results"
+    # The example this class of non-determinism was originally found against.
+    $exampleSource = Join-Path $workspace "datrix\examples\02-features\03-infrastructure-blocks\nosql\system.dtrx"
+    if (-not (Test-Path -LiteralPath $exampleSource)) {
+        Write-DatrixGateLog -LogPath $LogPath -Message "Reference example not found at: $exampleSource. Fix: restore it." -Color Red
+        return $ExitFail
+    }
+
+    Write-DatrixGateLog -LogPath $LogPath -Message "=== Generation determinism gate: $Language ($Runs runs) ===" -Color Cyan
+    Write-DatrixGateLog -LogPath $LogPath -Message "Example : $exampleSource"
+
+    $outcomes = New-Object System.Collections.Generic.List[object]
+    for ($i = 1; $i -le $Runs; $i++) {
+        $runDir = Join-Path $root "run$i"
+        Write-Host "Generating run$i..." -ForegroundColor Cyan
+        $gen = Invoke-LanguageGeneration -GenerateScript $generateScript -ExampleSource $exampleSource -ResultsDir $resultsDir -OutputDir $runDir
+        if ($gen.ExitCode -eq 0) {
+            $hash = Get-SuccessManifestHash -Root $runDir
+            $outcomes.Add([PSCustomObject]@{ Run = $i; Success = $true; Fingerprint = $hash; Detail = "SUCCESS manifest sha256=$hash" })
+        }
+        elseif ($null -eq $gen.LogPath) {
+            $outcomes.Add([PSCustomObject]@{ Run = $i; Success = $false; Fingerprint = "NO_LOG_FOUND"; Detail = "FAILED (exit $($gen.ExitCode)) -- no new generate-results log was found" })
         }
         else {
             $fp = Get-FailureFingerprint -LogPath $gen.LogPath -OutputDir $runDir
-            $outcomes.Add([PSCustomObject]@{
-                    Run         = $i
-                    Success     = $false
-                    Fingerprint = $fp.Digest
-                    Detail      = "FAILED (exit $($gen.ExitCode)) fingerprint=$($fp.Digest) log=$($gen.LogPath)"
-                })
+            $outcomes.Add([PSCustomObject]@{ Run = $i; Success = $false; Fingerprint = $fp; Detail = "FAILED (exit $($gen.ExitCode)) fingerprint=$fp log=$($gen.LogPath)" })
         }
+        Write-DatrixGateLog -LogPath $LogPath -Message "  run$($i): $($outcomes[$i - 1].Detail)"
     }
-    Write-Host "  $($outcomes[$i - 1].Detail)"
-}
 
-# ---------------------------------------------------------------------------
-# 2. All N outcomes must agree: same classification, same fingerprint.
-# ---------------------------------------------------------------------------
-Write-Host ""
-Write-Host "=== Summary ===" -ForegroundColor Cyan
-
-$reference = $outcomes[0]
-$failures = New-Object System.Collections.Generic.List[string]
-
-for ($i = 1; $i -lt $outcomes.Count; $i++) {
-    $o = $outcomes[$i]
-    if ($o.Success -ne $reference.Success) {
-        $failures.Add("run$($o.Run) classification (" + $(if ($o.Success) { "SUCCESS" } else { "FAILED" }) + ") differs from run1 (" + $(if ($reference.Success) { "SUCCESS" } else { "FAILED" }) + ")")
+    $failures = Get-DeterminismFailures -Outcomes $outcomes.ToArray()
+    if ($failures.Count -gt 0) {
+        Write-DatrixGateLog -LogPath $LogPath -Message "GATE FAILED (non-deterministic generation detected):" -Color Red
+        foreach ($f in $failures) { Write-DatrixGateLog -LogPath $LogPath -Message "  - $f" -Color Red }
+        return $ExitFail
     }
-    elseif ($o.Fingerprint -ne $reference.Fingerprint) {
-        $failures.Add("run$($o.Run) fingerprint ($($o.Fingerprint)) differs from run1 ($($reference.Fingerprint))")
-    }
+    $kind = if ($outcomes[0].Success) { "byte-identical SUCCESS" } else { "identical FAILURE" }
+    Write-DatrixGateLog -LogPath $LogPath -Message "GATE PASSED: all $Runs runs produced $kind (fingerprint $($outcomes[0].Fingerprint))." -Color Green
+    return $ExitPass
 }
 
-foreach ($o in $outcomes) {
-    Write-Host "  run$($o.Run): $($o.Detail)"
+$logPath = New-DatrixGateLogFile -Gate $GateName
+$exitCode = $ExitFail
+try {
+    $exitCode = if ($SelfTest) { Invoke-SelfTest -LogPath $logPath } else { Invoke-Gate -LogPath $logPath }
 }
-Write-Host ""
-
-if ($failures.Count -gt 0) {
-    Write-Host "GATE FAILED (non-deterministic generation detected):" -ForegroundColor Red
-    foreach ($f in $failures) { Write-Host "  - $f" -ForegroundColor Red }
-    exit 1
+finally {
+    Write-DatrixGateVerdict -Gate $GateName -ExitCode $exitCode -LogPath $logPath
 }
-
-$kind = if ($reference.Success) { "byte-identical SUCCESS" } else { "identical FAILURE" }
-Write-Host "GATE PASSED: all $Runs runs produced $kind (fingerprint $($reference.Fingerprint))." -ForegroundColor Green
-exit 0
+exit $exitCode

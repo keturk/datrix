@@ -42,6 +42,7 @@ from datrix_codegen_common.transpiler.builtin_registry import (
 from datrix_codegen_common.transpiler.profile import TranspilerProfile
 from datrix_codegen_kernel.generation.discovery import get_language_plugin
 
+from datrix_scripts.gate_harness import configure_logging
 from datrix_scripts.registered_targets import registered_language_names
 
 logger = logging.getLogger(__name__)
@@ -53,12 +54,6 @@ _GROUP_GAP_PREFIX: Final[str] = "builtin_group:"
 
 #: The obligation axis a `LanguageCapabilityDeclaration` is measured on.
 _LANGUAGE_AXIS: Final[str] = "language"
-
-
-def configure_logging(debug: bool = False) -> None:
-    """Configure logging output."""
-    level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def group_vocabulary() -> frozenset[str]:

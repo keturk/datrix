@@ -66,56 +66,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\block_realization_parity.py"
+$pythonArgs = @()
+if ($Dbg) { $pythonArgs += "--debug" }
+if ($SelfTest) { $pythonArgs += "--self-test" }
 
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-$datrixRoot = Get-DatrixRoot
-$datrixWorkspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
-
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: block_realization_parity.py not found at: $runnerScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-trap {
-    Invoke-Cleanup
-    break
-}
-
-Ensure-DatrixVenv
-
-try {
-    Ensure-DatrixPackagesInstalled
-
-    $pythonArgs = @($runnerScript)
-    if ($Dbg) {
-        $pythonArgs += "--debug"
-    }
-    if ($SelfTest) {
-        $pythonArgs += "--self-test"
-    }
-
-    Write-Host "Running block-realization capability parity gate (all registered platforms, seven surfaces)" -ForegroundColor Cyan
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Block-realization parity gate failed with exit code $exitCode" -ForegroundColor Red
-        exit $exitCode
-    }
-
-    Write-Host "Block-realization parity gate passed" -ForegroundColor Green
-    exit 0
-
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\block_realization_parity.py") -Arguments $pythonArgs -RequirePackages -Gate "block-realization-parity")

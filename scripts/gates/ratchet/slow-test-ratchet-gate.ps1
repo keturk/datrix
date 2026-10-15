@@ -21,8 +21,8 @@
 
  The non-vacuity self-test runs on EVERY invocation before the real scan.
 
- This wrapper activates the venv but does NOT run
- Ensure-DatrixPackagesInstalled: the underlying Python module imports only
+ This wrapper does NOT pass -RequirePackages to the runner: the underlying
+ Python module imports only
  the standard library and the shared scripts package, so it never needs the
  installed editable package set, and skipping the check avoids taking the
  workspace-wide package lock for nothing.
@@ -58,54 +58,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\slow_test_ratchet.py"
+# No -RequirePackages: the Python module imports only the stdlib and the shared
+# scripts package, so it never needs the installed editable package set.
+$pythonArgs = @()
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($Seed) { $pythonArgs += "--seed" }
+if ($Dbg) { $pythonArgs += "--dbg" }
 
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: slow_test_ratchet.py not found at: $runnerScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-trap {
-    Invoke-Cleanup
-    break
-}
-
-Ensure-DatrixVenv
-
-try {
-    # No Ensure-DatrixPackagesInstalled here: the Python module below imports
-    # only the stdlib and the shared scripts package, so it never needs the
-    # installed editable package set.
-
-    $pythonArgs = @($runnerScript)
-    if ($SelfTest) { $pythonArgs += "--self-test" }
-    if ($Seed) { $pythonArgs += "--seed" }
-    if ($Dbg) { $pythonArgs += "--dbg" }
-
-    $targetLabel = if ($SelfTest) { "self-test only" } elseif ($Seed) { "seed baseline" } else { "check baseline" }
-    Write-Host "Running slow-test ratchet gate: $targetLabel" -ForegroundColor Cyan
-
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Slow-test ratchet gate failed with exit code $exitCode" -ForegroundColor Red
-        exit $exitCode
-    }
-
-    Write-Host "Slow-test ratchet gate passed" -ForegroundColor Green
-    exit 0
-
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\slow_test_ratchet.py") -Arguments $pythonArgs -Gate "slow-test-ratchet")

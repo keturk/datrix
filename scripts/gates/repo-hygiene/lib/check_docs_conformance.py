@@ -59,17 +59,24 @@ Exit codes:
 
 from __future__ import annotations
 
-import argparse
 import ast
 import json
 import re
 import sys
 import tempfile
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from datrix_scripts.framework_repos import workspace_package_dirs
+from datrix_scripts.gate_harness import (
+    NamedCheck,
+    gate_argument_parser,
+    harness_self_test,
+    named_checks,
+    report_step,
+    run_checks,
+)
 from datrix_scripts.paths import WORKSPACE_DIR
 
 # ---------------------------------------------------------------------------
@@ -167,9 +174,7 @@ def _discover_package_dirs(monorepo_root: Path) -> frozenset[str]:
     if not monorepo_root.is_dir():
         return frozenset()
     return frozenset(
-        child.name
-        for child in monorepo_root.iterdir()
-        if child.is_dir() and (child.name == "datrix" or child.name.startswith("datrix-"))
+        child.name for child in workspace_package_dirs(monorepo_root, include_showcase=True)
     )
 
 
@@ -859,24 +864,6 @@ def check_against_exceptions(
 # pattern established by test_specific_selection_gate.py.
 # ---------------------------------------------------------------------------
 
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_CYAN = "\033[96m"
-_RESET = "\033[0m"
-
-
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def _step(msg: str) -> None:
-    print(f"\n{_CYAN}=== {msg}{_RESET}")
-
-
 def _check_windows_absolute_span_is_a_candidate() -> None:
     doc_text = "See `D:\\datrix\\datrix-common\\src\\datrix_common\\foo.py` for details."
     candidates = extract_path_candidates(doc_text)
@@ -1185,122 +1172,58 @@ def _check_load_exceptions_raises_when_file_missing() -> None:
         raise AssertionError("load_exceptions() must raise FileNotFoundError for a missing baseline")
 
 
-def _self_test_checks() -> list[tuple[str, Callable[[], None]]]:
+def _self_test_checks() -> list[NamedCheck]:
     """Every named self-test check, resolved at call time so a check may be
     defined anywhere in this module."""
-    return [
-    ("windows_absolute_span_is_a_candidate", _check_windows_absolute_span_is_a_candidate),
-    ("package_prefixed_span_is_a_candidate", _check_package_prefixed_span_is_a_candidate),
-    ("bare_span_with_no_package_prefix_is_excluded", _check_bare_span_with_no_package_prefix_is_excluded),
-    ("ellipsis_elided_span_is_rejected", _check_ellipsis_elided_span_is_rejected),
-    ("placeholder_span_is_rejected", _check_placeholder_span_is_rejected),
-    ("glob_span_is_rejected", _check_glob_span_is_rejected),
-    (
-        "line_ref_suffix_is_captured_verbatim_by_extraction",
-        _check_line_ref_suffix_is_captured_verbatim_by_extraction,
-    ),
-    ("line_number_is_tracked_per_span", _check_line_number_is_tracked_per_span),
-    ("fully_qualified_module_span_is_a_candidate", _check_fully_qualified_module_span_is_a_candidate),
-    (
-        "generic_dotted_identifier_without_known_import_name_is_excluded",
-        _check_generic_dotted_identifier_without_known_import_name_is_excluded,
-    ),
-    (
-        "trailing_class_name_segment_is_excluded_from_extraction",
-        _check_trailing_class_name_segment_is_excluded_from_extraction,
-    ),
-    ("tier1_literal_match_resolves", _check_tier1_literal_match_resolves),
-    (
-        "tier1_directory_hint_requires_a_real_directory",
-        _check_tier1_directory_hint_requires_a_real_directory,
-    ),
-    ("genuinely_missing_path_stays_unresolved", _check_genuinely_missing_path_stays_unresolved),
-    (
-        "line_ref_suffix_is_stripped_before_resolution",
-        _check_line_ref_suffix_is_stripped_before_resolution,
-    ),
-    ("tier2_src_shorthand_match_resolves", _check_tier2_src_shorthand_match_resolves),
-    (
-        "tier2_tests_shorthand_match_resolves_with_two_segment_omission",
-        _check_tier2_tests_shorthand_match_resolves_with_two_segment_omission,
-    ),
-    (
-        "tier2_is_skipped_when_next_segment_is_already_tests",
-        _check_tier2_is_skipped_when_next_segment_is_already_tests,
-    ),
-    ("ambiguous_tier2_match_stays_unresolved", _check_ambiguous_tier2_match_stays_unresolved),
-    (
-        "leading_underscore_path_symbol_resolves",
-        _check_leading_underscore_path_symbol_resolves,
-    ),
-    (
-        "path_symbol_suffix_naming_nonexistent_symbol_stays_unresolved",
-        _check_path_symbol_suffix_naming_nonexistent_symbol_stays_unresolved,
-    ),
-    ("exact_module_match_resolves", _check_exact_module_match_resolves),
-    ("trailing_symbol_name_is_tolerated", _check_trailing_symbol_name_is_tolerated),
-    ("package_init_module_resolves", _check_package_init_module_resolves),
-    (
-        "genuinely_missing_module_stays_unresolved",
-        _check_genuinely_missing_module_stays_unresolved,
-    ),
-    ("unknown_import_name_stays_unresolved", _check_unknown_import_name_stays_unresolved),
-    (
-        "span_present_in_baseline_is_removed_from_failures",
-        _check_span_present_in_baseline_is_removed_from_failures,
-    ),
-    (
-        "span_absent_from_baseline_remains_a_failure",
-        _check_span_absent_from_baseline_remains_a_failure,
-    ),
-    (
-        "load_exceptions_reads_span_to_reason_mapping",
-        _check_load_exceptions_reads_span_to_reason_mapping,
-    ),
-    ("load_exceptions_raises_when_file_missing", _check_load_exceptions_raises_when_file_missing),
-    (
-        "heading_slug_matches_github_for_punctuated_headings",
-        _check_heading_slug_matches_github_for_punctuated_headings,
-    ),
-    ("duplicate_headings_get_numbered_slugs", _check_duplicate_headings_get_numbered_slugs),
-    (
-        "explicit_heading_id_is_an_anchor_and_text_slug_excludes_it",
-        _check_explicit_heading_id_is_an_anchor_and_text_slug_excludes_it,
-    ),
-    (
-        "anchor_link_to_existing_heading_resolves_across_docs",
-        _check_anchor_link_to_existing_heading_resolves_across_docs,
-    ),
-    ("anchor_link_to_missing_heading_or_doc_fails", _check_anchor_link_to_missing_heading_or_doc_fails),
-    ("decision_heading_without_status_fails", _check_decision_heading_without_status_fails),
-    (
-        "adopted_decision_without_status_paragraph_is_accepted",
-        _check_adopted_decision_without_status_paragraph_is_accepted,
-    ),
-    (
-        "in_progress_decision_requires_status_paragraph",
-        _check_in_progress_decision_requires_status_paragraph,
-    ),
-    (
-        "heading_and_status_paragraph_disagreement_fails",
-        _check_heading_and_status_paragraph_disagreement_fails,
-    ),
-    ("landed_status_paragraph_counts_as_adopted", _check_landed_status_paragraph_counts_as_adopted),
-    ("named_gate_script_must_exist_on_disk", _check_named_gate_script_must_exist_on_disk),
-    ("import_name_path_that_exists_resolves", _check_import_name_path_that_exists_resolves),
-    (
-        "import_name_path_that_does_not_exist_stays_unresolved",
-        _check_import_name_path_that_does_not_exist_stays_unresolved,
-    ),
-    (
-        "call_suffixed_module_span_is_extracted_and_resolved",
-        _check_call_suffixed_module_span_is_extracted_and_resolved,
-    ),
-    (
-        "reference_doc_is_scanned_without_the_decision_check",
-        _check_reference_doc_is_scanned_without_the_decision_check,
-    ),
-    ]
+    return named_checks(
+        [
+            _check_windows_absolute_span_is_a_candidate,
+            _check_package_prefixed_span_is_a_candidate,
+            _check_bare_span_with_no_package_prefix_is_excluded,
+            _check_ellipsis_elided_span_is_rejected,
+            _check_placeholder_span_is_rejected,
+            _check_glob_span_is_rejected,
+            _check_line_ref_suffix_is_captured_verbatim_by_extraction,
+            _check_line_number_is_tracked_per_span,
+            _check_fully_qualified_module_span_is_a_candidate,
+            _check_generic_dotted_identifier_without_known_import_name_is_excluded,
+            _check_trailing_class_name_segment_is_excluded_from_extraction,
+            _check_tier1_literal_match_resolves,
+            _check_tier1_directory_hint_requires_a_real_directory,
+            _check_genuinely_missing_path_stays_unresolved,
+            _check_line_ref_suffix_is_stripped_before_resolution,
+            _check_tier2_src_shorthand_match_resolves,
+            _check_tier2_tests_shorthand_match_resolves_with_two_segment_omission,
+            _check_tier2_is_skipped_when_next_segment_is_already_tests,
+            _check_ambiguous_tier2_match_stays_unresolved,
+            _check_leading_underscore_path_symbol_resolves,
+            _check_path_symbol_suffix_naming_nonexistent_symbol_stays_unresolved,
+            _check_exact_module_match_resolves,
+            _check_trailing_symbol_name_is_tolerated,
+            _check_package_init_module_resolves,
+            _check_genuinely_missing_module_stays_unresolved,
+            _check_unknown_import_name_stays_unresolved,
+            _check_span_present_in_baseline_is_removed_from_failures,
+            _check_span_absent_from_baseline_remains_a_failure,
+            _check_load_exceptions_reads_span_to_reason_mapping,
+            _check_load_exceptions_raises_when_file_missing,
+            _check_heading_slug_matches_github_for_punctuated_headings,
+            _check_duplicate_headings_get_numbered_slugs,
+            _check_explicit_heading_id_is_an_anchor_and_text_slug_excludes_it,
+            _check_anchor_link_to_existing_heading_resolves_across_docs,
+            _check_anchor_link_to_missing_heading_or_doc_fails,
+            _check_decision_heading_without_status_fails,
+            _check_adopted_decision_without_status_paragraph_is_accepted,
+            _check_in_progress_decision_requires_status_paragraph,
+            _check_heading_and_status_paragraph_disagreement_fails,
+            _check_landed_status_paragraph_counts_as_adopted,
+            _check_named_gate_script_must_exist_on_disk,
+            _check_import_name_path_that_exists_resolves,
+            _check_import_name_path_that_does_not_exist_stays_unresolved,
+            _check_call_suffixed_module_span_is_extracted_and_resolved,
+            _check_reference_doc_is_scanned_without_the_decision_check,
+        ]
+    )
 
 
 def _check_heading_slug_matches_github_for_punctuated_headings() -> None:
@@ -1456,36 +1379,6 @@ def _check_reference_doc_is_scanned_without_the_decision_check() -> None:
         assert any(r.kind == "decision" for r in architecture), architecture
 
 
-def _dummy_intentionally_failing_check() -> None:
-    """Registered ONLY under --harness-self-test. Always fails on purpose --
-    this is the proof that run_self_test_checks() actually detects and
-    reports a failing check, rather than vacuously swallowing every
-    AssertionError and reporting green regardless of what the checks do."""
-    assert False, "intentional harness self-test failure (expected -- proves non-vacuity)"  # noqa: B011
-
-
-def run_self_test_checks(checks: list[tuple[str, Callable[[], None]]]) -> bool:
-    """Run every (name, check_fn) pair, printing [OK]/[FAIL] per check.
-
-    Args:
-        checks: Named zero-argument callables; each raises AssertionError on
-            failure and returns normally on success.
-
-    Returns:
-        True iff every check passed.
-    """
-    all_passed = True
-    for name, fn in checks:
-        try:
-            fn()
-        except AssertionError as e:
-            _fail(f"{name}: {e}")
-            all_passed = False
-        else:
-            _ok(name)
-    return all_passed
-
-
 def main() -> int:
     """Main entry point.
 
@@ -1493,10 +1386,7 @@ def main() -> int:
         Exit code (0 = clean/warn mode, 1 = unresolved references found,
         2 = usage error / missing baseline / missing architecture doc).
     """
-    parser = argparse.ArgumentParser(
-        description="Docs-conformance gate for Datrix architecture documentation",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    parser = gate_argument_parser("Docs-conformance gate for Datrix architecture documentation")
     parser.add_argument(
         "-w",
         "--warn",
@@ -1515,37 +1405,13 @@ def main() -> int:
         action="store_true",
         help="Print each doc file being scanned",
     )
-    parser.add_argument(
-        "--self-test",
-        action="store_true",
-        help=(
-            "Run only the self-test suite (plain-Python edge-case checks on "
-            "this scanner's own functions) and exit -- skips the real docs "
-            "scan. The same checks also run automatically, unconditionally, "
-            "as step 1 of every normal invocation."
-        ),
-    )
-    parser.add_argument(
-        "--harness-self-test",
-        action="store_true",
-        help=(
-            "Demonstration mode: run one intentionally-failing dummy check "
-            "through the self-test harness and report the result. Always "
-            "reports [FAIL] and exits 1 -- this is the proof that the "
-            "harness's pass/fail detection is not vacuous."
-        ),
-    )
     args = parser.parse_args()
 
     if args.harness_self_test:
-        _step("Harness self-test: intentionally-failing dummy check (must report FAIL, exit 1)")
-        harness_ok = run_self_test_checks(
-            [("dummy_intentionally_failing_check", _dummy_intentionally_failing_check)]
-        )
-        return 0 if harness_ok else 1
+        return 0 if harness_self_test() else 1
 
-    _step("Self-test: I5 docs-conformance gate scanner edge cases")
-    self_test_passed = run_self_test_checks(_self_test_checks())
+    report_step("Self-test: I5 docs-conformance gate scanner edge cases")
+    self_test_passed = run_checks(_self_test_checks())
     if args.self_test:
         return 0 if self_test_passed else 1
     if not self_test_passed:

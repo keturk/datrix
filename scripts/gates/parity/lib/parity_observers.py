@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Final, TypeVar
 
 from datrix_codegen_common.generation.wire_naming import body_wire_name
+from datrix_common.utils.text import to_camel_case
 from datrix_codegen_kernel.parity.conformance_probes import (
     EnumClassifierRender,
     EventEnvelopeCensus,
@@ -177,6 +178,23 @@ def _read_route(result: object, selector: Selector) -> Observation:
         Shape.MAPPING,
         {"status": stringify(contract.success_status), "body": contract.body_kind, "media-type": contract.media_type},
     )
+
+
+def _one_route(result: object, selector: Selector) -> RouteWireContract:
+    wanted = route_key(_text(selector, "verb"), _text(selector, "path"))
+    matches = [contract for contract in _contracts(result) if contract.key == wanted]
+    label = f"{wanted[0].upper()} {wanted[1]}"
+    if len(matches) != 1:
+        raise SelectorError(f"{label} is registered {len(matches)} times")
+    return matches[0]
+
+
+def _read_query_keys(result: object, selector: Selector) -> Observation:
+    """The keys the route binds, each read as its camelCase words: every backend cases its
+    query keys its own way (``sort_by``, ``sortBy``), so the row compares the set of
+    parameters bound; each backend's own seam test proves its casing against the shared
+    list-query derivation."""
+    return _set(to_camel_case(key) for key in _one_route(result, selector).query_keys)
 
 
 def _read_routes(result: object, selector: Selector) -> Observation:
@@ -399,6 +417,16 @@ PROBE_READINGS: Final[dict[str, ProbeReadings]] = {
                 FacetReading(ParityFacet("routes", Shape.SET, summary="every registered route, 'VERB /path/{}'"), _read_routes),
                 FacetReading(
                     ParityFacet("duplicate-routes", Shape.SET, summary="routes registered more than once"), _read_duplicate_routes
+                ),
+                FacetReading(
+                    ParityFacet(
+                        "query-keys",
+                        Shape.SET,
+                        ("verb", "path"),
+                        summary="the query keys one route binds, by the words of each key (casing is each backend's own)",
+                    ),
+                    _read_query_keys,
+                    _offer_routes,
                 ),
             ),
         ),

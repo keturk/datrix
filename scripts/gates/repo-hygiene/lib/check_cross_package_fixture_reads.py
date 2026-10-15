@@ -45,6 +45,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
+from datrix_scripts.gate_harness import report_condition, write_file
 from datrix_scripts.paths import WORKSPACE_DIR
 
 #: Extensions that mark a resolved join as "a fixture file", for the
@@ -109,14 +111,13 @@ def discover_packages(base_dir: Path) -> dict[str, Path]:
     Returns:
         ``{package name: tests/ directory}``, sorted by name.
     """
-    packages: dict[str, Path] = {}
-    for entry in sorted(base_dir.iterdir()):
-        if not entry.is_dir() or not entry.name.startswith("datrix"):
-            continue
-        tests_dir = entry / "tests"
-        if tests_dir.is_dir():
-            packages[entry.name] = tests_dir
-    return packages
+    return {
+        entry.name: entry / PackageMarker.TESTS.value
+        for entry in workspace_package_dirs(
+            base_dir, any_of=frozenset({PackageMarker.TESTS}), include_showcase=True
+        )
+        if (entry / PackageMarker.TESTS.value).is_dir()
+    }
 
 
 def _discover_python_files(tests_dir: Path) -> list[Path]:
@@ -414,35 +415,30 @@ def scan_workspace(base_dir: Path, *, verbose: bool = False) -> tuple[
 # ---------------------------------------------------------------------------
 
 
-def _write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
 def run_self_test() -> bool:
     ok = True
     with tempfile.TemporaryDirectory(prefix="cross-pkg-fixture-gate-") as tmp:
         root = Path(tmp)
         pkg_a = root / "datrix-pkg-a"
         pkg_b = root / "datrix-pkg-b"
-        _write(pkg_b / "tests" / "fixtures" / "real.dtrx", "// real\n")
+        write_file(pkg_b / "tests" / "fixtures" / "real.dtrx", "// real\n")
 
         # (a) cross-package directory constant -- must be caught.
-        _write(
+        write_file(
             pkg_a / "tests" / "conftest.py",
             'from pathlib import Path\n'
             'OTHER_FIXTURES_DIR = Path(__file__).resolve().parents[2] / "datrix-pkg-b" / "tests" / "fixtures"\n'
             'LOCAL_FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"\n',
         )
         # (b) missing fixture via a LOCAL (own-package) constant -- must be caught.
-        _write(
+        write_file(
             pkg_a / "tests" / "test_missing.py",
             'from tests.conftest import LOCAL_FIXTURES_DIR\n'
             'PATH = LOCAL_FIXTURES_DIR / "does-not-exist.dtrx"\n',
         )
         # (c) clean: local constant, existing file -- must NOT be caught.
-        _write(pkg_a / "tests" / "fixtures" / "own.dtrx", "// own\n")
-        _write(
+        write_file(pkg_a / "tests" / "fixtures" / "own.dtrx", "// own\n")
+        write_file(
             pkg_a / "tests" / "test_clean.py",
             'from tests.conftest import LOCAL_FIXTURES_DIR\n'
             'PATH = LOCAL_FIXTURES_DIR / "own.dtrx"\n',
@@ -450,19 +446,19 @@ def run_self_test() -> bool:
 
         violations, missing, files = scan_workspace(root)
 
-        ok &= _assert(files == 3, f"scans exactly the 3 planted files (got {files})")
+        ok &= report_condition(files == 3, f"scans exactly the 3 planted files (got {files})")
         cross_names = {v.name for v in violations}
-        ok &= _assert(
+        ok &= report_condition(
             "OTHER_FIXTURES_DIR" in cross_names and len(violations) == 1,
             f"the cross-package directory constant is the one violation found (got {cross_names})",
         )
         if violations:
-            ok &= _assert(
+            ok &= report_condition(
                 violations[0].other_package == "datrix-pkg-b",
                 f"names the other package correctly (got {violations[0].other_package})",
             )
         missing_files = {m.resolved_file.name for m in missing}
-        ok &= _assert(
+        ok &= report_condition(
             "does-not-exist.dtrx" in missing_files and "own.dtrx" not in missing_files,
             f"reports the missing fixture and not the existing one (got {missing_files})",
         )
@@ -481,35 +477,30 @@ def run_self_test() -> bool:
         root = Path(tmp)
         pkg = root / "datrix-codegen-typescript"
         other = root / "datrix-common"
-        _write(other / "tests" / "fixtures" / "system-basic.dtrx", "// unrelated, still present\n")
-        _write(
+        write_file(other / "tests" / "fixtures" / "system-basic.dtrx", "// unrelated, still present\n")
+        write_file(
             pkg / "tests" / "conftest.py",
             'from pathlib import Path\n'
             '_MONOREPO_ROOT = Path(__file__).resolve().parents[2]\n'
             'COMMON_FIXTURES_DIR = _MONOREPO_ROOT / "datrix-common" / "tests" / "fixtures"\n',
         )
-        _write(
+        write_file(
             pkg / "tests" / "test_jobs_generator.py",
             'from tests.conftest import COMMON_FIXTURES_DIR\n'
             'path = COMMON_FIXTURES_DIR / "system-with-jobs.dtrx"\n',
         )
         incident_violations, incident_missing, _ = scan_workspace(root)
-        ok &= _assert(
+        ok &= report_condition(
             any(v.name == "COMMON_FIXTURES_DIR" and v.other_package == "datrix-common"
                 for v in incident_violations),
             "the incident's two-step, cross-module COMMON_FIXTURES_DIR chain "
             f"is caught as a datrix-common cross-package read (got {incident_violations})",
         )
-        ok &= _assert(
+        ok &= report_condition(
             any(m.resolved_file.name == "system-with-jobs.dtrx" for m in incident_missing),
             f"the incident's own missing fixture (system-with-jobs.dtrx) is caught (got {incident_missing})",
         )
     return ok
-
-
-def _assert(condition: bool, label: str) -> bool:
-    print(f"  {'PASS' if condition else 'FAIL'}: {label}")
-    return condition
 
 
 # ---------------------------------------------------------------------------

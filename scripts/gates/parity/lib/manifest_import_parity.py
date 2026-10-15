@@ -65,6 +65,8 @@ from typing import Final
 
 from packaging.requirements import InvalidRequirement, Requirement
 
+from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
+from datrix_scripts.gate_harness import report_condition
 from datrix_scripts.paths import WORKSPACE_DIR
 
 logger = logging.getLogger(__name__)
@@ -181,9 +183,7 @@ def discover_packages(workspace_root: Path) -> dict[str, Path]:
         ValueError: If a manifest declares no ``[project] name``.
     """
     packages: dict[str, Path] = {}
-    for candidate in sorted(workspace_root.iterdir()):
-        if not candidate.is_dir() or not candidate.name.startswith(_PACKAGE_DIR_PREFIX):
-            continue
+    for candidate in workspace_package_dirs(workspace_root, any_of=frozenset({PackageMarker.PYPROJECT})):
         pyproject = candidate / _PYPROJECT_NAME
         if not pyproject.is_file():
             continue
@@ -401,12 +401,6 @@ def scan_workspace(workspace_root: Path) -> dict[str, list[ParityViolation]]:
 # ---------------------------------------------------------------------------
 
 
-def _assert(condition: bool, label: str) -> bool:
-    """Print [OK]/[FAIL] for one self-test assertion and return it."""
-    print(f"[{'OK' if condition else 'FAIL'}] {label}")
-    return condition
-
-
 def _write_synthetic_package(
     root: Path,
     distribution: str,
@@ -472,25 +466,25 @@ def _self_test_synthetic_tree(tmp_root: Path) -> bool:
     found_dead = {v.subject for v in dirty if v.kind == "dead-declaration"}
     found_extras = [v.subject for v in dirty if v.kind == "test-only-extra-at-runtime"]
     ok = True
-    ok &= _assert(
+    ok &= report_condition(
         found_undeclared
         == {_SELF_TEST_DIST_UNDECLARED, _SELF_TEST_DIST_TYPE_ONLY, _SELF_TEST_DIST_DEV_ONLY},
         "planted undeclared imports (plain, TYPE_CHECKING-only, and dev-extra-only) are all reported",
     )
-    ok &= _assert(
+    ok &= report_condition(
         _SELF_TEST_DIST_OPTIONAL not in found_undeclared,
         "an import declared by the package's own non-dev extra is satisfied, not undeclared",
     )
-    ok &= _assert(
+    ok &= report_condition(
         found_dead == {_SELF_TEST_DIST_DEAD},
         "planted dead declaration is reported and the used declaration is not",
     )
-    ok &= _assert(
+    ok &= report_condition(
         found_extras == [f"{_SELF_TEST_PKG_CLEAN}[testkit]"],
         "planted test-only extra on a runtime requirement is reported",
     )
-    ok &= _assert(len(dirty) == 5, f"dirty package yields exactly five violations (got {kinds})")
-    ok &= _assert(clean == [], "clean package yields zero violations")
+    ok &= report_condition(len(dirty) == 5, f"dirty package yields exactly five violations (got {kinds})")
+    ok &= report_condition(clean == [], "clean package yields zero violations")
     return ok
 
 
@@ -505,11 +499,11 @@ def _self_test_live_edge() -> bool:
         if _declares_entry_point_group(package_dir, "datrix.languages")
     ]
     if not language_packages:
-        return _assert(False, "live tree registers at least one datrix.languages package")
+        return report_condition(False, "live tree registers at least one datrix.languages package")
     ok = True
     for dist in sorted(language_packages):
         imports = scan_package_imports(dist, packages[dist])
-        ok &= _assert(
+        ok &= report_condition(
             _KNOWN_LIVE_IMPORTED_DIST in imports.imported,
             f"live scan sees {dist} import {_KNOWN_LIVE_IMPORTED_DIST}",
         )
@@ -534,7 +528,7 @@ def self_test() -> bool:
             refused = True
         except SystemExit as exc:
             refused = exc.code == EXIT_USAGE
-        ok &= _assert(refused, "a workspace with fewer than two packages is refused, never a silent pass")
+        ok &= report_condition(refused, "a workspace with fewer than two packages is refused, never a silent pass")
         ok &= _self_test_live_edge()
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)

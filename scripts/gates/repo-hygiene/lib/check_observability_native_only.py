@@ -34,17 +34,26 @@ Exit codes:
 
 from __future__ import annotations
 
-import argparse
 import re
 import sys
 import tempfile
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from datrix_common.errors.generation import GenerationError
 from datrix_common.protocols.parser import ConfigDocumentSourceProtocol
 
+from datrix_scripts.gate_harness import (
+    EXIT_PASS,
+    EXIT_USAGE,
+    EXIT_VIOLATION,
+    NamedCheck,
+    gate_argument_parser,
+    harness_self_test,
+    named_checks,
+    report_step,
+    run_checks,
+)
 from datrix_scripts.paths import SHOWCASE_DIR
 
 # Matches the exact f-string in datrix_common.plugin.capability_resolution.
@@ -212,24 +221,6 @@ def scan_examples(examples_root: Path) -> list[Violation]:
 # --self-test: real tempfile.TemporaryDirectory() fixtures, no mocks.
 # --------------------------------------------------------------------------
 
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_CYAN = "\033[96m"
-_RESET = "\033[0m"
-
-
-def _ok(msg: str) -> None:
-    print(f"{_GREEN}[OK]{_RESET} {msg}")
-
-
-def _fail(msg: str) -> None:
-    print(f"{_RED}[FAIL]{_RESET} {msg}")
-
-
-def _step(msg: str) -> None:
-    print(f"\n{_CYAN}=== {msg}{_RESET}")
-
-
 #: The self-test fixtures deliberately carry no ``language`` key: the generation
 #: target is a CLI input (``datrix generate --language <lang>``), not system
 #: configuration, and ``SystemConfigProfileConfig`` rejects it outright. A fixture
@@ -320,30 +311,17 @@ def _check_cloud_with_native_metrics_is_clean() -> None:
         assert scan_examples(examples_root) == []
 
 
-_SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
-    ("cloud_plus_portable_metrics_is_flagged", _check_cloud_plus_portable_metrics_is_flagged),
-    ("local_with_portable_metrics_is_clean", _check_local_with_portable_metrics_is_clean),
-    ("cloud_with_native_metrics_is_clean", _check_cloud_with_native_metrics_is_clean),
-]
-
-
-def run_self_test_checks(checks: list[tuple[str, Callable[[], None]]]) -> bool:
-    all_passed = True
-    for name, fn in checks:
-        try:
-            fn()
-        except AssertionError as e:
-            _fail(f"{name}: {e}")
-            all_passed = False
-        else:
-            _ok(name)
-    return all_passed
+_SELF_TEST_CHECKS: list[NamedCheck] = named_checks(
+    [
+        _check_cloud_plus_portable_metrics_is_flagged,
+        _check_local_with_portable_metrics_is_clean,
+        _check_cloud_with_native_metrics_is_clean,
+    ]
+)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Observability native-only example-conformance guard",
-    )
+    parser = gate_argument_parser("Observability native-only example-conformance guard")
     parser.add_argument("-w", "--warn", action="store_true", help="Report violations but exit 0")
     parser.add_argument(
         "--examples-root",
@@ -352,20 +330,19 @@ def main() -> int:
         help="Override examples root (default: auto-detect datrix/examples)",
     )
     parser.add_argument(
-        "--self-test", action="store_true", help="Run only the self-test suite and exit"
-    )
-    parser.add_argument(
         "-v", "--verbose", action="store_true", help="Print each system.dcfg scanned"
     )
     args = parser.parse_args()
 
-    _step("Self-test: observability native-only guard scanner edge cases")
-    self_test_passed = run_self_test_checks(_SELF_TEST_CHECKS)
+    if args.harness_self_test:
+        return EXIT_PASS if harness_self_test() else EXIT_VIOLATION
+    report_step("Self-test: observability native-only guard scanner edge cases")
+    self_test_passed = run_checks(_SELF_TEST_CHECKS)
     if args.self_test:
-        return 0 if self_test_passed else 1
+        return EXIT_PASS if self_test_passed else EXIT_VIOLATION
     if not self_test_passed:
         print("\nError: self-test failed -- refusing to trust the scanner.", file=sys.stderr)
-        return 2
+        return EXIT_USAGE
 
     examples_root = args.examples_root.resolve() if args.examples_root else SHOWCASE_DIR / "examples"
 

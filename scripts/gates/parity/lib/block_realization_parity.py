@@ -80,6 +80,7 @@ from datrix_common.plugin.capability_cells import (
 )
 from datrix_common.plugin.capability_resolution import declaration_for_provider
 
+from datrix_scripts.gate_harness import configure_logging
 from datrix_scripts.registered_targets import registered_platform_names
 
 logger = logging.getLogger(__name__)
@@ -131,6 +132,9 @@ _SURFACE_OWNED_OPTIONAL_FIELDS: Final[frozenset[str]] = frozenset({
 #: comparison to make; the members are product vocabulary.
 _CONSTRUCTION_ENFORCED_OPTIONAL_FIELDS: Final[frozenset[str]] = frozenset({
     "deployable_constructs",
+    # Each retired flavor is checked at construction to be no longer offered and
+    # to name an offered replacement; a platform that never retired one carries none.
+    "retired_flavors",
 })
 
 #: Set-shaped optional fields whose members are product vocabulary (config-store
@@ -187,6 +191,7 @@ _PLATFORM_FACT_FIELDS: Final[frozenset[str]] = frozenset({
     # the declaration's own construction check enforces that equivalence.
     "serverless_http_client_address",
     "deploy_preflight_entrypoint",
+    "cache_transport",                          # whether this platform's caches accept TLS or plain TCP
     "deploy_time_settings",                     # the setting name this platform delivers per role
     "websocket_upgrade_idle_timeout_seconds",   # this ingress's idle bound per upgrading runtime
 })
@@ -242,12 +247,6 @@ _REQUIRED_BUCKETS: Final[tuple[tuple[str, frozenset[str]], ...]] = (
     ("_REQUIRED_FIELD_OWNERS", frozenset(_REQUIRED_FIELD_OWNERS)),
     ("_REQUIRED_PLATFORM_FACT_FIELDS", _REQUIRED_PLATFORM_FACT_FIELDS),
 )
-
-
-def configure_logging(debug: bool = False) -> None:
-    """Configure logging output."""
-    level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def _partition_problems(

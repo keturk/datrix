@@ -110,6 +110,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default="customer project",
         help="Non-identifying note stored alongside a registered digest.",
     )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Run only the scanner self-test (planted terms found, clean text not) and exit.",
+    )
     return parser.parse_args(argv)
 
 
@@ -136,6 +141,9 @@ def main(argv: list[str]) -> int:
         for failure in failures:
             print(f"  {failure}")
         return 1
+    if args.self_test:
+        print("CUSTOMER-DOMAIN ISOLATION SELF-TEST PASSED: the scanner finds every planted term.")
+        return 0
 
     try:
         corpus = load_term_corpus(path)

@@ -26,7 +26,7 @@ must satisfy, and code shapes held at zero. Repo-level validation **scripts**, n
 | **Register a term** | `.\gates\repo-hygiene\customer-domain-isolation-gate.ps1 -AddTerm acmecorp -Hint "customer project"` | Append the term's digest to the corpus and exit |
 | **Debug** | `.\gates\repo-hygiene\customer-domain-isolation-gate.ps1 -Dbg` | Print the python invocation before running |
 
-**Parameters:** `-Repo <name[,name...]>`, `-PendingOnly`, `-AddTerm <term>`, `-Hint <text>` (default: `customer project`), `-Dbg`
+**Parameters:** `-Repo <name[,name...]>`, `-PendingOnly`, `-AddTerm <term>`, `-Hint <text>` (default: `customer project`), `-SelfTest` (only the synthetic-occurrence self-test below; scans nothing real), `-Dbg`
 
 **Self-test runs automatically, every invocation.** Before any real scan, the scanner is fed four synthetic occurrence shapes it must detect (hyphenated resource name, path segment, camelCase identifier, upper-case identifier), two clean strings it must NOT flag, a redaction check (the reported excerpt must not contain the term), and an empty-corpus check (must report nothing). A detector that stopped detecting reports a clean tree, which is indistinguishable from a clean tree — so a self-test failure aborts before any result is trusted.
 
@@ -407,7 +407,7 @@ Escaped-escape gate for **Python-emitting** templates. Jinja copies template tex
 | **Custom base dir** | `.\gates\repo-hygiene\emitted-escape-integrity-gate.ps1 -BaseDir D:\datrix` | Specify monorepo root explicitly |
 | **Self-test only** | `.\gates\repo-hygiene\emitted-escape-integrity-gate.ps1 -SelfTest` | Run only the detector's non-vacuity self-test; skip the real scan |
 
-**Parameters:** `-BaseDir` (default: `D:/datrix`), `-ShowFiles`, `-SelfTest`
+**Parameters:** `-BaseDir` (default: the workspace root, `Get-DatrixWorkspaceRoot`), `-ShowFiles`, `-SelfTest`
 
 **Self-test runs automatically, every invocation.** The run length IS the rule — one backslash is the correct escape, two are the defect, four are a deliberate deeper escape — so the self-test covers all three and requires the detector to flag exactly the middle one. A detector that cannot tell them apart would either miss the defect or flag correct code until someone exempted it away. Self-test failure aborts before the real scan (exit 2).
 
@@ -617,3 +617,23 @@ codes its `expect=` names, and `rejected` syntax stays rejected.
 - Non-vacuity self-test (every invocation): a planted fence that does not parse is reported with its file and line, and its fixed twin passes.
 
 **Exit codes:** 0 = every fence holds (or a successful `-SelfTest`), 1 = at least one fence fails or is refused, 2 = the self-test failed.
+
+## `gates\repo-hygiene\script-catalogue-gate.ps1`
+
+Holds the scripts tree's documentation to what the tree holds (`lib\script_catalogue.py`), reading Markdown's token stream (`markdown-it-py`) and PowerShell's own parser, never regex over prose. Four rules, each a hard zero:
+
+1. **undocumented-script** — every `.ps1` directly in a folder that has a `quick-reference.md` is a `##`/`###` heading of it (the root `scripts\quick-reference.md` is the folder index and is exempt).
+2. **undeclared-flag** — every `-Flag` written after a script's name in one inline code span or one fence line is a parameter or alias the script's `param()` block declares (PowerShell's common parameters excepted). A flag after `|`, `;` or `&&` belongs to the next command.
+3. **readme-beside-quick-reference** — no folder below `scripts\` holds both a `quick-reference.md` and a `README.md`.
+4. **dangling-link** — every relative link in a `quick-reference.md` or `README.md` under `scripts\` resolves to a file (anchors are not checked).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\gates\repo-hygiene\script-catalogue-gate.ps1` | Self-test checks, then the real tree |
+| **Self-test only** | `.\gates\repo-hygiene\script-catalogue-gate.ps1 -SelfTest` | Planted folders: one defect of every rule, and a clean twin |
+| **Real tree only** | `.\gates\repo-hygiene\script-catalogue-gate.ps1 -Only scripts_tree` | Skip the planted checks |
+| **Debug** | `.\gates\repo-hygiene\script-catalogue-gate.ps1 -Dbg` | Debug logging, print the python invocation |
+
+**Parameters:** `-SelfTest`, `-Only <prefix>`, `-Dbg`
+
+**Output:** one line per hit, `[<rule>] <path>[:<line>]: <detail>`, then the verdict line `[GATE] script-catalogue PASSED|FAILED exit=<n> log=<path>`. **Exit codes:** 0 = no hit, 1 = a hit or a failed self-test, 2 = usage error.

@@ -39,7 +39,7 @@
        templates discovered (which would pass vacuously), or a failing self-test
 
 .PARAMETER BaseDir
- Monorepo root to scan. Defaults to D:/datrix.
+ Workspace root to scan. Defaults to the workspace holding this checkout.
 
 .PARAMETER ShowFiles
  Print every template being scanned.
@@ -63,7 +63,7 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [string]$BaseDir = "D:/datrix",
+    [string]$BaseDir = "",
 
     [Parameter()]
     [switch]$ShowFiles,
@@ -73,61 +73,15 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\emitted_escape_integrity.py"
-
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: emitted_escape_integrity.py not found at: $runnerScript"
-    exit 2
+$pythonArgs = @()
+if ($SelfTest) {
+    $pythonArgs += "--self-test"
+}
+else {
+    if ($BaseDir) { $pythonArgs += @("--base-dir", $BaseDir) }
+    if ($ShowFiles) { $pythonArgs += "--show-files" }
 }
 
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-trap {
-    Invoke-Cleanup
-    break
-}
-
-$venvActivated = Ensure-DatrixVenv
-if (-not $venvActivated) {
-    Write-Error "Error: could not activate the Datrix virtual environment."
-    exit 2
-}
-
-try {
-    $pythonArgs = @($runnerScript)
-    if ($SelfTest) {
-        $pythonArgs += "--self-test"
-    }
-    else {
-        $pythonArgs += "--base-dir"
-        $pythonArgs += $BaseDir
-        if ($ShowFiles) {
-            $pythonArgs += "--show-files"
-        }
-    }
-
-    $targetLabel = if ($SelfTest) { "self-test only" } else { $BaseDir }
-    Write-Host "Running emitted-escape integrity check for: $targetLabel" -ForegroundColor Cyan
-
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Emitted-escape integrity check failed with exit code $exitCode" -ForegroundColor Red
-        exit $exitCode
-    }
-
-    Write-Host "Emitted-escape integrity check passed" -ForegroundColor Green
-    exit 0
-
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\emitted_escape_integrity.py") -Arguments $pythonArgs -Gate "emitted-escape-integrity")

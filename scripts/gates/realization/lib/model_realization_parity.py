@@ -46,6 +46,7 @@ from datrix_testing.conformance.fixture_platform import (  # noqa: E402
     build_complete_fixtureplat,
 )
 
+from datrix_scripts.gate_harness import configure_logging
 from datrix_scripts.registered_targets import registered_platform_names
 
 logger = logging.getLogger(__name__)
@@ -399,12 +400,6 @@ def check_model_realization_parity() -> int:
     )
     return 0
 
-
-def configure_logging(debug: bool = False) -> None:
-    """Configure logging output."""
-    logging.basicConfig(
-        level=logging.DEBUG if debug else logging.INFO, format="%(levelname)s: %(message)s"
-    )
 
 
 def main() -> int:

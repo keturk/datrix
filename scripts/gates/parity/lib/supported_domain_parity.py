@@ -92,6 +92,7 @@ from datrix_codegen_kernel.generation.discovery import get_language_plugin
 from datrix_codegen_kernel.parity.domain_declaration import DomainDeclaration
 from datrix_codegen_kernel.parity.domain_ids import STRUCTURAL_DOMAIN_IDS
 from datrix_common.plugin.registry import LANGUAGES_GROUP
+from datrix_scripts.gate_harness import configure_logging
 from datrix_testing.conformance.domain_self_consistency import (
     DomainDeclaringPlugin,
 )
@@ -129,12 +130,6 @@ _SELF_TEST_DOMAIN_OUT_OF_UNIVERSE: Final[str] = "self_test_returns"
 #: in the synthetic structural ids: standing in for ``discovery``/``resilience``,
 #: which no language is required to declare and any language may.
 _SELF_TEST_DOMAIN_NON_STRUCTURAL: Final[str] = "self_test_lookup"
-
-
-def configure_logging(debug: bool = False) -> None:
-    """Configure logging output."""
-    level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def registered_language_names() -> frozenset[str]:

@@ -82,6 +82,7 @@ from typing import Final
 from datrix_codegen_kernel.dal.frontend import DAL_RESOURCE_SUFFIX
 from datrix_scripts.framework_references import FRAMEWORK_REFERENCE, ReferenceResolver
 from datrix_scripts.framework_repos import SHOWCASE_REPO_NAME
+from datrix_scripts.gate_harness import write_file
 from datrix_scripts.paths import WORKSPACE_DIR
 from datrix_scripts.pyproject_deps import (
     DATRIX_PREFIX,
@@ -550,11 +551,6 @@ _SELF_TEST_DOTTED_SEEN: Final = 7
 _SELF_TEST_FILES_SEEN: Final = 14
 
 
-def _write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-
-
 def _prose_module(docstring: str, prose: tuple[tuple[str, bool], ...], tail: str) -> str:
     body = "\n".join(line for line, _ in prose)
     return f'"""{docstring}"""\n\n{body}\n{tail}'
@@ -564,23 +560,23 @@ def _plant_workspace(root: Path) -> tuple[Path, Path]:
     """Plant the three-package fixture workspace; returns the two citing modules' paths."""
     for package, dependencies in _SELF_TEST_PACKAGES.items():
         declared = ", ".join(f'"{dependency}>=0"' for dependency in dependencies)
-        _write(
+        write_file(
             root / package / PYPROJECT_NAME,
             f'[project]\nname = "{package}"\nversion = "0"\ndependencies = [{declared}]\n',
         )
-    _write(root / "datrix-fixture-core/src/datrix_fixture_core/naming.py", '"""Naming."""\n')
-    _write(root / "datrix-fixture-language/tests/unit/test_spec.py", '"""Spec test."""\n')
+    write_file(root / "datrix-fixture-core/src/datrix_fixture_core/naming.py", '"""Naming."""\n')
+    write_file(root / "datrix-fixture-language/tests/unit/test_spec.py", '"""Spec test."""\n')
     platform = root / "datrix-fixture-platform/src/datrix_fixture_platform"
-    _write(platform / "resource_mapper.py", _SELF_TEST_PLATFORM_MODULE)
-    _write(platform / f"dgen/generator{DAL_RESOURCE_SUFFIX}", _SELF_TEST_GENERATOR_RESOURCE)
-    _write(platform / "templates/deploy.py.j2", "# template\n")
+    write_file(platform / "resource_mapper.py", _SELF_TEST_PLATFORM_MODULE)
+    write_file(platform / f"dgen/generator{DAL_RESOURCE_SUFFIX}", _SELF_TEST_GENERATOR_RESOURCE)
+    write_file(platform / "templates/deploy.py.j2", "# template\n")
     citing = root / "datrix-fixture-language/src/datrix_fixture_language/language_spec.py"
-    _write(
+    write_file(
         citing,
         _prose_module("Fixture citing module.", _SELF_TEST_PROSE, '\nMESSAGE = "see _gone_code.py"\n'),
     )
     relative = root / f"datrix-fixture-core/src/{_SELF_TEST_RELATIVE_IMPORT_ROOT}/relative.py"
-    _write(relative, _prose_module("Fixture relative module.", _SELF_TEST_RELATIVE_PROSE, ""))
+    write_file(relative, _prose_module("Fixture relative module.", _SELF_TEST_RELATIVE_PROSE, ""))
     return citing, relative
 
 

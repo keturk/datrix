@@ -62,64 +62,19 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path $scriptDir "..\..\common"
+$pythonArgs = @()
+if ($SelfTest) {
+    $pythonArgs += "--self-test"
+}
+elseif (-not [string]::IsNullOrWhiteSpace($Roots)) {
+    foreach ($item in $Roots.Split(",")) {
+        $trimmed = $item.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($trimmed)) { $pythonArgs += $trimmed }
+    }
+}
+
 # Shared with git/commit-and-push and the committed-content hook, so it lives in the shared
 # scripts package and runs as a module.
-$runnerModule = "datrix_scripts.design_task_references"
-$runnerScript = Join-Path $commonDir "lib\datrix_scripts\design_task_references.py"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: design_task_references.py not found at: $runnerScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-trap {
-    Invoke-Cleanup
-    break
-}
-
-Ensure-DatrixVenv
-
-try {
-    Ensure-DatrixPackagesInstalled
-
-    $pythonArgs = @("-m", $runnerModule)
-    if ($SelfTest) {
-        $pythonArgs += "--self-test"
-    }
-    elseif (-not [string]::IsNullOrWhiteSpace($Roots)) {
-        foreach ($item in $Roots.Split(",")) {
-            $trimmed = $item.Trim()
-            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
-                $pythonArgs += $trimmed
-            }
-        }
-    }
-
-    $targetLabel = if ($SelfTest) { "self-test only" }
-                   elseif ([string]::IsNullOrWhiteSpace($Roots)) { "all committed trees" }
-                   else { $Roots }
-    Write-Host "Running design/task reference check for: $targetLabel" -ForegroundColor Cyan
-
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Design/task reference check failed with exit code $exitCode" -ForegroundColor Red
-        exit $exitCode
-    }
-
-    Write-Host "Design/task reference check passed" -ForegroundColor Green
-    exit 0
-
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Module "datrix_scripts.design_task_references" -Arguments $pythonArgs -RequirePackages -Gate "design-task-reference")

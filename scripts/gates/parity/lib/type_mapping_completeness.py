@@ -26,6 +26,7 @@ from typing import Final
 from datrix_codegen_kernel.sql_facts import type_mappings as sql_type_mappings
 from datrix_common.plugin.registry import EXTENSION_GROUP
 
+from datrix_scripts.gate_harness import configure_logging
 from datrix_scripts.registered_targets import registered_language_names
 
 #: Every language's type_mappings module exposes exactly one module-level
@@ -48,15 +49,6 @@ _SQL_SURFACE_NAME: Final[str] = "sql"
 _SELF_TEST_PACK: Final[str] = "self_test_pack"
 _SELF_TEST_SURFACE_COMPLETE: Final[str] = "self_test_surface_with_key"
 _SELF_TEST_SURFACE_MISSING: Final[str] = "self_test_surface_missing_key"
-
-
-def configure_logging(debug: bool = False) -> None:
-    """Configure logging output."""
-    level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(levelname)s: %(message)s",
-    )
 
 
 def import_language_mappings(language: str) -> ModuleType:

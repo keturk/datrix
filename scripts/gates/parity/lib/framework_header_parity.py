@@ -60,6 +60,8 @@ from datrix_codegen_common.generation.http_headers import (  # noqa: E402
 from datrix_codegen_kernel.generation.client_address import CLIENT_ADDRESS_HEADER  # noqa: E402
 from datrix_codegen_kernel.generation.trusted_caller import CALLER_TOKEN_HEADER  # noqa: E402
 
+from datrix_scripts.function_sources import iter_source_files  # noqa: E402
+from datrix_scripts.gate_harness import report_condition  # noqa: E402
 from datrix_scripts.paths import SHOWCASE_DIR  # noqa: E402
 from datrix_scripts.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
@@ -181,17 +183,6 @@ class LanguageCensus:
     """Registry constant names referenced from the language's ``.py`` files."""
 
 
-def _iter_source_files(src_dir: Path) -> list[Path]:
-    files: list[Path] = []
-    for path in sorted(src_dir.rglob("*")):
-        if not path.is_file() or path.suffix not in _SOURCE_SUFFIXES:
-            continue
-        if any(part in _SKIP_DIR_NAMES for part in path.relative_to(src_dir).parts):
-            continue
-        files.append(path)
-    return files
-
-
 def census_sources(language: str, src_dirs: tuple[Path, ...], registry: Registry) -> LanguageCensus:
     """Every ``X-`` header token and every registry-constant reference
     (``.py`` and ``.j2`` only) under every package implementing *language* --
@@ -208,7 +199,7 @@ def census_sources(language: str, src_dirs: tuple[Path, ...], registry: Registry
     constant_references: set[str] = set()
     for src_dir in src_dirs:
         package = src_dir.parents[1].name
-        for path in _iter_source_files(src_dir):
+        for path in iter_source_files(src_dir, _SOURCE_SUFFIXES, _SKIP_DIR_NAMES):
             text = path.read_text(encoding="utf-8")
             relative = path.relative_to(src_dir).as_posix()
             for line_number, line in enumerate(text.splitlines(), start=1):
@@ -439,11 +430,6 @@ def render_report(registry: Registry, verdicts: Mapping[str, LanguageVerdict]) -
 # ---------------------------------------------------------------------------
 
 
-def _assert(condition: bool, label: str) -> bool:
-    print(f"  {'PASS' if condition else 'FAIL'}: {label}")
-    return condition
-
-
 def _planted_census(
     language: str, names: tuple[str, ...], constants: frozenset[str] = frozenset(),
 ) -> LanguageCensus:
@@ -463,33 +449,33 @@ def _self_test_comparator(registry: Registry) -> bool:
     full = _all_names(registry)
     clean = {"alpha": _planted_census("alpha", full), "beta": _planted_census("beta", full)}
     problems, _ = evaluate(registry, clean, ())
-    ok &= _assert(problems == [], "two fully realizing languages report no problem")
+    ok &= report_condition(problems == [], "two fully realizing languages report no problem")
 
     retired = {"alpha": _planted_census("alpha", full + (registry.retired[0],)), "beta": clean["beta"]}
     problems, _ = evaluate(registry, retired, ())
-    ok &= _assert(len(problems) == 1 and "RETIRED" in problems[0], "a retired spelling is one problem")
+    ok &= report_condition(len(problems) == 1 and "RETIRED" in problems[0], "a retired spelling is one problem")
 
     private = {"alpha": _planted_census("alpha", full + ("X-Datrix-Private-Thing",)), "beta": clean["beta"]}
     problems, _ = evaluate(registry, private, ())
-    ok &= _assert(
+    ok &= report_condition(
         len(problems) == 1 and "not a registered name" in problems[0],
         "an unregistered framework-prefixed spelling is one problem",
     )
     exemption = Exemption("datrix-codegen-alpha", "x-datrix-private-thing", "caller_token", "planted")
     problems, _ = evaluate(registry, private, (exemption,))
-    ok &= _assert(problems == [], "an exempted private spelling passes (case-insensitively)")
+    ok &= report_condition(problems == [], "an exempted private spelling passes (case-insensitively)")
     problems, _ = evaluate(registry, clean, (exemption,))
-    ok &= _assert(len(problems) == 1 and "stale entry" in problems[0], "an unused exemption is one problem")
+    ok &= report_condition(len(problems) == 1 and "stale entry" in problems[0], "an unused exemption is one problem")
 
     foreign = {"alpha": _planted_census("alpha", full + ("X-Forwarded-For",)), "beta": clean["beta"]}
     problems, _ = evaluate(registry, foreign, ())
-    ok &= _assert(problems == [], "a non-framework X- header is not counted")
+    ok &= report_condition(problems == [], "a non-framework X- header is not counted")
 
     missing_family = registry.headers[-1].family
     partial_names = tuple(name for name in full if name != registry.headers[-1].name)
     partial = {"alpha": _planted_census("alpha", partial_names), "beta": clean["beta"]}
     problems, verdicts = evaluate(registry, partial, ())
-    ok &= _assert(
+    ok &= report_condition(
         len(problems) == 1
         and "alpha" in problems[0]
         and repr(missing_family) in problems[0]
@@ -497,7 +483,7 @@ def _self_test_comparator(registry: Registry) -> bool:
         "an unrealized family is exactly one problem naming the language and the family, "
         "and evaluate takes no declaration input that could excuse it",
     )
-    ok &= _assert(
+    ok &= report_condition(
         missing_family not in verdicts["alpha"].realized
         and missing_family in verdicts["beta"].realized,
         "the verdict marks the unrealized family missing for the one language only",
@@ -506,7 +492,7 @@ def _self_test_comparator(registry: Registry) -> bool:
     nobody = {"alpha": _planted_census("alpha", partial_names), "beta": _planted_census("beta", partial_names)}
     problems, _ = evaluate(registry, nobody, ())
     dead = [problem for problem in problems if "dead contract" in problem]
-    ok &= _assert(
+    ok &= report_condition(
         len(dead) == 1 and len(problems) == 3,
         "a family nobody realizes is one dead-contract problem beside one per-language problem",
     )
@@ -521,7 +507,7 @@ def _self_test_comparator(registry: Registry) -> bool:
         "beta": clean["beta"],
     }
     problems, _ = evaluate(registry, via_constant, ())
-    ok &= _assert(problems == [], "a registry constant reference realizes its family")
+    ok &= report_condition(problems == [], "a registry constant reference realizes its family")
     return ok
 
 
@@ -545,15 +531,15 @@ def _self_test_census(tmp_root: Path, registry: Registry) -> bool:
     (src / "__pycache__" / "stale.py").write_text("'X-Datrix-Ignored-Because-Cache'\n", encoding="utf-8")
     census = census_sources("fixture", (src,), registry)
     names = sorted(spelling.name for spelling in census.spellings)
-    ok = _assert(
+    ok = report_condition(
         names == ["X-RateLimit-Limit", "x-webhook-secret"],
         f"planted template yields exactly its two spellings (got {names})",
     )
-    ok &= _assert(
+    ok &= report_condition(
         census.constant_references == frozenset({"CALLER_TOKEN_HEADER"}),
         "a python constant reference is censused",
     )
-    ok &= _assert(
+    ok &= report_condition(
         realized_families(census, registry) == frozenset({"rate_limit_limit", "webhook_secret", "caller_token"}),
         "realized families come from spellings (case-insensitively) and constant references",
     )
@@ -584,7 +570,7 @@ def _self_test_language_core(tmp_root: Path, registry: Registry) -> bool:
     )
     unrealized_by_split = sorted(registry.families() - realized_families(split, registry))
     split_problems = [problem for problem in problems if problem.startswith("splitlang:")]
-    return _assert(
+    return report_condition(
         [spelling.package for spelling in split.spellings] == ["datrix-codegen-splitlang-core"]
         and "caller_token" in realized_families(split, registry)
         and not backend_only.spellings
@@ -602,7 +588,7 @@ def _self_test_exemption_parsing(registry: Registry) -> bool:
     good = {"exemptions": [
         {"package": "p", "header": "X-Datrix-Thing", "family": "caller_token", "reason": "r"},
     ]}
-    ok &= _assert(len(parse_exemptions(good, registry)) == 1, "a well-formed exemption file parses")
+    ok &= report_condition(len(parse_exemptions(good, registry)) == 1, "a well-formed exemption file parses")
     for label, payload in (
         ("a non-list exemptions member is rejected", {"exemptions": {}}),
         ("an unknown family is rejected", {"exemptions": [{**good["exemptions"][0], "family": "nope"}]}),
@@ -611,9 +597,9 @@ def _self_test_exemption_parsing(registry: Registry) -> bool:
     ):
         try:
             parse_exemptions(payload, registry)
-            ok &= _assert(False, label)
+            ok &= report_condition(False, label)
         except ValueError:
-            ok &= _assert(True, label)
+            ok &= report_condition(True, label)
     return ok
 
 
@@ -625,7 +611,7 @@ def _self_test_live_read(registry: Registry) -> bool:
         language for language, census in censuses.items()
         if "caller_token" in realized_families(census, registry)
     )
-    return _assert(
+    return report_condition(
         len(realizers) >= _MIN_LANGUAGES_FOR_COMPARISON,
         f"live census finds the caller-token header on >= 2 languages (found: {realizers})",
     )
@@ -634,7 +620,7 @@ def _self_test_live_read(registry: Registry) -> bool:
 def self_test() -> bool:
     print("Non-vacuity self-test:")
     registry = live_registry()
-    ok = _assert(len(registry.constant_families) >= 1, "the registry exports at least one header constant")
+    ok = report_condition(len(registry.constant_families) >= 1, "the registry exports at least one header constant")
     tmp_root = Path(tempfile.mkdtemp(prefix="framework-header-gate-"))
     try:
         ok &= _self_test_census(tmp_root, registry)

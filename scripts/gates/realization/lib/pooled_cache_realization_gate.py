@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Final, Protocol
 
 from datrix_scripts.paths import SHOWCASE_DIR, WORKSPACE_DIR
+from datrix_scripts.registered_targets import discover_all_package_locations
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +82,6 @@ _CACHE_GROUP_DECLARATION_LITERAL: Final[str] = f'cacheGroup = "{_FIXTURE_CACHE_G
 #: reachable from a real call site in this target's own source".
 _SLICE_INDEX_ATTR: Final[str] = "slice_index"
 
-_PACKAGE_DIR_PREFIX: Final[str] = "datrix-"
-_SRC_SUBDIR_NAME: Final[str] = "src"
 #: `ast.stmt` attribute names whose value is itself a statement list this
 #: scanner must descend into to find a def nested inside a non-function,
 #: non-class container (If/While/For/With/Try's main body + else + finally).
@@ -231,12 +230,9 @@ def _resolve_target_src_dir(axis: str, target: str, monorepo_root: Path) -> Path
             f"{group!r}. Registered entry points: {sorted(module_roots)}. Fix: "
             f"pass one of these registered target names."
         )
-    for candidate in sorted(monorepo_root.iterdir()):
-        if not candidate.is_dir() or not candidate.name.startswith(_PACKAGE_DIR_PREFIX):
-            continue
-        src_dir = candidate / _SRC_SUBDIR_NAME / import_name
-        if src_dir.is_dir():
-            return src_dir
+    locations = discover_all_package_locations(monorepo_root)
+    if import_name in locations:
+        return locations[import_name]
     raise ValueError(
         f"Could not resolve an on-disk src/ directory for {axis} target "
         f"{target!r} (its registered plugin lives in module root "

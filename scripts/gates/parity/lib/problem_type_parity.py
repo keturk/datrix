@@ -70,6 +70,9 @@ from datrix_common.datrix_model.problem_types import (  # noqa: E402
     ProblemType,
 )
 
+from datrix_scripts.count_ratchet import RatchetMode, compare, read_counts  # noqa: E402
+from datrix_scripts.function_sources import iter_source_files  # noqa: E402
+from datrix_scripts.gate_harness import report_condition  # noqa: E402
 from datrix_scripts.paths import SHOWCASE_DIR  # noqa: E402
 from datrix_scripts.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
@@ -133,17 +136,6 @@ class LanguageCensus:
     family the reference names."""
 
 
-def _iter_source_files(src_dir: Path) -> list[Path]:
-    files: list[Path] = []
-    for path in sorted(src_dir.rglob("*")):
-        if not path.is_file() or path.suffix not in _SOURCE_SUFFIXES:
-            continue
-        if any(part in _SKIP_DIR_NAMES for part in path.relative_to(src_dir).parts):
-            continue
-        files.append(path)
-    return files
-
-
 def _line_references(
     suffix: str, line: str, family_by_global: Mapping[str, str]
 ) -> list[str]:
@@ -183,7 +175,7 @@ def census_sources(
     references: list[Spelling] = []
     for src_dir in src_dirs:
         package = src_dir.parents[1].name
-        for path in _iter_source_files(src_dir):
+        for path in iter_source_files(src_dir, _SOURCE_SUFFIXES, _SKIP_DIR_NAMES):
             relative = path.relative_to(src_dir).as_posix()
             for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
                 for match in _URN_LITERAL_RE.finditer(line):
@@ -291,22 +283,13 @@ def load_baseline(path: Path = BASELINE_PATH) -> Mapping[str, int]:
             f"has unrecognized top-level key(s) {unknown}; the only legal table is [{_BASELINE_LANGUAGES_KEY}]",
             "remove the key.",
         )
-    table = raw.get(_BASELINE_LANGUAGES_KEY)
-    if not isinstance(table, dict):
+    if _BASELINE_LANGUAGES_KEY not in raw:
         raise _baseline_error(
             path,
             f"carries no [{_BASELINE_LANGUAGES_KEY}] table of language = count entries",
             f"add the [{_BASELINE_LANGUAGES_KEY}] table, seeded from a live run of the gate.",
         )
-    counts: dict[str, int] = {}
-    for language, count in table.items():
-        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-            raise _baseline_error(
-                path,
-                f"pins {language!r} at {count!r}; expected a non-negative integer (a bool is not one)",
-                "write the live unspelled-cell count for the language.",
-            )
-        counts[language] = count
+    counts = read_counts(raw[_BASELINE_LANGUAGES_KEY], source=path, table_name=_BASELINE_LANGUAGES_KEY)
     return MappingProxyType(counts)
 
 
@@ -322,12 +305,17 @@ def ratchet_problems(
     registered is stale. A registered language absent from *baseline* is
     pinned at exactly zero.
     """
+    live_counts = {language: len(tuple(unspelled.get(language, ()))) for language in registered}
     problems: list[str] = []
-    for language in sorted(registered):
-        families = tuple(unspelled.get(language, ()))
-        live = len(families)
-        pinned = baseline.get(language, 0)
-        if live > pinned:
+    for delta in compare(live_counts, baseline, RatchetMode.EXACT_PIN, keys=registered):
+        language, live, pinned = delta.key, delta.current, delta.frozen
+        if delta.stale:
+            problems.append(
+                f"{BASELINE_PATH.name}: stale pin -- it names language {language!r}, which is not "
+                f"registered (registered: {', '.join(sorted(registered))}). Fix: remove the entry."
+            )
+        elif delta.increased:
+            families = tuple(unspelled.get(language, ()))
             problems.append(
                 f"{language}: EXCEED -- {live} unspelled problem-type cell(s) against a pin of "
                 f"{pinned} (+{live - pinned}): {', '.join(families)}. A family stopped being realized "
@@ -335,18 +323,13 @@ def ratchet_problems(
                 f"language's sources (PROBLEM_<FAMILY> in a template, problem_type_for(\"<family>\") "
                 f"in Python); never raise the pin in {BASELINE_PATH.name}."
             )
-        elif live < pinned:
+        else:
             problems.append(
                 f"{language}: BELOW -- {live} unspelled problem-type cell(s) against a pin of "
                 f"{pinned} (-{pinned - live}). An improvement must be banked. Fix: lower "
                 f"[{_BASELINE_LANGUAGES_KEY}] {language} to {live} in {BASELINE_PATH.name} in the "
                 f"same change."
             )
-    for language in sorted(set(baseline) - registered):
-        problems.append(
-            f"{BASELINE_PATH.name}: stale pin -- it names language {language!r}, which is not "
-            f"registered (registered: {', '.join(sorted(registered))}). Fix: remove the entry."
-        )
     return problems
 
 
@@ -398,11 +381,6 @@ def render_report(registry: tuple[ProblemType, ...], verdicts: Mapping[str, Lang
 # ---------------------------------------------------------------------------
 
 
-def _assert(condition: bool, label: str) -> bool:
-    print(f"  {'PASS' if condition else 'FAIL'}: {label}")
-    return condition
-
-
 def _planted(
     language: str, slugs: tuple[str, ...], *, literals: tuple[str, ...] = ()
 ) -> LanguageCensus:
@@ -421,21 +399,21 @@ def _self_test_comparator(registry: tuple[ProblemType, ...]) -> bool:
     full = tuple(problem_type.family for problem_type in registry)
     clean = {"alpha": _planted("alpha", full), "beta": _planted("beta", full)}
     evaluation = evaluate(registry, clean)
-    ok &= _assert(
+    ok &= report_condition(
         evaluation.problems == [] and all(cells == () for cells in evaluation.unspelled.values()),
         "two fully realizing languages report no problem and no unspelled cell",
     )
 
     private = {"alpha": _planted("alpha", full, literals=("private-thing",)), "beta": clean["beta"]}
     evaluation = evaluate(registry, private)
-    ok &= _assert(
+    ok &= report_condition(
         len(evaluation.problems) == 1 and "not a registered problem-type family" in evaluation.problems[0],
         "a spelled private slug is one unpinned hard problem",
     )
 
     literal = {"alpha": _planted("alpha", full, literals=(full[0],)), "beta": clean["beta"]}
     evaluation = evaluate(registry, literal)
-    ok &= _assert(
+    ok &= report_condition(
         len(evaluation.problems) == 1
         and "a registered family" in evaluation.problems[0]
         and "no exemption path" in evaluation.problems[0]
@@ -444,7 +422,7 @@ def _self_test_comparator(registry: tuple[ProblemType, ...]) -> bool:
     )
     only_literals = {"alpha": _planted("alpha", (), literals=full), "beta": clean["beta"]}
     evaluation = evaluate(registry, only_literals)
-    ok &= _assert(
+    ok &= report_condition(
         evaluation.unspelled["alpha"] == tuple(sorted(full)),
         "a language that spells every family only as literals realizes none of them",
     )
@@ -453,7 +431,7 @@ def _self_test_comparator(registry: tuple[ProblemType, ...]) -> bool:
     partial_slugs = full[:-1]
     partial = {"alpha": _planted("alpha", partial_slugs), "beta": clean["beta"]}
     evaluation = evaluate(registry, partial)
-    ok &= _assert(
+    ok &= report_condition(
         evaluation.problems == []
         and evaluation.unspelled["alpha"] == (missing,)
         and evaluation.unspelled["beta"] == ()
@@ -462,7 +440,7 @@ def _self_test_comparator(registry: tuple[ProblemType, ...]) -> bool:
     )
     nobody = {"alpha": _planted("alpha", partial_slugs), "beta": _planted("beta", partial_slugs)}
     evaluation = evaluate(registry, nobody)
-    ok &= _assert(
+    ok &= report_condition(
         len(evaluation.problems) == 1 and "dead contract" in evaluation.problems[0],
         "a family nobody spells is one unpinned hard problem, whatever any pin says",
     )
@@ -475,24 +453,24 @@ def _self_test_ratchet(registry: tuple[ProblemType, ...]) -> bool:
     registered = frozenset({"alpha", "beta"})
     one_cell = {"alpha": (full[-1],), "beta": ()}
     problems = ratchet_problems(one_cell, {"alpha": 1}, registered)
-    ok &= _assert(problems == [], "an exact-pin match is clean")
+    ok &= report_condition(problems == [], "an exact-pin match is clean")
     problems = ratchet_problems(one_cell, {"alpha": 0}, registered)
-    ok &= _assert(
+    ok &= report_condition(
         len(problems) == 1 and "EXCEED" in problems[0] and full[-1] in problems[0],
         "a count above the pin is one EXCEED problem naming the unspelled family",
     )
     problems = ratchet_problems(one_cell, {"alpha": 2}, registered)
-    ok &= _assert(
+    ok &= report_condition(
         len(problems) == 1 and "BELOW" in problems[0] and "lower" in problems[0],
         "a count below the pin is one BELOW problem that says to lower the pin",
     )
     problems = ratchet_problems(one_cell, {}, registered)
-    ok &= _assert(
+    ok &= report_condition(
         len(problems) == 1 and "EXCEED" in problems[0] and "pin of 0" in problems[0],
         "an unpinned language with one unspelled family is EXCEED against an implicit pin of 0",
     )
     problems = ratchet_problems(one_cell, {"alpha": 1, "gamma": 3}, registered)
-    ok &= _assert(
+    ok &= report_condition(
         len(problems) == 1 and "stale pin" in problems[0] and "gamma" in problems[0],
         "a pin naming an unregistered language is one stale-pin problem",
     )
@@ -503,10 +481,10 @@ def _self_test_baseline_loader(tmp_root: Path) -> bool:
     ok = True
     good = tmp_root / "good.toml"
     good.write_text("[languages]\nalpha = 3\nbeta = 0\n", encoding="utf-8")
-    ok &= _assert(dict(load_baseline(good)) == {"alpha": 3, "beta": 0}, "a well-formed baseline loads")
+    ok &= report_condition(dict(load_baseline(good)) == {"alpha": 3, "beta": 0}, "a well-formed baseline loads")
     empty_table = tmp_root / "empty-table.toml"
     empty_table.write_text("[languages]\n", encoding="utf-8")
-    ok &= _assert(dict(load_baseline(empty_table)) == {}, "an empty [languages] table loads (every language at zero)")
+    ok &= report_condition(dict(load_baseline(empty_table)) == {}, "an empty [languages] table loads (every language at zero)")
     rejected: tuple[tuple[str, Path, str], ...] = (
         ("an unrecognized top-level key", tmp_root / "key.toml", "[languages]\nalpha = 1\n[extra]\nx = 1\n"),
         ("a missing [languages] table", tmp_root / "no-table.toml", "alpha = 1\n"),
@@ -520,15 +498,15 @@ def _self_test_baseline_loader(tmp_root: Path) -> bool:
         try:
             load_baseline(path)
         except ValueError as exc:
-            ok &= _assert(path.name in str(exc), f"the loader rejects {label}, naming the file")
+            ok &= report_condition(path.name in str(exc), f"the loader rejects {label}, naming the file")
         else:
-            ok &= _assert(False, f"the loader rejects {label}")
+            ok &= report_condition(False, f"the loader rejects {label}")
     try:
         load_baseline(tmp_root / "absent.toml")
     except ValueError as exc:
-        ok &= _assert("absent.toml" in str(exc), "the loader rejects a missing file, naming it")
+        ok &= report_condition("absent.toml" in str(exc), "the loader rejects a missing file, naming it")
     else:
-        ok &= _assert(False, "the loader rejects a missing file")
+        ok &= report_condition(False, "the loader rejects a missing file")
     return ok
 
 
@@ -558,13 +536,13 @@ def _self_test_census(tmp_root: Path) -> bool:
     census = census_sources("fixture", (src,))
     slugs = sorted(spelling.slug for spelling in census.spellings)
     references = sorted(reference.slug for reference in census.references)
-    ok = _assert(
+    ok = report_condition(
         slugs == ["internal", "validation"],
         f"planted sources yield exactly their two literal slugs; the bare prefix is not one (got {slugs})",
     )
     generic = sorted(set(GENERIC_PROBLEM_FAMILY_BY_STATUS.values()))
     expected = sorted(["bad-request", "request-validation", *GENERIC_PROBLEM_FAMILY_BY_STATUS.values()])
-    ok &= _assert(
+    ok &= report_condition(
         references == expected,
         "a PROBLEM_REQUEST_VALIDATION template reference, a problem_type_for(\"bad-request\") call and a "
         "rendered GENERIC_PROBLEM_FAMILY_BY_STATUS table count as realization; PROBLEM_TYPES, a "
@@ -586,7 +564,7 @@ def _self_test_language_core(tmp_root: Path) -> bool:
     split = census_sources("splitlang", (backend, core))
     backend_only = census_sources("splitlang", (backend,))
     found = [(reference.package, reference.slug) for reference in split.references]
-    return _assert(
+    return report_condition(
         found == [("datrix-codegen-splitlang-core", "internal")] and not backend_only.references,
         f"a fixture language split into a backend and a core: the census sees the URN planted in the core "
         f"(got {found}); a backend-only census does not",
@@ -599,7 +577,7 @@ def _self_test_live_read() -> bool:
         language for language, census in censuses.items()
         if "internal" in realized_families(census, FRAMEWORK_PROBLEM_TYPES)
     )
-    return _assert(
+    return report_condition(
         len(realizers) >= _MIN_LANGUAGES_FOR_COMPARISON,
         f"live census finds the internal problem type on >= 2 languages (found: {realizers})",
     )

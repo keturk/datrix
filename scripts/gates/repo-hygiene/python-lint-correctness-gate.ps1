@@ -51,60 +51,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonDir = Join-Path $scriptDir "..\..\common"
+$pythonArgs = @()
+if ($SelfTest) { $pythonArgs += "--self-test" }
+if ($Dbg) { $pythonArgs += "--debug" }
+
 # Shared with git/commit-and-push, so it lives in the shared scripts package and runs as a module.
-$pythonModule = "datrix_scripts.python_lint_correctness"
-$pythonScript = Join-Path $commonDir "lib\datrix_scripts\python_lint_correctness.py"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $pythonScript)) {
-    Write-Error "Error: python_lint_correctness.py not found at: $pythonScript"
-    exit 2
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-trap {
-    Write-Host ""
-    Write-Warning "Interrupted by user (Ctrl-C)"
-    Invoke-Cleanup
-    exit 130
-}
-
-try {
-    $venvActivated = Ensure-DatrixVenv
-    if (-not $venvActivated) {
-        Write-Error "Failed to activate virtual environment"
-        exit 1
-    }
-
-    $venvPath = Get-DatrixVenvPath
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-
-    $pythonArgs = @("-m", $pythonModule)
-    if ($SelfTest) { $pythonArgs += "--self-test" }
-    if ($Dbg) { $pythonArgs += "--debug" }
-
-    if ($Dbg) {
-        Write-Host "Python executable: $pythonExe" -ForegroundColor Cyan
-        Write-Host "Python script: $pythonScript" -ForegroundColor Cyan
-        Write-Host ""
-    }
-
-    & $pythonExe @pythonArgs
-    exit $LASTEXITCODE
-
-} catch {
-    Write-Host ""
-    Write-Host "Error occurred:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Invoke-Cleanup
-    exit 1
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Module "datrix_scripts.python_lint_correctness" -Arguments $pythonArgs -Gate "python-lint-correctness" -ShowCommand:$Dbg)

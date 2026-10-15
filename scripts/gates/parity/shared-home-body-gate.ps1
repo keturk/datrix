@@ -63,49 +63,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$runnerScript = Join-Path $scriptDir "lib\shared_home_bodies.py"
+$pythonArgs = @()
+if ($Hits) { $pythonArgs += "--show-hits" }
+if ($Symbol) { $pythonArgs += @("--symbol", ($Symbol -join ",")) }
+if ($UpdateBaseline) { $pythonArgs += "--update-baseline" }
+if ($Dbg) { $pythonArgs += "--debug" }
+if ($SelfTest) { $pythonArgs += "--self-test" }
 
-$commonDir = Join-Path $scriptDir "..\..\common"
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
-
-if (-not (Test-Path $runnerScript)) {
-    Write-Error "Error: shared_home_bodies.py not found at: $runnerScript"
-    exit 1
-}
-
-function Invoke-Cleanup {
-    Disable-DatrixVenv
-}
-
-trap {
-    Invoke-Cleanup
-    break
-}
-
-Ensure-DatrixVenv
-
-try {
-    Ensure-DatrixPackagesInstalled
-
-    $pythonArgs = @($runnerScript)
-    if ($Hits) { $pythonArgs += "--show-hits" }
-    if ($Symbol) { $pythonArgs += "--symbol"; $pythonArgs += ($Symbol -join ",") }
-    if ($UpdateBaseline) { $pythonArgs += "--update-baseline" }
-    if ($Dbg) { $pythonArgs += "--debug" }
-    if ($SelfTest) { $pythonArgs += "--self-test" }
-
-    Write-Host "Running shared-home body gate" -ForegroundColor Cyan
-    python @pythonArgs
-    $exitCode = $LASTEXITCODE
-
-    if ($exitCode -ne 0) {
-        Write-Host "Shared-home body gate failed (exit code $exitCode)" -ForegroundColor Red
-        exit $exitCode
-    }
-    exit 0
-} finally {
-    Invoke-Cleanup
-}
+exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\shared_home_bodies.py") -Arguments $pythonArgs -RequirePackages -Gate "shared-home-body")

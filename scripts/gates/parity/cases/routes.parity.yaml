@@ -44,8 +44,8 @@
   stage: parity
   observer: route_wire_contracts
   selector: {facet: routes}
-  expectation: ['DELETE /api/v1/books/{}', 'GET /api/v1/books', 'GET /api/v1/books/{}', 'POST /api/v1/books', 'PUT /api/v1/books/{}']
-  reason: A resource registers exactly the five CRUD routes on every language, and no language registers a route another lacks.
+  expectation: ['DELETE /api/v1/books/{}', 'GET /api/v1/books', 'GET /api/v1/books/by-author', 'GET /api/v1/books/{}', 'POST /api/v1/books', 'PUT /api/v1/books/{}']
+  reason: A resource registers exactly the five CRUD routes, beside the API's one custom route, on every language, and no language registers a route another lacks.
 - id: routes.rest-api.no-duplicate-route
   tags: [parity, rest-api]
   input: rest-api
@@ -302,3 +302,41 @@
   selector: {facet: duplicate-routes}
   expectation: []
   reason: Two resource lines on one entity never register the same verb and path shape twice on any language.
+- id: routes.rest-api.list-books-query-keys
+  tags:
+  - parity
+  - list-sort-filter
+  input: rest-api
+  stage: parity
+  observer: route_wire_contracts
+  selector:
+    facet: query-keys
+    verb: get
+    path: /api/v1/books
+  expectation:
+  - skip
+  - limit
+  - title
+  - status
+  - sortBy
+  - sortOrder
+  reason: A resource list binds its pagination pair, one filter per filterable field and sortBy/sortOrder over its sortable fields, on every language.
+- id: routes.rest-api.books-by-author-query-keys
+  tags:
+  - parity
+  - list-sort-filter
+  input: rest-api
+  stage: parity
+  observer: route_wire_contracts
+  selector:
+    facet: query-keys
+    verb: get
+    path: /api/v1/books/by-author
+  expectation:
+  - author
+  - isbn
+  - skip
+  - limit
+  - sortBy
+  - sortOrder
+  reason: A custom page route binds its declared parameters, its pagination pair and, for sortable(...), sortBy/sortOrder, on every language.
