@@ -357,22 +357,236 @@ function Test-DatrixVenvActive {
  return ($null -ne $env:VIRTUAL_ENV)
 }
 
+# PE/COFF machine field values (IMAGE_FILE_MACHINE_*) mapped to the names Windows uses for
+# PROCESSOR_ARCHITECTURE, so a binary's architecture compares directly with the host's.
+$script:DatrixPeMachineNames = @{
+ 0x8664 = "AMD64"
+ 0xAA64 = "ARM64"
+ 0x014C = "x86"
+}
+
+# Offset of e_lfanew (the PE header's file offset) inside the DOS header.
+$script:DatrixPeHeaderPointerOffset = 0x3C
+
+# Bytes read from the start of an executable: enough to cover the DOS header and the PE
+# header of any linker's output.
+$script:DatrixPeProbeBytes = 4096
+
+function Get-DatrixHostArchitecture {
+ <#
+ .SYNOPSIS
+ The CPU architecture of the machine (AMD64, ARM64, x86), independent of emulation.
+
+ .DESCRIPTION
+ Read from the system environment in the registry, not from $env:PROCESSOR_ARCHITECTURE:
+ an x64 process emulated on an ARM64 machine sees AMD64 in its own environment.
+ #>
+ $key = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+ $value = (Get-ItemProperty -Path $key -Name PROCESSOR_ARCHITECTURE -ErrorAction Stop).PROCESSOR_ARCHITECTURE
+ if ([string]::IsNullOrWhiteSpace($value)) {
+ throw "Cannot determine the host CPU architecture: PROCESSOR_ARCHITECTURE is empty under $key. Expected AMD64, ARM64 or x86."
+ }
+ return $value.Trim()
+}
+
+function Get-DatrixExecutableArchitecture {
+ <#
+ .SYNOPSIS
+ The architecture an executable was built for (AMD64, ARM64, x86), read from its PE header.
+
+ .PARAMETER Path
+ Path to a Windows executable (.exe or .dll).
+ #>
+ param(
+ [Parameter(Mandatory=$true)]
+ [string]$Path
+ )
+
+ $stream = [System.IO.File]::OpenRead($Path)
+ try {
+ $buffer = New-Object byte[] $script:DatrixPeProbeBytes
+ $read = $stream.Read($buffer, 0, $buffer.Length)
+ } finally {
+ $stream.Dispose()
+ }
+ $headerOffset = [BitConverter]::ToInt32($buffer, $script:DatrixPeHeaderPointerOffset)
+ $isPe = ($read -ge 2) -and ($buffer[0] -eq 0x4D) -and ($buffer[1] -eq 0x5A) -and
+ ($headerOffset -gt 0) -and ($headerOffset + 6 -le $read) -and
+ ($buffer[$headerOffset] -eq 0x50) -and ($buffer[$headerOffset + 1] -eq 0x45)
+ if (-not $isPe) {
+ throw "Not a Windows PE executable: $Path. Expected an MZ/PE image (python.exe of a CPython install)."
+ }
+ $machine = [int][BitConverter]::ToUInt16($buffer, $headerOffset + 4)
+ if (-not $script:DatrixPeMachineNames.ContainsKey($machine)) {
+ throw ("Unrecognised PE machine type 0x{0:X4} in $Path. Known types: AMD64 (0x8664), ARM64 (0xAA64), x86 (0x014C)." -f $machine)
+ }
+ return $script:DatrixPeMachineNames[$machine]
+}
+
+function Get-DatrixRequiredPythonVersion {
+ <#
+ .SYNOPSIS
+ The minimum Python version the Datrix packages declare (requires-python in datrix-common).
+ #>
+ $pyproject = Join-Path (Get-DatrixWorkspaceRoot) "datrix-common\pyproject.toml"
+ $line = Select-String -Path $pyproject -Pattern '^\s*requires-python\s*=\s*">=\s*(\d+\.\d+)"' | Select-Object -First 1
+ if (-not $line) {
+ throw "Cannot read the minimum Python version from $pyproject. Expected a line like: requires-python = "">=3.11""."
+ }
+ return [version]$line.Matches[0].Groups[1].Value
+}
+
+function Get-DatrixInterpreterCandidates {
+ <#
+ .SYNOPSIS
+ Paths of every installed CPython the machine offers: DATRIX_PYTHON, python on PATH, the py
+ launcher's list, and uv-managed interpreters. Duplicates and Store aliases are removed.
+ #>
+ $paths = New-Object System.Collections.Generic.List[string]
+ if (-not [string]::IsNullOrWhiteSpace($env:DATRIX_PYTHON)) {
+ $paths.Add($env:DATRIX_PYTHON)
+ }
+ Get-Command python -CommandType Application -All -ErrorAction SilentlyContinue | ForEach-Object { $paths.Add($_.Source) }
+ if (Get-Command py -CommandType Application -ErrorAction SilentlyContinue) {
+ & py -0p 2>$null | ForEach-Object {
+ if ($_ -match '([A-Za-z]:\\.+?\.exe)\s*$') { $paths.Add($Matches[1]) }
+ }
+ }
+ if (Get-Command uv -CommandType Application -ErrorAction SilentlyContinue) {
+ $uvJson = & uv python list --only-installed --output-format json 2>$null
+ if ($LASTEXITCODE -eq 0 -and $uvJson) {
+ ($uvJson | Out-String | ConvertFrom-Json) | Where-Object { $_.implementation -eq "cpython" -and $_.path } |
+ ForEach-Object { $paths.Add($_.path) }
+ }
+ }
+ $seen = @{}
+ foreach ($path in $paths) {
+ if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+ $resolved = (Resolve-Path -LiteralPath $path).Path
+ # Microsoft Store app-execution aliases are stubs that open the Store, not interpreters.
+ if ($resolved -match '\\WindowsApps\\') { continue }
+ # A venv's own python.exe is not a base interpreter to build a venv from.
+ if (Test-Path -LiteralPath (Join-Path (Split-Path (Split-Path $resolved)) "pyvenv.cfg")) { continue }
+ $key = $resolved.ToLowerInvariant()
+ if ($seen.ContainsKey($key)) { continue }
+ $seen[$key] = $true
+ $resolved
+ }
+}
+
+function Find-DatrixBaseInterpreter {
+ <#
+ .SYNOPSIS
+ Choose the CPython to build the Datrix venv from: one built for the host CPU, of at least the
+ required version, final release, highest version first.
+
+ .DESCRIPTION
+ An interpreter of another architecture runs emulated (an x64 build on an ARM64 machine) and
+ builds native extensions, such as the Tree-sitter parser, for the wrong machine, so it is
+ refused rather than used. DATRIX_PYTHON, when set, is the only candidate.
+ #>
+ $hostArch = Get-DatrixHostArchitecture
+ $required = Get-DatrixRequiredPythonVersion
+ $candidates = @(Get-DatrixInterpreterCandidates)
+ if (-not [string]::IsNullOrWhiteSpace($env:DATRIX_PYTHON)) {
+ $candidates = @($candidates | Where-Object { $_ -ieq (Resolve-Path -LiteralPath $env:DATRIX_PYTHON).Path })
+ }
+ $report = New-Object System.Collections.Generic.List[string]
+ $eligible = foreach ($path in $candidates) {
+ $arch = Get-DatrixExecutableArchitecture -Path $path
+ $versionText = (& $path -c "import sys; v = sys.version_info; print(f'{v.major}.{v.minor}.{v.micro} {v.releaselevel}')" 2>$null | Out-String).Trim()
+ $report.Add("  $path ($arch, $versionText)")
+ if ($LASTEXITCODE -ne 0 -or $versionText -notmatch '^(\d+\.\d+\.\d+) (\w+)$') { continue }
+ $version = [version]$Matches[1]
+ if ($arch -ne $hostArch -or $Matches[2] -ne "final" -or $version -lt $required) { continue }
+ [pscustomobject]@{ Path = $path; Version = $version }
+ }
+ $chosen = @($eligible) | Sort-Object Version -Descending | Select-Object -First 1
+ if (-not $chosen) {
+ $found = if ($report.Count -gt 0) { $report -join "`n" } else { "  (none)" }
+ throw ("No CPython >= $required built for this machine's CPU ($hostArch) was found. Interpreters found:`n$found`n" +
+ "An interpreter of another architecture runs emulated and builds native extensions for the wrong CPU, so it is not used.`n" +
+ "Fix: install a native $hostArch CPython (for example: uv python install cpython-$required-windows-$(if ($hostArch -eq 'ARM64') { 'aarch64' } else { 'x86_64' })), " +
+ "or set DATRIX_PYTHON to the path of one, then retry.")
+ }
+ return $chosen.Path
+}
+
+function Get-DatrixVenvBaseInterpreter {
+ <#
+ .SYNOPSIS
+ The base interpreter a venv was created from, read from its pyvenv.cfg (executable, else home).
+
+ .PARAMETER VenvPath
+ The venv directory.
+ #>
+ param(
+ [Parameter(Mandatory=$true)]
+ [string]$VenvPath
+ )
+
+ $cfgPath = Join-Path $VenvPath "pyvenv.cfg"
+ if (-not (Test-Path -LiteralPath $cfgPath)) {
+ throw "Not a virtual environment: $cfgPath is missing. Recreate it with New-DatrixVenv -Force."
+ }
+ $values = @{}
+ foreach ($line in Get-Content -LiteralPath $cfgPath) {
+ if ($line -match '^\s*([^=]+?)\s*=\s*(.*?)\s*$') { $values[$Matches[1].ToLowerInvariant()] = $Matches[2] }
+ }
+ if ($values.ContainsKey("executable") -and (Test-Path -LiteralPath $values["executable"])) {
+ return $values["executable"]
+ }
+ if ($values.ContainsKey("home")) {
+ $fromHome = Join-Path $values["home"] "python.exe"
+ if (Test-Path -LiteralPath $fromHome) { return $fromHome }
+ }
+ throw "Cannot find the base interpreter of the venv at $VenvPath. pyvenv.cfg names neither an existing 'executable' nor a 'home' holding python.exe. Recreate it with New-DatrixVenv -Force."
+}
+
+function Test-DatrixVenvArchitecture {
+ <#
+ .SYNOPSIS
+ Fail when the Datrix venv was built from an interpreter for another CPU than this machine's.
+
+ .OUTPUTS
+ $true when the architectures match; otherwise writes an error naming both and returns $false.
+ #>
+ $venvPath = Get-DatrixVenvPath
+ $hostArch = Get-DatrixHostArchitecture
+ $base = Get-DatrixVenvBaseInterpreter -VenvPath $venvPath
+ $venvArch = Get-DatrixExecutableArchitecture -Path $base
+ if ($venvArch -eq $hostArch) {
+ return $true
+ }
+ Write-Error ("The Datrix venv at $venvPath runs an interpreter built for $venvArch ($base) on a machine whose CPU is $hostArch. " +
+ "It runs emulated and builds native extensions (the Tree-sitter parser) for the wrong CPU.`n" +
+ "Fix: stop every process using the venv, then run: . .\datrix\scripts\common\venv.ps1; New-DatrixVenv -Force; Ensure-DatrixPackagesInstalled " +
+ "(New-DatrixVenv picks a native $hostArch CPython, or set DATRIX_PYTHON to one).")
+ return $false
+}
+
 # Create venv
 function New-DatrixVenv {
  <#
  .SYNOPSIS
- Create the Datrix virtual environment.
+ Create the Datrix virtual environment from a CPython built for this machine's CPU.
  #>
  param(
  [switch]$Force
  )
 
  $venvPath = Get-DatrixVenvPath
- $datrixRoot = Get-DatrixWorkspaceRoot
 
  if ((Test-DatrixVenvExists) -and (-not $Force)) {
  Write-DatrixVenvInfo "Virtual environment already exists at: $venvPath" -ForegroundColor Green
  return $true
+ }
+
+ try {
+ $baseInterpreter = Find-DatrixBaseInterpreter
+ } catch {
+ Write-Error $_.Exception.Message
+ return $false
  }
 
  if ($Force -and (Test-Path $venvPath)) {
@@ -380,13 +594,12 @@ function New-DatrixVenv {
  Remove-Item -Recurse -Force $venvPath
  }
 
- Write-DatrixVenvInfo "Creating virtual environment at: $venvPath" -ForegroundColor Cyan
+ Write-DatrixVenvInfo "Creating virtual environment at: $venvPath from $baseInterpreter" -ForegroundColor Cyan
  Write-DatrixVenvInfo ""
 
- # Create venv
- $result = & python -m venv $venvPath
+ $result = & $baseInterpreter -m venv $venvPath
  if ($LASTEXITCODE -ne 0) {
- Write-Error "Failed to create virtual environment"
+ Write-Error "Failed to create virtual environment at $venvPath from $baseInterpreter (exit code $LASTEXITCODE): $result"
  return $false
  }
 
