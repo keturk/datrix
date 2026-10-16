@@ -95,14 +95,6 @@
           "reason": "Emits the deploy-test harness, not service runtime."
         },
         {
-          "template": "templates/api/graphql/test_graphql_schema.spec.ts.j2",
-          "reason": "Emits a generated test, not service runtime."
-        },
-        {
-          "template": "templates/api/test_api_decorators.spec.ts.j2",
-          "reason": "Emits a generated test, not service runtime."
-        },
-        {
           "template": "templates/api/test_controller.spec.ts.j2",
           "reason": "Emits a generated test, not service runtime."
         },
@@ -125,10 +117,6 @@
         {
           "template": "templates/api/test_service_integration.spec.ts.j2",
           "reason": "Emits a generated test, not service runtime."
-        },
-        {
-          "template": "templates/deployment/ttl_readiness.spec.ts.j2",
-          "reason": "Emits a generated deployment test, not service runtime."
         },
         {
           "template": "templates/entity/test_integration_setup.ts.j2",
