@@ -59,6 +59,13 @@ and ignored under pressure; a block is paid only when it fires. These are enforc
     facts, is refused, naming the model, the facts and the items that prove them. A test of a
     validator's rule, or one stating more than schema facts, is allowed. Skipped when the inventory is
     not importable or the venv cannot resolve the module.
+  * BODY WALKS. In a `datrix-codegen-*/src/` file, a generator reads the facts analysis records on a
+    body (`datrix_common.datrix_model` `effects` / `usage` / `reads` / `resolution`) instead of
+    walking it again. A walk-function, walk-method or `getattr` walk call the edit adds to a function
+    not named in `gates/repo-hygiene/lib/no_body_walk_allowlist.json` is refused, naming the function
+    and the call. The forms are judged by that gate's own matcher
+    (`gates/repo-hygiene/lib/no_body_walk_gate.py`, `function_walks`), read with the allowlist at run
+    time; skipped when either cannot be loaded.
 
 HOW IT DECIDES -- A DELTA, NEVER A SCAN. The file as it would exist after the edit is parsed and so
 is the file as it exists now; a violation is reported only when the edit ADDS one (a multiset
@@ -84,8 +91,12 @@ import re
 import subprocess
 import sys
 import tokenize
-from collections.abc import Callable, Iterable
-from typing import Final
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import Final, Protocol
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _hook_log import WORKSPACE, add_scripts_lib_to_path  # noqa: E402
 
 _FRAMEWORK_RE: Final = re.compile(r"^d:/datrix/datrix[^/]*/")
 _EXEMPT_SEGMENTS: Final = (
@@ -122,9 +133,21 @@ _RESOLVE_TIMEOUT_SECONDS: Final = 180
 _SCHEMA_FACT_DISPOSITIONS: Final = frozenset({"covered", "uncovered"})
 # The shared test library; the classifier's import chain is stdlib only.
 _TESTING_SRC: Final = "d:/datrix/datrix-testing/src"
+# A generator package's source tree, whose functions read recorded facts instead of walking bodies,
+# and the no-body-walk gate's library, which owns the matcher and the allowlist.
+_CODEGEN_SOURCE_RE: Final = re.compile(r"^d:/datrix/(datrix-codegen-[^/]+/src/.+)$", re.IGNORECASE)
+_BODY_WALK_LIB: Final = os.path.join(WORKSPACE, "datrix", "scripts", "gates", "repo-hygiene", "lib")
+_SITE_SEPARATOR: Final = "::"
 
 Violation = tuple[str, str]
 FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
+
+
+class _WalkCall(Protocol):
+    form: str
+
+
+BodyWalkMatcher = Callable[[str], Mapping[str, Sequence[_WalkCall]]]
 
 
 def _normalize(path: str) -> str:
@@ -520,6 +543,52 @@ def _case_violations(tree: ast.Module) -> list[Violation]:
     return found
 
 
+def _body_walk_rule() -> tuple[BodyWalkMatcher, frozenset[str]] | None:
+    """The no-body-walk gate's matcher and its allowlisted sites (lowercased); None when either
+    cannot be loaded."""
+    add_scripts_lib_to_path()
+    if _BODY_WALK_LIB not in sys.path:
+        sys.path.insert(0, _BODY_WALK_LIB)
+    try:
+        from no_body_walk_gate import AllowlistError, function_walks, load_allowlist
+    except ImportError:
+        return None
+    try:
+        allowlist = load_allowlist()
+    except (AllowlistError, OSError):
+        return None
+    return function_walks, frozenset(site.lower() for site in allowlist)
+
+
+def _unlisted_body_walks(relative: str, text: str, matcher: BodyWalkMatcher,
+                         allowed: frozenset[str]) -> collections.Counter[Violation]:
+    """The flagged calls of ``text`` in functions the allowlist does not name, keyed by site and form."""
+    found: collections.Counter[Violation] = collections.Counter()
+    for unit, calls in matcher(text).items():
+        site = f"{relative}{_SITE_SEPARATOR}{unit}"
+        if site.lower() not in allowed:
+            found.update(("body-walk", f"{site} calls {call.form}") for call in calls)
+    return found
+
+
+def _body_walk_violations(raw_path: str, before: str | None, after: str) -> collections.Counter[Violation]:
+    """The body-walk calls this edit adds to unlisted functions of a generator package's source."""
+    match = _CODEGEN_SOURCE_RE.match(raw_path.replace("\\", "/"))
+    if not match:
+        return collections.Counter()
+    rule = _body_walk_rule()
+    if rule is None:
+        return collections.Counter()
+    matcher, allowed = rule
+    try:
+        after_found = _unlisted_body_walks(match.group(1), after, matcher, allowed)
+        before_found = (collections.Counter() if before is None
+                        else _unlisted_body_walks(match.group(1), before, matcher, allowed))
+    except (SyntaxError, ValueError):
+        return collections.Counter()
+    return after_found - before_found
+
+
 def _violations(
     text: str, is_test: bool, is_generator: bool = False, cases: bool = False
 ) -> collections.Counter[Violation] | None:
@@ -645,6 +714,16 @@ _REMEDY: Final = {
         "decided for a row is a case row (`cases.ps1 new`) or the table's own reviewed diff. A row the item "
         "fails is a row defect or a code-path defect: fix the row or the code."
     ),
+    "body-walk": (
+        "A generator reads the facts analysis records on a body instead of walking it again: "
+        "`datrix_common.datrix_model.effects` / `usage` / `reads` / `resolution` (what a body calls, "
+        "reads, writes and resolves). The walks that remain are a closed list, "
+        "`datrix/scripts/gates/repo-hygiene/lib/no_body_walk_allowlist.json`, each with one of the "
+        "categories render-traversal, emission-syntax, emission-decision, literal-content or "
+        "no-facts-boundary; adding a function to it needs Jon's approval, and a genuinely new category "
+        "is a design change that needs it too. `gates/repo-hygiene/no-body-walk-gate.ps1` holds the "
+        "same rule over every generator package."
+    ),
 }
 
 
@@ -678,6 +757,7 @@ def main() -> None:
         sys.exit(0)
 
     added = after_found - before_found
+    added.update(_body_walk_violations(raw_path, before, after))
     if is_test and carries_model_contracts(path):
         added.update(_schema_shaped_violations(path, before, after))
     if is_test and carries_tables(path):

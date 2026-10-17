@@ -24,6 +24,16 @@ outstanding task anywhere is left untouched and reported instead. The body is ne
 no partial/in-progress status is ever written, and nothing about this licenses a mid-run
 design edit.
 
+## Jon's orders bind every design
+
+A design never circumvents, narrows, reinterprets or works around an order or standing decision
+of Jon's (CLAUDE.md, the rules, his instructions in the session). "A targeted form" of something
+he forbade, a checklist item that reintroduces it, or a new check of a kind he retired is the
+same violation as doing it outright. A design written later does not supersede an order; a
+carelessly written design never overrides a rule. When writing a design, check each decision
+against those orders and leave the conflicting part out. When reviewing or implementing one, a
+conflicting part is cut, not implemented and not offered to Jon as a possible newer decision.
+
 ## No investigation deferred to implementation
 
 Resolve every factual unknown *during* design:

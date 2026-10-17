@@ -314,6 +314,36 @@ with Repo() as repo:
           all(s in err for s in ("[todo]", "[silent-except]", "except (bare): pass", "contextlib.suppress",
                                  "No placeholders/TODOs")), True)
 
+    print("== body walks outside a generator package ==")
+    plain = repo.file("src/pkg/walks.py", "def render(node: object) -> list[object]:\n    return []\n")
+    check("a walk outside datrix-codegen-*/src stays allowed",
+          edit(plain, "    return []", "    return list(node.walk())"), ALLOW)
+
+codegen = Repo()
+codegen.root = os.path.join(r"d:\datrix", f"datrix-codegen-codestd-gate-{os.getpid()}")
+with codegen:
+    print("== body walks in a generator package ==")
+    gen = codegen.file("src/datrix_codegen_gate/reads.py",
+                       "def names(node: object) -> list[object]:\n    return []\n")
+    check("a walk method added to an unlisted function",
+          edit(gen, "    return []", "    return list(node.walk())"), BLOCK)
+    check("a getattr walk added to an unlisted function",
+          edit(gen, "    return []", "    return list(getattr(node, 'child_statements')())"), BLOCK)
+    check("ast.walk of generated source stays allowed",
+          edit(gen, "    return []", "    return list(ast.walk(node))"), ALLOW)
+    code, err = run({"tool_name": "Edit", "tool_input": {"file_path": gen, "old_string": "    return []",
+                                                         "new_string": "    return iter_tree(node)"}})
+    check("the refusal names the function, the call and the recorded facts",
+          all(s in err for s in ("[body-walk]", "datrix_codegen_gate/reads.py::names calls iter_tree()",
+                                 "datrix_common.datrix_model.effects", "no_body_walk_allowlist.json")), True)
+
+print("== a body walk in an allowlisted function ==")
+# The hook only judges the payload; the allowlisted renderer on disk is read, never written.
+VIEWS = r"d:\datrix\datrix-codegen-flutter\src\datrix_codegen_flutter\generation\views.py"
+check("another child render in an allowlisted renderer stays allowed",
+      edit(VIEWS, "    then = context.children(element.children)\n",
+           "    then = context.children(element.children)\n    again = context.children(element.children)\n"), ALLOW)
+
 print()
 if fails:
     print(f"{len(fails)} FAILURE(S):")
