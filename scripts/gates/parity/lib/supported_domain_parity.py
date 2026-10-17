@@ -783,7 +783,7 @@ def check_supported_domain_parity() -> int:
             "DOMAIN UNIVERSE CLOSURE VIOLATION: domain %r is declared by "
             "%s's compiled DAL generator IR but is not a member of "
             "SHARED_CONTEXT_TYPES. Fix: add it to "
-            "datrix_codegen_kernel.generation.registry.COMMON_GENERATOR_REGISTRATIONS.",
+            "datrix_codegen_kernel.parity.domain_ids.SHARED_DOMAIN_IDS.",
             domain_id, sorted(declaring_languages),
         )
     if dead_registry_ids:
@@ -847,8 +847,8 @@ def check_supported_domain_parity() -> int:
             presence_ok = False
             logger.error(
                 "DECLARATION PRESENCE VIOLATION: %s declares out-of-universe %s. Fix: remove "
-                "the declaration, or register the domain id in "
-                "datrix_codegen_kernel.generation.registry.COMMON_GENERATOR_REGISTRATIONS.",
+                "the declaration, or add the domain id to "
+                "datrix_codegen_kernel.parity.domain_ids.SHARED_DOMAIN_IDS.",
                 name, sorted(out_of_universe),
             )
     if not presence_ok:

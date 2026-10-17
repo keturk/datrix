@@ -618,6 +618,36 @@ codes its `expect=` names, and `rejected` syntax stays rejected.
 
 **Exit codes:** 0 = every fence holds (or a successful `-SelfTest`), 1 = at least one fence fails or is refused, 2 = the self-test failed.
 
+## `gates\repo-hygiene\no-body-walk-gate.ps1`
+
+**A generator function walks a model body only where the allowlist says so.** Analysis records what every body reads, calls, writes and resolves (`datrix_common.datrix_model` `effects` / `usage` / `reads` / `resolution`); a generator reads those facts instead of walking the body again. `lib\no_body_walk_gate.py` parses every `*.py` under every `datrix-codegen-*/src` (globbed from the workspace root, so a new target repo is covered the moment it exists) with Python `ast` and flags, by innermost enclosing function (`<path>::<function>`, `<module>` at module level), a call of a walk function (`iter_tree`, `iter_expressions`, `walk_expression`, `expression_children`, `find_call_nodes`, `iter_ast_walk_edges`, `iter_body_nodes`, by bare name or as an attribute), a walk method (`.walk()`, `.child_nodes()`, `.children()`, `.child_expressions()`, `.child_statements()`, except on the bare receivers `ast` and `os`), or `getattr(<x>, "<walk method>")`. Recursion by `isinstance` dispatch without those calls is not flagged. The definition is syntactic: receiver types are never inferred, so a false-positive form (a renderer's `context.children(...)`) is listed once with its category.
+
+The flagged set must equal `lib\no_body_walk_allowlist.json` exactly — an array of `{"site", "category", "reason"}` whose category is one of `render-traversal`, `emission-syntax`, `emission-decision`, `literal-content`, `no-facts-boundary`. An unlisted function fails (`UNLISTED path::function  .walk()@604`), and so does an entry whose function no longer walks (`STALE`), so the list only shrinks when code is removed. Adding an entry needs Jon's approval; a new category is a design change. `guard-code-standards.py` imports the same matcher and refuses an edit that adds a flagged call to an unlisted function.
+
+| Category | Meaning |
+|---|---|
+| `render-traversal` | walks to **emit** output for each child (a renderer, not a query) |
+| `emission-syntax` | a local syntax question that never consults a declaration (does this block return, is this local reassigned, which names does this body declare) |
+| `emission-decision` | a decision inside transpiler dispatch whose answer depends on the transpiler's own lowering |
+| `literal-content` | searches literal values, not names |
+| `no-facts-boundary` | reads code that analysis records no facts on: `CLIENT_DECLARATION` bodies or `UI_VOCABULARY_HOLDERS` (`datrix_semantic/bodies/inventory.py`) |
+
+A function flagged on neither the list nor a pending deletion is new code: it is not classified alone but put to Jon with its call forms and a proposed category. A listed entry whose function no longer exists is removed from the list. Walks that recurse by `isinstance` dispatch without a flagged call (local expression-shape analyses) are outside the gate, and walks in `datrix-semantic` and `datrix-common` model code are outside it by scope: they walk bodies to produce the facts.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\gates\repo-hygiene\no-body-walk-gate.ps1` | Compare every flagged function with the allowlist |
+| **Self-test only** | `.\gates\repo-hygiene\no-body-walk-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Debug** | `.\gates\repo-hygiene\no-body-walk-gate.ps1 -Dbg` | Print the python invocation before running |
+
+**Parameters:** `-SelfTest`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** An embedded source holding one call of every flagged form (a module-level call, the attribute form of a walk function, the `getattr` form and a nested function included) plus `ast.walk`, `os.walk`, `isinstance` recursion and a `getattr` of another name must flag exactly the former, by unit; and the comparison must report one planted unlisted site and one planted stale entry.
+
+**Exit codes:** 0 = the flagged set equals the allowlist (or a successful `-SelfTest`), 1 = at least one unlisted function or stale entry, 2 = the gate cannot judge (a failed self-test, a malformed allowlist or unknown category, a source file that does not parse or cannot be read). It runs no generation and no tests.
+
+**Security posture.** The gate only reads files; it opens no network connection and changes nothing.
+
 ## `gates\repo-hygiene\script-catalogue-gate.ps1`
 
 Holds the scripts tree's documentation to what the tree holds (`lib\script_catalogue.py`), reading Markdown's token stream (`markdown-it-py`) and PowerShell's own parser, never regex over prose. Four rules, each a hard zero:

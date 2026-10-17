@@ -375,19 +375,19 @@ one, so this gate compares **normalized bodies**, not names or text (the sibling
 copy is gone by name; Pylint's similar-lines check is textual and misses a renamed copy).
 The walker (`datrix_scripts.function_sources`) and the normalization (`datrix_scripts.body_digest`)
 are shared with `scan\find-duplicate-bodies.ps1`, which reports every duplicate group anywhere. That
-includes copies the gate does not pin, such as two private copies in two target packages, or a copy
-of a private home helper.
+includes copies the gate does not pin, such as two private copies in two target packages.
 
-**What a hit is.** The gate AST-walks every public function of the three homes (no segment of the
-qualified name starts with `_`) and every function, public or private, of every discovered
+**What a hit is.** The gate AST-walks every function of the three homes, public or private (a copy
+of a private home helper is the same fact in two homes: the copy calls the home, made public when
+another package needs it), and every function, public or private, of every discovered
 `datrix-*` package's `src/` tree. A function qualifies at **8 lines and 40 AST nodes** (measured on
 the docstring-free body; the floor removes Protocol `...` stubs and one-line accessors). Its body is
 normalized: the function's own name, decorators, annotations and docstring are dropped; every
 parameter and locally bound name becomes a positional token; every constant collapses to its type
 name; **attribute names, keyword-argument names and non-local call targets are kept**, so two
 functions that read different attributes or call different functions never compare equal. A function
-in package P is a hit when its normalized body equals a public home function's in a package other
-than P. The rule is symmetric across homes: when two public home functions in different home
+in package P is a hit when its normalized body equals a home function's in a package other
+than P. The rule is symmetric across homes: when two home functions in different home
 packages are duplicates, both are hits (deleting one clears both); equal bodies inside the same
 package are not hits.
 

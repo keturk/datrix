@@ -1,0 +1,127 @@
+[
+  {
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/elements/common.py::children_list",
+    "category": "render-traversal",
+    "reason": "Renders an element's children into a Dart list literal, one widget per child."
+  },
+  {
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/elements/common.py::contained_children",
+    "category": "render-traversal",
+    "reason": "Renders a container element's children into a Dart list literal."
+  },
+  {
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/elements/content_elements.py::render_brand",
+    "category": "render-traversal",
+    "reason": "Renders the brand element's mark child as a widget."
+  },
+  {
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/elements/data_elements.py::_template",
+    "category": "render-traversal",
+    "reason": "Renders a data element's row template children as widgets."
+  },
+  {
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/elements/layout_elements.py::_rendered",
+    "category": "render-traversal",
+    "reason": "Renders a layout element's child elements into a Dart list literal."
+  },
+  {
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/elements/layout_elements.py::render_menu",
+    "category": "render-traversal",
+    "reason": "Renders a menu's trigger and panel children as widgets."
+  },
+  {
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/owner_widget.py::build_owner_widget",
+    "category": "render-traversal",
+    "reason": "Renders the owner's view tree into the widget's build body."
+  },
+  {
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/views.py::_component_use",
+    "category": "render-traversal",
+    "reason": "Renders a component use's default and named slot fills as widget arguments."
+  },
+  {
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/views.py::_foreach",
+    "category": "render-traversal",
+    "reason": "Renders a foreach element's body children once per item."
+  },
+  {
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/views.py::_slot",
+    "category": "render-traversal",
+    "reason": "Renders a slot's fill, or its default children when unfilled."
+  },
+  {
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/views.py::_when",
+    "category": "render-traversal",
+    "reason": "Renders a when element's then and otherwise branches."
+  },
+  {
+    "site": "datrix-codegen-common/src/datrix_codegen_common/algorithms/service_constants.py::constant_type_and_value",
+    "category": "render-traversal",
+    "reason": "Emits each element of a constant's collection literal as a rendered value."
+  },
+  {
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/functions.py::assigned_names",
+    "category": "emission-syntax",
+    "reason": "Which bare names a body assigns at any depth (the Dart scope's reassigned set); consults no declaration."
+  },
+  {
+    "site": "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/visitor_statements.py::_statements_contain_return",
+    "category": "emission-syntax",
+    "reason": "Whether a statement block returns, a local syntax question of the emitted control flow."
+  },
+  {
+    "site": "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/visitor_statements.py::collect_assigned_identifiers",
+    "category": "emission-syntax",
+    "reason": "Which identifiers a body reassigns or loop-introduces (the emitted TypeScript's reassigned variables); consults no declaration."
+  },
+  {
+    "site": "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/_controller_template_context.py::_body_introduced_identifiers",
+    "category": "emission-syntax",
+    "reason": "Which names a handler body declares, so a local cannot collide with an injected @Req()/@Res() parameter."
+  },
+  {
+    "site": "datrix-codegen-common/src/datrix_codegen_common/transpiler/shared_special_calls.py::expression_contains_entity_or_service_call",
+    "category": "emission-decision",
+    "reason": "Whether an expression contains a call the transpiler lowers to an awaited entity or service call."
+  },
+  {
+    "site": "datrix-codegen-python/src/datrix_codegen_python/transpiler/core.py::_expression_children",
+    "category": "emission-decision",
+    "reason": "The Python transpiler's child-expression accessor for its own emission dispatch."
+  },
+  {
+    "site": "datrix-codegen-python/src/datrix_codegen_python/generators/api/_api_test_body_literals.py::handler_body_contains_string_literal",
+    "category": "literal-content",
+    "reason": "Searches a handler body's statements for string literal values, not names."
+  },
+  {
+    "site": "datrix-codegen-python/src/datrix_codegen_python/generators/api/_api_test_body_literals.py::_expression_contains_string_literal",
+    "category": "literal-content",
+    "reason": "Searches an expression tree for string literal values, not names."
+  },
+  {
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/forms.py::_reads_name",
+    "category": "no-facts-boundary",
+    "reason": "Reads a client form's view expression, on which analysis records no facts."
+  },
+  {
+    "site": "datrix-codegen-angular/src/datrix_codegen_angular/dgen/views.py::_references_foreach_variable",
+    "category": "no-facts-boundary",
+    "reason": "Reads a client view element's expression, on which analysis records no facts."
+  },
+  {
+    "site": "datrix-codegen-angular/src/datrix_codegen_angular/dgen/writes.py::called_write_members",
+    "category": "no-facts-boundary",
+    "reason": "Its roots include view-element expressions, on which analysis records no facts."
+  },
+  {
+    "site": "datrix-codegen-common/src/datrix_codegen_common/generation/ui_binding_regions.py::_identifier_names",
+    "category": "no-facts-boundary",
+    "reason": "Reads UI binding expressions held by UI vocabulary, on which analysis records no facts."
+  },
+  {
+    "site": "datrix-codegen-common/src/datrix_codegen_common/transpiler/builtin_result_reads.py::_walk",
+    "category": "no-facts-boundary",
+    "reason": "Its roots, the builtin-realization target expression roots, include view-element expressions."
+  }
+]

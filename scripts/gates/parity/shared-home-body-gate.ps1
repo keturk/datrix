@@ -1,15 +1,15 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Shared-home body gate: no function outside a shared home may carry the body of a public shared-home function.
+ Shared-home body gate: no function outside a shared home may carry the body of a shared-home function.
 
 .DESCRIPTION
- Wraps datrix/scripts/gates/parity/lib/shared_home_bodies.py. AST-walks every public function of
- datrix-common, datrix-codegen-kernel and datrix-codegen-common and every function of every other
- datrix-* package's src/ tree. A function qualifies at 8 lines and 40 AST nodes; its body is
+ Wraps datrix/scripts/gates/parity/lib/shared_home_bodies.py. AST-walks every function, public or
+ private, of datrix-common, datrix-codegen-kernel and datrix-codegen-common and every function of
+ every other datrix-* package's src/ tree. A function qualifies at 8 lines and 40 AST nodes; its body is
  normalized (docstring, annotations and decorators dropped, parameter and local names renamed to
  positional tokens, constants collapsed to their type; attribute names and call targets kept). A
- function whose normalized body equals a public home function's in another package is a hit. The
+ function whose normalized body equals a home function's in another package is a hit. The
  verdict is a per-package count against the decrease-only pin in
  datrix/scripts/config/shared-home-body-baseline.toml: an increase fails, a decrease passes.
 

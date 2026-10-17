@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Shared-home body gate: no function outside a shared home may carry the
-body of a public shared-home function.
+body of a shared-home function.
 
 A function with a shared home has exactly one definition. The homes are
 ``datrix_codegen_common``, ``datrix_codegen_kernel`` and ``datrix_common``. A
@@ -17,8 +17,8 @@ normalized AST rather than on names or text:
 A function qualifies at ``MIN_BODY_LINES`` lines and ``MIN_BODY_NODES`` AST
 nodes (measured on the docstring-free body), which removes Protocol ``...``
 stubs and one-line accessors. A function in package P is a hit when its
-normalized body equals that of a PUBLIC home function in a package other than
-P. The verdict is a decrease-only per-package count pinned in
+normalized body equals that of a home function -- public or private -- in a
+package other than P. The verdict is a decrease-only per-package count pinned in
 ``scripts/config/shared-home-body-baseline.toml``: an increase fails, a
 decrease passes. The self-test runs first on every invocation.
 
@@ -66,7 +66,7 @@ EXIT_OK: Final[int] = 0
 EXIT_FAIL: Final[int] = 1
 EXIT_USAGE: Final[int] = 2
 
-#: The packages whose public functions are the shared homes (import names).
+#: The packages whose functions are the shared homes (import names).
 HOME_PACKAGES: Final[frozenset[str]] = frozenset(
     {"datrix_codegen_common", "datrix_codegen_kernel", "datrix_common"}
 )
@@ -83,7 +83,7 @@ _BASELINE_HEADER: Final[str] = (
     "# (scripts/gates/parity/lib/shared_home_bodies.py, wrapped by scripts/gates/parity/shared-home-body-gate.ps1).\n"
     "#\n"
     "# `count` is the number of functions in `package` (an import name) whose normalized body equals\n"
-    "# the body of a public function in another package's shared home. A live count ABOVE `count`\n"
+    "# the body of a function in another package's shared home. A live count ABOVE `count`\n"
     "# fails the gate; a count below it passes and is lowered with -UpdateBaseline. A package with no\n"
     "# entry is pinned at 0. `seed` is the first measurement and never changes: the closing check\n"
     "# proves every package's count strictly below its seed. Every entry carries a written `reason`;\n"
@@ -120,7 +120,7 @@ class BaselineRiseError(GateError):
 
 @dataclass(frozen=True)
 class BodyHit:
-    """A function (``copy``) whose body equals a public home function's."""
+    """A function (``copy``) whose body equals a home function's."""
 
     copy: NormalizedFunction
     home: NormalizedFunction
@@ -130,13 +130,17 @@ def find_hits(
     functions_by_package: Mapping[str, Sequence[NormalizedFunction]],
     home_packages: frozenset[str] = HOME_PACKAGES,
 ) -> list[BodyHit]:
-    """Every function whose digest equals a PUBLIC home function's digest where
-    the home function lives in a different package."""
+    """Every function whose digest equals a home function's digest where the
+    home function lives in a different package.
+
+    A private home function counts as much as a public one: a copy of either
+    is the same fact in two homes, and the copy should call the home (made
+    public when another package needs it) instead.
+    """
     homes_by_digest: dict[str, list[NormalizedFunction]] = defaultdict(list)
     for package in sorted(home_packages & set(functions_by_package)):
         for function in functions_by_package[package]:
-            if function.is_public:
-                homes_by_digest[function.digest].append(function)
+            homes_by_digest[function.digest].append(function)
     hits: list[BodyHit] = []
     for package in sorted(functions_by_package):
         for function in functions_by_package[package]:
@@ -536,7 +540,7 @@ def _case_non_hits_and_near_hits(root: Path) -> bool:
         ("a different attribute name is NOT a hit", _COPY_ATTRIBUTE_SOURCE, {}),
         ("a different call target is NOT a hit", _COPY_CALL_TARGET_SOURCE, {}),
         ("a below-floor copy of a below-floor home is NOT a hit", _COPY_SHORT_SOURCE, {}),
-        ("a copy of a PRIVATE home function is NOT a hit", _COPY_PRIVATE_BODY_SOURCE, {}),
+        ("a copy of a PRIVATE home function IS a hit", _COPY_PRIVATE_BODY_SOURCE, {_PYTHON_PKG: 1}),
     ):
         _write_module(root, _PYTHON_REPO, _PYTHON_PKG, "variant", source)
         ok &= _check(label, _fixture_counts(root) == expected)
@@ -651,7 +655,7 @@ def run_self_test() -> bool:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Shared-home body gate: a pinned, decrease-only count of functions whose normalized body "
-        "equals a public shared-home function's."
+        "equals a shared-home function's."
     )
     parser.add_argument("--self-test", action="store_true", help="Run only the plant/observe/revert self-test.")
     parser.add_argument("--show-hits", action="store_true", help="Print every hit line.")
