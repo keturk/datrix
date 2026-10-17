@@ -483,10 +483,6 @@ file = "datrix-migration/src/datrix_migration/canonicalize.py"
 count = 1
 
 [[baseline]]
-file = "datrix-migration/src/datrix_migration/generator.py"
-count = 4
-
-[[baseline]]
 file = "datrix-migration/src/datrix_migration/live_snapshot_export.py"
 count = 1
 
