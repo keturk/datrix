@@ -2073,8 +2073,8 @@ def _run_adapter_checks() -> bool:
         """
         from datrix_codegen_kernel.dgen.sub_generators import build_sub_generator_specs
 
-        def build_specs(language_id, micro_cls):
-            return build_sub_generator_specs(language_id, migration_micro_cls=micro_cls)
+        def build_specs(language_id, adapter_factory):
+            return build_sub_generator_specs(language_id, adapter_factory=adapter_factory)
         """
     )
     ok &= report_condition(
