@@ -59,9 +59,8 @@ The project is split into **nineteen** installable packages (seventeen core tool
 **Responsibilities:**
 - **Profile-driven transpiler:** `LanguageProfile` (nine sub-profiles: syntax, operators, builtins, types, naming, orm, scope, docs, errors), `SharedTranspiler` (final, no subclassing), `SyntaxEmitters` protocol with `CBraceSyntaxEmitters` and `IndentBlockSyntaxEmitters`
 - **Algorithms:** `build_*_context()` functions that compute language-agnostic semantic contexts from AST
-- **Context models:** Frozen dataclasses (`EntityContext`, `ServiceContext`, `SchemaContext`, etc.) carrying semantic data from algorithms to micro-generators
+- **Context models:** Frozen dataclasses (`EntityContext`, `ServiceContext`, `SchemaContext`, etc.) carrying semantic data from algorithms to each language's declared DAL generator domains
 - **Field analysis:** Reusable entity/field analysis (lookup methods, cascade checks, sortable/filterable classification, lifecycle hooks)
-- **Micro-generator pattern:** `MicroGenerator[TContext]` ABC for language-specific rendering from shared context
 - **Parity checking:** `validate_profile_completeness()`, `verify_micro_generator_parity()`, `validate_builtin_parity()` — automated cross-language feature verification
 - **Seed orchestration:** `.dseed`-backed orchestration across RDBMS, NoSQL, and Storage targets — semantic validation, dependency graph construction, target writer interfaces, and component-scoped seed policy resolution (replaces the obsolete YAML-driven `SeedOrchestrator`)
 
@@ -305,7 +304,7 @@ Domain-specific scalars, builtin objects, and infrastructure hints (for example 
 
 | Layer | Owns |
 |-------|------|
-| Extension pack (`datrix.extensions`) | Language-agnostic scalar defs, builtin object types, `db_extensions()`, `extra_dependencies()`, `template_dirs()` |
+| Extension pack (`datrix.extensions`) | Language-agnostic scalar defs, builtin object types, `db_extensions()`, `extra_dependencies()` |
 | Each language generator (`datrix-codegen-python`, …) | All **language-specific** type mappings for core **and** declared extensions (for example `PYTHON_EXTENSION_MAPS` in `datrix_codegen_python.type_mappings`, merged by the shared `build_type_map`) |
 
 Adding a new target language updates **one** codegen package with core maps plus whichever extension keys it supports. Adding a new extension updates the extension pack **and** each language generator that should support it.
@@ -407,7 +406,7 @@ Adding a new target language (e.g., Go, Rust) requires a new `datrix-codegen-{la
 2. Subclass **`LanguageGenerator`** — implement the ten abstract methods; wire sub-generators and project-level output through the shared `generate()` implementation.
 3. Define a **`LanguageProfile`** instance (`datrix_codegen_common.transpiler.profile`) with the nine sub-profiles (Syntax, Operators, Builtins, Types, Naming, ORM, Scope, Docs, Errors). For C-style languages, inherit from `CBraceSyntaxEmitters`.
 4. Wire the **`SharedTranspiler`** from `datrix-codegen-common` with the language profile. Implement an ORM-specific entity query module for the language's framework.
-5. Implement **micro-generators** (`MicroGenerator[TContext]` from `datrix_codegen_common`) for each domain, using shared context models.
+5. Declare each domain in the language's **DAL generator document** (`dgen/generator.dal`) — its file clauses and the context builders they name, which call the shared context models — and supply an `RdbmsMigrationAdapter` factory for the `migration` domain.
 6. Add **`type_mappings.py`** — map every canonical type; register with `global_registry.register_language()`.
 7. Implement **`LanguageHooks`** — post-generation formatting and validation.
 8. Implement **`LanguageRuntimeSpec`** — Dockerfile context, healthchecks, DB URL schemes, migration commands, job runner commands, plus the three provider-facing methods (`container_command`, `hosts_consumers_in_process`, `project_language`). The parity gate fails onboarding if any method is unimplemented.

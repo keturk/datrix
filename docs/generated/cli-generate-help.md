@@ -24,9 +24,9 @@ Usage: datrix generate [OPTIONS]
 │                                                 every activated frontend    │
 │                                                 client target. Can be       │
 │                                                 specified multiple times. A │
-│                                                 partial run plans no        │
-│                                                 migrations and saves no     │
-│                                                 incremental snapshot.       │
+│                                                 partial run commits no      │
+│                                                 migration state and saves   │
+│                                                 no incremental snapshot.    │
 │    --validation-level           -V      <str>   Validation thoroughness for │
 │                                                 generated code. Levels:     │
 │                                                 none (skip all              │
@@ -56,16 +56,8 @@ Usage: datrix generate [OPTIONS]
 │    --incremental                                Only generate changed       │
 │                                                 services (requires prior    │
 │                                                 snapshot)                   │
-│    --migrations                                 Generate migration files    │
-│                                                 from schema diff            │
-│    --allow-destructive                          Allow destructive migration │
-│                                                 operations (e.g. DROP)      │
 │    --service                            <str>   Generate only for this      │
 │                                                 service                     │
-│    --migration-format                   <str>   Migration format (raw_sql,  │
-│                                                 alembic, flyway). Default:  │
-│                                                 raw_sql                     │
-│                                                 [default: raw_sql]          │
 │    --assert-client-profile-in…                  Regenerate the client tree  │
 │                                                 against every declared      │
 │                                                 .dcfg profile into a        │

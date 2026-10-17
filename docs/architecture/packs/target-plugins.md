@@ -42,7 +42,7 @@ Change reach is computed per package, so the shared layers split into the packag
 ## Domain Extensions
 
 - **DSL:** `use extension <name>;` inside `system { }` (stored on `app.extension_directives`).
-- **Protocol `DatrixExtension`** (`datrix_common.plugin.extension`): properties `name`, `version`; methods `scalar_definitions()`, `builtin_objects()`, `value_struct_definitions()`, `db_extensions()`, `extra_dependencies()`, `template_dirs()`.
+- **Protocol `DatrixExtension`** (`datrix_common.plugin.extension`): properties `name`, `version`; methods `scalar_definitions()`, `builtin_objects()`, `value_struct_definitions()`, `db_extensions()`, `extra_dependencies()`.
 - **Discovery:** `PluginRegistry.discover_extensions()`; `load_declared_extensions(declared)`; `TypeRegistry.load_extensions(extensions)`; `declared_extension_names(app)` is passed into `LanguageGenerator` and resolvers.
 - **Split ownership:** packs own definitions; each language/SQL owns its maps — `PYTHON_EXTENSION_MAPS` (`datrix_codegen_python.type_mappings`), `TS_EXTENSION_MAPS` (`datrix_codegen_typescript_core.type_mappings`), `SQL_EXTENSION_MAPS` (`datrix_codegen_kernel.sql_facts.type_mappings`) — merged into the core `*_TYPE_MAP` by the shared `datrix_codegen_kernel.generation.type_mapping_registry.build_type_map` (raises `ExtensionNotSupportedError` for a declared extension with no map). A new language ships its own `*_EXTENSION_MAPS` the same way.
 
