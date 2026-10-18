@@ -6,7 +6,7 @@ This script validates the syntax of .dtrx files using the tree-sitter parser.
 It can check a single file, all files in a directory, or all files in current directory.
 
 Requirements:
-- tree-sitter Python package: pip install tree-sitter>=0.23.0
+- datrix-language and its tree-sitter dependency, both installed with the shared venv
 - tree-sitter CLI: npm install -g tree-sitter-cli
 - C compiler: MSVC (Windows), GCC/Clang (Linux/macOS)
 """
@@ -22,21 +22,21 @@ def _sigint_handler(_signum: int, _frame: object) -> None:
     """Handle Ctrl-C: exit with 130 (standard SIGINT exit code)."""
     sys.exit(130)
 
+
 from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
 from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
+from datrix_scripts.venv import PACKAGE_DEPENDENCIES, missing_declared_tool  # noqa: E402
 
-# Try to import datrix-language parser
 try:
     from datrix_common.constants import DATRIX_FILE_EXTENSION
     from datrix_common.errors.parse import ParseError
     from datrix_language.parser.contextual_keywords import validate_contextual_keywords
     from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
-except ImportError as e:
-    print(f"Error: Could not import Datrix parser: {e}", file=sys.stderr)
-    print("Make sure datrix-language is installed and the parser is available:", file=sys.stderr)
-    print("  pip install -e datrix-language", file=sys.stderr)
-    print("  pip install tree-sitter>=0.23.0", file=sys.stderr)
-    sys.exit(1)
+except ImportError as exc:
+    raise SystemExit(
+        f"{missing_declared_tool('datrix-language (with datrix-common and tree-sitter)', PACKAGE_DEPENDENCIES)} "
+        f"The import failed with: {exc}"
+    ) from exc
 
 
 class SyntaxChecker:

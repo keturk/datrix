@@ -94,7 +94,7 @@ if (-not $All -and $Path.Count -eq 0) {
 
 Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$pythonArgs = if ($All) { @("--all") } else { @($Path) }
+$pythonArgs = @(if ($All) { "--all" } else { $Path })
 if ($Strict) { $pythonArgs += "--strict" }
 if ($Dbg) { $pythonArgs += "--debug" }
 if ($ResolveConfigs) { $pythonArgs += "--resolve-configs" }

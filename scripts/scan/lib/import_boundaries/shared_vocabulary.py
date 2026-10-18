@@ -18,6 +18,7 @@ from types import ModuleType
 # "aws"/"azure"/"docker"/"local" literal: registered_platform_names() comes
 # from the shared scripts package (datrix_scripts, on PYTHONPATH).
 from datrix_scripts.gate_harness import NamedCheck, report_step
+from datrix_scripts.venv import PACKAGE_DEPENDENCIES, missing_declared_tool
 from import_boundaries._ast_common import (
     _SELF_TEST_SCRATCH_ROOT,
     CLI_SCRIPT,
@@ -60,11 +61,8 @@ def _import_shared_enums_module() -> ModuleType:
         from datrix_codegen_kernel import enums as shared_enums
     except ImportError as exc:
         raise RuntimeError(
-            "Failed to import datrix_codegen_kernel.enums -- the G1 "
-            "shared-vocabulary ratchet requires datrix-codegen-kernel "
-            "installed in the active environment (D:\\datrix\\.venv). Fix: "
-            "run this script via check-import-boundaries.ps1, which "
-            "activates the venv first."
+            "The shared-vocabulary ratchet reads datrix_codegen_kernel.enums. "
+            f"{missing_declared_tool('datrix-codegen-kernel', PACKAGE_DEPENDENCIES)}"
         ) from exc
     return shared_enums
 

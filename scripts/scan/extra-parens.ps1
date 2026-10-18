@@ -64,7 +64,7 @@ if ($DryRun -and $Diff) {
 $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$pyArgs = if ($All) { @("--all") } else { @($Projects) }
+$pyArgs = @(if ($All) { "--all" } else { $Projects })
 if ($DryRun) { $pyArgs += "--dry-run" }
 if ($Diff) { $pyArgs += "--diff" }
 

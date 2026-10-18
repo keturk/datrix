@@ -23,6 +23,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import io
 import subprocess
 import sys
@@ -36,13 +37,16 @@ if sys.platform == "win32" and __name__ == "__main__":
 
 from datrix_scripts.logic_map import resolve_scan_paths  # noqa: E402
 from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
+from datrix_scripts.venv import PACKAGE_DEV_EXTRAS, missing_declared_tool  # noqa: E402
 
 UP034 = "UP034"
+# Ruff runs as a module of this interpreter, so the shared venv's copy is the one that fixes.
+_RUFF_MODULE = "ruff"
 
 
 def build_ruff_argv(paths: list[Path], *, dry_run: bool, diff: bool) -> list[str]:
     """Build ``python -m ruff check`` argument list for UP034."""
-    argv: list[str] = [sys.executable, "-m", "ruff", "check", "--select", UP034]
+    argv: list[str] = [sys.executable, "-m", _RUFF_MODULE, "check", "--select", UP034]
     if diff:
         argv.extend(["--fix", "--diff"])
     elif not dry_run:
@@ -53,19 +57,12 @@ def build_ruff_argv(paths: list[Path], *, dry_run: bool, diff: bool) -> list[str
 
 def run_ruff(argv: list[str]) -> int:
     """Run Ruff; return its process exit code."""
-    try:
-        proc = subprocess.run(
-            argv,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-    except FileNotFoundError:
-        print(
-            "ERROR: could not run Python or ruff. Install with: pip install ruff",
-            file=sys.stderr,
-        )
-        return 1
+    proc = subprocess.run(
+        argv,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     return int(proc.returncode)
 
 
@@ -100,6 +97,9 @@ def main() -> int:
         help="Show fix diffs on stdout; do not write files (implies --fix for Ruff)",
     )
     args = parser.parse_args()
+    if importlib.util.find_spec(_RUFF_MODULE) is None:
+        print(missing_declared_tool("ruff", PACKAGE_DEV_EXTRAS), file=sys.stderr)
+        return 1
 
     if not args.projects and not args.scan_all:
         parser.print_help()

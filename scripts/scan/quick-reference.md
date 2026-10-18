@@ -92,6 +92,11 @@ Runs Semgrep with Datrix-specific rules from `scripts/config/semgrep-rules/`.
 
 **Implementation:** `scripts/scan/lib/semgrep_scanner.py` discovers the rules, expands directories into file lists, runs semgrep per rule and aggregates the findings.
 
+**Installation:** semgrep is declared in the `scripts` dependency group of `datrix/pyproject.toml`,
+which the shared venv installs. semgrep publishes no Windows ARM64 wheel, so the group leaves it out
+of a native Windows ARM64 venv (an environment marker), and the scanner refuses there with a message
+naming the platform; on every other platform a missing semgrep is refused with the install step.
+
 **Notes:** semgrep uses `git ls-files` to discover files in a directory, so the scanner expands directories into explicit `.py` paths (a non-git workspace still works). A full scan with every rule takes ~20-25 minutes; one `-Rule` takes ~2-3. Jinja2 templates (`.j2`) are excluded.
 
 ### `scan\ast-grep.ps1`
@@ -111,9 +116,9 @@ Runs ast-grep structural Python rules from `scripts/config/ast-grep-rules/`, or 
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Pattern <pattern>`, `-Rule <name>` (repeatable), `-ListRules`, `-Report <path>`, `-ShowRaw`
 
-**Rules** (one per YAML file in `scripts/config/ast-grep-rules/`; `-ListRules` prints the current set): `silent-fallback-none`, `default-type-mapping-any` (error), `empty-except-pass`, `return-none-lookup`, `missing-encoding-read-text`, `missing-encoding-write-text`, `open-without-encoding`, `placeholder-function-body`, `placeholder-notimplemented-body`, `generic-exception-raise`, `legacy-compatibility-call`, `banned-mock-import` (error), `banned-simple-namespace` (error), `codegen-string-append`. Rule details: [config/ast-grep-rules/README.md](../config/ast-grep-rules/README.md).
+**Rules** (one per YAML file in `scripts/config/ast-grep-rules/`; `-ListRules` prints the current set): `silent-fallback-none`, `default-type-mapping-any` (error), `empty-except-pass`, `return-none-lookup`, `missing-encoding-read-text`, `missing-encoding-write-text`, `open-without-encoding`, `placeholder-function-body`, `placeholder-notimplemented-body`, `generic-exception-raise`, `legacy-compatibility-call`, `banned-mock-import` (error), `banned-simple-namespace` (error), `codegen-string-append`, `flattened-entity-iteration` (error), `ad-hoc-plugin-registry` (error). Rule details: [config/ast-grep-rules/README.md](../config/ast-grep-rules/README.md).
 
-**Implementation:** `scripts/scan/lib/ast_grep.py` discovers the rules, expands directories into file lists, runs ast-grep per rule and aggregates the findings.
+**Implementation:** `scripts/scan/lib/ast_grep.py` discovers the rules, expands directories into file lists, runs ast-grep per rule and aggregates the findings. A package contributes its `src/` and `tests/`; the showcase repo (`datrix`, also covered by `-All`) contributes `scripts/`, its only Python.
 
 **Notes:** PowerShell expands `$NAME` in double-quoted strings, so pass metavariable patterns in single quotes (`-Pattern 'raise Exception($MSG)'`). The npm install exposes `sg.cmd` and `ast-grep.cmd` on Windows; the wrapper prefers those shims. Jinja2 templates (`.j2`) are excluded.
 

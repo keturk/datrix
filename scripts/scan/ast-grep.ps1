@@ -79,7 +79,9 @@ if ($Projects.Count -eq 0 -and -not $All -and -not $ListRules) {
 $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$pyArgs = if ($ListRules) { @("--list-rules") } elseif ($All) { @("--all") } else { @($Projects) }
+# @(...) around the whole if-expression: a one-element branch result would otherwise unroll
+# to a scalar string, and the += below would concatenate onto it instead of appending.
+$pyArgs = @(if ($ListRules) { "--list-rules" } elseif ($All) { "--all" } else { $Projects })
 if ($Pattern) { $pyArgs += @("--pattern", $Pattern) }
 foreach ($r in $Rule) { $pyArgs += @("--rule", $r) }
 if ($Report) { $pyArgs += @("--report", $Report) }

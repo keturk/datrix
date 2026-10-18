@@ -36,7 +36,7 @@ if sys.platform == "win32" and __name__ == "__main__":
 
 from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs  # noqa: E402
 from datrix_scripts.logic_map import resolve_scan_paths  # noqa: E402
-from datrix_scripts.paths import CONFIG_DIR, WORKSPACE_DIR  # noqa: E402
+from datrix_scripts.paths import CONFIG_DIR, SCRIPTS_DIR, SHOWCASE_DIR, WORKSPACE_DIR  # noqa: E402
 
 _RULES_DIR = CONFIG_DIR / "ast-grep-rules"
 
@@ -100,11 +100,19 @@ def resolve_scan_targets(
 ) -> list[Path]:
     """Return project src/tests directories to scan.
 
+    The showcase repo has no src/ or tests/: its Python is the repo tooling under
+    scripts/, so that tree is scanned whenever the showcase is in scope (``--all``
+    or named). A rule confines itself to part of it through its own ``files:``.
+
     Raises:
         FileNotFoundError: If a requested project does not exist.
     """
     pairs = resolve_scan_paths(datrix_root, project_names, scan_all, include_tests=include_tests)
-    return [directory for _, directory in pairs]
+    targets = [directory for _, directory in pairs]
+    named_dirs = {(datrix_root / name.rstrip("/\\")).resolve() for name in project_names}
+    if scan_all or SHOWCASE_DIR.resolve() in named_dirs:
+        targets.append(SCRIPTS_DIR)
+    return targets
 
 
 def _expand_to_files(targets: list[Path]) -> list[Path]:

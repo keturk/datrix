@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import importlib.util
 import io
 import os
 import re
@@ -30,6 +31,8 @@ if sys.platform == "win32":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
+from datrix_scripts.venv import PACKAGE_DEPENDENCIES, PACKAGE_DEV_EXTRAS, missing_declared_tool
+
 try:
     from jinja2 import (
         Environment,
@@ -38,9 +41,8 @@ try:
         Undefined,
         UndefinedError,
     )
-except ImportError:
-    print("ERROR: jinja2 is required. Install with: pip install jinja2", file=sys.stderr)
-    sys.exit(1)
+except ImportError as exc:
+    raise SystemExit(missing_declared_tool("jinja2", PACKAGE_DEPENDENCIES)) from exc
 
 from datrix_common.utils.text import (
     to_camel_case,
@@ -51,6 +53,9 @@ from datrix_common.utils.text import (
 
 from datrix_scripts.gate_harness import configure_logging
 from datrix_scripts.paths import WORKSPACE_DIR
+
+# The shared venv's ruff, run as a module of this interpreter so the venv's own copy checks the files.
+_RUFF_MODULE = "ruff"
 
 
 class SilentUndefined(Undefined):
@@ -425,7 +430,7 @@ def run_ruff_check(file_path: Path) -> tuple[list[str], int]:
     """
     try:
         result = subprocess.run(
-            ["ruff", "check", "--output-format=concise", str(file_path)],
+            [sys.executable, "-m", _RUFF_MODULE, "check", "--output-format=concise", str(file_path)],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -451,8 +456,6 @@ def run_ruff_check(file_path: Path) -> tuple[list[str], int]:
             else:
                 findings.append(line)
         return findings, result.returncode
-    except FileNotFoundError:
-        return ["ERROR: ruff not found. Install with: pip install ruff"], 1
     except Exception as e:
         return [f"ERROR: Failed to run ruff: {e}"], 1
 
@@ -548,6 +551,9 @@ def main() -> int:
     """Main entry point."""
     args = _parse_args()
     configure_logging(args.debug)
+    if importlib.util.find_spec(_RUFF_MODULE) is None:
+        print(missing_declared_tool("ruff", PACKAGE_DEV_EXTRAS), file=sys.stderr)
+        return 2
     base_path = (args.templates_dir or Path.cwd()).resolve()
     if not base_path.is_dir():
         print(f"ERROR: --templates-dir {base_path} is not a directory. Pass a folder holding .j2 templates.",

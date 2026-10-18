@@ -44,6 +44,7 @@ class BoundaryRule:
     forbidden_prefixes: tuple[str, ...]
     allowed_subtrees: frozenset[str] = frozenset()
 
+
 # ---------------------------------------------------------------------------
 # Generator taxonomy -- DISCOVERED from the manifests on disk, never declared.
 #

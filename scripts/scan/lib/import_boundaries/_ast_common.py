@@ -140,6 +140,7 @@ def tighten_only_messages(current: dict[str, int], baseline: dict[str, int], lab
         for delta in compare(current, baseline, RatchetMode.TIGHTEN_ONLY)
     ]
 
+
 # Registered-target identifier-segment call names this ratchet treats as a
 # TYPE reference (the second argument names a class/type, not a value).
 _TYPE_REFERENCE_CALL_NAMES: frozenset[str] = frozenset({"isinstance", "issubclass"})

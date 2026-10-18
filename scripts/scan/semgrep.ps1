@@ -5,8 +5,11 @@
 
 .DESCRIPTION
     Runs individual YAML rules from scripts/config/semgrep-rules/, in the shared
-    venv, on one or more projects (or all with -All). semgrep must be installed in
-    the venv; the scanner refuses, naming the install command, when it is not.
+    venv, on one or more projects (or all with -All). semgrep is declared in the
+    "scripts" dependency group of datrix/pyproject.toml, which the shared venv
+    installs; semgrep ships no Windows ARM64 wheel, so a native Windows ARM64 venv
+    lacks it. The scanner refuses when it is missing, naming the platform or the
+    install step.
 
     Each rule is run independently, making it easy to test and debug.
     Use -Rule to run a specific rule, -ListRules to see all available rules.
@@ -89,11 +92,13 @@ if ($Projects.Count -eq 0 -and -not $All -and -not $ListRules) {
 $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$pyArgs = if ($ListRules) { @("--list-rules") } elseif ($All) { @("--all") } else { @($Projects) }
+# @(...) around the whole expression: an if-expression yielding one element unwraps it to a scalar
+# string, and "+=" would then concatenate "--rule <name>" onto the project name.
+$pyArgs = @(if ($ListRules) { "--list-rules" } elseif ($All) { "--all" } else { $Projects })
 foreach ($r in $Rule) { $pyArgs += @("--rule", $r) }
 if ($Report) { $pyArgs += @("--report", $Report) }
 if ($ShowRaw) { $pyArgs += "--verbose" }
 if ($SinglePass) { $pyArgs += "--single-pass" }
 
-# semgrep_scanner.py refuses, naming the install command, when semgrep is not in the shared venv.
+# semgrep_scanner.py refuses, naming the platform or the install step, when semgrep is not in the shared venv.
 exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\semgrep_scanner.py") -Arguments $pyArgs)

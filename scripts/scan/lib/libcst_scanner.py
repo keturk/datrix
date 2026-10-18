@@ -35,18 +35,17 @@ if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
+from datrix_scripts.venv import SCRIPTS_DEPENDENCY_GROUP, missing_declared_tool  # noqa: E402
+
 try:
     import libcst as cst
     from libcst.metadata import MetadataWrapper, PositionProvider
-except ImportError:
-    print(
-        "ERROR: libcst is required. Install with: pip install libcst",
-        file=sys.stderr,
-    )
-    sys.exit(1)
+except ImportError as exc:
+    raise SystemExit(missing_declared_tool("libcst", SCRIPTS_DEPENDENCY_GROUP)) from exc
 
 from datrix_scripts.logic_map import resolve_scan_paths  # noqa: E402
 from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # Data model

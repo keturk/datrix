@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -52,6 +53,30 @@ from datrix_scripts.logic_map import resolve_scan_paths  # noqa: E402
 from datrix_scripts.paths import CONFIG_DIR, WORKSPACE_DIR  # noqa: E402
 
 _RULES_DIR = CONFIG_DIR / "semgrep-rules"
+
+#: Exit code the run functions return when no ``semgrep`` executable is on PATH.
+SEMGREP_MISSING_EXIT = 127
+
+#: ``platform.machine()`` of Windows on ARM: the one platform the ``scripts`` dependency group of
+#: datrix/pyproject.toml leaves semgrep out of (its marker tests the same value), as semgrep
+#: publishes no Windows ARM64 wheel.
+_WINDOWS_ARM64_MACHINE = "ARM64"
+
+
+def semgrep_missing_message() -> str:
+    """Why no semgrep executable is present, and the fix, for this interpreter's platform."""
+    if sys.platform == "win32" and platform.machine() == _WINDOWS_ARM64_MACHINE:
+        return (
+            "ERROR: semgrep not found. semgrep publishes no Windows ARM64 wheel, so the 'scripts' "
+            "dependency group of datrix/pyproject.toml leaves it out of a native Windows ARM64 venv. "
+            "Run this scan on a platform semgrep ships for (Windows x64, macOS, Linux)."
+        )
+    return (
+        "ERROR: semgrep not found in the shared venv. It is declared in the 'scripts' dependency "
+        "group of datrix/pyproject.toml; run scripts/common/venv.ps1 -EnsurePackages (which test.ps1 "
+        "runs) to install the group."
+    )
+
 
 SKIP_DIRS = frozenset({
     "__pycache__", ".venv", ".git", ".generated", ".mypy_cache",
@@ -253,7 +278,7 @@ def run_semgrep(
         try:
             return _run_semgrep_batch(rules_path, batches[0], json_output)
         except FileNotFoundError:
-            return "ERROR: semgrep not found. Install with: pip install semgrep", 127
+            return semgrep_missing_message(), SEMGREP_MISSING_EXIT
 
     all_findings: list[dict] = []
     all_errors: list[dict] = []
@@ -263,7 +288,7 @@ def run_semgrep(
         try:
             output, code = _run_semgrep_batch(rules_path, batch, json_output=True)
         except FileNotFoundError:
-            return "ERROR: semgrep not found. Install with: pip install semgrep", 127
+            return semgrep_missing_message(), SEMGREP_MISSING_EXIT
         if code != 0:
             last_exit = code
         findings, errors = parse_json_output(output)
@@ -300,7 +325,7 @@ def run_semgrep_multi_configs(
         try:
             return _run_semgrep_batch_multi_configs(rules_paths, batches[0], json_output)
         except FileNotFoundError:
-            return "ERROR: semgrep not found. Install with: pip install semgrep", 127
+            return semgrep_missing_message(), SEMGREP_MISSING_EXIT
 
     all_findings: list[dict] = []
     all_errors: list[dict] = []
@@ -312,7 +337,7 @@ def run_semgrep_multi_configs(
                 rules_paths, batch, json_output=True
             )
         except FileNotFoundError:
-            return "ERROR: semgrep not found. Install with: pip install semgrep", 127
+            return semgrep_missing_message(), SEMGREP_MISSING_EXIT
         if code != 0:
             last_exit = code
         findings, errors = parse_json_output(output)
@@ -388,7 +413,7 @@ def scan_with_rules(
         json_output, exit_code = run_semgrep_multi_configs(
             rule_paths, targets, json_output=True
         )
-        if exit_code == 127:
+        if exit_code == SEMGREP_MISSING_EXIT:
             print(" SEMGREP NOT FOUND")
             print(json_output, file=sys.stderr)
             raise RuntimeError("semgrep not found")
@@ -409,7 +434,7 @@ def scan_with_rules(
 
         json_output, exit_code = run_semgrep(rule_path, targets, json_output=True)
 
-        if exit_code == 127:
+        if exit_code == SEMGREP_MISSING_EXIT:
             print(" SEMGREP NOT FOUND")
             print(json_output, file=sys.stderr)
             raise RuntimeError("semgrep not found")
