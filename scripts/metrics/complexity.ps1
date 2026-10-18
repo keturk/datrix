@@ -141,7 +141,7 @@ Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -For
 $workspaceRoot = Get-DatrixWorkspaceRoot
 # Shared with dev\code-scan.ps1, so it lives in the shared scripts package and runs as a module.
 # radon and cognitive_complexity come with the shared venv; the module refuses, naming the
-# install command, when either is missing.
+# venv repair, when either is missing.
 $complexityModule = "datrix_scripts.complexity"
 
 if ($FixAll) { $Fix = $true }

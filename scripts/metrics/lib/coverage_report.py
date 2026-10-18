@@ -19,6 +19,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from datrix_scripts.venv import PACKAGE_DEV_EXTRAS, missing_declared_tool
+
 COVERAGE_FORMATS = ("term", "term-missing", "html", "xml")
 DEFAULT_FORMAT = "term-missing"
 
@@ -27,14 +29,11 @@ _COVERAGE_TOTAL_RE = re.compile(r"TOTAL\s+.*\s+(\d+(?:\.\d+)?)%\s*$")
 
 
 def _check_pytest_cov() -> None:
-    """Raise SystemExit(2) with message if pytest-cov is not installed."""
+    """Raise SystemExit(2) with the venv repair if pytest-cov is not installed."""
     try:
         import pytest_cov  # noqa: F401
     except ImportError:
-        print(
-            "Error: pytest-cov is not installed. Install with: pip install pytest-cov",
-            file=sys.stderr,
-        )
+        print(missing_declared_tool("pytest-cov", PACKAGE_DEV_EXTRAS), file=sys.stderr)
         sys.exit(2)
 
 

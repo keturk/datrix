@@ -14,10 +14,19 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+from datrix_scripts.venv import SCRIPTS_DEPENDENCY_GROUP, missing_declared_tool
+
+# pygount runs as a module of this interpreter (its package has no __main__, its command module
+# does), so the shared venv's copy counts -- never whichever pygount PATH finds first.
+_PYGOUNT_PACKAGE = "pygount"
+_PYGOUNT_MODULE = "pygount.command"
+_CHILD_ENCODING = "utf-8"
 DEFAULT_IGNORE_DIRS = ("tests", "test", "__pycache__", ".git", ".venv", "node_modules")
 DEFAULT_FORMAT = "summary"
 
@@ -54,6 +63,9 @@ def main() -> int:
     parser.add_argument("--debug", action="store_true", help="Debug output.")
 
     args = parser.parse_args()
+    if importlib.util.find_spec(_PYGOUNT_PACKAGE) is None:
+        print(missing_declared_tool("pygount", SCRIPTS_DEPENDENCY_GROUP), file=sys.stderr)
+        return 2
     project_root = args.project_root.resolve()
     if not project_root.is_dir():
         print(
@@ -73,7 +85,9 @@ def main() -> int:
     verbose = args.verbose or args.debug
 
     cmd: list[str] = [
-        "pygount",
+        sys.executable,
+        "-m",
+        _PYGOUNT_MODULE,
         "--format",
         args.format,
         "--folders-to-skip",
@@ -86,25 +100,23 @@ def main() -> int:
     if verbose:
         print(f"Running: {' '.join(cmd)}", file=sys.stderr)
 
-    try:
-        result = subprocess.run(
-            cmd,
-            text=True,
-            cwd=str(project_root),
-            capture_output=True,
-        )
-    except FileNotFoundError:
-        print(
-            "Error: pygount is not installed. Install with: pip install pygount",
-            file=sys.stderr,
-        )
-        return 2
+    # pygount draws its summary with box characters. The child writes UTF-8 and its bytes pass
+    # through untouched: decoding them with this console's code page loses the whole report.
+    child_env = {**os.environ, "PYTHONIOENCODING": _CHILD_ENCODING}
+    result = subprocess.run(
+        cmd,
+        cwd=str(project_root),
+        capture_output=True,
+        env=child_env,
+    )
 
-    if result.stdout:
-        print(result.stdout, end="")
-    if result.stderr:
-        if verbose or result.returncode != 0:
-            print(result.stderr, end="", file=sys.stderr)
+    sys.stdout.flush()
+    sys.stdout.buffer.write(result.stdout)
+    sys.stdout.buffer.flush()
+    if result.stderr and (verbose or result.returncode != 0):
+        sys.stderr.flush()
+        sys.stderr.buffer.write(result.stderr)
+        sys.stderr.buffer.flush()
 
     return result.returncode
 

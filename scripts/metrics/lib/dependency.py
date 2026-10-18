@@ -26,12 +26,7 @@ import json
 import sys
 from pathlib import Path
 
-try:
-    import tomllib
-except ImportError:
-    tomllib = None # type: ignore[assignment]
-
-from datrix_scripts.pyproject_deps import (  # noqa: E402
+from datrix_scripts.pyproject_deps import (
     build_dependency_graph,
     discover_packages,
     third_party_dependencies,
@@ -120,12 +115,6 @@ def main() -> int:
     )
 
     args = parser.parse_args()
-    if tomllib is None:
-        print(
-            "Error: tomllib is required (Python 3.11+).",
-            file=sys.stderr,
-        )
-        return 2
 
     workspace_root = args.workspace_root.resolve()
     if not workspace_root.is_dir():

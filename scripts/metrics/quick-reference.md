@@ -27,6 +27,8 @@ Radon metrics: cyclomatic complexity, cognitive complexity, raw, Halstead, maint
 
 The cognitive check measures `def` and `async def` alike. `-Files` runs mode=check only, and does not combine with `-Fix`/`-FixAll`, `-All` or project names.
 
+`radon` (the datrix-* packages' `[dev]` extras) and `cognitive_complexity` (the `scripts` dependency group of `datrix/pyproject.toml`) come with the shared venv. When either cannot be imported the script refuses before measuring anything, naming the tool and `common\venv.ps1 -EnsurePackages` as the repair; it never checks one metric alone.
+
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Files <path,...>`, `-Mode` (check\|cc\|raw\|halstead\|mi, default: check), `-Max` (default: 15), `-Fix`, `-FixAll`, `-Test` (with -Fix), `-MaxRetries` (default: 3), `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-MaxContextChars` (default: 8000), `-StopOnError`, `-VerboseOutput`, `-Dbg`
 
 Every `-Fix`/LLM mode in this category searches the local machines' Ollama servers through `common/lib/datrix_scripts/local_llm.py`: models already in memory are used first, and a model that fails hands over to the next.
@@ -54,7 +56,7 @@ Error message quality checker: detects substandard error messages (missing conte
 
 ## `metrics\dead-code-report.ps1`
 
-Two-pass Vulture dead-code report: classifies findings as "never referenced" or "only referenced by tests". It is the one Vulture entry point: `-SortBySize` and `-MakeWhitelist` are Vulture's own options carried through.
+Two-pass Vulture dead-code report: classifies findings as "never referenced" or "only referenced by tests". It is the one Vulture entry point: `-SortBySize` and `-MakeWhitelist` are Vulture's own options carried through. Vulture comes with the shared venv (the `scripts` dependency group of `datrix/pyproject.toml`); when it cannot be imported the report refuses before scanning, naming that group and `common\venv.ps1 -EnsurePackages` as the repair.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -98,7 +100,7 @@ Ruff linter/formatter. Logs output to `D:\datrix\.test-output\ruff\<project>\ruf
 
 ## `metrics\bandit.ps1`
 
-Bandit security scanner for Python code.
+Bandit security scanner for Python code. Bandit comes with the shared venv (the `scripts` dependency group of `datrix/pyproject.toml`) and runs as the venv interpreter's module; when it cannot be imported the script refuses before scanning, naming that group and `common\venv.ps1 -EnsurePackages` as the repair.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -220,9 +222,27 @@ Lists top N files by line count for Datrix projects.
 
 ---
 
+## `metrics\call-count.ps1`
+
+Counts calls to named functions, and every subprocess launch, while one workload runs in-process: one `datrix generate`, or importing named modules (`lib\call_count.py`). The counters are installed before any workload module loads, and installing one also rebinds the names modules bound earlier with `from x import y`, so nothing is under-counted. No profiler, so the wall time is the real one. `-Expect` bounds make the run a pass/fail check, which is how a design acceptance property about call volume (registry constructions, template compiles, `resolve()` calls, subprocesses) is proved in one command. A self-test of the counter runs first on every invocation.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Count during a generation** | `.\metrics\call-count.ps1 -Source datrix/examples/03-domains/ecommerce/system.dtrx -Language python -Count "importlib.metadata:entry_points,jinja2.environment:Environment.compile"` | Counts per target, `subprocess` launches, wall time |
+| **Bound the counts** | `.\metrics\call-count.ps1 -Source <system.dtrx> -Language python -Count "importlib.metadata:entry_points" -Expect "importlib.metadata:entry_points<=5"` | Exit 1 when a bound fails |
+| **Count during imports** | `.\metrics\call-count.ps1 -Import datrix_codegen_aws -Count "datrix_codegen_kernel.dgen.compiler:generator_definition_file" -Expect "datrix_codegen_kernel.dgen.compiler:generator_definition_file==0"` | Import workload |
+| **Keep the result** | `.\metrics\call-count.ps1 -Source <system.dtrx> -Language python -Count "<targets>" -Json D:\datrix\.tmp\call-count\run.json` | Also write the JSON |
+| **Self-test only** | `.\metrics\call-count.ps1 -SelfTest` | Prove the counter counts a planted function, a method and an early `from x import y` binding |
+
+**Parameters:** `-Source`, `-Language`, `-Import`, `-Count` (`module:qualname`, comma-separated), `-Expect` (`<target><op><n>`, op `<=`\|`==`\|`>=`, `subprocess` for launches), `-Json`, `-SelfTest`
+
+**Output:** the JSON (`counts`, `expectations`, `wall_s`, `workload_exit`), then `CALL_COUNT PASSED|FAILED wall_s=<s> workload_exit=<n>`. Generated output goes to `D:\datrix\.tmp\call-count\<timestamp>\`. **Exit codes:** 0 = workload succeeded and every bound holds, 1 = a bound failed or the workload failed, 2 = usage error or self-test failure.
+
+---
+
 ## `metrics\loc.ps1`
 
-Lines-of-code counting using pygount.
+Lines-of-code counting using pygount. pygount comes with the shared venv (the `scripts` dependency group of `datrix/pyproject.toml`) and runs as the venv interpreter's module (`pygount.command`), never whichever `pygount` PATH finds; when it cannot be imported the script refuses before counting, naming that group and `common\venv.ps1 -EnsurePackages` as the repair.
 
 | Mode | Command | Description |
 |------|---------|-------------|

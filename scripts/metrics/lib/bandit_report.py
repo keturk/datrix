@@ -14,10 +14,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
 
+from datrix_scripts.venv import SCRIPTS_DEPENDENCY_GROUP, missing_declared_tool
+
+# Bandit runs as a module of this interpreter, so the shared venv's copy is the one that scans.
+_BANDIT_MODULE = "bandit"
 SEVERITY_MAP = {"low": "-l", "medium": "-ll", "high": "-lll"}
 CONFIDENCE_MAP = {"low": "-i", "medium": "-ii", "high": "-iii"}
 BANDIT_FORMATS = ("screen", "json", "csv", "html", "yaml", "sarif")
@@ -55,6 +60,9 @@ def main() -> int:
     parser.add_argument("--verbose", action="store_true", help="Verbose output.")
 
     args = parser.parse_args()
+    if importlib.util.find_spec(_BANDIT_MODULE) is None:
+        print(missing_declared_tool("bandit", SCRIPTS_DEPENDENCY_GROUP), file=sys.stderr)
+        return 2
     project_root = args.project_root.resolve()
     if not project_root.is_dir():
         print(
@@ -74,7 +82,7 @@ def main() -> int:
     cmd: list[str] = [
         sys.executable,
         "-m",
-        "bandit",
+        _BANDIT_MODULE,
         "-r",
         str(src),
         "--exclude",
@@ -85,19 +93,12 @@ def main() -> int:
     if args.output_format != "screen":
         cmd.extend(["-f", args.output_format])
 
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=not args.verbose,
-            text=True,
-            cwd=str(project_root),
-        )
-    except FileNotFoundError:
-        print(
-            "Error: bandit is not installed. Install with: pip install bandit",
-            file=sys.stderr,
-        )
-        return 2
+    result = subprocess.run(
+        cmd,
+        capture_output=not args.verbose,
+        text=True,
+        cwd=str(project_root),
+    )
 
     if result.returncode != 0:
         if result.stdout:

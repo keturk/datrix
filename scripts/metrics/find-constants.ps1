@@ -79,7 +79,7 @@ if ($Projects.Count -eq 0 -and -not $All) {
 $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$pyArgs = if ($All) { @("--all") } else { @($Projects) }
+$pyArgs = @(if ($All) { "--all" } else { $Projects })
 if ($Output) { $pyArgs += @("--output", $Output) }
 if ($IncludeDocstrings) { $pyArgs += "--include-docstrings" }
 if ($MinLength -ne 1) { $pyArgs += @("--min-length", "$MinLength") }

@@ -67,7 +67,7 @@ Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -For
 Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
 $workspaceRoot = Get-DatrixWorkspaceRoot
-# pygount comes with the shared venv; loc.py refuses, naming the install command, when it is missing.
+# pygount comes with the shared venv (the scripts dependency group); loc.py refuses, naming the declaring manifest and the venv repair, when it is missing.
 $locScript = Join-Path $PSScriptRoot "lib\loc.py"
 
  $projectsToAnalyze = @()

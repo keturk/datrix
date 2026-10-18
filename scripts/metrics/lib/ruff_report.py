@@ -15,10 +15,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
 
+from datrix_scripts.venv import PACKAGE_DEV_EXTRAS, missing_declared_tool
+
+# Ruff runs as a module of this interpreter, so the shared venv's copy is the one that checks.
+_RUFF_MODULE = "ruff"
 RUFF_OUTPUT_FORMATS = (
     "concise",
     "full",
@@ -96,6 +101,9 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+    if importlib.util.find_spec(_RUFF_MODULE) is None:
+        print(missing_declared_tool("ruff", PACKAGE_DEV_EXTRAS), file=sys.stderr)
+        return 2
     project_root = args.project_root.resolve()
     if not project_root.is_dir():
         print(
@@ -117,7 +125,7 @@ def main() -> int:
         cmd: list[str] = [
             sys.executable,
             "-m",
-            "ruff",
+            _RUFF_MODULE,
             "check",
             "--output-format",
             args.output_format,
@@ -133,7 +141,7 @@ def main() -> int:
         cmd = [
             sys.executable,
             "-m",
-            "ruff",
+            _RUFF_MODULE,
             "format",
             *paths,
         ]
@@ -147,19 +155,12 @@ def main() -> int:
     if args.quiet:
         cmd.append("-q")
 
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError:
-        print(
-            "Error: ruff is not installed. Install with: pip install ruff",
-            file=sys.stderr,
-        )
-        return 2
+    result = subprocess.run(
+        cmd,
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+    )
 
     # Print both stdout and stderr to stdout so the parent (e.g. PowerShell)
     # does not see stderr and trigger ErrorActionPreference = "Stop".

@@ -57,7 +57,7 @@ Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -For
 Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
 $workspaceRoot = Get-DatrixWorkspaceRoot
-# bandit must be installed in the shared venv; bandit_report.py refuses, naming the install command, when it is not.
+# bandit comes with the shared venv (the scripts dependency group); bandit_report.py refuses, naming the declaring manifest and the venv repair, when it is missing.
 $banditScript = Join-Path $PSScriptRoot "lib\bandit_report.py"
 
  $projectsToAnalyze = @()
