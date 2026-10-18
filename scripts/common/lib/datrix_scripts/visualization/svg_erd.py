@@ -11,14 +11,14 @@ Renders in GitHub, VS Code, and browsers without external dependencies.
 
 from __future__ import annotations
 
-import html
 import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from datrix_common.datrix_model.relationship_kind import RelationshipKind
-from datrix_common.paths import ServicePaths
 from datrix_common.utils.text import extract_simple_name
+
+from .svg_common import esc, simple_name
 
 if TYPE_CHECKING:
     from datrix_common.datrix_model.containers import Application, Service
@@ -119,11 +119,6 @@ class _RelEdge:
 # ── Helpers ──
 
 
-def _esc(text: str) -> str:
-    """Escape text for SVG/XML."""
-    return html.escape(text, quote=True)
-
-
 def _type_label(resolved_type: DatrixType) -> tuple[str, bool]:
     """Get display name and nullable status for a field type.
 
@@ -133,11 +128,6 @@ def _type_label(resolved_type: DatrixType) -> tuple[str, bool]:
     is_nullable = resolved_type.is_optional()
     inner = resolved_type.unwrap()
     return inner.display_name(), is_nullable
-
-
-def _simple_name(service_name: str) -> str:
-    """Extract short service name from qualified name."""
-    return ServicePaths(service_name).simple_name
 
 
 # ── Data collection ──
@@ -361,7 +351,7 @@ def _render_card(card: _EntityCard) -> str:
     parts.append(
         f'<text x="{card.x + CARD_PAD_X}" '
         f'y="{card.y + HEADER_H / 2 + 5}" class="entity-name">'
-        f'{_esc(card.name)}</text>'
+        f'{esc(card.name)}</text>'
     )
 
     # Fields
@@ -382,14 +372,14 @@ def _render_card(card: _EntityCard) -> str:
         display_name = f"{field.name}?" if field.is_nullable else field.name
         parts.append(
             f'<text x="{name_x}" y="{fy_text}" '
-            f'class="field-name">{_esc(display_name)}</text>'
+            f'class="field-name">{esc(display_name)}</text>'
         )
 
         # Type (right-aligned)
         type_x = card.x + card.width - CARD_PAD_X
         parts.append(
             f'<text x="{type_x}" y="{fy_text}" '
-            f'text-anchor="end" class="field-type">{_esc(field.type_display)}</text>'
+            f'text-anchor="end" class="field-type">{esc(field.type_display)}</text>'
         )
 
         # Subtle divider between rows
@@ -498,7 +488,7 @@ def _render_edge(
         )
         parts.append(
             f'<text x="{mid_x}" y="{mid_y - 2}" text-anchor="middle" '
-            f'class="rel-label">{_esc(edge.label)}</text>'
+            f'class="rel-label">{esc(edge.label)}</text>'
         )
 
     return "\n".join(parts)
@@ -531,7 +521,7 @@ def _append_cardinality_label(
 
     parts.append(
         f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" '
-        f'class="cardinality">{_esc(cardinality)}</text>'
+        f'class="cardinality">{esc(cardinality)}</text>'
     )
 
 
@@ -554,17 +544,17 @@ def _render_self_edge(edge: _RelEdge, card: _EntityCard) -> str:
     # Cardinality labels
     parts.append(
         f'<text x="{rx + loop_w + 4:.1f}" y="{cy - 4:.1f}" '
-        f'class="cardinality">{_esc(edge.source_cardinality)}</text>'
+        f'class="cardinality">{esc(edge.source_cardinality)}</text>'
     )
     parts.append(
         f'<text x="{rx + loop_w + 4:.1f}" y="{cy + 12:.1f}" '
-        f'class="cardinality">{_esc(edge.target_cardinality)}</text>'
+        f'class="cardinality">{esc(edge.target_cardinality)}</text>'
     )
 
     if edge.label:
         parts.append(
             f'<text x="{rx + loop_w + 4:.1f}" y="{cy + 24:.1f}" '
-            f'class="rel-label">{_esc(edge.label)}</text>'
+            f'class="rel-label">{esc(edge.label)}</text>'
         )
 
     return "\n".join(parts)
@@ -589,7 +579,7 @@ def _render_svg(
         f'<rect width="{width:.0f}" height="{height:.0f}" fill="white"/>',
         # Title
         f'<text x="{SVG_PAD}" y="{SVG_PAD + 16}" class="title">'
-        f'{_esc(service_display_name)}</text>',
+        f'{esc(service_display_name)}</text>',
         f'<text x="{SVG_PAD}" y="{SVG_PAD + 30}" class="subtitle">'
         f'Entity-Relationship Diagram</text>',
     ]
@@ -628,7 +618,7 @@ def build_erd_svgs(app: Application) -> dict[str, str]:
     result: dict[str, str] = {}
 
     for service in app.services.values():
-        sname = _simple_name(str(service.name))
+        sname = simple_name(str(service.name))
         cards, edges = _collect_service_data(service)
 
         if not cards:

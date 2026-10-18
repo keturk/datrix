@@ -48,6 +48,8 @@ class Tool(Generic[Context]):
     handler: Callable[[Context, JsonObject], str]
     # True when answering contacts anything beyond this machine's files.
     open_world: bool = False
+    # False when answering changes files, so the client does not treat the tool as a pure lookup.
+    read_only: bool = True
 
     def listing(self) -> JsonObject:
         return {
@@ -59,7 +61,7 @@ class Tool(Generic[Context]):
                 "required": list(self.required),
                 "additionalProperties": False,
             },
-            "annotations": {"readOnlyHint": True, "openWorldHint": self.open_world},
+            "annotations": {"readOnlyHint": self.read_only, "openWorldHint": self.open_world},
         }
 
 

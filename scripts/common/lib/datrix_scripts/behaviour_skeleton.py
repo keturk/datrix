@@ -229,6 +229,7 @@ class FunctionSource:
     node: _FunctionDefNode
     source_text: str
     import_table: dict[str, str]  # local name -> fully-qualified "module.attr"
+    local_classes: dict[str, str]  # module-level class name -> fully-qualified "module.Class"
 
 
 def parse_module_or_raise(file_path: Path) -> ast.Module:
@@ -292,6 +293,26 @@ def build_import_table(module: ast.Module, package: str) -> dict[str, str]:
         elif isinstance(node, ast.ImportFrom):
             table.update(_import_from_bindings(node, package))
     return table
+
+
+def build_local_class_table(module: ast.Module, module_name: str) -> dict[str, str]:
+    """Resolve every class *module* defines at its top level to
+    ``{class name: "<module_name>.<class name>"}`` -- the types a parameter
+    annotation names without importing them.
+
+    Args:
+        module: The parsed module AST.
+        module_name: The dotted name of *module* itself (``pkg.sub.mod``;
+            ``pkg.sub`` for ``pkg/sub/__init__.py``).
+
+    Returns:
+        ``{class name: fully-qualified name}`` for every top-level ``class``.
+    """
+    return {
+        node.name: f"{module_name}.{node.name}"
+        for node in module.body
+        if isinstance(node, ast.ClassDef)
+    }
 
 
 def _import_bindings(node: ast.Import) -> dict[str, str]:
@@ -966,7 +987,7 @@ def behaviour_arity(fn: FunctionSource, *, extra_plumbing: frozenset[str] = froz
     positional/keyword/vararg/kwarg parameter after dropping ``self``/``cls``
     (the same rule ``_function_parameter_names`` already applies for
     ``P``-eligibility), dropping any parameter whose annotation resolves,
-    through ``fn.import_table``, to a type OUTSIDE both
+    through ``_annotation_table(fn)``, to a type OUTSIDE both
     ``datrix_common``/``datrix_codegen_common`` -- a package's own
     transpiler-core or file-scope type, present under a different concrete
     name in every language's version of a dispatch function and therefore
@@ -1004,16 +1025,16 @@ def behaviour_arity(fn: FunctionSource, *, extra_plumbing: frozenset[str] = froz
         for param in _all_parameters(fn.node)
         if param.arg not in (_SELF_NAME, _CLS_NAME)
         and param.arg not in extra_plumbing
-        and not _is_language_private_annotation(param.annotation, fn.import_table)
+        and not _is_language_private_annotation(param.annotation, _annotation_table(fn))
     )
 
 
 def plumbing_parameter_names(fn: FunctionSource) -> frozenset[str]:
     """The names of *fn*'s parameters that ``behaviour_arity`` drops as
     language-private plumbing: every non-``self``/``cls`` parameter whose
-    annotation resolves, through ``fn.import_table``, to a type outside both
-    halves of the shared layer. Exposed so a role's classifier can drop the
-    same NAMES from every member -- a language whose file-scope subclass
+    annotation resolves, through ``_annotation_table(fn)``, to a type outside
+    both halves of the shared layer. Exposed so a role's classifier can drop
+    the same NAMES from every member -- a language whose file-scope subclass
     happens to live in the shared layer must not count a parameter its
     sibling languages drop.
 
@@ -1023,12 +1044,22 @@ def plumbing_parameter_names(fn: FunctionSource) -> frozenset[str]:
     Returns:
         The frozenset of plumbing parameter names.
     """
+    table = _annotation_table(fn)
     return frozenset(
         param.arg
         for param in _all_parameters(fn.node)
         if param.arg not in (_SELF_NAME, _CLS_NAME)
-        and _is_language_private_annotation(param.annotation, fn.import_table)
+        and _is_language_private_annotation(param.annotation, table)
     )
+
+
+def _annotation_table(fn: FunctionSource) -> dict[str, str]:
+    """Every name a parameter annotation of *fn* can resolve through: the
+    classes *fn*'s own module defines, then its imports (an import rebinding
+    a class name wins, as the later binding would at runtime). A context
+    class declared beside the function that takes it is as much that
+    package's own type as one imported from a sibling module."""
+    return {**fn.local_classes, **fn.import_table}
 
 
 def _is_language_private_annotation(annotation: ast.expr | None, import_table: dict[str, str]) -> bool:
@@ -1036,8 +1067,8 @@ def _is_language_private_annotation(annotation: ast.expr | None, import_table: d
     package does not share with the rest of the pipeline. An unannotated
     parameter, a builtin, and anything under ``datrix_common``/
     ``datrix_codegen_common`` are never language-private; an unresolvable
-    shape (a subscript, a union, a bare name absent from the import table,
-    or a quoted forward-reference string that does not parse to one of
+    shape (a subscript, a union, a bare name absent from the table, or a
+    quoted forward-reference string that does not parse to one of
     those two resolvable shapes) is treated as not-provably-private -- the
     fail-open direction is correct here because failing closed would DROP a
     real parameter from the arity count on a shape this function cannot
@@ -1773,6 +1804,10 @@ def model_attribute_names(fn: FunctionSource) -> frozenset[str]:
 # Self-test
 # ---------------------------------------------------------------------------
 
+#: The module stem every synthetic self-test source lives under, inside the
+#: package it is built for.
+_SELF_TEST_MODULE_STEM: Final[str] = "self_test_module"
+
 
 def _function_source_from_code(code: str, package: str = "self_test") -> FunctionSource:
     """Build a ``FunctionSource`` for the first top-level function in *code*
@@ -1791,6 +1826,7 @@ def _function_source_from_code(code: str, package: str = "self_test") -> Functio
         node=fn_node,
         source_text=source_text,
         import_table=build_import_table(module, package),
+        local_classes=build_local_class_table(module, f"{package}.{_SELF_TEST_MODULE_STEM}"),
     )
 
 
@@ -2599,12 +2635,36 @@ def _run_rendering_leaf_privacy_checks() -> bool:
             return f"import {module}.{helper}"
         """
     )
-    return report_condition(
+    ok = report_condition(
         is_rendering_leaf(private_leaf) and not is_rendering_leaf(shared_not_leaf),
         "(29) is_rendering_leaf exempts a private-typed parameter's attribute reads, and a "
         "derived root sourced only from them, from the piece-read rule; the same shape over "
         "a shared-typed parameter stays disqualifying",
     )
+    module_local_context = """
+        from dataclasses import dataclass
+
+        @dataclass(frozen=True)
+        class ApiRender:
+            inputs: dict[str, object]
+
+        def build_inputs_render(context: ApiRender) -> dict[str, object]:
+            return context.inputs
+        """
+    language_local = _function_source_from_code(module_local_context, package="datrix_codegen_python.dgen")
+    shared_local = _function_source_from_code(
+        module_local_context, package="datrix_codegen_common.generation"
+    )
+    ok &= report_condition(
+        plumbing_parameter_names(language_local) == frozenset({"context"})
+        and is_rendering_leaf(language_local)
+        and plumbing_parameter_names(shared_local) == frozenset()
+        and not is_rendering_leaf(shared_local),
+        "(34) a parameter annotated with a class its own module defines resolves to that "
+        "module: language-private (plumbing, a rendering leaf's exempt root) in a language "
+        "package, shared in the shared layer",
+    )
+    return ok
 
 
 def _sweep_function_source(name: str) -> FunctionSource:

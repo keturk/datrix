@@ -21,7 +21,7 @@ through while it reported clean:
   and any task number that reached three digits (``task-06-103``). Both are
   covered now, case-insensitively.
 * **Design-doc shape.** The design-side pattern required the literal word
-  ``doc`` (``design doc 046``), so the shape people actually write --
+  ``doc`` (``design doc 000``), so the shape people actually write --
   ``design 048``, ``design-019``, ``design NNN Section 5`` -- passed straight
   through, and fifteen of them accumulated across five packages while this
   gate reported clean. The word ``doc`` is optional now.
@@ -58,7 +58,7 @@ from datrix_scripts.gate_harness import write_file, write_files
 from datrix_scripts.paths import WORKSPACE_DIR
 
 # A reference looks like `task-07-42`, `task 50-22`, `tasks 09-21 and 09-22`,
-# `design/044-foo`, `design 048`, `design-019`, `design doc 046`, or a
+# `design/044-foo`, `design 048`, `design-019`, `design doc 000`, or a
 # `.tasks/phase-07` path.
 # Matching the *shape* is deliberate: a number alone is far too common to flag.
 #
@@ -368,12 +368,12 @@ def self_test(quiet: bool = False) -> int:
             "fixture.dtrx": "// documentation realization (task 50-22): one documented member\n",
             "bare_design.py": "# Covers design 048 Section 5's host/port hole.\n",
             "hyphen_design.py": "# Unit tests for design-019 D1's native-only validator.\n",
-            "design_doc.md": "The split is settled in design doc 046.\n",
+            "design_doc.md": "The split is settled in design doc 000.\n",
             # The plural is the natural way to cite more than one, and it hid
             # five real references -- every one in datrix-codegen-docker.
             "plural.py": "# After tasks 09-21 and 09-22, the target emits no .env file.\n",
             "plural_slashed.py": "# Build the plan first (see tasks 08-07/08-09).\n",
-            "plural_design.md": "Both splits are settled in design docs 046.\n",
+            "plural_design.md": "Both splits are settled in design docs 000.\n",
             # Separator runs other than exactly one hyphen or one space.
             "wide_sep.py": "# Implements task  43-01 across the two emitters.\n",
             "underscore_sep.py": "# Mirrors Task_31-07's own base-image skip.\n",

@@ -16,8 +16,12 @@ from datrix_scripts.behaviour_skeleton import (
     FunctionSource,
     SkeletonError,
     build_import_table,
+    build_local_class_table,
     parse_module_or_raise,
 )
+
+#: The stem of a package's own module file -- the file that IS its package.
+PACKAGE_INIT_STEM: Final[str] = "__init__"
 
 #: ``ast.stmt`` attribute names whose value is a statement list the walker descends into to
 #: find a def nested inside a non-function, non-class container (If/While/For/With/Try main
@@ -129,6 +133,21 @@ def dotted_package_for_file(src_dir: Path, file_path: Path) -> str:
     return ".".join([src_dir.name, *relative.parts[:-1]])
 
 
+def dotted_module_for_file(src_dir: Path, file_path: Path) -> str:
+    """The dotted name of the module *file_path* is: ``pkg.sub.mod`` for
+    ``pkg/sub/mod.py``, and ``pkg.sub`` for ``pkg/sub/__init__.py``.
+
+    Args:
+        src_dir: The package's src root (e.g. ``.../src/datrix_codegen_python``).
+        file_path: A ``.py`` file under *src_dir*.
+
+    Returns:
+        The dotted module path.
+    """
+    package = dotted_package_for_file(src_dir, file_path)
+    return package if file_path.stem == PACKAGE_INIT_STEM else f"{package}.{file_path.stem}"
+
+
 def qualified_def_name(node: FunctionDefNode, enclosing_class: str | None) -> str:
     """``Class.method`` for a method, the bare name for a module-level function."""
     return f"{enclosing_class}.{node.name}" if enclosing_class else node.name
@@ -160,6 +179,7 @@ def collect_function_sources(src_dir: Path, package: str) -> list[FunctionSource
     for py_file in sorted(src_dir.rglob("*.py")):
         module = parse_module_or_raise(py_file)
         import_table = build_import_table(module, dotted_package_for_file(src_dir, py_file))
+        local_classes = build_local_class_table(module, dotted_module_for_file(src_dir, py_file))
         source_lines = py_file.read_text(encoding="utf-8-sig").splitlines(keepends=True)
         for node, enclosing_class in collect_module_and_method_defs(module.body, None):
             sources.append(
@@ -171,6 +191,7 @@ def collect_function_sources(src_dir: Path, package: str) -> list[FunctionSource
                     node=node,
                     source_text=decorated_source_segment(source_lines, node),
                     import_table=import_table,
+                    local_classes=local_classes,
                 )
             )
     return sources

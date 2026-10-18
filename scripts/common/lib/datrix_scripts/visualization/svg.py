@@ -9,11 +9,9 @@ Diagrams:
 
 from __future__ import annotations
 
-import html
 from typing import TYPE_CHECKING
 
-from datrix_common.paths import ServicePaths
-
+from .svg_common import esc, simple_name
 from .traversal import all_subscriptions_with_context
 
 if TYPE_CHECKING:
@@ -134,11 +132,6 @@ class _CrossArrow:
 # ── Data collection ──
 
 
-def _simple_name(service_name: str) -> str:
-    """Extract simple service name from qualified name."""
-    return ServicePaths(service_name).simple_name
-
-
 def _collect_data(
     app: Application,
 ) -> tuple[list[_ServiceCard], list[_CrossArrow]]:
@@ -152,7 +145,7 @@ def _collect_data(
 
     # Phase 1: Collect published events
     for service in app.services.values():
-        sname = _simple_name(str(service.name))
+        sname = simple_name(str(service.name))
         card = _ServiceCard(sname)
 
         for pubsub_block in service.pubsub_blocks.values():
@@ -173,7 +166,7 @@ def _collect_data(
     seen_incoming: set[str] = set()
 
     for service, subscription in all_subscriptions_with_context(app):
-        subscriber_name = _simple_name(str(service.name))
+        subscriber_name = simple_name(str(service.name))
 
         for handler in subscription.handlers:
             raw_event_name = handler.event_name()
@@ -255,11 +248,6 @@ def _calculate_layout(cards: list[_ServiceCard]) -> float:
 # ── SVG rendering ──
 
 
-def _esc(text: str) -> str:
-    """Escape text for SVG/XML."""
-    return html.escape(text, quote=True)
-
-
 def _svg_styles() -> str:
     """Render the <style> block."""
     return f"""<style>
@@ -314,7 +302,7 @@ def _render_card(card: _ServiceCard, card_x: float) -> str:
     parts.append(
         f'<text x="{card_x + CARD_PAD_X}" '
         f'y="{card.y_top + HEADER_H / 2 + 5}" class="header-text">'
-        f'{_esc(card.name)}</text>'
+        f'{esc(card.name)}</text>'
     )
 
     # Published events
@@ -340,7 +328,7 @@ def _render_card(card: _ServiceCard, card_x: float) -> str:
         # Topic name (inside container, at top)
         parts.append(
             f'<text x="{container_x + 10}" y="{content_y + 14}" '
-            f'class="topic-text">{_esc(topic.name)}</text>'
+            f'class="topic-text">{esc(topic.name)}</text>'
         )
         content_y += SECTION_LABEL_H
 
@@ -358,7 +346,7 @@ def _render_card(card: _ServiceCard, card_x: float) -> str:
             )
             parts.append(
                 f'<text x="{event_x + 8}" y="{ey + ROW_H / 2 + 4}" '
-                f'class="event-text">{_esc(event_row.name)}</text>'
+                f'class="event-text">{esc(event_row.name)}</text>'
             )
 
             # In-service handler (if any)
@@ -381,7 +369,7 @@ def _render_card(card: _ServiceCard, card_x: float) -> str:
                 )
                 parts.append(
                     f'<text x="{hx + 8}" y="{ey + ROW_H / 2 + 4}" '
-                    f'class="handler-text">{_esc(event_row.handler_name)}</text>'
+                    f'class="handler-text">{esc(event_row.handler_name)}</text>'
                 )
 
             content_y += ROW_H
@@ -421,7 +409,7 @@ def _render_card(card: _ServiceCard, card_x: float) -> str:
             )
             parts.append(
                 f'<text x="{ix + 8}" y="{iy + ROW_H / 2 + 4}" '
-                f'class="incoming-text">{_esc(label)}</text>'
+                f'class="incoming-text">{esc(label)}</text>'
             )
 
             content_y += ROW_H
@@ -486,7 +474,7 @@ def _render_cross_arrow(
     return (
         f'<path d="{path}" class="arrow-cross"/>\n'
         f'<text x="{end_x + 4}" y="{ty - 6}" class="cross-label">'
-        f'{_esc(source_label)}</text>'
+        f'{esc(source_label)}</text>'
     )
 
 

@@ -24,11 +24,12 @@ import sys
 from pathlib import Path
 
 from datrix_scripts.dev_specs import installable_dev_specs  # noqa: E402
+from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
 from datrix_scripts.node_test_runner import run_node_suite  # noqa: E402
 from datrix_scripts.package_suites import SuiteKind, detect_suite_kind  # noqa: E402
-from datrix_scripts.test_runner import TIER_MARKER_EXPRESSIONS, TestConfig, TestRunner, split_tags  # noqa: E402
-from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
 from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
+from datrix_scripts.pyproject_deps import parse_package_name  # noqa: E402
+from datrix_scripts.test_runner import TIER_MARKER_EXPRESSIONS, TestConfig, TestRunner, split_tags  # noqa: E402
 from datrix_scripts.venv import get_venv_python, is_venv_active  # noqa: E402
 
 # Marker filters that SELECT a marked subset of tests. A suite with no marker
@@ -43,12 +44,6 @@ _DEV_PACKAGE_TO_IMPORT: dict[str, str] = {
  "pytest-cov": "pytest_cov",
  "pytest-xdist": "pytest_xdist",
 }
-
-
-def _parse_package_name(spec: str) -> str:
- """Extract package name from a dependency spec (e.g. 'pytest>=7.0' -> 'pytest')."""
- # Strip version specifiers: >=, ==, <, >, ~=, etc.
- return re.split(r"\s*[\[\]<>!=~]", spec.strip(), maxsplit=1)[0].strip()
 
 
 def _get_dev_specs(project_root: Path) -> list[str]:
@@ -71,7 +66,7 @@ def _get_dev_imports_to_check(project_root: Path) -> list[str]:
  imports: list[str] = []
  seen: set[str] = set()
  for spec in _get_dev_specs(project_root):
-  pkg = _parse_package_name(spec)
+  pkg = parse_package_name(spec)
   if pkg in _DEV_PACKAGE_TO_IMPORT:
    imp = _DEV_PACKAGE_TO_IMPORT[pkg]
    if imp not in seen:

@@ -56,7 +56,7 @@ must report zero (each census first reports a planted copy):
 | The workspace root | `Get-DatrixWorkspaceRoot` / `datrix_scripts.paths.WORKSPACE_DIR` | no retired resolver is defined or named |
 | Enumerating `datrix-*` directories | `framework_repos.workspace_package_dirs` | no loop over an `iterdir()` tests a `datrix` prefix |
 | Import paths | the venv | no `sys.path` mutation outside the fixtures above |
-| A helper body | its shared module | no function body of three or more statements is AST-identical across two files |
+| A helper body | its shared module | no function body of three or more statements is AST-identical across two files; no module-level function of any length copies a public `datrix_scripts` function in another file (docstring, annotations and decorators ignored, the names it binds renamed by position, every free name resolved to the import or definition it denotes; a body that only returns a constant is no home) |
 | A gate's self-test | the gate | every gate wrapper declares `-SelfTest` |
 
 The same gate proves that every `datrix_scripts` module imports as the first import of a fresh
@@ -114,6 +114,8 @@ skill, hook, config or package file names present.
 | `local_reading.py` | Reads framework files and logs through a local model: read scope, chunking, log reduction, citation checking, the customer-term filter |
 | `llm_code_fix.py` | Shared machinery for scripts that ask a local model to rewrite Python |
 | `mcp_stdio.py` | The MCP protocol over stdio, shared by every Datrix MCP server |
+| `mcp_exchange.py` | Talking to an MCP server in process (messages in, response lines out), for the gates that check one |
+| `line_edits.py` | Line-addressed reading and editing (hash-checked line ranges, batched across files) behind the `datrix-edit` MCP server; also imported by the `route-line-edits.py` hook |
 | `code_index/` | The per-machine code index: definitions, references, outlines, search, summaries, usage |
 | `knowledge/` | The knowledge base behind `dev\ineedtoknow.ps1` |
 | `logic_map.py` | Logic-map marker syntax, parser and the `markers.db` writer |
