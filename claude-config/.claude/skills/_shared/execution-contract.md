@@ -99,13 +99,33 @@ fix needs broader changes than the request states, stop that part and ask:
 - "Broader" means changes the request does not name: new model fields, phases, diagnostics,
   modules or abstractions; packages it does not name; or a multiple of the expected size.
 - Ask in one line starting `APPROVAL_REQUIRED:` — what the expansion is, why the task needs it
-  (evidence, `file:line`), and roughly how big it is. A subagent returns status
+  (evidence, `file:line`), and its measured size (below). A subagent returns status
   `APPROVAL_REQUIRED` with the same content; the orchestrator puts it to Jon and does not
   re-dispatch it until he answers.
 - Keep working everything that does not depend on the answer. If nothing does, end the turn on
   the question. That is a legitimate exit.
 - **Never answer it yourself by shipping a smaller fix (§14).** Unapproved expansion and a
   cut-down fix are both wrong; the question is the only right move.
+
+**Sizing an expansion: measured, in agent terms.** The size in an `APPROVAL_REQUIRED` request
+is what the agent doing the work would spend, computed from counts. It is never a guess and
+never a person's effort. Sizing agent work in engineer-hours is like using walking time to plan
+a road trip: the distance is right, but the speed belongs to someone else.
+
+- **Census.** The files, call sites and packages the change touches, each one counted (code-index
+  `find_references`, or a census command whose output you saw). Name each count's source.
+- **Cost.** Tokens and agent wall-clock minutes, worked out as census × a rate this run measured
+  on comparable work: the minutes between ledger timestamps, and the tokens one unit used. Show
+  the arithmetic, e.g. `U01: 2 files, 7 min, ~0.4M tokens → 100 files at 2–4 per unit ≈ 30 units ≈
+  3.5 h, ~12M tokens`. If the run has done no comparable work yet, state the census and what each
+  site needs (an argument added, or a fixture built per test). Say there is no measured rate
+  yet; do not invent one.
+- **Never human effort.** No engineer-hours, -days, sprints or "a day's work". No "roughly",
+  "about" or "a lot" in place of a count.
+- **A document's effort figure is not a baseline.** An effort estimate in a design doc or task
+  file ("about half a day") was written for a person, so never scale it, convert it or compare
+  against it. Compare your census against what the document *names* (its files, packages and
+  units).
 
 **The task's file list is the expected surface.** Following your own defect's root cause into a
 neighbouring file or package to fix it there is the task, not an expansion, as long as it stays

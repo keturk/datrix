@@ -1,4 +1,4 @@
-"""PreToolUse(Read) hook: the first whole read of a large file gets its outline, or a log its digest.
+"""PreToolUse(Read, read_lines) hook: the first whole read of a large file gets its outline, or a log its digest.
 
 Agents read large Python files whole to answer a narrow question: over ten days of logged
 reads, 26% of whole reads were of files over 16,000 characters, and those were 58% of every
@@ -46,6 +46,7 @@ from _mcp_registration import (  # noqa: E402
     is_registered,
     session_directory,
 )
+from _tool_names import READ_TOOLS  # noqa: E402
 
 if TYPE_CHECKING:
     from datrix_scripts.local_llm import LocalLlmSettings
@@ -161,7 +162,7 @@ def decide(payload: dict[str, object], workspace: Path, settings: "LocalLlmSetti
     ``on_repeat`` is called when the read is the repeat of one already refused: the agent went
     on to read the whole file after all."""
     tool_input = payload.get("tool_input")
-    if str(payload.get("tool_name", "")) != "Read" or not isinstance(tool_input, dict):
+    if str(payload.get("tool_name", "")) not in READ_TOOLS or not isinstance(tool_input, dict):
         return ""
     if any(key in tool_input for key in ("offset", "limit", "pages")):
         return ""
@@ -202,7 +203,8 @@ def _record(payload: dict[str, object], category: str, response_chars: int) -> N
     tool_input = payload.get("tool_input")
     detail = str(tool_input.get("file_path", "")) if isinstance(tool_input, dict) else ""
     append_record(_USAGE_LOG, {
-        "category": category, "tool": "Read", "detail": detail[:300], "response_chars": response_chars,
+        "category": category, "tool": str(payload.get("tool_name", "Read")), "detail": detail[:300],
+        "response_chars": response_chars,
         "session": str(payload.get("session_id", "")), "agent": str(payload.get("agent_id", "")) or "main",
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
     }, "redirect-large-read", _USAGE_LOG_MAX_BYTES)

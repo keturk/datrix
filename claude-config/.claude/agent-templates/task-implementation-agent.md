@@ -112,7 +112,7 @@ Return a JSON report as the LAST thing in your output:
     "_comment": "REQUIRED and non-null when status is APPROVAL_REQUIRED.",
     "what": "the expansion the task needs and does not name",
     "why": "the evidence that the task cannot be correct without it (file:line)",
-    "size": "roughly how big: files, packages, hours"
+    "size": "measured (execution-contract §4): counted files, call sites, packages; tokens and agent minutes = census × the rate this task measured; never human hours/days"
   },
   "targeted_tests": {
     "ran": true,
@@ -175,7 +175,7 @@ not the task: form a new one, grounded in the error text, and continue.
 
 **The file list in your task is the expected surface.**
 - If the root cause of the task's own defect is in a neighbouring file or package, follow it and fix it there, as long as the change stays the size and kind the task describes. List the added files under `scope_expansion`.
-- **If the task turns out bigger or broader than it states** — new model fields, phases, diagnostics, modules or packages it does not name, or a multiple of its estimate — **do not grow it.** Return status `APPROVAL_REQUIRED` with what the expansion is, why the task needs it (`file:line`), and roughly how big. The orchestrator puts it to Jon. This is **not** BLOCKED, and shipping a smaller fix instead is never the answer.
+- **If the task turns out bigger or broader than it states** — new model fields, phases, diagnostics, modules or packages it does not name, or a multiple of its estimate — **do not grow it.** Return status `APPROVAL_REQUIRED` with what the expansion is, why the task needs it (`file:line`), and its measured size (execution-contract §4: counted census × measured rate, in tokens and agent minutes, never human hours/days). The orchestrator puts it to Jon. This is **not** BLOCKED, and shipping a smaller fix instead is never the answer.
 - **Only if your dispatch carries `PARALLEL_WAVE: files are exclusive`:** another agent may hold files outside your list. Do not edit them. Return status `EXPANSION_REQUIRED` with the exact files + root cause. This is **not** BLOCKED — it means "I know the fix and need the lock," and the orchestrator will re-dispatch you serially.
 
 ### What you find that the task does not need

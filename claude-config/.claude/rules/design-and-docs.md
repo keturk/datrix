@@ -47,6 +47,12 @@ presented as fact. Look it up now (web docs, source reads), cite the source, and
 verified value in. If something genuinely cannot be determined, that is a blocking open
 question to STOP on — not a task to hand to the implementer.
 
+**Size is a census, never an effort estimate.** A design states its size as what it names and
+what you counted: the packages, files, units and call sites it touches (with the census command
+or code-index query that produced each count). It carries no human-effort figure ("about half a
+day", "2–3 hours", "a sprint"). Agents implement it, and a person's time is the wrong measure for
+that. An implementer would also anchor on the figure and scale it (execution-contract §4).
+
 ## Security posture is settled at design time
 
 Every design that touches auth, secrets, transport, input at a trust boundary, injection

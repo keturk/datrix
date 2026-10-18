@@ -229,7 +229,7 @@ reset()
 arm()
 rc, _ = stop_gate(transcript_saying(
     "APPROVAL_REQUIRED: task-999-01 needs a new model field the task does not name "
-    "(src/x.py:41); about two hours across three packages."))
+    "(src/x.py:41); 3 packages, 9 files, ~25 agent min, ~0.8M tokens."))
 check("armed + pending task + APPROVAL_REQUIRED -> Stop ALLOWED", rc, 0)
 rc, _ = stop_gate(transcript_saying(
     "Waiting on `APPROVAL_REQUIRED` before continuing."))

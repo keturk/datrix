@@ -117,13 +117,14 @@ _GUIDANCE: Final = (
     "  * new file, or full replacement of one you have read  -> Write\n"
     "  * change part of a file                               -> Edit\n"
     "  * same change in many places in one file              -> Edit(replace_all=True)\n"
-    "  * the same edit across N files                        -> N Edit calls\n"
+    "  * many edits, across one or many files                -> ONE edit_lines call\n"
+    "    (mcp__datrix-edit__read_lines shows the lines numbered and hashed; edit_lines\n"
+    "    names them by number and hash, so the old text is never re-sent)\n"
     "\n"
-    "N separate Edit calls IS the correct shape for a bulk change. It is not "
-    "worth one shell script: Edit is auto-accepted so it never interrupts Jon, "
-    "each call surfaces a reviewable diff, and Write refuses to clobber a file "
-    "you have not read. A heredoc has none of that and breaks on an apostrophe "
-    "in the content."
+    "One edit_lines call (or N Edit calls) IS the correct shape for a bulk change. It "
+    "is not worth one shell script: the edit tools never interrupt Jon, every one of "
+    "them runs the Write/Edit guards, and Write refuses to clobber a file you have not "
+    "read. A heredoc has none of that and breaks on an apostrophe in the content."
 )
 
 

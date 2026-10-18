@@ -76,6 +76,7 @@ import os
 import re
 import sys
 import time
+from collections.abc import Callable
 from typing import Any, Final
 
 from _command_shape import is_deploy
@@ -97,6 +98,9 @@ _CONFIG_DIR: Final = os.environ.get(
 # A checklist that has refused the same turn this many times is not teaching
 # anything — it is stuck. Let the turn end rather than hold the session hostage.
 _MAX_BLOCKS: Final = 6
+
+# A `file_fresh`/`glob_fresh` item without its own `max_age_s` accepts two hours.
+_DEFAULT_MAX_AGE_S: Final = 7200
 
 # Transcripts grow without bound; a Stop hook must stay fast. Only the tail is
 # scanned, and only when an item actually needs it.
@@ -239,39 +243,88 @@ def _evaluate(item: dict[str, Any], reply: str, commands: str) -> bool:
         return True
 
     kind = item.get("type")
-    pattern = item.get("pattern")
-    path = item.get("path")
-    pat = item.get("glob")
+    evaluator = _EVALUATORS.get(kind) if isinstance(kind, str) else None
+    if evaluator is None:
+        return True
+    return evaluator(item, reply, commands)
 
-    if kind == "file_exists":
-        return isinstance(path, str) and os.path.exists(_abs(path))
-    if kind == "file_missing":
-        return isinstance(path, str) and not os.path.exists(_abs(path))
-    if kind == "file_fresh":
-        if not isinstance(path, str):
-            return True
-        age = _age_s(_abs(path))
-        return age is not None and age <= float(item.get("max_age_s", 7200))
-    if kind == "file_contains":
-        return bool(isinstance(pattern, str) and re.search(pattern, _file_text(str(path))))
-    if kind == "file_lacks":
-        return not (isinstance(pattern, str) and re.search(pattern, _file_text(str(path))))
-    if kind == "glob_exists":
-        return bool(isinstance(pat, str) and globlib.glob(_abs(pat)))
-    if kind == "glob_fresh":
-        if not isinstance(pat, str):
-            return True
-        age = _newest_glob_age(pat)
-        return age is not None and age <= float(item.get("max_age_s", 7200))
-    if kind == "reply_has":
-        return bool(isinstance(pattern, str) and re.search(pattern, reply))
-    if kind == "reply_lacks":
-        return not (isinstance(pattern, str) and re.search(pattern, reply))
-    if kind == "command_ran":
-        return bool(isinstance(pattern, str) and re.search(pattern, commands))
-    if kind == "command_not_ran":
-        return not (isinstance(pattern, str) and re.search(pattern, commands))
-    return True
+
+def _pattern_found(item: dict[str, Any], text: str) -> bool:
+    """Whether the item's `pattern` is a string found in *text*."""
+    pattern = item.get("pattern")
+    return bool(isinstance(pattern, str) and re.search(pattern, text))
+
+
+def _fresh(age: float | None, item: dict[str, Any]) -> bool:
+    """Whether an age exists and is within the item's `max_age_s`."""
+    return age is not None and age <= float(item.get("max_age_s", _DEFAULT_MAX_AGE_S))
+
+
+def _file_exists(item: dict[str, Any], reply: str, commands: str) -> bool:
+    path = item.get("path")
+    return isinstance(path, str) and os.path.exists(_abs(path))
+
+
+def _file_missing(item: dict[str, Any], reply: str, commands: str) -> bool:
+    path = item.get("path")
+    return isinstance(path, str) and not os.path.exists(_abs(path))
+
+
+def _file_fresh(item: dict[str, Any], reply: str, commands: str) -> bool:
+    path = item.get("path")
+    return not isinstance(path, str) or _fresh(_age_s(_abs(path)), item)
+
+
+def _file_contains(item: dict[str, Any], reply: str, commands: str) -> bool:
+    return isinstance(item.get("pattern"), str) and _pattern_found(
+        item, _file_text(str(item.get("path")))
+    )
+
+
+def _file_lacks(item: dict[str, Any], reply: str, commands: str) -> bool:
+    return not _file_contains(item, reply, commands)
+
+
+def _glob_exists(item: dict[str, Any], reply: str, commands: str) -> bool:
+    pat = item.get("glob")
+    return bool(isinstance(pat, str) and globlib.glob(_abs(pat)))
+
+
+def _glob_fresh(item: dict[str, Any], reply: str, commands: str) -> bool:
+    pat = item.get("glob")
+    return not isinstance(pat, str) or _fresh(_newest_glob_age(pat), item)
+
+
+def _reply_has(item: dict[str, Any], reply: str, commands: str) -> bool:
+    return _pattern_found(item, reply)
+
+
+def _reply_lacks(item: dict[str, Any], reply: str, commands: str) -> bool:
+    return not _pattern_found(item, reply)
+
+
+def _command_ran(item: dict[str, Any], reply: str, commands: str) -> bool:
+    return _pattern_found(item, commands)
+
+
+def _command_not_ran(item: dict[str, Any], reply: str, commands: str) -> bool:
+    return not _pattern_found(item, commands)
+
+
+#: The predicate deciding each item type, given the item, the reply and the commands that ran.
+_EVALUATORS: Final[dict[str, Callable[[dict[str, Any], str, str], bool]]] = {
+    "file_exists": _file_exists,
+    "file_missing": _file_missing,
+    "file_fresh": _file_fresh,
+    "file_contains": _file_contains,
+    "file_lacks": _file_lacks,
+    "glob_exists": _glob_exists,
+    "glob_fresh": _glob_fresh,
+    "reply_has": _reply_has,
+    "reply_lacks": _reply_lacks,
+    "command_ran": _command_ran,
+    "command_not_ran": _command_not_ran,
+}
 
 
 def _applies(config: dict[str, Any], skill: str, commands_needed: bool) -> bool | None:
@@ -319,34 +372,7 @@ def main() -> None:
     if not active:
         sys.exit(0)
 
-    # Only now is reading the transcript justified.
-    needs_transcript = any(
-        item.get("type") in _TRANSCRIPT_TYPES or "only_if_reply" in item
-        for config in active
-        for item in config.get("items", [])
-        if isinstance(item, dict)
-    )
-    needs_commands = needs_transcript or any(
-        _applies(config, skill, False) is None for config in active
-    )
-    transcript_path = data.get("transcript_path", "")
-    reply = stop_reply(data) if needs_transcript else ""
-    ran = _session_commands(transcript_path) if needs_commands else []
-    commands = "\n".join(ran)
-    deploy_ran = any(is_deploy(command) for command in ran)
-
-    failures: list[str] = []
-    for config in active:
-        rule = config.get("applies_to", {})
-        if isinstance(rule, dict) and rule.get("deploy_ran") is True and not deploy_ran:
-            continue
-        for item in config.get("items", []):
-            if not isinstance(item, dict) or _evaluate(item, reply, commands):
-                continue
-            label = item.get("id") or item.get("type") or "?"
-            fix = str(item.get("fix", "")).strip()
-            failures.append(f"  [{config.get('name', '?')}/{label}] {fix or 'unsatisfied'}")
-
+    failures = _unsatisfied_items(data, active, skill)
     state_path = _state_path(session_id)
     state = _read_json(state_path)
     if not failures:
@@ -372,6 +398,47 @@ def main() -> None:
         "explicitly to Jon rather than rephrasing around it."
     )
     sys.exit(2)
+
+
+def _unsatisfied_items(
+    data: dict[str, Any], active: list[dict[str, Any]], skill: str
+) -> list[str]:
+    """One report line per unsatisfied item of every active config. The
+    transcript is read only when an item or a `deploy_ran` rule needs it."""
+    needs_transcript = any(
+        item.get("type") in _TRANSCRIPT_TYPES or "only_if_reply" in item
+        for config in active
+        for item in config.get("items", [])
+        if isinstance(item, dict)
+    )
+    needs_commands = needs_transcript or any(
+        _applies(config, skill, False) is None for config in active
+    )
+    transcript_path = data.get("transcript_path", "")
+    reply = stop_reply(data) if needs_transcript else ""
+    ran = _session_commands(transcript_path) if needs_commands else []
+    commands = "\n".join(ran)
+    deploy_ran = any(is_deploy(command) for command in ran)
+
+    failures: list[str] = []
+    for config in active:
+        rule = config.get("applies_to", {})
+        if isinstance(rule, dict) and rule.get("deploy_ran") is True and not deploy_ran:
+            continue
+        failures.extend(_config_failures(config, reply, commands))
+    return failures
+
+
+def _config_failures(config: dict[str, Any], reply: str, commands: str) -> list[str]:
+    """The report line of each unsatisfied item of one config."""
+    failures: list[str] = []
+    for item in config.get("items", []):
+        if not isinstance(item, dict) or _evaluate(item, reply, commands):
+            continue
+        label = item.get("id") or item.get("type") or "?"
+        fix = str(item.get("fix", "")).strip()
+        failures.append(f"  [{config.get('name', '?')}/{label}] {fix or 'unsatisfied'}")
+    return failures
 
 
 if __name__ == "__main__":

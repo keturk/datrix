@@ -5,7 +5,12 @@ gate reads it before every stop and refuses unless:
   - the file exists with a Steps, Completion criteria and Verification section;
   - no `- [ ]` step is left unticked;
   - the Verification section records what was run and what it printed;
-or the file carries an explicit exit line (`Status: STOPPED_BY_JON`, `Status: BLOCKED B<1-4>`).
+or the file carries an explicit exit line (`Status: STOPPED_BY_JON`, `Status: BLOCKED B<1-4>`),
+or the reply asks Jon to approve growing the task: a line starting `APPROVAL_REQUIRED:` outside
+quotes and code. CLAUDE.md makes that the third legitimate turn end ("everything left waits on an
+APPROVAL_REQUIRED question to Jon"); refusing it leaves an unattended session only the unapproved
+expansion to do. The exit is read from the reply, not the plan file, so it holds only when the
+question is actually put to Jon.
 
 Fails open: an unreadable payload, or `_MAX_BLOCKS` consecutive refusals in one session,
 lets the stop through so this hook can never wedge a session.
@@ -25,8 +30,11 @@ from typing import Final
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import _agent_plan as plan  # noqa: E402
+from _report_language import stop_reply, strip_quoted  # noqa: E402
 
 _MAX_BLOCKS: Final = 5
+# The approval request shape execution-contract §4 prescribes: one line starting the marker.
+_APPROVAL_LINE_RE: Final = re.compile(r"^[ \t>*-]*APPROVAL_REQUIRED:[ \t]*\S", re.MULTILINE)
 _UNTICKED_RE: Final = re.compile(r"^\s*[-*]\s*\[ \]\s*(.+)$", re.MULTILINE)
 _TICKED_OR_NOT_RE: Final = re.compile(r"^\s*[-*]\s*\[[ xX]\]", re.MULTILINE)
 _EXIT_RE: Final = re.compile(
@@ -91,6 +99,10 @@ def main() -> None:
         sys.exit(0)
 
     session_id = data.get("session_id") or ""
+    if _APPROVAL_LINE_RE.search(strip_quoted(stop_reply(data))):
+        _record_blocks(session_id, 0)
+        sys.exit(0)
+
     path = plan.plan_path(session_id).replace("\\", "/")
     try:
         problems = _problems(path)
@@ -113,7 +125,10 @@ def main() -> None:
         + "\nFinish the unticked steps (or add the real ones you discovered), run the "
         "completion criteria, tick the steps, and write the evidence under "
         f"`{plan.VERIFICATION_HEADING}`. If Jon told you to stop, or a B1-B4 blocker with "
-        "proof applies, add `Status: STOPPED_BY_JON` / `Status: BLOCKED B<n>` to the file."
+        "proof applies, add `Status: STOPPED_BY_JON` / `Status: BLOCKED B<n>` to the file. "
+        "If everything left needs Jon to approve growing the task, end the reply on one line "
+        "starting `APPROVAL_REQUIRED:` (what, why, measured size in tokens and agent minutes per execution-contract §4) and the stop is allowed; "
+        "never do the unapproved work instead."
     )
     json.dump({"decision": "block", "reason": reason}, sys.stdout)
     sys.exit(0)

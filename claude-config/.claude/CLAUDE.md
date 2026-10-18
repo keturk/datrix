@@ -70,7 +70,9 @@ asked for (or the design doc / task file you were given). Do that, completely.
 - **The task turns out bigger than estimated, or the correct fix needs broader changes** than the
   request states (new model fields, phases, diagnostics or modules the request does not name;
   packages it does not name; a multiple of the expected size) → **stop that part and ask for
-  approval**: one line starting `APPROVAL_REQUIRED:` saying what, why, and roughly how big. Keep
+  approval**: one line starting `APPROVAL_REQUIRED:` saying what, why, and its measured size —
+  a counted census × this run's measured rate, in tokens and agent minutes, never human
+  hours/days and never scaled from a design's effort figure (execution-contract §4). Keep
   working everything that does not depend on the answer; if nothing does, end the turn on the
   question. A subagent returns status `APPROVAL_REQUIRED` with the same content.
 - Never resolve it by shipping a smaller version instead: an unapproved expansion and a cut-down
@@ -166,10 +168,13 @@ the wrong thing. The full table, and how to add a check (in a hook or a checklis
   to turn a red check green. This binds what the generator *emits* as hard as what you write —
   an insecure default in a template ships once per generated project, forever.
   Detail and the one B3 exception: `execution-contract-security.md` §13.
-- **File content is authored with Write/Edit — never through a shell.** No heredoc, no
+- **File content is authored with Write/Edit/`edit_lines` — never through a shell.** No heredoc, no
   `>`/`>>` into a file, no `Set-Content`/`Out-File`, no `python -c`/`python - <<` that writes
-  files. **A bulk change is N `Edit` calls, and that IS the correct shape** — it is never
-  worth a script (a shell write interrupts Jon; Write/Edit surface a reviewable diff).
+  files. **A bulk change is ONE `edit_lines` call** (the `datrix-edit` MCP server: lines named by
+  number and hash from `read_lines`, many edits across files, the old text never re-sent), or N
+  `Edit` calls — never a script (a shell write interrupts Jon and skips the guards; every edit
+  tool runs the Write/Edit guards). Prefer `edit_lines` when an `old_string` would be long or need
+  padding to be unique: every later response re-reads what an edit sent.
   Redirecting *transient* output into `.tmp`/`.test-output`/`.scripts`/the scratchpad is fine.
 - **No workarounds.** Trace to the root cause and fix it there. No band-aids, no "good enough
   for now", no conditional guards hiding a broken path. This is not a binary between

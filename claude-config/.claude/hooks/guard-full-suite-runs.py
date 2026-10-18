@@ -9,6 +9,12 @@ boundary, not as a "quality gate". There is no override, no ticket, and no
 exemption for the main session. Jon runs full suites himself, in his own
 terminal, where no hook applies.
 
+An invocation is a statement that EXECUTES the runner, as
+`_command_shape.invoked_scripts` reads it; its flags are that statement's
+arguments. A command that only names `test.ps1` -- a read of the script, a
+`python -c` source string, an `echo`, a question or commit message handed to
+another program -- runs no test and is never refused.
+
 A `test.ps1` invocation is TARGETED (allowed) when it carries `-Specific`,
 `-Keyword`, or `-Tag` and neither `-All` nor `-Rerun` -- and is not a SWEEP
 assembled from those flags: a `-Tag` list longer than `MAX_TAGS_PER_RUN`, or a

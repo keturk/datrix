@@ -80,9 +80,9 @@ def start_with_project_config(local_settings):
     return json.loads(out)["hookSpecificOutput"]["additionalContext"]
 
 
-def read_doc(path):
+def read_doc(path, tool="Read"):
     return run("track-mandatory-reads.py",
-               {"tool_name": "Read", "session_id": SESSION, "tool_input": {"file_path": path}})
+               {"tool_name": tool, "session_id": SESSION, "tool_input": {"file_path": path}})
 
 
 def edit(path, transcript=""):
@@ -220,8 +220,9 @@ try:
     check("one of two read -> still BLOCK", code, BLOCK)
     check("block no longer lists the doc already read",
           "architecture-cheat-sheet.md" in err, False)
-    read_doc(RULES)
-    check("both read -> allow", edit(SOURCE)[0], ALLOW)
+    # The line-edit server's read_lines is a read like any other.
+    read_doc(RULES, tool="mcp__datrix-edit__read_lines")
+    check("both read (one through read_lines) -> allow", edit(SOURCE)[0], ALLOW)
     check("ledger recorded both reads", len(ledger()["read"]), 2)
 
     print("== resume preserves the ledger; clear and compact reset it ==")

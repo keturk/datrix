@@ -66,6 +66,13 @@ and ignored under pressure; a block is paid only when it fires. These are enforc
     and the call. The forms are judged by that gate's own matcher
     (`gates/repo-hygiene/lib/no_body_walk_gate.py`, `function_walks`), read with the allowlist at run
     time; skipped when either cannot be loaded.
+  * HISTORY COMMENTS. "Comments state what the code does now; history lives in git." A comment or
+    docstring the edit adds that contains one of `_local_judge.HISTORY_WORDS` (`formerly`, `no longer`,
+    `legacy`, ...) is put to the local second reader (`_local_judge.judge_comments`: a model already in
+    memory, never a load). The words also describe current behaviour, so the edit is refused only when
+    the reader answers "history" -- about the source code itself, not data or runtime state -- with a
+    quote found verbatim in the added comment. No model, a timeout
+    or an unreadable answer: allowed. `DATRIX_LOCAL_JUDGE=off` disables it.
 
 HOW IT DECIDES -- A DELTA, NEVER A SCAN. The file as it would exist after the edit is parsed and so
 is the file as it exists now; a violation is reported only when the edit ADDS one (a multiset
@@ -97,6 +104,7 @@ from typing import Final, Protocol
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from _hook_log import WORKSPACE, add_scripts_lib_to_path  # noqa: E402
+from _local_judge import CommentToken, comment_tokens, history_candidates, judge_comments, quoted_candidate  # noqa: E402
 
 _FRAMEWORK_RE: Final = re.compile(r"^d:/datrix/datrix[^/]*/")
 _EXEMPT_SEGMENTS: Final = (
@@ -589,6 +597,33 @@ def _body_walk_violations(raw_path: str, before: str | None, after: str) -> coll
     return after_found - before_found
 
 
+def _added_comments(before: str | None, after: str) -> list[CommentToken] | None:
+    """The comments and docstrings ``after`` holds that ``before`` does not (a multiset difference by
+    text), or None when either side does not parse."""
+    try:
+        remaining = collections.Counter(t.text for t in ([] if before is None else comment_tokens(before)))
+        after_tokens = comment_tokens(after)
+    except (SyntaxError, ValueError, tokenize.TokenError):
+        return None
+    added: list[CommentToken] = []
+    for token in after_tokens:
+        if remaining[token.text]:
+            remaining[token.text] -= 1
+        else:
+            added.append(token)
+    return added
+
+
+def _history_comment_violations(before: str | None, after: str) -> list[Violation]:
+    candidates = history_candidates(_added_comments(before, after) or [])
+    judgement = judge_comments(candidates, after)
+    if not judgement.flagged:
+        return []
+    token = quoted_candidate(candidates, judgement.quote)
+    where = f"line {token.line} ({token.kind})" if token else "an added comment"
+    return [("history-comment", f"{where}: \"{judgement.quote.strip()}\"")]
+
+
 def _violations(
     text: str, is_test: bool, is_generator: bool = False, cases: bool = False
 ) -> collections.Counter[Violation] | None:
@@ -724,6 +759,13 @@ _REMEDY: Final = {
         "is a design change that needs it too. `gates/repo-hygiene/no-body-walk-gate.ps1` holds the "
         "same rule over every generator package."
     ),
+    "history-comment": (
+        "Code quality standards, Comments: a comment or docstring states what the code does now; git holds "
+        "the history. The local second reader read the quoted words as change history (what the code used "
+        "to do, where it came from, what it replaced, which phase or migration removed something). Rewrite "
+        "the comment to state what the code does now, or drop it if nothing remains once the history is "
+        "gone. A phase, design or task reference goes too."
+    ),
 }
 
 
@@ -762,6 +804,7 @@ def main() -> None:
         added.update(_schema_shaped_violations(path, before, after))
     if is_test and carries_tables(path):
         added.update(_table_row_violations(path, before, after))
+    added.update(_history_comment_violations(before, after))
     if not added:
         sys.exit(0)
 

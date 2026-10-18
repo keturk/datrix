@@ -16,7 +16,8 @@ Three set comparisons, each in both directions:
   2. present-on-disk              vs  registered-anywhere
   3. (event, blocking hook) pairs vs  the guards table's pairs
 
-"Blocking" is derived from each hook's own source -- a hook blocks iff it can exit 2 --
+"Blocking" is derived from each hook's own source -- a hook blocks iff it can exit 2 or
+print a `"decision": "block"` JSON answer --
 so a new guard is classified by what it does, never by a list somebody has to remember to
 update. The state hooks (session-context, track-mandatory-reads, arm-orchestration-run,
 record-active-skill) refuse nothing and are correctly absent from a table of refusals.
@@ -38,7 +39,10 @@ SETTINGS_JSON = os.path.join(CLAUDE_DIR, "settings.json")
 GUARDS_DOC = os.path.join(CLAUDE_DIR, "rules", "harness-guards.md")
 
 TABLE_HEADING = "## Enforced by the Harness"
-BLOCK_EXIT_RE = re.compile(r"sys\.exit\(2\)")
+# A hook refuses either by exiting 2 or by printing the JSON `{"decision": "block", ...}`
+# Claude Code honours on exit 0; a classifier that knew only the first left a JSON-blocking
+# Stop hook out of the table, unnoticed.
+BLOCK_EXIT_RE = re.compile(r"sys\.exit\(2\)|[\"']decision[\"']\s*:\s*[\"']block[\"']")
 HOOK_FILE_RE = re.compile(r"([\w.-]+\.py)")
 TABLE_ROW_RE = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*(.+?)\s*\|", re.MULTILINE)
 

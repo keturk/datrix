@@ -40,7 +40,6 @@ disable-model-invocation: true
 - `datrix_codegen_common.generation.language_hooks` → `LanguageHooks`
 - `datrix_common.plugin.hook_outcome` → `HookOutcome`
 - `datrix_codegen_kernel.generation.app_context` → `get_app_name`
-- `datrix_migration.generator` → `MigrationGenerator`, `MigrationFormat`
 - `datrix_migration.differ` → `SchemaDiffer`, `SchemaDiff`, `SchemaChange`, `ChangeKind`
 - `datrix_migration.errors` → `DestructiveOperationError`, `NoSnapshotError`
 - `datrix_common.fileops` → `read_text_utf8`, `write_text_utf8`, `load_json`, `save_json`

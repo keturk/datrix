@@ -1,4 +1,4 @@
-"""PostToolUse(Read) hook: answer a task's ``## Orientation`` block when an agent reads the task file.
+"""PostToolUse(Read, read_lines) hook: answer a task's ``## Orientation`` block when an agent reads the task file.
 
 An implementer reads its task file first, always. A task can say, in an ``## Orientation`` block,
 what the implementer needs to know about code it will NOT edit -- who calls this, how a test builds
@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from _hook_log import add_scripts_lib_to_path  # noqa: E402
 from _local_digest import default_settings  # noqa: E402
+from _tool_names import READ_TOOLS  # noqa: E402
 
 if TYPE_CHECKING:
     from datrix_scripts.local_llm import LocalLlmSettings
@@ -92,7 +93,7 @@ def orientation_for(task: Path, workspace: Path, settings: "LocalLlmSettings") -
 def decide(payload: dict[str, object], workspace: Path, settings: "LocalLlmSettings") -> str:
     """The additionalContext for this Read, or the empty string."""
     tool_input = payload.get("tool_input")
-    if str(payload.get("tool_name", "")) != "Read" or not isinstance(tool_input, dict):
+    if str(payload.get("tool_name", "")) not in READ_TOOLS or not isinstance(tool_input, dict):
         return ""
     offset = tool_input.get("offset")
     if isinstance(offset, int) and offset > 1:

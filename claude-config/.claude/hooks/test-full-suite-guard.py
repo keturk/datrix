@@ -10,6 +10,8 @@ Both directions matter and both are asserted here. A guard scoped too broadly
 would block the targeted runs every change depends on, a tag listing, or
 `test-single.ps1`; one scoped too narrowly would miss `-All`, a tier sweep, an
 `affected-gate.ps1` sweep, or a second bare invocation chained after a targeted one.
+A command that merely names the runner (a read, a `python -c` string, an `echo`, a
+question handed to another script) runs nothing and must never be refused.
 
 The audit log is truncated back to its starting length, so running this test
 leaves no trace.
@@ -77,6 +79,22 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
         True,
         "read chained AFTER a real bare full-suite run still blocks",
     ),
+    (
+        "pwsh -Command \"& 'd:/datrix/datrix/scripts/test/test.ps1' datrix-common\"",
+        True,
+        "a PowerShell host's -Command running the runner by call operator",
+    ),
+    (
+        "bash -c 'powershell -File d:/datrix/datrix/scripts/test/test.ps1 datrix-common'",
+        True,
+        "a shell wrapper running the runner",
+    ),
+    ('& "d:/datrix/datrix/scripts/test/test.ps1" datrix-common', True, "call operator"),
+    (
+        "cd d:/datrix/datrix/scripts/test; .\\test.ps1 datrix-common",
+        True,
+        "relative path as the statement's first word",
+    ),
     # ---- sweeps assembled from targeting flags: blocked for everyone ----
     (
         f"{_TEST} datrix-codegen-python -Tag pubsub,outbox,storage,jobs",
@@ -87,6 +105,11 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
         f'{_TEST} datrix-common datrix-codegen-typescript -Tag "constant,test-generation,audit,secrets"',
         True,
         "quoted tag list over the cap is a sweep",
+    ),
+    (
+        f'{_TEST} datrix-codegen-python -Tag "pubsub, outbox, storage, jobs"',
+        True,
+        "a quoted tag list with spaces is still four tags",
     ),
     (
         f'{_TEST} datrix-codegen-common datrix-codegen-typescript -Keyword "decorator"',
@@ -166,6 +189,47 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
         'grep -n "affected-gate.ps1" d:/datrix/datrix/scripts/test/quick-reference.md',
         False,
         "grep over affected-gate.ps1 is a read",
+    ),
+    # ---- naming the runner inside another program's argument is not running it ----
+    (
+        "python -c \"from _command_shape import invoked_scripts; "
+        "print(invoked_scripts('powershell -File d:/datrix/datrix/scripts/test/test.ps1 "
+        "datrix-common'))\"",
+        False,
+        "a python -c source string holding a runner command",
+    ),
+    (
+        'powershell -File "d:/datrix/datrix/scripts/dev/ineedtoknow.ps1" '
+        '"is there a test.ps1 target for the hooks, or does test.ps1 datrix-common cover them?"',
+        False,
+        "a question handed to another script names the runner",
+    ),
+    ("echo 'run test.ps1 datrix-common -All next'", False, "echo of a runner command"),
+    (
+        "echo ok  # then run test.ps1 datrix-common",
+        False,
+        "a trailing comment naming the runner",
+    ),
+    (
+        "# A bare `test.ps1 datrix-common` is a whole suite\n"
+        f'{_TEST} datrix-common -Specific "tests/unit/a.py"',
+        False,
+        "a backtick span inside a comment is not a command substitution",
+    ),
+    (
+        f"# targeted runs only\n{_TEST} datrix-common",
+        True,
+        "a comment line does not hide the bare run on the next line",
+    ),
+    (
+        'git commit -m "test.ps1 datrix-common no longer refused when named"',
+        False,
+        "a commit message naming the runner",
+    ),
+    (
+        "$runner = 'd:/datrix/datrix/scripts/test/test.ps1 datrix-common'",
+        False,
+        "a variable assignment holding a runner command",
     ),
 )
 

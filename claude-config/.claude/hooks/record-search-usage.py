@@ -40,6 +40,7 @@ from _mcp_registration import (  # noqa: E402
     is_registered,
     session_directory,
 )
+from _tool_names import READ_TOOLS  # noqa: E402
 
 # <workspace>/datrix/claude-config/.claude/hooks/<this file>: five levels up from the real path.
 _WORKSPACE: Final = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
@@ -88,7 +89,7 @@ def _entry(tool: str, tool_input: dict[str, object]) -> dict[str, object] | None
                 "type": str(tool_input.get("type", ""))}
     if tool == "Glob":
         return {"category": "glob", "tool": tool, "detail": str(tool_input.get("pattern", ""))}
-    if tool == "Read":
+    if tool in READ_TOOLS:
         path = str(tool_input.get("file_path", ""))
         if not path.lower().endswith(".py"):
             return None
@@ -240,7 +241,7 @@ def _is_log(path: str) -> bool:
 
 def _log_read_hint(tool: str, tool_input: dict[str, object], response_chars: int, cwd: str) -> str:
     """After a whole read of a large log, point a session that has the local-model tools at digest_log."""
-    if tool != "Read" or "offset" in tool_input or "limit" in tool_input:
+    if tool not in READ_TOOLS or "offset" in tool_input or "limit" in tool_input:
         return ""
     if response_chars < _LARGE_READ_CHARS or not _is_log(str(tool_input.get("file_path", ""))):
         return ""

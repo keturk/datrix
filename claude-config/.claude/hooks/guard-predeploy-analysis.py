@@ -133,24 +133,32 @@ def _seam_census_complete(artifact: dict[str, object]) -> tuple[bool, str]:
         return False, "no `seams` list — the census is the whole point of the artifact"
 
     for index, seam in enumerate(seams):
-        if not isinstance(seam, dict):
-            return False, f"seam[{index}] is not an object"
-        for field in ("name", "produced_by", "consumed_by"):
-            value = seam.get(field)
-            if not isinstance(value, str) or not value.strip():
-                return False, f"seam[{index}] is missing `{field}` — name BOTH sides"
-        unsatisfied = seam.get("unsatisfied")
-        if not isinstance(unsatisfied, list):
-            return False, (
-                f"seam[{index}] has no `unsatisfied` list — compute `consumed - produced` "
-                "and record it, even when empty"
-            )
-        if unsatisfied and not str(seam.get("explanation", "")).strip():
-            return False, (
-                f"seam[{index}] has {len(unsatisfied)} unsatisfied item(s) and no "
-                "`explanation` — fix them or say why they are acceptable"
-            )
+        problem = _seam_problem(index, seam)
+        if problem:
+            return False, problem
     return True, ""
+
+
+def _seam_problem(index: int, seam: object) -> str:
+    """Why one seam entry is not a complete comparison of both sides, or ``""``."""
+    if not isinstance(seam, dict):
+        return f"seam[{index}] is not an object"
+    for field in ("name", "produced_by", "consumed_by"):
+        value = seam.get(field)
+        if not isinstance(value, str) or not value.strip():
+            return f"seam[{index}] is missing `{field}` — name BOTH sides"
+    unsatisfied = seam.get("unsatisfied")
+    if not isinstance(unsatisfied, list):
+        return (
+            f"seam[{index}] has no `unsatisfied` list — compute `consumed - produced` "
+            "and record it, even when empty"
+        )
+    if unsatisfied and not str(seam.get("explanation", "")).strip():
+        return (
+            f"seam[{index}] has {len(unsatisfied)} unsatisfied item(s) and no "
+            "`explanation` — fix them or say why they are acceptable"
+        )
+    return ""
 
 
 def _verdict(command: str) -> tuple[bool, str]:

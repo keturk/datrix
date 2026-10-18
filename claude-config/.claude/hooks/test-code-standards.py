@@ -9,15 +9,31 @@ import os
 import subprocess
 import sys
 
+H = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, H)
+from _hook_log import add_scripts_lib_to_path  # noqa: E402
+
+add_scripts_lib_to_path()
+from datrix_scripts.local_llm_loopback import LoopbackOllama, closed_port  # noqa: E402
+
 HOOK = os.path.join(r"d:\datrix\.claude\hooks", "guard-code-standards.py")
 fails = []
 BLOCK, ALLOW = 2, 0
 REPO = r"d:\datrix\datrix-alpha"  # matches the framework-repo shape; the files live in a real temp tree below
+# The second reader is off unless a case points it at its own loopback server, so no machine's answer
+# can change a verdict here; its requests never count as real use of the machines.
+JUDGE_OFF = {"DATRIX_LOCAL_JUDGE": "off"}
+USAGE_LOG = r"D:\datrix\.tmp\code-standards-test-usage.jsonl"
 
 
-def run(payload):
-    p = subprocess.run([sys.executable, HOOK], input=json.dumps(payload), capture_output=True, text=True)
+def run(payload, env=None):
+    p = subprocess.run([sys.executable, HOOK], input=json.dumps(payload), capture_output=True, text=True,
+                       env={**os.environ, **(env or JUDGE_OFF)})
     return p.returncode, p.stderr
+
+
+def judged(port):
+    return {"DATRIX_LOCAL_JUDGE": "on", "DATRIX_LOCAL_JUDGE_PORT": str(port), "DATRIX_LOCAL_LLM_USAGE_LOG": USAGE_LOG}
 
 
 def check(label, got, want):
@@ -336,6 +352,75 @@ with codegen:
     check("the refusal names the function, the call and the recorded facts",
           all(s in err for s in ("[body-walk]", "datrix_codegen_gate/reads.py::names calls iter_tree()",
                                  "datrix_common.datrix_model.effects", "no_body_walk_allowlist.json")), True)
+
+class Verdict:
+    """The reader's answer every chat gets; a case sets it before running the hook."""
+
+    def __init__(self):
+        self.answer = json.dumps({"subject": "none", "verdict": "current", "quote": ""})
+
+    def set(self, verdict, quote, subject="source_code"):
+        self.answer = json.dumps({"subject": subject, "verdict": verdict, "quote": quote})
+
+    def __call__(self, _chat):
+        return self.answer
+
+
+history = Repo()
+history.root = os.path.join(r"d:\datrix", f"datrix-history-codestd-gate-{os.getpid()}")
+HISTORY = "# formerly rendered by templates/stack.py.j2"
+CURRENT = "# the token is no longer valid after rotation"
+reply = Verdict()
+with history, LoopbackOllama(reply, ("judge-model",)) as server:
+    print("== comments that narrate change history ==")
+    mod = history.file("src/pkg/stack.py", "def build() -> int:\n    return 1\n")
+
+    def add(comment, env):
+        return run({"tool_name": "Edit", "tool_input": {"file_path": mod, "old_string": "    return 1",
+                                                        "new_string": f"    {comment}\n    return 1"}}, env)
+
+    reply.set("history", "formerly rendered by templates/stack.py.j2")
+    code, err = add(HISTORY, judged(server.port))
+    check("an added history comment is refused when the reader answers history", code, BLOCK)
+    check("the refusal names the comment and says git holds the history",
+          all(s in err for s in ("[history-comment] line 2 (comment)", "formerly rendered by",
+                                 "git holds the history")), True)
+    asked = server.chats[-1].user if server.chats else ""
+    check("the reader is shown the candidate and the code around it", ("formerly" in asked, "def build" in asked),
+          (True, True))
+    reply.set("current", "")
+    check("an added current-behaviour comment is allowed when the reader answers current",
+          add(CURRENT, judged(server.port))[0], ALLOW)
+    reply.set("history", "no longer valid after rotation", subject="data_or_runtime")
+    check("a history verdict about data or runtime state, not the code, is allowed",
+          add(CURRENT, judged(server.port))[0], ALLOW)
+    reply.set("history", "rendered by a template nobody wrote here")
+    check("a history verdict whose quote is not in the comment is allowed", add(HISTORY, judged(server.port))[0],
+          ALLOW)
+    reply.set("history", "formerly rendered by templates/stack.py.j2")
+    asked_before = len(server.chats)
+    check("a comment with no candidate word is never sent to the reader",
+          (add("# renders the API gateway stack", judged(server.port))[0], len(server.chats) - asked_before),
+          (ALLOW, 0))
+    doc = history.file("src/pkg/doc.py", '"""Builds the stack."""\n\nX = 1\n')
+    check("an added history docstring is refused",
+          run({"tool_name": "Edit", "tool_input": {"file_path": doc, "old_string": '"""Builds the stack."""',
+                                                   "new_string": '"""Builds the stack, formerly rendered by '
+                                                                 'templates/stack.py.j2."""'}},
+              judged(server.port))[0], BLOCK)
+    existing = history.file("src/pkg/kept.py", f"def build() -> int:\n    {HISTORY}\n    return 1\n")
+    check("an existing history comment never blocks an unrelated edit",
+          run({"tool_name": "Edit", "tool_input": {"file_path": existing, "old_string": "return 1",
+                                                   "new_string": "return 2"}}, judged(server.port))[0], ALLOW)
+
+    print("== the reader unavailable ==")
+    for label, env in (("no model server", judged(closed_port())),
+                       ("the judge switched off", {**judged(server.port), "DATRIX_LOCAL_JUDGE": "off"})):
+        check(f"{label}: an added history comment is allowed", add(HISTORY, env)[0], ALLOW)
+        check(f"{label}: an added current-behaviour comment is allowed", add(CURRENT, env)[0], ALLOW)
+
+if os.path.isfile(USAGE_LOG):
+    os.remove(USAGE_LOG)
 
 print("== a body walk in an allowlisted function ==")
 # The hook only judges the payload; the allowlisted renderer on disk is read, never written.

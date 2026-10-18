@@ -111,7 +111,8 @@ subagent_cases = [
     ("findings folder alone is not a finding", "The auth bug is out of scope; see the reports "
                                                 "folder.", BLOCK),
     ("approval request", "The fix would require broader changes. APPROVAL_REQUIRED: a new "
-                         "model field in datrix-common (model.py:40), about two hours.", ALLOW),
+                         "model field in datrix-common (model.py:40); 12 call sites in 4 files, "
+                         "~20 agent min, ~0.6M tokens.", ALLOW),
     ("broader changes with no approval request", "The fix would require broader changes, "
                                                  "so I stopped.", BLOCK),
     ("clean report", "Fixed the seam at compose.py:88; targeted tests pass, output quoted above.", ALLOW),
@@ -294,6 +295,21 @@ check(
     run("guard-predeploy-analysis.py", predeploy_payload("powershell -File deploy-staging.ps1"))[0],
     ALLOW,
 )
+
+# Each way one seam entry can fall short of comparing both sides is refused, and named.
+_COMPLETE_SEAM = {"name": "config store", "produced_by": "bicep outputs", "consumed_by": "app settings", "unsatisfied": []}
+for label, seam, reason in (
+    ("a seam that is not an object", "config store", "is not an object"),
+    ("a seam missing its consumer", {k: v for k, v in _COMPLETE_SEAM.items() if k != "consumed_by"}, "is missing `consumed_by`"),
+    ("a seam with a blank producer", {**_COMPLETE_SEAM, "produced_by": "  "}, "is missing `produced_by`"),
+    ("a seam without an unsatisfied list", {k: v for k, v in _COMPLETE_SEAM.items() if k != "unsatisfied"}, "has no `unsatisfied` list"),
+):
+    clear_artifacts()
+    write_artifact("seam.json", seams=[_COMPLETE_SEAM, seam])
+    code, err = run("guard-predeploy-analysis.py", predeploy_payload("powershell -File deploy-staging.ps1"))
+    check(f"predeploy/blocks {label}", code, BLOCK)
+    if code == BLOCK and f"seam[1] {reason}" not in err:
+        fails.append(f"predeploy: {label} not reported as `seam[1] {reason}`: {err[:200]}")
 clear_artifacts()
 
 # --------------------------------------------------------------------- checklist
@@ -386,6 +402,75 @@ check(
     )[0],
     ALLOW,
 )
+
+# Every item type, satisfied and unsatisfied: one single-item config per case.
+item_dir = os.path.join(TMP, "item-checklists")
+item_files = os.path.join(TMP, "item-files")
+os.makedirs(item_files, exist_ok=True)
+fresh_file = os.path.join(item_files, "fresh.txt")
+stale_file = os.path.join(item_files, "stale.log")
+with open(fresh_file, "w", encoding="utf-8") as f:
+    f.write("census: clear\n")
+with open(stale_file, "w", encoding="utf-8") as f:
+    f.write("old\n")
+stale_epoch = time.time() - 5 * 60 * 60
+os.utime(stale_file, (stale_epoch, stale_epoch))
+absent_file = os.path.join(item_files, "absent.txt")
+ITEM_REPLY = "Jon, the seam is at compose.py:88."
+ITEM_COMMAND = "git status --short"
+
+item_cases = [
+    ("file_exists on a present file", {"type": "file_exists", "path": fresh_file}, ALLOW),
+    ("file_exists on an absent file", {"type": "file_exists", "path": absent_file}, BLOCK),
+    ("file_missing on an absent file", {"type": "file_missing", "path": absent_file}, ALLOW),
+    ("file_missing on a present file", {"type": "file_missing", "path": fresh_file}, BLOCK),
+    ("file_fresh on a fresh file", {"type": "file_fresh", "path": fresh_file, "max_age_s": 60}, ALLOW),
+    ("file_fresh on a stale file", {"type": "file_fresh", "path": stale_file, "max_age_s": 60}, BLOCK),
+    ("file_fresh on an absent file", {"type": "file_fresh", "path": absent_file}, BLOCK),
+    ("file_fresh without a path", {"type": "file_fresh"}, ALLOW),
+    ("file_contains a present pattern", {"type": "file_contains", "path": fresh_file, "pattern": "clear"}, ALLOW),
+    ("file_contains an absent pattern", {"type": "file_contains", "path": fresh_file, "pattern": "blocked"}, BLOCK),
+    ("file_lacks an absent pattern", {"type": "file_lacks", "path": fresh_file, "pattern": "blocked"}, ALLOW),
+    ("file_lacks a present pattern", {"type": "file_lacks", "path": fresh_file, "pattern": "clear"}, BLOCK),
+    ("glob_exists with a match", {"type": "glob_exists", "glob": os.path.join(item_files, "*.txt")}, ALLOW),
+    ("glob_exists without a match", {"type": "glob_exists", "glob": os.path.join(item_files, "*.md")}, BLOCK),
+    ("glob_fresh with a fresh match", {"type": "glob_fresh", "glob": os.path.join(item_files, "*.txt"), "max_age_s": 60}, ALLOW),
+    ("glob_fresh with only stale matches", {"type": "glob_fresh", "glob": os.path.join(item_files, "*.log"), "max_age_s": 60}, BLOCK),
+    ("glob_fresh without a match", {"type": "glob_fresh", "glob": os.path.join(item_files, "*.md")}, BLOCK),
+    ("glob_fresh without a glob", {"type": "glob_fresh"}, ALLOW),
+    ("reply_has a present pattern", {"type": "reply_has", "pattern": "compose\\.py"}, ALLOW),
+    ("reply_has an absent pattern", {"type": "reply_has", "pattern": "deploy"}, BLOCK),
+    ("reply_lacks an absent pattern", {"type": "reply_lacks", "pattern": "deploy"}, ALLOW),
+    ("reply_lacks a present pattern", {"type": "reply_lacks", "pattern": "compose\\.py"}, BLOCK),
+    ("command_ran a command that ran", {"type": "command_ran", "pattern": "git status"}, ALLOW),
+    ("command_ran a command that never ran", {"type": "command_ran", "pattern": "test\\.ps1"}, BLOCK),
+    ("command_not_ran a command that never ran", {"type": "command_not_ran", "pattern": "test\\.ps1"}, ALLOW),
+    ("command_not_ran a command that ran", {"type": "command_not_ran", "pattern": "git status"}, BLOCK),
+    ("only_if_reply gate not met", {"type": "reply_has", "pattern": "deploy", "only_if_reply": "rollout"}, ALLOW),
+    ("an unknown type fails open", {"type": "no_such_type"}, ALLOW),
+]
+
+
+def run_item_case(index: int, item: dict[str, object]) -> int:
+    """The checklist's exit for one config holding only *item*."""
+    shutil.rmtree(item_dir, ignore_errors=True)
+    os.makedirs(item_dir)
+    with open(os.path.join(item_dir, "item.json"), "w", encoding="utf-8") as f:
+        json.dump({"name": "item", "applies_to": {"always": True}, "items": [item]}, f)
+    reset_checklist_state()
+    code, _ = run(
+        "checklist.py",
+        {
+            "session_id": SID,
+            "transcript_path": transcript([("cmd", ITEM_COMMAND), ("text", ITEM_REPLY)], f"item{index}.jsonl"),
+        },
+        env={"DATRIX_CHECKLIST_DIR": item_dir},
+    )
+    return code
+
+
+for index, (label, item, want) in enumerate(item_cases):
+    check(f"checklist-item/{label}", run_item_case(index, item), want)
 
 # ------------------------------------------------- the LIVE configs, not fixtures
 #

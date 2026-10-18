@@ -27,8 +27,10 @@ share one definition).
 WHAT THIS ANSWERS, AND WHAT IT DOES NOT
 -----------------------------------------
 This module answers only "what does this command's test-runner invocation DO":
-which script it names, what its argument tail looks like, whether that tail is
-narrowed to named tests or feature tags, whether it runs no test at all (a
+whether the command executes the runner (`_command_shape.invoked_scripts`, so a
+command that merely names it is no invocation), what its argument tail looks
+like, whether that tail is narrowed to named tests or feature tags, whether it
+runs no test at all (a
 self-test or a tag listing), and which packages a whole-suite tail would run. It
 never decides whether that is ALLOWED -- the block/audit policy stays in
 `guard-full-suite-runs.py`, and the census/report policy stays in
@@ -42,17 +44,16 @@ from __future__ import annotations
 import re
 from typing import Final
 
-from _command_shape import is_read_only, segments
+from _command_shape import invoked_scripts
 
-#: `test.ps1` OR `affected-gate.ps1`, as their own path segment (or bare, or
-#: right after a quote), so `test-single.ps1`, `test-specific-selection-gate.ps1`,
-#: `affected-set.ps1` and any other `*.ps1` merely CONTAINING "test" never match.
-#: `affected-gate.ps1` schedules whole-suite `test.ps1 <pkg>` children
-#: concurrently -- a second door onto the same whole-suite act as a bare
-#: `test.ps1` run, and blocked under the identical rule.
-TEST_SCRIPT_RE: Final = re.compile(
-    r"""(?:^|[/\\"'\s])(?:test|affected-gate)\.ps1\b""", re.IGNORECASE
-)
+#: The file names of the runner scripts, compared with the whole file name of a
+#: script the command executes, so `test-single.ps1`,
+#: `test-specific-selection-gate.ps1`, `affected-set.ps1` and any other `*.ps1`
+#: merely CONTAINING "test" never match. `affected-gate.ps1` schedules
+#: whole-suite `test.ps1 <pkg>` children concurrently -- a second door onto the
+#: same whole-suite act as a bare `test.ps1` run, and blocked under the identical
+#: rule.
+SUITE_SCRIPT_NAMES: Final = frozenset({"test.ps1", "affected-gate.ps1"})
 
 #: The flags that make a `test.ps1` tail genuinely targeted: named files/node-IDs
 #: (`-Specific`), a keyword expression (`-Keyword`), or feature tags (`-Tag`).
@@ -76,25 +77,34 @@ ALL_SENTINEL: Final = "*ALL-PACKAGES*"
 _PACKAGE_RE: Final = re.compile(r"datrix(?:-[a-z0-9]+)*\Z")
 
 
-def invocation_tails(command: str) -> list[str]:
-    """One argument tail per `test.ps1`/`affected-gate.ps1` INVOCATION in `command`.
+def _render_arguments(args: tuple[str, ...]) -> str:
+    """The argument words as one tail, a word holding whitespace (or empty) re-quoted.
 
-    Segment-wise, so that `test.ps1 A; affected-gate.ps1 -Projects B -SelfTest`
-    cannot let B's self-test flag vouch for A's bare full-suite run, and so that
-    an occurrence inside a read-only inspection (`grep -n affected-gate.ps1 ...`)
-    is skipped entirely. Identical algorithm to the guard's original
-    `_invocation_tails`; only the pattern it walks (`TEST_SCRIPT_RE`, above) grew
-    a second alternative.
+    `-Tag "a, b, c, d"` reaches here as the single word `a, b, c, d`; re-quoting it
+    keeps it one value for `tag_names`, so the tag cap counts four tags, not one.
     """
-    tails: list[str] = []
-    for segment in segments(command):
-        matches = list(TEST_SCRIPT_RE.finditer(segment))
-        if not matches or is_read_only(segment):
-            continue
-        starts = [m.end() for m in matches]
-        bounds = [m.start() for m in matches][1:] + [len(segment)]
-        tails.extend(segment[start:end] for start, end in zip(starts, bounds))
-    return tails
+    return " ".join(
+        f'"{word}"' if not word or any(char.isspace() for char in word) else word
+        for word in args
+    )
+
+
+def invocation_tails(command: str) -> list[str]:
+    """One argument tail per `test.ps1`/`affected-gate.ps1` the command EXECUTES.
+
+    Decided by `_command_shape.invoked_scripts`, never by the runner's name
+    appearing in the text: a read (`grep -n Unit .../test.ps1`), a `python -c`
+    source string, an `echo`, a commit message or a question handed to another
+    script names the runner and runs nothing, so it yields no tail. Each tail is
+    the arguments of the one statement that runs the runner, so that
+    `test.ps1 A; affected-gate.ps1 -Projects B -SelfTest` cannot let B's
+    self-test flag vouch for A's bare full-suite run.
+    """
+    return [
+        _render_arguments(script.args)
+        for script in invoked_scripts(command)
+        if script.path.rsplit("/", 1)[-1].lower() in SUITE_SCRIPT_NAMES
+    ]
 
 
 def runs_no_test(tail: str) -> bool:

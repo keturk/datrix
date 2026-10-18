@@ -58,6 +58,10 @@ import os
 import sys
 from typing import Final
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _tool_names import READ_TOOLS  # noqa: E402
+
 _REPO_ROOT: Final = "d:/datrix"
 _STATE_DIR: Final = os.path.join(_REPO_ROOT, ".claude", "hooks", ".state")
 
@@ -173,7 +177,7 @@ def _last_compaction_index(entries: list[dict[str, object]]) -> int:
 
 
 def _paths_read_after(entries: list[dict[str, object]], start: int) -> set[str]:
-    """Normalized file_paths of every Read tool call made after `start`."""
+    """Normalized file_paths of every Read (or read_lines) call made after `start`."""
     read_paths: set[str] = set()
     for entry in entries[start + 1 :]:
         if entry.get("type") != "assistant":
@@ -187,7 +191,7 @@ def _paths_read_after(entries: list[dict[str, object]], start: int) -> set[str]:
         for block in content:
             if not isinstance(block, dict) or block.get("type") != "tool_use":
                 continue
-            if block.get("name") != "Read":
+            if block.get("name") not in READ_TOOLS:
                 continue
             tool_input = block.get("input")
             if not isinstance(tool_input, dict):

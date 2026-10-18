@@ -1,8 +1,10 @@
 {
+  "autoCompactWindow": 300000,
   "permissions": {
     "allow": [
       "mcp__datrix-code-index",
       "mcp__datrix-local-llm",
+      "mcp__datrix-edit",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/dev/generate.ps1\" -Domains -L python)",
       "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-python diff --stat 2>&1)",
       "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-aws diff --stat 2>&1)",
@@ -108,6 +110,16 @@
         ]
       },
       {
+        "matcher": "mcp__datrix-edit__edit_lines",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/route-line-edits.py\"",
+            "timeout": 300
+          }
+        ]
+      },
+      {
         "matcher": "Agent|Task",
         "hooks": [
           {
@@ -117,7 +129,7 @@
         ]
       },
       {
-        "matcher": "Read",
+        "matcher": "Read|mcp__datrix-edit__read_lines",
         "hooks": [
           {
             "type": "command",
@@ -138,7 +150,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Read",
+        "matcher": "Read|mcp__datrix-edit__read_lines",
         "hooks": [
           {
             "type": "command",
@@ -157,7 +169,7 @@
         ]
       },
       {
-        "matcher": "Read",
+        "matcher": "Read|mcp__datrix-edit__read_lines",
         "hooks": [
           {
             "type": "command",
@@ -167,7 +179,7 @@
         ]
       },
       {
-        "matcher": "Grep|Glob|Read|Bash|PowerShell|mcp__datrix-code-index__.*",
+        "matcher": "Grep|Glob|Read|Bash|PowerShell|mcp__datrix-code-index__.*|mcp__datrix-edit__read_lines",
         "hooks": [
           {
             "type": "command",

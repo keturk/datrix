@@ -191,7 +191,7 @@ Apply the implementation described in the task file:
 
 **Scope discipline — what was asked; growth needs approval** (execution-contract §4–§5):
 - The task's file list is the expected surface. If the root cause of the task's own defect lies in a neighbouring file or package, follow it and fix it there, and list the added files under `scope_expansion`.
-- If the task turns out bigger or broader than it states (new model fields, phases, diagnostics, modules or packages it does not name; a multiple of its estimate), **do not grow it yourself**: return status `APPROVAL_REQUIRED` with what, why (`file:line`) and roughly how big. The orchestrator puts it to Jon.
+- If the task turns out bigger or broader than it states (new model fields, phases, diagnostics, modules or packages it does not name; a multiple of its estimate), **do not grow it yourself**: return status `APPROVAL_REQUIRED` with what, why (`file:line`) and its measured size (execution-contract §4: counted census × measured rate, in tokens and agent minutes, never human hours/days). The orchestrator puts it to Jon.
 - Do NOT make unrelated "improvements" to surrounding code.
 - **Anything you find that the task does not need** — a defect on a file you touched, a pre-existing failure, another instance of the defect class, a violation you happened to see — → **write a findings file** (`d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md`, execution-contract §5A; do not look for an existing one) **and move on.** It is not a fix and not a task. Ask: *does the task need this to be correct?* If no, it is a findings file.
 - **Do NOT spawn subagents.** Do your task's work yourself, sequentially. Fanning out again multiplies cost without adding coverage and fragments the report the orchestrator has to act on.
@@ -281,7 +281,7 @@ OR (for quality gate):
 ### Abort Conditions
 
 STOP immediately if:
-- The task needs more than **double** the files it estimates, or changes it does not name (execution-contract §4) → return `APPROVAL_REQUIRED` with what, why and how big, before making them
+- The task needs more than **double** the files it estimates, or changes it does not name (execution-contract §4) → return `APPROVAL_REQUIRED` with what, why and its measured size (execution-contract §4), before making them
 - Ambiguities survive the adjudication ladder (a Fable **F**, or a §7 closed-list item the user must answer)
 
 On abort, report what was completed, what failed, and what cannot proceed.

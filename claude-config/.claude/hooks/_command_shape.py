@@ -34,11 +34,14 @@ inspection.
 
 WHICH SCRIPTS A COMMAND RUNS, AND WHETHER IT DEPLOYS
 ----------------------------------------------------
-`invoked_scripts` answers "which script files does this command execute" from the
-command's shape: a PowerShell host given `-File`, `-Command` or `-EncodedCommand`,
-a call/dot-source operator or a first token naming a `.ps1`, and a Python
-interpreter given a `.py`. A path that only appears as an argument of another
-program (a `for` list, a `sed` operand, a variable assignment, a heredoc body)
+`invoked_scripts` answers "which script files does this command execute, and with
+which arguments" from the command's shape: a PowerShell host given `-File`,
+`-Command` or `-EncodedCommand`, a call/dot-source operator or a first token naming
+a `.ps1`, and a Python interpreter given a `.py`. The arguments are the words that
+follow the script in the statement that runs it, so a guard that reads a script's
+flags (`_suite_invocation.py`) reads them from that statement alone. A path that
+only appears as an argument of another program (a `for` list, a `sed` operand, a
+`python -c` source string, a variable assignment, a heredoc body, a `#` comment)
 is named, not run, and yields nothing. Wrappers that run their argument as a
 command (`bash -c`, `cmd /c`, `env`, `nohup`, `Invoke-Expression`, `$( … )`) are
 unwrapped and read the same way, so no command that ran a script or deployed
@@ -156,6 +159,9 @@ _CALL_OPERATORS: Final = frozenset({"&", "."})
 _ENV_ASSIGNMENT_RE: Final = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _SUBSTITUTION_RE: Final = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
 _HEREDOC_RE: Final = re.compile(r"(?<!<)<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
+#: Characters after which a `#` begins a word, besides whitespace: a statement
+#: separator or an opening parenthesis.
+_COMMENT_LEADERS: Final = frozenset({";", "|", "&", "("})
 
 #: PowerShell host parameters that take a value. Any unambiguous prefix of a
 #: parameter name is accepted by the host, so matching is by prefix.
@@ -200,10 +206,24 @@ _DEPLOY_VERB_RE: Final = re.compile(
 
 @dataclass(frozen=True)
 class InvokedScript:
-    """A script file a command executes, and the form that executes it."""
+    """A script file a command executes, the form that executes it, and the arguments it receives.
+
+    `args` are the words that follow the script in the statement that runs it, quotes removed --
+    never text from another statement or from a string another program merely holds.
+    """
 
     path: str
     via: str
+    args: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _PowerShellRun:
+    """What a `powershell`/`pwsh` host runs: a `-File` script with its arguments, or command text."""
+
+    script: str
+    script_args: tuple[str, ...]
+    text: str
 
 
 #: One shell word: a run of quoted spans (an unclosed quote runs to the end) and bare characters.
@@ -281,31 +301,31 @@ def _decode_encoded_command(value: str) -> str:
         return ""
 
 
-def _powershell_runs(args: list[str]) -> tuple[str, str]:
-    """(script file, command text) a `powershell`/`pwsh` host runs; one of them is ""."""
+def _powershell_runs(args: list[str]) -> _PowerShellRun:
+    """What a `powershell`/`pwsh` host runs; at most one of `script` and `text` is non-empty."""
     index = 0
     while index < len(args):
         name = _ps_parameter(args[index])
         if not name:
-            return "", " ".join(args[index:])
+            return _PowerShellRun("", (), " ".join(args[index:]))
         role = _ps_role(name)
         value = args[index + 1] if index + 1 < len(args) else ""
         if role == _PS_FILE:
-            return _normalise_path(value), ""
+            return _PowerShellRun(_normalise_path(value), tuple(args[index + 2 :]), "")
         if role == _PS_COMMAND:
-            return "", " ".join(args[index + 1 :])
+            return _PowerShellRun("", (), " ".join(args[index + 1 :]))
         if role == _PS_ENCODED:
-            return "", _decode_encoded_command(value)
+            return _PowerShellRun("", (), _decode_encoded_command(value))
         index += 2 if role == _PS_VALUE else 1
-    return "", ""
+    return _PowerShellRun("", (), "")
 
 
 def _powershell_host(args: list[str], depth: int) -> list[InvokedScript]:
     """A `powershell`/`pwsh` invocation: what its -File / -Command / bare arguments run."""
-    script, text = _powershell_runs(args)
-    if script:
-        return [InvokedScript(script, VIA_POWERSHELL_FILE)]
-    return _scripts_in(text, depth + 1, VIA_POWERSHELL_COMMAND)
+    run = _powershell_runs(args)
+    if run.script:
+        return [InvokedScript(run.script, VIA_POWERSHELL_FILE, run.script_args)]
+    return _scripts_in(run.text, depth + 1, VIA_POWERSHELL_COMMAND)
 
 
 def _python_host(args: list[str]) -> list[InvokedScript]:
@@ -322,7 +342,9 @@ def _python_host(args: list[str]) -> list[InvokedScript]:
             index += 1
             continue
         path = _normalise_path(token)
-        return [InvokedScript(path, VIA_PYTHON)] if path.lower().endswith(".py") else []
+        if not path.lower().endswith(".py"):
+            return []
+        return [InvokedScript(path, VIA_PYTHON, tuple(args[index + 1 :]))]
     return []
 
 
@@ -375,13 +397,13 @@ def _segment_scripts(tokens: list[str], depth: int, via_command: str) -> list[In
         return _segment_scripts(_start_process_tokens(tokens[1:]), depth + 1, via_command)
     if first in _CALL_OPERATORS:
         rest = tokens[1:]
-        return [InvokedScript(_normalise_path(rest[0]), VIA_CALL)] if rest else []
+        return [InvokedScript(_normalise_path(rest[0]), VIA_CALL, tuple(rest[1:]))] if rest else []
     if program in _POWERSHELL_HOSTS:
         return _powershell_host(tokens[1:], depth)
     if _PYTHON_HOST_RE.match(program) and not program.endswith(".py"):
         return _python_host(tokens[1:])
     if program.endswith(".ps1"):
-        return [InvokedScript(_normalise_path(first), via_command)]
+        return [InvokedScript(_normalise_path(first), via_command, tuple(tokens[1:]))]
     wrapped = _wrapped_command(program, tokens[1:])
     if wrapped is not None:
         return _scripts_in(wrapped, depth + 1, via_command)
@@ -433,10 +455,37 @@ def _without_heredoc_data(command: str) -> str:
     return "\n".join(kept)
 
 
+def _without_comments(command: str) -> str:
+    """The command with its `#` comments removed; each comment's newline is kept.
+
+    An unquoted `#` that begins a word opens a comment to the end of its line, in a
+    POSIX shell and in PowerShell alike. A comment runs nothing, even when it holds a
+    `$( … )` or backtick span or names a script. A `#` inside a word (`$#`, `${#x}`,
+    `page#anchor`) or inside quotes is not one.
+    """
+    kept: list[str] = []
+    quote = ""
+    in_comment = False
+    previous = "\n"
+    for char in command:
+        if in_comment:
+            in_comment = char != "\n"
+        elif quote:
+            quote = "" if char == quote else quote
+        elif char in _QUOTES:
+            quote = char
+        elif char == "#" and (previous.isspace() or previous in _COMMENT_LEADERS):
+            in_comment = True
+        if not in_comment:
+            kept.append(char)
+        previous = char
+    return "".join(kept)
+
+
 def _scripts_in(command: str, depth: int, via_command: str) -> list[InvokedScript]:
     if depth > _MAX_DEPTH or not command.strip():
         return []
-    command = _without_heredoc_data(command)
+    command = _without_comments(_without_heredoc_data(command))
     found: list[InvokedScript] = []
     for tokens in _executable_segments(command):
         found.extend(_segment_scripts(tokens, depth, via_command))
@@ -470,7 +519,7 @@ def _segment_deploys(tokens: list[str], depth: int) -> bool:
     if _DEPLOY_VERB_RE.match(" ".join([program, *tokens[1:]])):
         return True
     if program in _POWERSHELL_HOSTS:
-        return _deploy_verb_segments(_powershell_runs(tokens[1:])[1], depth + 1)
+        return _deploy_verb_segments(_powershell_runs(tokens[1:]).text, depth + 1)
     wrapped = _wrapped_command(program, tokens[1:])
     return wrapped is not None and _deploy_verb_segments(wrapped, depth + 1)
 

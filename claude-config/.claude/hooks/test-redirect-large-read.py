@@ -134,6 +134,9 @@ try:
         check("and it is reported as a repeat, so the usage report can count it", repeats, ["repeat"])
         check("a different agent has its own context, so it is told too",
               "READ REDIRECTED" in decide(read(big, agent="a1")), True)
+        check("a whole read through the line-edit server's read_lines is refused the same way",
+              "READ REDIRECTED" in decide({**read(big, agent="a2"), "tool_name": "mcp__datrix-edit__read_lines"}),
+              True)
         check("a ranged read (offset)", decide(read(fat, offset=10)), "")
         check("a ranged read (limit)", decide(read(excluded, limit=50)), "")
         check("a small file", decide(read(small)), "")

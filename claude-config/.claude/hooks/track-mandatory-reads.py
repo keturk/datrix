@@ -1,4 +1,4 @@
-"""PostToolUse(Read) hook: record that a mandatory doc was read.
+"""PostToolUse(Read, read_lines) hook: record that a mandatory doc was read.
 
 Half of the gate armed by `session-context.py`. It observes Read calls and ticks
 off the required docs as they are actually read — the other half
@@ -16,6 +16,10 @@ import os
 import sys
 from typing import Final
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _tool_names import READ_TOOLS  # noqa: E402
+
 _REPO_ROOT: Final = "d:/datrix"
 _STATE_DIR: Final = os.path.join(_REPO_ROOT, ".claude", "hooks", ".state")
 
@@ -30,7 +34,7 @@ def main() -> None:
     except json.JSONDecodeError:
         sys.exit(0)
 
-    if data.get("tool_name") != "Read":
+    if data.get("tool_name") not in READ_TOOLS:
         sys.exit(0)
 
     session_id = data.get("session_id", "")
