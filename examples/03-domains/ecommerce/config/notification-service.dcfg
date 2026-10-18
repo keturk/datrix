@@ -26,8 +26,7 @@
       database = "library_books";
       poolSize = 20;
       maxOverflow = 20;
-      asyncDriver = "postgresql+asyncpg";
-      syncDriver = "postgresql+psycopg2";
+      ssl = false;
       healthCheckSql = "SELECT 1";
       dockerImage = "postgres:17-alpine";
       volumePath = "/var/lib/postgresql/data";
@@ -144,8 +143,6 @@
       poolSize = 40;
       maxOverflow = 20;
       ssl = true;
-      asyncDriver = "postgresql+asyncpg";
-      syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
     strategy {
@@ -182,8 +179,6 @@
       maxOverflow = 20;
       ssl = true;
       instanceClass = "db.t3.medium";
-      asyncDriver = "postgresql+asyncpg";
-      syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
     strategy {
@@ -217,8 +212,6 @@
       sku = "Standard_B1ms";
       tier = "Burstable";
       storageGb = 32;
-      asyncDriver = "postgresql+asyncpg";
-      syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
     strategy {
@@ -241,8 +234,6 @@
       poolSize = 20;
       maxOverflow = 20;
       ssl = true;
-      asyncDriver = "postgresql+asyncpg";
-      syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
   }
