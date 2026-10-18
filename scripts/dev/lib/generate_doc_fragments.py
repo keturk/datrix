@@ -96,8 +96,8 @@ def _derive_phase_names() -> list[str]:
     Raises:
         ValueError: If the derived order is empty.
     """
+    from datrix_common.stage_graph import topologically_sort_phases
     from datrix_semantic.analyzer import _build_phases
-    from datrix_semantic.pipeline.phase import topologically_sort_phases
 
     phase_names = [
         phase.name

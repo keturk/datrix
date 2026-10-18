@@ -172,16 +172,3 @@ count = 12
 [[baseline]]
 file = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/manifest_builder.py"
 count = 1
-
-# reason: both hits are `tree_sitter.Language` (the third-party tree-sitter
-# parser library's own class, imported and referenced under its own name at
-# parser.py:114,163) colliding with the frozen central-table name "Language" --
-# not a reference to datrix's retired target-identity enum. A first-time hit
-# because datrix_language was outside the OLD hardcoded 3-package scan scope;
-# the derived shared-package set now correctly includes it (it registers no
-# datrix.languages/datrix.platforms/datrix.generators/datrix.extensions entry
-# point of its own), and this is a genuine identifier-name collision, not a
-# policy leak, so it is grandfathered rather than renamed.
-[[baseline]]
-file = "datrix-language/src/datrix_language/parser/tree_sitter_datrix/parser.py"
-count = 2

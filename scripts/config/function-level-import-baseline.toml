@@ -10,7 +10,7 @@
 # datrix-common module that moved up a layer; its entry moved with it).
 #
 # Decrease-only. Any INCREASE in a file's count fails
-# datrix/scripts/scan/lib/check_import_boundaries.py
+# datrix/scripts/scan/check-import-boundaries.ps1
 # --check-function-level-imports, which check-import-boundaries.ps1 runs on
 # every check invocation. --update-baseline only lowers counts and drops
 # emptied entries; it refuses to raise one. A module that moves keeps its
@@ -53,8 +53,8 @@ reason = "config.dcfg.group_models <-> datrix_model.containers: containers -> da
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/deployment_validation.py"
-count = 5
-reason = "config.deployment_validation <-> config.system_config.models / plugin.capability_resolution: system_config.models imports deployment_validation at module top (the SystemConfigProfileConfig annotation import), and capability_resolution imports system_config.models at module top (the four validator-body imports of capability_resolution)."
+count = 4
+reason = "config.deployment_validation <-> config.system_config.models / plugin.capability_resolution: system_config.models imports deployment_validation at module top (the SystemConfigProfileConfig annotation import), and capability_resolution imports system_config.models at module top (the three validator-body imports of capability_resolution)."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/integrations/provisioning.py"
@@ -78,8 +78,8 @@ reason = "datrix_model.callables <-> datrix_model.api / datrix_model.serverless:
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/containers.py"
-count = 2
-reason = "datrix_model.containers <-> datrix_model.serialization: serialization imports Application/Service/Shared from containers at module top, so Application.hash and Service.hash import the serializers in their bodies."
+count = 1
+reason = "datrix_model.containers <-> datrix_model.content_digest: content_digest imports the container classes it digests at module top, so Service.hash imports service_input_hash in its body."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/contract.py"

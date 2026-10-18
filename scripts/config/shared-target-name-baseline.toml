@@ -63,4 +63,4 @@ reason = "sqlalchemy_column_expr (:84) and mikro_orm_column_spec (:85): CQRS vie
 [[baseline]]
 file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/deploy_entrypoint.py"
 count = 2
-reason = "DEPLOY_PY_NAME (:60, 'deploy.py') and DEPLOY_APP_PY_NAME (:75, 'deploy-app.py'): the 'py' segment is the file extension of the generated deployment script, which is Python by design on every platform; the names are shared by the docker, azure and aws platform packages and their tests, so a rename touches other packages. Drives to zero if the deployment script's file names are ever declared per platform instead of as shared constants."
+reason = "DEPLOY_PY_NAME (:49, 'deploy.py') and DEPLOY_APP_PY_NAME (:64, 'deploy-app.py'): the 'py' segment is the file extension of the generated deployment script, which is Python by design on every platform; the names are shared by the docker, azure and aws platform packages and their tests, so a rename touches other packages. Drives to zero if the deployment script's file names are ever declared per platform instead of as shared constants."

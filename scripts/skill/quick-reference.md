@@ -4,7 +4,7 @@ Scripts that exist for the agent skills under `.claude/skills/`: running skills 
 
 ## Headless skill chains: `skill\implement-design.ps1`, `skill\implement-design-direct.ps1`, `skill\skill-chain.ps1`
 
-**Run skills one after another as headless `claude -p` steps, each on its own skill's `model:`/`effort:`.** A skill invoked from inside another skill runs on the caller's model; a typed slash command switches to the skill's own. Each step here is a typed slash command in its own run, with the workspace's hooks, CLAUDE.md and guards. The shared step runner is `skill\SkillChain.psm1`. Needs the workspace trusted in `~/.claude.json` (`hasTrustDialogAccepted`), or headless runs ignore `settings.json`'s permissions.
+**Run skills one after another as headless `claude -p` steps, each on its own skill's `model:`/`effort:`.** A skill invoked from inside another skill runs on the caller's model; a typed slash command switches to the skill's own. Each step here is a typed slash command in its own run, with the workspace's hooks, CLAUDE.md and guards. The shared step runner is `skill\SkillChain.psm1`. It starts every step with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000`, so a long step compacts at 300k tokens instead of growing toward the model's 1M window: each response re-reads the whole context, so the context size sets what a long step costs (the caller's own value comes back after the step). Interactive sessions get the same window from `"autoCompactWindow": 300000` in the workspace `.claude/settings.json`; the variable, when set, takes precedence over it. Needs the workspace trusted in `~/.claude.json` (`hasTrustDialogAccepted`), or headless runs ignore `settings.json`'s permissions.
 
 | Mode | Command | Description |
 |------|---------|-------------|

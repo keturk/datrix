@@ -5,7 +5,7 @@
 # bare string literal -- identically in two or more datrix-*
 # packages (every package discover_packages() finds, not only the
 # language packages). Any INCREASE in a file's count fails
-# datrix/scripts/scan/lib/check_import_boundaries.py
+# datrix/scripts/scan/check-import-boundaries.ps1
 # --check-cross-package-vocabulary. Decreases are always allowed
 # and should be captured by re-running with --update-baseline once
 # a later change deletes or hoists a redundant container.
@@ -84,14 +84,6 @@ file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/monitor_alerts.
 count = 3
 
 [[baseline]]
-file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/resource_mapping/_azure_vm_apim.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/resource_mapping/_gateway_routing.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/search_type_mapper.py"
 count = 1
 
@@ -119,15 +111,12 @@ file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/cache.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/cache_method_specs.py"
+file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/email_templates.py"
 count = 1
+reason = "_LINE_BREAKS (CR, LF): the characters a generation-time email template check refuses in a header value. Its twin in datrix-codegen-python runtime/email_message.py is a runtime source inlined verbatim into each generated service, which runs where no Datrix package is installed and so can import no shared home; the two sets coincide because both guard the same header-injection rule on opposite sides of generation."
 
 [[baseline]]
 file = "datrix-codegen-common/src/datrix_codegen_common/context_models/webhook_verification.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/orchestration/storage_orchestrator.py"
 count = 1
 
 [[baseline]]
@@ -151,14 +140,6 @@ file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/compose/_serv
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/compose/_wiring_rdbms.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/config/gateway/_auth.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/images/init_script_generator.py"
 count = 1
 
@@ -177,7 +158,7 @@ count = 2
 [[baseline]]
 file = "datrix-codegen-docker/src/datrix_codegen_docker/plugin/capability.py"
 count = 2
-reason = "Floor is 1, not 3: _DOCKER_MODEL_REALIZATIONS is this platform's own model-provider realization column. AI agents (Decision 46 invariant 5) require each platform to declare per-provider realization on its own PlatformCapabilityDeclaration and forbid any provider name in a shared layer, so its key set legitimately coincides with the python target's per-provider client table (datrix-codegen-python micro_generators/agents.py). The other two hits (_DOCKER_UNREALIZABLE_SURFACES, _LOCAL_NOTIFICATION_TABLES) carry no such reason and still drive to 0."
+reason = "Floor is 1, not 3: _DOCKER_MODEL_REALIZATIONS is this platform's own model-provider realization column. AI agents (Decision 46 invariant 5) require each platform to declare per-provider realization on its own PlatformCapabilityDeclaration and forbid any provider name in a shared layer, so its key set legitimately coincides with the python target's per-provider client table (datrix-codegen-python generators/agents/renderer.py). The other two hits (_DOCKER_UNREALIZABLE_SURFACES, _LOCAL_NOTIFICATION_TABLES) carry no such reason and still drive to 0."
 
 [[baseline]]
 file = "datrix-codegen-docker/src/datrix_codegen_docker/plugin/identity_realization.py"
@@ -192,6 +173,11 @@ count = 1
 file = "datrix-codegen-flutter/src/datrix_codegen_flutter/capabilities.py"
 count = 1
 reason = "VALUE_STRUCT_REALIZATIONS: how Flutter holds each runtime value struct (Dart classes and modules, UploadFile's own field spellings), keyed by CLIENT_RUNTIME_VALUE_STRUCTS. A client target declares its value-struct realization on its own ClientTargetCapabilityDeclaration; the key set coincides with every other client target's because they realize the same structs, while the values differ per target."
+
+[[baseline]]
+file = "datrix-codegen-flutter/src/datrix_codegen_flutter/sync/consumer_check.py"
+count = 1
+reason = "_QUOTES: the quote characters of a pubspec.yaml scalar. This source is inlined verbatim into the emitted sync script, standard library only, so it can import no shared home; the equal sets in datrix-language (Datrix string literals), datrix-testing nginx_config.py (nginx tokens) and cases/fences.py (fence attribute values) are each a different language's quote characters, not one fact."
 
 [[baseline]]
 file = "datrix-codegen-flutter/src/datrix_codegen_flutter/type_mappings.py"
@@ -231,8 +217,9 @@ file = "datrix-codegen-python/src/datrix_codegen_python/generation/dependency_ta
 count = 3
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/api/_endpoint_import_resolution.py"
-count = 1
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/agents/renderer.py"
+count = 2
+reason = "Both hits are this language target's per-target realization tables (Decision 36 D9). PROVIDER_CLIENT_REALIZATIONS: the per-provider decide-client table (template, runtime, class per provider); AI agents (Decision 46 invariant 5) forbid any provider name in a shared layer, and which providers a platform realizes is that platform's own declaration (docker/aws/azure plugin capability), so the key sets coincide by design and can have no shared home. MANAGED_CREDENTIAL_REALIZATIONS: the per-kind managed-credential realization (class, scope keyword, parameter keywords), keyed by the ManagedCredentialKind vocabulary datrix-common declares (plugin/model_realization.py); the values are this package's own emitted classes, so the table has no shared home, and its key set is held equal to the declared kinds by tests/integration/generators/test_agents_managed_rendering.py."
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/_entity_test_create_fields.py"
@@ -243,10 +230,6 @@ file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/_entit
 count = 2
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/messaging/_pubsub_connection.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/messaging/_pubsub_emit_helper.py"
 count = 3
 
@@ -255,17 +238,13 @@ file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/m
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/storage_generator.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/_service_generator_ast.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/micro_generators/agents.py"
-count = 2
-reason = "Both hits are this language target's per-target realization tables (Decision 36 D9). PROVIDER_CLIENT_REALIZATIONS: the per-provider decide-client table (template, runtime, class per provider); AI agents (Decision 46 invariant 5) forbid any provider name in a shared layer, and which providers a platform realizes is that platform's own declaration (docker/aws/azure plugin capability), so the key sets coincide by design and can have no shared home. MANAGED_CREDENTIAL_REALIZATIONS: the per-kind managed-credential realization (class, scope keyword, parameter keywords), keyed by the ManagedCredentialKind vocabulary datrix-common declares (plugin/model_realization.py); the values are this package's own emitted classes, so the table has no shared home, and its key set is held equal to the declared kinds by tests/integration/generators/test_agents_managed_rendering.py."
+file = "datrix-codegen-python/src/datrix_codegen_python/runtime/email_message.py"
+count = 1
+reason = "_LINE_BREAKS (CR, LF): this module is inlined verbatim into a generated service's integrations/_email_helpers.py and runs where no Datrix package is installed, so it states the header-injection characters itself; the generation-time check in datrix-codegen-common algorithms/email_templates.py states the same two characters for the same rule."
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/runtime_spec.py"
@@ -277,16 +256,8 @@ count = 1
 reason = "_SPEC_ASSERTION_HANDLERS: this language target's lowering table for the spec-test assertion builtins, keyed by the vocabulary datrix-common's test validator declares (SPEC_ASSERTION_BUILTIN_NAMES). Its values are this package's own transpile callables, so the table can have no shared home (Decision 36 D9, a per-target realization), and its key set is held equal to the obligation computed for python (spec_assertion_builtin_names_required_for) by tests/integration/generators/test_agents_spec_statements.py."
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_expr_property_access.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_expr_types.py"
 count = 2
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/emit_tables.py"
-count = 1
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/operators.py"
@@ -306,6 +277,10 @@ file = "datrix-codegen-sql/src/datrix_codegen_sql/constraint_builder.py"
 count = 1
 
 [[baseline]]
+file = "datrix-codegen-sql/src/datrix_codegen_sql/dgen/registrations.py"
+count = 2
+
+[[baseline]]
 file = "datrix-codegen-sql/src/datrix_codegen_sql/dialects/mysql_reflector.py"
 count = 1
 
@@ -314,31 +289,11 @@ file = "datrix-codegen-sql/src/datrix_codegen_sql/dialects/reflector_registry.py
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-sql/src/datrix_codegen_sql/dgen/registrations.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-sql/src/datrix_codegen_sql/generator.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/_nosql_query_dispatch_ts.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/builtins.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/emit_tables.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/operators.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/visitor_expressions.py"
 count = 1
 
 [[baseline]]
@@ -357,7 +312,7 @@ reason = "The web client targets' one scalar realization table (hoisted here so 
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generation/dependency_tables.py"
-count = 5
+count = 4
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/_helpers.py"
@@ -368,12 +323,18 @@ file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/_
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/_endpoint_handler_service.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/cross_cutting/_deployment_test_cases.py"
 count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/cross_cutting/_deployment_test_context.py"
+count = 1
+reason = "_NODE_SIGN_DIGEST_BY_JWS_ALGORITHM: the Node crypto digest each JWS algorithm a deployment test signs with uses (RS256 -> sha256). datrix-common identity/planner/plan_entry.py's _DEFAULT_ALLOWED_ALGORITHMS is an identity plan's default allow-list; the one-member key sets coincide because RS256 is both the default and the only algorithm signed here, not because they are one fact."
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/entity/_entity_lifecycle_flags.py"
+count = 1
+reason = "_DATE_FNS_CATEGORIES: the builtin objects whose members the TypeScript builtin table backs with date-fns, a fact of this target's realization. datrix-semantic code_body_validator.py's _DATE_TYPE_NAMES (the types whose format() reads the date pattern language) and the server-managed initializer tables are different facts that name the same two builtin objects."
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/messaging/_messaging_helpers.py"
@@ -384,24 +345,8 @@ file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/messa
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/persistence/cache_generator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/persistence/storage_generator.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/service/nest_service_jinja_context.py"
 count = 2
-
-[[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/testing/test_spec_contexts.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/runtime_requirements.py"
-count = 1
 
 [[baseline]]
 file = "datrix-codegen-typescript/src/datrix_codegen_typescript/runtime_spec.py"
@@ -437,6 +382,11 @@ file = "datrix-common/src/datrix_common/config/unified_loader.py"
 count = 1
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/_codegen/generate_model_classes.py"
+count = 1
+reason = "_STATEMENT_LISTS: the fields of Python's own ast nodes that hold statement lists, read by this offline model-class generator. datrix-testing cases/removal.py reads the same stdlib ast fields in a different tool; the fact belongs to Python's ast module, not to either package, and neither tool may import the other."
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/auth_contract.py"
 count = 1
 
@@ -449,18 +399,24 @@ file = "datrix-common/src/datrix_common/datrix_model/entity_query_models.py"
 count = 1
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/scalars.py"
+count = 1
+reason = "STRING_CONSTRAINTS: the scalar-declaration constraints only a String-based scalar accepts. datrix-language transformers/config_transformer.py's _STRING_ONLY_ATTRIBUTES is the .dcfg config-key attributes only a String key accepts; both are {pattern} today, but scalar constraints and config-key attributes are separate vocabularies (their numeric counterparts already differ: min/max/range against min/max)."
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/ui_derivation.py"
 count = 1
 reason = "TEMPORAL_INPUT_KIND_BY_SCALAR_NAME: the UI input kind (date/dateTime/time) each temporal scalar derives to, the one table the UI derivation and the UI validator both read. Its key set (Date, DateTime, Time) coincides with Python's cross-field test inference set and the migration canonicalizer's timestamp category because every one enumerates the DSL's temporal scalars; each maps them to a different fact of its own subsystem."
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/infra/providers.py"
-count = 2
+file = "datrix-common/src/datrix_common/identity/planner/plan_entry.py"
+count = 1
+reason = "_DEFAULT_ALLOWED_ALGORITHMS: the JWS algorithms an identity plan entry allows when its config names none. datrix-codegen-typescript's deployment-test digest map is keyed by the algorithms its test signer realizes; both hold only RS256 today, by coincidence of policy and realization."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/plugin/model_realization.py"
 count = 1
-reason = "MANAGED_CREDENTIAL_PROVISIONED_PARAMETERS: the shared side of the ManagedCredentialKind vocabulary -- per kind, the deploy-time parameter names a provisioning platform writes -- keyed by every declared kind. This IS the one home; the python target's per-kind credential realization (micro_generators/agents.py, its own reasoned entry) is keyed by the same kinds by design and can never be merged into a shared layer without naming a platform's emitted class there."
+reason = "MANAGED_CREDENTIAL_PROVISIONED_PARAMETERS: the shared side of the ManagedCredentialKind vocabulary -- per kind, the deploy-time parameter names a provisioning platform writes -- keyed by every declared kind. This IS the one home; the python target's per-kind credential realization (generators/agents/renderer.py, its own reasoned entry) is keyed by the same kinds by design and can never be merged into a shared layer without naming a platform's emitted class there."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/types/constraints.py"
@@ -475,8 +431,23 @@ file = "datrix-common/src/datrix_common/utils/duration.py"
 count = 1
 
 [[baseline]]
+file = "datrix-language/src/datrix_language/parser/literals.py"
+count = 1
+reason = "_QUOTES: the quote characters of a Datrix string literal, a fact of the Datrix grammar. The equal sets in datrix-codegen-flutter sync/consumer_check.py (YAML), datrix-testing nginx_config.py (nginx) and cases/fences.py (fence attributes) are other languages' quote characters; one shared constant would tie four grammars together."
+
+[[baseline]]
+file = "datrix-language/src/datrix_language/parser/nesting.py"
+count = 1
+reason = "_OPENERS: the bracket characters that open a nesting level in Datrix source. datrix-testing brace_code.py holds the openers of the generated brace languages it checks (TypeScript, Dart) and the tokens that follow a type argument list there; the sets coincide because the languages share bracket characters, not because they share a rule."
+
+[[baseline]]
 file = "datrix-language/src/datrix_language/transformers/alert_transformer.py"
 count = 2
+
+[[baseline]]
+file = "datrix-language/src/datrix_language/transformers/config_transformer.py"
+count = 1
+reason = "_STRING_ONLY_ATTRIBUTES: the .dcfg config-key attributes only a String key accepts. datrix-common datrix_model/scalars.py's STRING_CONSTRAINTS is the scalar-declaration constraints only a String scalar accepts; the sets coincide at {pattern} while the vocabularies differ (numeric: min/max here, min/max/range there)."
 
 [[baseline]]
 file = "datrix-migration/src/datrix_migration/canonicalize.py"
@@ -504,5 +475,30 @@ count = 2
 reason = "SPEC_ASSERTION_BUILTIN_NAMES and SPEC_STATEMENT_BUILTIN_NAMES: the declared spec-test builtin vocabularies every language's lowering table is keyed by. This IS the one home; each language's lowering table (python transpiler/_expr_call_dispatch.py and transpiler/visitor_statements.py, each its own reasoned entry) holds that language's own emitted callables or method names under the same keys and is held equal to the obligation computed for it by that package's seam test."
 
 [[baseline]]
+file = "datrix-testing/src/datrix_testing/bicep.py"
+count = 1
+reason = "_KEYWORD_LITERALS: the literal keywords of the Bicep language this harness parses, and the value each stands for. datrix-codegen-python's _IDENTIFIER_KEYWORD_LITERALS is the Datrix literal keywords and their Python spelling; the two languages share the words true/false/null, not a vocabulary."
+
+[[baseline]]
+file = "datrix-testing/src/datrix_testing/brace_code.py"
+count = 2
+reason = "_OPENERS and _TYPE_ARGUMENT_FOLLOWERS: bracket facts of the generated brace languages this harness reads (TypeScript, Dart) -- each opener's closer, and what may follow a closed type argument list. datrix-language parser/nesting.py holds the openers of Datrix source; the sets coincide by bracket characters, not by rule."
+
+[[baseline]]
+file = "datrix-testing/src/datrix_testing/cases/fences.py"
+count = 1
+reason = "_QUOTES: the quote characters of a case-fence attribute value. The equal sets elsewhere are the quote characters of Datrix, YAML and nginx -- different languages that happen to quote alike."
+
+[[baseline]]
+file = "datrix-testing/src/datrix_testing/cases/removal.py"
+count = 1
+reason = "_BLOCK_FIELDS: the fields of Python's own ast nodes that hold statement lists, walked when a test function is removed. datrix-common's offline model-class generator (_codegen/generate_model_classes.py, private to that package) reads the same stdlib ast fields; the fact is Python's, not a Datrix vocabulary."
+
+[[baseline]]
 file = "datrix-testing/src/datrix_testing/infra_constants.py"
 count = 1
+
+[[baseline]]
+file = "datrix-testing/src/datrix_testing/nginx_config.py"
+count = 1
+reason = "_QUOTES: the quote characters of an nginx configuration token, read by this test harness's nginx parser. The equal sets elsewhere are the quote characters of Datrix, YAML and fence attributes -- different languages that happen to quote alike."

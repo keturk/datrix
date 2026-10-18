@@ -84,6 +84,8 @@ Complete workflow: syntax check, code generation, unit tests, deployment tests. 
 
 **Steps:** Step 1 (syntax checker, `scan\syntax-checker.ps1`) → Step 2 (code generation) → Step 3 (unit tests) → Step 4 (deployment tests: spec + integration). Step 5 is deprecated (merged into Step 4).
 
+**How a project's tests run:** Steps 3 and 4 run every generated project, whatever language generated it, through the `tests/run-tests.ps1` entry point every language emits (`datrix_codegen_kernel.generation.test_runner_entry_point`): Step 3 as `-Unit --parallel`, Step 4 as `-Deploy --results-dir <project>/.test_results/deploy-test-<stamp>` (`--verbose` added under `-VerboseOutput`), with the workspace venv activated for the runners. A project whose entry point declares no `-Deploy` switch has no deploy tests and is skipped by Step 4; a project with no entry point at all fails both steps as a generation defect.
+
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Single (auto output)** | `.\test\run-complete.ps1 "examples/.../system.dtrx" -L python` | Output derived from test-projects.json |
@@ -508,8 +510,19 @@ fixtures). They cover:
   identical bodies, gate self-tests; see [../common/README.md](../common/README.md#one-home-per-fact)),
   each proven on a planted copy and zero on the real tree; every shared module importing in a fresh
   interpreter; every hook-imported module exercised by a gate; `run_complete`'s project discovery by
-  the emitted `tests/run-tests.ps1` (a `-Deploy` parameter selects deploy tests); and the gate verdict
-  line `Invoke-DatrixPythonScript -Gate` prints being the line the red-run digest hook parses.
+  the emitted `tests/run-tests.ps1` (a `-Deploy` parameter selects deploy tests), and its running of
+  every planted project through that entry point alone (the switch, the forwarded arguments, the
+  project-root working directory, the activated workspace venv, a failing runner failing the
+  project, a missing entry point failing rather than skipping); the gate verdict line
+  `Invoke-DatrixPythonScript -Gate` prints being the line the red-run digest hook parses; and the
+  held-clean modules (the `import_boundaries` scanner package, `run_complete.py`, and the
+  `checklist.py` and `guard-predeploy-analysis.py` hooks) keeping every function at or under
+  cognitive complexity 15, after proving the measurement reports a planted function over the
+  limit.
+- **`run_complete`** (`-Only check_run_complete`): the console parser over every test-summary format a
+  runner prints, the step summary log, `run_command`'s exit and output in each output mode, the
+  structured index of every service a run reported, steps 3 and 4 over planted generated projects
+  (no container is started), and the workflow's step skipping and usage error.
 
 | Mode | Command | Description |
 |------|---------|-------------|

@@ -12,6 +12,7 @@ Usage:
 
 import argparse
 import atexit
+import contextlib
 import json
 import logging
 import os
@@ -21,11 +22,12 @@ import signal
 import subprocess
 import sys
 import threading
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,15 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+from datrix_codegen_kernel.generation.test_runner_entry_point import (  # noqa: E402
+    DEPLOY_TESTS_SWITCH,
+    PARALLEL_ARGUMENT,
+    RESULTS_DIR_ARGUMENT,
+    TEST_RUNNER_ENTRY_POINT,
+    UNIT_TESTS_SWITCH,
+    VERBOSE_ARGUMENT,
+)
+
 from datrix_scripts.aggregate_test_writer import AggregateTestWriter  # noqa: E402
 from datrix_scripts.deploy_test_aggregate_writer import DeployTestAggregateWriter  # noqa: E402
 from datrix_scripts.deploy_test_log_writer import DeployTestLogWriter  # noqa: E402
@@ -51,13 +62,13 @@ from datrix_scripts.local_llm import (  # noqa: E402
     local_llm_settings,
 )
 from datrix_scripts.logging_utils import ColorCodes, colorize  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
+from datrix_scripts.powershell_ast import parse_scripts  # noqa: E402
 from datrix_scripts.registered_targets import registered_language_names  # noqa: E402
 from datrix_scripts.test_projects import (  # noqa: E402
     get_default_output_path,
     get_test_projects,
 )
-from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
-from datrix_scripts.powershell_ast import parse_scripts  # noqa: E402
 from datrix_scripts.venv import get_venv_python  # noqa: E402
 
 # Global set to track all active subprocesses
@@ -66,6 +77,9 @@ _process_lock = threading.Lock()
 DEFAULT_LLM_NUM_PREDICT = 4096
 DEFAULT_LLM_TEMPERATURE = 0.1
 DEFAULT_LLM_CLUSTER_LIMIT = 12
+# A captured child silent this long gets a one-time "in progress" note.
+_PROGRESS_NOTE_AFTER_SECONDS = 2
+_OUTPUT_POLL_SECONDS = 0.5
 
 
 def register_process(process):
@@ -86,17 +100,7 @@ def cleanup_processes():
         processes_to_kill = list(_active_processes)
 
         for process in processes_to_kill:
-            try:
-                if process.poll() is None:  # Still running
-                    process.terminate()
-                    try:
-                        process.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                    except Exception:
-                        pass  # Ignore errors during cleanup
-            except Exception:
-                pass  # Ignore errors during cleanup
+            _terminate_process(process)
 
 
 def signal_handler(signum, frame):
@@ -198,6 +202,7 @@ def run_command(
     description: str = "",
     capture_output: bool = False,
     log_file: Path | None = None,
+    env_overrides: dict[str, str] | None = None,
 ) -> tuple[bool, str | None]:
     """
     Run a command and return True if successful
@@ -208,6 +213,7 @@ def run_command(
         description: Description of what the command does
         capture_output: If True, capture and return stdout/stderr while still displaying it
         log_file: If set, tee stdout/stderr to this file (plain text, no ANSI)
+        env_overrides: Variables set in the child's environment on top of this process's
 
     Returns:
         Tuple of (success: bool, output: Optional[str])
@@ -217,164 +223,174 @@ def run_command(
 
     print_info(f"Command: {' '.join(str(c) for c in cmd)}")
 
-    def _build_child_env() -> dict[str, str]:
-        env = dict(os.environ)
-        env["PYTHONUNBUFFERED"] = "1"
-        sha = get_datrix_repo_sha()
-        if sha:
-            env["DATRIX_REPO_SHA"] = sha
-        return env
-
-    if capture_output or log_file is not None:
-        env = _build_child_env()
-    else:
-        env = None
-
+    env = (
+        _child_env(env_overrides)
+        if capture_output or log_file is not None or env_overrides
+        else None
+    )
     if log_file is not None:
         # Tee subprocess output to console and log file (same behavior as generate.ps1)
-        process = subprocess.Popen(
-            cmd,
-            cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
-            env=env,
-        )
-        register_process(process)
-        try:
-            with open(log_file, "a", encoding="utf-8") as f:
-                while True:
-                    line = process.stdout.readline()
-                    if not line:
-                        if process.poll() is not None:
-                            break
-                        continue
-                    print(line, end="", flush=True)
-                    f.write(_strip_ansi(line))
-                    f.flush()
-        except KeyboardInterrupt:
-            print("\n\nInterrupted! Terminating subprocess...", flush=True)
-            try:
-                if process.poll() is None:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-            except Exception:
-                pass
-            raise
-        finally:
-            unregister_process(process)
-            try:
-                process.wait(timeout=0.1)
-            except subprocess.TimeoutExpired:
-                pass
-            remaining = process.stdout.read()
-            if remaining:
-                print(remaining, flush=True)
-                with open(log_file, "a", encoding="utf-8") as f:
-                    f.write(_strip_ansi(remaining))
-        returncode = process.returncode
-        if returncode == 0:
-            print_success("[OK] Success")
-            return True, None
-        print_error(f"[FAILED] Exit code: {returncode}")
-        return False, None
-
+        return _report_exit(_run_teed(cmd, cwd, env, log_file), None)
     if capture_output:
-        # Use Popen to capture output while still displaying it
-        process = subprocess.Popen(
-            cmd,
-            cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            bufsize=1,  # Line buffered
-            env=env,
-        )
+        returncode, output = _run_captured(cmd, cwd, env)
+        return _report_exit(returncode, output)
+    try:
+        run_env = _child_env(None) if env is None and get_datrix_repo_sha() else env
+        result = subprocess.run(cmd, cwd=cwd, env=run_env)
+    except KeyboardInterrupt:
+        print("\n\nInterrupted!", flush=True)
+        raise
+    return _report_exit(result.returncode, None)
 
-        # Register process for cleanup
-        register_process(process)
 
-        output_lines = []
-        import time
+def _child_env(env_overrides: dict[str, str] | None) -> dict[str, str]:
+    """This process's environment, unbuffered, carrying the datrix repo SHA
+    when known, with *env_overrides* on top."""
+    env = dict(os.environ)
+    env["PYTHONUNBUFFERED"] = "1"
+    sha = get_datrix_repo_sha()
+    if sha:
+        env["DATRIX_REPO_SHA"] = sha
+    env.update(env_overrides or {})
+    return env
 
-        # Read output line by line and both display and capture it
-        last_output_time = time.time()
-        progress_shown = False
 
-        try:
-            try:
-                while True:
-                    line = process.stdout.readline()
-                    if not line:
-                        if process.poll() is not None:
-                            break
-                        current_time = time.time()
-                        if current_time - last_output_time > 2:
-                            if not progress_shown:
-                                print(" [Test execution in progress - please wait for output...]", flush=True)
-                            progress_shown = True
-                        time.sleep(0.5)
-                        continue
-
-                    line = line.rstrip('\n\r')
-                    output_lines.append(line)
-                    print(line, flush=True)
-                    last_output_time = time.time()
-                    progress_shown = False
-            except KeyboardInterrupt:
-                print("\n\nInterrupted! Terminating subprocess...", flush=True)
-                try:
-                    if process.poll() is None:
-                        process.terminate()
-                        try:
-                            process.wait(timeout=2)
-                        except subprocess.TimeoutExpired:
-                            process.kill()
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-                raise
-        finally:
-            unregister_process(process)
-            try:
-                process.wait(timeout=0.1)
-            except subprocess.TimeoutExpired:
-                pass
-            remaining = process.stdout.read()
-            if remaining:
-                remaining_lines = remaining.rstrip('\n\r').split('\n')
-                for line in remaining_lines:
-                    if line.strip():
-                        output_lines.append(line)
-                    print(line, flush=True)
-
-        output = '\n'.join(output_lines)
-        returncode = process.returncode
-    else:
-        try:
-            run_env = _build_child_env() if env is None and get_datrix_repo_sha() else env
-            result = subprocess.run(cmd, cwd=cwd, env=run_env)
-            returncode = result.returncode
-            output = None
-        except KeyboardInterrupt:
-            print("\n\nInterrupted!", flush=True)
-            raise
-
+def _report_exit(returncode: int, output: str | None) -> tuple[bool, str | None]:
+    """Print the child's outcome and return ``(succeeded, output)``."""
     if returncode == 0:
         print_success("[OK] Success")
         return True, output
-    else:
-        print_error(f"[FAILED] Exit code: {returncode}")
-        return False, output
+    print_error(f"[FAILED] Exit code: {returncode}")
+    return False, output
+
+
+def _popen_merged(
+    cmd: list[str], cwd: Path | None, env: dict[str, str] | None
+) -> subprocess.Popen[str]:
+    """Start *cmd* line-buffered with stderr merged into a text stdout pipe,
+    registered for cleanup on exit."""
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+        env=env,
+    )
+    register_process(process)
+    return process
+
+
+def _terminate_process(process: subprocess.Popen[str]) -> None:
+    """Terminate a still-running child, killing it when it has not exited
+    two seconds later. A child that is already gone is left alone."""
+    with contextlib.suppress(OSError):
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
+def _finish_process(process: subprocess.Popen[str]) -> str:
+    """Unregister a child, give it a moment to exit, and return the output
+    still unread on its pipe."""
+    unregister_process(process)
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=0.1)
+    return process.stdout.read()
+
+
+def _run_teed(
+    cmd: list[str], cwd: Path | None, env: dict[str, str] | None, log_file: Path
+) -> int:
+    """Run *cmd*, printing each output line and appending it, ANSI-stripped,
+    to *log_file*; return the exit code."""
+    process = _popen_merged(cmd, cwd, env)
+    try:
+        with open(log_file, "a", encoding="utf-8") as f:
+            for line in _teed_lines(process):
+                print(line, end="", flush=True)
+                f.write(_strip_ansi(line))
+                f.flush()
+    except KeyboardInterrupt:
+        print("\n\nInterrupted! Terminating subprocess...", flush=True)
+        _terminate_process(process)
+        raise
+    finally:
+        remaining = _finish_process(process)
+        if remaining:
+            print(remaining, flush=True)
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(_strip_ansi(remaining))
+    return process.returncode
+
+
+def _teed_lines(process: subprocess.Popen[str]) -> Iterator[str]:
+    """Each output line of *process*, newline kept, until it exits."""
+    while True:
+        line = process.stdout.readline()
+        if line:
+            yield line
+        elif process.poll() is not None:
+            return
+
+
+def _run_captured(
+    cmd: list[str], cwd: Path | None, env: dict[str, str] | None
+) -> tuple[int, str]:
+    """Run *cmd*, printing and capturing each output line; return the exit
+    code and the captured lines joined by newlines."""
+    process = _popen_merged(cmd, cwd, env)
+    output_lines: list[str] = []
+    try:
+        for line in _captured_lines(process):
+            output_lines.append(line)
+            print(line, flush=True)
+    except KeyboardInterrupt:
+        print("\n\nInterrupted! Terminating subprocess...", flush=True)
+        _terminate_process(process)
+        raise
+    finally:
+        _capture_remaining(_finish_process(process), output_lines)
+    return process.returncode, "\n".join(output_lines)
+
+
+def _captured_lines(process: subprocess.Popen[str]) -> Iterator[str]:
+    """Each output line of *process*, newline stripped, until it exits. After
+    two silent seconds a one-time progress note is printed, re-armed by the
+    next line."""
+    last_output_time = time.time()
+    progress_shown = False
+    while True:
+        line = process.stdout.readline()
+        if line:
+            yield line.rstrip("\n\r")
+            last_output_time = time.time()
+            progress_shown = False
+            continue
+        if process.poll() is not None:
+            return
+        if time.time() - last_output_time > _PROGRESS_NOTE_AFTER_SECONDS:
+            if not progress_shown:
+                print(" [Test execution in progress - please wait for output...]", flush=True)
+            progress_shown = True
+        time.sleep(_OUTPUT_POLL_SECONDS)
+
+
+def _capture_remaining(remaining: str, output_lines: list[str]) -> None:
+    """Print the output left on a finished child's pipe, capturing its
+    non-blank lines."""
+    if not remaining:
+        return
+    for line in remaining.rstrip("\n\r").split("\n"):
+        if line.strip():
+            output_lines.append(line)
+        print(line, flush=True)
 
 
 def get_paths() -> dict[str, Path]:
@@ -563,38 +579,18 @@ def step2_generate(
 
     cmd: list[str] = [pwsh_exe, "-File", str(script_path)]
 
-    # `platform` carries only the runtime segment now. The provider segment of
-    # the output path is read from each project's config/system.dcfg by
-    # generate.ps1, so we never pass a provider here. Tolerate a legacy
-    # "runtime/provider" value by keeping only the runtime half.
-    runtime = platform.split("/", 1)[0] if platform else None
-
     if all_examples:
         print_step(2, "Generate Examples")
         cmd.append("-All")
-        cmd.extend(["-Language", language])
-        if runtime:
-            cmd.extend(["-Runtime", runtime])
+        cmd.extend(_generate_target_arguments(language, platform))
         if test_set != "all":
             cmd.extend(["-TestSet", test_set])
     else:
-        if not example_path or not output_path:
-            print_error("Example path and output path are required when -All is not specified")
+        example_arguments = _generate_example_arguments(example_path, output_path)
+        if example_arguments is None:
             return False
-
-        print_step(2, f"Generate Example: {Path(example_path).name}")
-
-        source_file = Path(example_path).resolve()
-        output_dir = Path(output_path).resolve()
-
-        if not source_file.exists():
-            print_error(f"Example file not found at: {source_file}")
-            return False
-
-        cmd.extend([str(source_file), str(output_dir)])
-        cmd.extend(["-Language", language])
-        if runtime:
-            cmd.extend(["-Runtime", runtime])
+        cmd.extend(example_arguments)
+        cmd.extend(_generate_target_arguments(language, platform))
 
     if hosting:
         cmd.extend(["-Hosting", hosting])
@@ -605,6 +601,41 @@ def step2_generate(
         description="Generating via generate.ps1",
     )
     return success
+
+
+def _generate_target_arguments(language: str, platform: str) -> list[str]:
+    """generate.ps1's ``-Language`` and, when known, ``-Runtime`` arguments.
+
+    Only the runtime segment of *platform* (the part before any ``/``) is
+    passed: generate.ps1 reads each project's provider from its
+    ``config/system.dcfg``.
+    """
+    arguments = ["-Language", language]
+    runtime = platform.split("/", 1)[0] if platform else None
+    if runtime:
+        arguments.extend(["-Runtime", runtime])
+    return arguments
+
+
+def _generate_example_arguments(
+    example_path: str | None, output_path: str | None
+) -> list[str] | None:
+    """generate.ps1's source-file and output-dir arguments for one example,
+    with the step header printed; ``None`` (error printed) when either path
+    is missing or the source file does not exist."""
+    if not example_path or not output_path:
+        print_error("Example path and output path are required when -All is not specified")
+        return None
+
+    print_step(2, f"Generate Example: {Path(example_path).name}")
+
+    source_file = Path(example_path).resolve()
+    output_dir = Path(output_path).resolve()
+
+    if not source_file.exists():
+        print_error(f"Example file not found at: {source_file}")
+        return None
+    return [str(source_file), str(output_dir)]
 
 
 def _jest_suite_failures_from_output(output: str) -> int:
@@ -638,74 +669,98 @@ def parse_test_statistics(output: str) -> dict:
         return stats
 
     # Try unit_tests.py "Total Passed: X" format first
-    match = re.search(r"Total Passed:\s+(\d+)", output)
-    if match:
-        stats["passed"] = int(match.group(1))
-
-    match = re.search(r"Total Failed:\s+(\d+)", output)
-    if match:
-        stats["failed"] = int(match.group(1))
-
-    match = re.search(r"Total Errors:\s+(\d+)", output)
-    if match:
-        stats["errors"] = int(match.group(1))
-
-    match = re.search(r"Total Skipped:\s+(\d+)", output)
-    if match:
-        stats["skipped"] = int(match.group(1))
-
+    _read_summary_totals(output, stats)
     # If no results found, try pytest summary line format.
-    # Pytest summary lines look like: "===== 35 passed in 8.48s ====="
-    # Require leading "=" to avoid matching unrelated output.
     if stats["passed"] == 0 and stats["failed"] == 0:
-        for line in output.split("\n"):
-            line = line.strip()
-            if (
-                line.startswith("=")
-                and ("passed" in line or "failed" in line or "error" in line)
-                and re.search(r" in \d", line)
-            ):
-                m = re.search(r"(\d+) passed", line)
-                if m:
-                    stats["passed"] += int(m.group(1))
-                m = re.search(r"(\d+) failed", line)
-                if m:
-                    stats["failed"] += int(m.group(1))
-                m = re.search(r"(\d+) error", line)
-                if m:
-                    stats["errors"] += int(m.group(1))
-                m = re.search(r"(\d+) skipped", line)
-                if m:
-                    stats["skipped"] += int(m.group(1))
-
+        _add_pytest_summary_counts(output, stats)
     # If still no results, try Jest summary format (align with unit-tests.js).
     if stats["passed"] == 0 and stats["failed"] == 0:
-        suites_failed = _jest_suite_failures_from_output(output)
-        stats["suiteFailures"] = suites_failed
-        for line in output.split("\n"):
-            line = line.strip()
-            if line.startswith("Tests:") and "total" in line:
-                m = re.search(r"(\d+) passed", line)
-                if m:
-                    stats["passed"] = int(m.group(1))
-                m = re.search(r"(\d+) failed", line)
-                if m:
-                    stats["failed"] = int(m.group(1))
-                m = re.search(r"(\d+) skipped", line)
-                if m:
-                    stats["skipped"] = int(m.group(1))
-                total_m = re.search(r"(\d+)\s*total", line)
-                total = int(total_m.group(1)) if total_m else (
-                    stats["passed"] + stats["failed"] + stats["skipped"]
-                )
-                if total == 0 and suites_failed > 0:
-                    stats["errors"] = suites_failed
-                break
-        else:
-            if suites_failed > 0:
-                stats["errors"] = suites_failed
-
+        _read_jest_summary(output, stats)
     return stats
+
+
+#: ``(stats key, label)`` of each "Total <label>: N" summary line.
+_SUMMARY_TOTAL_LABELS = (
+    ("passed", "Passed"),
+    ("failed", "Failed"),
+    ("errors", "Errors"),
+    ("skipped", "Skipped"),
+)
+#: ``(stats key, word)`` of each "N <word>" count on a pytest summary line.
+_PYTEST_COUNT_WORDS = (
+    ("passed", "passed"),
+    ("failed", "failed"),
+    ("errors", "error"),
+    ("skipped", "skipped"),
+)
+#: ``(stats key, word)`` of each "N <word>" count on a Jest "Tests:" line.
+_JEST_COUNT_WORDS = (("passed", "passed"), ("failed", "failed"), ("skipped", "skipped"))
+
+
+def _first_count(pattern: str, text: str) -> int | None:
+    """The integer *pattern*'s first group captures in *text*, or ``None``."""
+    match = re.search(pattern, text)
+    return int(match.group(1)) if match else None
+
+
+def _read_summary_totals(output: str, stats: dict[str, int]) -> None:
+    """Set each count a unit_tests.py "Total <label>: N" line states."""
+    for key, label in _SUMMARY_TOTAL_LABELS:
+        count = _first_count(rf"Total {label}:\s+(\d+)", output)
+        if count is not None:
+            stats[key] = count
+
+
+def _is_pytest_summary_line(line: str) -> bool:
+    """Whether a stripped line is a pytest summary line, such as
+    ``===== 35 passed in 8.48s =====``. The leading ``=`` keeps unrelated
+    output from matching."""
+    return (
+        line.startswith("=")
+        and ("passed" in line or "failed" in line or "error" in line)
+        and re.search(r" in \d", line) is not None
+    )
+
+
+def _add_pytest_summary_counts(output: str, stats: dict[str, int]) -> None:
+    """Add the counts of every pytest summary line in *output*."""
+    for raw_line in output.split("\n"):
+        line = raw_line.strip()
+        if not _is_pytest_summary_line(line):
+            continue
+        for key, word in _PYTEST_COUNT_WORDS:
+            count = _first_count(rf"(\d+) {word}", line)
+            if count is not None:
+                stats[key] += count
+
+
+def _read_jest_summary(output: str, stats: dict[str, int]) -> None:
+    """Set the counts of Jest's first ``Tests: ... total`` line and the failed
+    suite count. Failed suites count as errors when no test ran (a suite that
+    does not compile runs none), or when there is no ``Tests:`` line at all."""
+    suites_failed = _jest_suite_failures_from_output(output)
+    stats["suiteFailures"] = suites_failed
+    tests_line = next(
+        (
+            line
+            for line in (raw_line.strip() for raw_line in output.split("\n"))
+            if line.startswith("Tests:") and "total" in line
+        ),
+        None,
+    )
+    if tests_line is None:
+        if suites_failed > 0:
+            stats["errors"] = suites_failed
+        return
+    for key, word in _JEST_COUNT_WORDS:
+        count = _first_count(rf"(\d+) {word}", tests_line)
+        if count is not None:
+            stats[key] = count
+    total = _first_count(r"(\d+)\s*total", tests_line)
+    if total is None:
+        total = stats["passed"] + stats["failed"] + stats["skipped"]
+    if total == 0 and suites_failed > 0:
+        stats["errors"] = suites_failed
 
 
 def _sanitize_log_filename(name: str) -> str:
@@ -729,38 +784,18 @@ def _save_docker_logs_for_project(
     docker_logs_dir = deploy_test_dir / "docker-logs"
     docker_logs_dir.mkdir(parents=True, exist_ok=True)
 
-    compose_file = project / "docker-compose.yml"
-    if not compose_file.exists():
-        compose_file = project / "docker-compose.yaml"
-        if not compose_file.exists():
-            return
-
-    # Get container names: docker compose [-p name] -f <file> ps -a --format "{{.Name}}"
-    ps_cmd = ["docker", "compose"]
-    project_name = _extract_compose_project_name(project)
-    if project_name:
-        ps_cmd.extend(["-p", project_name])
-    ps_cmd.extend(["-f", str(compose_file), "ps", "-a", "--format", "{{.Name}}"])
-    try:
-        result = subprocess.run(
-            ps_cmd,
-            cwd=project,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        print_warning(f"Could not list docker containers for {project.name}: {e}")
+    compose_file = next(
+        (
+            candidate
+            for candidate in (project / "docker-compose.yml", project / "docker-compose.yaml")
+            if candidate.exists()
+        ),
+        None,
+    )
+    if compose_file is None:
         return
 
-    if result.returncode != 0:
-        if result.stderr:
-            print_warning(f"Docker compose ps failed for {project.name}: {result.stderr.strip()}")
-        return
-
-    names = [n.strip() for n in result.stdout.splitlines() if n.strip()]
+    names = _compose_container_names(project, compose_file)
     if not names:
         return
 
@@ -784,38 +819,86 @@ def _save_docker_logs_for_project(
             print_warning(f"Could not save docker logs for {container_name}: {e}")
 
 
-_COMPOSE_NAME_RE_PY = re.compile(
-    r'^COMPOSE_PROJECT_NAME\s*=\s*["\']([^"\']+)["\']', re.MULTILINE,
-)
-_COMPOSE_NAME_RE_JS = re.compile(
-    r"const\s+COMPOSE_PROJECT_NAME\s*=\s*['\"]([^'\"]+)['\"]", re.MULTILINE,
-)
+def _compose_container_names(project: Path, compose_file: Path) -> list[str]:
+    """Every container of every compose project *compose_file* defines
+    (``docker compose -p <name> -f <file> ps -a``). A compose project whose
+    listing fails is skipped with a warning; when docker is missing or times
+    out, nothing is returned."""
+    names: list[str] = []
+    for compose_project in _compose_project_names(compose_file):
+        ps_cmd = ["docker", "compose", "-p", compose_project, "-f", str(compose_file),
+                  "ps", "-a", "--format", "{{.Name}}"]
+        try:
+            result = subprocess.run(
+                ps_cmd,
+                cwd=project,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            print_warning(f"Could not list docker containers for {project.name}: {e}")
+            return []
+
+        if result.returncode != 0:
+            if result.stderr:
+                print_warning(f"Docker compose ps failed for {project.name}: {result.stderr.strip()}")
+            continue
+        names.extend(n.strip() for n in result.stdout.splitlines() if n.strip())
+    return names
+
 
 _DATRIX_CONFIG_PATH_MARKERS = (".generated", ".projects")
 
 
-def _extract_compose_project_name(project: Path) -> str | None:
-    """Extract the compose project name from the generated deploy test script.
+def _list_compose_projects() -> list[dict[str, str]]:
+    """Every compose project docker knows of, running or stopped (``docker compose ls -a``).
 
-    Searches ``tests/deploy_test.py`` (Python) and ``tests/deploy-test.js``
-    (TypeScript) for the ``COMPOSE_PROJECT_NAME`` constant.
-    Returns ``None`` if no test script is found or the constant is missing.
+    Returns an empty list when docker is unavailable or answers with an error:
+    the callers are cleanup safety nets that must never fail a test step.
     """
-    candidates: list[tuple[str, re.Pattern[str]]] = [
-        ("tests/deploy_test.py", _COMPOSE_NAME_RE_PY),
-        ("tests/deploy-test.js", _COMPOSE_NAME_RE_JS),
-    ]
-    for filename, pattern in candidates:
-        test_file = project / filename
-        if test_file.exists():
-            try:
-                content = test_file.read_text(encoding="utf-8")
-                match = pattern.search(content)
-                if match:
-                    return match.group(1)
-            except OSError:
-                pass
-    return None
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "ls", "-a", "--format", "json"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        print_warning(f"Could not list compose projects: {exc}")
+        return []
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+
+
+def _compose_project_names(compose_file: Path) -> list[str]:
+    """Names of the compose projects started from *compose_file*, as docker records them.
+
+    A generated project's deploy runner picks its own compose project name, so the
+    name is read back from docker -- every project whose config files include this
+    one -- rather than from the runner, whose language this tool never needs to know.
+    """
+    target = os.path.normcase(str(compose_file.resolve()))
+    return sorted(
+        project["Name"]
+        for project in _list_compose_projects()
+        if target in {
+            os.path.normcase(str(Path(config).resolve()))
+            for config in project["ConfigFiles"].split(",")
+            if config
+        }
+    )
 
 
 def _is_datrix_compose_project(config_files: str) -> bool:
@@ -836,30 +919,8 @@ def _cleanup_all_datrix_compose_projects() -> None:
     ``.projects``.  Idempotent and failure-tolerant — never blocks the test
     step on cleanup errors.
     """
-    try:
-        result = subprocess.run(
-            ["docker", "compose", "ls", "-a", "--format", "json"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-            check=False,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        print_warning(f"Could not list compose projects: {exc}")
-        return
-
-    if result.returncode != 0 or not result.stdout.strip():
-        return
-
-    try:
-        projects = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return
-
     datrix_projects = [
-        p for p in projects
+        p for p in _list_compose_projects()
         if _is_datrix_compose_project(p.get("ConfigFiles", ""))
     ]
 
@@ -906,8 +967,8 @@ def _cleanup_all_datrix_compose_projects() -> None:
 def _ensure_docker_cleanup(project: Path) -> None:
     """Safety net: tear down Docker containers, volumes, and images for a project.
 
-    Runs after each deploy_test.py subprocess to ensure no resources are left
-    behind, regardless of how the subprocess exited (success, failure, or killed).
+    Runs after each project's deploy run to ensure no resources are left
+    behind, regardless of how the run exited (success, failure, or killed).
     Idempotent — safe to call even if containers are already stopped/removed.
     """
     compose_file = project / "docker-compose.yml"
@@ -916,25 +977,22 @@ def _ensure_docker_cleanup(project: Path) -> None:
         if not compose_file.exists():
             return
 
-    cmd = ["docker", "compose"]
-    project_name = _extract_compose_project_name(project)
-    if project_name:
-        cmd.extend(["-p", project_name])
-    cmd.extend(["-f", str(compose_file), "down", "-v", "--rmi", "local", "--remove-orphans"])
-
-    try:
-        subprocess.run(
-            cmd,
-            cwd=project,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=120,
-            check=False,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        print_warning(f"Docker cleanup warning for {project.name}: {exc}")
+    for compose_project in _compose_project_names(compose_file):
+        cmd = ["docker", "compose", "-p", compose_project, "-f", str(compose_file),
+               "down", "-v", "--rmi", "local", "--remove-orphans"]
+        try:
+            subprocess.run(
+                cmd,
+                cwd=project,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+                check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            print_warning(f"Docker cleanup warning for {project.name}: {exc}")
 
 
 def save_test_summary_log(
@@ -956,15 +1014,7 @@ def save_test_summary_log(
     When step5_output_dir is set, write to step5_output_dir/deploy-test-summary.log.
     Otherwise fall back to .generated/.test_results/ (Step 4 unit tests).
     """
-    if step5_output_dir is not None:
-        log_path = step5_output_dir / "deploy-test-summary.log"
-    else:
-        generated_base = paths["datrix_root"] / ".generated"
-        test_results_dir = generated_base / ".test_results"
-        test_results_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        log_filename = f"step{step_num}-{step_name.lower().replace(' ', '-')}-{timestamp}.log"
-        log_path = test_results_dir / log_filename
+    log_path = _summary_log_path(step_num, step_name, paths, step5_output_dir)
 
     with open(log_path, "w", encoding="utf-8") as f:
         f.write("=" * 60 + "\n")
@@ -991,43 +1041,10 @@ def save_test_summary_log(
  
         successful_projects = [r for r in project_results if r["success"]]
         failed_projects = [r for r in project_results if not r["success"]]
- 
-        if successful_projects:
-            f.write(f"\nSuccessful Projects ({len(successful_projects)}):\n")
-            for result in successful_projects:
-                f.write(f" ✓ {result['name']}\n")
-                # Show test counts
-                test_info = []
-                if result.get("passed", 0) > 0:
-                    test_info.append(f"passed: {result.get('passed', 0)}")
-                if result.get("failed", 0) > 0:
-                    test_info.append(f"failed: {result.get('failed', 0)}")
-                if result.get("errors", 0) > 0:
-                    test_info.append(f"errors: {result.get('errors', 0)}")
-                if result.get("skipped", 0) > 0:
-                    test_info.append(f"skipped: {result.get('skipped', 0)}")
-                if test_info:
-                    f.write(f"   Tests: {', '.join(test_info)}\n")
-            f.write("\n")
+        # The successful group is set off from the rule above it by a blank line.
+        _write_summary_project_group(f, "\nSuccessful Projects", "✓", successful_projects)
+        _write_summary_project_group(f, "Failed Projects", "✗", failed_projects)
 
-        if failed_projects:
-            f.write(f"Failed Projects ({len(failed_projects)}):\n")
-            for result in failed_projects:
-                f.write(f" ✗ {result['name']}\n")
-                # Show test counts
-                test_info = []
-                if result.get("passed", 0) > 0:
-                    test_info.append(f"passed: {result.get('passed', 0)}")
-                if result.get("failed", 0) > 0:
-                    test_info.append(f"failed: {result.get('failed', 0)}")
-                if result.get("errors", 0) > 0:
-                    test_info.append(f"errors: {result.get('errors', 0)}")
-                if result.get("skipped", 0) > 0:
-                    test_info.append(f"skipped: {result.get('skipped', 0)}")
-                if test_info:
-                    f.write(f"   Tests: {', '.join(test_info)}\n")
-            f.write("\n")
- 
         f.write("=" * 60 + "\n")
 
     if step5_output_dir is not None:
@@ -1036,6 +1053,20 @@ def save_test_summary_log(
             _append_deploy_failure_index_to_summary(log_path, fail_json)
 
     return log_path
+
+
+def _summary_log_path(
+    step_num: int, step_name: str, paths: dict[str, Path], step5_output_dir: Path | None
+) -> Path:
+    """``deploy-test-summary.log`` under *step5_output_dir* when set, else a
+    timestamped ``step<N>-<name>-<time>.log`` under ``.generated/.test_results/``."""
+    if step5_output_dir is not None:
+        return step5_output_dir / "deploy-test-summary.log"
+    test_results_dir = paths["datrix_root"] / ".generated" / ".test_results"
+    test_results_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_filename = f"step{step_num}-{step_name.lower().replace(' ', '-')}-{timestamp}.log"
+    return test_results_dir / log_filename
 
 
 def _append_deploy_failure_index_to_summary(summary_log: Path, failures_json: Path) -> None:
@@ -1066,329 +1097,6 @@ def _append_deploy_failure_index_to_summary(summary_log: Path, failures_json: Pa
             lines.append(f"    message: {msg}")
     with summary_log.open("a", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
-
-
-def _write_deploy_environment_json(results_dir: Path, project: Path, runner: str) -> None:
-    """Toolchain metadata for deploy-test result folders (AI triage)."""
-    payload: dict = {
-        "project": str(project.resolve()),
-        "generatedAt": datetime.now().isoformat(),
-        "platform": sys.platform,
-        "runner": runner,
-        "logNotes": [
-            "docker-logs/ contains container stdout/stderr captured before teardown.",
-            "Triage: read failures.json first for structured failures; open jest JSON or pytest JUnit for full stacks.",
-        ],
-    }
-    try:
-        proc = subprocess.run(
-            ["node", "--version"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
-        if proc.returncode == 0:
-            payload["nodeVersion"] = (proc.stdout or "").strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        payload["nodeVersion"] = None
-    try:
-        proc = subprocess.run(
-            ["pnpm", "--version"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
-        if proc.returncode == 0:
-            payload["pnpmVersion"] = (proc.stdout or "").strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        payload["pnpmVersion"] = None
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-m", "pytest", "--version"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
-        if proc.returncode == 0:
-            payload["pytestVersion"] = (proc.stdout or "").strip().split("\n")[0]
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        payload["pytestVersion"] = None
-
-    sha = get_datrix_repo_sha()
-    if sha:
-        payload["datrixRepoSha"] = sha
-
-    (results_dir / "environment.json").write_text(
-        json.dumps(payload, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-
-def _has_test_script(pkg_json: Path) -> bool:
-    """Check whether a package.json has a "test" script."""
-    if not pkg_json.exists():
-        return False
-    try:
-        data = json.loads(pkg_json.read_text(encoding="utf-8"))
-        return "test" in data.get("scripts", {})
-    except (json.JSONDecodeError, OSError):
-        return False
-
-
-def _find_ts_service_dirs(project: Path) -> list[Path]:
-    """Find TypeScript service directories within a generated project.
-
-    Generated TypeScript projects have the layout:
-        project_root/
-            service_a/          <-- service dir (has package.json, jest.config.ts, test/)
-            service_b/
-            docker-compose.yml
-            tests/              <-- project-level deploy tests
-    """
-    service_dirs: list[Path] = []
-    if not project.is_dir():
-        return service_dirs
-    for child in sorted(project.iterdir()):
-        if not child.is_dir():
-            continue
-        pkg_json = child / "package.json"
-        if _has_test_script(pkg_json):
-            service_dirs.append(child)
-    return service_dirs
-
-
-def _is_typescript_project(project: Path) -> bool:
-    """Check whether a generated project contains TypeScript services with tests."""
-    return len(_find_ts_service_dirs(project)) > 0
-
-
-def _find_pnpm() -> str | None:
-    """Find pnpm executable on the system."""
-    return shutil.which("pnpm")
-
-
-def _find_typescript_root(project: Path) -> Path | None:
-    """Find the TypeScript output root by walking up path components.
-
-    Looks for a path component named ``typescript``, then returns the
-    full path up to and including that component. Returns None if not
-    found. Works with any output base directory.
-    """
-    parts = project.resolve().parts
-    for idx, part in enumerate(parts):
-        if part == "typescript":
-            return Path(*parts[: idx + 1])
-    return None
-
-
-def _shared_ts_node_modules_exists(project: Path) -> bool:
-    """Check if a shared node_modules exists at the TypeScript root.
-
-    Returns True if the TypeScript root has both ``node_modules/`` and
-    ``.tsc_cache/`` (the marker created by hooks.py shared install).
-    """
-    ts_root = _find_typescript_root(project)
-    if ts_root is None:
-        return False
-    return (ts_root / "node_modules").exists() and (ts_root / ".tsc_cache").exists()
-
-
-def _run_pnpm_install(
-    service_dir: Path,
-    label: str,
-    parallel: bool,
-    install_log: Path | None = None,
-) -> bool:
-    """Run pnpm install for a TypeScript service if node_modules is missing."""
-    node_modules = service_dir / "node_modules"
-    if node_modules.exists():
-        return True
-
-    pnpm = _find_pnpm()
-    if pnpm is None:
-        print_error(f" pnpm not found on PATH — cannot install dependencies for {label}")
-        return False
-
-    success, _ = run_command(
-        [pnpm, "install"],
-        cwd=service_dir,
-        description=f"pnpm install for {label}" if not parallel else "",
-        capture_output=True,
-        log_file=install_log,
-    )
-    return success
-
-
-def _write_ts_environment_json(results_dir: Path, project: Path) -> None:
-    """Write toolchain metadata for AI triage (mirrors generated tests/unit-tests.js)."""
-    payload: dict = {
-        "project": str(project.resolve()),
-        "generatedAt": datetime.now().isoformat(),
-        "platform": sys.platform,
-        "runner": "run_complete.py (TypeScript per-service pnpm fallback)",
-        "logNotes": [
-            "A trailing pnpm message about node_modules in a parent directory may appear after Jest exits; "
-            "it is not necessarily a test failure.",
-            "Triage: read failures.json first for structured failures; open per-service jest-results.json for full stacks.",
-        ],
-    }
-    try:
-        proc = subprocess.run(
-            ["node", "--version"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
-        if proc.returncode == 0:
-            payload["nodeVersion"] = (proc.stdout or "").strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        payload["nodeVersion"] = None
-    try:
-        proc = subprocess.run(
-            ["pnpm", "--version"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
-        if proc.returncode == 0:
-            payload["pnpmVersion"] = (proc.stdout or "").strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        payload["pnpmVersion"] = None
-
-    sha = get_datrix_repo_sha()
-    if sha:
-        payload["datrixRepoSha"] = sha
-
-    env_path = results_dir / "environment.json"
-    env_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-
-
-def _jest_collect_failures_from_json(json_path: Path, service_name: str) -> list[dict]:
-    """Extract failed assertions from Jest --json output."""
-    if not json_path.is_file():
-        return []
-    try:
-        data = json.loads(json_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    out: list[dict] = []
-    for tr in data.get("testResults") or []:
-        test_file = tr.get("name") or ""
-        for ar in tr.get("assertionResults") or []:
-            if ar.get("status") != "failed":
-                continue
-            msgs = ar.get("failureMessages") or []
-            loc = ar.get("location") or {}
-            out.append(
-                {
-                    "service": service_name,
-                    "testFilePath": test_file,
-                    "fullName": ar.get("fullName") or ar.get("title") or "",
-                    "line": loc.get("line"),
-                    "column": loc.get("column"),
-                    "message": (msgs[0] if msgs else "").strip(),
-                }
-            )
-    return out
-
-
-def _write_ts_failures_json(results_dir: Path, project: Path, failures: list[dict]) -> None:
-    payload = {
-        "project": str(project.resolve()),
-        "generatedAt": datetime.now().isoformat(),
-        "failures": failures,
-    }
-    (results_dir / "failures.json").write_text(
-        json.dumps(payload, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-
-def _write_ts_service_failures_only_log(results_dir: Path, failures: list[dict]) -> None:
-    if not failures:
-        return
-    lines: list[str] = []
-    for f in failures:
-        loc = f":{f['line']}" if f.get("line") else ""
-        head = f"{f.get('testFilePath', '')}{loc} — {f.get('fullName', '')}"
-        body = "\n".join((f.get("message") or "").split("\n")[:12])
-        lines.append(f"{head}\n{body}")
-    text = "\n\n---\n\n".join(lines) + "\n"
-    service = failures[0].get("service") or "unknown"
-    (results_dir / f"{service}-failures-only.log").write_text(text, encoding="utf-8")
-
-
-def _append_ts_failure_index_to_summary(summary_path: Path, failures: list[dict]) -> None:
-    if not failures:
-        return
-    lines = [
-        "",
-        "=" * 40,
-        "Failure index (machine-oriented triage)",
-        "=" * 40,
-    ]
-    for f in failures:
-        loc = f":{f['line']}" if f.get("line") else ""
-        one_line = ((f.get("message") or "").split("\n")[0])[:400]
-        lines.append(f"- [{f.get('service', '')}] {f.get('fullName', '')}")
-        lines.append(f"    file: {f.get('testFilePath', '')}{loc}")
-        if one_line:
-            lines.append(f"    message: {one_line}")
-    with summary_path.open("a", encoding="utf-8") as fh:
-        fh.write("\n".join(lines) + "\n")
-
-
-def _write_ts_unit_unit_tests_summary_log(
-    project: Path,
-    results_dir: Path,
-    *,
-    total_passed: int,
-    total_failed: int,
-    total_errors: int,
-    total_skipped: int,
-    all_success: bool,
-) -> None:
-    """
-    Write unit-tests-summary.log for TypeScript unit test runs.
-
-    Matches the filename and markers parsed by status_unit_tests.py (same as
-    generated Python tests/unit_tests.py). The previous summary.log name was
-    never picked up by the status reporter.
-    """
-    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    lines: list[str] = [
-        "=" * 40,
-        "Unit Tests Summary Log",
-        "=" * 40,
-        f"Project: {project}",
-        f"Timestamp: {stamp}",
-        "=" * 40,
-        "",
-        f"Total Passed: {total_passed}",
-        f"Total Failed: {total_failed}",
-        f"Total Errors: {total_errors}",
-        f"Total Skipped: {total_skipped}",
-        "",
-    ]
-    total_issues = total_failed + total_errors
-    if not all_success or total_issues > 0:
-        lines.append("Tests FAILED!")
-    elif total_passed == 0:
-        lines.append("NO TESTS COLLECTED — nothing passed!")
-    else:
-        lines.append("All tests PASSED!")
-    summary_path = results_dir / "unit-tests-summary.log"
-    summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 #: Layout every generated project follows under ``.generated``:
@@ -1477,8 +1185,8 @@ def _snapshot_run_dirs(project: Path, test_type: str) -> set[Path]:
 def _run_dir_created_by(project: Path, test_type: str, before: set[Path]) -> Path | None:
     """Return the run directory a just-finished test run created, if any.
 
-    A generated project's own test runner (``tests/unit_tests.py``,
-    ``tests/unit-tests.js``) times-stamps and creates its own output directory,
+    A generated project's own test runner (started through
+    ``tests/run-tests.ps1``) time-stamps and creates its own output directory,
     so the caller learns which one it got only by diffing against *before*.
     Taking "the newest directory" instead would hand the previous run's results
     to the structured writer whenever this run died before creating its own --
@@ -1539,10 +1247,10 @@ def _produce_structured_output_for_run(
 ) -> Path | None:
     """Index the run directory a generated project's own test runner created.
 
-    Python (``tests/unit_tests.py``) and TypeScript (``tests/unit-tests.js``)
-    projects ship their own runner, which creates and time-stamps its own output
-    directory. This locates that directory, writes the structured index into it,
-    and checks the index against the runner's verdict.
+    Every generated project ships its own runner behind ``tests/run-tests.ps1``,
+    which creates and time-stamps its own output directory. This locates that
+    directory, writes the structured index into it, and checks the index against
+    the runner's verdict.
 
     Args:
         project: Generated project directory.
@@ -1604,68 +1312,11 @@ def _produce_structured_output(
         dtrx_source=dtrx_source,
     )
 
-    found_structured_data = False
-
-    # Look for JUnit XML files in services/{name}/junit.xml
-    services_dir = results_dir / "services"
-    if services_dir.is_dir():
-        for svc_dir in sorted(services_dir.iterdir()):
-            if not svc_dir.is_dir():
-                continue
-            junit_xml = svc_dir / "junit.xml"
-            service_log = svc_dir / "service.log"
-            jest_json = svc_dir / "jest-results.json"
-
-            if junit_xml.is_file():
-                try:
-                    writer.add_service_junit_xml(svc_dir.name, junit_xml, service_log)
-                except Exception as exc:
-                    print_warning(f"  Structured output: failed to parse JUnit XML for {svc_dir.name}: {exc}")
-                    writer.add_unreported_service(svc_dir.name, service_log)
-                found_structured_data = True
-            elif jest_json.is_file():
-                try:
-                    writer.add_service_jest_json(svc_dir.name, jest_json, service_log)
-                except Exception as exc:
-                    print_warning(f"  Structured output: failed to parse Jest JSON for {svc_dir.name}: {exc}")
-                    writer.add_unreported_service(svc_dir.name, service_log)
-                found_structured_data = True
-            else:
-                print_warning(
-                    f"  Structured output: {svc_dir.name} produced no test report "
-                    f"— recording it as failed (the build did not reach the tests)"
-                )
-                writer.add_unreported_service(svc_dir.name, service_log)
-                found_structured_data = True
-
-    # Also look for per-service log files at the top level (legacy layout)
-    # and jest-results.json in service subdirs at top level
+    # Each service's report in services/{name}/; a runner may instead write it
+    # in a top-level {service}/ directory, beside a top-level {service}-unit-tests.log
+    found_structured_data = _index_services_layout(writer, results_dir / "services")
     if not found_structured_data:
-        for item in sorted(results_dir.iterdir()):
-            if item.is_dir() and item.name != "services":
-                jest_json = item / "jest-results.json"
-                # The sibling log is what makes this directory a SERVICE the runner
-                # attempted rather than an incidental directory: the TypeScript leg
-                # writes one per service before Jest ever runs. Without it there is
-                # nothing to distinguish a service whose Jest run died from a stray
-                # directory, and guessing either way is wrong.
-                log_path = results_dir / f"{item.name}-unit-tests.log"
-                if not log_path.exists():
-                    log_path = results_dir / f"{item.name}-tests.log"
-                if jest_json.is_file():
-                    try:
-                        writer.add_service_jest_json(item.name, jest_json, log_path)
-                    except Exception as exc:
-                        print_warning(f"  Structured output: failed to parse Jest JSON for {item.name}: {exc}")
-                        writer.add_unreported_service(item.name, log_path)
-                    found_structured_data = True
-                elif log_path.exists():
-                    print_warning(
-                        f"  Structured output: {item.name} produced no test report "
-                        f"— recording it as failed (the build did not reach the tests)"
-                    )
-                    writer.add_unreported_service(item.name, log_path)
-                    found_structured_data = True
+        found_structured_data = _index_top_level_layout(writer, results_dir)
 
     if not found_structured_data:
         return None
@@ -1678,244 +1329,206 @@ def _produce_structured_output(
         return None
 
 
-def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel: bool = False, test_type: str = "unit", verbose: bool = False) -> dict:
-    """
-    Helper function to run tests for a single project.
-    Returns a dictionary with project result information.
-
-    Supports both Python (unit_tests.py) and TypeScript (unit-tests.js / pnpm test) projects.
-    TypeScript projects have per-service package.json files in subdirectories.
-
-    Args:
-        project: Path to the project directory
-        generated_base: Base path for generated projects
-        parallel: If True, suppress real-time output (for parallel execution)
-        test_type: Type of tests to run ("unit", "spec", "integration")
-        verbose: If True, pass --verbose to generated test scripts
-    """
-    project_name = project.relative_to(generated_base)
-    empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0, "suiteFailures": 0}
-
-    # --- Python project: tests/unit_tests.py ---
-    unit_tests_script = project / "tests" / "unit_tests.py"
-    if unit_tests_script.exists():
-        python_exe = get_venv_python()
-        cmd = [str(python_exe), str(unit_tests_script), "--parallel"]
-        if verbose:
-            cmd.append("--verbose")
-        test_desc = f"{test_type.capitalize()} tests for {project_name}" if not parallel else ""
-        before_run_dirs = _snapshot_run_dirs(project, test_type)
-        success, output = run_command(
-            cmd,
-            cwd=project,
-            description=test_desc,
-            capture_output=True,
-        )
-        stats = parse_test_statistics(output) if output else empty_stats
-
-        # Produce structured output from the JUnit XML this run wrote
-        index_path = _produce_structured_output_for_run(
-            project, generated_base, "python", test_type, before_run_dirs, success,
-        )
-
-        result_dict: dict[str, Any] = {
-            "name": str(project_name),
-            "success": success,
-            "passed": stats["passed"],
-            "failed": stats["failed"],
-            "errors": stats["errors"],
-            "skipped": stats["skipped"],
-            "output": output if parallel else None,
-        }
-        if index_path is not None:
-            result_dict["index_json_path"] = str(index_path)
-        return result_dict
-
-    # --- TypeScript project: prefer generated tests/unit-tests.js ---
-    ts_unit_tests_js = project / "tests" / "unit-tests.js"
-    if ts_unit_tests_js.exists():
-        node = shutil.which("node")
-        if node is None:
-            print_error(f" node not found on PATH — skipping {project_name}")
-            return {"name": str(project_name), "success": False, **empty_stats, "output": None}
-        cmd = [node, str(ts_unit_tests_js)]
-        if parallel:
-            cmd.append("--parallel")
-        if verbose:
-            cmd.append("--verbose")
-        test_desc = f"{test_type.capitalize()} tests for {project_name}" if not parallel else ""
-        before_run_dirs = _snapshot_run_dirs(project, test_type)
-        success, output = run_command(
-            cmd,
-            cwd=project,
-            description=test_desc,
-            capture_output=True,
-        )
-        stats = parse_test_statistics(output) if output else empty_stats
-
-        # Produce structured output from the Jest JSON this run wrote. Without it
-        # a TypeScript project never gets an index.json, and `-Rerun` -- which
-        # treats "no index" as "never tested" -- re-runs every example forever.
-        index_path = _produce_structured_output_for_run(
-            project, generated_base, "typescript", test_type, before_run_dirs, success,
-        )
-
-        result_dict_ts_runner: dict[str, Any] = {
-            "name": str(project_name),
-            "success": success,
-            "passed": stats["passed"],
-            "failed": stats["failed"],
-            "errors": stats["errors"],
-            "skipped": stats["skipped"],
-            "output": output if parallel else None,
-        }
-        if index_path is not None:
-            result_dict_ts_runner["index_json_path"] = str(index_path)
-        return result_dict_ts_runner
-
-    # --- TypeScript project fallback: per-service package.json with "test" script ---
-    ts_service_dirs = _find_ts_service_dirs(project)
-    if ts_service_dirs:
-        pnpm = _find_pnpm()
-        if pnpm is None:
-            print_error(f" pnpm not found on PATH — skipping {project_name}")
-            return {"name": str(project_name), "success": False, **empty_stats, "output": None}
-
-        # Create results directory (mirrors Python unit_tests.py behaviour)
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        results_dir = project / ".test_results" / f"{test_type}-tests-{timestamp}"
-        results_dir.mkdir(parents=True, exist_ok=True)
-        _write_ts_environment_json(results_dir, project)
-
-        all_success = True
-        total_passed = 0
-        total_failed = 0
-        total_errors = 0
-        total_skipped = 0
-        combined_output: list[str] = []
-        all_failures: list[dict] = []
-        failures_by_service: dict[str, list[dict]] = {}
-
-        # Check for shared node_modules at the TypeScript root (created by hooks.py)
-        shared_available = _shared_ts_node_modules_exists(project)
-
-        for svc_dir in ts_service_dirs:
-            svc_label = f"{project_name}/{svc_dir.name}"
-
-            # Skip per-service install if shared node_modules is available
-            if not shared_available:
-                install_log = results_dir / f"{svc_dir.name}-pnpm-install.log"
-                if not _run_pnpm_install(svc_dir, svc_label, parallel, install_log=install_log):
-                    all_success = False
-                    total_errors += 1
-                    combined_output.append(f"pnpm install failed for {svc_dir.name}")
-                    continue
-
-            svc_results_subdir = results_dir / svc_dir.name
-            svc_results_subdir.mkdir(parents=True, exist_ok=True)
-            jest_json = svc_results_subdir / "jest-results.json"
-            jest_json_arg = str(jest_json.resolve())
-            if os.name == "nt":
-                jest_json_arg = jest_json_arg.replace("\\", "/")
-
-            # Run Jest via pnpm test (JSON report for AI-friendly triage)
-            cmd = [
-                pnpm,
-                "test",
-                "--",
-                "--forceExit",
-                "--detectOpenHandles",
-                "--no-cache",
-                "--json",
-                f"--outputFile={jest_json_arg}",
-                "--testLocationInResults",
-            ]
-            success, output = run_command(
-                cmd,
-                cwd=svc_dir,
-                description=f"Jest tests for {svc_label}" if not parallel else "",
-                capture_output=True,
+def _index_services_layout(writer: GeneratedTestLogWriter, services_dir: Path) -> bool:
+    """Index every ``services/{name}/`` directory: its ``junit.xml``, else
+    its ``jest-results.json``, else it is recorded as failed. Returns whether
+    any service directory was found."""
+    if not services_dir.is_dir():
+        return False
+    found = False
+    for svc_dir in sorted(services_dir.iterdir()):
+        if not svc_dir.is_dir():
+            continue
+        service_log = svc_dir / "service.log"
+        junit_xml = svc_dir / "junit.xml"
+        jest_json = svc_dir / "jest-results.json"
+        if junit_xml.is_file():
+            _add_service_report(
+                writer, writer.add_service_junit_xml, svc_dir.name, junit_xml, service_log, "JUnit XML"
             )
-            if not success:
-                all_success = False
-            out = output or ""
-            if output:
-                combined_output.append(output)
-            stats = parse_test_statistics(out)
-            total_passed += stats["passed"]
-            total_failed += stats["failed"]
-            total_errors += stats["errors"]
-            total_skipped += stats["skipped"]
-            noise = "Local package.json exists, but node_modules missing"
-            cleaned = "\n".join(
-                ln for ln in _strip_ansi(out).split("\n") if noise not in ln
+        elif jest_json.is_file():
+            _add_service_report(
+                writer, writer.add_service_jest_json, svc_dir.name, jest_json, service_log, "Jest JSON"
             )
-            svc_log = results_dir / f"{svc_dir.name}-unit-tests.log"
-            svc_log.write_text(cleaned, encoding="utf-8")
+        else:
+            _add_unreported_service(writer, svc_dir.name, service_log)
+        found = True
+    return found
 
-            svc_failures = _jest_collect_failures_from_json(jest_json, svc_dir.name)
-            if svc_failures:
-                all_failures.extend(svc_failures)
-                failures_by_service[svc_dir.name] = svc_failures
 
-        for _svc_name, flist in failures_by_service.items():
-            _write_ts_service_failures_only_log(results_dir, flist)
+def _index_top_level_layout(writer: GeneratedTestLogWriter, results_dir: Path) -> bool:
+    """Index every top-level ``{service}/`` directory (other than
+    ``services/``) the runner attempted. Returns whether any was indexed."""
+    found = False
+    for item in sorted(results_dir.iterdir()):
+        if item.is_dir() and item.name != "services":
+            found = _index_top_level_service(writer, results_dir, item) or found
+    return found
 
-        if all_failures:
-            _write_ts_failures_json(results_dir, project, all_failures)
 
-        _write_ts_unit_unit_tests_summary_log(
-            project,
-            results_dir,
-            total_passed=total_passed,
-            total_failed=total_failed,
-            total_errors=total_errors,
-            total_skipped=total_skipped,
-            all_success=all_success,
+def _index_top_level_service(
+    writer: GeneratedTestLogWriter, results_dir: Path, item: Path
+) -> bool:
+    """Index one top-level service directory: its ``jest-results.json``, else
+    a failed service when its sibling log exists. Returns whether it was indexed.
+
+    The sibling log is what makes this directory a SERVICE the runner
+    attempted rather than an incidental directory: a runner using this
+    layout writes one per service before Jest ever runs. Without it there is
+    nothing to distinguish a service whose Jest run died from a stray
+    directory, and guessing either way is wrong.
+    """
+    jest_json = item / "jest-results.json"
+    log_path = results_dir / f"{item.name}-unit-tests.log"
+    if not log_path.exists():
+        log_path = results_dir / f"{item.name}-tests.log"
+    if jest_json.is_file():
+        _add_service_report(
+            writer, writer.add_service_jest_json, item.name, jest_json, log_path, "Jest JSON"
         )
-        if all_failures:
-            _append_ts_failure_index_to_summary(results_dir / "unit-tests-summary.log", all_failures)
-        if not parallel:
-            print_info(f" Results saved to: {results_dir.relative_to(project)}")
+        return True
+    if log_path.exists():
+        _add_unreported_service(writer, item.name, log_path)
+        return True
+    return False
 
-        # Produce structured output from Jest JSON
-        index_path = _produce_structured_output(
-            project, generated_base, "typescript", "docker", results_dir, 0.0,
-        )
-        if index_path is not None:
-            _warn_on_verdict_mismatch(index_path, all_success)
 
-        result_dict_ts: dict[str, Any] = {
-            "name": str(project_name),
-            "success": all_success,
-            "passed": total_passed,
-            "failed": total_failed,
-            "errors": total_errors,
-            "skipped": total_skipped,
-            "output": "\n".join(combined_output) if parallel else None,
-        }
-        if index_path is not None:
-            result_dict_ts["index_json_path"] = str(index_path)
-        return result_dict_ts
+def _add_service_report(
+    writer: GeneratedTestLogWriter,
+    add_report: Callable[[str, Path, Path], object],
+    service: str,
+    report: Path,
+    service_log: Path,
+    report_kind: str,
+) -> None:
+    """Add one service's test report; a report that cannot be parsed records
+    the service as unreported, with a warning naming *report_kind*."""
+    try:
+        add_report(service, report, service_log)
+    except Exception as exc:
+        print_warning(f"  Structured output: failed to parse {report_kind} for {service}: {exc}")
+        writer.add_unreported_service(service, service_log)
 
-    # --- No test runner found ---
-    return {
-        "name": str(project_name),
-        "success": False,
-        **empty_stats,
-        "output": None,
-    }
+
+def _add_unreported_service(
+    writer: GeneratedTestLogWriter, service: str, service_log: Path
+) -> None:
+    """Record a service that produced no test report as failed."""
+    print_warning(
+        f"  Structured output: {service} produced no test report "
+        f"— recording it as failed (the build did not reach the tests)"
+    )
+    writer.add_unreported_service(service, service_log)
 
 
 ProjectResult = dict[str, Any]
 
-#: Every shipped language emits this runner into each generated project; it is
-#: how steps 3 and 4 find a project, whatever language generated it.
-RUN_TESTS_SCRIPT = Path("tests") / "run-tests.ps1"
-#: A project's runner declares this switch when the project has deploy tests.
-RUN_TESTS_DEPLOY_PARAMETER = "Deploy"
 _COUNT_KEYS = ("passed", "failed", "errors", "skipped")
 _RULE = "=" * 60
+_UNIT_TEST_TYPE = "unit"
+
+
+def _empty_stats() -> dict[str, int]:
+    return {"passed": 0, "failed": 0, "errors": 0, "skipped": 0, "suiteFailures": 0}
+
+
+def _workspace_venv_env() -> dict[str, str]:
+    """The environment a generated project's runners see: the workspace venv, activated.
+
+    A runner the entry point starts by command name resolves it on ``PATH``, and a
+    runner that installs its project's requirements installs them into whatever
+    interpreter runs it -- so it must find the workspace venv first, exactly as in a
+    shell where the venv is activated.
+    """
+    venv_bin = get_venv_python().parent
+    return {
+        "VIRTUAL_ENV": str(venv_bin.parent),
+        "PATH": f"{venv_bin}{os.pathsep}{os.environ['PATH']}",
+    }
+
+
+def _missing_entry_point_result(project_name: str) -> ProjectResult:
+    """A failed result for a generated project that carries no test entry point."""
+    print_error(
+        f" [ERROR] {project_name} carries no {TEST_RUNNER_ENTRY_POINT}. Every language "
+        f"generator emits it as the project's one test entry point "
+        f"(datrix_codegen_kernel.generation.test_runner_entry_point), so a project without "
+        f"one is a generation defect, not a project without tests. Fix: regenerate the "
+        f"project; if it is still missing, make its language generator emit the file "
+        f"through build_test_runner_entry_point."
+    )
+    return _error_result(project_name)
+
+
+def _run_entry_point(
+    project: Path,
+    switch: str,
+    arguments: list[str],
+    description: str,
+) -> tuple[bool, str | None]:
+    """Run *project*'s ``tests/run-tests.ps1`` with ``-<switch>`` and *arguments* forwarded."""
+    powershell = _find_powershell()
+    if powershell is None:
+        print_error("PowerShell not found. Please install PowerShell (pwsh) or Windows PowerShell.")
+        return False, None
+    cmd = [
+        powershell, "-NoProfile", "-NonInteractive", "-File",
+        str(project / TEST_RUNNER_ENTRY_POINT), f"-{switch}", *arguments,
+    ]
+    return run_command(
+        cmd,
+        cwd=project,
+        description=description,
+        capture_output=True,
+        env_overrides=_workspace_venv_env(),
+    )
+
+
+def _run_single_project_unit_tests(
+    project: Path,
+    generated_base: Path,
+    language: str,
+    *,
+    verbose: bool = False,
+) -> ProjectResult:
+    """Run one generated project's unit tests through its ``tests/run-tests.ps1 -Unit``.
+
+    Args:
+        project: Path to the project directory
+        generated_base: Base path the project's display name is relative to
+        language: Generation language recorded in the structured index
+        verbose: If True, forward ``--verbose`` to the project's unit runner
+    """
+    project_name = str(project.relative_to(generated_base))
+    if not (project / TEST_RUNNER_ENTRY_POINT).is_file():
+        return _missing_entry_point_result(project_name)
+
+    arguments = [PARALLEL_ARGUMENT, *([VERBOSE_ARGUMENT] if verbose else [])]
+    before_run_dirs = _snapshot_run_dirs(project, _UNIT_TEST_TYPE)
+    success, output = _run_entry_point(
+        project, UNIT_TESTS_SWITCH, arguments, f"Unit tests for {project_name}",
+    )
+    stats = parse_test_statistics(output) if output else _empty_stats()
+
+    # Index the reports this run wrote. Without it a project never gets an
+    # index.json, and `-Rerun` -- which treats "no index" as "never tested" --
+    # re-runs it forever.
+    index_path = _produce_structured_output_for_run(
+        project, generated_base, language, _UNIT_TEST_TYPE, before_run_dirs, success,
+    )
+
+    result: ProjectResult = {
+        "name": project_name,
+        "success": success,
+        "passed": stats["passed"],
+        "failed": stats["failed"],
+        "errors": stats["errors"],
+        "skipped": stats["skipped"],
+        "output": None,
+    }
+    if index_path is not None:
+        result["index_json_path"] = str(index_path)
+    return result
 
 
 @dataclass(frozen=True)
@@ -1939,29 +1552,47 @@ def _generated_projects(
     """The generated projects a test step runs, sorted.
 
     With a test set, its projects that exist on disk. Otherwise every directory under
-    ``generated_base`` holding ``tests/run-tests.ps1``; with ``deploy`` only those whose
-    runner declares a ``Deploy`` parameter, read with PowerShell's own parser.
+    ``generated_base`` holding the test entry point every language emits
+    (``tests/run-tests.ps1``); with ``deploy`` only those whose entry point declares
+    the ``-Deploy`` switch, read with PowerShell's own parser.
     """
     if test_set:
         listed = get_test_projects(test_set=test_set, language=language, runtime=platform)
         return [Path(p["output"]) for p in listed if Path(p["output"]).exists()]
     if not generated_base.exists():
         return []
-    runners = sorted(
-        script for script in generated_base.rglob(RUN_TESTS_SCRIPT.name)
-        if script.parent.name == RUN_TESTS_SCRIPT.parent.name
+    depth = len(TEST_RUNNER_ENTRY_POINT.parts)
+    entry_points = sorted(
+        script for script in generated_base.rglob(TEST_RUNNER_ENTRY_POINT.name)
+        if script.parts[-depth:] == TEST_RUNNER_ENTRY_POINT.parts
     )
-    if not deploy:
-        return [runner.parent.parent for runner in runners]
-    facts = parse_scripts(runners)
-    return [
-        runner.parent.parent for runner in runners
-        if facts[runner.resolve()].declares(RUN_TESTS_DEPLOY_PARAMETER)
-    ]
+    if deploy:
+        facts = parse_scripts(entry_points)
+        entry_points = [
+            script for script in entry_points
+            if facts[script.resolve()].declares(DEPLOY_TESTS_SWITCH)
+        ]
+    return [script.parents[depth - 1] for script in entry_points]
 
 
 def _format_counts(result: ProjectResult) -> str:
     return ", ".join(f"{key}: {result[key]}" for key in _COUNT_KEYS if result.get(key, 0) > 0)
+
+
+def _write_summary_project_group(
+    f: TextIO, heading: str, mark: str, results: list[ProjectResult]
+) -> None:
+    """One summary-log project group: its heading and count, then each
+    project's name and non-zero test counts. An empty group writes nothing."""
+    if not results:
+        return
+    f.write(f"{heading} ({len(results)}):\n")
+    for result in results:
+        f.write(f" {mark} {result['name']}\n")
+        counts = _format_counts(result)
+        if counts:
+            f.write(f"   Tests: {counts}\n")
+    f.write("\n")
 
 
 def _error_result(project_name: str) -> ProjectResult:
@@ -1982,7 +1613,7 @@ def _run_one_project(
         print_error(f" [ERROR] Exception while running tests for {project_name}: {exc}")
         return _error_result(project_name)
     if result is None:
-        print_warning(f" [SKIP] No test runner found for {project_name}")
+        print_warning(f" [SKIP] {project_name} has no tests for this step")
         return None
     print()
     if result["success"]:
@@ -2084,185 +1715,200 @@ def _run_projects(
 
 
 def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path: str | None = None, test_set: str | None = None, language: str = "python", platform: str = "docker", verbose: bool = False) -> bool:
-    """Step 3: Run unit tests for generated projects using unit_tests.py"""
+    """Step 3: Run unit tests for generated projects through each one's tests/run-tests.ps1 -Unit"""
     if all_examples:
-        print_step(3, "Run Unit Tests for Generated Projects")
-        generated_base = paths["datrix_root"] / ".generated"
-        projects = _generated_projects(generated_base, test_set, language, platform, deploy=False)
-        if not projects:
-            print_warning("No generated projects found to test")
-            return True
+        return _run_all_unit_tests(paths, test_set, language, platform, verbose)
 
-        print_info("Running projects sequentially (services within each project run in parallel)...")
+    project_path_abs = _single_project_path(3, "Run Unit Tests", output_path)
+    if project_path_abs is None:
+        return False
 
-        def run_one(project: Path, _project_name: str) -> ProjectResult:
-            return _run_single_project_unit_tests(project, generated_base, parallel=False, verbose=verbose)
+    # Reuse the same helper as batch mode — parent serves as base so
+    # relative_to produces just the leaf directory name.
+    result = _run_single_project_unit_tests(
+        project_path_abs, project_path_abs.parent, language, verbose=verbose,
+    )
+    return _report_single_project(result, result["name"], "Unit tests")
 
-        totals = _run_projects(3, "Unit Tests for Generated Projects", projects, generated_base, paths, run_one)
-        project_results = totals.project_results
 
-        # Produce aggregate structured output across all projects
-        index_paths = [
-            Path(r["index_json_path"])
-            for r in project_results
-            if r.get("index_json_path")
-        ]
-        if index_paths:
-            try:
-                generated_base_agg = paths["datrix_root"] / ".generated"
-                aggregate_dir = generated_base_agg / ".test_results" / f"unit-tests-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-                aggregate_dir.mkdir(parents=True, exist_ok=True)
-                agg_writer = AggregateTestWriter(
-                    language=language,
-                    platform=platform,
-                    output_dir=aggregate_dir,
-                )
-                for ip in index_paths:
-                    agg_writer.add_project_results(ip)
-                agg_path = agg_writer.write()
-                print_info(f"Aggregate structured output: {agg_path}")
-            except Exception as exc:
-                print_warning(f"Aggregate structured output failed: {exc}")
+def _run_all_unit_tests(
+    paths: dict[str, Path],
+    test_set: str | None,
+    language: str,
+    platform: str,
+    verbose: bool,
+) -> bool:
+    """Step 3 over every generated project, then their aggregate structured output."""
+    print_step(3, "Run Unit Tests for Generated Projects")
+    generated_base = paths["datrix_root"] / ".generated"
+    projects = _generated_projects(generated_base, test_set, language, platform, deploy=False)
+    if not projects:
+        print_warning("No generated projects found to test")
+        return True
 
-        return totals.fail_count == 0
-    else:
-        if not output_path:
-            print_error("Output path is required when -All is not specified")
-            return False
+    print_info("Running projects sequentially (services within each project run in parallel)...")
 
-        print_step(3, f"Run Unit Tests: {Path(output_path).name}")
+    def run_one(project: Path, _project_name: str) -> ProjectResult:
+        return _run_single_project_unit_tests(project, generated_base, language, verbose=verbose)
 
-        project_path_abs = Path(output_path).resolve()
-        if not project_path_abs.exists():
-            print_error(f"Generated project not found at: {project_path_abs}")
-            return False
+    totals = _run_projects(3, "Unit Tests for Generated Projects", projects, generated_base, paths, run_one)
+    _write_unit_aggregate(totals.project_results, generated_base, language, platform)
+    return totals.fail_count == 0
 
-        # Reuse the same helper as batch mode — parent serves as base so
-        # relative_to produces just the leaf directory name.
-        result = _run_single_project_unit_tests(
-            project_path_abs, project_path_abs.parent, parallel=False, verbose=verbose,
+
+def _write_unit_aggregate(
+    project_results: list[ProjectResult], generated_base: Path, language: str, platform: str
+) -> None:
+    """Aggregate structured output across every project that wrote an index."""
+    index_paths = [
+        Path(r["index_json_path"])
+        for r in project_results
+        if r.get("index_json_path")
+    ]
+    if not index_paths:
+        return
+    try:
+        aggregate_dir = generated_base / ".test_results" / f"unit-tests-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        aggregate_dir.mkdir(parents=True, exist_ok=True)
+        agg_writer = AggregateTestWriter(
+            language=language,
+            platform=platform,
+            output_dir=aggregate_dir,
         )
+        for ip in index_paths:
+            agg_writer.add_project_results(ip)
+        agg_path = agg_writer.write()
+        print_info(f"Aggregate structured output: {agg_path}")
+    except Exception as exc:
+        print_warning(f"Aggregate structured output failed: {exc}")
 
-        project_name = result["name"]
 
-        # Print statistics
-        test_info = []
-        if result["passed"] > 0:
-            test_info.append(f"passed: {result['passed']}")
-        if result["failed"] > 0:
-            test_info.append(f"failed: {result['failed']}")
-        if result["errors"] > 0:
-            test_info.append(f"errors: {result['errors']}")
-        if result["skipped"] > 0:
-            test_info.append(f"skipped: {result['skipped']}")
-        if test_info:
-            print_info("")
-            print_info(f"Test Statistics: {', '.join(test_info)}")
+def _single_project_path(step_number: int, title: str, output_path: str | None) -> Path | None:
+    """The generated project a single-project step runs, with the step header
+    printed; ``None`` (error printed) when no path was given or it does not exist."""
+    if not output_path:
+        print_error("Output path is required when -All is not specified")
+        return None
 
-        has_runner = (
-            (project_path_abs / "tests" / "unit_tests.py").exists()
-            or _is_typescript_project(project_path_abs)
-        )
-        if not has_runner:
-            print_warning(f"No test runner found for {project_name}")
-            return True
+    print_step(step_number, f"{title}: {Path(output_path).name}")
 
-        if result["success"]:
-            print_success(f"[OK] Unit tests passed for {project_name}")
-            return True
-        else:
-            print_error(f"Unit tests failed for {project_name}")
-            return False
+    project_path_abs = Path(output_path).resolve()
+    if not project_path_abs.exists():
+        print_error(f"Generated project not found at: {project_path_abs}")
+        return None
+    return project_path_abs
+
+
+def _report_single_project(result: ProjectResult, project_name: str, tests_label: str) -> bool:
+    """Print a single project's test statistics and verdict; return whether it passed."""
+    counts = _format_counts(result)
+    if counts:
+        print_info("")
+        print_info(f"Test Statistics: {counts}")
+
+    if result["success"]:
+        print_success(f"[OK] {tests_label} passed for {project_name}")
+        return True
+    print_error(f"{tests_label} failed for {project_name}")
+    return False
 
 
 
 
 def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], output_path: str | None = None, test_set: str | None = None, language: str = "python", platform: str = "docker", verbose: bool = False) -> bool:
-    """Step 4: Run deployment tests (spec + integration) for generated projects using deploy_test.py"""
+    """Step 4: Run deployment tests (spec + integration) through each project's tests/run-tests.ps1 -Deploy"""
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
     # Pre-flight: tear down all datrix compose projects to prevent port conflicts
     _cleanup_all_datrix_compose_projects()
 
+    return _run_deployment_tests(all_examples, paths, output_path, test_set, language, platform, verbose, timestamp)
+
+
+def _run_deployment_tests(
+    all_examples: bool,
+    paths: dict[str, Path],
+    output_path: str | None,
+    test_set: str | None,
+    language: str,
+    platform: str,
+    verbose: bool,
+    timestamp: str,
+) -> bool:
+    """Step 4 after its pre-flight teardown: every deploy project, or the one at *output_path*."""
     if all_examples:
-        print_step(4, "Run Deployment Tests (Spec + Integration) for Generated Projects")
-        generated_base = paths["datrix_root"] / ".generated"
-        projects = _generated_projects(generated_base, test_set, language, platform, deploy=True)
-        if not projects:
-            print_warning("No generated projects found to test")
-            return True
+        return _run_all_deployment_tests(paths, test_set, language, platform, verbose, timestamp)
 
-        def run_one(project: Path, project_name: str) -> ProjectResult | None:
-            return _run_single_project_deploy_tests(project, project_name, paths, timestamp, verbose=verbose)
+    project_path_abs = _single_project_path(4, "Run Deployment Tests", output_path)
+    if project_path_abs is None:
+        return False
 
-        totals = _run_projects(4, "Deployment Tests for Generated Projects", projects, generated_base, paths, run_one)
-        project_results = totals.project_results
-        log_path = totals.log_path
-        fail_count = totals.fail_count
+    project_name = project_path_abs.name
+    result = _run_single_project_deploy_tests(
+        project_path_abs, project_name, paths, timestamp, language, verbose=verbose,
+    )
 
-        # Write deploy test aggregate structured output
-        project_index_paths = [
-            r["_index_path"] for r in project_results
-            if r.get("_index_path") is not None
-        ]
-        if project_index_paths:
-            try:
-                aggregate_dir = generated_base / ".test_results" / f"deploy-tests-{timestamp}"
-                aggregate_dir.mkdir(parents=True, exist_ok=True)
-                agg_writer = DeployTestAggregateWriter(
-                    aggregate_dir=aggregate_dir,
-                    language=language,
-                    platform=platform,
-                )
-                agg_path = agg_writer.write(
-                    project_index_paths=project_index_paths,
-                    timestamp=datetime.strptime(timestamp, "%Y%m%d-%H%M%S"),
-                    full_log_path=log_path,
-                )
-                print_info(f"Deploy test aggregate output: {agg_path}")
-            except Exception:
-                logger.exception("deploy_aggregate_output_failed")
+    if result is None:
+        print_warning(
+            f"{project_name} has no deploy tests: its {TEST_RUNNER_ENTRY_POINT} declares "
+            f"no -{DEPLOY_TESTS_SWITCH} switch (the deployment starts no container orchestration)"
+        )
+        return True
+    return _report_single_project(result, project_name, "Deployment tests")
 
-        return fail_count == 0
-    else:
-        if not output_path:
-            print_error("Output path is required when -All is not specified")
-            return False
 
-        print_step(4, f"Run Deployment Tests: {Path(output_path).name}")
+def _run_all_deployment_tests(
+    paths: dict[str, Path],
+    test_set: str | None,
+    language: str,
+    platform: str,
+    verbose: bool,
+    timestamp: str,
+) -> bool:
+    """Step 4 over every deploy project, then their aggregate structured output."""
+    print_step(4, "Run Deployment Tests (Spec + Integration) for Generated Projects")
+    generated_base = paths["datrix_root"] / ".generated"
+    projects = _generated_projects(generated_base, test_set, language, platform, deploy=True)
+    if not projects:
+        print_warning("No generated projects found to test")
+        return True
 
-        project_path_abs = Path(output_path).resolve()
-        if not project_path_abs.exists():
-            print_error(f"Generated project not found at: {project_path_abs}")
-            return False
+    def run_one(project: Path, project_name: str) -> ProjectResult | None:
+        return _run_single_project_deploy_tests(
+            project, project_name, paths, timestamp, language, verbose=verbose,
+        )
 
-        project_name = project_path_abs.name
-        result = _run_single_project_deploy_tests(project_path_abs, project_name, paths, timestamp, verbose=verbose)
+    totals = _run_projects(4, "Deployment Tests for Generated Projects", projects, generated_base, paths, run_one)
+    _write_deploy_aggregate(totals, generated_base, timestamp, language, platform)
+    return totals.fail_count == 0
 
-        if result is None:
-            print_warning(f"No deployment test script found for {project_name}")
-            return True
 
-        # Print statistics
-        test_info = []
-        if result.get("passed", 0) > 0:
-            test_info.append(f"passed: {result['passed']}")
-        if result.get("failed", 0) > 0:
-            test_info.append(f"failed: {result['failed']}")
-        if result.get("errors", 0) > 0:
-            test_info.append(f"errors: {result['errors']}")
-        if result.get("skipped", 0) > 0:
-            test_info.append(f"skipped: {result['skipped']}")
-        if test_info:
-            print_info("")
-            print_info(f"Test Statistics: {', '.join(test_info)}")
-
-        if result["success"]:
-            print_success(f"[OK] Deployment tests passed for {project_name}")
-            return True
-        else:
-            print_error(f"Deployment tests failed for {project_name}")
-            return False
+def _write_deploy_aggregate(
+    totals: StepTotals, generated_base: Path, timestamp: str, language: str, platform: str
+) -> None:
+    """Deploy test aggregate structured output across every project that wrote an index."""
+    project_index_paths = [
+        r["_index_path"] for r in totals.project_results
+        if r.get("_index_path") is not None
+    ]
+    if not project_index_paths:
+        return
+    try:
+        aggregate_dir = generated_base / ".test_results" / f"deploy-tests-{timestamp}"
+        aggregate_dir.mkdir(parents=True, exist_ok=True)
+        agg_writer = DeployTestAggregateWriter(
+            aggregate_dir=aggregate_dir,
+            language=language,
+            platform=platform,
+        )
+        agg_path = agg_writer.write(
+            project_index_paths=project_index_paths,
+            timestamp=datetime.strptime(timestamp, "%Y%m%d-%H%M%S"),
+            full_log_path=totals.log_path,
+        )
+        print_info(f"Deploy test aggregate output: {agg_path}")
+    except Exception:
+        logger.exception("deploy_aggregate_output_failed")
 
 
 def _write_deploy_structured_output(
@@ -2316,359 +1962,73 @@ def _run_single_project_deploy_tests(
     project_name: str,
     paths: dict[str, Path],
     timestamp: str,
+    language: str,
     *,
     verbose: bool = False,
-) -> dict | None:
-    """Run deployment tests for one project.  Returns result dict, or None if skipped."""
-    deploy_test_script_py = project / "tests" / "deploy_test.py"
-    deploy_test_script_js = project / "tests" / "deploy-test.js"
-    empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0, "suiteFailures": 0}
+) -> ProjectResult | None:
+    """Run one generated project's deploy tests through its ``tests/run-tests.ps1 -Deploy``.
 
-    # --- Python project: tests/deploy_test.py ---
-    if deploy_test_script_py.exists():
-        deploy_test_dir = project / ".test_results" / f"deploy-test-{timestamp}"
-        deploy_test_dir.mkdir(parents=True, exist_ok=True)
-        (deploy_test_dir / "docker-logs").mkdir(parents=True, exist_ok=True)
+    The project's deploy runner owns the whole container lifecycle (down, build, up,
+    test, logs, down); this saves whatever containers it left and tears them down
+    afterwards, however the run ended.
 
-        python_exe = get_venv_python()
-        try:
-            cmd = [str(python_exe), str(deploy_test_script_py), "--results-dir", str(deploy_test_dir)]
-            if verbose:
-                cmd.append("--verbose")
-            success, output = run_command(
-                cmd,
-                cwd=project,
-                description=f"Deployment tests for {project_name}",
-                capture_output=True,
-            )
-        finally:
-            _save_docker_logs_for_project(project, deploy_test_dir)
-            _ensure_docker_cleanup(project)
+    Returns:
+        The project's result, or None when its entry point declares no ``-Deploy``
+        switch -- a deployment with no container orchestration has no deploy tests.
+    """
+    entry_point = project / TEST_RUNNER_ENTRY_POINT
+    if not entry_point.is_file():
+        return _missing_entry_point_result(project_name)
+    if not parse_scripts([entry_point])[entry_point.resolve()].declares(DEPLOY_TESTS_SWITCH):
+        return None
 
-        stats = parse_test_statistics(output) if output else empty_stats
-        result = {
-            "name": project_name,
-            "success": success,
-            **stats,
-        }
-
-        if output is not None:
-            (deploy_test_dir / "deploy-test-output.log").write_text(output, encoding="utf-8")
-
-        save_test_summary_log(
-            step_num=5,
-            step_name=f"Deployment Tests for {project_name}",
-            paths=paths,
-            project_results=[result],
-            total_projects=1,
-            success_count=1 if success else 0,
-            fail_count=0 if success else 1,
-            total_passed_tests=stats["passed"],
-            total_failed_tests=stats["failed"],
-            total_error_tests=stats["errors"],
-            total_skipped_tests=stats["skipped"],
-            step5_output_dir=deploy_test_dir,
+    deploy_test_dir = project / ".test_results" / f"deploy-test-{timestamp}"
+    (deploy_test_dir / "docker-logs").mkdir(parents=True, exist_ok=True)
+    arguments = [RESULTS_DIR_ARGUMENT, str(deploy_test_dir), *([VERBOSE_ARGUMENT] if verbose else [])]
+    try:
+        success, output = _run_entry_point(
+            project, DEPLOY_TESTS_SWITCH, arguments, f"Deployment tests for {project_name}",
         )
-        result["_index_path"] = _write_deploy_structured_output(
-            project, project_name, deploy_test_dir, paths, timestamp, "python",
-        )
-        return result
+    finally:
+        _save_docker_logs_for_project(project, deploy_test_dir)
+        _ensure_docker_cleanup(project)
 
-    # --- TypeScript project: tests/deploy-test.js (preferred) ---
-    if deploy_test_script_js.exists():
-        deploy_test_dir = project / ".test_results" / f"deploy-test-{timestamp}"
-        deploy_test_dir.mkdir(parents=True, exist_ok=True)
+    stats = parse_test_statistics(output) if output else _empty_stats()
+    result: ProjectResult = {
+        "name": project_name,
+        "success": success,
+        **stats,
+    }
 
-        node = shutil.which("node")
-        if node is None:
-            print_error(f" node not found on PATH — cannot run deploy tests for {project_name}")
-            return {"name": project_name, "success": False, **empty_stats}
+    if output is not None:
+        # The runner may already have written its own copy of this log; keep it and
+        # add what this run captured from the console.
+        output_log = deploy_test_dir / "deploy-test-output.log"
+        existing = output_log.read_text(encoding="utf-8") + "\n" if output_log.exists() else ""
+        output_log.write_text(existing + _strip_ansi(output), encoding="utf-8")
 
-        # The deploy-test.js script manages the full Docker lifecycle internally
-        # (down → build → up → test → logs → down), just like Python's deploy_test.py
-        try:
-            cmd = [node, str(deploy_test_script_js), "--results-dir", str(deploy_test_dir)]
-            if verbose:
-                cmd.append("--verbose")
-            success, output = run_command(
-                cmd,
-                cwd=project,
-                description=f"Deployment tests for {project_name}",
-                capture_output=True,
-            )
-        finally:
-            # deploy-test.js saves its own Docker logs, but ensure cleanup happens
-            _ensure_docker_cleanup(project)
-
-        stats = parse_test_statistics(output) if output else empty_stats
-        result = {
-            "name": project_name,
-            "success": success,
-            **stats,
-        }
-
-        # Note: deploy-test.js writes its own deploy-test-output.log, but we save
-        # the captured stdout here as well for consistency with run_complete.py's logging
-        if output is not None:
-            output_log = deploy_test_dir / "deploy-test-output.log"
-            # Append to existing log if deploy-test.js already created it
-            if output_log.exists():
-                existing = output_log.read_text(encoding="utf-8")
-                combined = existing + "\n" + _strip_ansi(output)
-                output_log.write_text(combined, encoding="utf-8")
-            else:
-                output_log.write_text(_strip_ansi(output), encoding="utf-8")
-
-        save_test_summary_log(
-            step_num=5,
-            step_name=f"Deployment Tests for {project_name}",
-            paths=paths,
-            project_results=[result],
-            total_projects=1,
-            success_count=1 if success else 0,
-            fail_count=0 if success else 1,
-            total_passed_tests=stats["passed"],
-            total_failed_tests=stats["failed"],
-            total_error_tests=stats["errors"],
-            total_skipped_tests=stats["skipped"],
-            step5_output_dir=deploy_test_dir,
-        )
-        result["_index_path"] = _write_deploy_structured_output(
-            project, project_name, deploy_test_dir, paths, timestamp, "typescript",
-        )
-        return result
-
-    # --- TypeScript project: tests/jest-deploy.config.ts (fallback for projects without deploy_test.py) ---
-    # Runner manages Docker Compose lifecycle (mirrors Python deploy_test.py):
-    #   compose down → compose build → compose up → jest (health checks) → compose down
-    jest_deploy_config = project / "tests" / "jest-deploy.config.ts"
-    if jest_deploy_config.exists() and _is_typescript_project(project):
-        deploy_test_dir = project / ".test_results" / f"deploy-test-{timestamp}"
-        deploy_test_dir.mkdir(parents=True, exist_ok=True)
-        (deploy_test_dir / "docker-logs").mkdir(parents=True, exist_ok=True)
-        _write_deploy_environment_json(
-            deploy_test_dir,
-            project,
-            "run_complete.py (jest-deploy fallback)",
-        )
-
-        pnpm = _find_pnpm()
-        if pnpm is None:
-            print_error(f" pnpm not found on PATH — cannot run deploy tests for {project_name}")
-            return {"name": project_name, "success": False, **empty_stats}
-
-        tests_dir = project / "tests"
-
-        # Install test dependencies (jest, ts-jest, typescript)
-        install_log = deploy_test_dir / "pnpm-install-tests.log"
-        if not _run_pnpm_install(tests_dir, f"{project_name}/tests", parallel=False, install_log=install_log):
-            result = {"name": project_name, "success": False, **empty_stats}
-            (deploy_test_dir / "deploy-test-output.log").write_text(
-                f"pnpm install failed for {project_name}/tests\n", encoding="utf-8",
-            )
-            save_test_summary_log(
-                step_num=5,
-                step_name=f"Deployment Tests for {project_name}",
-                paths=paths,
-                project_results=[result],
-                total_projects=1,
-                success_count=0,
-                fail_count=1,
-                total_passed_tests=0,
-                total_failed_tests=0,
-                total_error_tests=0,
-                total_skipped_tests=0,
-                step5_output_dir=deploy_test_dir,
-            )
-            result["_index_path"] = _write_deploy_structured_output(
-                project, project_name, deploy_test_dir, paths, timestamp, "typescript",
-            )
-            return result
-
-        # Docker Compose lifecycle — managed by runner, not Jest
-        compose_file = project / "docker-compose.yml"
-        if not compose_file.exists():
-            compose_file = project / "docker-compose.yaml"
-
-        compose_available = compose_file.exists()
-        compose_started = False
-
-        if compose_available:
-            # Ensure .env exists (docker-compose needs it for ${VAR} substitution).
-            # Copy from .env.example if available; otherwise create an empty file.
-            env_file = project / ".env"
-            if not env_file.exists():
-                env_example = project / ".env.example"
-                if env_example.exists():
-                    shutil.copy2(env_example, env_file)
-                    print_info(" [compose] Copied .env.example -> .env")
-                else:
-                    env_file.write_text("# Auto-created for deploy tests\n", encoding="utf-8")
-                    print_info(" [compose] Created empty .env (no .env.example found)")
-
-            try:
-                # Tear down any leftover containers
-                print_info(" [compose] Tearing down previous containers...")
-                run_command(
-                    ["docker", "compose", "-f", str(compose_file), "down", "-v", "--remove-orphans"],
-                    cwd=project,
-                    description="",
-                )
-
-                # Build images
-                print_info(" [compose] Building images...")
-                build_ok, build_output = run_command(
-                    ["docker", "compose", "-f", str(compose_file), "build", "--no-cache"],
-                    cwd=project,
-                    description="docker compose build",
-                    capture_output=True,
-                )
-                if not build_ok:
-                    print_error(f" [compose] Build failed for {project_name}")
-                    _save_docker_logs_for_project(project, deploy_test_dir)
-                    _ensure_docker_cleanup(project)
-                    result = {"name": project_name, "success": False, **empty_stats}
-                    if build_output is not None:
-                        (deploy_test_dir / "deploy-test-output.log").write_text(
-                            _strip_ansi(build_output), encoding="utf-8",
-                        )
-                    save_test_summary_log(
-                        step_num=5,
-                        step_name=f"Deployment Tests for {project_name}",
-                        paths=paths,
-                        project_results=[result],
-                        total_projects=1,
-                        success_count=0,
-                        fail_count=1,
-                        total_passed_tests=0,
-                        total_failed_tests=0,
-                        total_error_tests=0,
-                        total_skipped_tests=0,
-                        step5_output_dir=deploy_test_dir,
-                    )
-                    result["_index_path"] = _write_deploy_structured_output(
-                        project, project_name, deploy_test_dir, paths, timestamp, "typescript",
-                    )
-                    return result
-
-                # Start services
-                print_info(" [compose] Starting services...")
-                run_command(
-                    ["docker", "compose", "-f", str(compose_file), "up", "-d"],
-                    cwd=project,
-                    description="docker compose up -d",
-                )
-                compose_started = True
-
-            except Exception as exc:
-                print_error(f" [compose] Error starting services: {exc}")
-                _save_docker_logs_for_project(project, deploy_test_dir)
-                _ensure_docker_cleanup(project)
-                result = {"name": project_name, "success": False, **empty_stats}
-                (deploy_test_dir / "deploy-test-output.log").write_text(
-                    f"Docker compose failed: {exc}\n", encoding="utf-8",
-                )
-                save_test_summary_log(
-                    step_num=5,
-                    step_name=f"Deployment Tests for {project_name}",
-                    paths=paths,
-                    project_results=[result],
-                    total_projects=1,
-                    success_count=0,
-                    fail_count=1,
-                    total_passed_tests=0,
-                    total_failed_tests=0,
-                    total_error_tests=0,
-                    total_skipped_tests=0,
-                    step5_output_dir=deploy_test_dir,
-                )
-                result["_index_path"] = _write_deploy_structured_output(
-                    project, project_name, deploy_test_dir, paths, timestamp, "typescript",
-                )
-                return result
-
-        # Run Jest deploy tests (health checks + endpoint validation)
-        jest_json = deploy_test_dir / "jest-deploy-results.json"
-        jest_json_arg = str(jest_json.resolve())
-        if os.name == "nt":
-            jest_json_arg = jest_json_arg.replace("\\", "/")
-        try:
-            success, output = run_command(
-                [
-                    pnpm,
-                    "exec",
-                    "jest",
-                    "--config",
-                    "jest-deploy.config.ts",
-                    "--forceExit",
-                    "--detectOpenHandles",
-                    "--no-cache",
-                    "--json",
-                    f"--outputFile={jest_json_arg}",
-                    "--testLocationInResults",
-                ],
-                cwd=tests_dir,
-                description=f"Jest deployment tests for {project_name}",
-                capture_output=True,
-            )
-        finally:
-            _save_docker_logs_for_project(project, deploy_test_dir)
-            if compose_started:
-                _ensure_docker_cleanup(project)
-
-        stats = parse_test_statistics(output) if output else empty_stats
-        result = {
-            "name": project_name,
-            "success": success,
-            **stats,
-        }
-
-        if output is not None:
-            noise = "Local package.json exists, but node_modules missing"
-            cleaned = "\n".join(
-                ln for ln in _strip_ansi(output).split("\n") if noise not in ln
-            )
-            (deploy_test_dir / "deploy-test-output.log").write_text(cleaned, encoding="utf-8")
-
-        deploy_failures = _jest_collect_failures_from_json(jest_json, "jest-deploy")
-        _write_ts_failures_json(deploy_test_dir, project, deploy_failures)
-        if deploy_failures:
-            fo = deploy_test_dir / "deploy-failures-only.log"
-            lines = []
-            for f in deploy_failures:
-                loc = f":{f['line']}" if f.get("line") else ""
-                head = f"{f.get('testFilePath', '')}{loc} — {f.get('fullName', '')}"
-                body = "\n".join((f.get("message") or "").split("\n")[:14])
-                lines.append(f"{head}\n{body}")
-            fo.write_text("\n\n---\n\n".join(lines) + "\n", encoding="utf-8")
-
-        save_test_summary_log(
-            step_num=5,
-            step_name=f"Deployment Tests for {project_name}",
-            paths=paths,
-            project_results=[result],
-            total_projects=1,
-            success_count=1 if success else 0,
-            fail_count=0 if success else 1,
-            total_passed_tests=stats["passed"],
-            total_failed_tests=stats["failed"],
-            total_error_tests=stats["errors"],
-            total_skipped_tests=stats["skipped"],
-            step5_output_dir=deploy_test_dir,
-        )
-        result["_index_path"] = _write_deploy_structured_output(
-            project, project_name, deploy_test_dir, paths, timestamp, "typescript",
-        )
-        return result
-
-    print_warning(
-        f" [SKIP] No deploy_test.py or jest-deploy.config.ts found for {project_name}"
+    save_test_summary_log(
+        step_num=5,
+        step_name=f"Deployment Tests for {project_name}",
+        paths=paths,
+        project_results=[result],
+        total_projects=1,
+        success_count=1 if success else 0,
+        fail_count=0 if success else 1,
+        total_passed_tests=stats["passed"],
+        total_failed_tests=stats["failed"],
+        total_error_tests=stats["errors"],
+        total_skipped_tests=stats["skipped"],
+        step5_output_dir=deploy_test_dir,
     )
-    return {"name": project_name, "success": False, **empty_stats}
+    result["_index_path"] = _write_deploy_structured_output(
+        project, project_name, deploy_test_dir, paths, timestamp, language,
+    )
+    return result
 
 
-def main() -> int:
-    """Main entry point"""
+def _build_parser() -> argparse.ArgumentParser:
+    """The workflow runner's command line."""
     parser = argparse.ArgumentParser(
     description="Complete workflow runner for Datrix",
     formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -2765,45 +2125,81 @@ Examples:
     parser.add_argument("--llm-num-predict", type=int, default=DEFAULT_LLM_NUM_PREDICT, help=f"Max generated tokens (default: {DEFAULT_LLM_NUM_PREDICT})")
     parser.add_argument("--llm-temperature", type=float, default=DEFAULT_LLM_TEMPERATURE, help=f"Sampling temperature (default: {DEFAULT_LLM_TEMPERATURE})")
     add_local_llm_arguments(parser)
-    args = parser.parse_args()
+    return parser
 
-    # --platform now carries only the runtime segment. The provider segment of
-    # the output path is read from each project's config/system.dcfg. Tolerate a
-    # legacy "runtime/provider" value by keeping only the runtime half.
+
+#: The banner's mode label for each -All test set; any other set is "ALL EXAMPLES".
+_TEST_SET_MODE_LABELS = {
+    "foundation": "FOUNDATION EXAMPLES",
+    "non-foundation": "NON-FOUNDATION EXAMPLES",
+    "domains": "DOMAINS EXAMPLES",
+    "patterns": "PATTERNS EXAMPLES",
+    "builtins": "BUILTINS EXAMPLES",
+    "reference": "REFERENCE EXAMPLES",
+}
+
+#: ``(skip flag, step label)`` the banner lists when the flag is set.
+_SKIP_FLAG_LABELS = (
+    ("Skip1", "Step 1 (Syntax Checker)"),
+    ("Skip2", "Step 2 (Code Generation)"),
+    ("Skip3", "Step 3 (Unit Tests)"),
+    ("Skip4", "Step 4 (Spec Tests)"),
+    ("Skip5", "Step 5 (Deployment Tests)"),
+)
+
+_STEP3_TITLE = "Run Unit Tests for Generated Projects"
+_STEP4_TITLE = "Run Deployment Tests (Spec + Integration) for Generated Projects"
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Main entry point; *argv* defaults to the process's command line."""
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    # Only the runtime segment of --platform is used (a "runtime/provider"
+    # value keeps its runtime half): each project's config/system.dcfg
+    # supplies the provider segment of the output path.
     args.platform = args.platform.split("/", 1)[0]
+    _resolve_single_example_paths(parser, args)
 
-    # Validate arguments: when not -All, example_path is required; output_path is derived from config if omitted
-    if not args.All:
-        if not args.example_path:
-            parser.error("example_path is required when -All is not specified")
-        if not args.output_path:
-            try:
-                args.output_path = str(get_default_output_path(
-                    args.example_path,
-                    language=args.language,
-                    runtime=args.platform,
-                ))
-            except (ValueError, FileNotFoundError) as e:
-                parser.error(str(e))
-
-    # Get all paths and run workflow (both -All and single-example modes)
     paths = get_paths()
     start_time = datetime.now()
+    _print_workflow_banner(args, paths, start_time)
 
+    try:
+        failed_steps = _run_workflow_steps(args, paths)
+        return _finish_workflow(args, paths, failed_steps, start_time)
+    except KeyboardInterrupt:
+        _print_workflow_interrupted(start_time)
+        return 130
+
+
+def _resolve_single_example_paths(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Without -All, require the example path and derive a missing output
+    path from test-projects.json; a failure is a usage error."""
+    if args.All:
+        return
+    if not args.example_path:
+        parser.error("example_path is required when -All is not specified")
+    if not args.output_path:
+        try:
+            args.output_path = str(get_default_output_path(
+                args.example_path,
+                language=args.language,
+                runtime=args.platform,
+            ))
+        except (ValueError, FileNotFoundError) as e:
+            parser.error(str(e))
+
+
+def _print_workflow_banner(args: argparse.Namespace, paths: dict[str, Path], start_time: datetime) -> None:
+    """The run's header: start time, mode, skipped steps and working directory."""
     print_info("=" * 60)
     print_info("Datrix COMPLETE WORKFLOW")
     print_info("=" * 60)
     print_info(f"Started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     if args.All:
-        _mode_labels = {
-            "foundation": "FOUNDATION EXAMPLES",
-            "non-foundation": "NON-FOUNDATION EXAMPLES",
-            "domains": "DOMAINS EXAMPLES",
-            "patterns": "PATTERNS EXAMPLES",
-            "builtins": "BUILTINS EXAMPLES",
-            "reference": "REFERENCE EXAMPLES",
-        }
-        mode_label = _mode_labels.get(args.test_set, "ALL EXAMPLES")
+        mode_label = _TEST_SET_MODE_LABELS.get(args.test_set, "ALL EXAMPLES")
         print_info(f"Mode: {mode_label}")
     else:
         print_info("Mode: SINGLE EXAMPLE")
@@ -2812,142 +2208,129 @@ Examples:
         print_info(f" Language: {args.language}")
         print_info(f" Runtime: {args.platform}")
 
-    # Show which steps will be skipped
-    skip_info = []
-    if args.Skip1:
-        skip_info.append("Step 1 (Syntax Checker)")
-    if args.Skip2:
-        skip_info.append("Step 2 (Code Generation)")
-    if args.Skip3:
-        skip_info.append("Step 3 (Unit Tests)")
-    if args.Skip4:
-        skip_info.append("Step 4 (Spec Tests)")
-    if args.Skip5:
-        skip_info.append("Step 5 (Deployment Tests)")
-
+    skip_info = [label for flag, label in _SKIP_FLAG_LABELS if getattr(args, flag)]
     if skip_info:
         print_info("Skipped Steps: " + ", ".join(skip_info))
     print_info(f"Working Directory: {paths['datrix_root']}")
     print_info("=" * 60)
 
-    # Track failures. Steps 3–4 run only if every non-skipped step among 1–2 succeeded.
-    failed_steps = []
 
-    try:
-        step1_failed = False
-        step2_failed = False
+def _run_workflow_steps(args: argparse.Namespace, paths: dict[str, Path]) -> list[str]:
+    """Run every step not skipped; return the labels of the steps that failed.
+    Steps 3–4 run only if every non-skipped step among 1–2 succeeded."""
+    failed_steps: list[str] = []
+    early_steps_failed = _run_early_steps(args, paths, failed_steps)
+    _run_test_steps(args, paths, failed_steps, early_steps_failed)
+    # Deployment tests (Step 4) cover spec and integration tests; -Skip5 selects no step.
+    if args.Skip5:
+        print_warning("Note: Step 5 has been merged into Step 4. -Skip5 flag is deprecated.")
+    return failed_steps
 
-        if args.Skip1:
-            print_step(1, "Syntax Checker")
-            print_warning("Skipping Step 1 as requested (-Skip1 flag)")
-        else:
-            if not step1_syntax_checker(paths):
-                print_warning("Step 1 failed; Steps 3 and 4 will be skipped.")
-                failed_steps.append("Step 1: Syntax Checker")
-                step1_failed = True
 
-        if args.Skip2:
-            print_step(2, "Code Generation")
-            print_warning("Skipping Step 2 as requested (-Skip2 flag)")
-        else:
-            if not step2_generate(
-                args.All,
-                paths,
-                args.example_path if not args.All else None,
-                args.output_path if not args.All else None,
-                args.language,
-                args.platform,
-                args.test_set if args.All else "all",
-                args.hosting,
-            ):
-                print_warning("Step 2 failed; Steps 3 and 4 will be skipped.")
-                failed_steps.append("Step 2: Code Generation")
-                step2_failed = True
+def _run_early_steps(args: argparse.Namespace, paths: dict[str, Path], failed_steps: list[str]) -> bool:
+    """Steps 1 (syntax check) and 2 (generation); return whether either ran and failed."""
+    step1_failed = False
+    step2_failed = False
+    if args.Skip1:
+        print_step(1, "Syntax Checker")
+        print_warning("Skipping Step 1 as requested (-Skip1 flag)")
+    elif not step1_syntax_checker(paths):
+        print_warning("Step 1 failed; Steps 3 and 4 will be skipped.")
+        failed_steps.append("Step 1: Syntax Checker")
+        step1_failed = True
 
-        early_steps_failed = step1_failed or step2_failed
+    single_example = None if args.All else args.example_path
+    single_output = None if args.All else args.output_path
+    test_set = args.test_set if args.All else "all"
+    if args.Skip2:
+        print_step(2, "Code Generation")
+        print_warning("Skipping Step 2 as requested (-Skip2 flag)")
+    elif not step2_generate(
+        args.All, paths, single_example, single_output, args.language, args.platform, test_set, args.hosting,
+    ):
+        print_warning("Step 2 failed; Steps 3 and 4 will be skipped.")
+        failed_steps.append("Step 2: Code Generation")
+        step2_failed = True
+    return step1_failed or step2_failed
 
-        if args.Skip3:
-            print_step(3, "Run Unit Tests for Generated Projects")
-            print_warning("Skipping Step 3 as requested (-Skip3 flag)")
-        elif early_steps_failed:
-            print_step(3, "Run Unit Tests for Generated Projects")
-            print_warning("Skipping Step 3 (not run; Step 1 or Step 2 failed).")
-        else:
-            if not step3_run_unit_tests(
-                args.All,
-                paths,
-                args.output_path if not args.All else None,
-                args.test_set if args.All else None,
-                args.language,
-                args.platform,
-                verbose=args.verbose,
-            ):
-                print_warning("Step 3 failed. Continuing to Step 4...")
-                failed_steps.append("Step 3: Unit Tests")
 
-        if args.Skip4:
-            print_step(4, "Run Deployment Tests (Spec + Integration) for Generated Projects")
-            print_warning("Skipping Step 4 as requested (-Skip4 flag)")
-        elif early_steps_failed:
-            print_step(4, "Run Deployment Tests (Spec + Integration) for Generated Projects")
-            print_warning("Skipping Step 4 (not run; Step 1 or Step 2 failed).")
-        else:
-            if not step4_run_deployment_tests(
-                args.All,
-                paths,
-                args.output_path if not args.All else None,
-                args.test_set if args.All else None,
-                args.language,
-                args.platform,
-                verbose=args.verbose,
-            ):
-                print_warning("Step 4 failed. Continuing to final summary...")
-                failed_steps.append("Step 4: Deployment Tests")
+def _run_test_steps(
+    args: argparse.Namespace, paths: dict[str, Path], failed_steps: list[str], early_steps_failed: bool
+) -> None:
+    """Steps 3 (unit tests) and 4 (deployment tests), each skipped when
+    requested or when an earlier step failed."""
+    single_output = None if args.All else args.output_path
+    test_set = args.test_set if args.All else None
+    if args.Skip3:
+        print_step(3, _STEP3_TITLE)
+        print_warning("Skipping Step 3 as requested (-Skip3 flag)")
+    elif early_steps_failed:
+        print_step(3, _STEP3_TITLE)
+        print_warning("Skipping Step 3 (not run; Step 1 or Step 2 failed).")
+    elif not step3_run_unit_tests(
+        args.All, paths, single_output, test_set, args.language, args.platform, verbose=args.verbose,
+    ):
+        print_warning("Step 3 failed. Continuing to Step 4...")
+        failed_steps.append("Step 3: Unit Tests")
 
-        # Step 5 has been merged into Step 4 (deployment tests now include spec + integration)
-        if args.Skip5:
-            print_warning("Note: Step 5 has been merged into Step 4. -Skip5 flag is deprecated.")
+    if args.Skip4:
+        print_step(4, _STEP4_TITLE)
+        print_warning("Skipping Step 4 as requested (-Skip4 flag)")
+    elif early_steps_failed:
+        print_step(4, _STEP4_TITLE)
+        print_warning("Skipping Step 4 (not run; Step 1 or Step 2 failed).")
+    elif not step4_run_deployment_tests(
+        args.All, paths, single_output, test_set, args.language, args.platform, verbose=args.verbose,
+    ):
+        print_warning("Step 4 failed. Continuing to final summary...")
+        failed_steps.append("Step 4: Deployment Tests")
 
-        end_time = datetime.now()
-        duration = end_time - start_time
 
-        print()
-        if failed_steps:
-            print_error("=" * 60)
-            print_error("WORKFLOW COMPLETED WITH FAILURES")
-            print_error("=" * 60)
-            print_info(f"Started: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            print_info(f"Finished: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            print_info(f"Duration: {duration}")
-            print()
-            print_error(f"Failed Steps ({len(failed_steps)}):")
-            for step in failed_steps:
-                print_error(f" [X] {step}")
-            print_error("=" * 60)
-            _print_llm_post_run_summary(args, paths, failed_steps)
-            return 1
-        else:
-            print_success("=" * 60)
-            print_success("ALL STEPS COMPLETED SUCCESSFULLY!")
-            print_success("=" * 60)
-            print_info(f"Started: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            print_info(f"Finished: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            print_info(f"Duration: {duration}")
-            print_success("=" * 60)
-            _print_llm_post_run_summary(args, paths, failed_steps)
-            return 0
-    except KeyboardInterrupt:
-        print()
-        print_warning("=" * 60)
-        print_warning("WORKFLOW INTERRUPTED BY USER")
-        print_warning("=" * 60)
-        end_time = datetime.now()
-        duration = end_time - start_time
+def _finish_workflow(
+    args: argparse.Namespace, paths: dict[str, Path], failed_steps: list[str], start_time: datetime
+) -> int:
+    """Print the final summary and the optional LLM summary; return the exit code."""
+    end_time = datetime.now()
+    duration = end_time - start_time
+
+    print()
+    if failed_steps:
+        print_error("=" * 60)
+        print_error("WORKFLOW COMPLETED WITH FAILURES")
+        print_error("=" * 60)
         print_info(f"Started: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print_info(f"Interrupted: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print_info(f"Finished: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
         print_info(f"Duration: {duration}")
-        print_warning("=" * 60)
-        return 130
+        print()
+        print_error(f"Failed Steps ({len(failed_steps)}):")
+        for step in failed_steps:
+            print_error(f" [X] {step}")
+        print_error("=" * 60)
+        _print_llm_post_run_summary(args, paths, failed_steps)
+        return 1
+    print_success("=" * 60)
+    print_success("ALL STEPS COMPLETED SUCCESSFULLY!")
+    print_success("=" * 60)
+    print_info(f"Started: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print_info(f"Finished: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print_info(f"Duration: {duration}")
+    print_success("=" * 60)
+    _print_llm_post_run_summary(args, paths, failed_steps)
+    return 0
+
+
+def _print_workflow_interrupted(start_time: datetime) -> None:
+    """The banner a run interrupted by the user ends on."""
+    print()
+    print_warning("=" * 60)
+    print_warning("WORKFLOW INTERRUPTED BY USER")
+    print_warning("=" * 60)
+    end_time = datetime.now()
+    duration = end_time - start_time
+    print_info(f"Started: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print_info(f"Interrupted: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print_info(f"Duration: {duration}")
+    print_warning("=" * 60)
 
 
 if __name__ == "__main__":

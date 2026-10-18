@@ -10,7 +10,10 @@ Run by ``shared_library_gate.py`` beside its module checks:
   tree stays at or under its baseline;
 * every ``datrix_scripts`` module imports as the first import of a fresh interpreter, and every
   module a hook imports is exercised by a gate (``consumed - covered`` is empty). Hooks fail
-  open, so a broken import would disable a hook silently.
+  open, so a broken import would disable a hook silently;
+* the held-clean script modules (the ``import_boundaries`` scanner package, ``run_complete`` and
+  the ``checklist`` and ``guard-predeploy-analysis`` hooks) keep every function at or under the
+  cognitive-complexity limit, and the measurement reports a planted function over it.
 """
 
 from __future__ import annotations
@@ -18,14 +21,24 @@ from __future__ import annotations
 import ast
 import contextlib
 import io
+import json
 import subprocess
 import sys
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 from typing import Final
 
+from datrix_codegen_kernel.generation.test_runner_entry_point import (
+    PARALLEL_ARGUMENT,
+    RESULTS_DIR_ARGUMENT,
+    TEST_RUNNER_ENTRY_POINT,
+    ProjectTestRunner,
+    build_test_runner_entry_point,
+)
+
+from datrix_scripts.complexity import DEFAULT_MAX_COMPLEXITY, run_check_cognitive
 from datrix_scripts.count_ratchet import (
     RatchetDelta,
     RatchetMode,
@@ -47,7 +60,13 @@ from datrix_scripts.gate_harness import (
 )
 from datrix_scripts.hook_modules import DIGEST_HOOK_MODULE, load_hook_module
 from datrix_scripts.paths import PACKAGE_DIR, PYTHONPATH_ROOT, SCRIPTS_DIR, SHOWCASE_DIR
-from run_complete import _generated_projects
+from datrix_scripts.venv import get_venv_python
+from run_complete import (
+    _generated_projects,
+    _run_single_project_deploy_tests,
+    _run_single_project_unit_tests,
+    get_paths,
+)
 from scripts_tree_census import census_failures, python_modules, python_root_resolvers, run_censuses
 from scripts_tree_census import self_test_checks as census_self_test_checks
 
@@ -349,8 +368,35 @@ def check_every_hook_consumed_shared_module_is_exercised_by_a_gate() -> None:
     )
 
 
-_RUNNER_WITH_DEPLOY = "param(\n    [switch]$Unit,\n    [switch]$Deploy\n)\n"
-_RUNNER_WITHOUT_DEPLOY = "param(\n    [switch]$Unit\n)\n"
+#: Stub runners for planted projects: each records what it was started with, then exits.
+_UNIT_STUB: Final = ProjectTestRunner("python", PurePosixPath("tests/unit_stub.py"))
+_DEPLOY_STUB: Final = ProjectTestRunner("python", PurePosixPath("tests/deploy_stub.py"))
+_STUB_RECORD_SUFFIX: Final = ".seen.json"
+_STUB_PROGRAM: Final = (
+    "import json, os, sys\n"
+    "from pathlib import Path\n"
+    "record = {'argv': sys.argv[1:], 'cwd': os.getcwd(), 'executable': sys.executable}\n"
+    "Path(sys.argv[0] + '" + _STUB_RECORD_SUFFIX + "').write_text(json.dumps(record), encoding='utf-8')\n"
+    "sys.exit(int(Path(sys.argv[0] + '.exit').read_text(encoding='utf-8')))\n"
+)
+
+
+def _entry_point_text(*, with_deploy: bool) -> str:
+    """The entry point every language emits, built by the kernel over the stub runners."""
+    return build_test_runner_entry_point(unit=_UNIT_STUB, deploy=_DEPLOY_STUB if with_deploy else None).content
+
+
+def _plant_project(project: Path, *, with_deploy: bool, exit_code: int) -> None:
+    files = {str(TEST_RUNNER_ENTRY_POINT): _entry_point_text(with_deploy=with_deploy)}
+    for stub in (_UNIT_STUB, _DEPLOY_STUB):
+        files[str(stub.script)] = _STUB_PROGRAM
+        files[f"{stub.script}.exit"] = str(exit_code)
+    write_files(project, files)
+
+
+def _stub_record(project: Path, stub: ProjectTestRunner) -> dict[str, object] | None:
+    record = project / f"{stub.script}{_STUB_RECORD_SUFFIX}"
+    return json.loads(record.read_text(encoding="utf-8")) if record.is_file() else None
 
 
 def check_run_complete_discovers_projects_by_their_test_runner() -> None:
@@ -362,9 +408,9 @@ def check_run_complete_discovers_projects_by_their_test_runner() -> None:
         write_files(
             generated,
             {
-                "lang-a/docker/local/shop/tests/run-tests.ps1": _RUNNER_WITH_DEPLOY,
-                "lang-b/docker/local/catalog/tests/run-tests.ps1": _RUNNER_WITHOUT_DEPLOY,
-                "lang-b/docker/local/catalog/scripts/run-tests.ps1": _RUNNER_WITH_DEPLOY,
+                "lang-a/docker/local/shop/tests/run-tests.ps1": _entry_point_text(with_deploy=True),
+                "lang-b/docker/local/catalog/tests/run-tests.ps1": _entry_point_text(with_deploy=False),
+                "lang-b/docker/local/catalog/scripts/run-tests.ps1": _entry_point_text(with_deploy=True),
             },
         )
         shop = generated / "lang-a" / "docker" / "local" / "shop"
@@ -375,6 +421,62 @@ def check_run_complete_discovers_projects_by_their_test_runner() -> None:
         assert deploy == [shop], f"deploy discovery found {deploy}, expected only the -Deploy runner"
         missing = _generated_projects(Path(tmp) / "absent", None, "unused", "unused", deploy=False)
         assert missing == [], f"an absent .generated tree must yield no project: {missing}"
+
+
+def check_run_complete_runs_every_project_through_its_test_entry_point() -> None:
+    """Steps 3 and 4 run a project's tests only through tests/run-tests.ps1, whatever language
+    generated it: -Unit with --parallel, -Deploy with --results-dir, from the project root, in the
+    activated workspace venv; a failing runner fails the project, a project without -Deploy has no
+    deploy step, and a project without the entry point is a failure, never a silent skip."""
+    paths = get_paths()
+    venv_python = get_venv_python().resolve()
+    with TemporaryDirectory(prefix="run-complete-entry-point-") as tmp:
+        generated = Path(tmp) / ".generated"
+        passing = generated / "lang-x" / "docker" / "local" / "shop"
+        failing = generated / "lang-x" / "docker" / "local" / "ledger"
+        unit_only = generated / "lang-y" / "docker" / "local" / "catalog"
+        bare = generated / "lang-z" / "docker" / "local" / "bare"
+        _plant_project(passing, with_deploy=True, exit_code=0)
+        _plant_project(failing, with_deploy=True, exit_code=1)
+        _plant_project(unit_only, with_deploy=False, exit_code=0)
+        write_file(bare / "tests" / "unit_stub.py", _STUB_PROGRAM)
+
+        unit = _run_single_project_unit_tests(passing, generated, "lang-x")
+        assert unit["success"] is True, f"a passing unit runner must pass the project: {unit}"
+        seen = _stub_record(passing, _UNIT_STUB)
+        assert seen is not None, "the unit runner never ran through the entry point"
+        assert seen["argv"] == [PARALLEL_ARGUMENT], f"the unit runner got {seen['argv']}"
+        assert Path(str(seen["cwd"])).resolve() == passing.resolve(), f"the unit runner ran in {seen['cwd']}"
+        assert Path(str(seen["executable"])).resolve() == venv_python, (
+            f"the unit runner ran under {seen['executable']}, not the workspace venv's {venv_python}"
+        )
+        assert _stub_record(passing, _DEPLOY_STUB) is None, "-Unit started the deploy runner"
+
+        failed = _run_single_project_unit_tests(failing, generated, "lang-x")
+        assert failed["success"] is False, f"a failing unit runner must fail the project: {failed}"
+
+        timestamp = "20000101-000000"
+        deploy = _run_single_project_deploy_tests(passing, "shop", paths, timestamp, "lang-x")
+        assert deploy is not None and deploy["success"] is True, f"deploy run: {deploy}"
+        seen = _stub_record(passing, _DEPLOY_STUB)
+        results_dir = passing / ".test_results" / f"deploy-test-{timestamp}"
+        assert seen is not None and seen["argv"] == [RESULTS_DIR_ARGUMENT, str(results_dir)], (
+            f"the deploy runner got {seen and seen['argv']}"
+        )
+        failed_deploy = _run_single_project_deploy_tests(failing, "ledger", paths, timestamp, "lang-x")
+        assert failed_deploy is not None and failed_deploy["success"] is False, f"deploy run: {failed_deploy}"
+        assert _run_single_project_deploy_tests(unit_only, "catalog", paths, timestamp, "lang-y") is None, (
+            "a project whose entry point declares no -Deploy must have no deploy step"
+        )
+
+        for result in (
+            _run_single_project_unit_tests(bare, generated, "lang-z"),
+            _run_single_project_deploy_tests(bare, "bare", paths, timestamp, "lang-z"),
+        ):
+            assert result is not None and result["success"] is False and result["errors"] == 1, (
+                f"a project without {TEST_RUNNER_ENTRY_POINT} must fail, not skip: {result}"
+            )
+        assert _stub_record(bare, _UNIT_STUB) is None, "a runner was started without the entry point"
 
 
 def check_dead_code_report_reads_and_orders_vulture_sizes() -> None:
@@ -442,6 +544,60 @@ def check_runner_gate_verdict_is_the_line_the_digest_hook_parses() -> None:
             log.unlink(missing_ok=True)
 
 
+# ---------------------------------------------------------------- cognitive complexity
+
+
+_IMPORT_BOUNDARIES_DIR: Final = SCRIPTS_DIR / "scan" / "lib" / "import_boundaries"
+_HELD_CLEAN_SINGLE_MODULES: Final = (
+    SCRIPTS_DIR / "test" / "lib" / "run_complete.py",
+    HOOKS_DIR / "checklist.py",
+    HOOKS_DIR / "guard-predeploy-analysis.py",
+)
+_PLANTED_OVER_LIMIT_FUNCTION: Final = "planted_branchy"
+
+
+def _held_clean_modules() -> list[Path]:
+    """The script modules held at or under the cognitive-complexity limit, every one present."""
+    package_modules = sorted(_IMPORT_BOUNDARIES_DIR.glob("*.py"))
+    assert package_modules, f"no modules found under {_IMPORT_BOUNDARIES_DIR}"
+    held = [*package_modules, *_HELD_CLEAN_SINGLE_MODULES]
+    missing = [str(path) for path in held if not path.is_file()]
+    assert not missing, f"held-clean modules are missing (moved or renamed?): {missing}"
+    return held
+
+
+def _over_limit(files: list[Path]) -> list[tuple[str, str, int, int]]:
+    """Every function over the limit in ``files``; a file that does not parse fails the check,
+    since the measurement skips it silently."""
+    for path in files:
+        ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return run_check_cognitive(None, DEFAULT_MAX_COMPLEXITY, (), False, files=files)
+
+
+def check_held_clean_modules_stay_within_cognitive_complexity() -> None:
+    """No function of the held-clean script modules exceeds the cognitive-complexity limit."""
+    violations = _over_limit(_held_clean_modules())
+    assert not violations, (
+        f"functions over cognitive complexity {DEFAULT_MAX_COMPLEXITY}; split them into named "
+        "helpers: " + "; ".join(f"{path}:{line} {name} ({score})" for path, name, line, score in violations)
+    )
+
+
+def check_cognitive_complexity_check_reports_a_planted_function() -> None:
+    """The measurement the held-clean check relies on reports a planted function over the limit."""
+    nested = "".join(
+        f"{'    ' * (depth + 1)}if value > {depth}:\n" for depth in range(DEFAULT_MAX_COMPLEXITY)
+    )
+    body = f"{nested}{'    ' * (DEFAULT_MAX_COMPLEXITY + 1)}return value\n    return 0\n"
+    with TemporaryDirectory(prefix="cognitive-complexity-") as tmp:
+        planted = write_file(
+            Path(tmp) / "planted.py", f"def {_PLANTED_OVER_LIMIT_FUNCTION}(value: int) -> int:\n{body}"
+        )
+        violations = _over_limit([planted])
+    names = [name for _path, name, _line, _score in violations]
+    assert names == [_PLANTED_OVER_LIMIT_FUNCTION], f"the planted function was not reported: {violations}"
+
+
 def checks() -> list[NamedCheck]:
     """Every check of this module, the census self-tests included, in run order."""
     module_checks = [
@@ -454,7 +610,9 @@ def checks() -> list[NamedCheck]:
         check_count_ratchet_exact_pin,
         check_count_ratchet_reader_fails_closed,
         check_run_complete_discovers_projects_by_their_test_runner,
+        check_run_complete_runs_every_project_through_its_test_entry_point,
         check_dead_code_report_reads_and_orders_vulture_sizes,
+        check_cognitive_complexity_check_reports_a_planted_function,
     ]
     real_tree = [
         check_scripts_tree_censuses_are_zero,
@@ -462,6 +620,7 @@ def checks() -> list[NamedCheck]:
         check_every_shared_module_imports_in_a_fresh_interpreter,
         check_every_hook_consumed_shared_module_is_exercised_by_a_gate,
         check_runner_gate_verdict_is_the_line_the_digest_hook_parses,
+        check_held_clean_modules_stay_within_cognitive_complexity,
     ]
     return [
         *(NamedCheck(check.__name__, check) for check in module_checks),

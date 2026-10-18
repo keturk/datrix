@@ -1,5 +1,5 @@
 {
-  "_comment": "I5 docs-conformance exceptions baseline (Invariant I5). Each entry is a backticked span (from an architecture doc) that datrix/scripts/gates/repo-hygiene/lib/check_docs_conformance.py cannot resolve to a real file/directory/module, verified to be legitimately non-existent (a migration-history 'what was removed' claim, a negative/prohibition claim, or another confirmed-intentional non-existence) rather than a genuine drift defect. A NEW entry here is a deliberate, reviewed exception -- never a way to silence a script complaint without reading why it fired.",
+  "_comment": "I5 docs-conformance exceptions baseline (Invariant I5). Each entry is a backticked span (from an architecture doc) that datrix/scripts/gates/repo-hygiene/lib/check_docs_conformance.py cannot resolve to a real file/directory/module (or a Class.member claim naming a member the class does not have), verified to be legitimately non-existent (a migration-history 'what was removed' claim, a negative/prohibition claim, or another confirmed-intentional non-existence) rather than a genuine drift defect. A NEW entry here is a deliberate, reviewed exception -- never a way to silence a script complaint without reading why it fired.",
   "exceptions": [
     {
       "span": "datrix-codegen-common/orchestration/seed_orchestrator.py",
@@ -45,6 +45,86 @@
       "span": "datrix/scripts/config/target-capability-gaps.toml",
       "doc": "datrix/docs/architecture/architecture-overview.md",
       "reason": "negative/prohibition claim, not an existence assertion: Decision 55 invariant I5 states that a capability gap record is a per-package capability_gaps tuple and that no shared toml file naming targets exists; the import-boundary scan keeps it absent"
+    },
+    {
+      "span": "HostingPlatform.AWS",
+      "doc": "datrix-common/docs/architecture/config-system.md",
+      "reason": "migration-history reference: the 'Before (Reading hosting_platform)' example shows the removed HostingPlatform enum that the deployment-dimension 'After' example replaces"
+    },
+    {
+      "span": "HostingPlatform.DOCKER",
+      "doc": "datrix-common/docs/architecture/config-system.md",
+      "reason": "migration-history reference: the 'Before (Reading hosting_platform)' example and the test-fixture migration note show the removed HostingPlatform enum that DeploymentConfig replaces"
+    },
+    {
+      "span": "package count: (49 declared dependencies resolving to 936 packages), the install it bounded",
+      "doc": "datrix-codegen-typescript/docs/architecture.md",
+      "reason": "counts npm packages in a measured install, not Datrix packages or repositories"
+    },
+    {
+      "span": "package count: add a manifest edge to seven packages and hold nothing",
+      "doc": "datrix-testing/docs/architecture.md",
+      "reason": "a rejected-alternative argument counting the packages one hypothetical change would touch, not the size of the package set"
+    },
+    {
+      "span": "package count: — adding a language touched 11 packages, adding a platform touched",
+      "doc": "datrix/docs/architecture/architecture-overview.md",
+      "reason": "Decision 15 problem statement: a historical measurement of how many packages one change touched, not the size of the package set"
+    },
+    {
+      "span": "package count: by hand in two or three packages, kept in sync only",
+      "doc": "datrix/docs/architecture/architecture-overview.md",
+      "reason": "Decision 18 rationale: how many packages one duplicated edit reached, not the size of the package set"
+    },
+    {
+      "span": "package count: been scattered across language packages; two packages have since re-scattered the exact",
+      "doc": "datrix/docs/architecture/architecture-overview.md",
+      "reason": "decision rationale counting the packages that re-scattered literals, not the size of the package set"
+    },
+    {
+      "span": "package count: hand-written cycle detectors exist across five packages, while `graphlib` is imported",
+      "doc": "datrix/docs/architecture/architecture-overview.md",
+      "reason": "decision problem statement counting the packages that held hand-written sorts, not the size of the package set"
+    },
+    {
+      "span": "package count: line with its imports. Where two packages independently grew the same internal",
+      "doc": "datrix/docs/architecture/architecture-overview.md",
+      "reason": "decision rationale about any two packages sharing a duplication, not the size of the package set"
+    },
+    {
+      "span": "package count: five registered names resolve to three packages (`azure` and `azure-vm` both live",
+      "doc": "datrix/docs/architecture/architecture-overview.md",
+      "reason": "decision text explaining how registered platform names fold onto the packages that implement them, not the size of the package set"
+    },
+    {
+      "span": "package count: by four packages before this design landed. It",
+      "doc": "datrix/docs/architecture/architecture-overview.md",
+      "reason": "decision text counting the packages that consumed a shared helper, not the size of the package set"
+    },
+    {
+      "span": "package count: two packages share a group when the",
+      "doc": "datrix/docs/architecture/architecture-overview.md",
+      "reason": "defines when any two packages share a skeleton group, not the size of the package set"
+    },
+    {
+      "span": "package count: and semantic. The two packages with the largest inbound import",
+      "doc": "datrix/docs/architecture/architecture-overview.md",
+      "reason": "decision text naming the two packages that keep their names, not the size of the package set"
+    },
+    {
+      "span": "package count: on all three packages.",
+      "doc": "datrix/docs/architecture/codegen-migration-strategy.md",
+      "reason": "a migration check over the three packages the preceding commands name, not the size of the package set"
+    },
+    {
+      "span": "package count: (That instance is fixed: all five packages now render exclusively through declared",
+      "doc": "datrix/docs/architecture/design-principles.md",
+      "reason": "counts the generator packages one fixed instance covered, not the size of the package set"
+    },
+    {
+      "span": "package count: A member set declared in two packages is a baseline entry with",
+      "doc": "datrix/docs/architecture/packs/shared-layer-and-one-fact.md",
+      "reason": "states the rule for a member set any two packages declare, not the size of the package set"
     }
   ]
 }

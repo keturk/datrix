@@ -20,7 +20,10 @@ Each census names one fact that has exactly one home and reports every place tha
     package).
 ``identical-bodies``
     No function body of three or more statements (docstring stripped) is AST-identical to one in
-    another file.
+    another file; and no module-level function, at any length, copies a public module-level
+    function of ``datrix_scripts`` in another file (docstring, annotations and decorators
+    stripped, the names the function binds renamed by position), so a short copy of a shared
+    helper is a hit naming its home.
 ``gate-self-test``
     Every gate wrapper (``*-gate.ps1``, ``*ratchet*.ps1``, ``type-mapping-completeness.ps1``)
     declares a ``SelfTest`` switch.
@@ -36,6 +39,7 @@ The censuses parse structure (Python ``ast``; PowerShell's own parser through
 from __future__ import annotations
 
 import ast
+import copy
 from collections import defaultdict
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -68,6 +72,10 @@ _SYS_PATH_MUTATORS: Final = frozenset({"insert", "append", "extend"})
 _DATRIX_NAME: Final = "datrix"
 _PREFIX_CONSTANT: Final = "FRAMEWORK_REPO_PREFIX"
 MIN_BODY_STATEMENTS: Final = 3
+SHARED_PACKAGE_DIR: Final = "common/lib/datrix_scripts/"
+_SHARED_PACKAGE_PARENT: Final = "common/lib/"
+_PRIVATE_PREFIX: Final = "_"
+_BOUND_NAME_PLACEHOLDER: Final = "_bound{}"
 
 ENSURE_VENV: Final = "Ensure-DatrixVenv"
 RUNNER: Final = "Invoke-DatrixPythonScript"
@@ -279,15 +287,233 @@ def _body_key(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str | None:
     return ast.dump(node.args) + "\n" + "\n".join(ast.dump(statement) for statement in body)
 
 
+def _bound_names(node: ast.FunctionDef | ast.AsyncFunctionDef) -> frozenset[str]:
+    """The names ``node`` binds: its parameters and every name its body assigns or defines."""
+    arguments = node.args
+    parameters = [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]
+    parameters.extend(argument for argument in (arguments.vararg, arguments.kwarg) if argument is not None)
+    names = {parameter.arg for parameter in parameters}
+    for statement in node.body:
+        for inner in ast.walk(statement):
+            if isinstance(inner, ast.Name) and isinstance(inner.ctx, ast.Store | ast.Del):
+                names.add(inner.id)
+            elif isinstance(inner, ast.arg):
+                names.add(inner.arg)
+            elif isinstance(inner, ast.ExceptHandler) and inner.name is not None:
+                names.add(inner.name)
+            elif isinstance(inner, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                names.add(inner.name)
+    return frozenset(names)
+
+
+def _nested_blocks(statement: ast.stmt) -> list[ast.stmt]:
+    """The statements an ``if``/``with``/``try`` runs in its own scope; none for anything else."""
+    if isinstance(statement, ast.If):
+        return [*statement.body, *statement.orelse]
+    if isinstance(statement, ast.With):
+        return list(statement.body)
+    if isinstance(statement, ast.Try):
+        handled = [inner for handler in statement.handlers for inner in handler.body]
+        return [*statement.body, *handled, *statement.orelse, *statement.finalbody]
+    return []
+
+
+def _module_level_statements(statements: list[ast.stmt]) -> Iterator[ast.stmt]:
+    """Every statement run at import time, ``if``/``with``/``try`` bodies included."""
+    for statement in statements:
+        yield statement
+        yield from _module_level_statements(_nested_blocks(statement))
+
+
+def _defined_names(statement: ast.stmt) -> list[str]:
+    """The module-level names a definition or assignment binds."""
+    if isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+        return [statement.name]
+    targets: list[ast.expr] = []
+    if isinstance(statement, ast.Assign):
+        targets = statement.targets
+    elif isinstance(statement, ast.AnnAssign):
+        targets = [statement.target]
+    return [target.id for target in targets if isinstance(target, ast.Name)]
+
+
+def _module_import_name(relative: str) -> str:
+    """How the tree names a module: its dotted name in the shared package, else its path."""
+    return _shared_module_name(relative) if relative.startswith(SHARED_PACKAGE_DIR) else relative
+
+
+def _import_origin(statement: ast.ImportFrom, own: str) -> str:
+    """The absolute module a ``from … import`` reads, resolved against ``own`` when relative."""
+    parts = own.split(".")[: -statement.level] if statement.level else []
+    if statement.module is not None:
+        parts.append(statement.module)
+    return ".".join(parts)
+
+
+def _import_bindings(statement: ast.Import | ast.ImportFrom, own: str) -> dict[str, str]:
+    bindings: dict[str, str] = {}
+    for alias in statement.names:
+        if isinstance(statement, ast.ImportFrom):
+            bound = alias.asname if alias.asname is not None else alias.name
+            bindings[bound] = f"{_import_origin(statement, own)}.{alias.name}"
+        elif alias.asname is not None:
+            bindings[alias.asname] = alias.name
+        else:
+            top = alias.name.split(".")[0]
+            bindings[top] = top
+    return bindings
+
+
+def module_bindings(relative: str, tree: ast.Module) -> dict[str, str]:
+    """Module-level name -> what it denotes: the imported origin, or this module's own definition.
+
+    ``write_files`` defined in ``gate_harness`` and ``write_files`` imported from it denote the
+    same ``datrix_scripts.gate_harness.write_files``; a ``run`` each module defines for itself
+    denotes two different things.
+    """
+    own = _module_import_name(relative)
+    bindings: dict[str, str] = {}
+    for statement in _module_level_statements(tree.body):
+        if isinstance(statement, ast.Import | ast.ImportFrom):
+            bindings.update(_import_bindings(statement, own))
+        else:
+            bindings.update({name: f"{own}.{name}" for name in _defined_names(statement)})
+    return bindings
+
+
+class _BoundNameNormaliser(ast.NodeTransformer):
+    """Renames each bound name to its position of first appearance and drops annotations.
+
+    A free name is replaced by what it denotes in its module (``module_bindings``); a builtin
+    keeps its spelling. Two bodies match only when they do the same thing with the same
+    collaborators.
+    """
+
+    def __init__(self, bound: frozenset[str], free: dict[str, str]) -> None:
+        self._bound = bound
+        self._free = free
+        self._placeholders: dict[str, str] = {}
+
+    def _rename(self, name: str) -> str:
+        if name not in self._bound:
+            return self._free[name] if name in self._free else name
+        if name not in self._placeholders:
+            self._placeholders[name] = _BOUND_NAME_PLACEHOLDER.format(len(self._placeholders))
+        return self._placeholders[name]
+
+    def visit_Name(self, node: ast.Name) -> ast.Name:
+        node.id = self._rename(node.id)
+        return node
+
+    def visit_arg(self, node: ast.arg) -> ast.arg:
+        node.arg = self._rename(node.arg)
+        node.annotation = None
+        return node
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> ast.ExceptHandler:
+        if node.name is not None:
+            node.name = self._rename(node.name)
+        self.generic_visit(node)
+        return node
+
+
+def _normalised_key(node: ast.FunctionDef | ast.AsyncFunctionDef, free: dict[str, str]) -> str | None:
+    """The body of ``node`` with docstring, annotations and decorators stripped, bound names
+    renamed by position and free names resolved through ``free``; ``None`` for a body that is
+    only a docstring."""
+    body = _body_without_docstring(node)
+    if not body:
+        return None
+    normaliser = _BoundNameNormaliser(_bound_names(node), free)
+    arguments = normaliser.visit(copy.deepcopy(node.args))
+    statements = [normaliser.visit(statement) for statement in copy.deepcopy(body)]
+    return ast.dump(arguments) + "\n" + "\n".join(ast.dump(statement) for statement in statements)
+
+
+def _states_a_fact(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """False for a body that only returns a constant or does nothing: it has no fact to copy.
+
+    ``def without_expiry() -> None: return None`` and a check that passes by returning ``None``
+    share a body, not a fact.
+    """
+    body = _body_without_docstring(node)
+    if len(body) != 1:
+        return bool(body)
+    only = body[0]
+    if isinstance(only, ast.Pass):
+        return False
+    if isinstance(only, ast.Expr):
+        return not isinstance(only.value, ast.Constant)
+    if isinstance(only, ast.Return):
+        return only.value is not None and not isinstance(only.value, ast.Constant)
+    return True
+
+
+def _module_functions(tree: ast.Module) -> Iterator[ast.FunctionDef | ast.AsyncFunctionDef]:
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            yield node
+
+
+def _shared_module_name(relative: str) -> str:
+    """``common/lib/datrix_scripts/gate_harness.py`` -> ``datrix_scripts.gate_harness``."""
+    return relative.removeprefix(_SHARED_PACKAGE_PARENT).removesuffix(".py").replace("/", ".")
+
+
+def _shared_homes(modules: list[tuple[str, ast.Module]]) -> dict[str, list[tuple[str, str, int]]]:
+    """Normalised body -> (file, name, line) of each public module-level ``datrix_scripts`` function."""
+    homes: dict[str, list[tuple[str, str, int]]] = defaultdict(list)
+    for relative, tree in modules:
+        if not relative.startswith(SHARED_PACKAGE_DIR):
+            continue
+        free = module_bindings(relative, tree)
+        for node in _module_functions(tree):
+            key = _normalised_key(node, free)
+            if key is not None and not node.name.startswith(_PRIVATE_PREFIX) and _states_a_fact(node):
+                homes[key].append((relative, node.name, node.lineno))
+    return homes
+
+
+def shared_helper_copies(modules: list[tuple[str, ast.Module]]) -> list[CensusHit]:
+    """Every module-level function that copies a public ``datrix_scripts`` function in another file."""
+    homes = _shared_homes(modules)
+    hits: list[CensusHit] = []
+    for relative, tree in modules:
+        free = module_bindings(relative, tree)
+        for node in _module_functions(tree):
+            key = _normalised_key(node, free)
+            if key is None or key not in homes:
+                continue
+            for home, name, line in homes[key]:
+                if home == relative:
+                    continue
+                hits.append(
+                    CensusHit(
+                        Census.IDENTICAL_BODIES,
+                        f"{relative}:{node.lineno}",
+                        f"{node.name} copies {home}:{line} {name}; delete it and import {name} "
+                        f"from {_shared_module_name(home)}",
+                    )
+                )
+    return hits
+
+
 def identical_bodies(modules: list[tuple[str, ast.Module]]) -> list[CensusHit]:
+    """Copies of a shared helper (any length), then identical long bodies across files.
+
+    A long copy of a shared helper is reported once, by the first rule: it leaves the anonymous
+    grouping, so the home is left without a partner there.
+    """
+    copies = shared_helper_copies(modules)
+    copied = {hit.location for hit in copies}
     groups: dict[str, list[tuple[str, str, int]]] = defaultdict(list)
     for relative, tree in modules:
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 key = _body_key(node)
-                if key is not None:
+                if key is not None and f"{relative}:{node.lineno}" not in copied:
                     groups[key].append((relative, node.name, node.lineno))
-    hits: list[CensusHit] = []
+    hits: list[CensusHit] = list(copies)
     for members in groups.values():
         files = {relative for relative, _, _ in members}
         if len(files) < 2:
@@ -488,6 +714,41 @@ _DISCOVERY_COPY_VIA_CONSTANT: Final = (
 _SYS_PATH_COPY: Final = "import sys\nsys.path.insert(0, 'x')\n"
 _BODY: Final = "def helper(a: int) -> int:\n    b = a + 1\n    c = b * 2\n    return c\n"
 _OTHER_BODY: Final = "def helper(a: int) -> int:\n    b = a + 2\n    c = b * 2\n    return c\n"
+_SHARED_WRITER: Final = (
+    "from pathlib import Path\n\n"
+    "def write_file(path: Path, text: str) -> None:\n"
+    '    """Write one file."""\n'
+    "    path.parent.mkdir(parents=True, exist_ok=True)\n"
+    "    path.write_text(text, encoding='utf-8')\n"
+)
+_PRIVATE_SHARED_WRITER: Final = _SHARED_WRITER.replace("def write_file", "def _write_file")
+#: The shared writer under other bound names and annotations: a copy all the same.
+_RENAMED_WRITER_COPY: Final = (
+    "def _write(target, body: str):\n"
+    "    target.parent.mkdir(parents=True, exist_ok=True)\n"
+    "    target.write_text(body, encoding='utf-8')\n"
+)
+#: The same shape writing through another collaborator: free names are not normalised.
+_WRITER_WITH_OTHER_ENCODING: Final = _RENAMED_WRITER_COPY.replace("'utf-8'", "'ascii'")
+_SHARED_BODY: Final = _BODY.replace("def helper", "def shared_helper")
+#: A delegating home, and a copy reaching the same collaborator through an import.
+_SHARED_DELEGATING_WRITER: Final = (
+    "def write_files(root, files):\n"
+    "    return [root / name for name in files]\n\n"
+    "def write_file(path, text):\n"
+    "    return write_files(path.parent, {path.name: text})[0]\n"
+)
+_IMPORTED_DELEGATING_COPY: Final = (
+    "from datrix_scripts.gate_harness import write_files\n\n"
+    "def _write(target, body):\n"
+    "    return write_files(target.parent, {target.name: body})[0]\n"
+)
+#: Two entry points of one shape, each calling the ``run`` its own module defines.
+_SHARED_ENTRY_POINT: Final = "def run() -> int:\n    return 1\n\ndef main() -> int:\n    return run()\n"
+_OTHER_ENTRY_POINT: Final = _SHARED_ENTRY_POINT.replace("return 1", "return 2")
+#: A body that only returns a constant states no fact, so its twin is no copy.
+_CONSTANT_HELPER: Final = 'def without_expiry() -> None:\n    """No expiry."""\n    return None\n'
+_CONSTANT_COPY: Final = "def _passing() -> None:\n    return None\n"
 _VENV_WRAPPER: Final = "Ensure-DatrixVenv\n"
 _GATE_WITHOUT_VERDICT: Final = "param([switch]$SelfTest)\nWrite-Host 'x'\n"
 _GATE_WITH_VERDICT: Final = (
@@ -539,6 +800,29 @@ def _check_identical_bodies() -> None:
     _expect({"dev/lib/a.py": _BODY, "test/lib/b.py": _OTHER_BODY}, Census.IDENTICAL_BODIES, 0)
 
 
+def _check_shared_helper_copies() -> None:
+    copy_hits = shared_helper_copies(
+        [(HARNESS_HOME, ast.parse(_SHARED_WRITER)), ("dev/lib/a_gate.py", ast.parse(_RENAMED_WRITER_COPY))]
+    )
+    if [hit.location for hit in copy_hits] != ["dev/lib/a_gate.py:1"] or "datrix_scripts.gate_harness" not in (
+        copy_hits[0].detail
+    ):
+        raise AssertionError(f"a short copy of a shared helper must be one hit naming its home, got {copy_hits}")
+    _expect({HARNESS_HOME: _SHARED_WRITER, "dev/lib/a_gate.py": _RENAMED_WRITER_COPY}, Census.IDENTICAL_BODIES, 1)
+    # A long copy of a shared helper is reported once, not again as an anonymous pair.
+    _expect({HARNESS_HOME: _SHARED_BODY, "dev/lib/a.py": _BODY}, Census.IDENTICAL_BODIES, 1)
+    _expect({HARNESS_HOME: _PRIVATE_SHARED_WRITER, "dev/lib/a_gate.py": _RENAMED_WRITER_COPY}, Census.IDENTICAL_BODIES, 0)
+    _expect({HARNESS_HOME: _SHARED_WRITER, "dev/lib/a_gate.py": _WRITER_WITH_OTHER_ENCODING}, Census.IDENTICAL_BODIES, 0)
+    _expect({"dev/lib/a_gate.py": _RENAMED_WRITER_COPY, "test/lib/b_gate.py": _RENAMED_WRITER_COPY}, Census.IDENTICAL_BODIES, 0)
+    _expect(
+        {HARNESS_HOME: _SHARED_DELEGATING_WRITER, "dev/lib/a_gate.py": _IMPORTED_DELEGATING_COPY},
+        Census.IDENTICAL_BODIES,
+        1,
+    )
+    _expect({HARNESS_HOME: _SHARED_ENTRY_POINT, "dev/lib/a_gate.py": _OTHER_ENTRY_POINT}, Census.IDENTICAL_BODIES, 0)
+    _expect({HARNESS_HOME: _CONSTANT_HELPER, "dev/lib/a_gate.py": _CONSTANT_COPY}, Census.IDENTICAL_BODIES, 0)
+
+
 def _check_runner_adoption() -> None:
     _expect({_PLANTED_WRAPPER: _VENV_WRAPPER}, Census.RUNNER, 1)
     _expect({VENV_HOME: _VENV_WRAPPER}, Census.RUNNER, 0)
@@ -566,6 +850,7 @@ def self_test_checks() -> list[NamedCheck]:
         NamedCheck("census_package_discovery_reports_a_planted_scan", _check_package_discovery),
         NamedCheck("census_sys_path_reports_a_planted_insert", _check_sys_path),
         NamedCheck("census_identical_bodies_reports_a_planted_pair", _check_identical_bodies),
+        NamedCheck("census_identical_bodies_reports_a_short_copy_of_a_shared_helper", _check_shared_helper_copies),
         NamedCheck("census_runner_adoption_reports_planted_wrappers", _check_runner_adoption),
         NamedCheck("census_gate_self_test_reports_a_planted_gate", _check_gate_self_test),
         NamedCheck("census_root_resolvers_reports_planted_definitions_and_uses", _check_root_resolvers),

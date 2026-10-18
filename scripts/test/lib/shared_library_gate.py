@@ -199,6 +199,7 @@ from datrix_scripts.test_runner import (
     decide_serial_phase,
     split_tags,
 )
+from run_complete_checks import checks as run_complete_checks
 from scripts_contract_checks import checks as contract_checks
 from scripts_tree_census import self_test_checks as census_self_test_checks
 
@@ -5102,6 +5103,8 @@ _ALL_CHECKS: list[CheckFunc | NamedCheck] = [
     # datrix_scripts.gate_harness / count_ratchet, the scripts-tree censuses and shared-module
     # coverage (scripts_contract_checks)
     *contract_checks(),
+    # run_complete (test\run-complete.ps1): its parsers, writers, child runner and steps
+    *run_complete_checks(),
 ]
 
 

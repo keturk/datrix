@@ -13,7 +13,6 @@ Run through dev/local-llm-gate.ps1.
 
 from __future__ import annotations
 
-import io
 import json
 import subprocess
 import sys
@@ -53,7 +52,7 @@ from datrix_scripts.local_reading import (
     digest_log,
     reduce_log,
 )
-from datrix_scripts.mcp_stdio import serve
+from datrix_scripts.mcp_exchange import exchange, tool_call, tool_result
 from datrix_scripts.paths import script_env
 from local_llm_mcp import LocalLlmServer, LocalReader
 
@@ -305,47 +304,28 @@ def check_digest_log_checks_only_its_own_line_citations() -> None:
 # ===========================================================================
 
 
-def _exchange(server: LocalLlmServer, messages: list[object]) -> list[dict[str, object]]:
-    stdin = io.BytesIO(b"".join(json.dumps(m).encode("utf-8") + b"\n" for m in messages))
-    stdout = io.BytesIO()
-    serve(server, stdin, stdout)
-    return [json.loads(line) for line in stdout.getvalue().splitlines()]
-
-
-def _call(request_id: int, name: str, arguments: dict[str, object]) -> dict[str, object]:
-    return {"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
-
-
-def _content(response: dict[str, object]) -> tuple[bool, str]:
-    result = response["result"]
-    assert isinstance(result, dict), response
-    content = result["content"]
-    assert isinstance(content, list)
-    return bool(result["isError"]), str(content[0]["text"])
-
-
 def check_mcp_server_answers_and_refuses_out_of_scope() -> None:
     with _workspace() as root, LoopbackOllama(answering("alpha: datrix-alpha/src/a.py:1")) as server:
         log = root / "usage.jsonl"
-        responses = _exchange(LocalLlmServer(lambda: LocalReader(ReadScope(root), _settings(server.port, log))), [
+        responses = exchange(LocalLlmServer(lambda: LocalReader(ReadScope(root), _settings(server.port, log))), [
             {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
-            _call(3, "ask_files", {"paths": ["datrix-alpha/src/a.py"], "question": "Where is alpha?"}),
-            _call(4, "ask_files", {"paths": ["acme-shop/x.py"], "question": "What is this?"}),
-            _call(5, "ask_files", {"paths": [], "question": "q"}),
-            _call(6, "local_models", {}),
+            tool_call(3, "ask_files", {"paths": ["datrix-alpha/src/a.py"], "question": "Where is alpha?"}),
+            tool_call(4, "ask_files", {"paths": ["acme-shop/x.py"], "question": "What is this?"}),
+            tool_call(5, "ask_files", {"paths": [], "question": "q"}),
+            tool_call(6, "local_models", {}),
         ])
         assert responses[0]["result"]["serverInfo"]["name"] == "datrix-local-llm", responses[0]
         tools = responses[1]["result"]["tools"]
         assert [(t["name"], t["annotations"]["openWorldHint"]) for t in tools] == [
             ("ask_files", True), ("digest_log", True), ("local_models", True)], tools
-        assert _content(responses[2]) == (False, _content(responses[2])[1]) and "alpha: datrix-alpha/src/a.py:1" in \
-            _content(responses[2])[1]
-        is_error, text = _content(responses[3])
+        assert tool_result(responses[2]) == (False, tool_result(responses[2])[1]) and \
+            "alpha: datrix-alpha/src/a.py:1" in tool_result(responses[2])[1]
+        is_error, text = tool_result(responses[3])
         assert is_error and "outside what local-model tools may read" in text, text
-        is_error, text = _content(responses[4])
+        is_error, text = tool_result(responses[4])
         assert is_error and "'paths' is required" in text, text
-        is_error, text = _content(responses[5])
+        is_error, text = tool_result(responses[5])
         assert not is_error and "gate-model" in text and "mcp:ask_files: 1 requests" in text, text
         callers = [json.loads(line)["caller"] for line in log.read_text(encoding="utf-8").splitlines()]
         assert callers == ["mcp:ask_files"], f"a tool call must be logged under its tool's name: {callers}"
@@ -354,9 +334,9 @@ def check_mcp_server_answers_and_refuses_out_of_scope() -> None:
 def check_mcp_server_reports_no_model_server_as_a_tool_error() -> None:
     with _workspace() as root:
         settings = _settings(closed_port(), root / "usage.jsonl")
-        responses = _exchange(LocalLlmServer(lambda: LocalReader(ReadScope(root), settings)), [
-            _call(1, "ask_files", {"paths": ["datrix-alpha/src/a.py"], "question": "q"})])
-        is_error, text = _content(responses[0])
+        responses = exchange(LocalLlmServer(lambda: LocalReader(ReadScope(root), settings)), [
+            tool_call(1, "ask_files", {"paths": ["datrix-alpha/src/a.py"], "question": "q"})])
+        is_error, text = tool_result(responses[0])
         assert is_error and "No local Ollama server could answer" in text, text
 
 

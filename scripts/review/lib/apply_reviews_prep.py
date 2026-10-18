@@ -48,6 +48,7 @@ if sys.platform == "win32" and __name__ == "__main__":
 
 from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
 from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
+from datrix_scripts.task_metadata import write_json_output  # noqa: E402
 from review_schema import Finding  # noqa: E402
 from tier2_local import PHASE_ARTIFACT_TEMPLATE, PHASE_SOURCE  # noqa: E402
 
@@ -309,13 +310,6 @@ def build_worklist(base_dir: Path, phase: int, source: str) -> dict[str, object]
     }
 
 
-def _write_output(payload: dict[str, object], output_path: Path) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
-        handle.write("\n")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Build the apply-reviews worklist for a phase"
@@ -364,7 +358,7 @@ def main() -> int:
         if args.output is not None
         else WORKSPACE_DIR / ".tmp" / OUTPUT_CATEGORY / f"phase-{phase_label}-worklist.json"
     )
-    _write_output(payload, output_path)
+    write_json_output(payload, output_path)
 
     artifacts = payload["artifacts"]
     targets = payload["targets"]

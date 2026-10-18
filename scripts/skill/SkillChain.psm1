@@ -7,6 +7,15 @@
 
 $script:Options = $null
 $script:SessionId = ""
+
+# Tokens a step's context may reach before Claude Code compacts it, passed to each session as
+# CLAUDE_CODE_AUTO_COMPACT_WINDOW. Every response re-reads the whole context, so the context size,
+# not the size of an edit or a test log, sets what a long step costs. Left to the model's own
+# window (1M), one overnight step grew to about 965k before each compaction and re-read 473k per
+# response on average; at 300k the average falls to about 180k, at the price of compacting about
+# three times as often. 0 leaves the choice to Claude Code.
+$DefaultAutoCompactWindow = 300000
+$AutoCompactWindowVariable = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
 $script:StepNumber = 0
 $script:Steps = New-Object System.Collections.Generic.List[object]
 
@@ -21,6 +30,7 @@ function Initialize-SkillChain {
         [switch]$Resume,
         [string]$PermissionMode = "auto",
         [double]$MaxBudgetUsd = 0,
+        [ValidateRange(0, [int]::MaxValue)] [int]$AutoCompactWindow = $DefaultAutoCompactWindow,
         [switch]$DryRun,
         [switch]$Quiet
     )
@@ -35,6 +45,7 @@ function Initialize-SkillChain {
         Resume = [bool]$Resume
         PermissionMode = $PermissionMode
         MaxBudgetUsd = $MaxBudgetUsd
+        AutoCompactWindow = $AutoCompactWindow
         DryRun = [bool]$DryRun
         Quiet = [bool]$Quiet
         RunDir = Join-Path $Workspace (".tmp\skill-chain\" + (Get-Date -Format "yyyyMMdd-HHmmss"))
@@ -112,7 +123,8 @@ function Invoke-ChainStep {
     $script:StepNumber += 1
     $label = "{0:D2}-{1}" -f $script:StepNumber, $Name
     Write-Host ""
-    Write-Host "=== step $label$(if ($Model) { " ($Model$(if ($Effort) { ", $Effort" }))" }) ===" -ForegroundColor Cyan
+    $compactNote = if ($options.AutoCompactWindow -gt 0) { " [compacts at $($options.AutoCompactWindow) tokens]" } else { "" }
+    Write-Host "=== step $label$(if ($Model) { " ($Model$(if ($Effort) { ", $Effort" }))" })$compactNote ===" -ForegroundColor Cyan
     Write-Host $Prompt
     if ($options.DryRun) {
         return [pscustomobject]@{ Name = $label; IsError = $false; Result = ""; SessionId = ""; DryRun = $true }
@@ -129,6 +141,11 @@ function Invoke-ChainStep {
     $started = Get-Date
     $result = $null
     $stream = [System.IO.StreamWriter]::new($streamPath, $false, [System.Text.UTF8Encoding]::new($false))
+    # The session inherits the window from this process's environment; the caller's own value is put back after.
+    $savedWindow = [Environment]::GetEnvironmentVariable($AutoCompactWindowVariable, "Process")
+    if ($options.AutoCompactWindow -gt 0) {
+        [Environment]::SetEnvironmentVariable($AutoCompactWindowVariable, "$($options.AutoCompactWindow)", "Process")
+    }
     Push-Location $options.Workspace
     try {
         $null | & claude @cliArgs 2> $errPath | ForEach-Object {
@@ -144,6 +161,7 @@ function Invoke-ChainStep {
     } finally {
         Pop-Location
         $stream.Dispose()
+        [Environment]::SetEnvironmentVariable($AutoCompactWindowVariable, $savedWindow, "Process")
     }
     if (-not $result) {
         Write-Host "Step $label printed no result event (see $streamPath and $errPath)." -ForegroundColor Red

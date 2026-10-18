@@ -282,6 +282,52 @@ It is a repo-level validation **script**, not a pytest suite.
 
 **Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
 
+### `dev\line-edit.ps1`
+
+Sets up the `datrix-edit` MCP server (`dev/lib/line_edit_mcp.py`, logic in `common/lib/datrix_scripts/line_edits.py`). Its `read_lines` shows each line as `<number>:<hash>|<text>` (same `file_path`/`offset`/`limit` as Read). Its `edit_lines` replaces lines (`{file_path, start, end, hashes, text}`, `hashes` = the 2-character hash of every replaced line) or inserts after a line (`{file_path, after, hash, text}`, `after` 0 = the top). One call carries up to 200 edits across files.
+
+- **Old text is never re-sent.** An `Edit` re-sends its `old_string`, padded until unique, and every later response re-reads it. In one overnight run, old text made up 46% of all edit input.
+- **Checked before written.** Line numbers refer to the files as they were before the call, and edits apply bottom-up. Every edit is checked before any file is written. One wrong hash refuses the whole call and shows the lines now there.
+- **Ready for the next edit.** The reply gives each changed range's new numbers and hashes, so a follow-up edit needs no re-read.
+- **Files are preserved.** Untouched lines keep their own endings, and the byte-order mark and a missing final newline are kept. Each file is written atomically.
+- **Limits.** Only existing UTF-8 text files under the workspace, up to 4 MB, are read or edited. New files are still made with Write.
+- **Guarded like Edit.** The `route-line-edits.py` hook hands each file's change, as an `Edit` payload, to every guard `settings.json` registers for Edit. The `datrix-edit` read tool counts as a Read for the mandatory-reads gate and the large-read redirect.
+- **After an edit.** Keep editing a file with `edit_lines` once it has changed it: the built-in Edit refuses a file changed outside it until it is read again.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Set up a machine** | `.\dev\line-edit.ps1 -Setup` | Write `datrix-edit` into `d:\datrix\.mcp.json` (other servers kept), approve it for this machine in `.claude\settings.local.json`, remove older local-scope registrations; restart Claude Code afterwards (`Install-DatrixProjectMcpServer`, as for `code-index.ps1 -Setup`) |
+
+**Exit codes:** 0 done; 1 the request could not be carried out.
+
+### `dev\line-edit-gate.ps1`
+
+Behaviour checks for line-addressed editing, run on real files in a temporary workspace through `datrix_scripts.line_edits` and the `datrix-edit` server. The checks cover:
+
+- numbered, hashed reading
+- hash-checked replaces, deletes and inserts (top, end, an empty file)
+- a whole call refused, with nothing written, when one hash is wrong
+- line numbers that refer to the file before the call
+- overlapping and misshapen edits refused
+- kept CRLF, mixed endings, byte-order mark and missing final newline
+- a reply that carries what a follow-up edit needs
+- the workspace, NUL-byte and UTF-8 limits
+- the span the edit guards are shown
+- the MCP protocol, with stdout carrying only protocol
+
+It is a repo-level validation **script**, not a pytest suite. The hook side is checked by `.claude/hooks/test-route-line-edits.py`.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\dev\line-edit-gate.ps1` | Run every check |
+| **One area** | `.\dev\line-edit-gate.ps1 -Only check_mcp` | Checks whose name starts with the prefix |
+| **Harness self-test** | `.\dev\line-edit-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
+| **Self-test** | `.\dev\line-edit-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks over planted inputs |
+
+**Parameters:** `-Only`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
+
+**Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
+
 ### `dev\ineedtoknow.ps1`
 
 **Ask what you need to know, in your own words, instead of loading whole docs.** The knowledge base answers from the project's own docs (architecture cheat sheet and knowledge packs, the decision log, agent rules, execution contract, script quick-references, package architecture docs; the list is `CURATED_PATTERNS` in `common/lib/datrix_scripts/knowledge/seed.py`), cut into chunks by heading, and from answers learned earlier. A hit is a brief answer plus the file and line range to open. Wrapper over `dev/lib/ineedtoknow_cli.py`; the logic is in `common/lib/datrix_scripts/knowledge/`.
