@@ -401,7 +401,7 @@ _SYSTEM_DCFG: Final[str] = """config system catalog.System {
     }
     observability {
       tracing {
-        endpoint = "http://jaeger:4317";
+        endpoint = "http://jaeger:4318";
       }
     }
     region = "us-east-1";

@@ -112,7 +112,6 @@ $commonDir = Join-Path $PSScriptRoot "..\..\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixPythonScript.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
 
 $GateName = "ingress-migration-conformance"
 $ExitPass = 0
@@ -680,9 +679,9 @@ function Invoke-Gate {
     # (discovered at runtime, never a hardcoded literal) so a newly installed
     # datrix-codegen-<lang> package is covered with no edit to this gate.
     if ($Languages.Count -eq 0) {
-        $script:Languages = @(Get-DatrixInstalledLanguages -PythonExe (Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"))
+        $script:Languages = @(Get-DatrixInstalledLanguages -PythonExe (Get-DatrixVenvPython))
         if ($script:Languages.Count -eq 0) {
-            Write-DatrixGateLog -LogPath $LogPath -Message "No datrix.languages targets are installed; expected at least one. Fix: run common\venv.ps1 setup." -Color Red
+            Write-DatrixGateLog -LogPath $LogPath -Message "No datrix.languages targets are installed; expected at least one. Fix: run common\venv.ps1 -Ensure -EnsurePackages." -Color Red
             return $ExitFail
         }
     }

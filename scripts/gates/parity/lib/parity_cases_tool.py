@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
 
+from datrix_common.testing.tag_vocabulary import documented_tags
 from datrix_testing.cases.approvals import ApprovalError, approval_of, armed_tests_root, proposals_dir
 from datrix_testing.cases.authoring import AuthoringError, expectation_of, selector_of, split_tags
 from datrix_testing.cases.compare import EXPECTATION_FORM
@@ -49,7 +50,6 @@ from datrix_testing.cases.parity import (
     load_parity_rows,
     probe_axis,
 )
-from datrix_testing.cases.vocabulary import documented_tags
 
 from datrix_scripts.paths import SCRIPTS_DIR
 from datrix_scripts.test_projects import list_projects

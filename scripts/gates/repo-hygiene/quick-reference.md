@@ -113,6 +113,34 @@ must satisfy, and code shapes held at zero. Repo-level validation **scripts**, n
 
 ---
 
+## `gates\repo-hygiene\line-ending-gate.ps1`
+
+**The repo's proof that every framework repo normalizes text to LF and commits no CRLF line.** With `core.autocrlf=false` (this workspace's setting) and no attribute rule, a file an editor or a bulk edit rewrote with CRLF is committed as CRLF: every line of it shows as changed, `git blame` loses its history, and the file differs byte-for-byte between checkouts. A package with no `.gitattributes` once had forty-two modified files switched to CRLF in its working tree by one bulk edit, one commit away from rewriting all of them. The showcase repo and every `datrix-*` git checkout are discovered from disk, so a new package is checked the day it is cloned.
+
+**Git is the oracle.** Two facts per repo, neither re-implemented:
+
+| Rule | Fact |
+|------|------|
+| `policy` | `git check-attr text eol` on a probe path no per-extension rule names resolves to `text: auto` and `eol: lf` — the catch-all `* text=auto eol=lf` line is in force, so a CRLF working-tree file is staged as LF |
+| `committed-crlf` | `git ls-files --eol` reports no tracked file whose index blob is `i/crlf` or `i/mixed`; binary files (`i/-text`) are never reported |
+
+A per-extension `eol=crlf` line (`*.ps1`) is untouched by either rule: the index copy is still LF, only the checkout differs. A working tree whose files differ in line endings from their index copy is `git\fix-line-endings.ps1`'s job; this gate holds what is, or would be, committed.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\gates\repo-hygiene\line-ending-gate.ps1` | Check every framework repo in the workspace |
+| **One repo** | `.\gates\repo-hygiene\line-ending-gate.ps1 -Repo datrix-codegen-flutter` | Check only the named repo(s) |
+| **Self-test only** | `.\gates\repo-hygiene\line-ending-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Debug** | `.\gates\repo-hygiene\line-ending-gate.ps1 -Dbg` | DEBUG logging; print the python invocation before running |
+
+**Parameters:** `-Repo <name[,name...]>`, `-SelfTest`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** Two scratch git repos under `D:\datrix\.tmp\` stage the same CRLF text file and a binary file carrying CR LF bytes: the one with no attributes must report exactly the `policy` fact and the text file, and the one under `* text=auto eol=lf` must report nothing. A self-test failure aborts before any real result is trusted (exit 1).
+
+**Exit codes:** 0 = every scanned repo holds both facts (or the self-test passed, with `-SelfTest`), 1 = at least one violation or a failing self-test, 2 = usage error (unknown `-Repo` name, no framework repo found) or a failing git command.
+
+---
+
 ## `gates\repo-hygiene\ignored-source-gate.ps1`
 
 **The repo's proof that no `.gitignore` rule is silently deleting a publishable file.** For the `datrix` showcase repo and every `datrix-*` clone in the workspace (discovered from disk at runtime — a new package is covered with no edit to the gate), it computes the set difference between the working tree and what a `git add -A` would stage. Every element of that difference must be a reviewed, scoped entry in `scripts/config/ignored-source-exemptions.json`; anything else is a source file that exists locally and will not survive a clone. An entry names the ignore rule by its pattern text and by a segment-aware glob over the repo-relative path of the `.gitignore` file git blames (a literal path matches only that file; `examples/**/generated/**/.gitignore` matches the nested files a generator writes into each emitted project), and scopes the paths it excuses with `path_glob`.
@@ -196,9 +224,9 @@ A self-test failure aborts before any real result is trusted (exit 1).
 
 ## `gates\repo-hygiene\python-lint-correctness-gate.ps1`
 
-**The repo's proof that no package carries a pyflakes finding.** Unused imports, undefined names, and test functions silently shadowed by a same-named redefinition (the first definition never runs) are `ruff` rule family `F`. Targets are derived from disk, never listed: every workspace `datrix*` directory holding a `pyproject.toml` contributes its `src/` and `tests/` trees when present, and the `datrix` showcase repo contributes `scripts/`. Each tree is linted with `ruff check --select F --output-format json` run from its package root, so that package's own `per-file-ignores` apply; `--select F` is explicit so no package's rule selection can hide a pyflakes finding. Findings print as `package/path:line:col CODE message`.
+**The repo's proof that no package carries a pyflakes or top-level blank-line finding.** Unused imports, undefined names, and test functions silently shadowed by a same-named redefinition (the first definition never runs) are `ruff` rule family `F`. Two blank lines before a top-level def/class (`E302`) and after one (`E305`) are pycodestyle rules that ruff ships only in preview, so no package's `select = ["E", ...]` activates them. Targets are derived from disk, never listed: every workspace `datrix*` directory holding a `pyproject.toml` contributes its `src/` and `tests/` trees when present, and the `datrix` showcase repo contributes `scripts/`. Each tree is linted in two passes run from its package root, so that package's own `per-file-ignores` apply: `ruff check --select F --output-format json` on stable ruff (a preview change to an F rule never shifts the verdict), and `ruff check --select E302,E305 --preview --output-format json`. Both selections are explicit so no package's rule selection can hide a finding. Findings print as `package/path:line:col CODE message`.
 
-**Held at a hard zero with no baseline.** A finding that is genuinely required (an import kept for a documented side effect) is suppressed only by a line-level `# noqa: <code>` carrying the reason on the same line; `RUF100` already reports a stale one. The style families (`UP037`, `I001`, `UP031`, …) are out of scope: they are not correctness defects and would bury the pyflakes signal. A package's root `vulture_whitelist.py` is never linted: it is Vulture's input, a list of bare names and `_.attr` reads that nothing binds (every line an F821 by construction); the tree scan never reaches it and the commit path skips it. A same-named file below the root is linted like any other.
+**Held at a hard zero with no baseline.** A finding that is genuinely required (an import kept for a documented side effect) is suppressed only by a line-level `# noqa: <code>` carrying the reason on the same line; `RUF100` already reports a stale one. The other style families (`UP037`, `I001`, `UP031`, …) are out of scope: they are not correctness defects and would bury the pyflakes signal. A package's root `vulture_whitelist.py` is never linted: it is Vulture's input, a list of bare names and `_.attr` reads that nothing binds (every line an F821 by construction); the tree scan never reaches it and the commit path skips it. A same-named file below the root is linted like any other.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -208,11 +236,11 @@ A self-test failure aborts before any real result is trusted (exit 1).
 
 **Parameters:** `-SelfTest`, `-Dbg`
 
-**Self-test runs automatically, every invocation.** A temporary fixture package with one planted F401 and one F821 must report exactly those two; the same package clean must report zero; a fixture `per-file-ignores` for the F401 must suppress it and leave the F821. The live run additionally fails (exit 2) when any discovered package has no scanned tree — a scan that found no trees is broken, not clean.
+**Self-test runs automatically, every invocation.** A temporary fixture package with one planted F401 and one F821 must report exactly those two; one with a planted E302 and E305 must report exactly those two; the same package clean must report zero; a fixture `per-file-ignores` for the F401 must suppress it and leave the F821. The live run additionally fails (exit 2) when any discovered package has no scanned tree — a scan that found no trees is broken, not clean.
 
-**Also enforced at the commit seam.** `git\commit-and-push.ps1` runs `ruff check --select F` over the pending `.py` files of every dirty repo before it generates a message or stages anything, and refuses the whole run on a finding. There is no skip switch. This gate is the whole-workspace counterpart.
+**Also enforced at the commit seam.** `git\commit-and-push.ps1` runs the same two passes over the pending `.py` files of every dirty repo before it generates a message or stages anything, and refuses the whole run on a finding. There is no skip switch. This gate is the whole-workspace counterpart.
 
-**Exit codes:** 0 = zero pyflakes findings, 1 = at least one finding or the self-test failed, 2 = usage error or ruff could not run.
+**Exit codes:** 0 = zero findings, 1 = at least one finding or the self-test failed, 2 = usage error or ruff could not run.
 
 ---
 
@@ -251,7 +279,7 @@ Docs-conformance gate: extracts repo-relative path references and Python module 
 
 It also checks **class member claims**: when a doc binds a class name to a workspace class (a `from <package module> import Name` line in a code fence, or a qualified `package.module.Name` span) and writes `Name.member` in a backtick span or a code-fence line, the class must have that member — declared in its body (functions, nested classes, assignments, `self.x` assignments, including inside `if TYPE_CHECKING:`), reached through re-exports, or inherited from a base (a base outside the workspace is introspected). A class whose members cannot be enumerated (a `__getattr__`, an unresolvable base, a module-level name that is not a class) is never failed. A name the doc imports from a workspace module that does not define it fails as well. An intentional "before" example of removed code is a baseline entry keyed by its `Name.member` span.
 
-> **`ARCHITECTURE_DOC_FILES` is the one registry in the repo that does NOT self-update.** Everywhere else the package set is discovered from disk (`Get-DatrixDirectories`, `Get-DatrixPackages`, the metrics reports, `commit-and-push`), so a new package is picked up with no edit. This tuple is deliberately the exception — a curated list, reviewed by a human. Consequence: when a new `datrix-codegen-<lang>` package ships its own `docs/architecture.md`, that entry must be **added to the tuple by hand**, or the new package's architecture doc is silently never scanned by the gate. A package with no architecture doc yet contributes zero entries and is correctly absent — as `datrix-extensions` already is.
+> **`ARCHITECTURE_DOC_FILES` is the one registry in the repo that does NOT self-update.** Everywhere else the package set is discovered from disk (`Get-DatrixDirectories`, the venv install order `common\venv.ps1 -ListPackages`, the metrics reports, `commit-and-push`), so a new package is picked up with no edit. This tuple is deliberately the exception — a curated list, reviewed by a human. Consequence: when a new `datrix-codegen-<lang>` package ships its own `docs/architecture.md`, that entry must be **added to the tuple by hand**, or the new package's architecture doc is silently never scanned by the gate. A package with no architecture doc yet contributes zero entries and is correctly absent — as `datrix-extensions` already is.
 
 `test\shared-library-gate.ps1 -Only check_scripts_tree` separately holds every **script path** a doc names (in any repo) to an existing file.
 

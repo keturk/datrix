@@ -28,6 +28,7 @@ from datrix_common.plugin.registry import EXTENSION_GROUP
 
 from datrix_scripts.gate_harness import configure_logging
 from datrix_scripts.registered_targets import registered_language_names
+from datrix_scripts.venv import PACKAGE_DEPENDENCIES, missing_declared_tool
 
 #: Every language's type_mappings module exposes exactly one module-level
 #: dict whose name ends with this suffix (PYTHON_EXTENSION_MAPS,
@@ -116,8 +117,8 @@ def validate_completeness(languages: list[str]) -> int:
     try:
         from datrix_codegen_kernel.generation.type_mapping_registry import global_registry
     except ImportError as e:
-        logger.error("Failed to import global_registry: %s", e)
-        logger.error("Is datrix-common installed?")
+        logger.error("%s The import failed with: %s",
+                     missing_declared_tool("datrix-codegen-kernel", PACKAGE_DEPENDENCIES), e)
         return 2
 
     # Import all requested language mappings

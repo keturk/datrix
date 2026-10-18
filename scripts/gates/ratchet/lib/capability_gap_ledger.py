@@ -43,7 +43,7 @@ from datrix_common.plugin.capability_resolution import (  # noqa: E402
     declaration_for_language,
     declaration_for_provider,
 )
-from datrix_common.plugin.registry import PluginRegistry  # noqa: E402
+from datrix_common.plugin.registry import plugin_registry  # noqa: E402
 
 from datrix_scripts.registered_targets import (
     AXIS_LANGUAGES,
@@ -140,7 +140,7 @@ def discover_implementation_groups() -> ImplementationGroups:
 
 def load_declared_gaps(groups: ImplementationGroups) -> DeclaredGaps:
     """Read ``capability_gaps`` off every registered target's live declaration."""
-    client_registry = PluginRegistry()
+    client_registry = plugin_registry()
     readers = {
         AXIS_LANGUAGES: lambda name: declaration_for_language(name).capability_gaps,
         AXIS_CLIENT_TARGETS: lambda name: client_registry.get_client_target_capabilities(name).capability_gaps,

@@ -59,9 +59,10 @@ from datrix_common.datrix_model.containers import Application
 from datrix_common.errors.plugin import PluginValidationError
 from datrix_common.paths import ServicePaths
 from datrix_common.plugin.capability_resolution import declaration_for_language, declaration_for_provider
+from datrix_common.testing.tag_vocabulary import documented_tags
 from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
 from datrix_language.registration import register_all
-from datrix_testing.cases.compare import Observation, render, verdict
+from datrix_testing.cases.compare import Observation, flow_text, verdict
 from datrix_testing.cases.errors import SelectorError
 from datrix_testing.cases.model import Case, CaseFileError
 from datrix_testing.cases.parity import (
@@ -75,7 +76,6 @@ from datrix_testing.cases.parity import (
     probe_axis,
     select_rows,
 )
-from datrix_testing.cases.vocabulary import documented_tags
 
 from datrix_scripts.generated_example import generate_example
 from datrix_scripts.hook_modules import HookModuleError, load_suite_invocation
@@ -136,7 +136,7 @@ class Reading:
         """The reading as a report writes it."""
         if self.observation is None:
             return f"<unreadable: {self.failure}>"
-        return render(self.observation.value)
+        return flow_text(self.observation.value)
 
 
 @dataclass
@@ -284,7 +284,7 @@ def read_row(row: Case, access: TargetAccess, cache: ProbeCache) -> RowOutcome:
 def outcome_lines(outcome: RowOutcome) -> tuple[list[str], list[str]]:
     """``(failures, notes)`` for one row: DIVERGENCE / UNREADABLE / GAP lines, then DRIFT and N/A lines."""
     row = outcome.row
-    expected = render(row.expectation)
+    expected = flow_text(row.expectation)
     failures: list[str] = []
     for target, reading in sorted(outcome.readings.items()):
         if target in outcome.gaps:

@@ -1,7 +1,8 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Repo-level gate: pyflakes (ruff --select F) findings are a hard zero in every package.
+ Repo-level gate: pyflakes (ruff --select F) and top-level blank-line (ruff --preview
+ --select E302,E305) findings are a hard zero in every package.
 
 .DESCRIPTION
  Activates the Datrix virtual environment and runs the shared module
@@ -9,20 +10,22 @@
  tests/ trees of every workspace datrix* directory holding a pyproject.toml
  (plus the datrix showcase repo's scripts/), discovered at runtime. Each tree
  is linted from its package root so that package's own per-file-ignores
- apply; the rule selection is explicitly F so no package config can hide a
- pyflakes finding.
+ apply, in two passes: F on stable ruff, and E302 + E305 (two blank lines
+ before and after a top-level def/class), which exist only as ruff preview
+ rules, with --preview. Both selections are explicit so no package config can
+ hide a finding.
 
  HARD ZERO, NO BASELINE: any finding fails. A finding that is genuinely
  required is suppressed only by a line-level `# noqa: <code>` carrying the
  reason on the same line.
 
  The non-vacuity self-test runs before every scan (a planted F401 + F821 must
- be reported, a clean package must report zero, a fixture per-file-ignores
- must suppress the F401 only), and the live run must scan at least one tree
- for every discovered package.
+ be reported, a planted E302 + E305 must be reported, a clean package must
+ report zero, a fixture per-file-ignores must suppress the F401 only), and the
+ live run must scan at least one tree for every discovered package.
 
  Exit codes:
-   0 = zero pyflakes findings
+   0 = zero findings
    1 = at least one finding, or the self-test failed
    2 = usage error, or ruff could not run
 

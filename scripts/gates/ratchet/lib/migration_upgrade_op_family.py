@@ -123,6 +123,7 @@ SHARED_SYMBOL: Final[str] = "parse_index_added_detail"
 #: The pre-hoist private name, which must not survive in any target.
 RETIRED_PRIVATE_SYMBOL: Final[str] = "_index_from_index_added_detail"
 
+
 class GateConfigurationError(RuntimeError):
     """The packages or the baseline this gate reads could not be resolved."""
 

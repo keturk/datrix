@@ -211,7 +211,7 @@ import tomllib
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from importlib.metadata import EntryPoint, entry_points
+from importlib.metadata import entry_points
 from pathlib import Path
 from types import FunctionType, MappingProxyType
 from typing import Final, Literal
@@ -233,7 +233,6 @@ from datrix_codegen_kernel.platform.realization_table import (
     parse_realization_tables,
 )
 from datrix_common.errors.plugin import PluginNotFoundError
-from datrix_common.plugin import registry as registry_module
 from datrix_common.plugin.capability_resolution import (
     container_scaffold_generator_names_for,
     declaration_for_language,
@@ -241,7 +240,11 @@ from datrix_common.plugin.capability_resolution import (
 from datrix_common.plugin.identity import RuntimeId
 from datrix_common.plugin.client_capability import ClientTargetCapabilityDeclaration
 from datrix_common.plugin.descriptor import PluginDescriptor
-from datrix_common.plugin.registry import GENERATOR_GROUP, PluginRegistry
+from datrix_common.plugin.registry import GENERATOR_GROUP, PluginRegistry, plugin_registry
+from datrix_testing.conformance.plugin_harness import (
+    FixtureEntryPointSpec,
+    process_fixture_plugin_environment,
+)
 
 from datrix_scripts.behaviour_skeleton import (
     FunctionSource,
@@ -430,13 +433,6 @@ class RoleVerdict:
 # ---------------------------------------------------------------------------
 
 
-#: Shared registry the client-target token fallback resolves against; not
-#: ``Final`` -- the self-test temporarily substitutes a fixture registry
-#: (under a monkeypatched entry-point seam) and restores this exact instance
-#: afterward.
-_CLIENT_TARGET_REGISTRY: PluginRegistry = PluginRegistry()
-
-
 def _client_target_capability_declaration(
     name: str, registry: PluginRegistry | None = None
 ) -> ClientTargetCapabilityDeclaration:
@@ -448,8 +444,8 @@ def _client_target_capability_declaration(
 
     Args:
         name: A registered `datrix.generators` entry-point name.
-        registry: Registry to resolve against; defaults to the module-level
-            shared registry. Tests pass a registry seeded with fixture
+        registry: Registry to resolve against; defaults to the process
+            registry (``plugin_registry()``, read at call time). Tests pass a registry seeded with fixture
             generator plugins.
 
     Returns:
@@ -461,7 +457,7 @@ def _client_target_capability_declaration(
             `client_capabilities` -- naming the installed client-target
             generators actually available.
     """
-    reg = registry if registry is not None else _CLIENT_TARGET_REGISTRY
+    reg = registry if registry is not None else plugin_registry()
     classes = reg.list_native_generator_classes()
     descriptor = getattr(classes.get(name), "descriptor", None)
     declaration = descriptor.client_capabilities if descriptor is not None else None
@@ -4206,69 +4202,42 @@ def _self_test_case_rendering_leaf_private_parameter_exemption() -> bool:
 def _self_test_case_client_target_generator_names() -> bool:
     """(z1) A native ``datrix.generators`` class declaring a non-``None``
     ``descriptor.transpiler_profile`` is included by
-    ``registered_client_target_generator_names`` when injected into a
-    fixture ``PluginRegistry``; a sibling declaring
+    ``registered_client_target_generator_names`` when installed beside the
+    real entry points in the process registry; a sibling declaring
     ``transpiler_profile=None`` (mirroring ``sql``/``component``) is
     excluded."""
-    fixture_entry_points = (
-        EntryPoint(
+    fixture_specs = (
+        FixtureEntryPointSpec(
             name=_SELF_TEST_CLIENT_TARGET_NAME,
+            group=GENERATOR_GROUP,
             value=f"{__name__}:_SelfTestClientTargetGenerator",
-            group=GENERATOR_GROUP,
         ),
-        EntryPoint(
+        FixtureEntryPointSpec(
             name=_SELF_TEST_NON_CLIENT_TARGET_NAME,
-            value=f"{__name__}:_SelfTestNonClientTargetGenerator",
             group=GENERATOR_GROUP,
+            value=f"{__name__}:_SelfTestNonClientTargetGenerator",
         ),
     )
-
-    def _fixture_entry_points(*, group: str) -> list[EntryPoint]:
-        return [ep for ep in fixture_entry_points if ep.group == group]
-
-    original_entry_points = registry_module.entry_points
-    try:
-        registry_module.entry_points = _fixture_entry_points
-        fixture_registry = PluginRegistry()
-        names = registered_client_target_generator_names(registry=fixture_registry)
-    finally:
-        registry_module.entry_points = original_entry_points
+    with process_fixture_plugin_environment(fixture_specs):
+        names = registered_client_target_generator_names()
     return _SELF_TEST_CLIENT_TARGET_NAME in names and _SELF_TEST_NON_CLIENT_TARGET_NAME not in names
 
 
 def _self_test_case_client_target_token_fallback() -> bool:
     """(z2) ``tokens_for`` falls back to a synthetic
     ``ClientTargetCapabilityDeclaration.name_tokens`` fixture when no
-    ``LanguageCapabilityDeclaration`` resolves for the label. The real
-    language registry is pre-warmed first (a real, unpatched name) so its
-    process-wide, never-reset discovery cache is not poisoned by the
-    patched entry-point seam below: ``PluginRegistry`` discovery is
-    idempotent and never re-scans once cached, so the pre-warm call locks
-    in the real language plugins before the patch takes effect."""
-    real_language = sorted(registered_language_names())[0]
-    declaration_for_language(real_language)  # pre-warm; never re-scanned below
-
-    def _fixture_entry_points(*, group: str) -> list[EntryPoint]:
-        if group != GENERATOR_GROUP:
-            return []
-        return [
-            EntryPoint(
-                name=_SELF_TEST_CLIENT_TARGET_NAME,
-                value=f"{__name__}:_SelfTestClientTargetGenerator",
-                group=group,
-            )
-        ]
-
-    global _CLIENT_TARGET_REGISTRY  # noqa: PLW0603 -- deliberate test-only substitution, restored in finally
-    previous_registry = _CLIENT_TARGET_REGISTRY
-    original_entry_points = registry_module.entry_points
-    try:
-        registry_module.entry_points = _fixture_entry_points
-        _CLIENT_TARGET_REGISTRY = PluginRegistry()
+    ``LanguageCapabilityDeclaration`` resolves for the label. The fixture
+    generator is installed in a fresh process registry for the block only, so
+    the real registry's discovery cache never sees it."""
+    fixture_specs = (
+        FixtureEntryPointSpec(
+            name=_SELF_TEST_CLIENT_TARGET_NAME,
+            group=GENERATOR_GROUP,
+            value=f"{__name__}:_SelfTestClientTargetGenerator",
+        ),
+    )
+    with process_fixture_plugin_environment(fixture_specs):
         tokens = tokens_for(AXIS_LANGUAGES, _SELF_TEST_CLIENT_TARGET_NAME)
-    finally:
-        registry_module.entry_points = original_entry_points
-        _CLIENT_TARGET_REGISTRY = previous_registry
     expected = _SELF_TEST_CLIENT_TARGET_TOKENS | {_SELF_TEST_CLIENT_TARGET_NAME}
     return tokens == expected
 
@@ -4315,39 +4284,26 @@ def _self_test_case_client_target_generator_src_dir_resolution() -> bool:
         package_src = root / "datrix-selftest-srcdir-fixture" / "src" / _SELF_TEST_SRCDIR_MODULE_ROOT
         package_src.mkdir(parents=True)
 
-        def _fixture_entry_points(*, group: str) -> list[EntryPoint]:
-            if group != GENERATOR_GROUP:
-                return []
-            return [
-                EntryPoint(
-                    name=_SELF_TEST_SRCDIR_TARGET_NAME,
-                    value=f"{__name__}:_SelfTestSrcDirGenerator",
-                    group=group,
-                )
-            ]
-
-        original_entry_points = registry_module.entry_points
-        resolves_correctly = False
+        fixture_specs = (
+            FixtureEntryPointSpec(
+                name=_SELF_TEST_SRCDIR_TARGET_NAME,
+                group=GENERATOR_GROUP,
+                value=f"{__name__}:_SelfTestSrcDirGenerator",
+            ),
+        )
         raised_naming_both = False
-        try:
-            registry_module.entry_points = _fixture_entry_points
-            resolved = discover_client_target_generator_src_dirs(
-                frozenset({_SELF_TEST_SRCDIR_TARGET_NAME}), root, registry=PluginRegistry()
-            )
+        with process_fixture_plugin_environment(fixture_specs):
+            resolved = discover_client_target_generator_src_dirs(frozenset({_SELF_TEST_SRCDIR_TARGET_NAME}), root)
             resolves_correctly = resolved == {_SELF_TEST_SRCDIR_TARGET_NAME: (package_src,)}
 
             unresolvable_name = "bogus-unresolvable-name"
             try:
                 discover_client_target_generator_src_dirs(
-                    frozenset({_SELF_TEST_SRCDIR_TARGET_NAME, unresolvable_name}),
-                    root,
-                    registry=PluginRegistry(),
+                    frozenset({_SELF_TEST_SRCDIR_TARGET_NAME, unresolvable_name}), root
                 )
             except ValueError as exc:
                 message = str(exc)
                 raised_naming_both = unresolvable_name in message and _SELF_TEST_SRCDIR_TARGET_NAME in message
-        finally:
-            registry_module.entry_points = original_entry_points
     return resolves_correctly and raised_naming_both
 
 

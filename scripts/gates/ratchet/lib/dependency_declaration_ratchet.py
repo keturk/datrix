@@ -223,6 +223,7 @@ _SELF_TEST_TEMPLATE_PACKAGE: Final[str] = "self-test-dep-template-package"
 _SELF_TEST_LANGUAGE_CORE: Final[str] = "self_test_dep_lang_split"
 _SELF_TEST_CORE_PACKAGE: Final[str] = "self-test-dep-core-package"
 
+
 @dataclass(frozen=True)
 class OutOfTableSite:
     """One dependency-name decision site found outside a language's declared table."""
