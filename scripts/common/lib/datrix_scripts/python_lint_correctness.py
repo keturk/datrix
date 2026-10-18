@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Python lint-correctness gate: pyflakes (`ruff --select F`) is a hard zero.
+"""Python lint-correctness gate: pyflakes and top-level blank lines are a hard zero.
 
 WHY THIS EXISTS
 ---------------
@@ -14,10 +14,10 @@ WHAT THIS COMPUTES
 Targets are derived from disk, never listed: every workspace directory named
 ``datrix*`` holding a ``pyproject.toml`` contributes its ``src/`` and ``tests/``
 trees when present, and the showcase repo (``datrix``) contributes ``scripts/``.
-For each tree, ``ruff check --select F --output-format json`` runs from the
-package root so that package's own ``per-file-ignores`` apply. ``--select F`` is
-explicit so a package whose config narrowed its rule selection cannot hide a
-pyflakes finding.
+For each tree, every rule pass of ``RULE_PASSES`` runs
+``ruff check --select <rules> --output-format json`` from the package root so
+that package's own ``per-file-ignores`` apply. The selection is explicit so a
+package whose config narrowed its rule selection cannot hide a finding.
 
 HARD ZERO, NO BASELINE
 ----------------------
@@ -34,21 +34,26 @@ every line is an F821 by construction. The tree scan never reaches it (it sits
 outside ``src/`` and ``tests/``), and the commit path skips it by the same
 rule. A file of that name anywhere below the root is ordinary code and linted.
 
-RULE SET: F ONLY
-----------------
-The style families (UP037, I001, UP031, ...) are not correctness defects and
-would bury the pyflakes signal.
+RULE SET: F, PLUS TOP-LEVEL BLANK LINES
+---------------------------------------
+Two passes. Pyflakes (``F``) runs on stable ruff, so a preview change to an F
+rule never shifts the verdict. pycodestyle E302 (two blank lines before a
+top-level def/class) and E305 (two after one) exist only as ruff preview rules,
+so no package's ``select = ["E", ...]`` activates them; their own pass opts into
+``--preview`` and selects exactly those two codes. Held at zero they cost
+nothing to read. The other style families (UP037, I001, UP031, ...) are not
+correctness defects and would bury the pyflakes signal.
 
 NON-VACUITY
 -----------
 A scan that found no trees is broken, not clean. Every run first proves, on a
 temporary fixture package, that the scanner reports exactly a planted F401 and
-F821, reports nothing for the clean package, and honours a fixture
-``per-file-ignores`` for the F401 only; and the live run must have scanned at
-least one tree for every discovered package.
+F821, reports exactly a planted E302 and E305, reports nothing for the clean
+package, and honours a fixture ``per-file-ignores`` for the F401 only; and the
+live run must have scanned at least one tree for every discovered package.
 
 Exit codes:
-  0 = zero pyflakes findings in every scanned tree
+  0 = zero findings in every scanned tree
   1 = at least one finding, or the self-test failed
   2 = usage error, or ruff could not run
 """
@@ -75,13 +80,14 @@ logger = logging.getLogger(__name__)
 PYPROJECT_FILE = "pyproject.toml"
 PACKAGE_TREES = ("src", "tests")
 SHOWCASE_TREES = ("scripts",)
-RULE_SELECTION = "F"
 RUFF_OK_EXIT_CODES = frozenset({0, 1})
 # Windows CreateProcess rejects a command line over 32767 characters; the path
 # arguments of one ruff run stay well under it, the fixed arguments take the rest.
 MAX_PATH_ARGUMENT_CHARS = 24000
 CODE_UNUSED_IMPORT = "F401"
 CODE_UNDEFINED_NAME = "F821"
+CODE_BLANK_LINES_BEFORE_TOP_LEVEL = "E302"
+CODE_BLANK_LINES_AFTER_TOP_LEVEL = "E305"
 EXAMPLES_DIR = "examples"
 GENERATED_DIR = "generated"
 
@@ -89,6 +95,7 @@ FIXTURE_PACKAGE = "fixture_pkg"
 FIXTURE_MODULE = f"src/{FIXTURE_PACKAGE}/a.py"
 FIXTURE_DIRTY_SOURCE = "import os\n\n\ndef f() -> int:\n    return missing_name\n"
 FIXTURE_CLEAN_SOURCE = "def f() -> int:\n    return 1\n"
+FIXTURE_BLANK_LINES_SOURCE = "def f() -> int:\n    return 1\n\ndef g() -> int:\n    return 2\nVALUE = 1\n"
 FIXTURE_PYPROJECT = '[project]\nname = "fixture-pkg"\nversion = "0"\n'
 FIXTURE_IGNORING_PYPROJECT = (
     FIXTURE_PYPROJECT
@@ -101,8 +108,26 @@ class LintGateError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class RulePass:
+    """One ruff invocation: the codes it selects and whether it needs preview rules."""
+
+    select: tuple[str, ...]
+    preview: bool
+
+
+# See "RULE SET" in the module docstring.
+RULE_PASSES = (
+    RulePass(select=("F",), preview=False),
+    RulePass(
+        select=(CODE_BLANK_LINES_BEFORE_TOP_LEVEL, CODE_BLANK_LINES_AFTER_TOP_LEVEL),
+        preview=True,
+    ),
+)
+
+
+@dataclass(frozen=True)
 class Finding:
-    """One pyflakes finding."""
+    """One lint finding."""
 
     path: str
     line: int
@@ -151,14 +176,23 @@ def _relative_posix(path: Path, root: Path) -> str:
 
 
 def ruff_check(python_exe: str, cwd: Path, paths: list[str]) -> list[Finding]:
-    """Run ``ruff check --select F`` from ``cwd`` over ``paths`` and parse its JSON."""
+    """Run every pass of ``RULE_PASSES`` from ``cwd`` over ``paths``; return all their findings."""
+    findings: list[Finding] = []
+    for rule_pass in RULE_PASSES:
+        findings.extend(_ruff_pass(python_exe, cwd, paths, rule_pass))
+    return findings
+
+
+def _ruff_pass(python_exe: str, cwd: Path, paths: list[str], rule_pass: RulePass) -> list[Finding]:
+    """Run one ``ruff check --select <codes>`` from ``cwd`` over ``paths`` and parse its JSON."""
     command = [
         python_exe,
         "-m",
         "ruff",
         "check",
         "--select",
-        RULE_SELECTION,
+        ",".join(rule_pass.select),
+        *(["--preview"] if rule_pass.preview else []),
         "--output-format",
         "json",
         "--no-cache",
@@ -281,6 +315,13 @@ def self_test(python_exe: str) -> list[str]:
         if codes != [CODE_UNUSED_IMPORT, CODE_UNDEFINED_NAME]:
             failures.append(f"planted F401 + F821 must report exactly those two, got {codes}")
 
+        blank_lines = base / "blank-lines"
+        _write_fixture(blank_lines, FIXTURE_PYPROJECT, FIXTURE_BLANK_LINES_SOURCE)
+        codes = sorted(f.code for f in ruff_check(python_exe, blank_lines, ["src"]))
+        expected = [CODE_BLANK_LINES_BEFORE_TOP_LEVEL, CODE_BLANK_LINES_AFTER_TOP_LEVEL]
+        if codes != expected:
+            failures.append(f"planted E302 + E305 must report exactly those two, got {codes}")
+
         clean = base / "clean"
         _write_fixture(clean, FIXTURE_PYPROJECT, FIXTURE_CLEAN_SOURCE)
         found = ruff_check(python_exe, clean, ["src"])
@@ -366,7 +407,7 @@ def run_scan(python_exe: str, workspace_root: Path) -> int:
     packages = len({t.package for t in targets})
     if hits:
         print(
-            f"PYTHON LINT-CORRECTNESS GATE FAILED: {len(hits)} pyflakes finding(s) across "
+            f"PYTHON LINT-CORRECTNESS GATE FAILED: {len(hits)} finding(s) across "
             f"{len(targets)} tree(s) in {packages} package(s). Fix the code; suppress only with a "
             f"line-level `# noqa: <code>` carrying the reason."
         )
@@ -395,7 +436,10 @@ def main(argv: list[str]) -> int:
             for failure in failures:
                 print(f"  {failure}")
             return 1
-        print("Self-test passed: planted F401 + F821 seen, clean passes, per-file-ignores honoured.")
+        print(
+            "Self-test passed: planted F401 + F821 and E302 + E305 seen, clean passes, "
+            "per-file-ignores honoured."
+        )
         if args.self_test:
             return 0
         return run_scan(sys.executable, DATRIX_ROOT.parent)

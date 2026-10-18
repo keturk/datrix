@@ -9,10 +9,19 @@
 
  where lib\$name.py is the wrapper's own Python file beside it.
 
- Invoke-DatrixPythonScript activates the shared venv (Ensure-DatrixVenv, which also puts
- common\lib on PYTHONPATH), optionally checks the editable installs, runs the venv
- interpreter by absolute path, deactivates the venv in a finally block, and returns the
- child's exit code. It never calls exit itself.
+ Invoke-DatrixPythonScript has the shared venv checked (common\venv.ps1's -Ensure, and with
+ -RequirePackages its -EnsurePackages -SkipIfInstalled), points the child's environment at the venv
+ (common\lib first on PYTHONPATH, the bytecode cache outside the source trees, VIRTUAL_ENV and
+ the venv's Scripts first on PATH), runs the venv interpreter by absolute path, restores this
+ process's environment in a finally block, and returns the child's exit code. It never calls
+ exit itself.
+
+ Invoke-DatrixEntrypoint is the body of every wrapper rendered from
+ common\templates\entrypoint.ps1: it runs one datrix_scripts module with the wrapper's bound
+ parameters as --kebab-name arguments, in an argument vector, and leaves the module's exit code in
+ $LASTEXITCODE for the wrapper's "exit $LASTEXITCODE". When the venv has no interpreter yet it
+ first creates it (python -m datrix_scripts.venv --ensure under any Python on the machine; the
+ module picks the native base interpreter).
 
  Gate mode (-Gate <name>) tees the child's output to a claimed log under
  <workspace>\.test-output\gates\<name>\<name>-<yyyyMMdd-HHmmss>[-N].log and prints exactly
@@ -26,7 +35,6 @@
  Write-DatrixGateLog, and prints the same last line with Write-DatrixGateVerdict.
 #>
 
-. (Join-Path $PSScriptRoot "venv.ps1")
 # No -Force: a forced nested import unloads the caller's own import of the same module.
 Import-Module (Join-Path $PSScriptRoot "DatrixPaths.psm1")
 Import-Module (Join-Path $PSScriptRoot "DatrixRunLog.psm1")
@@ -35,6 +43,128 @@ $script:GateLogFolder = "gates"
 $script:GateVerdictPrefix = "[GATE]"
 $script:ExitUsage = 2
 $script:ExitVenvUnavailable = 1
+# The functions from here to Invoke-DatrixEntrypoint keep their constants local: a wrapper script
+# runs them, and $script: in a function names the scope of the script being run when that script
+# runs in this module's session state, not this module's own scope.
+
+function Enter-DatrixVenvEnvironment {
+ # Points this process's environment at the shared venv for a Python child and returns the values
+ # it replaced, for Exit-DatrixVenvEnvironment: common\lib first on PYTHONPATH, the bytecode cache
+ # under <workspace>\.pycache-verify (never beside the sources), VIRTUAL_ENV and the venv's Scripts
+ # first on PATH. PYTHONHOME is cleared, as a venv's activation does.
+ $names = @("PYTHONPATH", "PYTHONPYCACHEPREFIX", "PYTHONHOME", "VIRTUAL_ENV", "PATH")
+ $cacheFolder = ".pycache-verify"
+ $lib = Get-DatrixScriptsPythonPath
+ if (-not (Test-Path -LiteralPath (Join-Path $lib "datrix_scripts"))) {
+  throw "The shared scripts package is missing: expected $lib\datrix_scripts. Restore it from the datrix repository."
+ }
+ $saved = @{}
+ foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+ $separator = [System.IO.Path]::PathSeparator
+ $inherited = @("$($saved['PYTHONPATH'])" -split [regex]::Escape($separator) | Where-Object { $_ -and ($_ -ne $lib) })
+ $env:PYTHONPATH = (@($lib) + $inherited) -join $separator
+ if ([string]::IsNullOrWhiteSpace($saved["PYTHONPYCACHEPREFIX"])) {
+  $env:PYTHONPYCACHEPREFIX = Join-Path (Get-DatrixWorkspaceRoot) $cacheFolder
+ }
+ [Environment]::SetEnvironmentVariable("PYTHONHOME", $null)
+ $env:VIRTUAL_ENV = Get-DatrixVenvPath
+ $env:PATH = (Join-Path $env:VIRTUAL_ENV "Scripts") + $separator + $saved["PATH"]
+ return $saved
+}
+
+function Exit-DatrixVenvEnvironment {
+ # Restores what Enter-DatrixVenvEnvironment replaced; a variable that was unset is removed.
+ param([Parameter(Mandatory = $true)][hashtable]$Saved)
+ foreach ($name in $Saved.Keys) { [Environment]::SetEnvironmentVariable($name, $Saved[$name]) }
+}
+
+function ConvertTo-DatrixEntrypointArgument {
+ # A wrapper's bound parameters as an argument vector: a present switch is --kebab-name, every
+ # other value --kebab-name=<value> (one per element of an array). PowerShell's common parameters
+ # (-Verbose, -ErrorAction, ...) belong to the wrapper and are not passed.
+ param([Parameter(Mandatory = $true)][AllowEmptyCollection()][System.Collections.IDictionary]$Parameters)
+ # A word boundary is a lower-case letter or digit before an upper-case one (SelfTest -> self-test),
+ # or an upper-case letter before an upper-case one that starts a word (IPAddress -> ip-address).
+ # datrix_scripts.entrypoint.kebab_flag applies the same rule when it compares a wrapper's
+ # parameters with its module's options.
+ $kebabBoundary = '(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])'
+ $common = @([System.Management.Automation.Cmdlet]::CommonParameters) + @([System.Management.Automation.Cmdlet]::OptionalCommonParameters)
+ $arguments = New-Object System.Collections.Generic.List[string]
+ foreach ($name in $Parameters.Keys) {
+  if ($common -contains $name) { continue }
+  $flag = "--" + ($name -creplace $kebabBoundary, "-").ToLowerInvariant()
+  $value = $Parameters[$name]
+  if ($value -is [System.Management.Automation.SwitchParameter]) {
+   if ($value.IsPresent) { $arguments.Add($flag) }
+   continue
+  }
+  foreach ($item in @($value)) { $arguments.Add("$flag=$item") }
+ }
+ return ,$arguments.ToArray()
+}
+
+function Get-DatrixBootstrapPython {
+ # Any Python that can run datrix_scripts.venv --ensure, which picks the native base interpreter
+ # itself: DATRIX_PYTHON, else the first of py, python, python3 on PATH (Store aliases excluded).
+ $launchers = @("py", "python", "python3")
+ if (-not [string]::IsNullOrWhiteSpace($env:DATRIX_PYTHON)) { return $env:DATRIX_PYTHON }
+ foreach ($name in $launchers) {
+  $found = @(Get-Command $name -CommandType Application -All -ErrorAction SilentlyContinue |
+   Where-Object { $_.Source -notmatch '\\WindowsApps\\' })
+  if ($found.Count -gt 0) { return $found[0].Source }
+ }
+ throw ("No Python was found to create the shared venv at $(Get-DatrixVenvPath). Expected DATRIX_PYTHON or one of " +
+  "$($launchers -join ', ') on PATH. Fix: install a CPython built for this machine's CPU, " +
+  "or set DATRIX_PYTHON to one, then retry.")
+}
+
+function Invoke-DatrixEntrypoint {
+ <#
+ .SYNOPSIS
+ Runs one datrix_scripts module in the shared venv with a wrapper's bound parameters; the body of
+ every wrapper rendered from common\templates\entrypoint.ps1.
+
+ .DESCRIPTION
+ The module's output goes to the caller's pipeline (a caller may capture it) and its exit code is
+ left in $LASTEXITCODE. When the venv has no interpreter yet, the venv is created first with
+ "python -m datrix_scripts.venv --ensure" under Get-DatrixBootstrapPython; a failed creation
+ leaves its exit code in $LASTEXITCODE and runs nothing else.
+
+ .PARAMETER Module
+ The dotted module to run with -m, e.g. datrix_scripts.venv.
+
+ .PARAMETER Parameters
+ The wrapper's $PSBoundParameters.
+ #>
+ [CmdletBinding()]
+ param(
+  [Parameter(Mandatory = $true)]
+  [string]$Module,
+
+  [Parameter(Mandatory = $true)]
+  [AllowEmptyCollection()]
+  [System.Collections.IDictionary]$Parameters
+ )
+
+ # Continue, not the caller's Stop: under a caller's 2>&1, Windows PowerShell turns each stderr
+ # line of a native command into an error record, and Stop would end the run on the first one.
+ $previousPreference = $ErrorActionPreference
+ $ErrorActionPreference = "Continue"
+ $saved = Enter-DatrixVenvEnvironment
+ try {
+  $python = Get-DatrixVenvPython
+  if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+   & (Get-DatrixBootstrapPython) -m datrix_scripts.venv --ensure
+   if ($LASTEXITCODE -ne 0) { return }
+  }
+  $arguments = @("-m", $Module) + @(ConvertTo-DatrixEntrypointArgument -Parameters $Parameters)
+  & $python @arguments
+ }
+ finally {
+  Exit-DatrixVenvEnvironment -Saved $saved
+  $ErrorActionPreference = $previousPreference
+ }
+}
 
 function New-DatrixGateLogFile {
  <#
@@ -179,7 +309,7 @@ function Invoke-DatrixPythonScript {
  Arguments passed to the Python program.
 
  .PARAMETER RequirePackages
- Check the editable installs first (Ensure-DatrixPackagesInstalled -SkipIfInstalled).
+ Check the editable installs first (common\venv.ps1 -EnsurePackages -SkipIfInstalled).
 
  .PARAMETER Gate
  Gate mode: tee the output to a claimed log and print one verdict line (see the module help).
@@ -254,20 +384,24 @@ function Invoke-DatrixPythonScript {
  }
 
  $exitCode = $script:ExitVenvUnavailable
+ $saved = $null
  try {
-  $activated = Ensure-DatrixVenv
-  if (-not $activated) {
-   Write-Host "Error: could not activate the shared venv at $(Get-DatrixVenvPath). Fix: run common\venv.ps1 setup, then re-run." -ForegroundColor Red
+  # The venv check is common\venv.ps1's own call, made here directly: a script run from inside this
+  # module would run in the module's session state, where $script: names that script's scope and
+  # not this module's. Out-Host keeps the check's diagnostics out of this function's return value.
+  $check = @{ Ensure = [switch]$true }
+  if ($RequirePackages) {
+   $check["EnsurePackages"] = [switch]$true
+   $check["SkipIfInstalled"] = [switch]$true
+  }
+  Invoke-DatrixEntrypoint -Module "datrix_scripts.venv" -Parameters $check | Out-Host
+  if ($LASTEXITCODE -ne 0) {
+   $checked = if ($RequirePackages) { "the shared venv at $(Get-DatrixVenvPath) and its package installs" } else { "the shared venv at $(Get-DatrixVenvPath)" }
+   Write-Host "Error: $checked failed the check above (exit $LASTEXITCODE). Fix what it names, then re-run (set DATRIX_VENV_VERBOSE=1 to see each step of common\venv.ps1)." -ForegroundColor Red
    return $exitCode
   }
-  if ($RequirePackages) {
-   $installed = Ensure-DatrixPackagesInstalled -SkipIfInstalled
-   if (-not $installed) {
-    Write-Host "Error: the datrix packages are not installed in the shared venv. Fix: run common\venv.ps1 setup, then re-run." -ForegroundColor Red
-    return $exitCode
-   }
-  }
-  $pythonExe = Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"
+  $saved = Enter-DatrixVenvEnvironment
+  $pythonExe = Get-DatrixVenvPython
   $target = if ($PSCmdlet.ParameterSetName -eq "Module") { @("-m", $Module) } else { @($Script) }
   $childArguments = @($target) + @($Arguments)
   if ($ShowCommand) {
@@ -278,11 +412,11 @@ function Invoke-DatrixPythonScript {
   return $exitCode
  }
  finally {
-  Disable-DatrixVenv | Out-Null
+  if ($null -ne $saved) { Exit-DatrixVenvEnvironment -Saved $saved }
   if ($Gate) {
    Write-DatrixGateVerdict -Gate $Gate -ExitCode $exitCode -LogPath $logPath
   }
  }
 }
 
-Export-ModuleMember -Function Invoke-DatrixPythonScript, New-DatrixGateLogFile, Write-DatrixGateLog, Write-DatrixGateVerdict
+Export-ModuleMember -Function Invoke-DatrixPythonScript, Invoke-DatrixEntrypoint, Enter-DatrixVenvEnvironment, Exit-DatrixVenvEnvironment, New-DatrixGateLogFile, Write-DatrixGateLog, Write-DatrixGateVerdict

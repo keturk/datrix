@@ -26,6 +26,7 @@ from datrix_common.plugin.registry import (
     LANGUAGES_GROUP,
     PLATFORM_GROUP,
     PluginRegistry,
+    plugin_registry,
 )
 
 EXIT_OK: Final[int] = 0
@@ -64,7 +65,7 @@ def check_plugins() -> list[str]:
     failures: list[str] = []
     for group, load in GROUP_LOADERS:
         try:
-            names = load(PluginRegistry())
+            names = load(plugin_registry())
         except PluginError as exc:
             failures.append(f"FAILED {group}: {exc}")
             print(failures[-1])

@@ -11,8 +11,8 @@ dependencies, or a declared datrix-* dependency missing from disk, fails
 loudly naming every package involved -- it never silently falls back to
 alphabetical order.
 
-Usage (PYTHONPATH=scripts/common/lib; common/venv.ps1 sets it):
-    python -m datrix_scripts.install_order --workspace-root D:\\datrix [--packages datrix-common datrix-cli ...]
+``datrix_scripts.venv`` calls ``topological_install_order`` (``common/venv.ps1 -ListPackages``
+prints the order). Run from ``common/venv-install-order.ps1``, which passes only ``--self-test``:
     python -m datrix_scripts.install_order --self-test
 """
 
@@ -20,13 +20,14 @@ from __future__ import annotations
 
 import argparse
 import heapq
-import json
 import sys
 import tempfile
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
+from datrix_scripts.entrypoint import wrapper_command, wrapper_problems
 from datrix_scripts.gate_harness import report_condition, report_fail, write_file
+from datrix_scripts.paths import SCRIPTS_DIR
 from datrix_scripts.pyproject_deps import (
     DATRIX_PREFIX,
     build_dependency_graph,
@@ -208,54 +209,38 @@ def _run_missing_dep_fixture_check() -> bool:
             )
 
 
+def _run_wrapper_seam_check() -> bool:
+    problems = wrapper_problems(SCRIPTS_DIR / "common" / "venv-install-order.ps1", __spec__.name, build_parser())
+    return report_condition(not problems, "venv-install-order.ps1 is the template rendered and passes only this module's options",
+                            "; ".join(problems))
+
+
 def run_self_test() -> bool:
     ok = _run_order_fixture_checks()
     ok &= _run_cycle_fixture_check()
     ok &= _run_missing_dep_fixture_check()
+    ok &= _run_wrapper_seam_check()
 
     print()
     print("SELF-TEST PASSED" if ok else "SELF-TEST FAILED: see failures above.")
     return ok
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--workspace-root", type=Path, default=None)
-    parser.add_argument("--packages", type=str, nargs="*", metavar="PKG", help="Restrict to these package names.")
-    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--self-test", action="store_true", help="run only the topological-sort self-test")
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
-
-    if args.self_test:
-        return 0 if run_self_test() else 1
-
-    if args.workspace_root is None:
-        print("Error: --workspace-root is required unless --self-test.", file=sys.stderr)
-        return 2
-
-    workspace_root = args.workspace_root.resolve()
-    packages = discover_packages(workspace_root)
-    if args.packages:
-        missing = set(args.packages) - set(packages.keys())
-        if missing:
-            print(f"Error: unknown package(s): {sorted(missing)}.", file=sys.stderr)
-            return 2
-
-    # Topological validity is computed against the FULL discovered package set
-    # even when --packages restricts the output below -- filtering `packages`
-    # here first would silently hide a cycle or missing dependency involving a
-    # package outside the restricted set.
-    try:
-        order = topological_install_order(packages)
-    except InstallOrderError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+    if not args.self_test:
+        parser.print_usage(sys.stderr)
+        print(f"Error: pass --self-test ({wrapper_command('common/venv-install-order', 'SelfTest')}); "
+              f"{wrapper_command('common/venv', 'ListPackages')} prints the install order.", file=sys.stderr)
         return 1
-
-    if args.packages:
-        restrict = set(args.packages)
-        order = [name for name in order if name in restrict]
-
-    print(json.dumps(order))
-    return 0
+    return 0 if run_self_test() else 1
 
 
 if __name__ == "__main__":

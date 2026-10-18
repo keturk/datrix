@@ -1,7 +1,7 @@
 """Facts about PowerShell scripts, read with PowerShell's own parser.
 
-A ``param()`` block, the commands a script calls and the parameters it passes them are
-structure: a regex over ``.ps1`` text misreads comments, here-strings, splatting and line
+A ``param()`` block, the commands a script calls and the parameters it passes them, and which
+variables a flow-control statement assigns and which ``+=`` grows, are structure: a regex over ``.ps1`` text misreads comments, here-strings, splatting and line
 continuations. ``parse_scripts`` hands every path to ONE ``powershell -NoProfile`` child, which
 parses each file with ``[System.Management.Automation.Language.Parser]::ParseFile`` and prints
 one compact JSON line per script; one child per call keeps a census over hundreds of scripts to
@@ -66,12 +66,35 @@ foreach ($path in $paths) {
         }
     }
     $functionAsts = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+    $assignmentAsts = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true)
+    $statementAssignments = New-Object System.Collections.ArrayList
+    $appended = New-Object System.Collections.ArrayList
+    foreach ($assignment in $assignmentAsts) {
+        if ($assignment.Left -isnot [System.Management.Automation.Language.VariableExpressionAst]) { continue }
+        $variable = [string]$assignment.Left.VariablePath.UserPath
+        $operator = [string]$assignment.Operator
+        $right = $assignment.Right
+        if ($operator -eq 'PlusEquals') {
+            [void]$appended.Add($variable)
+        } elseif ($operator -eq 'Equals' -and (
+            $right -is [System.Management.Automation.Language.IfStatementAst] -or
+            $right -is [System.Management.Automation.Language.LabeledStatementAst] -or
+            $right -is [System.Management.Automation.Language.TryStatementAst])) {
+            [void]$statementAssignments.Add([pscustomobject]@{
+                variable = $variable
+                line = [int]$assignment.Extent.StartLineNumber
+                statement = [string]$right.GetType().Name
+            })
+        }
+    }
     $fact = [pscustomobject]@{
         path = $path
         parse_errors = @($errors | ForEach-Object { $_.Message })
         parameters = @($parameters)
         commands = @($commands)
         functions = @($functionAsts | ForEach-Object { [string]$_.Name })
+        statement_assignments = @($statementAssignments)
+        appended_variables = @($appended)
     }
     [Console]::Out.WriteLine((ConvertTo-Json -InputObject $fact -Depth 5 -Compress))
 }
@@ -93,6 +116,17 @@ class CommandCall:
 
 
 @dataclass(frozen=True)
+class StatementAssignment:
+    """``$variable = <if | switch | loop | try statement>``: the value is the statement's pipeline
+    output, which PowerShell unrolls, so one emitted element binds a scalar rather than an array."""
+
+    variable: str
+    line: int
+    #: The parser's node type of the right-hand side (``IfStatementAst``, ``SwitchStatementAst``, ...).
+    statement: str
+
+
+@dataclass(frozen=True)
 class ScriptFacts:
     path: Path
     parse_errors: tuple[str, ...]
@@ -100,6 +134,20 @@ class ScriptFacts:
     commands: tuple[CommandCall, ...]
     #: The names of the functions the script defines, at any depth.
     functions: tuple[str, ...]
+    #: Every plain ``=`` whose right-hand side is a flow-control statement, at any depth.
+    statement_assignments: tuple[StatementAssignment, ...]
+    #: The variable of every ``+=``, at any depth (repeats kept).
+    appended_variables: tuple[str, ...]
+
+    def unrolled_then_appended(self) -> list[StatementAssignment]:
+        """The statement assignments whose variable the script also grows with ``+=``: when the
+        statement emits one element the variable holds a scalar, and ``+=`` concatenates onto it
+        instead of appending. Variable names compare case-insensitively, as PowerShell does."""
+        appended = {variable.lower() for variable in self.appended_variables}
+        return [
+            assignment for assignment in self.statement_assignments
+            if assignment.variable.lower() in appended
+        ]
 
     def defines(self, function: str) -> bool:
         """True when the script defines a function named ``function``, case-insensitively."""
@@ -146,12 +194,23 @@ def _facts(entry: dict[str, object]) -> ScriptFacts:
         for item in _as_list(entry.get("commands"))
         if isinstance(item, dict)
     )
+    statement_assignments = tuple(
+        StatementAssignment(
+            variable=str(item["variable"]),
+            line=int(str(item["line"])),
+            statement=str(item["statement"]),
+        )
+        for item in _as_list(entry.get("statement_assignments"))
+        if isinstance(item, dict)
+    )
     return ScriptFacts(
         path=Path(str(entry["path"])),
         parse_errors=tuple(str(message) for message in _as_list(entry.get("parse_errors"))),
         parameters=parameters,
         commands=commands,
         functions=tuple(str(name) for name in _as_list(entry.get("functions"))),
+        statement_assignments=statement_assignments,
+        appended_variables=tuple(str(name) for name in _as_list(entry.get("appended_variables"))),
     )
 
 

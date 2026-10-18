@@ -109,6 +109,7 @@ _EXIT_SELFCHECK_FAILED = 1
 _IMPORT_RE = re.compile(r"^\s*(?:from|import)\s+(datrix_[a-zA-Z0-9_]*)", re.MULTILINE)
 _DEP_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+")
 
+
 def discover_packages(root: Path) -> dict[str, Path]:
     """Discover datrix-* packages carrying a package manifest under root.
 

@@ -30,6 +30,44 @@ function Get-DatrixWorkspaceRoot {
  return (Split-Path -Parent $showcaseDir)
 }
 
+function Get-DatrixVenvPath {
+ <#
+ .SYNOPSIS
+ The shared venv's directory, <workspace>\.venv (datrix_scripts.venv owns creating and installing it).
+ #>
+ [CmdletBinding()]
+ [OutputType([string])]
+ param()
+
+ return (Join-Path (Get-DatrixWorkspaceRoot) ".venv")
+}
+
+function Get-DatrixVenvPython {
+ <#
+ .SYNOPSIS
+ The shared venv's interpreter, <workspace>\.venv\Scripts\python.exe. It may not exist yet:
+ common\venv.ps1 -Ensure creates the venv.
+ #>
+ [CmdletBinding()]
+ [OutputType([string])]
+ param()
+
+ return (Join-Path (Get-DatrixVenvPath) "Scripts\python.exe")
+}
+
+function Get-DatrixScriptsPythonPath {
+ <#
+ .SYNOPSIS
+ The directory holding the shared scripts package (datrix_scripts): what goes on PYTHONPATH so
+ 'import datrix_scripts.<module>' resolves from every lib\ folder.
+ #>
+ [CmdletBinding()]
+ [OutputType([string])]
+ param()
+
+ return (Join-Path $PSScriptRoot "lib")
+}
+
 # Get the list of datrix repository directories
 function Get-DatrixDirectories {
  <#
@@ -121,4 +159,4 @@ function Get-DatrixDirectoryPaths {
 }
 
 # Export functions
-Export-ModuleMember -Function Get-DatrixWorkspaceRoot, Get-DatrixDirectories, Get-DatrixDirectoryPaths
+Export-ModuleMember -Function Get-DatrixWorkspaceRoot, Get-DatrixVenvPath, Get-DatrixVenvPython, Get-DatrixScriptsPythonPath, Get-DatrixDirectories, Get-DatrixDirectoryPaths

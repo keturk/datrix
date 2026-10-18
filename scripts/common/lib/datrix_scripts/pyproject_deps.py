@@ -7,14 +7,10 @@ scripts/common/lib/datrix_scripts/install_order.py (venv install ordering).
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
-
-try:
-    import tomllib
-except ImportError:
-    tomllib = None  # type: ignore[assignment]
 
 DATRIX_PREFIX = "datrix-"
 
@@ -29,15 +25,12 @@ def parse_package_name(spec: str) -> str:
 def read_project_dependencies(pyproject_path: Path) -> list[str]:
     """Read [project].dependencies from pyproject.toml.
 
-    Returns an empty list when the file is absent. Raises RuntimeError when
-    tomllib is unavailable, and propagates (OSError, ValueError) from a file
-    that exists but cannot be opened or parsed -- callers that want a
-    cosmetic, best-effort read (the dependency report) catch and swallow
-    those themselves; callers that must not silently drop a package (the
-    install-order tool) let them surface.
+    Returns an empty list when the file is absent, and propagates (OSError,
+    ValueError) from a file that exists but cannot be opened or parsed --
+    callers that want a cosmetic, best-effort read (the dependency report)
+    catch and swallow those themselves; callers that must not silently drop a
+    package (the install-order tool) let them surface.
     """
-    if tomllib is None:
-        raise RuntimeError("tomllib is required (Python 3.11+).")
     if not pyproject_path.is_file():
         return []
     with open(pyproject_path, "rb") as f:

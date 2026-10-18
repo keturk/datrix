@@ -332,6 +332,7 @@ def _failing_record_message(
         return _record_error_message(record)
     return None
 
+
 # Duration extraction from deploy log
 _DURATION_PATTERN = re.compile(
     r"(?:duration|took|elapsed)[=:\s]+(\d+\.?\d*)\s*s", re.IGNORECASE

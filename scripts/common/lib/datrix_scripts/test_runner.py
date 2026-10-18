@@ -35,7 +35,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from datrix_scripts.logging_utils import ColorCodes, LogConfig, TeeLogger, colorize
-from datrix_scripts.paths import WORKSPACE_DIR, script_env
+from datrix_scripts.paths import TMP_DIR, WORKSPACE_DIR, script_env
+from datrix_scripts.selection_export import (
+ SELECTION_OUT_OPTION,
+ SelectedItem,
+ SelectionExportError,
+ read_selection,
+ write_selection,
+)
 from datrix_scripts.suite_stamp import (
  RUNNER_PLUGIN_MODULE,
  DeselectedEvidence,
@@ -94,6 +101,41 @@ _NO_RECORDER_REASON = (
  "directory to record into), so nothing shows whether serial items exist"
 )
 
+#: The pytest plugin a ``-Tag`` preflight loads to export its selection.
+SELECTION_EXPORT_MODULE = "datrix_scripts.selection_export"
+#: Where a preflight's export is written before the run copies it into its run directory.
+SELECTION_EXPORT_DIR = TMP_DIR / "test-selection"
+#: The environment variable pytest reads for the root of its numbered temporary
+#: directories (``pytest-of-<user>/pytest-<N>``), in place of the system temp folder.
+PYTEST_TEMP_ROOT_VARIABLE = "PYTEST_DEBUG_TEMPROOT"
+#: Test sessions keep their ``tmp_path`` trees in the workspace scratch folder, beside
+#: every other file the tooling writes, rather than in the user's system temp folder.
+PYTEST_TEMP_ROOT = TMP_DIR / "pytest"
+#: The files a ``-Tag`` run writes into its run directory: the exported selection,
+#: and the pytest argument files (one node ID per line) its phases run.
+SELECTION_FILE_NAME = "selection.json"
+PARALLEL_ARGS_FILE_NAME = "parallel-args.txt"
+SERIAL_ARGS_FILE_NAME = "serial-args.txt"
+SELECTED_ARGS_FILE_NAME = "selected-args.txt"
+#: index.json ``selection.execution`` of a ``-Tag`` run.
+EXECUTION_SINGLE_PROCESS = "single-process"
+EXECUTION_PARALLEL_SERIAL = "parallel+serial"
+#: index.json ``phases.Serial`` / ``phases.Parallel`` of a ``-Tag`` run whose
+#: selection holds no item for that phase.
+SERIAL_SKIPPED_NO_SELECTED_SERIAL_ITEMS = "skipped (0 serial items in the selection)"
+PARALLEL_SKIPPED_NO_SELECTED_PARALLEL_ITEMS = "skipped (0 non-serial items in the selection)"
+#: The ``addopts`` every phase that overrides the package's own runs with. The
+#: package's addopts carry coverage options (``--cov-fail-under``) that must not
+#: apply to a phase that did not ask for coverage.
+_PHASE_ADDOPTS = "-v --strict-markers --tb=short -p no:benchmark"
+#: What a failed ``-Tag`` preflight's pytest exit code means, for the run's log.
+_PREFLIGHT_EXIT_MEANINGS: dict[int, str] = {
+ 1: "a collected item reported a failure",
+ 2: "collection was interrupted: a test module failed to import or collect",
+ 3: "pytest met an internal error",
+ 5: "the selection holds no test",
+}
+
 
 def _split_test_targets(test_path: str | None) -> list[str]:
  """The comma-separated targets of a ``-Specific`` selection, in given order."""
@@ -107,23 +149,29 @@ def _classify_selection(
  test_path: str | None,
  keyword_expr: str | None,
  tags: Sequence[str] | None = None,
+ plan: "TagRunPlan | None" = None,
 ) -> dict[str, object]:
  """The ``selection`` recorded in a run's index.json.
 
  Full only when no marker expression, no test path, no keyword and no feature
  tag narrows the run -- a bare ``test.ps1 <package>``. Any marker expression is
  targeted, including one that is not a tier's: an unrecognized expression is
- recorded as ``marker`` with ``tier`` None, never mistaken for a full run.
+ recorded as ``marker`` with ``tier`` None, never mistaken for a full run. A
+ ``-Tag`` run's *plan* adds what it ran: ``selected_items``, ``serial_items``
+ and ``execution``.
  """
  tiers = [tier for tier, expression in TIER_MARKER_EXPRESSIONS.items() if expression == marker_expr]
  targets = _split_test_targets(test_path)
- return selection_for(
+ selection = selection_for(
   specific=targets or None,
   keyword=keyword_expr or None,
   tier=tiers[0] if tiers else None,
   marker=marker_expr or None,
   tags=list(tags) if tags else None,
  )
+ if plan is not None:
+  selection.update(plan.selection_record())
+ return selection
 
 
 def split_tags(raw: str | None) -> list[str]:
@@ -197,6 +245,122 @@ class SerialPhaseDecision:
 
 def _run_serial(why: str) -> SerialPhaseDecision:
  return SerialPhaseDecision(skip_reason=None, why=why)
+
+
+@dataclass(frozen=True)
+class PreflightResult:
+ """What a ``-Tag`` run's collection-only preflight found.
+
+ ``selection`` is the exported selection, and is empty unless ``exit_code`` is
+ 0 and the export was read. ``runner_error`` names an export that a session
+ exiting 0 did not write, or wrote unreadably; ``exit_code`` is then the
+ runner-error code.
+ """
+
+ exit_code: int
+ output: str
+ selection: tuple[SelectedItem, ...] = ()
+ runner_error: str | None = None
+
+ @property
+ def succeeded(self) -> bool:
+  return self.exit_code == 0 and self.runner_error is None
+
+
+@dataclass(frozen=True)
+class TagRunPlan:
+ """How a ``-Tag`` run executes its exported selection.
+
+ ``single-process`` runs every selected item in one pytest process without
+ xdist: chosen when no worker pool is available, or when the selection holds
+ no more items than the machine has CPUs, where each worker would get at most
+ one item and starting the pool costs more than it saves. ``parallel+serial``
+ runs the non-serial items under xdist and the serial ones in one process.
+ """
+
+ execution: str
+ items: tuple[SelectedItem, ...]
+
+ @property
+ def parallel_ids(self) -> list[str]:
+  return [item.nodeid for item in self.items if not item.serial]
+
+ @property
+ def serial_ids(self) -> list[str]:
+  return [item.nodeid for item in self.items if item.serial]
+
+ def selection_record(self) -> dict[str, object]:
+  """The fields this plan adds to index.json's ``selection``."""
+  return {
+   "selected_items": len(self.items),
+   "serial_items": len(self.serial_ids),
+   "execution": self.execution,
+  }
+
+ def serial_decision(self) -> SerialPhaseDecision:
+  """Run the serial phase only for selected serial items; no deselected evidence is read."""
+  serial_count = len(self.serial_ids)
+  if serial_count == 0:
+   return SerialPhaseDecision(
+    skip_reason=SERIAL_SKIPPED_NO_SELECTED_SERIAL_ITEMS,
+    why="the -Tag selection holds no serial item",
+   )
+  return _run_serial(f"the -Tag selection holds {serial_count} serial item(s)")
+
+
+def plan_tag_run(
+ items: Sequence[SelectedItem], *, cpu_count: int, parallel_available: bool,
+) -> TagRunPlan:
+ """The plan for a ``-Tag`` run of *items* on a machine with *cpu_count* CPUs."""
+ if not items:
+  raise ValueError(
+   "A -Tag run plan needs at least one selected item, got none. The preflight exits 0 "
+   "only when its selection holds an item; an empty selection must fail the run before "
+   "it is planned."
+  )
+ single = not parallel_available or len(items) <= cpu_count
+ execution = EXECUTION_SINGLE_PROCESS if single else EXECUTION_PARALLEL_SERIAL
+ return TagRunPlan(execution=execution, items=tuple(items))
+
+
+def _machine_cpu_count() -> int:
+ """``os.cpu_count()``; an undeterminable count is one CPU, as xdist's ``-n auto`` takes it."""
+ return os.cpu_count() or 1
+
+
+@dataclass(frozen=True)
+class TagRunFiles:
+ """The selection and argument files a ``-Tag`` run wrote into its directory."""
+
+ selection: Path
+ parallel_args: Path
+ serial_args: Path
+ selected_args: Path
+
+
+def _write_node_ids(path: Path, node_ids: Sequence[str]) -> None:
+ path.write_text("".join(f"{node_id}\n" for node_id in node_ids), encoding="utf-8")
+
+
+def write_tag_run_files(directory: Path, plan: TagRunPlan) -> TagRunFiles:
+ """Write *plan*'s selection and its pytest argument files into *directory*.
+
+ ``parallel-args.txt`` holds the non-serial node IDs, ``serial-args.txt`` the
+ serial ones and ``selected-args.txt`` all of them, one per line: pytest reads
+ each line of an ``@file`` argument as one argument.
+ """
+ directory.mkdir(parents=True, exist_ok=True)
+ files = TagRunFiles(
+  selection=directory / SELECTION_FILE_NAME,
+  parallel_args=directory / PARALLEL_ARGS_FILE_NAME,
+  serial_args=directory / SERIAL_ARGS_FILE_NAME,
+  selected_args=directory / SELECTED_ARGS_FILE_NAME,
+ )
+ write_selection(files.selection, plan.items)
+ _write_node_ids(files.parallel_args, plan.parallel_ids)
+ _write_node_ids(files.serial_args, plan.serial_ids)
+ _write_node_ids(files.selected_args, [item.nodeid for item in plan.items])
+ return files
 
 
 def _disagreeing_files(evidence: DeselectedEvidence) -> str:
@@ -523,6 +687,8 @@ class TestRunner:
   junit_xml_path: Path | None = None,
   enable_runner_plugin: bool = False,
   tags: Sequence[str] | None = None,
+  node_id_file: Path | None = None,
+  distributed: bool | None = None,
  ) -> list[str]:
   """Build pytest command arguments.
 
@@ -531,7 +697,28 @@ class TestRunner:
   one token of a single string and register nothing. The feature-tag options
   are standalone argv elements for the same reason: every session requires a
   tag on every test, and ``tags`` narrows it to the tests carrying one of them.
+
+  ``node_id_file`` runs exactly the node IDs an exported ``-Tag`` selection
+  holds (see :meth:`_build_node_id_args`). ``distributed`` says whether the
+  session runs under xdist; None means whenever xdist is available and no
+  coverage is collected.
   """
+  if distributed is None:
+   distributed = self.has_xdist and not coverage
+  if node_id_file is not None:
+   if marker_expr or test_path or keyword_expr or tags or ignore_paths:
+    raise ValueError(
+     f"A node-id session runs exactly the node IDs in {node_id_file}, so it takes no "
+     f"marker, test path, keyword, tag or ignore filter (got marker={marker_expr!r}, "
+     f"path={test_path!r}, keyword={keyword_expr!r}, tags={tags!r}, ignore={ignore_paths!r}). "
+     f"Apply those filters in the preflight that exported the selection."
+    )
+   return self._build_node_id_args(
+    python_exe, coverage, verbose, node_id_file,
+    distributed=distributed,
+    junit_xml_path=junit_xml_path,
+    enable_runner_plugin=enable_runner_plugin,
+   )
   # Use test_path if provided, otherwise use default test_dir.
   # test_path may carry SEVERAL comma-separated files/node-IDs so one pytest
   # session (one collection, one run directory) covers a whole targeted set
@@ -560,7 +747,7 @@ class TestRunner:
   # Enable parallel execution if xdist is available
   # Disable parallel execution when coverage is enabled to avoid race conditions
   # When running in parallel, exclude serial tests (they will run separately)
-  exclude_serial_in_parallel = self.has_xdist and not coverage
+  exclude_serial_in_parallel = distributed
 
   # Build marker expression, excluding serial tests if running in parallel
   # When marker_expr is None, the default behavior is to run ALL tests (including comprehensive)
@@ -582,7 +769,7 @@ class TestRunner:
   if final_marker_expr:
    if exclude_serial_in_parallel:
     # Override pytest.ini's addopts marker expression completely
-    args.extend(["-o", f'addopts=-v --strict-markers --tb=short -p no:benchmark -m "{final_marker_expr}"'])
+    args.extend(["-o", f'addopts={_PHASE_ADDOPTS} -m "{final_marker_expr}"'])
    else:
     args.extend(["-m", final_marker_expr])
 
@@ -614,17 +801,68 @@ class TestRunner:
 
   # Coverage
   if coverage:
-   args.extend([
-    f"--cov={self.config.coverage_source}",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-   ])
+   args.extend(self._coverage_args())
 
   # JUnit XML output for structured log writer
   if junit_xml_path:
    args.extend(["--junit-xml", str(junit_xml_path)])
 
   return args
+
+ def _build_node_id_args(
+  self,
+  python_exe: str,
+  coverage: bool,
+  verbose: bool,
+  node_id_file: Path,
+  *,
+  distributed: bool,
+  junit_xml_path: Path | None,
+  enable_runner_plugin: bool,
+ ) -> list[str]:
+  """pytest arguments running exactly the node IDs listed in *node_id_file*.
+
+  The single positional argument is ``@<file>``: pytest reads each line of it
+  as one argument, so workers import only the modules holding listed items and
+  no command line grows with the selection. The selection was filtered once,
+  by the preflight that exported it, so no ``--datrix-tags``, marker or keyword
+  filter is passed again and nothing is deselected. The package's ``addopts``
+  are overridden as every phase overrides them, so its coverage options apply
+  only when coverage was asked for.
+
+  Raises:
+   ValueError: *node_id_file* is empty. pytest given no positional argument
+    falls back to the package's whole test tree, which this session must
+    never run.
+  """
+  if not node_id_file.read_text(encoding="utf-8").strip():
+   raise ValueError(
+    f"The node-id file {node_id_file} lists no node ID. Expected one node ID per line; "
+    f"an empty file would make pytest run the whole test tree. Skip the phase when its "
+    f"part of the selection is empty."
+   )
+  args = [python_exe, "-m", "pytest", f"@{node_id_file}"]
+  if enable_runner_plugin:
+   args.extend(["-p", RUNNER_PLUGIN_MODULE])
+  args.append(REQUIRE_TAGS_OPTION)
+  addopts = _PHASE_ADDOPTS if coverage else f"{_PHASE_ADDOPTS} --no-cov"
+  args.extend(["-o", f"addopts={addopts}"])
+  if distributed:
+   args.extend(["-n", "auto", "--dist", "loadgroup"])
+  if verbose:
+   args.append("-v")
+  if coverage:
+   args.extend(self._coverage_args())
+  if junit_xml_path:
+   args.extend(["--junit-xml", str(junit_xml_path)])
+  return args
+
+ def _coverage_args(self) -> list[str]:
+  return [
+   f"--cov={self.config.coverage_source}",
+   "--cov-report=term-missing",
+   "--cov-report=html",
+  ]
 
  def _run_serial_phase(
   self,
@@ -642,12 +880,83 @@ class TestRunner:
   logger: TeeLogger,
   phase_num: int,
   incomplete_phases: list[str],
+  node_id_file: Path | None = None,
  ) -> int:
   """Run the ``serial``-marked tests in one process; return pytest's exit code.
+
+  With *node_id_file* (a ``-Tag`` run) it runs exactly the serial node IDs
+  listed there; otherwise it selects the serial items by marker. A phase whose
+  pytest could not start, or did not run to its end, is noted in
+  *incomplete_phases*.
+  """
+  if node_id_file is not None:
+   test_args_serial = self._build_pytest_args(
+    python_exe, coverage, verbose,
+    junit_xml_path=junit_xml_path,
+    enable_runner_plugin=enable_runner_plugin,
+    node_id_file=node_id_file,
+    distributed=False,
+   )
+  else:
+   test_args_serial = self._marker_serial_args(
+    python_exe, coverage, verbose, marker_expr, test_path, keyword_expr,
+    junit_xml_path=junit_xml_path,
+    enable_runner_plugin=enable_runner_plugin,
+    tags=tags,
+   )
+
+  logger.write(f"\nPhase {phase_num}: Running serial tests (sequential execution)...")
+  return self._run_phase_process(
+   test_args_serial, phase="Serial", env=env, logger=logger, incomplete_phases=incomplete_phases,
+  )
+
+ def _run_phase_process(
+  self,
+  args: list[str],
+  *,
+  phase: str,
+  env: dict[str, str],
+  logger: TeeLogger,
+  incomplete_phases: list[str],
+ ) -> int:
+  """Run one phase's pytest process, streaming its output; return its exit code.
 
   A phase whose pytest could not start, or did not run to its end, is noted
   in *incomplete_phases*.
   """
+  try:
+   process = subprocess.Popen(
+    args,
+    cwd=self.config.project_root,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    bufsize=1,
+    env=env,
+   )
+   returncode, _ = logger.stream_process(process)
+  except Exception as e:
+   logger.write_error(f"Error running the {phase} phase: {e}")
+   if phase not in incomplete_phases:
+    incomplete_phases.append(phase)
+   return 1
+  _note_incomplete_phase(incomplete_phases, phase, returncode)
+  return returncode
+
+ def _marker_serial_args(
+  self,
+  python_exe: str,
+  coverage: bool,
+  verbose: bool,
+  marker_expr: str | None,
+  test_path: str | None,
+  keyword_expr: str | None,
+  *,
+  junit_xml_path: Path | None,
+  enable_runner_plugin: bool,
+  tags: Sequence[str] | None,
+ ) -> list[str]:
+  """The serial phase's arguments for a run without an exported selection."""
   # Temporarily disable xdist and exclude_markers to build args
   # without parallel flags and without conflicting -m flags.
   # Pass marker_expr=None so _build_pytest_args does NOT add a CLI
@@ -672,26 +981,8 @@ class TestRunner:
   if marker_expr:
    serial_marker = marker_expr if "serial" in marker_expr.lower() else f"({marker_expr}) and serial"
 
-  test_args_serial.extend(["-o", f'addopts=-v --strict-markers --tb=short -p no:benchmark --no-cov -m "{serial_marker}"'])
-
-  logger.write(f"\nPhase {phase_num}: Running serial tests (sequential execution)...")
-  try:
-   process = subprocess.Popen(
-    test_args_serial,
-    cwd=self.config.project_root,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True,
-    bufsize=1,
-    env=env,
-   )
-   returncode_serial, _ = logger.stream_process(process)
-  except Exception as e:
-   logger.write_error(f"Error running serial tests: {e}")
-   incomplete_phases.append("Serial")
-   return 1
-  _note_incomplete_phase(incomplete_phases, "Serial", returncode_serial)
-  return returncode_serial
+  test_args_serial.extend(["-o", f'addopts={_PHASE_ADDOPTS} --no-cov -m "{serial_marker}"'])
+  return test_args_serial
 
  def run(
   self,
@@ -722,10 +1013,14 @@ class TestRunner:
   # Get Python executable
   python_exe = self._get_python_executable(verbose=verbose)
 
+  preflight: PreflightResult | None = None
   if tags:
-   refusal = self._preflight_tag_selection(python_exe, test_path, tags)
-   if refusal is not None:
-    return refusal
+   preflight = self._preflight_tag_selection(
+    python_exe, test_path, tags, marker_expr=marker_expr, keyword_expr=keyword_expr,
+   )
+   if preflight.exit_code == _PYTEST_USAGE_ERROR:
+    self._print_preflight_refusal(preflight, tags)
+    return _PYTEST_USAGE_ERROR
 
   # Setup logging with quiet mode (inverted from verbose)
   log_config = LogConfig(
@@ -737,6 +1032,10 @@ class TestRunner:
   )
 
   with TeeLogger(log_config, self.config.project_root) as logger:
+   if preflight is not None and not preflight.succeeded:
+    return self._fail_closed_on_preflight(
+     logger, preflight, _classify_selection(marker_expr, test_path, keyword_expr, tags),
+    )
    # Check for xdist and install if missing (inside logger context for output)
    # Tests marked with @pytest.mark.serial will run in Phase 2 (serial execution)
    # Disable parallel execution for specific projects if needed
@@ -811,11 +1110,19 @@ class TestRunner:
    # PYTHONPATH to resolve "-p datrix_scripts.runner_plugin".
    env = script_env()
    env["PYTHONUNBUFFERED"] = "1"
+   # pytest creates only the per-user folder under its temp root, so the root
+   # itself must exist. The variable keeps pytest's numbered, retained, per-user
+   # directories (safe for concurrent sessions); --basetemp would instead wipe
+   # one shared folder at the start of every session.
+   PYTEST_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+   env[PYTEST_TEMP_ROOT_VARIABLE] = str(PYTEST_TEMP_ROOT)
 
    # Phase execution depends on xdist availability:
    # With xdist: Phase 1 (parallel) → Phase 2 (serial), the latter skipped when
    #   the parallel phase's records prove no collected item is serial
    # No xdist: Single phase (all tests)
+   # A -Tag run follows its exported selection instead: a single phase when it
+   #   holds no more items than CPUs, and a serial phase only for serial items
 
    phase_results = {} # {phase_name: returncode}
    # Phases that actually ran, and those that pytest exited 5 on (= collected
@@ -838,16 +1145,34 @@ class TestRunner:
    # parallel phase only, for the deselected counts that decide whether the
    # serial phase has anything to run; it is never stamped, so it pays no cone
    # derivation. An unsaved run has no run directory to record into.
-   selection = _classify_selection(marker_expr, test_path, keyword_expr, tags)
+   # A -Tag run runs exactly the node IDs its preflight exported: it never
+   # collects the test tree again, and its serial phase runs only for selected
+   # serial items.
+   tag_plan: TagRunPlan | None = None
+   tag_files: TagRunFiles | None = None
+   if preflight is not None:
+    tag_plan = plan_tag_run(
+     preflight.selection,
+     cpu_count=_machine_cpu_count(),
+     parallel_available=self.has_xdist and not coverage,
+    )
+    tag_files = write_tag_run_files(run_dir or self._unsaved_selection_dir(), tag_plan)
+    logger.write(
+     f"-Tag selection: {len(tag_plan.items)} item(s), {len(tag_plan.serial_ids)} serial; "
+     f"execution {tag_plan.execution} (written to {tag_files.selection})"
+    )
+   selection = _classify_selection(marker_expr, test_path, keyword_expr, tags, plan=tag_plan)
    workspace_root = WORKSPACE_DIR
    stamp = prepare_full_run_stamp(
     selection, run_dir, workspace_root, self.config.project_name, logger.write_warning,
    )
    enable_runner_plugin = stamp is not None and run_dir is not None
-   record_parallel_phase = run_dir is not None
+   # A -Tag run's serial decision reads its exported selection, never the
+   # parallel phase's deselected counts, so that phase records none.
+   record_parallel_phase = run_dir is not None and tag_plan is None
    if stamp is not None and run_dir is not None:
     env.update(stamp.plugin_environment(run_dir))
-   elif run_dir is not None:
+   elif record_parallel_phase:
     env.update(unstamped_recorder_environment(run_dir, workspace_root, self.config.project_root))
    # Phases whose pytest process did not run to its end; any one refuses the stamp.
    incomplete_phases: list[str] = []
@@ -856,60 +1181,68 @@ class TestRunner:
    # Evidence the runner could not trust; any one fails the run.
    runner_errors: list[str] = []
 
-   if self.has_xdist and not coverage:
+   if tag_plan is not None:
+    run_parallel = tag_plan.execution == EXECUTION_PARALLEL_SERIAL
+   else:
+    run_parallel = self.has_xdist and not coverage
+   if run_parallel:
     # ── Phase 1: Parallel tests (excluding serial) ─────────────────
     phase_num = 1
     logger.write("")
     logger.write("=" * 60)
     logger.write(f"Phase {phase_num}: Parallel tests (excluding serial)")
     logger.write("=" * 60)
-    test_args_parallel = self._build_pytest_args(
-     python_exe, coverage, verbose, marker_expr, test_path,
-     keyword_expr, ignore_paths=None,
-     junit_xml_path=junit_parallel_path,
-     enable_runner_plugin=record_parallel_phase,
-     tags=tags,
-    )
 
     parallel_started = time.time()
-    try:
-     process = subprocess.Popen(
-      test_args_parallel,
-      cwd=self.config.project_root,
-      stdout=subprocess.PIPE,
-      stderr=subprocess.STDOUT,
-      text=True,
-      bufsize=1,
-      env=env,
+    if tag_plan is not None and not tag_plan.parallel_ids:
+     # An empty argument file would make pytest run the whole tree.
+     skipped_phases["Parallel"] = PARALLEL_SKIPPED_NO_SELECTED_PARALLEL_ITEMS
+     logger.write(f"Phase {phase_num}: parallel tests SKIPPED -- the -Tag selection holds only serial items")
+    else:
+     if tag_files is not None:
+      test_args_parallel = self._build_pytest_args(
+       python_exe, coverage, verbose,
+       junit_xml_path=junit_parallel_path,
+       enable_runner_plugin=record_parallel_phase,
+       node_id_file=tag_files.parallel_args,
+      )
+     else:
+      test_args_parallel = self._build_pytest_args(
+       python_exe, coverage, verbose, marker_expr, test_path,
+       keyword_expr, ignore_paths=None,
+       junit_xml_path=junit_parallel_path,
+       enable_runner_plugin=record_parallel_phase,
+       tags=tags,
+      )
+     returncode_parallel = self._run_phase_process(
+      test_args_parallel, phase="Parallel", env=env, logger=logger,
+      incomplete_phases=incomplete_phases,
      )
-     returncode_parallel, _ = logger.stream_process(process)
-    except Exception as e:
-     logger.write_error(f"Error running parallel tests: {e}")
-     returncode_parallel = 1
-     incomplete_phases.append("Parallel")
-    _note_incomplete_phase(incomplete_phases, "Parallel", returncode_parallel)
-
-    # Exit code 5 = no tests collected (not an error for this phase alone)
-    executed_phases.append("Parallel")
-    if returncode_parallel == 5:
-     zero_collection_phases.append("Parallel")
-     returncode_parallel = 0
-    phase_results["Parallel"] = returncode_parallel
+     # Exit code 5 = no tests collected (not an error for this phase alone)
+     executed_phases.append("Parallel")
+     if returncode_parallel == 5:
+      zero_collection_phases.append("Parallel")
+      returncode_parallel = 0
+     phase_results["Parallel"] = returncode_parallel
 
     # ── Phase 2: Serial tests ────────────────────────────────────
-    # The parallel phase's own records say whether any collected item is
-    # serial -- no second collection is spent to find out. The decision
-    # skips the phase only on complete evidence that every worker
+    # A -Tag run's exported selection says which selected items are serial.
+    # Otherwise the parallel phase's own records say whether any collected
+    # item is serial -- no second collection is spent to find out. That
+    # decision skips the phase only on complete evidence that every worker
     # deselected nothing; anything else runs it.
     phase_num_serial = phase_num + 1
-    serial_decision, decision_errors = _serial_phase_decision_for_run(
-     run_dir,
-     recorded=record_parallel_phase,
-     parallel_completed="Parallel" not in incomplete_phases,
-     user_filter_active=bool(marker_expr or keyword_expr or tags),
-     package_root=self.config.project_root,
-     parallel_started=parallel_started,
-    )
+    if tag_plan is not None:
+     serial_decision, decision_errors = tag_plan.serial_decision(), []
+    else:
+     serial_decision, decision_errors = _serial_phase_decision_for_run(
+      run_dir,
+      recorded=record_parallel_phase,
+      parallel_completed="Parallel" not in incomplete_phases,
+      user_filter_active=bool(marker_expr or keyword_expr or tags),
+      package_root=self.config.project_root,
+      parallel_started=parallel_started,
+     )
     for error in decision_errors:
      logger.write_error(f"Runner error: {error}")
     runner_errors.extend(decision_errors)
@@ -927,6 +1260,7 @@ class TestRunner:
       logger=logger,
       phase_num=phase_num_serial,
       incomplete_phases=incomplete_phases,
+      node_id_file=tag_files.serial_args if tag_files is not None else None,
      )
      executed_phases.append("Serial")
      # Exit code 5 = no tests collected (not an error for this phase alone)
@@ -935,36 +1269,34 @@ class TestRunner:
       returncode_serial = 0
      phase_results["Serial"] = returncode_serial
    else:
-    # No xdist: run all tests in a single phase
+    # No xdist, coverage, or a -Tag selection no larger than the CPU count:
+    # run every selected test in a single process. One process keeps the
+    # serial items' one-at-a-time guarantee.
     phase_num = 1
     logger.write("")
     logger.write("=" * 60)
     logger.write("Phase 1: All tests (sequential)")
     logger.write("=" * 60)
-    test_args = self._build_pytest_args(
-     python_exe, coverage, verbose, marker_expr, test_path,
-     keyword_expr, ignore_paths=None,
-     junit_xml_path=junit_path,
-     enable_runner_plugin=enable_runner_plugin,
-     tags=tags,
-    )
-
-    try:
-     process = subprocess.Popen(
-      test_args,
-      cwd=self.config.project_root,
-      stdout=subprocess.PIPE,
-      stderr=subprocess.STDOUT,
-      text=True,
-      bufsize=1,
-      env=env,
+    if tag_files is not None:
+     test_args = self._build_pytest_args(
+      python_exe, coverage, verbose,
+      junit_xml_path=junit_path,
+      enable_runner_plugin=enable_runner_plugin,
+      node_id_file=tag_files.selected_args,
+      distributed=False,
      )
-     rc_remaining, _ = logger.stream_process(process)
-    except Exception as e:
-     logger.write_error(f"Error running tests: {e}")
-     rc_remaining = 1
-     incomplete_phases.append("Tests")
-    _note_incomplete_phase(incomplete_phases, "Tests", rc_remaining)
+    else:
+     test_args = self._build_pytest_args(
+      python_exe, coverage, verbose, marker_expr, test_path,
+      keyword_expr, ignore_paths=None,
+      junit_xml_path=junit_path,
+      enable_runner_plugin=enable_runner_plugin,
+      tags=tags,
+      distributed=False,
+     )
+    rc_remaining = self._run_phase_process(
+     test_args, phase="Tests", env=env, logger=logger, incomplete_phases=incomplete_phases,
+    )
 
     # Exit code 5 = no tests collected (not an error for this phase alone)
     executed_phases.append("Tests")
@@ -989,15 +1321,17 @@ class TestRunner:
      # structured_log_writer_xml_missing warning when nothing was wrong.
      # Every executed phase writes its file even when it selects nothing:
      # pytest emits the XML (with zero testcases) before exiting 5.
-     xml_paths: list[Path] = []
-     if self.has_xdist and not coverage:
-      if junit_parallel_path and "Parallel" in executed_phases:
-       xml_paths.append(junit_parallel_path)
-      if junit_serial_path and "Serial" in executed_phases:
-       xml_paths.append(junit_serial_path)
-     else:
-      if junit_path and "Tests" in executed_phases:
-       xml_paths.append(junit_path)
+     # Keyed on the phases that ran, never on xdist availability: a -Tag
+     # run takes the single-process branch with xdist installed.
+     phase_xml_paths = {
+      "Parallel": junit_parallel_path,
+      "Serial": junit_serial_path,
+      "Tests": junit_path,
+     }
+     xml_paths: list[Path] = [
+      path for phase, path in phase_xml_paths.items()
+      if path is not None and phase in executed_phases
+     ]
 
      inputs = None
      if stamp is not None:
@@ -1133,31 +1467,46 @@ class TestRunner:
   return returncode
 
  def _preflight_tag_selection(
-  self, python_exe: str, test_path: str | None, tags: Sequence[str],
- ) -> int | None:
-  """Refuse a ``-Tag`` selection the feature-tag plugin would reject, before any phase runs.
+  self,
+  python_exe: str,
+  test_path: str | None,
+  tags: Sequence[str],
+  *,
+  marker_expr: str | None = None,
+  keyword_expr: str | None = None,
+ ) -> PreflightResult:
+  """Collect a ``-Tag`` run's selection once, before any phase runs, and export it.
 
-  The plugin's check (a requested tag no collected test carries; a tag set
-  that selects the package's whole test tree) fires after collection. In the
-  parallel phase that is inside every xdist worker, each of which first
-  collects the whole tree -- so a misspelled tag cost a full collection per
-  worker and surfaced as a worker crash instead of the plugin's message. One
-  collection-only session in a single process, over the run's own targets
-  and tags, asks the same question once and runs nothing. It writes no run
-  directory: nothing ran.
+  One collection-only session in a single process, over the run's own targets,
+  tags, marker and keyword, with the phases' ``addopts`` and tag requirement,
+  so any refusal those options make at collection happens here. The feature-tag
+  plugin refuses a requested tag no collected test carries, or a selection
+  that is the package's full suite, after collection; asked here it is asked
+  once, never inside every xdist worker. The selection-export plugin
+  (``-p datrix_scripts.selection_export --datrix-selection-out=<file>``, the
+  file under ``<workspace>/.tmp/test-selection/``) then writes the items the
+  session kept, so the phases run exactly those node IDs and never collect the
+  tree again. It writes no run directory.
 
   Returns:
-   pytest's usage-error code when the plugin refuses the selection (its
-   message is printed); ``None`` when the run may proceed. Any other outcome
-   of this collection -- a module that fails to import, say -- is left to
-   the run itself, which reports it with full results.
+   The session's exit code and captured output, with the exported selection
+   when it exited 0. A session that exited 0 without a readable export
+   carries a ``runner_error`` naming the file and the runner-error code.
   """
+  SELECTION_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+  export = SELECTION_EXPORT_DIR / f"{self._selection_stem()}.json"
   targets = _split_test_targets(test_path) or [self.config.test_dir]
   argv = [
    python_exe, "-m", "pytest", *targets,
    "--collect-only", "-q", "-p", "no:cacheprovider",
-   f"{TAGS_OPTION}={','.join(tags)}",
+   "-o", f"addopts={_PHASE_ADDOPTS} --no-cov",
+   REQUIRE_TAGS_OPTION, f"{TAGS_OPTION}={','.join(tags)}",
+   "-p", SELECTION_EXPORT_MODULE, f"{SELECTION_OUT_OPTION}={export}",
   ]
+  if marker_expr:
+   argv.extend(["-m", marker_expr])
+  if keyword_expr:
+   argv.extend(["-k", keyword_expr])
   completed = subprocess.run(  # noqa: S603 -- venv interpreter, fixed argv
    argv,
    cwd=self.config.project_root,
@@ -1166,17 +1515,70 @@ class TestRunner:
    encoding="utf-8",
    errors="replace",
    check=False,
+   env=script_env(),
   )
-  if completed.returncode != _PYTEST_USAGE_ERROR:
-   return None
+  output = "\n".join(stream.rstrip("\n") for stream in (completed.stdout, completed.stderr) if stream.strip())
+  if completed.returncode != 0:
+   export.unlink(missing_ok=True)
+   return PreflightResult(exit_code=completed.returncode, output=output)
+  try:
+   selection = read_selection(export)
+  except SelectionExportError as error:
+   return PreflightResult(exit_code=_RUNNER_ERROR_EXIT_CODE, output=output, runner_error=str(error))
+  export.unlink()
+  return PreflightResult(exit_code=0, output=output, selection=selection)
+
+ def _selection_stem(self) -> str:
+  """A name no other run of this or any process shares: project, pid, monotonic ns."""
+  return f"{self.config.project_name}-{os.getpid()}-{time.monotonic_ns()}"
+
+ def _unsaved_selection_dir(self) -> Path:
+  """Where an unsaved ``-Tag`` run (no run directory) writes its argument files."""
+  return SELECTION_EXPORT_DIR / self._selection_stem()
+
+ def _print_preflight_refusal(self, preflight: PreflightResult, tags: Sequence[str]) -> None:
   print(
    f"Refusing the -Tag selection for {self.config.project_name} before running any "
    f"test ({','.join(tags)}):"
   )
-  for stream in (completed.stdout, completed.stderr):
-   if stream.strip():
-    print(stream.rstrip("\n"))
-  return _PYTEST_USAGE_ERROR
+  if preflight.output:
+   print(preflight.output)
+
+ def _fail_closed_on_preflight(
+  self, logger: TeeLogger, preflight: PreflightResult, selection: dict[str, object],
+ ) -> int:
+  """Fail a ``-Tag`` run whose preflight collection did not succeed; run no phase.
+
+  The preflight's output goes to the run's log and the run is recorded FAILED
+  with the preflight's exit code. A selection that cannot be trusted is never
+  replaced by a run over the whole tree.
+  """
+  if preflight.runner_error is not None:
+   reason = f"Runner error: {preflight.runner_error}"
+  else:
+   code = preflight.exit_code
+   meaning = _PREFLIGHT_EXIT_MEANINGS[code] if code in _PREFLIGHT_EXIT_MEANINGS else "an unexpected exit"
+   reason = (
+    f"The -Tag preflight collection of {self.config.project_name} exited {code} "
+    f"({meaning}), not 0, so its selection cannot be trusted and no phase ran. "
+    f"Expected a clean collection keeping at least one test; fix what its output "
+    f"(in full.log) shows, or narrow the selection differently."
+   )
+  logger.write_error(reason)
+  logger.write("Preflight collection output:")
+  logger.write(preflight.output or "(no output)")
+  logger.write_console(colorize(f"[FAILED] {self.config.project_name}", ColorCodes.RED))
+  run_dir = logger.get_run_dir()
+  if run_dir is not None:
+   from datetime import datetime
+
+   from datrix_scripts.structured_log_writer import StructuredLogWriter
+
+   StructuredLogWriter(project_name=self.config.project_name, run_dir=run_dir).write(
+    xml_paths=[], timestamp=datetime.now(), selection=selection, runner_errors=[reason],
+   )
+   logger.write_console(f"  Details: {run_dir / 'index.json'}")
+  return preflight.exit_code
 
  def list_tags(self, test_path: str | None = None) -> int:
   """Print every feature tag in the package with its test count; run no test.

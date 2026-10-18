@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import ast
 import contextlib
+import importlib.util
 import json
 import re
 import subprocess
@@ -38,6 +39,7 @@ from datrix_scripts.local_llm import (
     advisory_reply,
     local_llm_settings,
 )
+from datrix_scripts.venv import SCRIPTS_DEPENDENCY_GROUP, missing_declared_tool
 
 # Default exclude for Pass 1 (src only): exclude tests and cache
 EXCLUDE_SRC_ONLY = "*\\tests\\*,*\\test\\*,*__pycache__*,*.git*"
@@ -394,11 +396,12 @@ class DeadCodeError(RuntimeError):
     """The dead-code scan cannot run as asked; the message says why."""
 
 
+# Vulture runs as a module of this interpreter, so the shared venv's copy is the one that scans.
+_VULTURE_MODULE = "vulture"
 # Vulture's exit codes for a completed scan: 0 = nothing found, 3 = dead code found. Any
-# other code (1 invalid input, 2 bad arguments, or Python's own 1 for "No module named
-# vulture") means no scan happened -- and reading its empty stdout as "no dead code" is
-# exactly the fail-open this module once had: every report was clean in a venv without
-# Vulture installed.
+# other code (1 invalid input, 2 bad arguments) means no scan happened -- and reading its
+# empty stdout as "no dead code" is exactly the fail-open this module once had: every report
+# was clean in a venv without Vulture installed.
 _VULTURE_COMPLETED = frozenset({0, 3})
 
 
@@ -406,10 +409,12 @@ def _vulture_output(
     paths: list[str], exclude_pattern: str, min_confidence: int, cwd: str, extra: tuple[str, ...] = ()
 ) -> subprocess.CompletedProcess[str]:
     """Run Vulture; its completed output. Raises DeadCodeError when it did not complete a scan."""
+    if importlib.util.find_spec(_VULTURE_MODULE) is None:
+        raise DeadCodeError(missing_declared_tool("vulture", SCRIPTS_DEPENDENCY_GROUP))
     cmd = [
         sys.executable,
         "-m",
-        "vulture",
+        _VULTURE_MODULE,
         "--min-confidence",
         str(max(60, min(100, min_confidence))),
         "--exclude",
@@ -427,8 +432,7 @@ def _vulture_output(
         detail = (result.stderr or "").strip().splitlines()
         raise DeadCodeError(
             f"Vulture did not complete a scan (exit {result.returncode}): "
-            f"{detail[-1] if detail else 'no error output'}. If Vulture is missing, install it into the "
-            f"shared venv: {sys.executable} -m pip install vulture"
+            f"{detail[-1] if detail else 'no error output'}."
         )
     return result
 

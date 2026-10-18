@@ -50,23 +50,20 @@ from datrix_scripts.local_llm import (
     add_local_llm_arguments,
     local_llm_settings,
 )
+from datrix_scripts.venv import PACKAGE_DEV_EXTRAS, SCRIPTS_DEPENDENCY_GROUP, missing_declared_tool
 
 try:
     from radon.complexity import cc_visit
     from radon.metrics import h_visit, mi_visit
     from radon.raw import analyze as raw_analyze
     from radon.visitors import Class
-except ImportError:
-    print(
-    "Error: radon is not installed. Install with: pip install radon>=6.0",
-    file=sys.stderr,
-    )
-    sys.exit(2)
+except ImportError as exc:
+    raise SystemExit(missing_declared_tool("radon", PACKAGE_DEV_EXTRAS)) from exc
 
 try:
     from cognitive_complexity.api import get_cognitive_complexity
-except ImportError:
-    get_cognitive_complexity = None # type: ignore[assignment, misc]
+except ImportError as exc:
+    raise SystemExit(missing_declared_tool("cognitive_complexity", SCRIPTS_DEPENDENCY_GROUP)) from exc
 
 DEFAULT_MAX_COMPLEXITY = 15
 DEFAULT_IGNORE_DIRS = ("tests", "test", "__pycache__", ".git")
@@ -314,10 +311,6 @@ def run_check_cognitive(
     files: Sequence[Path] | None = None,
 ) -> list[tuple[str, str, int, int]]:
     """Check that no function or async function exceeds max cognitive complexity. Return list of violations."""
-    if get_cognitive_complexity is None:
-        raise RuntimeError(
-            "cognitive_complexity is not installed. Install with: pip install cognitive_complexity"
-        )
     violations: list[tuple[str, str, int, int]] = []
     for file_path in files_to_check(project_root, ignore_dirs, ignore_path_contains_all, files):
         try:
@@ -454,8 +447,6 @@ def _measure_all_complexities(
             if compl is not None:
                 results.append((name, compl))
     else:
-        if get_cognitive_complexity is None:
-            return False, []
         try:
             tree = ast.parse(dedented)
         except SyntaxError:
@@ -902,15 +893,9 @@ def _collect_violations(
     cc_violations = run_check(
         project_root, max_complexity, ignore_dirs, verbose, ignore_path_contains_all,
     )
-    cog_violations: list[tuple[str, str, int, int]] = []
-    if get_cognitive_complexity is not None:
-        try:
-            cog_violations = run_check_cognitive(
-                project_root, max_complexity, ignore_dirs, verbose,
-                ignore_path_contains_all,
-            )
-        except RuntimeError as e:
-            print(str(e), file=sys.stderr)
+    cog_violations = run_check_cognitive(
+        project_root, max_complexity, ignore_dirs, verbose, ignore_path_contains_all,
+    )
 
     all_violations: list[tuple[str, str, int, int, str]] = []
     for path, name, lineno, compl in cc_violations:
@@ -1154,8 +1139,7 @@ def check_files(files: Sequence[Path], max_complexity: int, mode: str, fix_reque
     """Check exactly *files* for cyclomatic and cognitive complexity above *max_complexity*.
 
     Returns 0 when every block is within the limit, 1 on a violation or a bad argument
-    (a missing file, a non-.py file, a mode other than check, or --fix), 2 when the
-    cognitive-complexity package is missing.
+    (a missing file, a non-.py file, a mode other than check, or --fix).
     """
     if mode != "check" or fix_requested:
         print("Error: --files supports --mode check only, without --fix/--fix-all.", file=sys.stderr)
@@ -1166,11 +1150,7 @@ def check_files(files: Sequence[Path], max_complexity: int, mode: str, fix_reque
         return 1
     resolved = [path.resolve() for path in files]
     cc_violations = run_check(None, max_complexity, (), False, files=resolved)
-    try:
-        cog_violations = run_check_cognitive(None, max_complexity, (), False, files=resolved)
-    except RuntimeError as e:
-        print(str(e), file=sys.stderr)
-        return 2
+    cog_violations = run_check_cognitive(None, max_complexity, (), False, files=resolved)
     for label, violations in (("cyclomatic", cc_violations), ("cognitive", cog_violations)):
         for file_path, name, lineno, complexity in sorted(violations, key=lambda v: (v[0], v[2])):
             print(f"  {file_path}:{lineno} {name} ({label}={complexity})", file=sys.stderr)
@@ -1346,17 +1326,13 @@ def main() -> int:
             verbose=verbose,
             ignore_path_contains_all=ignore_path_contains_all,
         )
-        try:
-            cog_violations = run_check_cognitive(
-                project_root,
-                max_complexity=args.max,
-                ignore_dirs=ignore_dirs,
-                verbose=verbose,
-                ignore_path_contains_all=ignore_path_contains_all,
-            )
-        except RuntimeError as e:
-            print(str(e), file=sys.stderr)
-            return 2
+        cog_violations = run_check_cognitive(
+            project_root,
+            max_complexity=args.max,
+            ignore_dirs=ignore_dirs,
+            verbose=verbose,
+            ignore_path_contains_all=ignore_path_contains_all,
+        )
         if not cc_violations and not cog_violations:
             # Always show that both metrics were checked
             print(

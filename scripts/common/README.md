@@ -1,18 +1,22 @@
 # Common Modules
 
-Shared PowerShell modules used by all scripts, and `lib/datrix_scripts/`, the Python package
-every scripts folder shares.
+Shared PowerShell modules used by all scripts, the wrapper template, the shared venv's wrapper,
+and `lib/datrix_scripts/`, the Python package every scripts folder shares.
 
 ## Files
 
 | File | Description |
 |------|-------------|
-| `DatrixPythonScript.psm1` | `Invoke-DatrixPythonScript`, the one way a wrapper runs Python; gate mode, its verdict line and gate logs |
-| `DatrixPaths.psm1` | Path discovery for workspace and repository directories |
+| `DatrixPythonScript.psm1` | `Invoke-DatrixEntrypoint`, the body of every wrapper rendered from `templates/entrypoint.ps1`; `Invoke-DatrixPythonScript`, how a wrapper not yet rendered from it runs Python; gate mode, its verdict line and gate logs |
+| `DatrixPaths.psm1` | Path discovery for the workspace, the repository directories, the shared venv and its interpreter, and the scripts `PYTHONPATH` |
 | `DatrixScriptCommon.psm1` | Shared project lists and `ConvertTo-DatrixProjectName` (imports `DatrixPaths.psm1`) |
-| `venv.ps1` | Virtual environment management (creation, activation, package installation, the scripts `PYTHONPATH`) |
-| `venv-install-order.ps1` | Self-test of the package install order (`datrix_scripts.install_order`) |
-| `venv-dev-specs.ps1` | Self-test of the `[dev]` specs the venv installs (`datrix_scripts.dev_specs`) |
+| `templates/entrypoint.ps1`, `templates/entrypoint.sh` | The wrapper template and its POSIX twin (see [Wrappers rendered from the template](#wrappers-rendered-from-the-template)) |
+| `venv.ps1`, `venv.sh` | The shared venv: creation, the architecture check, package installation, the package lock, the CLI check |
+| | Module: `datrix_scripts.venv` |
+| `venv-install-order.ps1`, `venv-install-order.sh` | Self-test of the package install order |
+| | Module: `datrix_scripts.install_order` |
+| `venv-dev-specs.ps1`, `venv-dev-specs.sh` | Self-test of the `[dev]` specs and dependency-group specs the venv installs |
+| | Module: `datrix_scripts.dev_specs` |
 | `CleanupUtils.psm1` | Cleanup utilities (empty parents, confirmation, folder tree display, size formatting) |
 | `DatrixRunLog.psm1` | Run-log file naming and **exclusive** claiming — two runs never share one log file |
 | `lib/datrix_scripts/` | The shared Python package (below) |
@@ -29,8 +33,9 @@ Every Python file sits beside the wrapper that runs it, never in a central tree:
   It is always imported as `datrix_scripts.<name>`, and a wrapper that runs one of its modules
   uses `Invoke-DatrixPythonScript -Module datrix_scripts.<name>`.
 
-`Invoke-DatrixPythonScript` activates the shared venv, which puts `scripts\common\lib` first on
-`PYTHONPATH` (`Set-DatrixPythonPath`), so every wrapper's Python can import `datrix_scripts`. A Python process that starts
+`Invoke-DatrixEntrypoint` and `Invoke-DatrixPythonScript` point the child's environment at the shared
+venv (`Enter-DatrixVenvEnvironment`), which puts `scripts\common\lib` first on `PYTHONPATH`, so every
+wrapper's Python can import `datrix_scripts`; the caller's environment is restored afterwards. A Python process that starts
 another Python process passes `datrix_scripts.paths.script_env()` as its environment. Hooks call
 `add_scripts_lib_to_path()` (`claude-config/.claude/hooks/_hook_log.py`), and the MCP servers are
 registered with `PYTHONPATH` in their `env` (re-run `dev\code-index.ps1 -Setup` and
@@ -41,7 +46,7 @@ Never compute a location from `Path(__file__).parents[N]`: import it from `datri
 
 No production script inserts a path into `sys.path`: the venv's editable installs and the
 `PYTHONPATH` the runner sets are the only import paths. The only inserts are self-test fixtures
-that plant a synthetic distribution in a temp directory, and `hook_modules.py` (the hooks directory
+that plant a synthetic distribution or module in a temp directory, and `hook_modules.py` (the hooks directory
 is no package).
 
 ### One home per fact
@@ -52,12 +57,17 @@ must report zero (each census first reports a planted copy):
 | Fact | Home | Census |
 |------|------|--------|
 | Check running, `_ok`/`_fail`, logging setup | `datrix_scripts.gate_harness` | no other top-level `run_checks`, `run_self_test_checks`, `harness_self_test`, `_ok`, `_fail`, `configure_logging` |
-| Activating the venv and running Python | `Invoke-DatrixPythonScript` | no `.ps1` but `venv.ps1` calls `Ensure-DatrixVenv`; every gate wrapper prints the verdict line |
+| Checking the venv and running Python | `datrix_scripts.venv`; `Invoke-DatrixEntrypoint` / `Invoke-DatrixPythonScript` | no `.ps1` calls a retired venv function (`Ensure-DatrixVenv`); every gate wrapper prints the verdict line |
 | The workspace root | `Get-DatrixWorkspaceRoot` / `datrix_scripts.paths.WORKSPACE_DIR` | no retired resolver is defined or named |
 | Enumerating `datrix-*` directories | `framework_repos.workspace_package_dirs` | no loop over an `iterdir()` tests a `datrix` prefix |
 | Import paths | the venv | no `sys.path` mutation outside the fixtures above |
 | A helper body | its shared module | no function body of three or more statements is AST-identical across two files; no module-level function of any length copies a public `datrix_scripts` function in another file (docstring, annotations and decorators ignored, the names it binds renamed by position, every free name resolved to the import or definition it denotes; a body that only returns a constant is no home) |
 | A gate's self-test | the gate | every gate wrapper declares `-SelfTest` |
+
+One more census of the same gate holds a defect class rather than a home: **unrolled-append**
+refuses a `.ps1`/`.psm1` that assigns a variable from a bare `if`, `switch`, loop or `try`
+statement and later grows it with `+=` (wrap the statement in `@(...)`, as under *Adding a
+script*).
 
 The same gate proves that every `datrix_scripts` module imports as the first import of a fresh
 interpreter, and that every module a hook imports is exercised by a gate or carries its own
@@ -69,16 +79,62 @@ folder, every Python file in a `lib/` folder, no `lib/` module named like a stdl
 module, every import resolvable, every script a wrapper runs present, and every script path a doc,
 skill, hook, config or package file names present.
 
+### Wrappers rendered from the template
+
+A script whose behaviour has moved into a `datrix_scripts.<category>.<script>` module (or a shared
+module such as `datrix_scripts.venv`) has a wrapper written by hand from
+`templates/entrypoint.ps1`: the template's `# {{PARAMETER_BLOCK}}` line becomes the wrapper's own
+comment-based help and `param()` block, `{{MODULE}}` becomes its module, and every other line is the
+template's, byte for byte. The body is `Invoke-DatrixEntrypoint -Module <module> -Parameters
+$PSBoundParameters` and `exit $LASTEXITCODE`: each bound parameter is passed as `--kebab-name`
+(`-SkipIfInstalled` → `--skip-if-installed`; a value as `--name=<value>`, an array as one
+`--name=<value>` per element; PowerShell's common parameters are not passed), in an argument vector,
+never a shell string, and the module's exit code is the wrapper's. The module is an `argparse` entry
+point whose options are exactly those flags. When the venv has no interpreter yet, the wrapper first
+creates it (`python -m datrix_scripts.venv --ensure` under `DATRIX_PYTHON`, else the first of `py`,
+`python`, `python3` on `PATH`). The POSIX twin beside the wrapper, `<name>.sh`, is
+`templates/entrypoint.sh` with the module substituted; it passes its arguments through unchanged, so
+on POSIX the module's own flags are typed (`bash common/venv.sh --help`).
+
+`datrix_scripts.entrypoint.wrapper_problems(wrapper, module, parser)` holds the seam, and every
+module with a wrapper calls it from its `--self-test`: the wrapper and its twin are the templates
+rendered, and the wrapper's parameters and the parser's options are one set (each first proven on
+planted drift).
+
+#### Moving a script's behaviour into Python
+
+There is no wrapper generator: each wrapper is written by hand from the template, and
+`wrapper_problems` is what catches it drifting.
+
+- **The module.** The behaviour becomes `datrix_scripts.<category>.<script>`: an `argparse` entry
+  point with the script's parameters as its options, reusing the existing `datrix_scripts` helpers
+  (look a helper up with the code index's `find_symbol` before adding one), and a `--self-test` for
+  the behaviour it moved. A script whose logic already sits in a `lib/*.py` module keeps it there;
+  only its wrapper changes.
+- **Unchanged surface.** Script names, parameters, exit codes and the command parsing of the hooks
+  that guard them do not change. The script's `quick-reference.md` section keeps its table and gains
+  one line naming the module.
+- **Proof.** The module's `--self-test` passes, and one documented invocation from the script's
+  `quick-reference.md`, run before and after the move, gives the same exit code and output summary. A
+  script that runs tests, a generation or a deploy is proven with its `-SelfTest`, `-ListTags` or
+  dry-run forms only, never by a whole suite or a generation sweep.
+- **No new credential.** Passing the arguments as a vector removes PowerShell interpolation from
+  command construction; moving a script gives it no credential it did not already have.
+
 ### Adding a script
 
 1. Put the Python in the `lib/` of the folder whose wrapper runs it (or in `datrix_scripts`, per
    the rule above).
-2. Write the wrapper in that folder: its `param()` block, the mapping of its switches to Python
-   flags, and one line, `exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot
-   "lib\<name>.py") -Arguments $pythonArgs)` (`-RequirePackages` when it needs the editable
-   installs, `-Gate <name>` for a gate, `-ShowCommand:$Dbg`). It never calls `Ensure-DatrixVenv`
-   itself (`test\shared-library-gate.ps1`'s runner-adoption census holds that). A gate also
-   declares `-SelfTest`.
+2. Write the wrapper in that folder: rendered from the template (above) when the module is an
+   `argparse` entry point with the wrapper's parameters as its options; otherwise its `param()`
+   block, the mapping of its switches to Python flags, and one line, `exit (Invoke-DatrixPythonScript
+   -Script (Join-Path $PSScriptRoot "lib\<name>.py") -Arguments $pythonArgs)` (`-RequirePackages`
+   when it needs the editable installs, `-Gate <name>` for a gate, `-ShowCommand:$Dbg`). It never
+   checks the venv itself (`test\shared-library-gate.ps1`'s runner-adoption census holds that). A gate also
+   declares `-SelfTest`. An argument list chosen by a branch and then grown with `+=` wraps the
+   whole branch, `$pythonArgs = @(if ($All) { "--all" } else { $Projects })`: a bare `if` unrolls
+   a one-element branch to a string, and `+=` would concatenate onto it (the same gate's
+   unrolled-append census refuses the bare form).
 3. Add its section to the folder's `quick-reference.md`, documenting exactly the parameters it
    declares (`gates\repo-hygiene\script-catalogue-gate.ps1` holds that).
 
@@ -87,13 +143,14 @@ skill, hook, config or package file names present.
 | Module | Description |
 |--------|-------------|
 | `paths.py` | Fixed locations in the scripts tree, the showcase repository and the workspace; `script_env()` |
-| `venv.py` | Virtual environment helpers (Python side): the venv path, its interpreter, whether a venv is active |
-| `install_order.py` | The `datrix-*` package install order for the shared venv |
-| `dev_specs.py` | A package's `[dev]` specs as the shared venv installs them: a direct-URL spec to a sibling workspace package becomes its bare name, so pip never replaces that package's editable install with a frozen copy |
+| `venv.py` | The shared venv (run by `common\venv.ps1`; see [venv.ps1](#venvps1)), and for every script: the venv's interpreter (`get_venv_python`), whether a venv is active, the refusal for a declared tool that does not import (`missing_declared_tool`), and the venv repair command any other refusal names (`venv_repair`) |
+| `entrypoint.py` | The seam between a wrapper rendered from `templates/entrypoint.ps1` and its module (`wrapper_problems`), and the wording of a wrapper command in a message (`wrapper_command`: `common\venv.ps1 -Ensure` on Windows, `common/venv.sh --ensure` elsewhere) |
+| `install_order.py` | The `datrix-*` package install order for the shared venv (`topological_install_order`) |
+| `dev_specs.py` | A package's `[dev]` specs as the shared venv installs them (`installable_dev_specs`): a direct-URL spec to a sibling workspace package becomes its bare name, so pip never replaces that package's editable install with a frozen copy. `read_dependency_group` reads a PEP 735 dependency group's specs (`include-group` expanded; a missing group, a cycle or a malformed entry is refused): the venv reads the `scripts` group of `datrix/pyproject.toml` this way |
 | `framework_repos.py` | The framework git repositories at the workspace root, discovered, never listed; `workspace_package_dirs(workspace, any_of=…, include_showcase=…)` is the only enumeration of `datrix-*` directories (filtered by `PackageMarker`: `src`, `tests`, `pyproject.toml`, `package.json`, `.git`), and each caller keeps its own keying |
 | `gate_harness.py` | The one check loop every gate runs, its non-vacuity proof, `[OK]`/`[FAIL]` printing, logging setup, the shared gate flags and the planted-fixture writer (see [../gates/README.md](../gates/README.md#how-a-gate-is-built)) |
 | `count_ratchet.py` | The two count-ratchet semantics (tighten-only, exact-pin) and the fail-closed count-table reader and writers |
-| `powershell_ast.py` | Parameters, calls and definitions of PowerShell scripts, read through PowerShell's own parser in one child process |
+| `powershell_ast.py` | Parameters, calls, definitions, flow-control-statement assignments and `+=` targets of PowerShell scripts, read through PowerShell's own parser in one child process |
 | `hook_modules.py` | Loads a harness hook module by path, so a gate shares the hook's one definition instead of a copy |
 | `registered_targets.py` | The registered `datrix.languages` / `datrix.platforms` targets and their `src/` directories -- the one place a script learns which targets exist |
 | `pyproject_deps.py` | `datrix-*` dependency declarations read from `pyproject.toml` |
@@ -102,6 +159,7 @@ skill, hook, config or package file names present.
 | `test_projects.py` | Project discovery from `config/test-projects.json` |
 | `test_project.py` | The package test runner behind `test\test.ps1` |
 | `test_runner.py`, `node_test_runner.py`, `package_suites.py` | Test execution: pytest phases, Node suites, which packages carry a suite |
+| `selection_export.py` | pytest plugin a `-Tag` preflight loads: writes the node IDs and `serial` marks of the items the session kept, so the phases run exactly those |
 | `runner_plugin.py`, `suite_stamp.py`, `suite_inputs.py` | The suite-input stamp: what a run touched, and the fingerprint a carried run is compared on |
 | `structured_log_writer.py`, `generated_test_log_writer.py`, `deploy_test_log_writer.py`, `aggregate_test_writer.py`, `deploy_test_aggregate_writer.py` | Structured run directories (`index.json`, clusters) for package, generated-project and deploy runs |
 | `codegen_hint_mapper.py` | Maps a generated file to the template and generator that probably wrote it |
@@ -145,6 +203,12 @@ $repos = Get-DatrixDirectories
 
 # Get full paths to all existing repositories
 $paths = Get-DatrixDirectoryPaths
+
+# The shared venv, its interpreter (which may not exist yet: common\venv.ps1 -Ensure creates it),
+# and the directory that goes on PYTHONPATH for datrix_scripts
+$venv = Get-DatrixVenvPath            # D:\datrix\.venv
+$python = Get-DatrixVenvPython        # D:\datrix\.venv\Scripts\python.exe
+$lib = Get-DatrixScriptsPythonPath    # D:\datrix\datrix\scripts\common\lib
 ```
 
 ### Workspace root
@@ -155,11 +219,21 @@ Python side is `datrix_scripts.paths.WORKSPACE_DIR`.
 
 ## DatrixPythonScript.psm1
 
+`Invoke-DatrixEntrypoint -Module <module> -Parameters $PSBoundParameters` is the body of every
+wrapper rendered from the template ([above](#wrappers-rendered-from-the-template)).
+
 `Invoke-DatrixPythonScript` runs a Python file (`-Script`) or module (`-Module`) in the shared
-venv and returns the child's exit code (it never calls `exit`): it activates the venv, checks the
-editable installs with `-RequirePackages`, prints the command with `-ShowCommand`, and deactivates
-the venv in a `finally` block. `-TeePath <file>` also writes the output to a file;
+venv and returns the child's exit code (it never calls `exit`): it has the venv checked (the
+`common\venv.ps1 -Ensure` check, and with `-RequirePackages` its `-EnsurePackages -SkipIfInstalled`),
+prints the command with `-ShowCommand`, points the child's environment at the venv and restores the
+caller's in a `finally` block. `-TeePath <file>` also writes the output to a file;
 `-OutputPipeline` / `-OutputLines` hand the output lines to the caller instead of the console.
+`Enter-DatrixVenvEnvironment` / `Exit-DatrixVenvEnvironment` are the environment switch both use,
+for a wrapper that runs an interpreter of its own (`git\commit-and-push.ps1`).
+
+A script run from inside this module would run in the module's session state, where `$script:`
+names that script's scope rather than the module's: the module never runs a wrapper, and the
+functions a wrapper reaches keep their constants local.
 
 **Gate mode** (`-Gate <name>`) tees the output to a claimed log under
 `<workspace>\.test-output\gates\<name>\` and prints exactly one last line,
@@ -181,53 +255,87 @@ Imported by metrics wrappers, `test.ps1`, and several dev scripts. Provides:
 
 ## venv.ps1
 
-Virtual environment management with concurrent operation support. Wrappers do not call it
-directly: `Invoke-DatrixPythonScript` does. Its functions serve the runner, venv setup and the
-MCP `-Setup` registrations.
+The shared venv, `D:\datrix\.venv`. A wrapper rendered from the template; the behaviour is
+`datrix_scripts.venv` (`bash common/venv.sh --help` or `python -m datrix_scripts.venv --help`
+lists every option). `Invoke-DatrixPythonScript` runs its `-Ensure` check (and with
+`-RequirePackages` its `-EnsurePackages -SkipIfInstalled`) before every child, and
+`test\affected-gate.ps1` runs the same check once, before any child.
 
-### Key Functions
+| Mode | Command | What it does |
+|------|---------|--------------|
+| **Ensure the venv** | `.\common\venv.ps1 -Ensure` | The workspace is complete (every required repository cloned), the venv exists (created if not) and its interpreter is built for this machine's CPU |
+| **Ensure the installs** | `.\common\venv.ps1 -Ensure -EnsurePackages [-SkipIfInstalled \| -Force \| -Offline]` | Reinstall every stale package, then the `[dev]` extras, then the scripts group (details below) |
+| **Rebuild the venv** | `.\common\venv.ps1 -Recreate -EnsurePackages` | Build the venv afresh from a native base interpreter, then install everything |
+| **Install one package** | `.\common\venv.ps1 -InstallPackage datrix-cli [-NoDev]` | Editable install, with its `[dev]` extra unless `-NoDev` |
+| **Check the CLI** | `.\common\venv.ps1 -TestCommand` | `datrix --version` runs; on failure its output and exit code (or the missing executable) go to stderr and the exit code is 1 (`dev\generate.ps1` runs it after the plugin-discovery check) |
+| **Base interpreter** | `.\common\venv.ps1 -BaseInterpreter` | Print the interpreter a new venv would be built from |
+| **Install order** | `.\common\venv.ps1 -ListPackages` | Print the installable packages, one per line, in install order |
+| **Self-test** | `.\common\venv.ps1 -SelfTest` | Planted executables, workspaces, venvs, locks and site-packages; no pip, no network |
 
-```powershell
-# Source the module
-. .\common\venv.ps1
+Actions combine and run in the order `-Recreate`, `-Ensure`, `-InstallPackage`, `-EnsurePackages`,
+`-TestCommand`; a query (`-BaseInterpreter`, `-ListPackages`, `-SelfTest`) runs alone. No switch is
+a usage error (exit 1). `DATRIX_VENV_VERBOSE=1` prints each step; `DATRIX_OFFLINE=1` (or `-Offline`)
+runs no pip.
 
-# Ensure venv exists and is activated (creates if needed); the runner calls it
-Ensure-DatrixVenv
+**Python modules** call it directly: `datrix_scripts.venv.ensure_venv(WORKSPACE_LAYOUT)`,
+`ensure_packages_installed(...)`, `install_order_packages(...)`, `find_base_interpreter(...)`.
 
-# Get venv path
-$venvPath = Get-DatrixVenvPath # Returns D:\datrix\.venv
+### The base interpreter
 
-# Install a single package in editable mode
-Install-DatrixPackage -PackageName "datrix-common"
+The venv is built from a CPython built for the host CPU (read from the registry on Windows, never
+from the process's own `PROCESSOR_ARCHITECTURE`, which an emulated process misreports), a final
+release of at least datrix-common's `requires-python`, the highest version first. Candidates are
+`DATRIX_PYTHON` (when set, the only one), every `python` on `PATH`, the `py` launcher's list and
+uv-managed interpreters, minus Store aliases and venv interpreters. An interpreter of another
+architecture runs emulated and builds native extensions (the Tree-sitter parser) for the wrong CPU:
+it is refused by name, and an existing venv built from one fails `-Ensure`. The architecture is
+read from the executable's header (PE, ELF or Mach-O).
 
-# Ensure all packages are installed (with change detection)
-Ensure-DatrixPackagesInstalled
+`-Recreate` cannot delete the venv it runs from (a running interpreter holds its own files), so it
+moves the old venv aside to `<workspace>\.venv.retired-<time>`, builds the new one, and deletes every
+retired venv nothing still runs from; one still in use is named and removed by a later `-Ensure`.
 
-# Verify the CLI entry point (generate.ps1 runs it after the plugin-discovery check)
-Test-DatrixCommand -Detail ([ref]$cliDetail)
+### One import process per check
 
-# Skip reinstall if already importable (for concurrent operations)
-Ensure-DatrixPackagesInstalled -SkipIfInstalled
+The installs are import-checked exactly once per check, all in one Python process:
+`python -m datrix_scripts.package_imports <module> …` under the venv's interpreter, which imports
+each module in order and prints `IMPORT_FAILED <module>: <ExceptionType>: <message>` per failure and
+`IMPORT_CHECK <ok>/<total>` last, every line ASCII with any other character backslash-escaped so no
+stream encoding can stop the verdict (exit 0 all imported, 1 any failed, 2 usage error or failed
+self-test; `--self-test` runs only its self-test, which also runs first on every invocation). Each
+`IMPORT_FAILED` line goes through the verbose channel. The verdict fails closed
+(`datrix_scripts.venv.import_verdict`): an exit code other than the one its failures imply, or a
+summary line that does not account for every module named, raises with the checker output rather
+than reporting the packages importable. The module names come from the install order (on-disk
+`pyproject.toml` discovery), so the checker takes no external input.
 
-# Deactivate venv
-Disable-DatrixVenv
-```
+The three paths use that one result: the `-SkipIfInstalled` check and the offline check (which
+names every unimportable package in its error) run it once before their loop, and the install path
+runs it once before pass 1 (not under `-Force`, which reinstalls everything). Deciding whether a
+package needs a reinstall starts no process. A `[dev]` marker no older than `pyproject.toml` answers
+"nothing to install" without reading the TOML.
 
-### Concurrent Operation Safety
+### Installs
 
-The module uses file-based locking to prevent concurrent pip operations:
+Pass 1 reinstalls, editable and with `--no-build-isolation` (the build backends are installed
+first), every package that does not import, has no install marker, or whose `pyproject.toml` or a
+`src` source file (`tests`, `__pycache__`, `.generated` and `.pytest_cache` excluded) is newer than
+the marker. Pass 2 installs each package's `[dev]` extra -- only after every package is installed,
+since a dev spec may name a sibling, which would otherwise resolve against PyPI on a rebuild from
+scratch. Pass 3 installs the scripts tree's own third-party tools, the `scripts` dependency group
+of `datrix/pyproject.toml`. Every pip call runs `<venv python> -m pip` by path, from the package's
+own directory (a relative `file:` spec resolves from the working directory), with its temp and
+cache directories under `<workspace>\.tmp`. Install markers where editable installs are missing
+(an interrupted pip run) are removed first, so everything reinstalls; `~`-prefixed leftovers of
+interrupted pip runs are deleted from site-packages.
 
-- `Enter-DatrixPackageLock` - Acquire exclusive lock
-- `Exit-DatrixPackageLock` - Release lock
-- Stale lock detection and cleanup
-- Automatic lock release on script exit
+### Concurrent operation safety
 
-### Package Change Detection
-
-Reinstalls packages only when:
-- `pyproject.toml` has changed
-- Source files in `src/` have changed
-- Package is not importable
+Every install holds one workspace-wide lock, `<workspace>\.venv-package.lock` (a JSON file with
+the pid, timestamp and script, created atomically), waiting up to 120 seconds. A lock older than 300
+seconds, one whose process is gone, or one that cannot be read is removed. The lock is re-entrant
+within a process, released only by the process that wrote it, and released at exit if a run ends
+holding it.
 
 ## Usage in Scripts
 

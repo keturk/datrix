@@ -19,6 +19,7 @@ Usage (PYTHONPATH=scripts/common/lib; metrics/duplicate.ps1 sets it):
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import io
 import os
 import re
@@ -33,7 +34,10 @@ from datrix_scripts.local_llm import (
     advisory_text,
     local_llm_settings,
 )
+from datrix_scripts.venv import PACKAGE_DEV_EXTRAS, missing_declared_tool
 
+# Pylint runs as a module of this interpreter, so the shared venv's copy is the one that scans.
+_PYLINT_MODULE = "pylint"
 DEFAULT_MIN_LINES = 4
 DEFAULT_LLM_NUM_PREDICT = 4096
 DEFAULT_LLM_TEMPERATURE = 0.1
@@ -52,17 +56,16 @@ class DuplicateScanError(RuntimeError):
 def run_pylint_duplicates(scan_paths: list[Path], min_lines: int, cwd: Path) -> subprocess.CompletedProcess[str]:
     """Run Pylint's R0801 duplicate-code check over ``scan_paths``.
 
-    Raises DuplicateScanError when Pylint is not installed.
+    Raises DuplicateScanError when this interpreter cannot import Pylint.
     """
-    cmd = [sys.executable, "-m", "pylint", "--disable=all", "--enable=R0801",
+    if importlib.util.find_spec(_PYLINT_MODULE) is None:
+        raise DuplicateScanError(missing_declared_tool("pylint", PACKAGE_DEV_EXTRAS))
+    cmd = [sys.executable, "-m", _PYLINT_MODULE, "--disable=all", "--enable=R0801",
            f"--min-similarity-lines={min_lines}", *(str(path) for path in scan_paths)]
     # Pylint R0801 embeds source snippets; Windows cp1252 stdout raises UnicodeEncodeError.
     child_env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
-    try:
-        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                              cwd=str(cwd), env=child_env, check=False)
-    except FileNotFoundError as exc:
-        raise DuplicateScanError("pylint is not installed. Install with: pip install pylint") from exc
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          cwd=str(cwd), env=child_env, check=False)
 
 
 def parse_duplicate_groups(pylint_output: str) -> list[dict[str, object]]:

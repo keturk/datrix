@@ -30,7 +30,7 @@ from datrix_scripts.package_suites import SuiteKind, detect_suite_kind  # noqa: 
 from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
 from datrix_scripts.pyproject_deps import parse_package_name  # noqa: E402
 from datrix_scripts.test_runner import TIER_MARKER_EXPRESSIONS, TestConfig, TestRunner, split_tags  # noqa: E402
-from datrix_scripts.venv import get_venv_python, is_venv_active  # noqa: E402
+from datrix_scripts.venv import get_venv_python, is_venv_active, venv_repair  # noqa: E402
 
 # Marker filters that SELECT a marked subset of tests. A suite with no marker
 # concept (a Node suite) has no such subset, and pytest's own convention is that
@@ -506,28 +506,27 @@ Note: This script should be called from test.ps1, which handles virtual environm
   if not os.environ.get("VIRTUAL_ENV"):
    print("WARNING: No virtual environment detected. Consider setting up the Datrix venv at D:\\datrix\\.venv", file=sys.stderr)
 
- # When test.ps1 has already run Ensure-DatrixPackagesInstalled, skip per-project pip install -e to avoid concurrent installs.
+ # When test.ps1 has already run the venv install check (venv.ps1 -EnsurePackages), skip per-project pip install -e to avoid concurrent installs.
  packages_ensured_by_caller = os.environ.get("DATRIX_PACKAGES_ENSURED") == "1"
 
- # Check for dev dependencies first (before other dependency checks)
- needs_dev_deps, has_pyproject_dev = check_dev_dependencies(python_exe, project_root)
- if needs_dev_deps:
-  if packages_ensured_by_caller:
-   if args.verbose:
-    print("Packages ensured by caller (test.ps1); skipping per-project dev install. Proceeding with tests.")
-  else:
+ # Check for dev dependencies first (before other dependency checks). The caller that ensured
+ # the packages already verified every package's [dev] extras, so no probe process starts then.
+ if not packages_ensured_by_caller:
+  needs_dev_deps, _has_pyproject_dev = check_dev_dependencies(python_exe, project_root)
+  if needs_dev_deps:
    print("Detected missing dev dependencies. Installing automatically...")
    auto_install = not args.no_auto_install
    if install_dev_dependencies(python_exe, project_root, auto_install=auto_install):
     print("Dev dependencies installed successfully.")
    else:
     if not auto_install:
-     print("\nTo install dev dependencies manually, run:", file=sys.stderr)
-     print(f" cd {project_root}", file=sys.stderr)
-     print(" pip install -e .[dev]", file=sys.stderr)
+     print(f"\nThe [dev] extras of {project_root.name} are missing from {python_exe}. Install them into the "
+           f"shared venv from the manifests with: {venv_repair()}", file=sys.stderr)
     else:
      print("ERROR: Failed to install dev dependencies", file=sys.stderr)
     return 1
+ elif args.verbose:
+  print("Packages ensured by caller (test.ps1); skipping the per-project dev-dependency check.")
 
  # TestConfig/TestRunner are imported at module scope (top of file); this module runs as
  # datrix_scripts.test_project, so the shared package is importable by construction.

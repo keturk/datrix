@@ -86,6 +86,7 @@ def classname_to_filepath(classname: str) -> str:
         return _UNKNOWN_FILE
     return "/".join(module_parts) + ".py"
 
+
 # Patterns for parsing traceback frames
 # Matches lines like: "path/to/file.py:123: in function_name"
 _TRACEBACK_FRAME = re.compile(r"^(.+?):(\d+):\s+in\s+(.+)$", re.MULTILINE)
@@ -264,6 +265,7 @@ class StructuredLogWriter:
                 "No JUnit XML produced — test run may have been "
                 "interrupted. See full.log for raw output.",
                 selection=selection,
+                runner_errors=runner_errors,
             )
             return self._run_dir / "index.json"
 
@@ -1282,22 +1284,26 @@ class StructuredLogWriter:
         note: str,
         *,
         selection: dict[str, object] | None = None,
+        runner_errors: Sequence[str] = (),
     ) -> None:
         """Write a minimal index.json for incomplete/missing results.
 
         Records what the run selected, but never ``inputs``: a run without
-        results did not complete, so it vouches for no input state.
+        results did not complete, so it vouches for no input state. A run the
+        runner refused before any phase (its runner errors say why) is FAILED,
+        not INCOMPLETE: nothing was interrupted, the runner decided not to run.
 
         Args:
             timestamp: Run timestamp.
             note: Explanatory note about why data is unavailable.
             selection: The run's selection, or None when the caller records none.
+            runner_errors: Why the runner ran no phase; any one makes the run FAILED.
         """
         index: dict[str, object] = {
             "schema_version": _SCHEMA_VERSION,
             "project": self._project_name,
             "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S"),
-            "result": "INCOMPLETE",
+            "result": "FAILED" if runner_errors else "INCOMPLETE",
             "note": note,
             "counts": None,
             "failures": [],
@@ -1307,6 +1313,8 @@ class StructuredLogWriter:
         }
         if selection is not None:
             index["selection"] = selection
+        if runner_errors:
+            index["runner_errors"] = list(runner_errors)
 
         index_path = self._run_dir / "index.json"
         index_path.parent.mkdir(parents=True, exist_ok=True)

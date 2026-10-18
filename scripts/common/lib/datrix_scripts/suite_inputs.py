@@ -25,8 +25,9 @@ Components (the ``inputs.components`` object of a stamped run's index.json):
   workspace-relative path when none does.
 - ``in_cone_ignored`` -- observed paths inside a cone tree that its git index
   does not track (ignored or untracked), each digested on its own.
-- ``executables`` -- every executable the run started, content-digested,
-  except one resolved under a transient location (the OS temp directory, or
+- ``executables`` -- every executable the run started, content-digested (a
+  Windows App Execution Alias, which has no content, by its reparse data: the
+  package, app and versioned target path it launches), except one resolved under a transient location (the OS temp directory, or
   one of the workspace's own scratch directories -- see
   :func:`datrix_scripts.runner_plugin.transient_roots`): such an
   executable is an OUTPUT of the run (built or generated from in-cone inputs
@@ -63,6 +64,7 @@ import logging
 import os
 import re
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -164,6 +166,33 @@ _WORKTREE_ENTRY_PREFIX = "worktree"
 #: "not a directory". A name no filesystem could ever hold can never hold
 #: content, so it is digested exactly like a missing path.
 _ERROR_INVALID_NAME = 123
+
+#: A Windows App Execution Alias (``%LOCALAPPDATA%\Microsoft\WindowsApps\*.exe``:
+#: ``bash.exe``, ``wsl.exe``, the Store ``python.exe``, ``winget.exe``) is a
+#: reparse point with this tag and no readable content -- opening it for read
+#: fails with EINVAL. What it launches is fixed by its reparse data instead:
+#: ``ULONG version`` then NUL-terminated UTF-16LE strings, the package family
+#: name, the app user model id and the target path (whose package directory
+#: carries the package version), then the app type.
+_IO_REPARSE_TAG_APPEXECLINK: Final[int] = 0x8000001B
+_APPEXECLINK_VERSION: Final[int] = 3
+_APPEXECLINK_FIELDS: Final[tuple[str, ...]] = ("package family name", "app user model id", "target path")
+_KIND_APP_EXECUTION_ALIAS = "app-execution-alias"
+#: REPARSE_DATA_BUFFER header: ULONG ReparseTag, USHORT ReparseDataLength, USHORT Reserved.
+_REPARSE_HEADER = struct.Struct("<IHH")
+_APPEXECLINK_VERSION_FIELD = struct.Struct("<I")
+_UTF16_NUL = "\0"
+_UTF16_UNIT_BYTES = 2
+_FSCTL_GET_REPARSE_POINT: Final[int] = 0x000900A8
+_FSCTL_SET_REPARSE_POINT: Final[int] = 0x000900A4
+_MAXIMUM_REPARSE_DATA_BUFFER_SIZE: Final[int] = 16 * 1024
+_FILE_READ_ATTRIBUTES: Final[int] = 0x0080
+_FILE_WRITE_ATTRIBUTES: Final[int] = 0x0100
+_FILE_SHARE_READ_WRITE_DELETE: Final[int] = 0x1 | 0x2 | 0x4
+_OPEN_EXISTING: Final[int] = 3
+#: Open the reparse point itself, never what it points at; BACKUP_SEMANTICS
+#: lets the same call open a directory reparse point.
+_FILE_FLAG_OPEN_REPARSE_POINT_ITSELF: Final[int] = 0x00200000 | 0x02000000
 
 _FRAMEWORK_DIST_PREFIX = "datrix-"
 _DIRECT_URL_FILE = "direct_url.json"
@@ -567,11 +596,148 @@ def _is_invalid_name_error(exc: OSError) -> bool:
     return exc.errno == errno.EINVAL
 
 
+def _reparse_point_control(path: Path, *, access: int, control_code: int, payload: bytes) -> bytes:
+    """Issue one reparse-point FSCTL (``DeviceIoControl``) on *path* itself,
+    never on what it points at, and return the output buffer -- empty when
+    *payload* is the input (a set). Windows only.
+
+    Raises:
+        OSError: if *path* cannot be opened or the control fails.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    create_file.restype = wintypes.HANDLE
+    device_io_control = kernel32.DeviceIoControl
+    device_io_control.argtypes = (
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        wintypes.LPVOID,
+    )
+    device_io_control.restype = wintypes.BOOL
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = (wintypes.HANDLE,)
+    close_handle.restype = wintypes.BOOL
+
+    handle = create_file(
+        str(path),
+        access,
+        _FILE_SHARE_READ_WRITE_DELETE,
+        None,
+        _OPEN_EXISTING,
+        _FILE_FLAG_OPEN_REPARSE_POINT_ITSELF,
+        None,
+    )
+    if handle is None or handle == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        source = ctypes.create_string_buffer(payload, len(payload)) if payload else None
+        output = None if payload else ctypes.create_string_buffer(_MAXIMUM_REPARSE_DATA_BUFFER_SIZE)
+        returned = wintypes.DWORD()
+        succeeded = device_io_control(
+            handle,
+            control_code,
+            source,
+            len(payload),
+            output,
+            0 if output is None else len(output),
+            ctypes.byref(returned),
+            None,
+        )
+        if not succeeded:
+            raise ctypes.WinError(ctypes.get_last_error())
+        return b"" if output is None else output.raw[: returned.value]
+    finally:
+        close_handle(handle)
+
+
+def _is_app_execution_alias(status: os.stat_result) -> bool:
+    """True when *status* is a Windows App Execution Alias reparse point.
+    ``os.stat`` cannot follow one, so it reports the alias itself, tag included."""
+    return sys.platform == "win32" and status.st_reparse_tag == _IO_REPARSE_TAG_APPEXECLINK
+
+
+def _malformed_alias(path: Path, detail: str) -> SuiteInputsError:
+    return SuiteInputsError(
+        f"App Execution Alias {path} has malformed reparse data: {detail}. Expected a "
+        f"version-{_APPEXECLINK_VERSION} App Execution Alias buffer naming its "
+        f"{', '.join(_APPEXECLINK_FIELDS)}; an alias whose target cannot be established cannot "
+        f"be vouched for. Reinstall or re-enable the alias (Settings > Apps > App execution "
+        f"aliases), or remove it from PATH."
+    )
+
+
+def _app_execution_alias_fields(path: Path, data: bytes) -> tuple[str, ...]:
+    """The package family name, app user model id and target path an App
+    Execution Alias's raw reparse buffer *data* names.
+
+    Raises:
+        SuiteInputsError: if *data* is not a complete version-3 alias buffer
+            naming all three.
+    """
+    strings_start = _REPARSE_HEADER.size + _APPEXECLINK_VERSION_FIELD.size
+    if len(data) < strings_start:
+        raise _malformed_alias(path, f"{len(data)} bytes is shorter than its {strings_start}-byte header")
+    tag, data_length, _reserved = _REPARSE_HEADER.unpack_from(data)
+    if tag != _IO_REPARSE_TAG_APPEXECLINK or _REPARSE_HEADER.size + data_length != len(data):
+        raise _malformed_alias(path, f"tag {tag:#x} with {data_length} data bytes in a {len(data)}-byte buffer")
+    (version,) = _APPEXECLINK_VERSION_FIELD.unpack_from(data, _REPARSE_HEADER.size)
+    if version != _APPEXECLINK_VERSION:
+        raise _malformed_alias(path, f"version {version}")
+    strings = data[strings_start:]
+    try:
+        fields = strings.decode("utf-16-le").split(_UTF16_NUL)
+    except UnicodeDecodeError as exc:
+        raise _malformed_alias(path, f"its strings are not UTF-16LE ({exc})") from exc
+    named = tuple(fields[: len(_APPEXECLINK_FIELDS)])
+    if len(strings) % _UTF16_UNIT_BYTES or len(fields) <= len(_APPEXECLINK_FIELDS) or not all(named):
+        raise _malformed_alias(path, f"it names {fields!r}")
+    return named
+
+
+def _app_execution_alias_hex(path: Path) -> str:
+    """Digest of an App Execution Alias's whole reparse buffer: the package,
+    app and target path it launches -- the package version included -- in
+    place of the content the alias does not have."""
+    try:
+        data = _reparse_point_control(
+            path, access=_FILE_READ_ATTRIBUTES, control_code=_FSCTL_GET_REPARSE_POINT, payload=b""
+        )
+    except OSError as exc:
+        raise SuiteInputsError(
+            f"Cannot read the reparse data of App Execution Alias {path}: {exc}. An alias whose "
+            f"target cannot be established cannot be vouched for; fix its permissions or remove "
+            f"it from PATH."
+        ) from exc
+    family, app_id, target = _app_execution_alias_fields(path, data)
+    logger.debug("App Execution Alias %s launches %s (%s, %s)", path, target, family, app_id)
+    return hashlib.blake2b(data).hexdigest()
+
+
 def digest_file(path: Path) -> str:
     """Digest of one observed filesystem entry.
 
-    A regular file digests its content; a directory (an observed listing)
-    digests its sorted entry names; a path that no longer exists, or whose
+    A regular file digests its content; a Windows App Execution Alias, which
+    has no readable content, digests its reparse data (the package, app and
+    target path it launches, which carry the package version); a directory
+    (an observed listing) digests its sorted entry names; a path that no
+    longer exists, or whose
     name the operating system itself rejects as ill-formed (Windows
     ERROR_INVALID_NAME, POSIX EINVAL -- e.g. an ``open`` audit event firing
     for a library's failed attempt to open a pseudo-filename like
@@ -581,11 +747,12 @@ def digest_file(path: Path) -> str:
 
     Raises:
         SuiteInputsError: if the entry exists but cannot be read for any
-            other reason (permission denied, ...), or is neither a regular
-            file nor a directory.
+            other reason (permission denied, ...), is an App Execution Alias
+            whose reparse data cannot be read or is malformed, or is neither
+            a regular file nor a directory.
     """
     try:
-        mode = path.stat().st_mode
+        status = path.stat()
     except (FileNotFoundError, NotADirectoryError):
         return _ABSENT
     except OSError as exc:
@@ -595,6 +762,9 @@ def digest_file(path: Path) -> str:
             f"Cannot stat observed input {path}: {exc}. An input whose state cannot be "
             f"read cannot be vouched for; fix the path or its permissions."
         ) from exc
+    if _is_app_execution_alias(status):
+        return f"{_KIND_APP_EXECUTION_ALIAS}:{_app_execution_alias_hex(path)}"
+    mode = status.st_mode
     if stat.S_ISREG(mode):
         return f"{_KIND_FILE}:{_content_hex(path)}"
     if stat.S_ISDIR(mode):
@@ -1736,6 +1906,56 @@ def _check_invalid_name_observed_input_is_absent_not_an_error() -> None:
         )
 
 
+def _plant_app_execution_alias(path: Path, fields: Sequence[str], *, version: int = _APPEXECLINK_VERSION) -> None:
+    """Turn the existing empty file *path* into an App Execution Alias whose
+    reparse buffer holds *version* and the NUL-terminated *fields*."""
+    strings = "".join(f"{field}{_UTF16_NUL}" for field in fields).encode("utf-16-le")
+    data = _APPEXECLINK_VERSION_FIELD.pack(version) + strings
+    buffer = _REPARSE_HEADER.pack(_IO_REPARSE_TAG_APPEXECLINK, len(data), 0) + data
+    _reparse_point_control(
+        path, access=_FILE_WRITE_ATTRIBUTES, control_code=_FSCTL_SET_REPARSE_POINT, payload=buffer
+    )
+
+
+def _check_app_execution_alias_is_pinned_by_its_reparse_data() -> None:
+    """A Windows App Execution Alias has no readable content (reading it
+    raises EINVAL), so it digests by its reparse data: the same alias digests
+    the same, and a different target path (a package upgrade moves it to a
+    new versioned directory) digests differently. An alias whose reparse
+    data is malformed, or names no target, still raises -- fail closed.
+    Planted aliases, not the machine's own, so the check never depends on
+    which apps are installed. Windows only: no other platform has aliases."""
+    if sys.platform != "win32":
+        return
+    family = "Contoso.Tool_8wekyb3d8bbwe"
+    app_id = f"{family}!tool"
+    old_target = r"C:\Program Files\WindowsApps\Contoso.Tool_1.0.0.0_x64__8wekyb3d8bbwe\tool.exe"
+    new_target = r"C:\Program Files\WindowsApps\Contoso.Tool_1.0.1.0_x64__8wekyb3d8bbwe\tool.exe"
+    app_type = "0"
+    with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as tmp:
+        root = Path(tmp).resolve()
+        aliases: dict[str, Path] = {}
+        for name in ("first", "same", "upgraded", "old-version", "no-target"):
+            aliases[name] = write_file(root / f"{name}.exe", "")
+        _plant_app_execution_alias(aliases["first"], (family, app_id, old_target, app_type))
+        _plant_app_execution_alias(aliases["same"], (family, app_id, old_target, app_type))
+        _plant_app_execution_alias(aliases["upgraded"], (family, app_id, new_target, app_type))
+        _plant_app_execution_alias(aliases["old-version"], (family, app_id, old_target, app_type), version=2)
+        _plant_app_execution_alias(aliases["no-target"], (family, app_id, "", app_type))
+
+        assert _raises_suite_inputs_error(lambda: _content_hex(aliases["first"])), (
+            "a planted alias must be unreadable as content, or this check proves nothing"
+        )
+        first = digest_file(aliases["first"])
+        assert first.startswith(f"{_KIND_APP_EXECUTION_ALIAS}:"), first
+        assert digest_file(aliases["same"]) == first, "two aliases with the same reparse data must digest the same"
+        assert digest_file(aliases["upgraded"]) != first, "an alias whose target moved must digest differently"
+        for malformed in ("old-version", "no-target"):
+            assert _raises_suite_inputs_error(lambda path=aliases[malformed]: digest_file(path)), (
+                f"the {malformed} alias must raise, not be digested"
+            )
+
+
 def _build_scanned_workspace(root: Path) -> None:
     """A synthetic monorepo mixing every edge signal affected_set scans."""
     affected_set._make_pkg(root, "datrix-common", conftest_imports=["datrix_cli"])
@@ -2301,6 +2521,7 @@ _SELF_TEST_CHECKS: list[NamedCheck] = named_checks(
         _check_subtree_digests_read_each_repository_once,
         _check_vanished_input_is_distinct_from_empty,
         _check_invalid_name_observed_input_is_absent_not_an_error,
+        _check_app_execution_alias_is_pinned_by_its_reparse_data,
         _check_package_cone_is_the_dual_of_the_reverse_closure,
         _check_node_consumer_cone_includes_cross_ecosystem_dependency,
         _check_unknown_package_raises,

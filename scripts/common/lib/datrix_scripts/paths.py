@@ -8,7 +8,7 @@ silently resolves to the wrong directory. This module's own position is fixed --
 Python run by a wrapper lives in the ``lib/`` folder beside that wrapper
 (``scripts/<folder>/lib/`` or ``scripts/gates/<family>/lib/``); code imported from more than
 one folder lives in this package, which wrappers put on ``PYTHONPATH``
-(``Set-DatrixPythonPath`` in ``common/venv.ps1``).
+(``Enter-DatrixVenvEnvironment`` in ``common/DatrixPythonScript.psm1``).
 """
 
 from __future__ import annotations

@@ -2,8 +2,8 @@
 
 Python run by a wrapper lives in the ``lib/`` folder beside that wrapper; a module that a
 second folder (or a Claude Code hook, or a package test) also imports lives here instead.
-Wrappers put ``scripts/common/lib`` on ``PYTHONPATH`` (``Set-DatrixPythonPath`` in
-``common/venv.ps1``), so every script imports this package the same way. Repository
+Wrappers put ``scripts/common/lib`` on ``PYTHONPATH`` (``Enter-DatrixVenvEnvironment`` in
+``common/DatrixPythonScript.psm1``), so every script imports this package the same way. Repository
 locations come from ``datrix_scripts.paths``, never from counting ``.parent`` steps.
 
 Import each utility from its own module (``from datrix_scripts.paths import

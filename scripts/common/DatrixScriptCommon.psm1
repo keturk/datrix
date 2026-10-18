@@ -3,7 +3,7 @@
  Shared helpers for Datrix PowerShell scripts (workspace-relative paths, project lists, input normalization).
 
 .DESCRIPTION
- Imports DatrixPaths.psm1 automatically. Does not load venv.ps1; dot-source venv.ps1 in the caller when needed.
+ Imports DatrixPaths.psm1 automatically (the workspace, the venv and its interpreter: Get-DatrixVenvPython).
 
  Project list semantics (see datrix/scripts/README.md):
  - Get-DatrixPackageNamesGlob: metrics -All; filesystem directories under the workspace matching datrix-*.
@@ -234,7 +234,7 @@ function Get-DatrixInstalledPlatforms {
  distinguishable from the real, different state "zero platforms installed".
 
  .PARAMETER PythonExe
- Path to the python.exe to query. Caller resolves this via Get-DatrixVenvPath (venv.ps1).
+ Path to the python.exe to query. Caller resolves this via Get-DatrixVenvPython (DatrixPaths.psm1).
  #>
  [CmdletBinding()]
  param(
@@ -260,7 +260,7 @@ function Get-DatrixInstalledLanguages {
  distinguishable from the real, different state "zero languages installed".
 
  .PARAMETER PythonExe
- Path to the python.exe to query. Caller resolves this via Get-DatrixVenvPath (venv.ps1).
+ Path to the python.exe to query. Caller resolves this via Get-DatrixVenvPython (DatrixPaths.psm1).
  #>
  [CmdletBinding()]
  param(

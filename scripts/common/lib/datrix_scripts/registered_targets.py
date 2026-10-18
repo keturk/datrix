@@ -49,6 +49,7 @@ from datrix_common.plugin.registry import (
     PLATFORM_GROUP,
     PluginRegistry,
     entry_points,
+    plugin_registry,
 )
 from datrix_testing.target_distributions import target_import_names
 
@@ -119,7 +120,7 @@ def owned_identity_provider_type_names() -> frozenset[str]:
     """
     from datrix_common.identity.provider_type_registry import owned_identity_provider_types
 
-    return frozenset(owned_identity_provider_types(PluginRegistry()))
+    return frozenset(owned_identity_provider_types(plugin_registry()))
 
 
 DATRIX_DIR: Path = SHOWCASE_DIR
@@ -308,14 +309,6 @@ def all_src_dirs(src_dirs_by_label: Mapping[str, tuple[Path, ...]]) -> frozenset
     return frozenset(src_dir for src_dirs in src_dirs_by_label.values() for src_dir in src_dirs)
 
 
-#: Process-wide registry used to resolve which `datrix.generators` native
-#: classes declare a `transpiler_profile`, when a caller supplies none.
-#: Discovery is idempotent and cached on the instance. This is discovery
-#: infrastructure, not a `(target -> policy)` table: it enumerates nothing
-#: and hardcodes no generator name.
-_GENERATOR_REGISTRY: Final[PluginRegistry] = PluginRegistry()
-
-
 def _native_generator_classes_with_transpiler_profile(
     registry: PluginRegistry | None = None,
 ) -> dict[str, type]:
@@ -336,8 +329,8 @@ def _native_generator_classes_with_transpiler_profile(
     yet at discovery time).
 
     Args:
-        registry: Registry to resolve against; defaults to the module-level
-            shared registry. Tests pass a registry seeded with fixture
+        registry: Registry to resolve against; defaults to the process
+            registry (``plugin_registry()``, read at call time). Tests pass a registry seeded with fixture
             generator plugins.
 
     Returns:
@@ -348,7 +341,7 @@ def _native_generator_classes_with_transpiler_profile(
         RuntimeError: If `datrix.generators` discovery itself fails (an
             entry-point scan or a plugin-class import failure).
     """
-    reg = registry if registry is not None else _GENERATOR_REGISTRY
+    reg = registry if registry is not None else plugin_registry()
     try:
         classes = reg.list_native_generator_classes()
     except Exception as exc:  # noqa: BLE001 -- re-raised with actionable context
@@ -379,8 +372,8 @@ def registered_client_target_generator_names(registry: PluginRegistry | None = N
     ``declaration_for_provider`` already uses for platforms).
 
     Args:
-        registry: Registry to resolve against; defaults to the module-level
-            shared registry. Tests pass a registry seeded with fixture
+        registry: Registry to resolve against; defaults to the process
+            registry (``plugin_registry()``, read at call time). Tests pass a registry seeded with fixture
             generator plugins.
 
     Returns:
@@ -413,8 +406,8 @@ def client_target_generator_module_roots(
 
     Args:
         names: Registered `datrix.generators` names to resolve.
-        registry: Registry to resolve against; defaults to the module-level
-            shared registry. Tests pass a registry seeded with fixture
+        registry: Registry to resolve against; defaults to the process
+            registry (``plugin_registry()``, read at call time). Tests pass a registry seeded with fixture
             generator plugins.
 
     Returns:
@@ -445,8 +438,8 @@ def discover_client_target_generator_src_dirs(
         names: Registered `datrix.generators` names to resolve (normally
             `registered_client_target_generator_names()`'s result).
         monorepo_root: The workspace root containing every `datrix-*` checkout.
-        registry: Registry to resolve against; defaults to the module-level
-            shared registry. Tests pass a registry seeded with fixture
+        registry: Registry to resolve against; defaults to the process
+            registry (``plugin_registry()``, read at call time). Tests pass a registry seeded with fixture
             generator plugins.
 
     Returns:
