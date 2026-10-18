@@ -9,7 +9,6 @@ import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 # The provider-literal ratchet must enumerate provider ids from the
 # installed datrix.platforms entry points, never a hardcoded
@@ -21,16 +20,14 @@ from datrix_scripts.registered_targets import (
 )
 from import_boundaries._ast_common import (
     _SELF_TEST_SCRATCH_ROOT,
-    _TYPE_REFERENCE_CALL_NAMES,
     CLI_SCRIPT,
     CountBaseline,
+    DeclarationKind,
     PackageInfo,
-    _annotation_declares_type_alias,
     _check,
     _identifier_carries_target_name,
-    _identifiers_in_type_expression,
     _language_name_tokens,
-    _scoped_plain_assign_targets,
+    declaration_identifiers,
     load_count_baseline,
     self_test_check,
     tighten_only_messages,
@@ -72,7 +69,7 @@ class SharedTargetNameHit:
     line_number: int
     identifier: str
     matched_target: str
-    kind: Literal["class_def", "function_def", "field_or_alias", "type_reference"]
+    kind: DeclarationKind
 
 
 def scan_file_for_shared_target_names(
@@ -128,8 +125,7 @@ def scan_file_for_shared_target_names(
     tree = ast.parse(source_code, filename=str(file_path))
 
     hits: list[SharedTargetNameHit] = []
-
-    def _emit(identifier: str, line_number: int, kind: str) -> None:
+    for identifier, line_number, kind in declaration_identifiers(tree):
         matched = _identifier_carries_target_name(identifier, target_names)
         if matched is not None:
             hits.append(
@@ -138,48 +134,9 @@ def scan_file_for_shared_target_names(
                     line_number=line_number,
                     identifier=identifier,
                     matched_target=matched,
-                    kind=kind,  # type: ignore[arg-type]
+                    kind=kind,
                 )
             )
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef):
-            _emit(node.name, node.lineno, "class_def")
-            for base in node.bases:
-                for identifier, lineno in _identifiers_in_type_expression(base):
-                    _emit(identifier, lineno, "type_reference")
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            _emit(node.name, node.lineno, "function_def")
-            all_args = [
-                *node.args.args,
-                *node.args.kwonlyargs,
-                node.args.vararg,
-                node.args.kwarg,
-            ]
-            for arg in all_args:
-                if arg is not None and arg.annotation is not None:
-                    for identifier, lineno in _identifiers_in_type_expression(arg.annotation):
-                        _emit(identifier, lineno, "type_reference")
-            if node.returns is not None:
-                for identifier, lineno in _identifiers_in_type_expression(node.returns):
-                    _emit(identifier, lineno, "type_reference")
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            _emit(node.target.id, node.lineno, "field_or_alias")
-            if node.value is not None and _annotation_declares_type_alias(node.annotation):
-                for identifier, lineno in _identifiers_in_type_expression(node.value):
-                    _emit(identifier, lineno, "type_reference")
-            for identifier, lineno in _identifiers_in_type_expression(node.annotation):
-                _emit(identifier, lineno, "type_reference")
-        elif isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Name) and func.id in _TYPE_REFERENCE_CALL_NAMES:
-                for call_arg in node.args[1:]:
-                    for identifier, lineno in _identifiers_in_type_expression(call_arg):
-                        _emit(identifier, lineno, "type_reference")
-
-    for identifier, line_number in _scoped_plain_assign_targets(tree):
-        _emit(identifier, line_number, "field_or_alias")
-
     return hits
 
 

@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import uuid
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -38,16 +39,16 @@ from import_boundaries._ast_common import (
     CLI_SCRIPT,
     LANGUAGE_CORE_PACKAGES,
     PackageInfo,
-    _annotation_declares_type_alias,
     _check,
     _identifier_carries_target_name,
     _identifiers_in_type_expression,
-    _scoped_plain_assign_targets,
     _self_test_write_manifest,
+    declaration_identifiers,
     self_test_check,
     tighten_only_messages,
     write_count_baseline,
 )
+from import_boundaries._module_resolution import _is_datrix_module_path
 
 # ---------------------------------------------------------------------------
 # I1 Target-Literal Ratchet (Decision D1, Invariant I1)
@@ -97,6 +98,9 @@ TARGET_LITERAL_ENUM_MEMBERS: dict[str, frozenset[str]] = {
     "DeploymentProvider": frozenset({"LOCAL", "EXISTING", "AWS", "AZURE"}),
 }
 
+#: The two hit kinds matched against the frozen names above.
+CentralNameKind = Literal["central_table_name", "enum_member_qualified"]
+
 # Platform-token identifier-shape match: mirrors
 # _identifier_carries_target_name (G2, language tokens) but over registered
 # PLATFORM tokens, restricted to the same declaration/type-reference
@@ -122,9 +126,11 @@ def _target_literal_vocabulary() -> frozenset[str]:
     """Registered language names union registered platform names, INCLUDING
     "local" (unlike _platform_token_vocabulary, which excludes it as an
     English-word collision for the identifier-segment shape), union the identity
-    provider types an installed platform package owns. In a str-equality/
-    key/isinstance/import-path position "local" is a target identity, not
-    English prose, and the measured collision count for these new kinds is 0.
+    provider types an installed platform package owns. As a whole string in a
+    str-equality/key position, or a whole dotted import-path segment, "local"
+    is a target identity, not English prose; the isinstance kind matches
+    identifier SEGMENTS, so it drops the English-word collisions itself
+    (``_target_type_check_hits``).
     An identity provider type's rules belong to the package that integrates the
     provider, so a shared layer comparing against one is the same defect as a
     shared layer comparing against a platform name; the owned types are derived
@@ -183,16 +189,7 @@ def _identity_provider_member_hits(
     Returns:
         ``(identifier, line_number, matched provider type)`` per hit.
     """
-    aliases: set[str] = set()
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.ImportFrom)
-            and node.module is not None
-            and node.module.split(".")[-1] == "identity_config"
-        ):
-            for imported in node.names:
-                if imported.name == "IdentityProvider":
-                    aliases.add(imported.asname or imported.name)
+    aliases = _identity_provider_aliases(tree)
     if not aliases:
         return []
     value_by_member = {member.name: member.value for member in ConfigIdentityProvider}
@@ -208,10 +205,36 @@ def _identity_provider_member_hits(
     return hits
 
 
+def _identity_provider_aliases(tree: ast.AST) -> set[str]:
+    """The names an ``identity_config`` import binds ``IdentityProvider`` to."""
+    return {
+        imported.asname or imported.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module is not None
+        and node.module.split(".")[-1] == "identity_config"
+        for imported in node.names
+        if imported.name == "IdentityProvider"
+    }
+
+
 def _identity_flagged_values() -> frozenset[str]:
     """Provider types whose members/literals a shared layer must not name: the owned
     types plus the built-in ``external`` type."""
     return _owned_identity_types() | {ConfigIdentityProvider.EXTERNAL.value}
+
+
+#: Every target-literal hit kind.
+TargetLiteralKind = Literal[
+    "central_table_name",
+    "enum_member_qualified",
+    "platform_token_identifier",
+    "platform_token_module_name",
+    "target_name_literal",
+    "target_type_check",
+    "target_module_import",
+    "identity_provider_member",
+]
 
 
 @dataclass(frozen=True)
@@ -221,16 +244,7 @@ class TargetLiteralHit:
     file_path: Path
     line_number: int
     identifier: str
-    kind: Literal[
-        "central_table_name",
-        "enum_member_qualified",
-        "platform_token_identifier",
-        "platform_token_module_name",
-        "target_name_literal",
-        "target_type_check",
-        "target_module_import",
-        "identity_provider_member",
-    ]
+    kind: TargetLiteralKind
     # The registered target token *identifier* carries as a segment, is
     # exactly equal to, or (for target_module_import) appears as a dotted-
     # path segment of. Populated for the two platform_token_* kinds and the
@@ -298,23 +312,23 @@ def _platform_token_module_path_string_hits(
     local string is out of scope, exactly like the identifier-shape match.
     """
     hits: list[tuple[str, int, str]] = []
-
-    def _check_constant(node: ast.expr) -> None:
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            matched = _platform_token_in_dotted_string(node.value, platform_names)
-            if matched is not None:
-                hits.append((node.value, node.lineno, matched))
-
     for value, _line in _scoped_plain_assign_values(tree):
-        if isinstance(value, ast.Dict):
-            for element in value.values:
-                _check_constant(element)
-        elif isinstance(value, (ast.List, ast.Tuple, ast.Set)):
-            for element in value.elts:
-                _check_constant(element)
-        else:
-            _check_constant(value)
+        for element in _assigned_value_elements(value):
+            if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                matched = _platform_token_in_dotted_string(element.value, platform_names)
+                if matched is not None:
+                    hits.append((element.value, element.lineno, matched))
     return hits
+
+
+def _assigned_value_elements(value: ast.expr) -> list[ast.expr]:
+    """The expressions an assigned value holds: a dict's values, a
+    list/tuple/set's elements, or the value itself."""
+    if isinstance(value, ast.Dict):
+        return list(value.values)
+    if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+        return list(value.elts)
+    return [value]
 
 
 def _platform_token_identifier_hits(
@@ -340,52 +354,10 @@ def _platform_token_identifier_hits(
     this match were not scoped identically.
     """
     hits: list[tuple[str, int, str]] = []
-
-    def _emit(identifier: str, line_number: int) -> None:
+    for identifier, line_number, _kind in declaration_identifiers(tree):
         matched = _identifier_carries_target_name(identifier, platform_names)
         if matched is not None:
             hits.append((identifier, line_number, matched))
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef):
-            _emit(node.name, node.lineno)
-            for base in node.bases:
-                for identifier, lineno in _identifiers_in_type_expression(base):
-                    _emit(identifier, lineno)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            _emit(node.name, node.lineno)
-            all_args = [
-                *node.args.args,
-                *node.args.kwonlyargs,
-                node.args.vararg,
-                node.args.kwarg,
-            ]
-            for arg in all_args:
-                if arg is not None and arg.annotation is not None:
-                    for identifier, lineno in _identifiers_in_type_expression(
-                        arg.annotation
-                    ):
-                        _emit(identifier, lineno)
-            if node.returns is not None:
-                for identifier, lineno in _identifiers_in_type_expression(node.returns):
-                    _emit(identifier, lineno)
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            _emit(node.target.id, node.lineno)
-            if node.value is not None and _annotation_declares_type_alias(node.annotation):
-                for identifier, lineno in _identifiers_in_type_expression(node.value):
-                    _emit(identifier, lineno)
-            for identifier, lineno in _identifiers_in_type_expression(node.annotation):
-                _emit(identifier, lineno)
-        elif isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Name) and func.id in _TYPE_REFERENCE_CALL_NAMES:
-                for call_arg in node.args[1:]:
-                    for identifier, lineno in _identifiers_in_type_expression(call_arg):
-                        _emit(identifier, lineno)
-
-    for identifier, line_number in _scoped_plain_assign_targets(tree):
-        _emit(identifier, line_number)
-
     return hits
 
 
@@ -509,19 +481,39 @@ def _target_type_check_hits(
     languages-union-platforms vocabulary rather than the platform-only one,
     so a language-named class (``isinstance(c, PythonRuntimeConfig)``) is
     caught here even though it is invisible to the platform-scoped kind.
+
+    Two shapes are not target type checks:
+
+    - a ``_PLATFORM_TOKEN_EXCLUSIONS`` word as an identifier segment
+      (``isinstance(node, _LOCAL_BINDERS)``): the match here is the same
+      identifier-segment shape as ``platform_token_identifier``, where
+      "local" is the English word, not the platform;
+    - the whole test of an ``assert`` (``assert isinstance(parsed, X)``):
+      it narrows a value its caller already typed and selects no behaviour,
+      exactly like the parameter annotation this scan never counts. A type
+      check that branches (``if``/``return``/a boolean operand) still counts.
     """
+    segment_names = target_literal_names - _PLATFORM_TOKEN_EXCLUSIONS
     hits: list[tuple[str, int, str]] = []
+    for call_arg in _branching_type_check_arguments(tree):
+        for identifier, lineno in _identifiers_in_type_expression(call_arg):
+            matched = _identifier_carries_target_name(identifier, segment_names)
+            if matched is not None:
+                hits.append((identifier, lineno, matched))
+    return hits
+
+
+def _branching_type_check_arguments(tree: ast.Module) -> Iterator[ast.expr]:
+    """The class arguments of every ``isinstance``/``issubclass`` call that is
+    not the whole test of an ``assert``, in AST-walk order."""
+    narrowing = {
+        id(node.test) for node in ast.walk(tree) if isinstance(node, ast.Assert)
+    }
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
             continue
-        if node.func.id not in _TYPE_REFERENCE_CALL_NAMES:
-            continue
-        for call_arg in node.args[1:]:
-            for identifier, lineno in _identifiers_in_type_expression(call_arg):
-                matched = _identifier_carries_target_name(identifier, target_literal_names)
-                if matched is not None:
-                    hits.append((identifier, lineno, matched))
-    return hits
+        if node.func.id in _TYPE_REFERENCE_CALL_NAMES and id(node) not in narrowing:
+            yield from node.args[1:]
 
 
 def _target_module_import_hits(
@@ -541,21 +533,104 @@ def _target_module_import_hits(
     """
     hits: list[tuple[str, int, str]] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            if node.module is None:
-                continue
-            module_paths = [node.module]
-        elif isinstance(node, ast.Import):
-            module_paths = [alias.name for alias in node.names]
-        else:
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
             continue
-
-        for module_path in module_paths:
-            for segment in module_path.split("."):
-                if segment in target_literal_names:
-                    hits.append((module_path, node.lineno, segment))
-                    break
+        for module_path in _imported_module_paths(node):
+            matched = next(
+                (
+                    segment
+                    for segment in module_path.split(".")
+                    if segment in target_literal_names
+                ),
+                None,
+            )
+            if matched is not None:
+                hits.append((module_path, node.lineno, matched))
     return hits
+
+
+def _imported_module_paths(node: ast.Import | ast.ImportFrom) -> list[str]:
+    """The dotted module paths an import statement names: ``node.module`` of
+    a ``from`` import that has one, each alias of a plain ``import``."""
+    if isinstance(node, ast.ImportFrom):
+        return [node.module] if node.module is not None else []
+    return [alias.name for alias in node.names]
+
+
+def _foreign_bound_names(tree: ast.Module) -> frozenset[str]:
+    """Names the module binds ONLY by importing them from outside Datrix's own
+    module graph (``from tree_sitter import Language``, ``import tree_sitter``).
+
+    Every ``TARGET_LITERAL_CENTRAL_NAMES``/``TARGET_LITERAL_ENUM_MEMBERS`` entry
+    is a Datrix-defined table or enum, so a reference whose name resolves to a
+    third-party import (tree-sitter's own ``Language`` class) is a name
+    collision, never that table. A relative import is Datrix's own. A name the
+    module also defines or assigns itself is not foreign: the reference could be
+    the local binding, so it stays a hit.
+    """
+    imported: set[str] = set()
+    local: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level == 0 and node.module is not None and not _is_datrix_module_path(node.module):
+                imported.update(alias.asname or alias.name for alias in node.names)
+        elif isinstance(node, ast.Import):
+            imported.update(
+                alias.asname or alias.name.split(".")[0]
+                for alias in node.names
+                if not _is_datrix_module_path(alias.name)
+            )
+        elif isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            local.add(node.name)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            local.add(node.id)
+    return frozenset(imported - local)
+
+
+def _attribute_root_name(node: ast.Attribute) -> str | None:
+    """The bare name an attribute chain starts from (``tree_sitter`` in
+    ``tree_sitter.Language``), or ``None`` when it starts from a call,
+    subscript or other expression."""
+    value: ast.expr = node.value
+    while isinstance(value, ast.Attribute):
+        value = value.value
+    return value.id if isinstance(value, ast.Name) else None
+
+
+def _central_name_matches(
+    tree: ast.Module, foreign: frozenset[str]
+) -> Iterator[tuple[str, int, CentralNameKind]]:
+    """``(identifier, line_number, kind)`` for every definition of, or
+    reference to, a ``TARGET_LITERAL_CENTRAL_NAMES`` entry and every
+    ``TARGET_LITERAL_ENUM_MEMBERS`` member read, in AST-walk order. A
+    reference bound by a third-party import (*foreign*) -- the bare name, an
+    attribute read off a third-party module, or a member read off a
+    third-party name spelled like the enum -- is a collision, not a hit."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            if node.id in TARGET_LITERAL_CENTRAL_NAMES and node.id not in foreign:
+                yield node.id, node.lineno, "central_table_name"
+        elif isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name in TARGET_LITERAL_CENTRAL_NAMES:
+                yield node.name, node.lineno, "central_table_name"
+        elif isinstance(node, ast.Attribute):
+            yield from _attribute_central_matches(node, foreign)
+
+
+def _attribute_central_matches(
+    node: ast.Attribute, foreign: frozenset[str]
+) -> Iterator[tuple[str, int, CentralNameKind]]:
+    """The central-name and enum-member matches of one attribute read."""
+    if _attribute_root_name(node) in foreign:
+        return
+    if node.attr in TARGET_LITERAL_CENTRAL_NAMES:
+        yield node.attr, node.lineno, "central_table_name"
+    if (
+        isinstance(node.value, ast.Name)
+        and node.value.id in TARGET_LITERAL_ENUM_MEMBERS
+        and node.attr in TARGET_LITERAL_ENUM_MEMBERS[node.value.id]
+    ):
+        yield f"{node.value.id}.{node.attr}", node.lineno, "enum_member_qualified"
 
 
 def scan_file_for_target_literals(
@@ -578,6 +653,9 @@ def scan_file_for_target_literals(
         an ``ast.Name`` with ``id`` in ``TARGET_LITERAL_ENUM_MEMBERS`` and whose
         ``attr`` is in the corresponding member frozenset (e.g. `Language.PYTHON`,
         `DeploymentProvider.AWS`) -- NOT a bare `AWS` identifier alone.
+        Neither frozen-name kind counts a reference the module binds only by a
+        third-party import (``tree_sitter.Language``) -- see
+        ``_foreign_bound_names``.
       - ``platform_token_identifier``: a declaration/type-reference identifier
         (class/function def, module-/class-level field or type alias, type
         reference) carrying a registered platform token as an identifier
@@ -594,8 +672,10 @@ def scan_file_for_target_literals(
         comparison/key/``.get()``/dict-key/match-value position -- see
         ``_target_name_literal_hits``.
       - ``target_type_check``: an ``isinstance``/``issubclass`` call whose
-        class argument carries a ``_target_literal_vocabulary()`` token as
-        an identifier segment -- see ``_target_type_check_hits``.
+        class argument carries a ``_target_literal_vocabulary()`` token
+        (minus the English-word collisions) as an identifier segment, unless
+        the call is the whole test of an ``assert`` -- see
+        ``_target_type_check_hits``.
       - ``target_module_import``: an ``ast.ImportFrom``/``ast.Import`` node
         whose dotted module path has a ``.``-split segment exactly equal to
         a ``_target_literal_vocabulary()`` member -- see
@@ -634,170 +714,105 @@ def scan_file_for_target_literals(
     source_code = file_path.read_text(encoding="utf-8-sig")
     tree = ast.parse(source_code, filename=str(file_path))
 
-    hits: list[TargetLiteralHit] = []
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id in TARGET_LITERAL_CENTRAL_NAMES:
-            hits.append(
-                TargetLiteralHit(
-                    file_path=file_path,
-                    line_number=node.lineno,
-                    identifier=node.id,
-                    kind="central_table_name",
-                )
-            )
-        elif (
-            isinstance(node, ast.ClassDef) and node.name in TARGET_LITERAL_CENTRAL_NAMES
-        ):
-            hits.append(
-                TargetLiteralHit(
-                    file_path=file_path,
-                    line_number=node.lineno,
-                    identifier=node.name,
-                    kind="central_table_name",
-                )
-            )
-        elif (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name in TARGET_LITERAL_CENTRAL_NAMES
-        ):
-            hits.append(
-                TargetLiteralHit(
-                    file_path=file_path,
-                    line_number=node.lineno,
-                    identifier=node.name,
-                    kind="central_table_name",
-                )
-            )
-        elif isinstance(node, ast.Attribute):
-            if node.attr in TARGET_LITERAL_CENTRAL_NAMES:
-                hits.append(
-                    TargetLiteralHit(
-                        file_path=file_path,
-                        line_number=node.lineno,
-                        identifier=node.attr,
-                        kind="central_table_name",
-                    )
-                )
-            if (
-                isinstance(node.value, ast.Name)
-                and node.value.id in TARGET_LITERAL_ENUM_MEMBERS
-                and node.attr in TARGET_LITERAL_ENUM_MEMBERS[node.value.id]
-            ):
-                hits.append(
-                    TargetLiteralHit(
-                        file_path=file_path,
-                        line_number=node.lineno,
-                        identifier=f"{node.value.id}.{node.attr}",
-                        kind="enum_member_qualified",
-                    )
-                )
-
-    for identifier, line_number, matched in _platform_token_identifier_hits(
-        tree, platform_names
-    ):
-        hits.append(
-            TargetLiteralHit(
-                file_path=file_path,
-                line_number=line_number,
-                identifier=identifier,
-                kind="platform_token_identifier",
-                matched_target=matched,
-            )
+    hits = [
+        TargetLiteralHit(
+            file_path=file_path, line_number=line_number, identifier=identifier, kind=kind
         )
-
-    for identifier, line_number, matched in _platform_token_module_name_hits(
-        file_path, monorepo_root, platform_names
-    ):
-        hits.append(
-            TargetLiteralHit(
-                file_path=file_path,
-                line_number=line_number,
-                identifier=identifier,
-                kind="platform_token_module_name",
-                matched_target=matched,
-            )
+        for identifier, line_number, kind in _central_name_matches(
+            tree, _foreign_bound_names(tree)
         )
+    ]
 
-    for identifier, line_number, matched in _platform_token_module_path_string_hits(
-        tree, platform_names
-    ):
-        hits.append(
-            TargetLiteralHit(
-                file_path=file_path,
-                line_number=line_number,
-                identifier=identifier,
-                kind="platform_token_module_name",
-                matched_target=matched,
-            )
+    hits.extend(
+        _matched_hits(
+            file_path,
+            "platform_token_identifier",
+            _platform_token_identifier_hits(tree, platform_names),
         )
+    )
+    hits.extend(
+        _matched_hits(
+            file_path,
+            "platform_token_module_name",
+            _platform_token_module_name_hits(file_path, monorepo_root, platform_names),
+        )
+    )
+    hits.extend(
+        _matched_hits(
+            file_path,
+            "platform_token_module_name",
+            _platform_token_module_path_string_hits(tree, platform_names),
+        )
+    )
 
     identity_home = _is_identity_vocabulary_home(file_path)
 
-    for value, line_number in target_name_literal_hits(tree, target_literal_names):
-        if _is_own_language_excluded(file_path, monorepo_root, value):
-            continue
-        if identity_home and value in _owned_identity_types():
-            continue
-        hits.append(
-            TargetLiteralHit(
-                file_path=file_path,
-                line_number=line_number,
-                identifier=value,
-                kind="target_name_literal",
-                matched_target=value,
-            )
-        )
+    def _kept(matches: Iterable[tuple[str, int, str]]) -> list[tuple[str, int, str]]:
+        return [
+            match
+            for match in matches
+            if _keeps_target_match(file_path, monorepo_root, identity_home, match[2])
+        ]
 
-    for identifier, line_number, matched in _target_type_check_hits(
-        tree, target_literal_names
-    ):
-        if _is_own_language_excluded(file_path, monorepo_root, matched):
-            continue
-        if identity_home and matched in _owned_identity_types():
-            continue
-        hits.append(
-            TargetLiteralHit(
-                file_path=file_path,
-                line_number=line_number,
-                identifier=identifier,
-                kind="target_type_check",
-                matched_target=matched,
-            )
+    name_literals = (
+        (value, line_number, value)
+        for value, line_number in target_name_literal_hits(tree, target_literal_names)
+    )
+    hits.extend(_matched_hits(file_path, "target_name_literal", _kept(name_literals)))
+    hits.extend(
+        _matched_hits(
+            file_path,
+            "target_type_check",
+            _kept(_target_type_check_hits(tree, target_literal_names)),
         )
-
-    for module_path, line_number, matched in _target_module_import_hits(
-        tree, target_literal_names
-    ):
-        if _is_own_language_excluded(file_path, monorepo_root, matched):
-            continue
-        if identity_home and matched in _owned_identity_types():
-            continue
-        hits.append(
-            TargetLiteralHit(
-                file_path=file_path,
-                line_number=line_number,
-                identifier=module_path,
-                kind="target_module_import",
-                matched_target=matched,
-            )
+    )
+    hits.extend(
+        _matched_hits(
+            file_path,
+            "target_module_import",
+            _kept(_target_module_import_hits(tree, target_literal_names)),
         )
+    )
 
     if not identity_home:
-        for identifier, line_number, matched in _identity_provider_member_hits(
-            tree, _identity_flagged_values()
-        ):
-            hits.append(
-                TargetLiteralHit(
-                    file_path=file_path,
-                    line_number=line_number,
-                    identifier=identifier,
-                    kind="identity_provider_member",
-                    matched_target=matched,
-                )
+        hits.extend(
+            _matched_hits(
+                file_path,
+                "identity_provider_member",
+                _identity_provider_member_hits(tree, _identity_flagged_values()),
             )
+        )
 
     return hits
+
+
+def _matched_hits(
+    file_path: Path,
+    kind: TargetLiteralKind,
+    matches: Iterable[tuple[str, int, str]],
+) -> list[TargetLiteralHit]:
+    """One *kind* hit per ``(identifier, line_number, matched_target)``."""
+    return [
+        TargetLiteralHit(
+            file_path=file_path,
+            line_number=line_number,
+            identifier=identifier,
+            kind=kind,
+            matched_target=matched,
+        )
+        for identifier, line_number, matched in matches
+    ]
+
+
+def _keeps_target_match(
+    file_path: Path, monorepo_root: Path, identity_home: bool, matched: str
+) -> bool:
+    """Whether a target_* kind match counts: not the file's own served
+    language (``_is_own_language_excluded``), and not an owned identity
+    provider type named inside the identity vocabulary's home files."""
+    if _is_own_language_excluded(file_path, monorepo_root, matched):
+        return False
+    return not (identity_home and matched in _owned_identity_types())
 
 
 def scan_target_literals(
@@ -1256,6 +1271,50 @@ def _self_test_target_literal_new_kinds() -> bool:
             not any(h.kind == "target_type_check" for h in isinstance_base_hits),
         )
 
+        local_segment_hits = _scan(
+            "isinstance_local_segment.py",
+            "class VariableDeclaration:\n    pass\n\n\n"
+            "_LOCAL_BINDERS = (VariableDeclaration,)\n\n\n"
+            "def f(c):\n    return isinstance(c, _LOCAL_BINDERS)\n",
+        )
+        ok &= _check(
+            "isinstance(c, _LOCAL_BINDERS) produces ZERO target_type_check hits "
+            "-- 'local' as an identifier segment is the English word",
+            not any(h.kind == "target_type_check" for h in local_segment_hits),
+        )
+
+        narrowing_source = (
+            "class PythonRuntimeConfig:\n    pass\n\n\n"
+            "def narrow(c: object) -> PythonRuntimeConfig:\n"
+            "    assert isinstance(c, PythonRuntimeConfig)\n"
+            "    return c\n"
+        )
+        narrowing_hits = _scan("isinstance_assert.py", narrowing_source)
+        ok &= _check(
+            "assert isinstance(c, PythonRuntimeConfig) produces ZERO target_type_check "
+            "hits -- a narrowing assert selects no behaviour",
+            not any(h.kind == "target_type_check" for h in narrowing_hits),
+        )
+        dispatch_hits = _scan(
+            "isinstance_dispatch.py",
+            narrowing_source
+            + "\n\ndef dispatch(c: object) -> bool:\n"
+            "    assert c is not None and isinstance(c, PythonRuntimeConfig)\n"
+            "    if isinstance(c, PythonRuntimeConfig):\n"
+            "        return True\n"
+            "    return False\n",
+        )
+        ok &= _check(
+            "an isinstance inside a compound assert test and one in an if test "
+            "are exactly two target_type_check hits naming 'python'",
+            sum(
+                1
+                for h in dispatch_hits
+                if h.kind == "target_type_check" and h.matched_target == "python"
+            )
+            == 2,
+        )
+
         import_base_hits = _scan(
             "module_import_base.py", "from datrix_common.config.platform.base import X\n"
         )
@@ -1489,10 +1548,69 @@ def _self_test_identity_provider_rules() -> bool:
     return ok
 
 
+def _self_test_central_name_collisions() -> bool:
+    """The frozen-name kinds count the Datrix table or enum, never a third-party
+    name spelled the same: ``tree_sitter.Language`` (imported by name or read off
+    the module) is zero hits; the same name imported from a Datrix module, or
+    relatively, is a hit; and a third-party import the module shadows with its
+    own definition is still a hit."""
+    report_step(
+        "Self-test 26/26: frozen central names bound by a third-party import "
+        "are collisions, not hits"
+    )
+
+    def _matches(source: str) -> list[tuple[str, CentralNameKind]]:
+        tree = ast.parse(source)
+        return [
+            (identifier, kind)
+            for identifier, _, kind in _central_name_matches(tree, _foreign_bound_names(tree))
+        ]
+
+    ok = _check(
+        "Language imported from tree_sitter and used as annotation and call is ZERO hits",
+        _matches(
+            "from tree_sitter import Language\n"
+            "def f(x: Language) -> Language:\n    return Language(x)\n"
+        )
+        == [],
+    )
+    ok &= _check(
+        "tree_sitter.Language read off an imported third-party module is ZERO hits",
+        _matches("import tree_sitter\nLANG = tree_sitter.Language(1)\n") == [],
+    )
+    datrix_matches = _matches(
+        "from datrix_common.enums import Language\n"
+        "def f(x: Language) -> None:\n    return None\nY = Language.PYTHON\n"
+    )
+    ok &= _check(
+        "Language imported from a Datrix module is two central_table_name hits and one "
+        f"enum_member_qualified hit, got {datrix_matches}",
+        sorted(datrix_matches)
+        == [
+            ("Language", "central_table_name"),
+            ("Language", "central_table_name"),
+            ("Language.PYTHON", "enum_member_qualified"),
+        ],
+    )
+    ok &= _check(
+        "Language imported relatively is a hit",
+        _matches("from .enums import Language\nX = Language\n")
+        == [("Language", "central_table_name")],
+    )
+    ok &= _check(
+        "a third-party Language the module shadows with its own class stays a hit "
+        "(the definition and the reference)",
+        len(_matches("from tree_sitter import Language\nclass Language:\n    pass\nX = Language\n"))
+        == 2,
+    )
+    return ok
+
+
 def self_test_checks() -> list[NamedCheck]:
     """The target-literal scanner's self-tests, each a check the CLI's ``--self-test`` runs."""
     return [
         self_test_check(_self_test_platform_token_scanner),
         self_test_check(_self_test_target_literal_new_kinds),
         self_test_check(_self_test_identity_provider_rules),
+        self_test_check(_self_test_central_name_collisions),
     ]

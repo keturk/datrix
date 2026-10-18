@@ -106,6 +106,15 @@ def _shared_enum_members() -> dict[str, dict[str, str]]:
 # constant (see ``_is_module_level_container_assignment``).
 _VOCABULARY_CONTAINER_CALL_NAMES: frozenset[str] = frozenset({"frozenset", "set"})
 
+#: A vocabulary member as both sides spell it: a string, or an integer key such
+#: as an HTTP status code (``bool`` is never one -- it is a flag, not a member).
+VocabularyMember = str | int
+
+
+def _is_vocabulary_member(value: object) -> bool:
+    """True for a string or a non-``bool`` integer."""
+    return isinstance(value, str) or (isinstance(value, int) and not isinstance(value, bool))
+
 
 def _is_module_level_container_assignment(stmt: ast.stmt) -> str | None:
     """Return the assigned name if *stmt* is a module-level ``Assign``/
@@ -156,14 +165,17 @@ def _is_module_level_container_assignment(stmt: ast.stmt) -> str | None:
     return None
 
 
-def _non_enum_vocabulary_member_set(name: str, runtime_value: object) -> frozenset[str]:
+def _non_enum_vocabulary_member_set(
+    name: str, runtime_value: object
+) -> frozenset[VocabularyMember]:
     """Resolve *runtime_value* (the live object bound to *name* in the
     imported ``enums.py``) to its canonical member-value set.
 
     A ``dict``'s canonical member set is its KEYS -- that is what a
     redeclaring copy duplicates (e.g. ``DSL_EXCEPTION_HTTP_STATUS``'s keys,
-    never its status-code values). A ``set``/``frozenset``'s canonical
-    member set is its elements directly.
+    never its status-code values; ``DSL_EXCEPTION_DEFAULT_DETAIL``'s
+    integer status-code keys). A ``set``/``frozenset``'s canonical member
+    set is its elements directly.
 
     Args:
         name: The module-level identifier this value is bound to (for error
@@ -171,11 +183,11 @@ def _non_enum_vocabulary_member_set(name: str, runtime_value: object) -> frozens
         runtime_value: The actual object ``getattr(enums_module, name)``.
 
     Returns:
-        The frozenset of canonical member strings.
+        The frozenset of canonical members (strings or integers).
 
     Raises:
         TypeError: if *runtime_value* is not a dict/set/frozenset, or any of
-            its keys/elements is not a string. A canonical declaration whose
+            its keys/elements is neither a string nor an integer. A canonical declaration whose
             members cannot be determined must fail loudly here, never be
             silently skipped -- a silently-skipped canonical source is the
             exact coverage gap this harvest exists to close.
@@ -197,17 +209,18 @@ def _non_enum_vocabulary_member_set(name: str, runtime_value: object) -> frozens
             f"assignment (e.g. move it behind a function)."
         )
 
-    members: set[str] = set()
+    members: set[VocabularyMember] = set()
     for element in candidate_members:
-        if not isinstance(element, str):
+        if not _is_vocabulary_member(element):
             raise TypeError(
                 f"G1 harvest: '{name}' in datrix_codegen_kernel.enums has a "
-                f"non-string member ({element!r}, type "
-                f"{type(element).__name__}) among its {shape}. Expected "
-                f"every member to be a str so it can be compared against a "
-                f"redeclaring copy's string literals. Fix: make '{name}' "
-                f"string-keyed/valued, or valid options are to exclude it "
-                f"from module-level container declarations in enums.py."
+                f"member ({element!r}, type {type(element).__name__}) among "
+                f"its {shape} that is neither a str nor an int. Expected "
+                f"every member to be a str or an int so it can be compared "
+                f"against a redeclaring copy's literals. Fix: make '{name}' "
+                f"string- or integer-keyed/valued, or valid options are to "
+                f"exclude it from module-level container declarations in "
+                f"enums.py."
             )
         members.add(element)
     return frozenset(members)
@@ -239,7 +252,7 @@ _ADDITIONAL_SHARED_VOCABULARY_SOURCES: tuple[tuple[str, str], ...] = (
 )
 
 
-def _additional_shared_non_enum_vocabularies() -> dict[str, frozenset[str]]:
+def _additional_shared_non_enum_vocabularies() -> dict[str, frozenset[VocabularyMember]]:
     """Canonical member sets for the shared vocabularies declared in
     ``_ADDITIONAL_SHARED_VOCABULARY_SOURCES`` -- vocabulary homes outside
     ``enums.py`` that hold a canonical set moved there for a layering
@@ -257,7 +270,7 @@ def _additional_shared_non_enum_vocabularies() -> dict[str, frozenset[str]]:
         TypeError: if a declared attribute's members cannot be determined
             as strings (propagated from ``_non_enum_vocabulary_member_set``).
     """
-    vocabularies: dict[str, frozenset[str]] = {}
+    vocabularies: dict[str, frozenset[VocabularyMember]] = {}
     for module_path, attr_name in _ADDITIONAL_SHARED_VOCABULARY_SOURCES:
         try:
             module = importlib.import_module(module_path)
@@ -289,7 +302,7 @@ def _additional_shared_non_enum_vocabularies() -> dict[str, frozenset[str]]:
     return vocabularies
 
 
-def _shared_non_enum_vocabularies() -> dict[str, frozenset[str]]:
+def _shared_non_enum_vocabularies() -> dict[str, frozenset[VocabularyMember]]:
     """Every module-level ``dict``/``set``/``frozenset`` constant DECLARED IN
     ``enums.py``'s own source (never an imported symbol merely visible
     through it, e.g. ``BUILTIN_REGISTRY``) that is not a ``str, Enum`` class,
@@ -331,7 +344,7 @@ def _shared_non_enum_vocabularies() -> dict[str, frozenset[str]]:
     source_code = source_path.read_text(encoding="utf-8-sig")
     tree = ast.parse(source_code, filename=str(source_path))
 
-    vocabularies: dict[str, frozenset[str]] = {}
+    vocabularies: dict[str, frozenset[VocabularyMember]] = {}
     for stmt in tree.body:
         name = _is_module_level_container_assignment(stmt)
         if name is None:
@@ -367,10 +380,11 @@ class SharedVocabularyHit:
 
 def _resolve_vocabulary_element(
     node: ast.AST, enum_members: dict[str, dict[str, str]]
-) -> tuple[str, bool] | None:
+) -> tuple[VocabularyMember, bool] | None:
     """Resolve one set/frozenset/dict-key element to ``(value, is_bare)``.
 
-    ``is_bare`` is True for a plain string constant (``"all"``), False for a
+    ``is_bare`` is True for a plain string or integer constant (``"all"``,
+    ``401``), False for a
     qualified enum-member reference (``QueryTerminal.ALL``) resolved through
     *enum_members* to the member's real value (``"all"``) -- both forms
     compare equal once resolved, but only the bare form counts toward
@@ -382,7 +396,7 @@ def _resolve_vocabulary_element(
         such an element means the container is not a closed vocabulary
         literal at all, and the caller skips it entirely.
     """
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+    if isinstance(node, ast.Constant) and _is_vocabulary_member(node.value):
         return node.value, True
     if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
         member_map = enum_members.get(node.value.id)
@@ -395,7 +409,7 @@ def _resolve_vocabulary_element(
 class _NormalizedContainer:
     """A module-level container literal, resolved to its member value set."""
 
-    values: frozenset[str]
+    values: frozenset[VocabularyMember]
     has_bare_literal: bool
 
 
@@ -411,7 +425,7 @@ def _normalize_container(
     Returns:
         ``None`` if *node* is not a recognized set/frozenset/dict literal,
         has zero elements, or contains any element that is not a bare string
-        or a resolvable qualified enum-member reference -- an unrecognized
+        or integer or a resolvable qualified enum-member reference -- an unrecognized
         element means "not provably a closed vocabulary literal", not
         "clean"; the caller simply cannot compare a partially-unresolvable
         container against a specific enum's exact member set.
@@ -438,7 +452,7 @@ def _normalize_container(
     if not elements:
         return None
 
-    values: set[str] = set()
+    values: set[VocabularyMember] = set()
     has_bare_literal = False
     for element in elements:
         resolved = _resolve_vocabulary_element(element, enum_members)
@@ -456,7 +470,7 @@ def _normalize_container(
 def scan_file_for_shared_vocabulary(
     file_path: Path,
     enum_members: dict[str, dict[str, str]],
-    non_enum_vocabularies: dict[str, frozenset[str]],
+    non_enum_vocabularies: dict[str, frozenset[VocabularyMember]],
 ) -> list[SharedVocabularyHit]:
     """AST-walk *file_path* for module-level set/frozenset/dict declarations
     whose normalized member set equals a ``datrix_codegen_kernel.enums``
@@ -471,7 +485,7 @@ def scan_file_for_shared_vocabulary(
 
     A hit requires TWO conditions: the normalized member set exactly equals
     some enum class's value set, AND the container includes at least one
-    BARE STRING LITERAL element. A container built ENTIRELY from qualified
+    BARE STRING OR INTEGER LITERAL element. A container built ENTIRELY from qualified
     enum-member references (e.g. ``frozenset({QueryTerminal.ALL,
     QueryTerminal.FIRST, QueryTerminal.FIRST_OR_FAIL, QueryTerminal.COUNT})``,
     the real, already-compliant case at
@@ -499,7 +513,7 @@ def scan_file_for_shared_vocabulary(
     source_code = file_path.read_text(encoding="utf-8-sig")
     tree = ast.parse(source_code, filename=str(file_path))
 
-    canonical_value_sets: dict[str, frozenset[str]] = {
+    canonical_value_sets: dict[str, frozenset[VocabularyMember]] = {
         class_name: frozenset(values.values())
         for class_name, values in enum_members.items()
     }
@@ -723,6 +737,7 @@ def _self_test_shared_vocabulary_scanner() -> bool:
         # `_shared_non_enum_vocabularies()` DOES contain them, is the direct
         # proof that an Enum-only harvest would FAIL to cover them.
         from datrix_codegen_kernel.enums import (
+            DSL_EXCEPTION_DEFAULT_DETAIL,
             DSL_EXCEPTION_HTTP_STATUS,
             NOSQL_SUPPORTED_METHODS,
             NOSQL_UNSUPPORTED_METHODS,
@@ -807,6 +822,26 @@ def _self_test_shared_vocabulary_scanner() -> bool:
         ok &= _check(
             "importing DSL_EXCEPTION_HTTP_STATUS instead of redeclaring it is NOT flagged",
             dict_shape_importing_hits == [],
+        )
+
+        # --- Integer-keyed dict (DSL_EXCEPTION_DEFAULT_DETAIL) --------------
+        ok &= _check(
+            "the harvest holds DSL_EXCEPTION_DEFAULT_DETAIL's integer status-code keys",
+            non_enum_harvest.get("DSL_EXCEPTION_DEFAULT_DETAIL")
+            == frozenset(DSL_EXCEPTION_DEFAULT_DETAIL.keys()),
+        )
+        int_shape_file = scratch_dir / "int_shape.py"
+        int_shape_file.write_text(
+            f"_DEFAULT_DETAIL = {DSL_EXCEPTION_DEFAULT_DETAIL!r}\n"
+            "_FLAGS = {True: 'on', False: 'off'}\n",
+            encoding="utf-8",
+        )
+        int_shape_hits = scan_file_for_shared_vocabulary(int_shape_file, {}, non_enum_harvest)
+        ok &= _check(
+            "a bare dict literal redeclaring DSL_EXCEPTION_DEFAULT_DETAIL's integer "
+            "keys is flagged; a bool-keyed dict is no vocabulary",
+            [hit.matched_vocabulary for hit in int_shape_hits]
+            == ["DSL_EXCEPTION_DEFAULT_DETAIL"],
         )
 
         # --- Non-Enum shape 2: dict-keys (NOSQL_UNSUPPORTED_METHODS) --------

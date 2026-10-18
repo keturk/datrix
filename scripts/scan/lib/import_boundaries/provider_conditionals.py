@@ -253,19 +253,23 @@ def _provider_literal_container_ids(
     return string_literals
 
 
+#: Every platform-identity conditional hit kind.
+ProviderConditionalKind = Literal[
+    "providerid_compare",
+    "deployment_provider_value_compare",
+    "match_case_provider_subject",
+    "provider_literal_compare",
+    "provider_literal_container",
+]
+
+
 @dataclass(frozen=True)
 class ProviderConditionalHit:
     """One occurrence of a platform-identity conditional in a language-package file."""
 
     file_path: Path
     line_number: int
-    kind: Literal[
-        "providerid_compare",
-        "deployment_provider_value_compare",
-        "match_case_provider_subject",
-        "provider_literal_compare",
-        "provider_literal_container",
-    ]
+    kind: ProviderConditionalKind
 
 
 def _walk_for_provider_conditionals(
@@ -313,36 +317,33 @@ def _walk_for_provider_conditionals(
                 _walk_for_provider_conditionals(stmt, file_path, hits, provider_ids)
         return
 
-    if isinstance(node, ast.Compare):
-        compare_kind: (
-            Literal[
-                "providerid_compare",
-                "deployment_provider_value_compare",
-                "provider_literal_compare",
-            ]
-            | None
-        ) = _provider_conditional_compare_kind(node)
-        if compare_kind is None:
-            compare_kind = _provider_literal_compare_kind(node, provider_ids)
-        kind = compare_kind
+    if isinstance(node, (ast.Compare, ast.List, ast.Tuple, ast.Set)):
+        kind = _expression_conditional_kind(node, provider_ids)
         if kind is not None:
             hits.append(
                 ProviderConditionalHit(
                     file_path=file_path, line_number=node.lineno, kind=kind
                 )
             )
-    elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
-        if _provider_literal_container_ids(node, provider_ids):
-            hits.append(
-                ProviderConditionalHit(
-                    file_path=file_path,
-                    line_number=node.lineno,
-                    kind="provider_literal_container",
-                )
-            )
 
     for child in ast.iter_child_nodes(node):
         _walk_for_provider_conditionals(child, file_path, hits, provider_ids)
+
+
+def _expression_conditional_kind(
+    node: ast.Compare | ast.List | ast.Tuple | ast.Set, provider_ids: frozenset[str]
+) -> ProviderConditionalKind | None:
+    """The hit kind of a comparison (the ``ProviderId``-shaped forms first,
+    then a bare provider literal comparand) or of a closed-world provider-id
+    collection literal; ``None`` when *node* is neither."""
+    if isinstance(node, ast.Compare):
+        compare_kind = _provider_conditional_compare_kind(node)
+        if compare_kind is not None:
+            return compare_kind
+        return _provider_literal_compare_kind(node, provider_ids)
+    if _provider_literal_container_ids(node, provider_ids):
+        return "provider_literal_container"
+    return None
 
 
 def scan_file_for_provider_conditionals(

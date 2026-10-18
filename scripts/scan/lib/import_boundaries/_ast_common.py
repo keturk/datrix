@@ -6,10 +6,11 @@ import ast
 import json
 import re
 import tomllib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
+from typing import Literal
 
 from datrix_common.plugin.capability_resolution import (
     declaration_for_language,
@@ -289,6 +290,87 @@ def _scoped_plain_assign_targets(tree: ast.Module) -> list[tuple[str, int]]:
                         if isinstance(target, ast.Name)
                     )
     return targets
+
+
+#: The declaration/type-reference position an identifier was found in.
+DeclarationKind = Literal["class_def", "function_def", "field_or_alias", "type_reference"]
+DeclarationIdentifier = tuple[str, int, DeclarationKind]
+
+
+def declaration_identifiers(tree: ast.Module) -> list[DeclarationIdentifier]:
+    """Every ``(identifier, line_number, kind)`` in a declaration or
+    type-reference position: a class or function/method DEFINITION name, a
+    base class, a parameter or return annotation, an annotated field or type
+    alias name with its annotation (and a ``TypeAlias``'s value), an
+    ``isinstance``/``issubclass`` type argument -- in AST-walk order -- then
+    each module-/class-level plain assignment target
+    (``_scoped_plain_assign_targets``). Never a bare local variable,
+    parameter name, loop variable or attribute read: the identifier-shape
+    ratchets match only these positions."""
+    identifiers = [
+        identifier for node in ast.walk(tree) for identifier in _node_declarations(node)
+    ]
+    identifiers.extend(
+        (identifier, line_number, "field_or_alias")
+        for identifier, line_number in _scoped_plain_assign_targets(tree)
+    )
+    return identifiers
+
+
+def _type_references(expression: ast.AST) -> Iterator[DeclarationIdentifier]:
+    """Every identifier of a type expression, as a ``type_reference``."""
+    for identifier, lineno in _identifiers_in_type_expression(expression):
+        yield identifier, lineno, "type_reference"
+
+
+def _class_declarations(node: ast.ClassDef) -> Iterator[DeclarationIdentifier]:
+    """A class definition's name, then each base class's type references."""
+    yield node.name, node.lineno, "class_def"
+    for base in node.bases:
+        yield from _type_references(base)
+
+
+def _function_declarations(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> Iterator[DeclarationIdentifier]:
+    """A function definition's name, then its parameter and return annotations."""
+    yield node.name, node.lineno, "function_def"
+    arguments = node.args
+    for arg in (*arguments.args, *arguments.kwonlyargs, arguments.vararg, arguments.kwarg):
+        if arg is not None and arg.annotation is not None:
+            yield from _type_references(arg.annotation)
+    if node.returns is not None:
+        yield from _type_references(node.returns)
+
+
+def _annotated_declarations(
+    node: ast.AnnAssign, target: ast.Name
+) -> Iterator[DeclarationIdentifier]:
+    """An annotated field or alias's name, a type alias's value, then its annotation."""
+    yield target.id, node.lineno, "field_or_alias"
+    if node.value is not None and _annotation_declares_type_alias(node.annotation):
+        yield from _type_references(node.value)
+    yield from _type_references(node.annotation)
+
+
+def _type_check_references(node: ast.Call) -> Iterator[DeclarationIdentifier]:
+    """The type arguments of an ``isinstance()``/``issubclass()`` call."""
+    func = node.func
+    if isinstance(func, ast.Name) and func.id in _TYPE_REFERENCE_CALL_NAMES:
+        for call_arg in node.args[1:]:
+            yield from _type_references(call_arg)
+
+
+def _node_declarations(node: ast.AST) -> Iterator[DeclarationIdentifier]:
+    """The declaration and type-reference identifiers one AST node carries."""
+    if isinstance(node, ast.ClassDef):
+        yield from _class_declarations(node)
+    elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        yield from _function_declarations(node)
+    elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        yield from _annotated_declarations(node, node.target)
+    elif isinstance(node, ast.Call):
+        yield from _type_check_references(node)
 
 
 def _language_name_tokens(language_name: str) -> frozenset[str]:

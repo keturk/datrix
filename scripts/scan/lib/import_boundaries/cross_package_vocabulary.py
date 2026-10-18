@@ -103,27 +103,7 @@ def _normalize_container_g3(node: ast.AST) -> _NormalizedContainer | None:
         literal, has zero elements, or contains any element that is not a
         bare string or a qualified attribute reference.
     """
-    elements: list[ast.AST]
-    if isinstance(node, ast.Tuple):
-        elements = list(node.elts)
-    elif isinstance(node, ast.Call):
-        func = node.func
-        if not (isinstance(func, ast.Name) and func.id in ("frozenset", "set")):
-            return None
-        if len(node.args) != 1 or not isinstance(
-            node.args[0], (ast.Set, ast.List, ast.Tuple)
-        ):
-            return None
-        elements = list(node.args[0].elts)
-    elif isinstance(node, ast.Set):
-        elements = list(node.elts)
-    elif isinstance(node, ast.Dict):
-        if any(key is None for key in node.keys):
-            return None  # a **spread entry -- not a closed literal
-        elements = [key for key in node.keys if key is not None]
-    else:
-        return None
-
+    elements = _container_elements_g3(node)
     if not elements:
         return None
 
@@ -140,6 +120,28 @@ def _normalize_container_g3(node: ast.AST) -> _NormalizedContainer | None:
     return _NormalizedContainer(
         values=frozenset(values), has_bare_literal=has_bare_literal
     )
+
+
+def _container_elements_g3(node: ast.AST) -> list[ast.AST] | None:
+    """The elements of a set/frozenset/dict/tuple literal (a dict's keys), or
+    ``None`` when *node* is no such literal or a dict carries a ``**`` spread
+    entry (not a closed literal)."""
+    if isinstance(node, (ast.Tuple, ast.Set)):
+        return list(node.elts)
+    if isinstance(node, ast.Call):
+        func = node.func
+        if not (isinstance(func, ast.Name) and func.id in ("frozenset", "set")):
+            return None
+        if len(node.args) != 1 or not isinstance(
+            node.args[0], (ast.Set, ast.List, ast.Tuple)
+        ):
+            return None
+        return list(node.args[0].elts)
+    if isinstance(node, ast.Dict):
+        if any(key is None for key in node.keys):
+            return None
+        return [key for key in node.keys if key is not None]
+    return None
 
 
 @dataclass(frozen=True)
@@ -254,33 +256,48 @@ def scan_cross_package_vocabulary(
     Returns:
         Mapping of file path -> hits in that file (files with zero hits omitted).
     """
-    declarations_by_package: dict[str, list[_ModuleContainerDeclaration]] = {}
-    for package_name, package_info in sorted(packages.items()):
-        package_declarations: list[_ModuleContainerDeclaration] = []
-        for py_file in sorted(package_info.src_dir.rglob("*.py")):
-            try:
-                package_declarations.extend(
-                    _scan_file_for_module_containers(py_file)
-                )
-            except SyntaxError as e:
-                rel_path = py_file.relative_to(monorepo_root)
-                print(
-                    f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
-                    f"A policed file that cannot be parsed would escape this scan "
-                    f"(a silent blind spot); fix its syntax or encoding.",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-            except (OSError, UnicodeDecodeError) as e:
-                rel_path = py_file.relative_to(monorepo_root)
-                print(
-                    f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
-                    f"cannot be read would escape this scan; resolve the read error.",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-        declarations_by_package[package_name] = package_declarations
+    declarations_by_package = {
+        package_name: _package_module_containers(package_info, monorepo_root)
+        for package_name, package_info in sorted(packages.items())
+    }
+    return _cross_package_hits(declarations_by_package)
 
+
+def _package_module_containers(
+    package_info: PackageInfo, monorepo_root: Path
+) -> list[_ModuleContainerDeclaration]:
+    """Every module-level container declaration of one package's ``src/``
+    tree, file by file in sorted order. A file that cannot be parsed or read
+    exits 2: it would escape the scan."""
+    package_declarations: list[_ModuleContainerDeclaration] = []
+    for py_file in sorted(package_info.src_dir.rglob("*.py")):
+        try:
+            package_declarations.extend(_scan_file_for_module_containers(py_file))
+        except SyntaxError as e:
+            rel_path = py_file.relative_to(monorepo_root)
+            print(
+                f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
+                f"A policed file that cannot be parsed would escape this scan "
+                f"(a silent blind spot); fix its syntax or encoding.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        except (OSError, UnicodeDecodeError) as e:
+            rel_path = py_file.relative_to(monorepo_root)
+            print(
+                f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
+                f"cannot be read would escape this scan; resolve the read error.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+    return package_declarations
+
+
+def _cross_package_hits(
+    declarations_by_package: dict[str, list[_ModuleContainerDeclaration]],
+) -> dict[Path, list[CrossPackageVocabularyHit]]:
+    """One hit per declaration whose value set two or more DISTINCT packages
+    declare, naming every other package that declares it."""
     # Group by normalized value set -> the set of DISTINCT packages that
     # declare it with a bare literal.
     packages_by_value_set: dict[frozenset[str], set[str]] = {}

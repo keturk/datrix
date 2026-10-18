@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import ast
 import functools
-import re
 import shutil
 import subprocess
 import sys
 import tomllib
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NoReturn
 
 # The provider-literal ratchet must enumerate provider ids from the
 # installed datrix.platforms entry points, never a hardcoded
@@ -84,7 +83,8 @@ from import_boundaries.taxonomy import LANGUAGES_ENTRY_POINT_GROUP
 # DAL generator-bound names. The kernel resolver looks a `<namespace>.<module>.<name>`
 # DAL generator reference up as an attribute of the module the namespace reaches, so a
 # name imported there only to be bound for DAL generator is not a provider-side hit;
-# the allowlist is read from the definitions text and fails closed.
+# the allowlist is every reference the compiled definitions of every discovered
+# target carry (the `.dal` resources included), never a text match.
 #
 # Every `[project.entry-points.*]` value shaped "module.path:attr" in a
 # discovered package's pyproject.toml is a site too: an attr the module does
@@ -202,6 +202,37 @@ def _parse_module_source(file_path: Path) -> ast.Module:
     return ast.parse(source, filename=str(file_path))
 
 
+def _policed_import_source(
+    stmt: ast.AST, file_path: Path, own_dotted: str | None
+) -> str | None:
+    """The absolute module a ``from M import ...`` statement imports from when
+    M is policed (a Datrix or test-tree module); ``None`` for any other
+    statement or source module."""
+    if not isinstance(stmt, ast.ImportFrom):
+        return None
+    source_module = _absolute_import_module(stmt, file_path, own_dotted)
+    if source_module is None or not _is_policed_module_path(source_module):
+        return None
+    return source_module
+
+
+def _all_assignment_names(stmt: ast.stmt) -> list[str]:
+    """The string members a top-level ``__all__ = [...]`` / ``__all__ +=
+    (...)`` statement lists; none for any other statement."""
+    if not isinstance(stmt, (ast.Assign, ast.AugAssign)):
+        return []
+    targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+    if not any(isinstance(t, ast.Name) and t.id == "__all__" for t in targets):
+        return []
+    if not isinstance(stmt.value, (ast.List, ast.Tuple)):
+        return []
+    return [
+        elt.value
+        for elt in stmt.value.elts
+        if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+    ]
+
+
 @functools.lru_cache(maxsize=None)
 def _analyze_module_file(file_path: Path, own_dotted: str | None) -> _ModuleFacadeInfo:
     """Compute *file_path*'s ``_ModuleFacadeInfo`` from its top-level
@@ -216,16 +247,8 @@ def _analyze_module_file(file_path: Path, own_dotted: str | None) -> _ModuleFaca
     import_lines: dict[str, int] = {}
     foreign_import_names: set[str] = set()
     for stmt in tree.body:
-        source_module = (
-            _absolute_import_module(stmt, file_path, own_dotted)
-            if isinstance(stmt, ast.ImportFrom)
-            else None
-        )
-        if (
-            isinstance(stmt, ast.ImportFrom)
-            and source_module is not None
-            and _is_policed_module_path(source_module)
-        ):
+        source_module = _policed_import_source(stmt, file_path, own_dotted)
+        if isinstance(stmt, ast.ImportFrom) and source_module is not None:
             for alias in stmt.names:
                 bound = alias.asname or alias.name
                 datrix_imports[bound] = (
@@ -238,15 +261,8 @@ def _analyze_module_file(file_path: Path, own_dotted: str | None) -> _ModuleFaca
             foreign_import_names.update(
                 alias.asname or alias.name.split(".", 1)[0] for alias in stmt.names
             )
-        elif isinstance(stmt, (ast.Assign, ast.AugAssign)):
-            targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
-            targets_all = any(
-                isinstance(t, ast.Name) and t.id == "__all__" for t in targets
-            )
-            if targets_all and isinstance(stmt.value, (ast.List, ast.Tuple)):
-                for elt in stmt.value.elts:
-                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                        all_names.add(elt.value)
+        else:
+            all_names.update(_all_assignment_names(stmt))
     return _ModuleFacadeInfo(
         defined_names=defined_names,
         all_names=frozenset(all_names),
@@ -422,10 +438,8 @@ def _reexport_facade_consumer_hits(
     tree = _parse_module_source(py_file)
     own_dotted = _dotted_module_name_for_file(py_file, packages)
     for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        node_module = _absolute_import_module(node, py_file, own_dotted)
-        if node_module is None or not _is_policed_module_path(node_module):
+        node_module = _policed_import_source(node, py_file, own_dotted)
+        if not isinstance(node, ast.ImportFrom) or node_module is None:
             continue
         if (
             node_module.split(".", 1)[0] == _TEST_TREE_ROOT
@@ -436,47 +450,58 @@ def _reexport_facade_consumer_hits(
         for alias in node.names:
             if alias.name == "*":
                 continue
-            site_line = alias.lineno
-            if resolved is None or (
-                resolved.is_namespace
-                and not _is_submodule_member(resolved, alias.name)
-            ):
-                hits.append(
-                    ReexportFacadeHit(
-                        providing_module=node_module,
-                        kind="unresolved",
-                        name=alias.name,
-                        site_file=py_file,
-                        site_line=site_line,
-                        providing_module_dotted=node_module,
-                    )
-                )
-                continue
-            if resolved.is_namespace:
-                continue
-            info = _analyze_module_file(resolved.file_path, node_module)
-            if alias.name in info.defined_names:
-                continue
-            if _is_submodule_member(resolved, alias.name):
-                continue
-            providing_module = str(
-                resolved.file_path.relative_to(monorepo_root)
-            ).replace("\\", "/")
-            defining_module = _resolve_defining_module(
-                node_module, alias.name, packages, py_file
+            hit = _consumer_alias_hit(
+                alias, node_module, resolved, py_file, packages, monorepo_root
             )
-            hits.append(
-                ReexportFacadeHit(
-                    providing_module=providing_module,
-                    kind="consumer",
-                    name=alias.name,
-                    site_file=py_file,
-                    site_line=site_line,
-                    defining_module=defining_module,
-                    providing_module_dotted=node_module,
-                )
-            )
+            if hit is not None:
+                hits.append(hit)
     return hits
+
+
+def _consumer_alias_hit(
+    alias: ast.alias,
+    node_module: str,
+    resolved: _ResolvedDatrixModule | None,
+    py_file: Path,
+    packages: dict[str, PackageInfo],
+    monorepo_root: Path,
+) -> ReexportFacadeHit | None:
+    """The hit one imported name of a policed ``from M import ...`` makes:
+    ``unresolved`` when M resolves to nothing (or to a namespace that has no
+    such submodule), ``consumer`` when M is a module that neither defines the
+    name nor holds it as a submodule, and none otherwise."""
+    if resolved is None or (
+        resolved.is_namespace and not _is_submodule_member(resolved, alias.name)
+    ):
+        return ReexportFacadeHit(
+            providing_module=node_module,
+            kind="unresolved",
+            name=alias.name,
+            site_file=py_file,
+            site_line=alias.lineno,
+            providing_module_dotted=node_module,
+        )
+    if resolved.is_namespace:
+        return None
+    info = _analyze_module_file(resolved.file_path, node_module)
+    if alias.name in info.defined_names or _is_submodule_member(resolved, alias.name):
+        return None
+    return ReexportFacadeHit(
+        providing_module=_repo_relative(resolved.file_path, monorepo_root),
+        kind="consumer",
+        name=alias.name,
+        site_file=py_file,
+        site_line=alias.lineno,
+        defining_module=_resolve_defining_module(
+            node_module, alias.name, packages, py_file
+        ),
+        providing_module_dotted=node_module,
+    )
+
+
+def _repo_relative(path: Path, monorepo_root: Path) -> str:
+    """*path* relative to *monorepo_root*, with forward slashes."""
+    return str(path.relative_to(monorepo_root)).replace("\\", "/")
 
 
 #: ``getattr(m, "name")`` with no default raises when ``name`` is gone, so it
@@ -576,29 +601,48 @@ def _scope_import_aliases(
         if isinstance(node, ast.Import):
             for alias in node.names:
                 bound.add(alias.asname or alias.name.split(".", 1)[0])
-                if not _is_policed_module_path(alias.name):
-                    continue
-                if alias.asname:
-                    aliases[alias.asname] = alias.name
-                    continue
-                segments = alias.name.split(".")
-                for depth in range(1, len(segments) + 1):
-                    prefix = ".".join(segments[:depth])
-                    aliases[prefix] = prefix
+                aliases.update(_import_module_aliases(alias))
         elif isinstance(node, ast.ImportFrom):
             bound.update(
                 alias.asname or alias.name for alias in node.names if alias.name != "*"
             )
-            node_module = _absolute_import_module(node, py_file, own_dotted)
-            if node_module is None or not _is_policed_module_path(node_module):
-                continue
-            resolved = _resolve_policed_module(node_module, packages, py_file)
-            if resolved is None:
-                continue
-            for alias in node.names:
-                if alias.name != "*" and _is_submodule_member(resolved, alias.name):
-                    aliases[alias.asname or alias.name] = f"{node_module}.{alias.name}"
+            aliases.update(
+                _import_from_submodule_aliases(node, py_file, own_dotted, packages)
+            )
     return aliases, bound
+
+
+def _import_module_aliases(alias: ast.alias) -> dict[str, str]:
+    """The module objects one ``import a.b[ as m]`` name binds, when the
+    module is policed: ``m`` for an alias, else every prefix ``a``, ``a.b``."""
+    if not _is_policed_module_path(alias.name):
+        return {}
+    if alias.asname:
+        return {alias.asname: alias.name}
+    segments = alias.name.split(".")
+    prefixes = (".".join(segments[:depth]) for depth in range(1, len(segments) + 1))
+    return {prefix: prefix for prefix in prefixes}
+
+
+def _import_from_submodule_aliases(
+    node: ast.ImportFrom,
+    py_file: Path,
+    own_dotted: str | None,
+    packages: dict[str, PackageInfo],
+) -> dict[str, str]:
+    """The module objects a policed ``from a import b`` binds: each imported
+    name that is a submodule of ``a`` -> its dotted path."""
+    node_module = _policed_import_source(node, py_file, own_dotted)
+    if node_module is None:
+        return {}
+    resolved = _resolve_policed_module(node_module, packages, py_file)
+    if resolved is None:
+        return {}
+    return {
+        alias.asname or alias.name: f"{node_module}.{alias.name}"
+        for alias in node.names
+        if alias.name != "*" and _is_submodule_member(resolved, alias.name)
+    }
 
 
 def _is_attribute_error_raises(item: ast.withitem) -> bool:
@@ -749,14 +793,24 @@ def _reexport_facade_module_attribute_hits(
     return hits
 
 
-#: A DAL generator function reference as the definitions text spells it: ``builder
-#: <ref>``, ``call <ref>(...)`` or ``from <ref>`` (the ``context T from`` /
-#: ``appends X from`` forms), where ``<ref>`` is ``<namespace>.<module>.<name>``.
-_DGEN_REFERENCE_PATTERN = re.compile(
-    r"(?<![\w.])(?:builder|call|from)\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)"
-)
-
 ContextModuleResolver = Callable[[str], str | None]
+DgenReferenceSource = Callable[[], Iterable[str]]
+
+
+def _compiled_dgen_references() -> Iterator[str]:
+    """Every function reference (``<namespace>.<module>.<name>``) the compiled
+    DAL generator definitions of every discovered target carry, read from the
+    compiled IR through the kernel's one walk of a domain's callables -- the
+    ``.dal`` resources, ``@expand`` domains and Python-built definitions alike,
+    exactly as the executor sees them."""
+    from datrix_codegen_kernel.dgen import compiler, target_registry
+    from datrix_codegen_kernel.dgen.domain_callables import domain_callables
+
+    for target in sorted(target_registry.target_kind_map()):
+        for definition in compiler.get_definitions(target):
+            for domain in definition.domains:
+                for _callable, reference in domain_callables(domain):
+                    yield reference
 
 
 def _registry_context_module_resolver() -> ContextModuleResolver:
@@ -776,47 +830,32 @@ def _registry_context_module_resolver() -> ContextModuleResolver:
 
 
 def _dgen_bound_names(
-    files: list[Path],
+    references: Iterable[str],
     packages: dict[str, PackageInfo],
     resolve_context_module: ContextModuleResolver,
 ) -> frozenset[tuple[Path, str]]:
-    """Every ``(module file, name)`` a DAL generator reference in the scanned
-    packages' ``src/`` trees resolves to. The kernel DAL generator resolver looks a
+    """Every ``(module file, name)`` one of the DAL generator *references*
+    resolves to. The kernel DAL generator resolver looks a
     ``<namespace>.<module>.<name>`` reference up as an ATTRIBUTE of the
     module the namespace reaches, so a name imported into that module only
     to be bound for DAL generator is not a re-export for Python callers.
 
-    The allowlist is read from the definitions text itself (string constants,
-    f-string literal parts included). A reference the text spells in a way
-    this pattern does not match is simply not exempted, so the scan fails
-    closed: an under-read allowlist reports a hit, never hides one."""
-    src_dirs = [info.src_dir for info in packages.values()]
+    A reference whose namespace no registered target declares, or whose module
+    lies outside *packages*, exempts nothing."""
     resolved_modules: dict[str, _ResolvedDatrixModule | None] = {}
     bound: set[tuple[Path, str]] = set()
-    for py_file in files:
-        if not any(src_dir in py_file.parents for src_dir in src_dirs):
+    for reference in references:
+        module_path, _, name = reference.rpartition(".")
+        if not module_path:
             continue
-        try:
-            tree = _parse_module_source(py_file)
-        except (SyntaxError, OSError, UnicodeDecodeError):
-            # Not skipped for good: ``scan_reexport_facades`` parses every
-            # scanned file next and aborts the run, naming the file.
-            continue
-        for node in ast.walk(tree):
-            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
-                continue
-            for match in _DGEN_REFERENCE_PATTERN.finditer(node.value):
-                module_path, _, name = match.group(1).rpartition(".")
-                if not module_path:
-                    continue
-                if module_path not in resolved_modules:
-                    actual = resolve_context_module(module_path)
-                    resolved_modules[module_path] = (
-                        None if actual is None else _resolve_datrix_module(actual, packages)
-                    )
-                target = resolved_modules[module_path]
-                if target is not None and not target.is_namespace:
-                    bound.add((target.file_path, name))
+        if module_path not in resolved_modules:
+            actual = resolve_context_module(module_path)
+            resolved_modules[module_path] = (
+                None if actual is None else _resolve_datrix_module(actual, packages)
+            )
+        target = resolved_modules[module_path]
+        if target is not None and not target.is_namespace:
+            bound.add((target.file_path, name))
     return frozenset(bound)
 
 
@@ -853,6 +892,7 @@ def scan_reexport_facades(
     packages: dict[str, PackageInfo],
     monorepo_root: Path,
     context_module_resolver: ContextModuleResolver | None = None,
+    dgen_references: DgenReferenceSource | None = None,
 ) -> dict[str, list[ReexportFacadeHit]]:
     """Scan every re-export-facade shape -- provider side, consumer side,
     module-object attribute use, pyproject.toml entry points, and unresolved
@@ -865,6 +905,8 @@ def scan_reexport_facades(
         context_module_resolver: Resolves a DAL generator ``<namespace>.<module>``
             path to its real module path, or ``None`` for an unregistered
             namespace; defaults to the kernel registry's resolver.
+        dgen_references: Yields every DAL generator function reference;
+            defaults to the compiled definitions of every discovered target.
 
     Returns:
         Mapping of providing-module key (see ``ReexportFacadeHit``) -> hits
@@ -878,31 +920,12 @@ def scan_reexport_facades(
     scan_files = _reexport_facade_scan_files(packages, monorepo_root)
     resolution_packages = _with_scripts_package(packages, monorepo_root)
     dgen_bound = _dgen_bound_names(
-        scan_files,
+        (dgen_references or _compiled_dgen_references)(),
         resolution_packages,
         context_module_resolver or _registry_context_module_resolver(),
     )
     for py_file in scan_files:
-        try:
-            info = _analyze_scanned_file(py_file, resolution_packages)
-        except SyntaxError as e:
-            rel_path = py_file.relative_to(monorepo_root)
-            print(
-                f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
-                f"A policed file that cannot be parsed would escape this scan "
-                f"(a silent blind spot); fix its syntax or encoding.",
-                file=sys.stderr,
-            )
-            sys.exit(2)
-        except (OSError, UnicodeDecodeError) as e:
-            rel_path = py_file.relative_to(monorepo_root)
-            print(
-                f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
-                f"cannot be read would escape this scan; resolve the read error.",
-                file=sys.stderr,
-            )
-            sys.exit(2)
-
+        info = _analyze_policed_file(py_file, resolution_packages, monorepo_root)
         for hit in _reexport_facade_provider_hits(
             py_file, info, resolution_packages, monorepo_root, dgen_bound
         ):
@@ -916,54 +939,100 @@ def scan_reexport_facades(
         ):
             _add(hit)
 
-    for package_name, package_info in sorted(packages.items()):
-        manifest = package_info.root / "pyproject.toml"
-        if not manifest.is_file():
-            continue
-        targets = _reexport_facade_entry_point_targets(manifest)
-        if not targets:
-            continue
-        try:
-            manifest_lines = manifest.read_text(encoding="utf-8-sig").splitlines()
-        except (OSError, UnicodeDecodeError) as e:
-            rel_path = manifest.relative_to(monorepo_root)
-            print(
-                f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
-                f"cannot be read would escape this scan; resolve the read error.",
-                file=sys.stderr,
-            )
-            sys.exit(2)
-        for _group, _entry_name, reference in targets:
-            module_path, _, attr = reference.partition(":")
-            module_path = module_path.strip()
-            attr = attr.strip()
-            if not module_path or not attr or not _is_datrix_module_path(module_path):
-                continue
-            site_line = _reexport_facade_entry_point_line(manifest_lines, reference)
-            resolved = _resolve_datrix_module(module_path, packages)
-            if resolved is not None:
-                defined = _analyze_module_file(
-                    resolved.file_path, module_path
-                ).defined_names
-                if attr in defined:
-                    continue
-                providing_module = str(
-                    resolved.file_path.relative_to(monorepo_root)
-                ).replace("\\", "/")
-            else:
-                providing_module = module_path
-            _add(
-                ReexportFacadeHit(
-                    providing_module=providing_module,
-                    kind="entry_point",
-                    name=attr,
-                    site_file=manifest,
-                    site_line=site_line,
-                    providing_module_dotted=module_path,
-                )
-            )
+    for _package_name, package_info in sorted(packages.items()):
+        for hit in _reexport_facade_entry_point_hits(
+            package_info.root / "pyproject.toml", packages, monorepo_root
+        ):
+            _add(hit)
 
     return results
+
+
+def _exit_unreadable(path: Path, error: Exception, monorepo_root: Path) -> NoReturn:
+    """Stop the scan (exit 2) on a policed file it cannot read."""
+    print(
+        f"ERROR: Failed to read {path.relative_to(monorepo_root)} - {error}. A policed "
+        f"file that cannot be read would escape this scan; resolve the read error.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
+
+def _analyze_policed_file(
+    py_file: Path, packages: dict[str, PackageInfo], monorepo_root: Path
+) -> _ModuleFacadeInfo:
+    """``_analyze_scanned_file``, stopping the scan (exit 2) on a file that
+    will not parse or read: a policed file the scan skipped would be a silent
+    blind spot."""
+    try:
+        return _analyze_scanned_file(py_file, packages)
+    except SyntaxError as e:
+        print(
+            f"ERROR: Failed to parse {py_file.relative_to(monorepo_root)}:{e.lineno} - "
+            f"{e.msg}. A policed file that cannot be parsed would escape this scan "
+            f"(a silent blind spot); fix its syntax or encoding.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    except (OSError, UnicodeDecodeError) as e:
+        _exit_unreadable(py_file, e, monorepo_root)
+
+
+def _reexport_facade_entry_point_hits(
+    manifest: Path, packages: dict[str, PackageInfo], monorepo_root: Path
+) -> list[ReexportFacadeHit]:
+    """The entry-point shape for one package manifest: every
+    ``"module.path:attr"`` entry point whose Datrix module does not define
+    ``attr`` (or does not resolve at all)."""
+    if not manifest.is_file():
+        return []
+    targets = _reexport_facade_entry_point_targets(manifest)
+    if not targets:
+        return []
+    try:
+        manifest_lines = manifest.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeDecodeError) as e:
+        _exit_unreadable(manifest, e, monorepo_root)
+    hits: list[ReexportFacadeHit] = []
+    for _group, _entry_name, reference in targets:
+        hit = _entry_point_reference_hit(
+            reference, manifest, manifest_lines, packages, monorepo_root
+        )
+        if hit is not None:
+            hits.append(hit)
+    return hits
+
+
+def _entry_point_reference_hit(
+    reference: str,
+    manifest: Path,
+    manifest_lines: list[str],
+    packages: dict[str, PackageInfo],
+    monorepo_root: Path,
+) -> ReexportFacadeHit | None:
+    """The hit one ``"module.path:attr"`` entry point makes: none when its
+    module is not a Datrix module or defines ``attr``; attributed to the
+    module's file, or to the dotted path when the module resolves to nothing."""
+    module_path, _, attr = reference.partition(":")
+    module_path = module_path.strip()
+    attr = attr.strip()
+    if not module_path or not attr or not _is_datrix_module_path(module_path):
+        return None
+    site_line = _reexport_facade_entry_point_line(manifest_lines, reference)
+    resolved = _resolve_datrix_module(module_path, packages)
+    providing_module = module_path
+    if resolved is not None:
+        if attr in _analyze_module_file(resolved.file_path, module_path).defined_names:
+            return None
+        providing_module = _repo_relative(resolved.file_path, monorepo_root)
+    return ReexportFacadeHit(
+        providing_module=providing_module,
+        kind="entry_point",
+        name=attr,
+        site_file=manifest,
+        site_line=site_line,
+        providing_module_dotted=module_path,
+    )
 
 
 def check_reexport_facades(
@@ -984,6 +1053,17 @@ def check_reexport_facades(
         file, then line.
     """
     return format_reexport_facade_worklist(hits_by_module, monorepo_root)
+
+
+def _names_facade_module(
+    hit: ReexportFacadeHit, providing_module: str, facade_modules: frozenset[str]
+) -> bool:
+    """True when *facade_modules* names the hit's providing module, in its
+    grouping-key form or its dotted form."""
+    return providing_module in facade_modules or (
+        hit.providing_module_dotted is not None
+        and hit.providing_module_dotted in facade_modules
+    )
 
 
 def format_reexport_facade_worklist(
@@ -1016,15 +1096,11 @@ def format_reexport_facade_worklist(
         for hit in sorted(
             hits_by_module[providing_module], key=lambda h: (str(h.site_file), h.site_line)
         ):
-            if facade_modules and not (
-                providing_module in facade_modules
-                or (
-                    hit.providing_module_dotted is not None
-                    and hit.providing_module_dotted in facade_modules
-                )
+            if facade_modules and not _names_facade_module(
+                hit, providing_module, facade_modules
             ):
                 continue
-            site_rel = str(hit.site_file.relative_to(monorepo_root)).replace("\\", "/")
+            site_rel = _repo_relative(hit.site_file, monorepo_root)
             if consumer_packages and site_rel.split("/", 1)[0] not in consumer_packages:
                 continue
             defining_suffix = (
@@ -1284,20 +1360,25 @@ def _self_test_reexport_facade_extended_shapes(
         "datrix_fixture/dgen_mod.py",
         "from datrix_fixture.pkg.sub import X as X\nfrom datrix_fixture.pkg.sub import Y as Y\n",
     )
-    definitions = _write(
-        "datrix_fixture/defs.py",
-        "TEXT = 'builder fx.builders.X => call fx.builders.X(item); "
-        "when call other.thing.f(item);'\n",
-    )
-
     def _resolve_fixture_namespace(module_path: str) -> str | None:
         return {"fx.builders": "datrix_fixture.dgen_mod"}.get(module_path)
 
-    bound = _dgen_bound_names([definitions], packages, _resolve_fixture_namespace)
+    bound = _dgen_bound_names(
+        ["fx.builders.X", "fx.builders.X", "other.thing.f", "unqualified"],
+        packages,
+        _resolve_fixture_namespace,
+    )
     ok &= _check(
-        "the DAL generator allowlist holds exactly the (module, name) pairs the definitions "
-        "text references through a registered namespace",
+        "the DAL generator allowlist holds exactly the (module, name) pairs the "
+        "references reach through a registered namespace",
         bound == frozenset({(bound_module, "X")}),
+    )
+    compiled = list(_compiled_dgen_references())
+    ok &= _check(
+        "the compiled definitions of the discovered targets carry DAL generator "
+        "references, each a dotted <namespace>.<module>.<name> path (the "
+        "allowlist source is not vacuous)",
+        bool(compiled) and all("." in reference for reference in compiled),
     )
     bound_info = _analyze_scanned_file(bound_module, packages)
     ok &= _check(

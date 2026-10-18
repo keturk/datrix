@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tomllib
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -182,22 +183,7 @@ def discover_generator_taxonomy(base_dir: Path) -> GeneratorTaxonomy:
     """
     languages: set[str] = set()
     platforms: set[str] = set()
-    for candidate in workspace_package_dirs(base_dir, any_of=_MANIFEST_MARKER):
-        manifest = candidate / PackageMarker.PYPROJECT
-        if not manifest.is_file():
-            continue
-        try:
-            with manifest.open("rb") as handle:
-                data = tomllib.load(handle)
-        except tomllib.TOMLDecodeError as e:
-            raise GeneratorTaxonomyError(f"{manifest}: cannot parse manifest: {e}") from e
-        project = data.get("project")
-        groups = project.get("entry-points", {}) if isinstance(project, dict) else {}
-        if not isinstance(groups, dict):
-            raise GeneratorTaxonomyError(
-                f"{manifest}: [project.entry-points] must be a table, got "
-                f"{type(groups).__name__}."
-            )
+    for _candidate, manifest, groups in _manifest_entry_point_groups(base_dir):
         if LANGUAGES_ENTRY_POINT_GROUP in groups:
             languages |= _entry_point_import_roots(
                 groups[LANGUAGES_ENTRY_POINT_GROUP], manifest, LANGUAGES_ENTRY_POINT_GROUP
@@ -300,6 +286,27 @@ def discover_shared_packages(
     """
     root_by_dir: dict[Path, str] = {info.root: name for name, info in packages.items()}
     shared: set[str] = set()
+    for candidate, manifest, groups in _manifest_entry_point_groups(base_dir):
+        if set(groups) & SHARED_PACKAGE_CLASSIFIER_GROUPS:
+            continue  # a real generator/platform/language/extension package
+        _require_classifiable(manifest, groups)
+        import_root = root_by_dir.get(candidate)
+        if import_root is not None:
+            shared.add(import_root)
+    return tuple(sorted(shared))
+
+
+def _manifest_entry_point_groups(
+    base_dir: Path,
+) -> Iterator[tuple[Path, Path, dict[str, object]]]:
+    """``(package dir, manifest, [project.entry-points] table)`` for every
+    ``datrix-*`` package directory carrying a ``pyproject.toml``, read one at
+    a time; a manifest without the table yields an empty one.
+
+    Raises:
+        GeneratorTaxonomyError: A manifest is unparseable, or its
+            ``[project.entry-points]`` is not a table.
+    """
     for candidate in workspace_package_dirs(base_dir, any_of=_MANIFEST_MARKER):
         manifest = candidate / PackageMarker.PYPROJECT
         if not manifest.is_file():
@@ -316,29 +323,34 @@ def discover_shared_packages(
                 f"{manifest}: [project.entry-points] must be a table, got "
                 f"{type(groups).__name__}."
             )
-        if set(groups) & SHARED_PACKAGE_CLASSIFIER_GROUPS:
-            continue  # a real generator/platform/language/extension package
-        unrecognized_datrix_groups = {
-            group
-            for group in groups
-            if group.startswith("datrix.")
-            and group not in _NON_TAXONOMY_ENTRY_POINT_GROUPS
-        }
-        if unrecognized_datrix_groups:
-            raise GeneratorTaxonomyError(
-                f"{manifest}: registers entry-point group(s) "
-                f"{sorted(unrecognized_datrix_groups)}, none of which is "
-                f"{sorted(SHARED_PACKAGE_CLASSIFIER_GROUPS)} (the four taxonomy "
-                f"groups) or {sorted(_NON_TAXONOMY_ENTRY_POINT_GROUPS)} "
-                f"(DAL generator's registration axis and the parser seam). This package "
-                f"cannot be classified as shared or as a taxonomy member -- add an "
-                f"explicit classification before the I1/I6 shared-layer ratchets "
-                f"can be trusted to scan (or skip) it."
-            )
-        import_root = root_by_dir.get(candidate)
-        if import_root is not None:
-            shared.add(import_root)
-    return tuple(sorted(shared))
+        yield candidate, manifest, groups
+
+
+def _require_classifiable(manifest: Path, groups: dict[str, object]) -> None:
+    """Refuse a manifest registering no taxonomy group but a ``datrix.``
+    group outside the known non-taxonomy axes (the DAL generator
+    registration axis and the parser seam).
+
+    Raises:
+        GeneratorTaxonomyError: The package cannot be classified.
+    """
+    unrecognized_datrix_groups = {
+        group
+        for group in groups
+        if group.startswith("datrix.")
+        and group not in _NON_TAXONOMY_ENTRY_POINT_GROUPS
+    }
+    if unrecognized_datrix_groups:
+        raise GeneratorTaxonomyError(
+            f"{manifest}: registers entry-point group(s) "
+            f"{sorted(unrecognized_datrix_groups)}, none of which is "
+            f"{sorted(SHARED_PACKAGE_CLASSIFIER_GROUPS)} (the four taxonomy "
+            f"groups) or {sorted(_NON_TAXONOMY_ENTRY_POINT_GROUPS)} "
+            f"(DAL generator's registration axis and the parser seam). This package "
+            f"cannot be classified as shared or as a taxonomy member -- add an "
+            f"explicit classification before the I1/I6 shared-layer ratchets "
+            f"can be trusted to scan (or skip) it."
+        )
 
 
 def _siblings(package: str, group: tuple[str, ...]) -> tuple[str, ...]:
